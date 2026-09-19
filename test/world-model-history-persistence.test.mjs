@@ -22,8 +22,10 @@ import {
   worldModelHistoryViewPath
 } from '../src/world-model/history/paths.mjs';
 import {
-  PERSISTED_OVERVIEW_RENDERER
-} from '../src/world-model/materialize/overview-view.mjs';
+  PERSISTED_OVERVIEW_RENDERER_CONTRACT,
+  PERSISTED_OVERVIEW_VALIDATION_CHECK_IDS,
+  PERSISTED_OVERVIEW_VALIDATOR_CONTRACT
+} from '../src/world-model/history/view-owner-contracts.mjs';
 import {
   createWorldModelConsumerProfile, createWorldModelOutputBudget
 } from '../src/world-model/plan.mjs';
@@ -93,17 +95,13 @@ async function mismatchedViewHistory(t) {
     selectedLedger, 'selected-fact-ledger', 'world-model-view-fact-ledger'
   );
   const rendererObject = retained(
-    PERSISTED_OVERVIEW_RENDERER,
+    PERSISTED_OVERVIEW_RENDERER_CONTRACT,
     'renderer-contract',
-    // No renderer-contract family exists yet. This deliberately remains unreadable semantically;
-    // the reader may bind its exact bytes but must ultimately fail closed on that missing owner.
-    'world-model-view-contract'
+    'world-model-renderer-contract'
   );
-  const validatorDefinition = Object.freeze({
-    kind: 'wmp/validator-contract', version: 1, algorithm: 'fixture-validator'
-  });
   const validatorObject = retained(
-    validatorDefinition, 'validator-contract', 'world-model-view-contract'
+    PERSISTED_OVERVIEW_VALIDATOR_CONTRACT,
+    'validator-contract', 'world-model-validator-contract'
   );
   const modelPayloadSha256 = sha256({ fixture: 'model-payload' });
   const selection = {
@@ -135,13 +133,13 @@ async function mismatchedViewHistory(t) {
     viewId: contract.id,
     viewVersion: contract.version,
     candidateSha256: renderedObjectValue.ref.sha256,
-    candidateSchemaSha256: sha256({ fixture: 'candidate-schema' }),
+    candidateSchemaSha256: PERSISTED_OVERVIEW_VALIDATOR_CONTRACT.candidateSchemaSha256,
     viewSpecSha256: contract.contractSha256,
     factLedgerSha256: selectedLedger.ledgerSha256,
     scopeSha256: scopeManifest.scopeSha256,
-    checks: [{ id: 'fixture', status: 'pass' }],
+    checks: PERSISTED_OVERVIEW_VALIDATION_CHECK_IDS.map((id) => ({ id, status: 'pass' })),
     status: 'passed',
-    validatorSha256: validatorObject.ref.sha256
+    validatorSha256: PERSISTED_OVERVIEW_VALIDATOR_CONTRACT.implementationSha256
   }, 'receiptSha256');
   const receiptObject = retained(
     receipt, 'validator-receipt', 'world-model-view-validation-receipt'

@@ -313,6 +313,8 @@
   "world-model-view-fact-ledger": [{ "schemaVersion": 1 }],
   "world-model-consumer-profile": [{ "schemaVersion": 1 }],
   "world-model-output-budget": [{ "schemaVersion": 1 }],
+  "world-model-renderer-contract": [{ "schemaVersion": 1 }],
+  "world-model-validator-contract": [{ "schemaVersion": 1 }],
   "world-model-context-manifest": [{ "schemaVersion": 1 }],
   "world-model-composition-candidate": [{ "schemaVersion": 1 }],
   "world-model-view-validation-receipt": [{ "schemaVersion": 1 }],

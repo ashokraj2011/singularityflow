@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -79,6 +79,7 @@ import {
   putSgosImmutableRecord,
   quarantineSgosProcess,
   reconcileSgosExecutionLeases,
+  recoverPendingSgosTransition,
   registerSgosExecutionOwner,
   readSgosCheckpoint,
   readSgosControlSuccessor,
@@ -647,6 +648,10 @@ const V2_SOURCE_RECORD_INDEX = new WeakMap();
 async function replaceProcessWithV2(root, process) {
   const statePath = sgosProcessStatePath(root, process.processId);
   const processDirectory = path.dirname(statePath);
+  // Reconstruct the shipped pre-SPI layout rather than leaving a newer live-store cutover next to
+  // a synthetic v2 head. A real old installation has neither of these paths.
+  await rm(path.join(processDirectory, 'operational-store'), { recursive: true, force: true });
+  await rm(path.join(processDirectory, 'operational-cutover.json'), { force: true });
   await rm(path.join(processDirectory, 'control-events'), { recursive: true, force: true });
   await rm(path.join(processDirectory, 'control-next'), { recursive: true, force: true });
   const legacy = JSON.parse(await readFile(statePath, 'utf8'));
@@ -4986,3 +4991,292 @@ test('Action Evidence hashes unavailable observations and keeps gaps and contrad
   assert.equal(evidence.contradictions.some((entry) => entry.startsWith('tool-result-without-intent')), true);
   assert.equal(evidence.contradictions.includes('state-changed-with-no-observed-write'), true);
 });
+
+test('a legacy live Process head cuts over atomically to the installed Operational Store SPI',
+  async () => {
+    const fixture = await repository('SGOS-STORY-LIVE-CUTOVER');
+    const compiled = program([
+      task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    const directory = sgosProcessDirectory(fixture.root, started.process.processId);
+    await rm(path.join(directory, 'operational-store'), { recursive: true, force: true });
+    await rm(path.join(directory, 'operational-cutover.json'), { force: true });
+    const before = await readSgosProcess(fixture.root, started.process.processId);
+    const paused = await pauseSgosProcess(fixture.root, before.processId, {
+      expectedRevision: before.processRevision,
+      clock: T1
+    });
+    const cutover = JSON.parse(await readFile(
+      path.join(directory, 'operational-cutover.json'), 'utf8'
+    ));
+    assert.equal(cutover.profile, 'filesystem-live-v1');
+    assert.equal(cutover.legacyProcessSha256, before.processSha256);
+    assert.match(cutover.cutoverSha256, /^sha256:[a-f0-9]{64}$/u);
+    const events = await readdir(path.join(
+      directory, 'operational-store', 'process-head', 'events'
+    ));
+    assert.equal(events.filter((name) => name.endsWith('.json')).length, 2);
+    assert.equal((await readSgosProcess(fixture.root, before.processId)).processSha256,
+      paused.processSha256);
+    assert.equal(paused.programSha256, before.programSha256);
+    assert.equal(paused.policySnapshotSha256, before.policySnapshotSha256);
+  });
+
+test('an interrupted old-format import publishes no cutover marker and resumes exactly', async () => {
+  const fixture = await repository('SGOS-STORY-LIVE-CUTOVER-CRASH');
+  const compiled = program([
+    task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const directory = sgosProcessDirectory(fixture.root, started.process.processId);
+  await rm(path.join(directory, 'operational-store'), { recursive: true, force: true });
+  await rm(path.join(directory, 'operational-cutover.json'), { force: true });
+  const beforeBytes = await readFile(sgosProcessStatePath(
+    fixture.root, started.process.processId
+  ), 'utf8');
+  setSgosStoreFaultBoundaryForTests('operational-import', { code: 'EIO' });
+  await assert.rejects(
+    () => pauseSgosProcess(fixture.root, started.process.processId, {
+      expectedRevision: started.process.processRevision,
+      clock: T1
+    }),
+    (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+  );
+  assert.equal(await readFile(
+    path.join(directory, 'operational-cutover.json'), 'utf8'
+  ).then(() => true, () => false), false);
+  assert.equal(await readFile(sgosProcessStatePath(
+    fixture.root, started.process.processId
+  ), 'utf8'), beforeBytes);
+  const recovered = await recoverPendingSgosTransition(
+    fixture.root, started.process.processId
+  );
+  assert.equal(recovered.recovered, true);
+  assert.equal(recovered.process.status, 'paused');
+  assert.equal((await readSgosProcess(fixture.root, started.process.processId)).processSha256,
+    recovered.process.processSha256);
+});
+
+test('fsck reports an exact pending Operational Store mirror refresh as recoverable attention',
+  async () => {
+    const fixture = await repository('SGOS-STORY-LIVE-MIRROR-REFRESH');
+    const compiled = program([
+      task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    const statePath = sgosProcessStatePath(fixture.root, started.process.processId);
+    const beforeBytes = await readFile(statePath, 'utf8');
+
+    setSgosStoreFaultBoundaryForTests('operational-head', { code: 'EIO' });
+    try {
+      await assert.rejects(
+        () => pauseSgosProcess(fixture.root, started.process.processId, {
+          expectedRevision: started.process.processRevision,
+          clock: T1
+        }),
+        (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+          && error.details?.causeCode === 'EIO'
+      );
+    } finally {
+      setSgosStoreFaultBoundaryForTests(null);
+    }
+
+    assert.equal(await readFile(statePath, 'utf8'), beforeBytes,
+      'the injected crash must leave the compatibility mirror at the predecessor');
+    const pending = await fsckSgosProcess(fixture.root, started.process.processId);
+    assert.equal(pending.status, 'attention', canonicalJson(pending));
+    assert.equal(pending.operationalStore.status, 'attention');
+    assert.equal(pending.operationalStore.findings.some((entry) =>
+      entry.code === 'SGOS_OPERATIONAL_MIRROR_REFRESH_PENDING'), true);
+    assert.equal(pending.errors.some((entry) =>
+      entry.code === 'SGOS_OPERATIONAL_HEAD_MIRROR_MISMATCH'), false);
+    assert.equal(await readFile(statePath, 'utf8'), beforeBytes,
+      'fsck must diagnose the recoverable window without refreshing the mirror');
+
+    const recovered = await recoverPendingSgosTransition(
+      fixture.root, started.process.processId
+    );
+    assert.equal(recovered.recovered, true);
+    assert.equal(recovered.process.status, 'paused');
+    assert.notEqual(await readFile(statePath, 'utf8'), beforeBytes);
+    assert.equal((await readSgosProcess(fixture.root, started.process.processId)).processSha256,
+      recovered.process.processSha256);
+
+    const healthy = await fsckSgosProcess(fixture.root, started.process.processId);
+    assert.equal(healthy.status, 'ok', canonicalJson(healthy));
+    assert.equal(healthy.operationalStore.status, 'ok');
+    assert.equal(healthy.operationalStore.findings.some((entry) =>
+      entry.code === 'SGOS_OPERATIONAL_MIRROR_REFRESH_PENDING'), false);
+  });
+
+test('fsck refuses incomplete or tampered pending mirror-refresh infrastructure without repair',
+  async () => {
+    const modes = [
+      'record-index-delete', 'record-index-tamper',
+      'control-event-delete', 'control-event-tamper',
+      'control-successor-delete', 'control-successor-tamper',
+      'reservation-delete', 'reservation-tamper',
+      'operational-event-tamper'
+    ];
+    for (const mode of modes) {
+      const withReservation = mode.startsWith('reservation-');
+      const fixture = await repository(
+        `SGOS-STORY-LIVE-PENDING-${mode.toUpperCase()}`
+      );
+      const compiled = program(withReservation ? [
+        task('00-kernel', 'KERNEL', [], { operation: 'fsck.pending-candidate' }),
+        task('90-end', 'END', ['00-kernel'])
+      ] : [
+        task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+      ]);
+      const started = await start(fixture.root, fixture.storyId, compiled);
+      setSgosStoreFaultBoundaryForTests('operational-head', { code: 'EIO' });
+      try {
+        if (withReservation) {
+          let handlerCalls = 0;
+          await assert.rejects(
+            () => runNextSgosTask(fixture.root, started.process.processId,
+              governedKernel('fsck.pending-candidate', async () => {
+                handlerCalls += 1;
+                return { rawResult: { status: 'unexpected' } };
+              })),
+            (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+              && error.details?.causeCode === 'EIO',
+            mode
+          );
+          assert.equal(handlerCalls, 0, mode);
+        } else {
+          await assert.rejects(
+            () => pauseSgosProcess(fixture.root, started.process.processId, {
+              expectedRevision: started.process.processRevision,
+              clock: T1
+            }),
+            (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+              && error.details?.causeCode === 'EIO',
+            mode
+          );
+        }
+      } finally {
+        setSgosStoreFaultBoundaryForTests(null);
+      }
+
+      const directory = sgosProcessDirectory(fixture.root, started.process.processId);
+      const statePath = sgosProcessStatePath(fixture.root, started.process.processId);
+      const intentPath = path.join(directory, 'transition-intent.json');
+      const stateBefore = await readFile(statePath, 'utf8');
+      const intentBefore = await readFile(intentPath, 'utf8');
+      const intent = JSON.parse(intentBefore);
+      let target;
+      if (mode.startsWith('record-index-')) {
+        target = path.join(directory, 'record-indexes',
+          `${intent.nextRecordIndexSha256.slice('sha256:'.length)}.json`);
+      } else if (mode.startsWith('control-event-')) {
+        target = path.join(directory, 'control-events',
+          `${intent.controlEvent.controlEventSha256.slice('sha256:'.length)}.json`);
+      } else if (mode.startsWith('control-successor-')) {
+        target = path.join(directory, 'control-next',
+          `${intent.beforeProcessSha256.slice('sha256:'.length)}.json`);
+      } else if (mode.startsWith('reservation-')) {
+        assert.ok(intent.reservations.length > 0, mode);
+        const token = intent.reservations[0];
+        target = path.join(directory, 'record-reservations',
+          `${token.family}--${token.recordSha256.slice('sha256:'.length)}.json`);
+      } else {
+        const eventsRoot = path.join(
+          directory, 'operational-store', 'process-head', 'events'
+        );
+        const names = (await readdir(eventsRoot)).filter((name) =>
+          name.endsWith('.json')).sort();
+        target = path.join(eventsRoot, names.at(-1));
+      }
+
+      const deleteTarget = mode.endsWith('-delete');
+      if (deleteTarget) {
+        await rm(target);
+      } else if (mode === 'operational-event-tamper') {
+        const event = JSON.parse(await readFile(target, 'utf8'));
+        event.changes[0].value.processRevision += 1;
+        await writeFile(target, `${canonicalJson(event)}\n`);
+      } else {
+        await writeFile(target, `${await readFile(target, 'utf8')} `);
+      }
+      const corruptedBytes = deleteTarget ? null : await readFile(target, 'utf8');
+
+      const report = await fsckSgosProcess(fixture.root, started.process.processId);
+      assert.equal(report.status, 'failed', `${mode}: ${canonicalJson(report)}`);
+      assert.equal(report.operationalStore.status, 'failed', mode);
+      assert.equal(report.operationalStore.findings.some((entry) =>
+        entry.code === 'SGOS_OPERATIONAL_MIRROR_REFRESH_PENDING'), false, mode);
+      assert.equal(await readFile(statePath, 'utf8'), stateBefore, `${mode}: mirror`);
+      assert.equal(await readFile(intentPath, 'utf8'), intentBefore, `${mode}: intent`);
+      if (deleteTarget) {
+        await assert.rejects(() => readFile(target, 'utf8'), (error) =>
+          error.code === 'ENOENT', mode);
+      } else {
+        assert.equal(await readFile(target, 'utf8'), corruptedBytes, `${mode}: corrupt bytes`);
+      }
+      assert.equal(report.repaired, false, mode);
+      assert.equal(report.deleted, false, mode);
+    }
+  });
+
+test('process fsck validates live cutover history, journal bytes, and the exact mirror head',
+  async () => {
+    for (const mode of ['cutover-digest', 'cutover-history', 'journal', 'mirror']) {
+      const fixture = await repository(`SGOS-STORY-LIVE-FSCK-${mode.toUpperCase()}`);
+      const compiled = program([
+        task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+      ]);
+      const started = await start(fixture.root, fixture.storyId, compiled);
+      const directory = sgosProcessDirectory(fixture.root, started.process.processId);
+      const healthy = await fsckSgosProcess(fixture.root, started.process.processId);
+      assert.equal(healthy.operationalStore.status, 'ok', mode);
+      assert.equal(healthy.operationalStore.profile, 'filesystem-live-v1', mode);
+      if (mode === 'cutover-digest') {
+        const markerPath = path.join(directory, 'operational-cutover.json');
+        const marker = JSON.parse(await readFile(markerPath, 'utf8'));
+        marker.cutoverSha256 = HASH.intent;
+        await writeFile(markerPath, canonicalJson(marker));
+      } else if (mode === 'cutover-history') {
+        const markerPath = path.join(directory, 'operational-cutover.json');
+        const marker = JSON.parse(await readFile(markerPath, 'utf8'));
+        marker.legacyProcessSha256 = HASH.intent;
+        delete marker.cutoverSha256;
+        marker.cutoverSha256 = `sha256:${recordSha256(marker)}`;
+        await writeFile(markerPath, canonicalJson(marker));
+      } else if (mode === 'journal') {
+        const eventsRoot = path.join(
+          directory, 'operational-store', 'process-head', 'events'
+        );
+        const [eventName] = (await readdir(eventsRoot)).filter((name) =>
+          name.endsWith('.json'));
+        const eventPath = path.join(eventsRoot, eventName);
+        const event = JSON.parse(await readFile(eventPath, 'utf8'));
+        event.changes[0].value.processSha256 = HASH.intent;
+        await writeFile(eventPath, canonicalJson(event));
+      } else {
+        const beforePause = await readFile(
+          sgosProcessStatePath(fixture.root, started.process.processId), 'utf8'
+        );
+        await pauseSgosProcess(fixture.root, started.process.processId, {
+          expectedRevision: started.process.processRevision,
+          clock: T1
+        });
+        await writeFile(
+          sgosProcessStatePath(fixture.root, started.process.processId), beforePause
+        );
+      }
+      const report = await fsckSgosProcess(fixture.root, started.process.processId);
+      assert.equal(report.status, 'failed', mode);
+      const expectedCode = {
+        'cutover-digest': 'SGOS_OPERATIONAL_CUTOVER_CORRUPT',
+        'cutover-history': 'SGOS_OPERATIONAL_CUTOVER_HISTORY_MISMATCH',
+        journal: 'SGOS_OPERATIONAL_STORE_CORRUPT',
+        mirror: 'SGOS_OPERATIONAL_HEAD_MIRROR_MISMATCH'
+      }[mode];
+      assert.equal(report.errors.some((entry) => entry.code === expectedCode), true, mode);
+      assert.equal(report.repaired, false, mode);
+      assert.equal(report.deleted, false, mode);
+    }
+  });

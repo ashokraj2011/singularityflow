@@ -41,6 +41,15 @@ test('registry-owned version branching is accepted', () => {
   ])), []);
 });
 
+test('an explicitly registered immutable historical reader may enforce its frozen version', () => {
+  assert.deepEqual(schemaMigrationLint(new Map([
+    [
+      'src/world-model/materialize/persisted-overview-renderer-v1.mjs',
+      'if (record.schemaVersion !== 1) throw new Error("not historical v1");\n'
+    ]
+  ])), []);
+});
+
 test('registered workflow records cannot bypass migration reads through an indirect path', () => {
   const violations = schemaMigrationLint(new Map([
     ['src/unsafe-workflow-reader.mjs', [

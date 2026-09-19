@@ -5,9 +5,11 @@ import {
 } from '../extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from '../extract/evidence-catalog.mjs';
 import { validateFactLedger, validateHistoricalFactLedger } from '../extract/fact-ledger.mjs';
+import { createViewProjectionRegistration } from '../extract/view-projection.mjs';
 import {
   resolveExtractorExecutionContract, validateExtractorRegistry
 } from '../registry/extractors.mjs';
+import { WMP_OVERVIEW_VIEW_REGISTRY } from '../registry/views.mjs';
 import { classifyScopePath, pathInsideScope } from '../scope/matcher.mjs';
 import {
   WMP_CANDIDATE_EXCLUSION_REASONS
@@ -27,6 +29,7 @@ import {
 import {
   WMP_EMPTY_EXTRACTOR_CONFIGURATION_SHA256
 } from './extraction-profile-owners.mjs';
+import { replayPersistedOverviewCandidate } from './view-owner-contracts.mjs';
 import { runWorldModelHistoryGitRead } from './git-read.mjs';
 import {
   assertAcyclicWorldModelHistoryClosure, collectWorldModelHistoryObjectRefs,
@@ -42,11 +45,9 @@ const UNOWNED_RETAINED_ROLES = new Set([
   'adoption-authorization',
   'origin-authority',
   'publication-receipt',
-  'renderer-contract',
   'source-authority',
   'target-authority',
-  'tokenizer',
-  'validator-contract'
+  'tokenizer'
 ]);
 
 function fail(message, code, details = {}, cause = undefined) {
@@ -199,6 +200,10 @@ function roleRef(values, role, label) {
 
 function resolvedRecord(closure, ref) {
   return closure.get(ref.sha256)?.record ?? null;
+}
+
+function resolvedObject(closure, ref) {
+  return closure.get(ref.sha256) ?? null;
 }
 
 function graphMismatch(message, details = {}) {
@@ -927,10 +932,15 @@ function availableCapture(viewInputs, role) {
   return captures[0];
 }
 
+function requireSameRef(actual, expected, relation) {
+  if (canonicalJson(actual) !== canonicalJson(expected)) {
+    graphMismatch(`Persisted World-model graph mismatch: ${relation}.`, {
+      relation, expected, received: actual ?? null
+    });
+  }
+}
+
 function validateViewBindingGraph(binding, closure) {
-  // Renderer and validator v1 records have no installed semantic owner yet. Their exact raw-byte
-  // identities are nevertheless pinned by both the binding refs and ViewInputsKey; semantic use
-  // still fails closed below until those owner contracts are installed.
   requireDigest(binding.rendererContractRef.sha256, binding.inputs.rendererSha256,
     'renderer contract bytes do not match ViewInputsKey.rendererSha256');
   requireDigest(binding.validatorContractRef.sha256, binding.inputs.validatorSha256,
@@ -965,8 +975,24 @@ function validateViewBindingGraph(binding, closure) {
 
   const outputBudgetCapture = availableCapture(viewInputs, 'output-budget');
   const outputBudget = resolvedRecord(closure, outputBudgetCapture.objectRef);
-  if (outputBudget) requireDigest(outputBudget.budgetSha256, binding.inputs.outputBudgetSha256,
-    'output budget does not match ViewInputsKey.outputBudgetSha256');
+  if (outputBudget) {
+    requireDigest(outputBudget.budgetSha256, binding.inputs.outputBudgetSha256,
+      'output budget does not match ViewInputsKey.outputBudgetSha256');
+    const viewBudget = outputBudget.viewBudgets[binding.inputs.viewId];
+    if (!viewBudget) {
+      graphMismatch('Persisted World-model output budget does not contain the selected view.', {
+        relation: 'output-budget.view', viewId: binding.inputs.viewId
+      });
+    }
+    if (binding.selection.mode === 'inline'
+        && binding.selection.selectedFactIds.length > viewBudget.maximumSelectedFacts) {
+      graphMismatch('Persisted World-model selected Fact count exceeds its retained output budget.', {
+        relation: 'output-budget.maximum-selected-facts',
+        maximum: viewBudget.maximumSelectedFacts,
+        received: binding.selection.selectedFactIds.length
+      });
+    }
+  }
 
   if (binding.inputs.tokenizerSha256 !== null) {
     const tokenizerCapture = availableCapture(viewInputs, 'tokenizer');
@@ -1000,10 +1026,54 @@ function validateViewBindingGraph(binding, closure) {
     }
   }
 
+  const rendererContract = resolvedRecord(closure, binding.rendererContractRef);
+  if (rendererContract) {
+    if (!rendererContract.viewIds.includes(binding.inputs.viewId)
+        || !rendererContract.formats.includes(binding.inputs.format)
+        || !rendererContract.variants.includes(binding.inputs.variant)) {
+      graphMismatch('Persisted World-model renderer contract is not applicable to this view.', {
+        relation: 'renderer-contract.applicability',
+        viewId: binding.inputs.viewId,
+        format: binding.inputs.format,
+        variant: binding.inputs.variant
+      });
+    }
+    const maximumBytes = rendererContract.maximumBytes[binding.inputs.variant];
+    if (binding.rendered.bytes > maximumBytes || binding.measurement.bytes > maximumBytes) {
+      graphMismatch('Persisted World-model rendered view exceeds its retained byte budget.', {
+        relation: 'renderer-contract.maximum-bytes',
+        variant: binding.inputs.variant,
+        maximumBytes,
+        receivedBytes: binding.rendered.bytes
+      });
+    }
+  }
+
+  const validatorContract = resolvedRecord(closure, binding.validatorContractRef);
+  if (validatorContract && !validatorContract.viewIds.includes(binding.inputs.viewId)) {
+    graphMismatch('Persisted World-model validator contract is not applicable to this view.', {
+      relation: 'validator-contract.applicability', viewId: binding.inputs.viewId
+    });
+  }
+
   const receipt = resolvedRecord(closure, binding.validatorReceiptRef);
   if (receipt) {
-    requireDigest(receipt.validatorSha256, binding.inputs.validatorSha256,
-      'validator receipt does not match ViewInputsKey.validatorSha256');
+    if (validatorContract) {
+      requireDigest(receipt.validatorSha256, validatorContract.implementationSha256,
+        'validator receipt does not match the retained validator implementation');
+      requireDigest(receipt.candidateSchemaSha256, validatorContract.candidateSchemaSha256,
+        'validator receipt candidate schema does not match the retained validator contract');
+      const receivedChecks = receipt.checks.map((entry) => entry.id).sort(compareText);
+      if (canonicalJson(receivedChecks) !== canonicalJson(validatorContract.checks)) {
+        graphMismatch('Persisted World-model validator receipt does not contain the exact registered checks.', {
+          relation: 'validator-receipt.checks',
+          expected: validatorContract.checks,
+          received: receivedChecks
+        });
+      }
+    }
+    requireDigest(receipt.candidateSha256, binding.rendered.sha256,
+      'validator receipt candidate does not match the exact rendered object');
     requireDigest(receipt.viewSpecSha256, binding.inputs.viewContractSha256,
       'validator receipt View Contract does not match ViewInputsKey');
     if (selectedLedger) requireDigest(receipt.factLedgerSha256, selectedLedger.ledgerSha256,
@@ -1015,6 +1085,88 @@ function validateViewBindingGraph(binding, closure) {
         expected: { viewId: binding.inputs.viewId, viewVersion: binding.inputs.viewVersion, status: 'passed' },
         received: { viewId: receipt.viewId, viewVersion: receipt.viewVersion, status: receipt.status }
       });
+    }
+  }
+
+  // View Inputs carry exact references to the accepted base binding and its source Fact Ledger.
+  // This uses the frozen-v1 capture grammar instead of mutating the frozen View Binding schema.
+  const modelBindingCapture = availableCapture(viewInputs, 'model-binding');
+  const modelBinding = resolvedRecord(closure, modelBindingCapture.objectRef);
+  if (modelBinding) {
+    validateModelBindingGraph(modelBinding, closure, { currentExtractorAdmission: false });
+    requireDigest(modelBinding.modelPayloadSha256, binding.inputs.modelPayloadSha256,
+      'accepted Model Binding payload does not match ViewInputsKey.modelPayloadSha256');
+    const sourceFactLedgerRef = roleRef(
+      modelBinding.payloadObjects, 'fact-ledger', 'WMP Model Binding payloadObjects'
+    );
+    const sourceFactLedgerCapture = availableCapture(viewInputs, 'fact-ledger');
+    requireSameRef(sourceFactLedgerCapture.objectRef, sourceFactLedgerRef,
+      'View Inputs source Fact Ledger is not the Model Binding Fact Ledger');
+    const sourceFactLedger = resolvedRecord(closure, sourceFactLedgerRef);
+    const projectedFactLedgerCapture = availableCapture(viewInputs, 'projection-fact-ledger');
+    const projectedFactLedger = resolvedRecord(closure, projectedFactLedgerCapture.objectRef);
+    if (selectedLedger && projectedFactLedger) {
+      requireDigest(selectedLedger.sourceLedgerSha256, projectedFactLedger.ledgerSha256,
+        'selected Fact Ledger does not derive from the retained projection Fact Ledger');
+    }
+    if (sourceFactLedger && projectedFactLedger && viewContract) {
+      const sourceSnapshot = resolvedRecord(closure,
+        roleRef(modelBinding.inputObjects, 'source-snapshot', 'WMP Model Binding inputObjects'));
+      const scopeManifest = resolvedRecord(closure,
+        roleRef(modelBinding.inputObjects, 'scope-manifest', 'WMP Model Binding inputObjects'));
+      const extractorRegistry = resolvedRecord(closure,
+        roleRef(modelBinding.inputObjects, 'extractor-registry', 'WMP Model Binding inputObjects'));
+      const evidenceCatalog = resolvedRecord(closure,
+        roleRef(modelBinding.payloadObjects, 'evidence-catalog', 'WMP Model Binding payloadObjects'));
+      const derivationCatalog = resolvedRecord(closure,
+        roleRef(modelBinding.payloadObjects, 'derivation-catalog', 'WMP Model Binding payloadObjects'));
+      const projected = validateGraphOwner('view-projection.exact-overlay', () => (
+        createViewProjectionRegistration({
+          sourceSnapshot,
+          scopeManifest,
+          extractorRegistry,
+          viewRegistry: WMP_OVERVIEW_VIEW_REGISTRY,
+          evidenceCatalog,
+          derivationCatalog,
+          factLedger: sourceFactLedger,
+          viewContracts: [viewContract]
+        })
+      ));
+      if (canonicalJson(projected.factLedger) !== canonicalJson(projectedFactLedger)) {
+        graphMismatch('Persisted World-model projection Fact Ledger is not the exact pure overlay of the accepted model.', {
+          relation: 'view-projection.fact-ledger'
+        });
+      }
+      if (selectedLedger
+          && canonicalJson(projected.viewFactLedgers[0]) !== canonicalJson(selectedLedger)) {
+        graphMismatch('Persisted World-model selected Fact Ledger is not the exact deterministic view selection.', {
+          relation: 'view-projection.selected-fact-ledger'
+        });
+      }
+      if (selectedLedger && rendererContract) {
+        const renderedObject = resolvedObject(closure, binding.rendered);
+        if (!renderedObject?.bytes) {
+          graphMismatch('Persisted World-model rendered bytes are unavailable for deterministic replay.', {
+            relation: 'view-renderer.exact-replay', sha256: binding.rendered.sha256
+          });
+        }
+        validateGraphOwner('view-renderer.exact-replay', () => (
+          replayPersistedOverviewCandidate({
+            binding,
+            viewInputs,
+            projectedFactLedger,
+            selectedFactLedger: selectedLedger,
+            viewContract,
+            rendererContract,
+            validatorContract,
+            renderedBytes: renderedObject.bytes
+          })
+        ));
+      }
+    }
+    if (receipt) {
+      requireDigest(receipt.scopeSha256, modelBinding.inputs.scopeManifestSha256,
+        'validator receipt scope does not match the accepted Model Binding scope');
     }
   }
 }

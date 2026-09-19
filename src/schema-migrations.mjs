@@ -2795,6 +2795,14 @@ const families = [
     migrationPolicy: 'frozen-identity'
   }),
   family({
+    id: 'world-model-renderer-contract', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
+    id: 'world-model-validator-contract', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
+  family({
     id: 'world-model-view-binding', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
     paths: [/^singularity\/world-model-history\/views\/[a-f0-9]{64}\.json$/]

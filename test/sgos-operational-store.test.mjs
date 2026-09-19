@@ -1,16 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   SGOS_OPERATIONAL_STORE_CAPABILITIES,
   SGOS_OPERATIONAL_STORE_SPI_VERSION,
+  SGOS_LIVE_OPERATIONAL_STORE_PROFILE,
+  assertSgosLiveOperationalStoreSelection,
   assertSgosOperationalStoreAdapter,
   assertSgosOperationalStoreSelection,
   createFilesystemSgosOperationalStore,
+  createLiveFilesystemSgosOperationalStore,
   createMemorySgosOperationalStore
 } from '../src/sgos/operational-store.mjs';
 
@@ -95,6 +98,33 @@ test('the durable filesystem Operational Store passes the unchanged bounded conf
     }));
   });
 
+test('the installed live filesystem profile is explicit and cannot be confused with replay',
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), 'sflow-live-operational-store-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const live = createLiveFilesystemSgosOperationalStore({
+      storeId: 'process-head', root
+    });
+    assert.equal(assertSgosLiveOperationalStoreSelection(live), live);
+    assert.equal(live.profile, SGOS_LIVE_OPERATIONAL_STORE_PROFILE);
+    assert.deepEqual(live.descriptor().purposes, ['runtime']);
+    assert.equal(live.descriptor().authorityEligible, false);
+    assert.throws(
+      () => assertSgosLiveOperationalStoreSelection(createFilesystemSgosOperationalStore({
+        storeId: 'process-head', root: join(root, 'replay')
+      })),
+      (error) => error.code === 'SGOS_OPERATIONAL_STORE_SELECTION_REFUSED'
+    );
+    const initial = await live.read();
+    const changed = await live.transact({
+      expectedRevision: initial.revision,
+      expectedStateSha256: initial.stateSha256,
+      changes: [{ op: 'put', key: 'process/current', value: { processId: 'PROC-LIVE1' } }]
+    });
+    assert.equal(changed.revision, 1);
+    assert.equal((await live.verify()).eventCount, 1);
+  });
+
 test('independent filesystem adapters serialize writers and recover stale locks and orphan staging',
   async (t) => {
     const root = await mkdtemp(join(tmpdir(), 'sflow-operational-race-'));
@@ -160,6 +190,37 @@ test('filesystem lineage corruption is refused without publishing another event'
   }), (error) => error.code === 'SGOS_OPERATIONAL_STORE_CORRUPT');
   assert.equal((await readdir(eventsRoot)).filter((name) => name.endsWith('.json')).length, 1);
 });
+
+test('filesystem initialization refuses symlink roots before creating escaped directories',
+  async (t) => {
+    const parent = await mkdtemp(join(tmpdir(), 'sflow-operational-symlink-'));
+    const outside = await mkdtemp(join(tmpdir(), 'sflow-operational-outside-'));
+    t.after(() => Promise.all([
+      rm(parent, { recursive: true, force: true }),
+      rm(outside, { recursive: true, force: true })
+    ]));
+    const linkedRoot = join(parent, 'linked-root');
+    await symlink(outside, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    const linked = createFilesystemSgosOperationalStore({
+      storeId: 'escaped-store', root: linkedRoot
+    });
+    await assert.rejects(() => linked.read(),
+      (error) => error.code === 'SGOS_OPERATIONAL_STORE_ROOT_INVALID');
+    assert.deepEqual(await readdir(outside), [],
+      'a refused root symlink must not create its Store directory outside the boundary');
+
+    const safeRoot = join(parent, 'safe-root');
+    await mkdir(safeRoot);
+    await symlink(outside, join(safeRoot, 'escaped-store'),
+      process.platform === 'win32' ? 'junction' : 'dir');
+    const nested = createFilesystemSgosOperationalStore({
+      storeId: 'escaped-store', root: safeRoot
+    });
+    await assert.rejects(() => nested.read(),
+      (error) => error.code === 'SGOS_OPERATIONAL_STORE_ROOT_INVALID');
+    assert.deepEqual(await readdir(outside), [],
+      'a refused Store symlink must not create its events directory outside the boundary');
+  });
 
 test('operational backup, bounds, and partial failures preserve the last verified head', async () => {
   const store = createMemorySgosOperationalStore({ storeId: 'failure-store' });

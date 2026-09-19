@@ -4,8 +4,10 @@
 key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, the full
 pre-scope candidate roster, frozen empty extractor-configuration ownership, a pure completeness
 bridge, an opt-in normal-service/single-CAS model-history path, and a bounded W2 deterministic-view
-slice are implemented. Production Story/grounding activation and saved-view history remain
-inactive pending their proof owners. Existing Story lifecycles and the operational
+slice are implemented. Frozen renderer/validator ownership, source-derived implementation identity,
+exact persisted-view graph admission, and deterministic byte-for-byte replay are also implemented.
+Production Story/grounding activation and saved-view materialization remain
+inactive pending their publication and successor-grounding owners. Existing Story lifecycles and the operational
 legacy-v3 and registered-v4 World-Model paths are not disabled.
 
 This document is the repository implementation companion to the externally supplied
@@ -48,12 +50,26 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
    and ordinary registration does not allocate it. MIG readability is not
    semantic admission. Frozen v1 owners now
    exist for repository-domain, extraction-policy, extractor-registry, completeness-record,
-   consumer-profile, output-budget, and view-validation-receipt records. Model admission also
+   consumer-profile, output-budget, renderer-contract, validator-contract, and
+   view-validation-receipt records. Model admission also
    verifies their exact cross-record graph. A governed action-bound repository resolver and a
    pre-extraction build/lookup adapter now provide the construction boundary. A code-local opt-in
    normal-service path publishes model history with the current projection in one CAS. View admission
-   additionally remains fail-closed without retained renderer/validator contracts, an applicable
-   tokenizer owner, model-to-view/selected-ledger correlation, and rendered-budget validation.
+   now requires the exact installed renderer/validator contracts, the accepted model and its base and
+   projection Fact Ledgers, a byte-identical selected ledger, candidate/scope correlation, and the
+   configured byte budgets. Admission then re-runs the installed renderer and requires exact
+   rendered bytes, selection, and measurement; a passed receipt cannot substitute arbitrary
+   under-budget content. Renderer and validator v1 algorithms live in immutable versioned modules.
+   Their pinned source manifests hash the exact TypeScript-AST-discovered local ESM closure under
+   installation-independent labels. Renderer v1 is one self-contained versioned module plus
+   `node:crypto`; validator v1 depends only on that renderer module. Active registries, migrations,
+   configuration, platform helpers, and generic schemas are deliberately outside the historical
+   executable closure. The repository check rejects missing or extra modules, unsafe loaders,
+   non-literal dynamic imports, package-root escapes, and symlink traversal.
+   A separate append-only registry resolves exact contract-plus-implementation pairs and dispatches
+   historical replay to the retained version; changing the active writer cannot redefine v1 and an
+   unknown or mixed owner pair fails closed. A non-null token accounting mode remains
+   fail-closed until an applicable tokenizer owner exists.
    Deferred grounding/handoff/adoption paths additionally require publication-receipt,
    admission-proof, source-authority, origin-authority, target-authority, and
    adoption-authorization owners. This boundary also rejects duplicate JSON keys because
@@ -178,6 +194,16 @@ than being wired into every Story path prematurely:
   materialized state-authority ref, without fetching or substituting an unpublished local branch;
   content-addressed objects remain the responsibility of their binding's semantic closure reader;
 - five model-free overview contracts and pure full/brief Markdown or JSON rendering are available;
+- frozen renderer and validator contracts now own immutable versioned deterministic overview
+  implementations through an append-only exact-hash registry, and
+  persisted-view graph admission independently recomputes the projection and verifies model, base
+  ledger, projection ledger, selected ledger, scope, candidate digest, receipt, and byte budgets;
+- admission hashes each installed renderer/validator's exact reviewed local dependency closure,
+  then dispatches the retained contract to that exact historical implementation and
+  deterministically replays it, requiring exact retained bytes, selected/omitted Fact IDs, and byte
+  measurement. The immutable v1 renderer consumes the exact retained View Contract rather than the
+  mutable active registry. V1 remains registered when a future active writer is added; a behavior
+  change requires a new version, source manifest, implementation identity, and contract hash;
 - `wm history list --authority-commit <full-commit>` pages exact key paths with a continuation
   cursor bound to the authority cut, kind selection, history root, and page size, while `show`
   verifies the selected binding and complete semantically owned closure. Both prove that the cut is
@@ -200,11 +226,11 @@ resolver compares it with current approved or lifecycle-pinned repository author
 before lookup and construction; its ephemeral proof is not added to `ModelInputs` and cannot turn
 an old configuration cut into current permission.
 
-WMP exact-history saved-view emission and reuse remain inactive until retained renderer/validator
-implementation contracts, an exact tokenizer owner whenever token measurement is asserted,
-model-to-view and selected-ledger correlation, validation-receipt candidate/scope binding, and
-rendered-budget validation are implemented. This does not disable the existing WMB v4 current
-projection or its validated cache. Deferred WMP grounding, handoff, and adoption still require their
+WMP exact-history saved-view emission and reuse remain inactive even though the retained
+renderer/validator owners and exact cross-record view-graph admission are now implemented. An owned
+materialization/publication service is still required, as is an exact tokenizer owner whenever token
+measurement is asserted. This does not disable the existing WMB v4 current projection or its
+validated cache. Deferred WMP grounding, handoff, and adoption still require their
 publication-receipt, admission-proof, source-authority, origin-authority, target-authority, and
 adoption-authorization owners as applicable. Reusing an unrelated record under a convenient role
 would create a syntactically valid but false proof. The next rollout step is therefore completing
@@ -217,7 +243,7 @@ consumers; it is not premature activation of incomplete view history.
 |---|---|---|
 | W0 | Persistence and semantic-owner foundation implemented | Strict identities, object references, six registered envelope contracts, portable paths, canonical-byte tests, and frozen v1 owners for repository domain, extraction policy, registry, completeness, consumer profile, output budget, and validation receipt. Automatic WMP exact-history construction is not enabled. |
 | W1 | Persistence and model-integrity foundation implemented; activation off | Direct exact-key state-history reads; owned pre-scope candidate roster and frozen empty configuration; create-if-absent publication expectations; history-bound recovery; exact model-graph validation; governed repository identity; explicit miss build; projection-only coverage derivation; and an opt-in service path proving compatible current projection plus immutable model history in one CAS and exact-key reuse. Production Story/grounding wiring and saved-view history remain fail-closed pending their proof owners. Existing WMB v3/v4 operation is unaffected. |
-| W2 | Partial | Five model-free overview contracts, stable full/brief renderers, and exact history inspection are implemented. The structural grounding preview exists, but its frozen v1 shape cannot represent the full composition identity; a compatible successor contract, lifecycle emission, and exact packet replay are not yet enabled. |
+| W2 | Partial | Five model-free overview contracts, stable full/brief renderers, pinned exact-closure renderer/validator identities, append-only historical implementation dispatch, exact view-graph admission, deterministic rendered-byte/selection/measurement replay, and exact history inspection are implemented. Saved-view materialization/publication is not enabled. The structural grounding preview exists, but its frozen v1 shape cannot represent the full composition identity; a compatible successor contract, lifecycle emission, and exact packet replay are not yet enabled. |
 | W3 | Deferred | Incremental parse/derivation reuse and verified private-candidate handoff/adoption. |
 | W4 | Deferred | Legacy inventory/cutover, supported-platform evidence, capacity benchmarks, UI explorer, and release qualification. |
 
@@ -260,14 +286,12 @@ proposed 256 MiB closure ceiling until a streaming/reference recovery format is 
   successor contract for genuinely configured extractors; configured profiles remain fail-closed.
 - Wire the verified opt-in model-history path into Story start and grounding preparation only after
   the view/grounding owners below are complete; a typed miss must remain an explicit build decision.
-- Before enabling saved-view publication or reads, cryptographically connect each view binding's
-  model-payload and selected-ledger identity to one accepted model binding and its retained source
-  Fact Ledger; individual valid closures are not sufficient proof that the two graphs belong
-  together. The same gate must correlate scope and prove that the validation receipt's candidate
-  digest is the exact rendered object. Retained renderer/validator contracts, applicable tokenizer
-  ownership, and rendered-budget validation are also required. Publication must apply these
-  cross-record checks to the combined existing-plus-staged authority graph, not validate records
-  only in isolation.
+- Preserve the implemented exact view-graph admission when adding the saved-view
+  materialization/publication service. Publication must apply the model/base/projection/selected-ledger,
+  scope, candidate-digest, renderer/validator, receipt, and byte-budget checks to the combined
+  existing-plus-staged authority graph, not validate records only in isolation. Token-measured
+  variants additionally require an exact tokenizer owner; the implemented byte-only mode does not
+  claim token measurement.
 - Define a compatible grounding contract that binds expansion handles, ordering/separators, and
   packet-composer identity; then add Story grounding-record emission, packet replay, and the
   persisted-view IDE/FWM adapters. The frozen structural v1 preview is not sufficient for this.

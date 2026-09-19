@@ -472,9 +472,27 @@ non-authoritative. The exact same conformance journey exercises both profiles, i
 fast-forward restore, and compensating rollback. This profile is also restricted to `simulation`
 and `test`; durability does not make it Program, policy, or lifecycle authority.
 
-This is a staged `SGOS-P1-003` boundary. The existing live filesystem Process store still owns
-runtime operations directly; moving it behind the same Operational Store SPI and proving an exact
-old-format migration plus atomic runtime cutover remain open.
+`filesystem-live-v1` is the separately installed runtime-only profile. It journals only the exact
+mutable Process-head reference behind the same Operational Store SPI; it does not move or reinterpret Program,
+policy, lifecycle, evidence, record-index, or control-successor authority. On first mutation of an
+old live layout, the exact `state.json` head is appended before a self-hashed cutover receipt is
+atomically published. An interrupted pre-receipt import is not selected and may resume only from
+the same exact legacy head. After cutover, `state.json` is retained as a compatibility and
+diagnostic mirror; the append-only Store survives a crash before mirror refresh, while immutable
+control lineage still governs legitimate recovery and rollback.
+
+The code-local `SGOS-P1-003` runtime cutover is implemented and covered by focused migration,
+partial-failure, v2-upgrade, quarantine, rollback, and transition-recovery tests. The roadmap item
+remains partially qualified until signed supported-platform conformance evidence is available.
+Filesystem initialization validates each caller-owned level before creating the next one, preventing
+a supplied symlink from creating escaped Store directories. `process fsck` independently validates
+the cutover receipt and import correlation, replays and censuses the live journal, and compares its
+exact current head with the compatibility mirror; diagnostics never repair or adopt those bytes.
+When one durable transition intent binds the mirror predecessor and the already-appended Store
+candidate exactly, fsck reports a recoverable mirror-refresh attention state only after rebuilding
+the candidate from the verified prior/next record indexes, indexed records and reservations,
+control event, control successor, and latest Operational Store event. Missing, tampered, unbound,
+or otherwise inexact candidate infrastructure remains a hard integrity failure.
 
 ## Portable Authority Store and Capability Packs
 

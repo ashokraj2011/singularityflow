@@ -36,6 +36,11 @@ import {
 import { canonicalSgosResourceEntries } from './resource-contracts.mjs';
 import { sgosDynamicFanoutChildInstanceId } from './fanout.mjs';
 import { deterministicSgosDispatchPlan } from './scheduler.mjs';
+import {
+  SGOS_LIVE_OPERATIONAL_STORE_PROFILE,
+  assertSgosLiveOperationalStoreSelection,
+  createLiveFilesystemSgosOperationalStore
+} from './operational-store.mjs';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
@@ -66,6 +71,9 @@ const RECORD_DELTA_CONTEXT = new AsyncLocalStorage();
 const RECORD_INDEX_MEMBERSHIP_CACHE = new Map();
 const RECORD_RESERVATION_DIRECTORY = 'record-reservations';
 const TRANSITION_INTENT_FILE = 'transition-intent.json';
+const LIVE_OPERATIONAL_STORE_ID = 'process-head';
+const LIVE_OPERATIONAL_PROCESS_KEY = 'process/current';
+const LIVE_OPERATIONAL_CUTOVER_FILE = 'operational-cutover.json';
 let SGOS_STORE_FAULT_BOUNDARY = null;
 const CURRENT_EXECUTION_OWNER_STARTED_AT = Math.max(
   0, Math.trunc(Date.now() - process.uptime() * 1_000)
@@ -386,7 +394,7 @@ export async function writeSgosExecutionLease(root, processId, lease) {
   return withProcessLock(root, id, async () => {
     // Recheck existence after acquiring the same lock used by quarantine. A concurrent move must
     // never be followed by recreation of a partial Process directory containing only a lease.
-    await readSafeFile(root, sgosProcessStatePath(root, id));
+    await readSgosProcessStateRaw(root, id);
     const target = executionLeasePath(root, id, validated.leaseId);
     await writeSafeAtomic(root, target, canonicalJson(validated));
     return Object.freeze(clone(validated));
@@ -630,6 +638,251 @@ async function writeSafeAtomic(root, target, bytes) {
   }
 }
 
+function liveOperationalRoot(root, processId) {
+  return path.join(sgosProcessDirectory(root, processId), 'operational-store');
+}
+
+function liveOperationalCutoverPath(root, processId) {
+  return path.join(sgosProcessDirectory(root, processId), LIVE_OPERATIONAL_CUTOVER_FILE);
+}
+
+function liveOperationalAdapter(root, processId) {
+  return assertSgosLiveOperationalStoreSelection(createLiveFilesystemSgosOperationalStore({
+    storeId: LIVE_OPERATIONAL_STORE_ID,
+    root: liveOperationalRoot(root, processId)
+  }));
+}
+
+function validateLiveOperationalCutover(value, processId) {
+  const fields = new Set([
+    'format', 'formatVersion', 'processId', 'profile', 'storeId',
+    'legacyProcessSha256', 'importRevision', 'importStateSha256',
+    'importEventSha256', 'cutoverSha256'
+  ]);
+  if (value == null || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).some((field) => !fields.has(field))
+      || value.format !== 'sflow.sgos.live-process-cutover'
+      || value.formatVersion !== 1
+      || value.processId !== processId
+      || value.profile !== SGOS_LIVE_OPERATIONAL_STORE_PROFILE
+      || value.storeId !== LIVE_OPERATIONAL_STORE_ID
+      || !SHA256.test(String(value.legacyProcessSha256 ?? ''))
+      || value.importRevision !== 1
+      || !SHA256.test(String(value.importStateSha256 ?? ''))
+      || !SHA256.test(String(value.importEventSha256 ?? ''))
+      || !SHA256.test(String(value.cutoverSha256 ?? ''))
+      || value.cutoverSha256 !== hashWithout(value, 'cutoverSha256')) {
+    fail(`SGOS process '${processId}' has an invalid Operational Store cutover receipt.`,
+      'SGOS_OPERATIONAL_CUTOVER_CORRUPT');
+  }
+  return value;
+}
+
+async function readLiveOperationalCutover(root, processId) {
+  try {
+    const raw = await readSafeFile(root, liveOperationalCutoverPath(root, processId));
+    let value;
+    try { value = JSON.parse(raw); } catch {
+      fail(`SGOS process '${processId}' has an invalid Operational Store cutover receipt.`,
+        'SGOS_OPERATIONAL_CUTOVER_CORRUPT');
+    }
+    return validateLiveOperationalCutover(value, processId);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function operationalProcessReference(process) {
+  return Object.freeze({
+    format: 'sflow.sgos.live-process-head',
+    formatVersion: 1,
+    processId: process.processId,
+    processRevision: process.processRevision,
+    processSha256: process.processSha256,
+    controlEventSha256: process.controlEventSha256 ?? null,
+    recordIndexSha256: process.recordIndexSha256 ?? null
+  });
+}
+
+function processFromOperationalHead(head, processId) {
+  const process = head?.entries?.[LIVE_OPERATIONAL_PROCESS_KEY];
+  if (process == null || typeof process !== 'object' || Array.isArray(process)
+      || Object.keys(process).some((field) => ![
+        'format', 'formatVersion', 'processId', 'processRevision', 'processSha256',
+        'controlEventSha256', 'recordIndexSha256'
+      ].includes(field))
+      || process.format !== 'sflow.sgos.live-process-head'
+      || process.formatVersion !== 1
+      || process.processId !== processId
+      || !Number.isSafeInteger(process.processRevision) || process.processRevision < 1
+      || !SHA256.test(String(process.processSha256 ?? ''))
+      || (process.controlEventSha256 !== null
+        && !SHA256.test(String(process.controlEventSha256 ?? '')))
+      || (process.recordIndexSha256 !== null
+        && !SHA256.test(String(process.recordIndexSha256 ?? '')))) {
+    fail(`SGOS process '${processId}' has an invalid live Operational Store head.`,
+      'SGOS_OPERATIONAL_STORE_CORRUPT');
+  }
+  return process;
+}
+
+async function operationalHistoryContainsProcess(adapter, processSha256) {
+  const backup = await adapter.exportBackup();
+  return backup.events.some((entry) => entry.changes.some((change) =>
+    change.op === 'put'
+    && change.key === LIVE_OPERATIONAL_PROCESS_KEY
+    && change.value?.processSha256 === processSha256));
+}
+
+async function readSgosProcessStateRaw(root, processId) {
+  return readSafeFile(root, sgosProcessStatePath(root, processId));
+}
+
+async function assertLiveOperationalProcessHead(root, processId, process) {
+  const cutover = await readLiveOperationalCutover(root, processId);
+  if (cutover === null) return;
+  const head = await liveOperationalAdapter(root, processId).read();
+  const stored = processFromOperationalHead(head, processId);
+  if (canonicalJson(stored) !== canonicalJson(operationalProcessReference(process))) {
+    const pending = await readSgosTransitionIntent(root, processId);
+    const isPendingCandidate = pending?.candidateProcessSha256 === process.processSha256
+      && pending.beforeProcessSha256 === stored.processSha256;
+    const isRetainedOperationalAncestor = await operationalHistoryContainsProcess(
+      liveOperationalAdapter(root, processId), process.processSha256
+    );
+    if (isPendingCandidate || isRetainedOperationalAncestor) return;
+    fail(`SGOS process '${processId}' diverged from its live Operational Store head.`,
+      'SGOS_OPERATIONAL_STORE_DIVERGED', {
+        processSha256: process.processSha256,
+        operationalProcessSha256: stored.processSha256,
+        operationalRevision: head.revision
+      });
+  }
+}
+
+async function publishSgosProcessHead(root, processId, process, {
+  expectedProcessSha256 = null
+} = {}) {
+  if (process?.processId !== processId
+      || process.processSha256 !== hashWithout(process, 'processSha256')) {
+    fail(`SGOS process '${processId}' cannot publish an invalid Operational Store head.`,
+      'SGOS_PROCESS_CORRUPT');
+  }
+  const adapter = liveOperationalAdapter(root, processId);
+  let cutover = await readLiveOperationalCutover(root, processId);
+  let head = await adapter.read();
+  if (cutover === null) {
+    let legacy = null;
+    try {
+      const raw = await readSafeFile(root, sgosProcessStatePath(root, processId));
+      legacy = JSON.parse(raw);
+      if (legacy?.processId !== processId
+          || legacy.processSha256 !== hashWithout(legacy, 'processSha256')) {
+        fail(`SGOS process '${processId}' failed its legacy cutover integrity check.`,
+          'SGOS_PROCESS_CORRUPT');
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        if (error instanceof SyntaxError) {
+          fail(`SGOS process '${processId}' is not valid JSON.`, 'SGOS_PROCESS_CORRUPT');
+        }
+        throw error;
+      }
+    }
+    const imported = operationalProcessReference(legacy ?? process);
+    if (head.revision === 0) {
+      head = await adapter.transact({
+        expectedRevision: head.revision,
+        expectedStateSha256: head.stateSha256,
+        changes: [{ op: 'put', key: LIVE_OPERATIONAL_PROCESS_KEY, value: imported }]
+      });
+      injectSgosStoreFault('operational-import');
+    } else if (head.revision !== 1
+        || canonicalJson(processFromOperationalHead(head, processId))
+          !== canonicalJson(imported)) {
+      fail(`SGOS process '${processId}' has a divergent interrupted Operational Store import.`,
+        'SGOS_OPERATIONAL_CUTOVER_DIVERGED');
+    }
+    const importedHead = processFromOperationalHead(head, processId);
+    const core = {
+      format: 'sflow.sgos.live-process-cutover',
+      formatVersion: 1,
+      processId,
+      profile: SGOS_LIVE_OPERATIONAL_STORE_PROFILE,
+      storeId: LIVE_OPERATIONAL_STORE_ID,
+      legacyProcessSha256: importedHead.processSha256,
+      importRevision: head.revision,
+      importStateSha256: head.stateSha256,
+      importEventSha256: head.eventSha256
+    };
+    cutover = { ...core, cutoverSha256: hashWithout(core, 'cutoverSha256') };
+    await writeSafeAtomic(
+      root, liveOperationalCutoverPath(root, processId), canonicalJson(cutover)
+    );
+    injectSgosStoreFault('operational-cutover');
+  }
+  head = await adapter.read();
+  let current = processFromOperationalHead(head, processId);
+  if (current.processSha256 !== process.processSha256
+      && expectedProcessSha256 !== null
+      && current.processSha256 !== expectedProcessSha256
+      && await operationalHistoryContainsProcess(adapter, expectedProcessSha256)) {
+    const raw = await readSafeFile(root, sgosProcessStatePath(root, processId));
+    let expected;
+    try { expected = JSON.parse(raw); } catch {
+      fail(`SGOS process '${processId}' is not valid JSON.`, 'SGOS_PROCESS_CORRUPT');
+    }
+    if (expected?.processSha256 !== expectedProcessSha256
+        || expected.processId !== processId
+        || expected.processSha256 !== hashWithout(expected, 'processSha256')) {
+      fail(`SGOS process '${processId}' cannot realign its Operational Store from the mirror.`,
+        'SGOS_OPERATIONAL_STORE_DIVERGED');
+    }
+    head = await adapter.transact({
+      expectedRevision: head.revision,
+      expectedStateSha256: head.stateSha256,
+      changes: [{
+        op: 'put', key: LIVE_OPERATIONAL_PROCESS_KEY,
+        value: operationalProcessReference(expected)
+      }]
+    });
+    current = processFromOperationalHead(head, processId);
+  }
+  if (current.processSha256 !== process.processSha256
+      && expectedProcessSha256 !== null
+      && current.processSha256 !== expectedProcessSha256) {
+    fail(`SGOS process '${processId}' changed in its Operational Store before publication.`,
+      'SGOS_PROCESS_REVISION_STALE', {
+        expectedProcessSha256,
+        actualProcessSha256: current.processSha256
+      });
+  }
+  if (expectedProcessSha256 === null && current.processSha256 !== process.processSha256) {
+    fail(`SGOS process '${processId}' already has a different Operational Store head.`,
+      'SGOS_PROCESS_EXISTS');
+  }
+  if (current.processSha256 !== process.processSha256) {
+    head = await adapter.transact({
+      expectedRevision: head.revision,
+      expectedStateSha256: head.stateSha256,
+      changes: [{
+        op: 'put', key: LIVE_OPERATIONAL_PROCESS_KEY,
+        value: operationalProcessReference(process)
+      }]
+    });
+    if (processFromOperationalHead(head, processId).processSha256 !== process.processSha256) {
+      fail(`SGOS process '${processId}' failed its Operational Store publication check.`,
+        'SGOS_OPERATIONAL_STORE_CORRUPT');
+    }
+    injectSgosStoreFault('operational-head');
+  }
+  // `state.json` remains an exact compatibility/read-diagnostics mirror. The append-only Store is
+  // authoritative after the cutover receipt, so a crash before this mirror update loses no head.
+  await writeSafeAtomic(root, sgosProcessStatePath(root, processId), canonicalJson(process));
+  return Object.freeze(process);
+}
+
 function immutableLocation(root, processId, familyId, sha256) {
   const family = IMMUTABLE_FAMILIES[familyId];
   if (!family) fail(`'${familyId}' is not an SGOS immutable-store family.`, 'SGOS_RECORD_FAMILY_INVALID', { family: familyId });
@@ -690,7 +943,7 @@ function reservationToken(family, recordSha256, bytes) {
 
 async function readCurrentRecordIndexForCapacity(root, processId) {
   let raw;
-  try { raw = await readSafeFile(root, sgosProcessStatePath(root, processId)); } catch (error) {
+  try { raw = await readSgosProcessStateRaw(root, processId); } catch (error) {
     if (error?.code === 'ENOENT') return null;
     throw error;
   }
@@ -2320,6 +2573,13 @@ async function classifyQuarantineSnapshot(root, processId, snapshot) {
       continue;
     }
     const family = familyForStoredPath(`$git/sgos/processes/${processDirectoryName}/${entry.path}`);
+    if (entry.path === LIVE_OPERATIONAL_CUTOVER_FILE
+        || entry.path.startsWith('operational-store/')) {
+      // Live Operational Store bytes are operational/cache state, not a Process contract family.
+      // They remain covered by the bounded tree digest and are moved byte-for-byte with quarantine,
+      // but they can never satisfy or replace a Program, Process, evidence, or control record.
+      continue;
+    }
     if (!family) {
       fail(`SGOS Process quarantine input '${entry.path}' is not a registered Process record.`,
         'SGOS_PROCESS_QUARANTINE_CORRUPT', { path: entry.path });
@@ -3162,7 +3422,9 @@ async function publishSgosTransitionIntent(root, current, intent, {
   injectSgosStoreFault('control-event');
   await putPreparedSgosControlSuccessor(root, id, successor);
   injectSgosStoreFault('control-successor');
-  await writeSafeAtomic(root, sgosProcessStatePath(root, id), canonicalJson(candidateState));
+  await publishSgosProcessHead(root, id, candidateState, {
+    expectedProcessSha256: current.processSha256
+  });
   injectSgosStoreFault('state');
   const reservations = prepared.reservations.length
     ? prepared.reservations
@@ -3180,7 +3442,9 @@ async function reconcileSgosTransitionIntent(root, current, intent) {
       fail('Completed SGOS transition intent does not match current Process authority.',
         'SGOS_TRANSITION_INTENT_CORRUPT');
     }
-    await writeSafeAtomic(root, sgosProcessStatePath(root, current.processId), canonicalJson(current));
+    await publishSgosProcessHead(root, current.processId, current, {
+      expectedProcessSha256: intent.beforeProcessSha256
+    });
     await consumeRecordReservations(
       root, await intentReservationsIfPresent(root, current.processId, intent)
     );
@@ -6262,6 +6526,9 @@ export async function createSgosProcess(root, value) {
       await assertReferencedRecords(root, seed);
       // Persist the exact seed first so retries can retain its timestamp and derive the same
       // content-addressed genesis after crashes at any later publication boundary.
+      // The unrooted creation seed predates live-store authority. Cutover occurs only after the
+      // immutable genesis event and successor are complete, so a selected live head is always
+      // reconstructable from control lineage.
       await writeSafeAtomic(root, target, canonicalJson(seed));
     }
     await assertSgosStoredAuthorityAndMaterialization(root, seed);
@@ -6318,7 +6585,9 @@ export async function createSgosProcess(root, value) {
         'SGOS_CONTROL_LINEAGE_INVALID');
     }
     await assertReferencedRecords(root, reconciled.state);
-    await writeSafeAtomic(root, target, canonicalJson(reconciled.state));
+    await publishSgosProcessHead(root, processId, reconciled.state, {
+      expectedProcessSha256: seed.processSha256
+    });
     injectSgosStoreFault('genesis-state');
     await consumeRecordReservations(root, genesisReservations);
     return Object.freeze(reconciled.state);
@@ -6331,7 +6600,7 @@ async function readSgosProcessUnlocked(root, id, {
 } = {}) {
   let raw;
   try {
-    raw = await readSafeFile(root, sgosProcessStatePath(root, id));
+    raw = await readSgosProcessStateRaw(root, id);
   } catch (error) {
     if (error?.code === 'ENOENT') fail(`SGOS process '${id}' is unavailable.`, 'SGOS_PROCESS_NOT_FOUND');
     throw error;
@@ -6414,6 +6683,7 @@ async function readSgosProcessUnlocked(root, id, {
     controlDiagnostics.replayedTransitions = reconciled.replayedTransitions;
   }
   await assertHotReferencedRecords(root, state);
+  await assertLiveOperationalProcessHead(root, id, state);
   return Object.freeze(state);
 }
 
@@ -6453,7 +6723,7 @@ export async function upgradeSgosProcessControlLineage(root, processId, {
   const id = requireProcessId(processId);
   requireSha256('expectedProcessSha256', expectedProcessSha256);
   return withProcessLock(root, id, async () => {
-    const raw = await readSafeFile(root, sgosProcessStatePath(root, id));
+    const raw = await readSgosProcessStateRaw(root, id);
     let stored;
     try { stored = JSON.parse(raw); } catch {
       fail(`SGOS process '${id}' is not valid JSON.`, 'SGOS_PROCESS_CORRUPT');
@@ -6544,9 +6814,9 @@ export async function upgradeSgosProcessControlLineage(root, processId, {
         });
     }
     await assertReferencedRecords(root, reconciled.state);
-    await writeSafeAtomic(
-      root, sgosProcessStatePath(root, id), canonicalJson(reconciled.state)
-    );
+    await publishSgosProcessHead(root, id, reconciled.state, {
+      expectedProcessSha256: stored.processSha256
+    });
     return Object.freeze(reconciled.state);
   }, 2_000, { createDirectory: false });
 }
@@ -6747,6 +7017,330 @@ export async function readSgosProgram(root, processId, programSha256) {
   return readSgosImmutableRecord(root, processId, 'gvm-program', programSha256);
 }
 
+function operationalImportState(reference, event) {
+  const entries = { [LIVE_OPERATIONAL_PROCESS_KEY]: reference };
+  const core = {
+    format: 'sflow.sgos.operational-state',
+    formatVersion: 1,
+    storeId: LIVE_OPERATIONAL_STORE_ID,
+    revision: 1,
+    eventSha256: event.eventSha256,
+    entriesSha256: `sha256:${recordSha256(entries)}`,
+    entries
+  };
+  return { ...core, stateSha256: `sha256:${recordSha256(core)}` };
+}
+
+function operationalEventPublishesReference(event, reference) {
+  return event?.operation === 'transact'
+    && event.changes?.length === 1
+    && event.changes[0].op === 'put'
+    && event.changes[0].key === LIVE_OPERATIONAL_PROCESS_KEY
+    && canonicalJson(event.changes[0].value) === canonicalJson(reference);
+}
+
+/**
+ * Prove the one recoverable Store/mirror divergence without repairing it.
+ *
+ * This deliberately reuses the transition publication validators. A matching pair of Process
+ * hashes is not enough: fsck grants attention only when every byte recovery would consume is
+ * present, current, and reconstructs the exact candidate already appended as the latest live
+ * Operational Store event.
+ */
+async function verifyPendingOperationalMirrorRefresh(
+  root, processId, mirror, current, head, backup
+) {
+  const intent = await readSgosTransitionIntent(root, processId);
+  if (intent === null
+      || intent.beforeProcessSha256 !== mirror.processSha256
+      || intent.beforeProcessRevision !== mirror.processRevision
+      || intent.priorRecordIndexSha256 !== mirror.recordIndexSha256
+      || intent.candidateProcessSha256 !== current.processSha256
+      || intent.controlEvent.controlEventSha256 !== current.controlEventSha256
+      || intent.nextRecordIndexSha256 !== current.recordIndexSha256) return null;
+
+  const latestEvent = backup.events.at(-1);
+  const predecessorEvent = backup.events.at(-2);
+  if (latestEvent?.revision !== head.revision
+      || latestEvent.eventSha256 !== head.eventSha256
+      || !operationalEventPublishesReference(latestEvent, current)
+      || !operationalEventPublishesReference(
+        predecessorEvent, operationalProcessReference(mirror)
+      )) {
+    fail('Pending mirror refresh does not bind the latest Operational Store transition.',
+      'SGOS_OPERATIONAL_HEAD_MIRROR_MISMATCH', {
+        mirrorProcessSha256: mirror.processSha256,
+        operationalProcessSha256: current.processSha256,
+        intentSha256: intent.intentSha256
+      });
+  }
+
+  const { index: priorIndex } = await readSgosRecordIndexHead(
+    root, processId, intent.priorRecordIndexSha256
+  );
+  const prepared = await prepareSgosRecordIndex(
+    root, processId, priorIndex, intent.reservations
+  );
+  const { index: publishedIndex, prior: publishedPrior } = await readSgosRecordIndexHead(
+    root, processId, intent.nextRecordIndexSha256
+  );
+  if (publishedPrior?.recordIndexSha256 !== intent.priorRecordIndexSha256
+      || canonicalJson(publishedIndex) !== canonicalJson(prepared.index)) {
+    fail('Pending mirror refresh record index does not reconstruct from its exact predecessor.',
+      'SGOS_RECORD_INDEX_INVALID', {
+        priorRecordIndexSha256: intent.priorRecordIndexSha256,
+        nextRecordIndexSha256: intent.nextRecordIndexSha256
+      });
+  }
+
+  const { record: publishedEvent } = await readSgosImmutableRecord(
+    root, processId, 'sgos-control-event', intent.controlEvent.controlEventSha256
+  );
+  if (canonicalJson(publishedEvent) !== canonicalJson(intent.controlEvent)) {
+    fail('Pending mirror refresh control event differs from its durable intent.',
+      'SGOS_CONTROL_LINEAGE_INVALID', {
+        controlEventSha256: intent.controlEvent.controlEventSha256
+      });
+  }
+  const candidate = processFromControlEvent(mirror, publishedEvent);
+  if (candidate.processSha256 !== intent.candidateProcessSha256
+      || canonicalJson(operationalProcessReference(candidate)) !== canonicalJson(current)) {
+    fail('Pending mirror refresh does not reconstruct its exact live Process candidate.',
+      'SGOS_CONTROL_LINEAGE_INVALID', {
+        candidateProcessSha256: candidate.processSha256,
+        intentCandidateProcessSha256: intent.candidateProcessSha256,
+        operationalProcessSha256: current.processSha256
+      });
+  }
+  await assertTransitionIndexDelta(root, mirror, candidate, publishedIndex);
+  await assertHotReferencedRecords(root, candidate, { preparedIndex: publishedIndex });
+
+  const publishedSuccessor = await readSgosControlSuccessor(
+    root, processId, intent.beforeProcessSha256
+  );
+  if (publishedSuccessor === null) {
+    fail('Pending mirror refresh control successor is unavailable.',
+      'SGOS_CONTROL_LINEAGE_INVALID', {
+        beforeProcessSha256: intent.beforeProcessSha256
+      });
+  }
+  const preparedSuccessor = await prepareSgosControlSuccessor(root, processId, {
+    processId,
+    beforeProcessSha256: intent.beforeProcessSha256,
+    controlEventSha256: publishedEvent.controlEventSha256,
+    controlDepth: publishedEvent.controlDepth,
+    operatorTransitionCount: publishedEvent.operatorTransitionCount
+  }, { event: publishedEvent, publishedIndexes: [publishedIndex], candidateState: candidate });
+  if (publishedSuccessor.successorSha256 !== intent.successorSha256
+      || canonicalJson(publishedSuccessor) !== canonicalJson(preparedSuccessor)) {
+    fail('Pending mirror refresh control successor does not reconstruct exactly.',
+      'SGOS_CONTROL_LINEAGE_INVALID', {
+        expectedSuccessorSha256: intent.successorSha256,
+        actualSuccessorSha256: publishedSuccessor.successorSha256
+      });
+  }
+  await assertTransitionIntentCapacity(root, processId, {
+    index: publishedIndex,
+    successor: publishedSuccessor,
+    candidateState: candidate,
+    intent
+  });
+  return intent;
+}
+
+async function inspectLiveOperationalStore(root, processId, mirror) {
+  const errors = [];
+  const findings = [];
+  const operationalRoot = liveOperationalRoot(root, processId);
+  const storeRoot = path.join(operationalRoot, LIVE_OPERATIONAL_STORE_ID);
+  const eventsRoot = path.join(storeRoot, 'events');
+  let cutover = null;
+  let cutoverPresent = false;
+  try {
+    const metadata = await lstat(liveOperationalCutoverPath(root, processId));
+    cutoverPresent = true;
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      fail('Live Operational Store cutover receipt is not a regular file.',
+        'SGOS_SIDECAR_PATH_UNSAFE');
+    }
+    cutover = await readLiveOperationalCutover(root, processId);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') errors.push(Object.freeze({
+      code: error?.code ?? 'SGOS_OPERATIONAL_CUTOVER_CORRUPT',
+      message: error?.message ?? String(error)
+    }));
+  }
+
+  let rootPresent = false;
+  let completeLayout = true;
+  let physicalFiles = cutoverPresent ? 1 : 0;
+  for (const [directory, label] of [
+    [operationalRoot, 'root'], [storeRoot, 'store'], [eventsRoot, 'events']
+  ]) {
+    try {
+      const metadata = await lstat(directory);
+      if (directory === operationalRoot) rootPresent = true;
+      if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+        completeLayout = false;
+        errors.push(Object.freeze({
+          code: 'SGOS_SIDECAR_PATH_UNSAFE',
+          message: `Live Operational Store ${label} is not a safe directory.`
+        }));
+      }
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        completeLayout = false;
+        if (directory !== operationalRoot || cutoverPresent) errors.push(Object.freeze({
+          code: 'SGOS_OPERATIONAL_STORE_CORRUPT',
+          message: `Live Operational Store ${label} is missing.`
+        }));
+      } else throw error;
+    }
+    if (!rootPresent && directory === operationalRoot) break;
+  }
+  if (!rootPresent) {
+    return Object.freeze({
+      status: errors.length ? 'failed' : 'legacy', profile: null, revision: null,
+      stateSha256: null, eventCount: 0, cutoverSha256: cutover?.cutoverSha256 ?? null,
+      physicalFiles, errors: Object.freeze(errors), findings: Object.freeze(findings)
+    });
+  }
+
+  if (completeLayout) {
+    try {
+      const rootEntries = await readdir(operationalRoot, { withFileTypes: true });
+      const unexpectedRoot = rootEntries.filter((entry) =>
+        entry.name !== LIVE_OPERATIONAL_STORE_ID || !entry.isDirectory()
+        || entry.isSymbolicLink());
+      for (const entry of unexpectedRoot) errors.push(Object.freeze({
+        code: 'SGOS_SIDECAR_PATH_UNSAFE',
+        message: `Unrecognized live Operational Store root entry '${entry.name}'.`
+      }));
+      const storeEntries = await readdir(storeRoot, { withFileTypes: true });
+      for (const entry of storeEntries) {
+        if (entry.name === 'events' && entry.isDirectory() && !entry.isSymbolicLink()) continue;
+        if (entry.name === 'writer.lock' && entry.isFile() && !entry.isSymbolicLink()) {
+          physicalFiles += 1;
+          findings.push(Object.freeze({
+            code: 'SGOS_OPERATIONAL_STORE_WRITER_PRESENT',
+            message: 'Live Operational Store writer lock remains present during fsck.'
+          }));
+          continue;
+        }
+        errors.push(Object.freeze({
+          code: 'SGOS_SIDECAR_PATH_UNSAFE',
+          message: `Unrecognized live Operational Store entry '${entry.name}'.`
+        }));
+      }
+      const eventEntries = await readdir(eventsRoot, { withFileTypes: true });
+      physicalFiles += eventEntries.length;
+      if (eventEntries.length > MAX_PROCESS_RECORDS) {
+        errors.push(Object.freeze({
+          code: 'SGOS_RECORD_SCAN_LIMIT',
+          message: 'Live Operational Store event census exceeds the Process record ceiling.'
+        }));
+        completeLayout = false;
+      }
+      for (const entry of eventEntries) {
+        if (entry.name.startsWith('.') && entry.isFile() && !entry.isSymbolicLink()) {
+          findings.push(Object.freeze({
+            code: 'SGOS_OPERATIONAL_STORE_STAGING_PRESENT',
+            message: `Non-authoritative live Operational Store staging file '${entry.name}' remains.`
+          }));
+        } else if (!entry.isFile() || entry.isSymbolicLink()
+            || !/^\d{12}-[a-f0-9]{64}\.json$/u.test(entry.name)) {
+          errors.push(Object.freeze({
+            code: 'SGOS_SIDECAR_PATH_UNSAFE',
+            message: `Unrecognized live Operational Store event entry '${entry.name}'.`
+          }));
+        }
+      }
+    } catch (error) {
+      errors.push(Object.freeze({
+        code: error?.code ?? 'SGOS_OPERATIONAL_STORE_CORRUPT',
+        message: error?.message ?? String(error)
+      }));
+      completeLayout = false;
+    }
+  }
+
+  let verification = null;
+  let head = null;
+  let backup = null;
+  if (completeLayout) {
+    try {
+      const adapter = liveOperationalAdapter(root, processId);
+      verification = await adapter.verify();
+      head = await adapter.read();
+      backup = await adapter.exportBackup();
+    } catch (error) {
+      errors.push(Object.freeze({
+        code: error?.code ?? 'SGOS_OPERATIONAL_STORE_CORRUPT',
+        message: error?.message ?? String(error)
+      }));
+    }
+  }
+  if (!cutoverPresent && (verification?.eventCount ?? 0) > 0) findings.push(Object.freeze({
+    code: 'SGOS_OPERATIONAL_CUTOVER_INCOMPLETE',
+    message: 'Live Operational Store import exists without an authoritative cutover receipt.'
+  }));
+  if (cutover !== null && backup !== null && head !== null) {
+    try {
+      const event = backup.events[cutover.importRevision - 1];
+      const imported = event?.changes?.length === 1
+        && event.changes[0].op === 'put'
+        && event.changes[0].key === LIVE_OPERATIONAL_PROCESS_KEY
+        ? event.changes[0].value : null;
+      if (event?.revision !== cutover.importRevision
+          || event.eventSha256 !== cutover.importEventSha256
+          || imported?.processSha256 !== cutover.legacyProcessSha256
+          || operationalImportState(imported, event).stateSha256
+            !== cutover.importStateSha256) {
+        fail('Live Operational Store cutover receipt does not bind its exact import event.',
+          'SGOS_OPERATIONAL_CUTOVER_HISTORY_MISMATCH');
+      }
+      const current = processFromOperationalHead(head, processId);
+      if (canonicalJson(current) !== canonicalJson(operationalProcessReference(mirror))) {
+        const pending = await verifyPendingOperationalMirrorRefresh(
+          root, processId, mirror, current, head, backup
+        );
+        if (pending !== null) {
+          findings.push(Object.freeze({
+            code: 'SGOS_OPERATIONAL_MIRROR_REFRESH_PENDING',
+            message: 'The live Operational Store committed the exact pending candidate before its compatibility mirror refreshed.',
+            intentSha256: pending.intentSha256,
+            beforeProcessSha256: pending.beforeProcessSha256,
+            candidateProcessSha256: pending.candidateProcessSha256
+          }));
+        } else {
+          fail('Live Operational Store current head does not match the Process mirror.',
+            'SGOS_OPERATIONAL_HEAD_MIRROR_MISMATCH', {
+              mirrorProcessSha256: mirror.processSha256,
+              operationalProcessSha256: current.processSha256
+            });
+        }
+      }
+    } catch (error) {
+      errors.push(Object.freeze({
+        code: error?.code ?? 'SGOS_OPERATIONAL_STORE_CORRUPT',
+        message: error?.message ?? String(error)
+      }));
+    }
+  }
+  return Object.freeze({
+    status: errors.length ? 'failed' : findings.length ? 'attention'
+      : cutover === null ? 'unselected' : 'ok',
+    profile: cutover?.profile ?? null,
+    revision: verification?.revision ?? null,
+    stateSha256: verification?.stateSha256 ?? null,
+    eventCount: verification?.eventCount ?? 0,
+    cutoverSha256: cutover?.cutoverSha256 ?? null,
+    physicalFiles,
+    errors: Object.freeze(errors),
+    findings: Object.freeze(findings)
+  });
+}
+
 /**
  * Read-only integrity census. Normal runtime reads validate only the rooted head edge; fsck is the
  * explicit bounded operation that walks complete indexed and physical authority and reports
@@ -6757,6 +7351,8 @@ export async function fsckSgosProcess(root, processId) {
   return withProcessLock(root, id, async () => {
     const state = await readSgosProcessUnlocked(root, id, { diagnosticsOnly: true });
     const errors = [];
+    const operationalStore = await inspectLiveOperationalStore(root, id, state);
+    errors.push(...operationalStore.errors);
     let transitionIntent = null;
     try { transitionIntent = await readSgosTransitionIntent(root, id); } catch (error) {
       errors.push(Object.freeze({
@@ -6949,8 +7545,15 @@ export async function fsckSgosProcess(root, processId) {
     }
     const disk = new Map();
     const diskRecords = new Map();
-    let physicalEntriesScanned = 0;
+    let physicalEntriesScanned = operationalStore.physicalFiles;
     let physicalLimitExceeded = false;
+    if (physicalEntriesScanned > MAX_PROCESS_RECORDS) {
+      errors.push(Object.freeze({
+        code: 'SGOS_RECORD_SCAN_LIMIT',
+        message: 'Live Operational Store census exceeds the aggregate Process record ceiling.'
+      }));
+      physicalLimitExceeded = true;
+    }
     for (const familyId of SGOS_RECORD_INDEX_FAMILIES) {
       const family = IMMUTABLE_FAMILIES[familyId];
       const directory = path.join(sgosProcessDirectory(root, id), family.directory);
@@ -7191,8 +7794,20 @@ export async function fsckSgosProcess(root, processId) {
         family, recordSha256, bytes
       })));
     orphans.sort(compareRecordIndexEntries);
-    const reservations = await listRecordReservations(root, id);
-    const leaseFootprint = await readExecutionLeaseFootprint(root, id);
+    let reservations = [];
+    try { reservations = await listRecordReservations(root, id); } catch (error) {
+      errors.push(Object.freeze({
+        code: error?.code ?? 'SGOS_RECORD_RESERVATION_CORRUPT',
+        message: error?.message ?? String(error)
+      }));
+    }
+    let leaseFootprint = Object.freeze({ leaseBytes: 0, leaseRecords: 0 });
+    try { leaseFootprint = await readExecutionLeaseFootprint(root, id); } catch (error) {
+      errors.push(Object.freeze({
+        code: error?.code ?? 'SGOS_EXECUTION_LEASE_CORRUPT',
+        message: error?.message ?? String(error)
+      }));
+    }
     if (physicalEntriesScanned + reservations.length + leaseFootprint.leaseRecords + 1
           + (transitionIntent === null ? 0 : 1)
         > MAX_PROCESS_RECORDS) {
@@ -7235,6 +7850,7 @@ export async function fsckSgosProcess(root, processId) {
     const status = errors.length || missing.length
       ? 'failed'
       : orphans.length || reservations.length || transitionIntent !== null
+          || operationalStore.findings.length > 0
           || lineage.status === 'attention'
         ? 'attention'
         : 'ok';
@@ -7267,6 +7883,7 @@ export async function fsckSgosProcess(root, processId) {
         nextRecordIndexSha256: transitionIntent.nextRecordIndexSha256,
         reservationCount: transitionIntent.reservations.length
       }),
+      operationalStore,
       lineage,
       errors: Object.freeze(errors),
       repaired: false,

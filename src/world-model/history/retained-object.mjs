@@ -24,12 +24,19 @@ import {
 import {
   validateWorldModelDiscoveredCandidateRoster
 } from './candidate-roster-owner.mjs';
+import {
+  validateWorldModelRendererContract, validateWorldModelValidatorContract
+} from './view-owner-contracts.mjs';
 import { WMP_RECORD_FAMILIES, parseCanonicalWmpRecordBytes } from './contracts.mjs';
 import {
   WMP_MAXIMUM_OBJECT_BYTES, WMP_RENDERED_OBJECT_ROLES, validateWmpObjectRef
 } from './identity.mjs';
 
 const RENDERED_ROLES = new Set(WMP_RENDERED_OBJECT_ROLES);
+const EXACT_OWNER_BEFORE_MIG = new Set([
+  'world-model-renderer-contract',
+  'world-model-validator-contract'
+]);
 
 // The draft names these authority dependencies, but the current codebase has no registered
 // semantic owner for them. Refuse them instead of relabelling an unrelated registered record.
@@ -38,11 +45,9 @@ const MISSING_OWNER_ROLES = new Set([
   'adoption-authorization',
   'origin-authority',
   'publication-receipt',
-  'renderer-contract',
   'source-authority',
   'target-authority',
-  'tokenizer',
-  'validator-contract'
+  'tokenizer'
 ]);
 
 // These roles have first-class existing record families. Bind the semantic role as well as the
@@ -54,7 +59,9 @@ const OWNED_ROLE_FAMILIES = Object.freeze({
   'extraction-policy': 'world-model-extraction-policy',
   'extractor-registry': 'world-model-extractor-registry',
   'output-budget': 'world-model-output-budget',
+  'renderer-contract': 'world-model-renderer-contract',
   'repository-domain': 'world-model-repository-domain',
+  'validator-contract': 'world-model-validator-contract',
   'validator-receipt': 'world-model-view-validation-receipt'
 });
 const OWNED_FAMILY_ROLES = Object.freeze(Object.fromEntries(
@@ -72,12 +79,14 @@ const OWNER_VALIDATORS = Object.freeze({
   'world-model-extractor-registry': validateHistoricalExtractorRegistry,
   'world-model-fact-ledger': validateHistoricalFactLedger,
   'world-model-output-budget': validateWorldModelOutputBudget,
+  'world-model-renderer-contract': validateWorldModelRendererContract,
   'world-model-repository-domain': validateWorldModelRepositoryDomain,
   'world-model-scope-manifest': validateScopeManifest,
   'world-model-source-snapshot': validateSourceSnapshot,
   'world-model-view-contract': validateViewContract,
   'world-model-view-fact-ledger': validateViewFactLedger,
-  'world-model-view-validation-receipt': validateWorldModelViewValidationReceipt
+  'world-model-view-validation-receipt': validateWorldModelViewValidationReceipt,
+  'world-model-validator-contract': validateWorldModelValidatorContract
 });
 
 function fail(message, code, details = {}, cause = undefined) {
@@ -165,6 +174,16 @@ export function parseExactRetainedObject(refValue, rawBytes) {
   if (!validator) {
     fail(`Retained family '${ref.family}' has no installed WMP owner adapter.`,
       'WMP_OBJECT_OWNER_UNAVAILABLE', { role: ref.role, family: ref.family });
+  }
+  // Executable owner contracts dispatch historical bytes by their exact contract and
+  // implementation hashes. Resolve that retained identity before any future MIG projection can
+  // alter the in-memory shape and accidentally select current behavior for historical evidence.
+  if (EXACT_OWNER_BEFORE_MIG.has(ref.family)) {
+    try { return validator(parsed); }
+    catch (error) {
+      fail(`Retained object '${ref.role}' failed its exact historical owner validator.`,
+        'WMP_INTEGRITY_FAILED', { role: ref.role, family: ref.family }, error);
+    }
   }
   let migrated;
   try { migrated = readRecord(ref.family, parsed).record; }

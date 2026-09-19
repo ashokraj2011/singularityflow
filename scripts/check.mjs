@@ -14,6 +14,7 @@ import { COMMAND_SKILLS } from '../src/command-skills.mjs';
 import { BOOLEAN_OPTIONS } from '../src/util.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
+import { auditReviewedImplementationSourceManifest } from './world-model-implementation-manifest-lint.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
 import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
@@ -41,6 +42,22 @@ try {
 
 function fail(message) {
   failures.push(message);
+}
+
+try {
+  const {
+    PERSISTED_OVERVIEW_RENDERER_V1_SOURCE_MANIFEST,
+    PERSISTED_OVERVIEW_VALIDATOR_V1_SOURCE_MANIFEST
+  } = await import('../src/world-model/history/persisted-view-source-manifests.mjs');
+  for (const manifest of [
+    PERSISTED_OVERVIEW_RENDERER_V1_SOURCE_MANIFEST,
+    PERSISTED_OVERVIEW_VALIDATOR_V1_SOURCE_MANIFEST
+  ]) {
+    auditReviewedImplementationSourceManifest(manifest, { packageRoot: root });
+    checked.push(`exact implementation closure ${manifest.id}`);
+  }
+} catch (error) {
+  fail(`Persisted-view implementation manifest audit failed: ${error.message}`);
 }
 
 function repositoryFiles() {

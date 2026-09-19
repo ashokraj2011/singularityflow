@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-validator-contract.schema.json",
+  "title": "WMP immutable rendered-view validator contract",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "id", "version", "viewIds", "candidateSchemaSha256", "checks", "implementationSha256", "contractSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-validator-contract" },
+    "id": { "const": "repository-overview-graph-validator" },
+    "version": { "type": "integer", "minimum": 1 },
+    "viewIds": { "type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": { "type": "string" } },
+    "candidateSchemaSha256": { "$ref": "#/$defs/hash" },
+    "checks": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "implementationSha256": { "$ref": "#/$defs/hash" },
+    "contractSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

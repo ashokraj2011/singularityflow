@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-renderer-contract.schema.json",
+  "title": "WMP immutable renderer implementation contract",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "id", "version", "viewIds", "formats", "variants", "implementationSha256", "configurationSha256", "maximumBytes", "contractSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-renderer-contract" },
+    "id": { "const": "repository-overview-fixed-template" },
+    "version": { "type": "integer", "minimum": 1 },
+    "viewIds": { "type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": { "type": "string" } },
+    "formats": { "const": ["json", "md"] },
+    "variants": { "const": ["brief", "full"] },
+    "implementationSha256": { "$ref": "#/$defs/hash" },
+    "configurationSha256": { "$ref": "#/$defs/hash" },
+    "maximumBytes": {
+      "type": "object",
+      "required": ["brief", "full"],
+      "properties": {
+        "brief": { "type": "integer", "minimum": 1 },
+        "full": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "contractSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

@@ -11,6 +11,10 @@ import {
 } from '../src/world-model/extract/fact-ledger.mjs';
 import { parseExactRetainedObject } from '../src/world-model/history/retained-object.mjs';
 import {
+  PERSISTED_OVERVIEW_RENDERER_CONTRACT,
+  PERSISTED_OVERVIEW_VALIDATOR_CONTRACT
+} from '../src/world-model/history/view-owner-contracts.mjs';
+import {
   createWorldModelConsumerProfile, createWorldModelOutputBudget
 } from '../src/world-model/plan.mjs';
 import {
@@ -76,6 +80,18 @@ function ownedFixtures() {
       family: 'world-model-output-budget',
       record: createWorldModelOutputBudget([contract]),
       hashField: 'budgetSha256'
+    }),
+    Object.freeze({
+      role: 'renderer-contract',
+      family: 'world-model-renderer-contract',
+      record: PERSISTED_OVERVIEW_RENDERER_CONTRACT,
+      hashField: 'contractSha256'
+    }),
+    Object.freeze({
+      role: 'validator-contract',
+      family: 'world-model-validator-contract',
+      record: PERSISTED_OVERVIEW_VALIDATOR_CONTRACT,
+      hashField: 'contractSha256'
     }),
     Object.freeze({
       role: 'validator-receipt',
@@ -208,6 +224,10 @@ test('retained-object adapters reject self-consistent but semantically corrupt o
     'extractor-registry': (record) => ({ ...record, kind: 'world-model-extractor-manifest' }),
     'consumer-profile': (record) => ({ ...record, consumer: 'unregistered-consumer' }),
     'output-budget': (record) => ({ ...record, overflowPolicy: ['refuse'] }),
+    'renderer-contract': (record) => ({
+      ...record, maximumBytes: { ...record.maximumBytes, brief: record.maximumBytes.brief + 1 }
+    }),
+    'validator-contract': (record) => ({ ...record, checks: ['candidate-digest'] }),
     'validator-receipt': (record) => ({ ...record, status: 'failed' })
   };
   for (const { role, family, record, hashField } of ownedFixtures()) {
@@ -218,6 +238,24 @@ test('retained-object adapters reject self-consistent but semantically corrupt o
       (error) => error?.code === 'WMP_INTEGRITY_FAILED'
         && error?.details?.role === role
         && error?.details?.family === family,
+      role
+    );
+  }
+});
+
+test('retained renderer and validator owners reject executable implementation drift', () => {
+  for (const { role, family, record } of ownedFixtures().filter(
+    (entry) => ['renderer-contract', 'validator-contract'].includes(entry.role)
+  )) {
+    const drifted = sealRecord({
+      ...record,
+      implementationSha256: digest(`${role}-drifted-executable`)
+    }, 'contractSha256');
+    const object = retained(drifted, role, family);
+    assert.throws(
+      () => parseExactRetainedObject(object.ref, object.bytes),
+      (error) => error?.code === 'WMP_INTEGRITY_FAILED'
+        && error?.details?.role === role,
       role
     );
   }
@@ -240,8 +278,7 @@ test('unimplemented authority roles cannot borrow a registered semantic family',
   const contract = resolveBuiltInViewContract('dev.impact@4');
   for (const role of [
     'admission-proof', 'adoption-authorization', 'origin-authority',
-    'publication-receipt', 'renderer-contract', 'source-authority',
-    'target-authority', 'tokenizer', 'validator-contract'
+    'publication-receipt', 'source-authority', 'target-authority', 'tokenizer'
   ]) {
     const object = retained(contract, role, 'world-model-view-contract');
     assert.throws(

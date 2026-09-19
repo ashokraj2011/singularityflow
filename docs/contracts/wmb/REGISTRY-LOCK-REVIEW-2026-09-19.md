@@ -57,6 +57,27 @@ View Contract, fact vocabulary, or parser declaration changed in this interval.
 | Coverage manifest | `sha256:3ab8c57deaf8f02d8b5a95cd7551db3e0d18f141d37c91e6d38f8794d8241460` | `sha256:518471f86ed5519266770653cf39b534227a9e95d44aeee55f85fe887ab277ce` |
 | Built-in Extractor Registry | `sha256:f0809bd0c483e1ec23681b32556b379d22e36c31779f9858e0cede7147821495` | `sha256:d30ebced366e1916decc7592db0eca0ec354b6d396bd76078c43f857823073fd` |
 
+## Persisted-view historical-reader isolation addendum
+
+The WMP persisted-view work reviewed after the boundary above adds an immutable v1 renderer,
+validator, exact source manifests, and append-only historical dispatch beneath `src/world-model/`.
+The coverage extractor algorithm, parser, Fact declarations, permissions, and testing View Contract
+remain unchanged. Because the extractor implementation deliberately binds the complete packaged
+World-Model kernel, these reviewed reader additions produce one further mechanical build-identity
+transition:
+
+| Identity | Prior accepted | Accepted after persisted-view isolation |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:5e5d9f2cae0b949239ce8a0af298b47d9ee085bb7f63c8af9d4ec2bbe4c98fe7` | `sha256:b2f21878f0ca48d970576a620d29233906043dd4ae6167d1358fc51f84fee9f1` |
+| Coverage implementation | `sha256:39dbea87583a8a697107522afb8fa06a918f0518ca52361a6ddf9eeb4c6187bb` | `sha256:567738ea0a910a1ab7df1ad1e6a0e0d7414ef24d305efb3f78a15992e77e6a7b` |
+| Coverage conformance receipt | `sha256:84330af7ec899b43cefa7c54981f8ed407d0435057f25d6f747c2ca9725e5f63` | `sha256:281dc12d6958c06848ec1622e8d70fd36b4ae28684c7e5538c4ea28ef43e99c3` |
+| Coverage manifest | `sha256:518471f86ed5519266770653cf39b534227a9e95d44aeee55f85fe887ab277ce` | `sha256:d42a49dd120f9fc63600925677e68ebac6d50dba1fb5d4118bbf435807f93ca9` |
+| Built-in Extractor Registry | `sha256:d30ebced366e1916decc7592db0eca0ec354b6d396bd76078c43f857823073fd` | `sha256:45432b2ad2b036f386a135396230e49f946bb8a600ca5cd40e0a81a42c035fd9` |
+
+The owning registry test, actual v1-under-v2 replay test, exact source-closure audit, forged-receipt
+replay test, and broad World-Model suite establish this transition. This addendum does not activate
+Story or grounding use of persisted views.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

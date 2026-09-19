@@ -34,6 +34,7 @@ export const SGOS_OPERATIONAL_STORE_CAPABILITIES = Object.freeze({
 
 const MEMORY_PROFILE = 'memory-replay-v1';
 const FILESYSTEM_PROFILE = 'filesystem-replay-v1';
+export const SGOS_LIVE_OPERATIONAL_STORE_PROFILE = 'filesystem-live-v1';
 const FORMAT_VERSION = 1;
 const MAXIMUM_ENTRIES = 2_000;
 const MAXIMUM_EVENTS = 20_000;
@@ -569,6 +570,36 @@ async function readBoundedJson(path, label) {
   return value;
 }
 
+async function ensureOperationalDirectory(target, label) {
+  let metadata;
+  try {
+    metadata = await lstat(target);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    const parent = dirname(target);
+    let parentMetadata;
+    try { parentMetadata = await lstat(parent); } catch (parentError) {
+      if (parentError?.code === 'ENOENT') {
+        fail(`Filesystem Operational Store ${label} parent does not exist.`,
+          'SGOS_OPERATIONAL_STORE_ROOT_INVALID');
+      }
+      throw parentError;
+    }
+    if (parentMetadata.isSymbolicLink() || !parentMetadata.isDirectory()) {
+      fail(`Filesystem Operational Store ${label} parent is not a safe directory.`,
+        'SGOS_OPERATIONAL_STORE_ROOT_INVALID');
+    }
+    try { await mkdir(target, { mode: 0o700 }); } catch (createError) {
+      if (createError?.code !== 'EEXIST') throw createError;
+    }
+    metadata = await lstat(target);
+  }
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    fail(`Filesystem Operational Store ${label} is not a directory.`,
+      'SGOS_OPERATIONAL_STORE_ROOT_INVALID');
+  }
+}
+
 /**
  * Create a durable, reconstructable filesystem implementation of the same non-authoritative SPI.
  *
@@ -576,8 +607,9 @@ async function readBoundedJson(path, label) {
  * temporary files are ignored after process loss, and the head is always reconstructed from the
  * append-only lineage. This profile is still restricted to simulation and tests.
  */
-export function createFilesystemSgosOperationalStore({
-  storeId, root, lockTimeoutMs = 5_000, staleLockMs = 30_000
+function createFilesystemOperationalStore({
+  storeId, root, lockTimeoutMs = 5_000, staleLockMs = 30_000,
+  profile, purposes
 }) {
   if (!ID.test(String(storeId ?? ''))) {
     fail('Operational Store ID must be a portable lower-case identifier.');
@@ -601,14 +633,12 @@ export function createFilesystemSgosOperationalStore({
   const initialize = async () => {
     if (!initialized) {
       initialized = (async () => {
-        await mkdir(eventsRoot, { recursive: true, mode: 0o700 });
-        for (const [path, label] of [[root, 'root'], [storeRoot, 'store'], [eventsRoot, 'events']]) {
-          const metadata = await lstat(path);
-          if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
-            fail(`Filesystem Operational Store ${label} is not a directory.`,
-              'SGOS_OPERATIONAL_STORE_ROOT_INVALID');
-          }
-        }
+        // Each caller-owned level is validated before its child is created. A recursive mkdir on
+        // `eventsRoot` would follow a supplied root/store symlink and could create escaped bytes
+        // before the later lstat refusal.
+        await ensureOperationalDirectory(root, 'root');
+        await ensureOperationalDirectory(storeRoot, 'store');
+        await ensureOperationalDirectory(eventsRoot, 'events');
       })().catch((error) => {
         initialized = null;
         throw error;
@@ -736,24 +766,24 @@ export function createFilesystemSgosOperationalStore({
   const adapter = {
     spiVersion: SGOS_OPERATIONAL_STORE_SPI_VERSION,
     role: 'operational',
-    profile: FILESYSTEM_PROFILE,
+    profile,
     storeId,
     capabilities: SGOS_OPERATIONAL_STORE_CAPABILITIES,
 
     descriptor() {
       return Object.freeze({
         spiVersion: SGOS_OPERATIONAL_STORE_SPI_VERSION,
-        role: 'operational', profile: FILESYSTEM_PROFILE, storeId,
+        role: 'operational', profile, storeId,
         durability: 'durable-reconstructable', authorityEligible: false,
         maximumEntries: MAXIMUM_ENTRIES, maximumEvents: MAXIMUM_EVENTS,
-        maximumBytes: MAXIMUM_BYTES, purposes: Object.freeze(['simulation', 'test'])
+        maximumBytes: MAXIMUM_BYTES, purposes: Object.freeze([...purposes])
       });
     },
 
     async doctor() {
       const verification = await adapter.verify();
       return Object.freeze({
-        status: 'ready', profile: FILESYSTEM_PROFILE, storeId,
+        status: 'ready', profile, storeId,
         revision: verification.revision, durability: 'durable-reconstructable',
         authorityEligible: false
       });
@@ -772,7 +802,7 @@ export function createFilesystemSgosOperationalStore({
       await queue;
       const loaded = await load();
       return Object.freeze({
-        valid: true, profile: FILESYSTEM_PROFILE, storeId,
+        valid: true, profile, storeId,
         revision: loaded.head.revision, stateSha256: loaded.head.stateSha256,
         eventCount: loaded.events.length
       });
@@ -783,7 +813,7 @@ export function createFilesystemSgosOperationalStore({
       const loaded = await load();
       const core = {
         format: 'sflow.sgos.operational-backup', formatVersion: FORMAT_VERSION,
-        profile: FILESYSTEM_PROFILE, storeId,
+        profile, storeId,
         events: clone(loaded.events), head: clone(loaded.head)
       };
       return clone(sealed(core, 'backupSha256'));
@@ -792,7 +822,7 @@ export function createFilesystemSgosOperationalStore({
     async planRestore(backup) {
       await queue;
       const loaded = await load();
-      const candidate = validateBackup(backup, storeId, FILESYSTEM_PROFILE);
+      const candidate = validateBackup(backup, storeId, profile);
       const prefix = loaded.events.length <= candidate.backup.events.length
         && loaded.events.every((entry, index) =>
           entry.eventSha256 === candidate.backup.events[index]?.eventSha256);
@@ -801,7 +831,7 @@ export function createFilesystemSgosOperationalStore({
       const mode = loaded.head.stateSha256 === candidate.backup.head.stateSha256
         ? 'noop' : 'fast-forward';
       const core = {
-        kind: 'sgos-operational-restore-plan', storeId, profile: FILESYSTEM_PROFILE, mode,
+        kind: 'sgos-operational-restore-plan', storeId, profile, mode,
         beforeStateSha256: loaded.head.stateSha256,
         afterStateSha256: candidate.backup.head.stateSha256,
         backupSha256: candidate.backup.backupSha256
@@ -812,7 +842,7 @@ export function createFilesystemSgosOperationalStore({
     async restore({ backup, confirmationSha256 }) {
       return locked(async () => {
         const loaded = await load();
-        const candidate = validateBackup(backup, storeId, FILESYSTEM_PROFILE);
+        const candidate = validateBackup(backup, storeId, profile);
         const prefix = loaded.events.length <= candidate.backup.events.length
           && loaded.events.every((entry, index) =>
             entry.eventSha256 === candidate.backup.events[index]?.eventSha256);
@@ -821,7 +851,7 @@ export function createFilesystemSgosOperationalStore({
         const mode = loaded.head.stateSha256 === candidate.backup.head.stateSha256
           ? 'noop' : 'fast-forward';
         const core = {
-          kind: 'sgos-operational-restore-plan', storeId, profile: FILESYSTEM_PROFILE, mode,
+          kind: 'sgos-operational-restore-plan', storeId, profile, mode,
           beforeStateSha256: loaded.head.stateSha256,
           afterStateSha256: candidate.backup.head.stateSha256,
           backupSha256: candidate.backup.backupSha256
@@ -839,7 +869,7 @@ export function createFilesystemSgosOperationalStore({
         }
         const after = (await load()).head;
         return Object.freeze({
-          restored: mode !== 'noop', mode, storeId, profile: FILESYSTEM_PROFILE,
+          restored: mode !== 'noop', mode, storeId, profile,
           revision: after.revision, stateSha256: after.stateSha256, planSha256: required
         });
       });
@@ -854,7 +884,7 @@ export function createFilesystemSgosOperationalStore({
       }
       const target = loaded.states[revision];
       const core = {
-        kind: 'sgos-operational-rollback-plan', storeId, profile: FILESYSTEM_PROFILE,
+        kind: 'sgos-operational-rollback-plan', storeId, profile,
         beforeRevision: loaded.head.revision, beforeStateSha256: loaded.head.stateSha256,
         targetRevision: revision, targetStateSha256: target.stateSha256
       };
@@ -870,7 +900,7 @@ export function createFilesystemSgosOperationalStore({
         }
         const target = loaded.states[revision];
         const core = {
-          kind: 'sgos-operational-rollback-plan', storeId, profile: FILESYSTEM_PROFILE,
+          kind: 'sgos-operational-rollback-plan', storeId, profile,
           beforeRevision: loaded.head.revision, beforeStateSha256: loaded.head.stateSha256,
           targetRevision: revision, targetStateSha256: target.stateSha256
         };
@@ -898,7 +928,7 @@ export function createFilesystemSgosOperationalStore({
           changes
         }, { operation: 'rollback', rollbackRevision: revision });
         return Object.freeze({
-          rolledBack: true, storeId, profile: FILESYSTEM_PROFILE,
+          rolledBack: true, storeId, profile,
           targetRevision: revision, revision: result.revision,
           stateSha256: result.stateSha256, planSha256: required
         });
@@ -906,4 +936,43 @@ export function createFilesystemSgosOperationalStore({
     }
   };
   return Object.freeze(adapter);
+}
+
+/** Create the non-authoritative durable replay profile used by simulation and conformance. */
+export function createFilesystemSgosOperationalStore(options) {
+  return createFilesystemOperationalStore({
+    ...options,
+    profile: FILESYSTEM_PROFILE,
+    purposes: ['simulation', 'test']
+  });
+}
+
+/**
+ * Create the installed live Process-head profile.
+ *
+ * This remains operational state (`authorityEligible: false`). Program, policy, lifecycle, and
+ * evidence authority are validated by the caller before a Process head can be appended. Keeping
+ * this profile separate prevents repository configuration from promoting a replay adapter into
+ * live execution merely by naming it.
+ */
+export function createLiveFilesystemSgosOperationalStore(options) {
+  return createFilesystemOperationalStore({
+    ...options,
+    profile: SGOS_LIVE_OPERATIONAL_STORE_PROFILE,
+    purposes: ['runtime']
+  });
+}
+
+/** Admit only the one installed runtime profile; this does not grant Program or policy authority. */
+export function assertSgosLiveOperationalStoreSelection(adapter) {
+  const store = assertSgosOperationalStoreAdapter(adapter);
+  const descriptor = store.descriptor();
+  if (store.profile !== SGOS_LIVE_OPERATIONAL_STORE_PROFILE
+      || descriptor.profile !== SGOS_LIVE_OPERATIONAL_STORE_PROFILE
+      || canonicalJson(descriptor.purposes) !== canonicalJson(['runtime'])
+      || descriptor.authorityEligible !== false) {
+    fail('Operational Store selection is not the installed live Process-head profile.',
+      'SGOS_OPERATIONAL_STORE_SELECTION_REFUSED', { profile: store.profile });
+  }
+  return store;
 }

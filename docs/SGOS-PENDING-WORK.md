@@ -363,10 +363,32 @@ The second Operational Store implementation landed in `main@32f1afd0`:
 - like the memory profile, it is permanently non-authoritative, accepts only `simulation` or `test`,
   and cannot be selected by the live SGOS runtime or a lifecycle publisher.
 
-Still required: migrate the live filesystem Process store behind the Operational Store SPI and prove
-an explicit old-live-format migration plus atomic runtime cutover without changing Program or policy
-authority. The unchanged conformance journey now passes against both generic implementations, but
-neither generic profile is installed as live execution authority.
+The code-local live Process-head cutover is now implemented:
+
+- `filesystem-live-v1` is a separately installed runtime-only profile behind the same Operational
+  Store SPI; replay profiles still cannot be selected for live execution;
+- only the exact mutable Process-head reference moves behind the SPI. Program, policy, lifecycle, immutable
+  evidence, record-index, and control-successor authority remain on their existing strict paths;
+- an old `state.json` head reference is imported into the append-only Store before a self-hashed cutover
+  receipt is atomically published. Interrupted imports with no receipt are non-authoritative and
+  resume only when their exact bytes match;
+- after cutover, `state.json` remains a verified compatibility/diagnostic mirror. The Store journal
+  survives a crash before mirror refresh, while immutable control lineage remains the authority for
+  legitimate rollback and transition recovery;
+- focused tests cover old-format import, interruption before receipt publication, CAS publication,
+  quarantine, v2 control-lineage upgrade, retained rollback, and runtime transition recovery;
+- filesystem initialization validates each caller-owned directory before creating its child, so a
+  supplied root or Store symlink cannot cause an escaped directory to be created before refusal;
+- Process fsck independently validates the cutover digest, exact import-event correlation, complete
+  live journal, bounded physical census, and current Store/mirror identity without repairing bytes.
+  The one exact crash window where a durable transition intent binds the mirror predecessor and the
+  appended Store candidate is recoverable attention only after the prior/next indexes, indexed
+  records and reservations, control event, control successor, and latest Store event reconstruct
+  exactly. Missing or tampered candidate infrastructure and every other divergence fail closed.
+
+This item remains `[~]` until the unchanged full conformance suite and signed supported-platform
+release matrix have independently reviewed receipts. That evidence is release qualification, not a
+missing code-local migration path.
 
 Acceptance gates:
 

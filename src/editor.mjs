@@ -53,7 +53,7 @@ import {
 } from './agents.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
 import {
-  configuredRemoteAuthority, configuredRemoteIdentity, redactDiagnosticText
+  configuredRemoteAuthority, configuredRemoteIdentity, redactDiagnosticText, remoteFingerprint
 } from './git-remote-diagnostics.mjs';
 import {
   structuredWorldModelViewReferences, worldModelViewCatalog, worldModelWorkflowViewUsage
@@ -1327,11 +1327,28 @@ async function configurationSlice(root) {
 
 function configurationSourceRecord(configuration, authority) {
   const definitionText = String(configuration?.definitionText ?? '');
+  const portfolioText = String(configuration?.portfolioText ?? '');
+  const authorityRemoteFingerprint = authority?.remote ? remoteFingerprint(authority.remote) : null;
+  const authoritySourceCommit = authority?.manifest?.source?.commit
+    ?? (authority?.kind === 'approved-configuration-ref' ? authority?.commit ?? null : null);
   return {
     kind: authority?.kind ?? 'working-tree',
     ref: authority?.ref ?? null,
     commit: authority?.commit ?? null,
+    // Credential-free remote identity and the reviewed source commit bind a later proposal to the
+    // same authority that supplied these bytes. A state mirror has two commits: its transport
+    // commit and the sflow/config source commit attested by its manifest; both are retained.
+    remoteFingerprint: authorityRemoteFingerprint,
+    sourceCommit: authoritySourceCommit,
     sha256: createHash('sha256').update(definitionText).digest('hex'),
+    // A Configuration Center save must compare like with like. The effective configuration can be
+    // mounted from sflow/config while the application checkout contains older (or no) files. Keep
+    // the approved revision of each editable root explicit so proposal authoring never reuses the
+    // workflow digest for portfolio.yml and never CASes authority bytes against application bytes.
+    files: {
+      [WORKFLOW_PATH]: contentSha256(definitionText),
+      [PORTFOLIO_PATH]: contentSha256(portfolioText)
+    },
     worldModelFormat: configuration?.definition?.worldModel?.format ?? 'legacy-v3'
   };
 }
@@ -1737,7 +1754,10 @@ export async function bootstrapWorkspacePortfolio(root, {
   // subtree is absent from repositories initialized before it shipped), then declare the
   // world-model views the portfolio needs so validation cannot fail on a fresh onboarding.
   await ensureRepositoryTemplates(root, definition, { templatesRoot: portfolio.templatesRoot });
-  const declaredViews = await ensureRepositoryWorldModelViews(root, portfolioWorldModelViews(portfolio));
+  const declaredViews = await ensureRepositoryWorldModelViews(
+    root,
+    portfolioWorldModelViews(portfolio, definition)
+  );
   const validatedDefinition = declaredViews ? await loadDefinition(root) : definition;
   validatePortfolioWorldModelViews(portfolio, validatedDefinition);
   await writeText(target, YAML.stringify(starter));
@@ -2000,9 +2020,31 @@ async function validateConfigurationCandidate(root, relative, content, definitio
 }
 
 export async function saveConfigurationFile(root, requestedPath, content, { expectedSha256 = null } = {}) {
+  const relative = repoRelative(root, requestedPath);
+  // Bind the save lease to the target bytes before parsing any repository configuration. A
+  // concurrent writer can leave workflow.yml temporarily malformed; that is still a revision
+  // conflict, not a candidate-validation failure. Resolve the target through the secure repository
+  // boundary, compare the exact bytes the editor loaded, and only then load dependent policy.
+  const target = await secureRepositoryPath(root, relative, {
+    label: 'Editor configuration target',
+    type: 'file'
+  });
+  const existed = target.exists;
+  const previous = existed ? await readFile(target.absolute, 'utf8') : null;
+  // The editor renders an absent optional configuration file as an empty draft. Hash that same
+  // representation so first-time creation is revision-aware too.
+  const currentSha256 = contentSha256(previous ?? '');
+  if (expectedSha256 !== null && expectedSha256 !== currentSha256) {
+    throw new SingularityFlowError(
+      `Configuration changed since the editor loaded '${relative}'. Reload the Configuration Center, review the newer content, and apply the change again.`, {
+        code: 'CONFIGURATION_REVISION_CHANGED',
+        details: { path: relative, expectedSha256, actualSha256: currentSha256, stage: 'before-validation' }
+      }
+    );
+  }
+
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
-  const relative = repoRelative(root, requestedPath);
   const currentAuthority = editorConfigurationPathAuthority(root, definition, portfolio);
   if (!allowedConfigurationPath(definition, relative, portfolio, null, currentAuthority)) throw new SingularityFlowError(`Editor editing is restricted to workflow and portfolio YAML, templates, governed-agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
@@ -2050,19 +2092,6 @@ export async function saveConfigurationFile(root, requestedPath, content, { expe
     try { normalizeImpactDefinition(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because Flow Impact configuration validation failed: ${error.message}`); }
   }
-  const target = await secureRepositoryPath(root, relative, {
-    label: 'Editor configuration target',
-    type: 'file'
-  });
-  const existed = target.exists;
-  const previous = existed ? await readFile(target.absolute, 'utf8') : null;
-  // The editor renders an absent optional configuration file as an empty draft.
-  // Hash that same representation so first-time creation is revision-aware too:
-  // a concurrent creator changes the hash and is rejected below.
-  const currentSha256 = contentSha256(previous ?? '');
-  if (expectedSha256 !== null && expectedSha256 !== currentSha256) {
-    throw new SingularityFlowError(`Configuration changed since the editor loaded '${relative}'. Reload the Configuration Center, review the newer content, and apply the change again.`);
-  }
   try {
     await validateConfigurationCandidate(root, relative, content, definition, portfolio);
   } catch (error) {
@@ -2075,7 +2104,15 @@ export async function saveConfigurationFile(root, requestedPath, content, { expe
   const latest = existsSync(target.absolute) ? await readFile(target.absolute, 'utf8') : null;
   const latestSha256 = contentSha256(latest ?? '');
   if (latestSha256 !== currentSha256) {
-    throw new SingularityFlowError(`Configuration changed while '${relative}' was being validated. Reload the Configuration Center and apply the change to the latest version.`);
+    throw new SingularityFlowError(
+      `Configuration changed while '${relative}' was being validated. Reload the Configuration Center and apply the change to the latest version.`, {
+        code: 'CONFIGURATION_REVISION_CHANGED',
+        details: {
+          path: relative, expectedSha256: currentSha256, actualSha256: latestSha256,
+          stage: 'during-validation'
+        }
+      }
+    );
   }
   await writeText(target.absolute, content);
   return { path: relative, changed: changedFiles(root).includes(relative) };

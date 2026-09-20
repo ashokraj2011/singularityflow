@@ -7,6 +7,10 @@ import {
   LEGACY_WORLD_MODEL_VIEW_IDS, worldModelViewContractCatalog, worldModelViewIdentity
 } from '../../../../src/world-model-views.mjs';
 import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot.ts';
+export {
+  configurationSaveDisposition, configurationSavePlan, configurationSavePlanCliArgs,
+  type ConfigurationSaveDisposition, type ConfigurationSavePlan
+} from './configuration-save.ts';
 
 /**
  * Every tab, in the order the strip renders them.
@@ -210,6 +214,58 @@ export interface AutoDraft {
 export interface ConfigurationTextRevision {
   definitionText: string;
   portfolioText: string;
+}
+
+/** Stable identity of the authority a panel rendered, not merely the bytes of one file. */
+export function configurationAuthorityRevision(
+  source: RepositorySnapshot['configurationSource'] | null | undefined
+): string | null {
+  const effective = source?.effective;
+  if (!effective) return null;
+  return JSON.stringify([
+    effective.kind,
+    effective.remoteFingerprint ?? null,
+    effective.commit ?? null,
+    effective.sourceCommit ?? null
+  ]);
+}
+
+export interface PendingConfigurationProposal {
+  branch: string;
+  baseBranch: string;
+  proposalCommit: string;
+}
+
+export interface ConfigurationProposalObservation {
+  branch: string;
+  proposalCommit: string;
+  targetBranch?: string;
+  merged: boolean;
+}
+
+/** Restore the durable save-file proposal guard after a panel or extension restart. */
+export function pendingConfigurationProposal(
+  observations: ConfigurationProposalObservation[]
+): PendingConfigurationProposal | null {
+  const pending = observations.filter((entry) => entry.merged !== true
+    && entry.branch.startsWith('sflow/config-change/workflow/save-file-')
+    && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(entry.proposalCommit))
+    .sort((left, right) => left.branch.localeCompare(right.branch))[0];
+  return pending ? {
+    branch: pending.branch,
+    baseBranch: pending.targetBranch ?? 'sflow/config',
+    proposalCommit: pending.proposalCommit
+  } : null;
+}
+
+/** Clear a retained guard only when Git proves that exact proposal commit was merged. */
+export function configurationPendingProposalStatus(
+  pending: PendingConfigurationProposal,
+  observations: ConfigurationProposalObservation[]
+): 'pending' | 'merged' {
+  const exact = observations.find((entry) => entry.branch === pending.branch
+    && entry.proposalCommit === pending.proposalCommit);
+  return exact?.merged === true ? 'merged' : 'pending';
 }
 
 export function configurationRefreshDecision(

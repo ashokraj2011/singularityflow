@@ -1,17 +1,24 @@
 /** Read-only repository census for registered durable-record schemas. */
+import { createHash } from 'node:crypto';
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 
 import { gitCommonDir, refExists } from './git.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { run, SingularityFlowError } from './util.mjs';
 import { familyForStoredPath, migrationRegistrySnapshot, readRecord } from './schema-migrations.mjs';
 import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import {
+  classifyWorldModelInput, LEGACY_WORLD_MODEL_CLASSIFICATION
+} from './world-model/migration/v3-reader.mjs';
 
 const MAXIMUM_STATE_AUTHORITY_CENSUS_BYTES = 64 * 1024 * 1024;
+const MAXIMUM_LIFECYCLE_REF_CENSUS_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAXIMUM_LIFECYCLE_REFS = 2_000;
 
 function isInside(boundary, candidate) {
   const relative = path.relative(boundary, candidate);
@@ -256,26 +263,337 @@ function stateAuthorityWorldModelFiles(root, authority, historyDir, {
   });
 }
 
+function lifecycleRefEnvironment(env = process.env) {
+  return {
+    ...env,
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_LITERAL_PATHSPECS: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'Never'
+  };
+}
+
+/** Enumerate only locally materialized branch refs without contacting or lazily hydrating remotes. */
+function localLifecycleRefs(root, maximumRefs) {
+  const observed = run('git', [
+    'for-each-ref', `--count=${maximumRefs + 1}`, '--sort=refname',
+    '--format=%(refname)%00%(objectname)%00%(symref)',
+    'refs/heads', 'refs/remotes'
+  ], {
+    cwd: root,
+    allowFailure: true,
+    env: lifecycleRefEnvironment(),
+    maxBuffer: Math.min(32 * 1024 * 1024, Math.max(1024 * 1024, (maximumRefs + 1) * 2048))
+  });
+  if (observed.status !== 0) return Object.freeze({
+    refs: [],
+    truncated: false,
+    failures: [unreadableFile(
+      '$refs/',
+      'SCHEMA_CENSUS_LIFECYCLE_REFS_UNAVAILABLE',
+      'local lifecycle refs could not be enumerated without network access'
+    )]
+  });
+  const rows = String(observed.stdout ?? '').split(/\r?\n/).filter(Boolean);
+  const truncated = rows.length > maximumRefs;
+  const refs = [];
+  for (const row of rows.slice(0, maximumRefs)) {
+    const fields = row.split('\0');
+    const [ref, commit, symbolic = ''] = fields;
+    if (fields.length !== 3
+        || (!ref?.startsWith('refs/heads/') && !ref?.startsWith('refs/remotes/'))
+        || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit ?? '')) {
+      return Object.freeze({
+        refs: [],
+        truncated,
+        failures: [unreadableFile(
+          '$refs/',
+          'SCHEMA_CENSUS_LIFECYCLE_REFS_INVALID',
+          'Git returned an invalid local lifecycle-ref snapshot'
+        )]
+      });
+    }
+    // Remote HEAD aliases are not independent lifecycle authorities. Ignore every symbolic ref and
+    // the conventional remote HEAD name even if a damaged repository stores it as a direct ref.
+    if (symbolic || /^refs\/remotes\/[^/]+\/HEAD$/.test(ref)) continue;
+    refs.push(Object.freeze({ ref, commit }));
+  }
+  return Object.freeze({ refs: Object.freeze(refs), truncated, failures: Object.freeze([]) });
+}
+
+function lifecycleRefFailure(ref, failure, historyDir) {
+  const relative = failure?.path ? String(failure.path) : '';
+  const displayPath = relative
+    ? `$ref/${ref}/${relative}`
+    : `$ref/${ref}/${String(historyDir ?? '').replace(/\/+$/, '')}/`;
+  if (failure?.code === 'REF_TREE_OBJECT_TOO_LARGE') return unreadableFile(
+    displayPath,
+    'SCHEMA_CENSUS_FILE_TOO_LARGE',
+    'file exceeds the configured census byte bound'
+  );
+  if (failure?.code === 'REF_TREE_OBJECT_MISSING') return unreadableFile(
+    displayPath,
+    'SCHEMA_CENSUS_LIFECYCLE_REF_OBJECT_MISSING',
+    'a locally advertised lifecycle ref depends on an object that is not materialized locally'
+  );
+  return unreadableFile(
+    displayPath,
+    'SCHEMA_CENSUS_LIFECYCLE_REF_UNAVAILABLE',
+    'a locally advertised lifecycle ref could not be read completely without network access'
+  );
+}
+
+function safeLifecycleRefRoot(value, fallback) {
+  const candidate = String(value ?? fallback).trim().replace(/\/+$/, '');
+  if (!candidate || candidate.startsWith(':') || path.posix.isAbsolute(candidate)
+      || path.posix.normalize(candidate) !== candidate
+      || candidate.split('/').includes('..') || candidate.includes('\\')
+      || candidate.includes('\0')) {
+    throw new SingularityFlowError('Lifecycle-ref configuration contains an unsafe durable-record root.', {
+      code: 'SCHEMA_CENSUS_LIFECYCLE_REF_ROOT_UNSAFE'
+    });
+  }
+  return candidate;
+}
+
+function lifecycleRootsAtRef(root, entry, fallbackRoots, maximumFileBytes, fallbackHistoryDir) {
+  const paths = ['singularity/workflow.yml', 'singularity/portfolio.yml'];
+  let unsafePath = null;
+  const observed = readRefTreeResult(root, entry.commit, paths, {
+    env: lifecycleRefEnvironment(),
+    maxObjectBytes: maximumFileBytes,
+    filter: (relativePath, { mode, type }) => {
+      if (!paths.includes(relativePath)) return false;
+      if (type !== 'blob' || !/^100(?:644|755)$/.test(mode)) {
+        unsafePath = relativePath;
+        return false;
+      }
+      return true;
+    }
+  });
+  if (unsafePath) return {
+    roots: null,
+    failures: [unreadableFile(
+      `$ref/${entry.ref}/${unsafePath}`,
+      'SCHEMA_CENSUS_LIFECYCLE_REF_FILE_UNSAFE',
+      'lifecycle-ref configuration must be a regular Git file'
+    )]
+  };
+  if (observed.status !== 'ok') return {
+    roots: null,
+    failures: (observed.errors.length ? observed.errors : [{ code: 'REF_TREE_UNAVAILABLE' }])
+      .map((failure) => lifecycleRefFailure(entry.ref, failure, 'singularity'))
+  };
+  try {
+    const definitionText = observed.contents.get('singularity/workflow.yml');
+    const portfolioText = observed.contents.get('singularity/portfolio.yml');
+    const definition = definitionText ? YAML.parse(definitionText) : null;
+    const portfolio = portfolioText ? YAML.parse(portfolioText) : null;
+    const workItemRoot = safeLifecycleRefRoot(
+      definition?.workItemRoot, 'singularity/work-items'
+    );
+    const initiativeRoot = safeLifecycleRefRoot(
+      portfolio?.initiativeRoot, 'singularity/initiatives'
+    );
+    const worldModelHistoryDir = safeLifecycleRefRoot(
+      definition?.worldModel?.historyDir,
+      fallbackHistoryDir || 'singularity/world-model-history'
+    );
+    return {
+      roots: [
+        ...fallbackRoots,
+        workItemRoot,
+        initiativeRoot
+      ],
+      familyRoots: { workItemRoot, initiativeRoot },
+      worldModelHistoryDir,
+      failures: []
+    };
+  } catch {
+    return {
+      roots: null,
+      failures: [unreadableFile(
+        `$ref/${entry.ref}/singularity/`,
+        'SCHEMA_CENSUS_LIFECYCLE_REF_CONFIGURATION_INVALID',
+        'lifecycle-ref configuration roots could not be parsed'
+      )]
+    };
+  }
+}
+
+/**
+ * Read durable JSON from every locally materialized branch tip.
+ *
+ * The ref and object snapshots are immutable inputs: tree reads use the enumerated commit OID, not
+ * the movable ref name. Identical path/blob pairs shared by local and remote-tracking refs are read
+ * once, while every matching ref SHA remains visible for reinitialization-plan binding.
+ */
+function lifecycleRefFiles(root, refs, roots, historyDir, {
+  maximumFiles, maximumFileBytes, maximumBytes
+}) {
+  const fallbackPathspecs = [...new Set(roots.map((entry) =>
+    entry.relative.replaceAll('\\', '/').replace(/^\/+|\/+$/g, '')).filter(Boolean))];
+  const history = String(historyDir ?? '').replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
+  // WMP bindings have one separately selected state authority. Never let a Story branch or an
+  // unpublished local state branch masquerade as that authority during the lifecycle-ref census.
+  const seenPathObjects = new Map();
+  const files = [];
+  const failures = [];
+  const observedRefs = [];
+  const scannedCommits = new Map();
+  let admittedBytes = 0;
+  let truncated = false;
+
+  for (const entry of refs) {
+    const priorCommit = scannedCommits.get(entry.commit);
+    if (priorCommit) {
+      if (priorCommit.relevant) observedRefs.push(entry);
+      continue;
+    }
+    const configuredRoots = lifecycleRootsAtRef(
+      root, entry, fallbackPathspecs, maximumFileBytes, history
+    );
+    if (configuredRoots.failures.length) {
+      observedRefs.push(entry);
+      failures.push(...configuredRoots.failures);
+      scannedCommits.set(entry.commit, { relevant: true });
+      continue;
+    }
+    const pathspecs = [...new Set(configuredRoots.roots.filter(Boolean))];
+    let matched = false;
+    const pendingKeys = new Set();
+    const admittedObjects = new Map();
+    const structuralFailures = [];
+    const configuredHistory = String(configuredRoots.worldModelHistoryDir ?? '')
+      .replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
+    const excludedHistoryObjects = [...new Set([history, configuredHistory].filter(Boolean)
+      .map((directory) => `${directory}/objects/`))];
+    const excludedWorldModelPrefixes = [...new Set([history, configuredHistory].filter(Boolean)
+      .flatMap((directory) => ['models', 'views', 'handoffs']
+        .map((child) => `${directory}/${child}/`)))];
+    const observed = readRefTreeResult(root, entry.commit, pathspecs, {
+      env: lifecycleRefEnvironment(),
+      maxObjectBytes: maximumFileBytes,
+      filter: (relativePath, { oid, size, mode, type }) => {
+        if (!/\.jsonl?$/i.test(relativePath)) return false;
+        if (excludedHistoryObjects.some((prefix) => relativePath.startsWith(prefix))) return false;
+        if (excludedWorldModelPrefixes.some((prefix) => relativePath.startsWith(prefix))) return false;
+        matched = true;
+        if (type !== 'blob' || !/^100(?:644|755)$/.test(mode)) {
+          structuralFailures.push(unreadableFile(
+            `$ref/${entry.ref}/${relativePath}`,
+            'SCHEMA_CENSUS_LIFECYCLE_REF_FILE_UNSAFE',
+            'governed lifecycle JSON on a branch ref must be a regular Git file'
+          ));
+          return false;
+        }
+        const key = `${relativePath}\0${oid}`;
+        const familyId = familyForStoredPath(relativePath, configuredRoots.familyRoots)?.id ?? null;
+        const alreadyRead = seenPathObjects.get(key);
+        if (alreadyRead) {
+          if (familyId) alreadyRead.familyIds.add(familyId);
+          return false;
+        }
+        if (pendingKeys.has(key)) return false;
+        if (files.length + pendingKeys.size >= maximumFiles) {
+          truncated = true;
+          return false;
+        }
+        // Admit an individually oversized object so the shared reader emits its typed failure.
+        // Otherwise the aggregate byte ceiling is a hard, fail-closed truncation boundary.
+        if (size <= maximumFileBytes && admittedBytes + size > maximumBytes) {
+          truncated = true;
+          return false;
+        }
+        // Reserve the aggregate budget while the tree is being enumerated. Deferring this update
+        // until after readRefTreeResult returns lets every individually admissible object on one
+        // ref observe the same stale total and defeats the command-wide byte ceiling.
+        if (size <= maximumFileBytes) admittedBytes += size;
+        pendingKeys.add(key);
+        admittedObjects.set(relativePath, {
+          oid, size, key, familyIds: new Set(familyId ? [familyId] : [])
+        });
+        return true;
+      }
+    });
+    failures.push(...structuralFailures);
+    if (matched || observed.status !== 'ok') observedRefs.push(entry);
+    if (observed.status !== 'ok') {
+      const errors = observed.errors.length ? observed.errors : [{ code: 'REF_TREE_UNAVAILABLE' }];
+      failures.push(...errors.map((failure) => lifecycleRefFailure(
+        entry.ref, failure, historyDir
+      )));
+      scannedCommits.set(entry.commit, { relevant: true });
+      continue;
+    }
+    for (const [relativePath, content] of observed.contents) {
+      const admitted = admittedObjects.get(relativePath);
+      if (!admitted) continue;
+      const file = {
+        relative: `$ref/${entry.ref}/${relativePath}`,
+        familyPath: relativePath,
+        content,
+        bytes: Buffer.byteLength(content, 'utf8'),
+        object: admitted.oid,
+        ref: entry.ref,
+        commit: entry.commit,
+        familyIds: admitted.familyIds
+      };
+      seenPathObjects.set(admitted.key, file);
+      files.push(file);
+    }
+    scannedCommits.set(entry.commit, { relevant: matched });
+  }
+  return Object.freeze({
+    files: Object.freeze(files.map(({ familyIds, ...file }) => Object.freeze({
+      ...file,
+      familyIds: Object.freeze([...familyIds].sort())
+    }))),
+    failures: Object.freeze(failures),
+    refs: Object.freeze(observedRefs),
+    truncated
+  });
+}
+
 /**
  * Scan only governed and Git-local state roots. Application JSON is intentionally excluded: a
  * product data file that happens to say schemaVersion is not automatically an SFlow durable family.
  */
-export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords = 100_000, maximumFileBytes = 8 * 1024 * 1024 } = {}) {
+export async function schemaCensus(root, {
+  maximumFiles = 20_000,
+  maximumRecords = 100_000,
+  maximumFileBytes = 8 * 1024 * 1024,
+  maximumLifecycleBytes = MAXIMUM_LIFECYCLE_REF_CENSUS_BYTES,
+  maximumRefs = DEFAULT_MAXIMUM_LIFECYCLE_REFS,
+  includeLifecycleRefs = false,
+  configurationRoot = root,
+  stateAuthorityRoot = configurationRoot
+} = {}) {
   if (!Number.isInteger(maximumFiles) || maximumFiles < 1 || maximumFiles > 100_000) {
     throw new SingularityFlowError('Schema census maximumFiles must be an integer from 1 through 100000.', {
       code: 'SCHEMA_CENSUS_LIMIT_INVALID'
     });
   }
   if (!Number.isInteger(maximumRecords) || maximumRecords < 1 || maximumRecords > 1_000_000
+      || !Number.isInteger(maximumRefs) || maximumRefs < 1 || maximumRefs > 100_000
+      || typeof includeLifecycleRefs !== 'boolean'
+      || !Number.isInteger(maximumLifecycleBytes) || maximumLifecycleBytes < 1024
+      || maximumLifecycleBytes > MAXIMUM_LIFECYCLE_REF_CENSUS_BYTES
       || !Number.isInteger(maximumFileBytes) || maximumFileBytes < 1024 || maximumFileBytes > 64 * 1024 * 1024) {
-    throw new SingularityFlowError('Schema census record and byte limits are invalid.', {
+    throw new SingularityFlowError('Schema census record, ref, and byte limits are invalid.', {
       code: 'SCHEMA_CENSUS_LIMIT_INVALID'
     });
   }
   const files = [];
+  const externalConfiguration = path.resolve(configurationRoot) !== path.resolve(root);
   const [definition, portfolio] = await Promise.all([
-    loadDefinition(root).catch(() => null),
-    loadPortfolio(root, { required: false }).catch(() => null)
+    externalConfiguration
+      ? loadDefinition(configurationRoot)
+      : loadDefinition(configurationRoot).catch(() => null),
+    externalConfiguration
+      ? loadPortfolio(configurationRoot, { required: false })
+      : loadPortfolio(configurationRoot, { required: false }).catch(() => null)
   ]);
   const familyRoots = {
     workItemRoot: definition?.workItemRoot ?? null,
@@ -283,7 +601,11 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     worldModelHistoryDir: definition?.worldModel?.historyDir
       ?? 'singularity/world-model-history'
   };
-  const stateAuthority = localWorldModelStateAuthority(root, definition);
+  // Configuration and state authority may be inspected from an isolated, exact approved checkout
+  // while repository-local Process records remain rooted in the application checkout. Keeping
+  // those roots explicit prevents a stale application branch from silently choosing schema roots
+  // or downgrading registered-v4 state history to an optional legacy scan.
+  const stateAuthority = localWorldModelStateAuthority(stateAuthorityRoot, definition);
   const authoritativeHistory = stateAuthority.present || stateAuthority.required;
   const repositoryBoundary = path.resolve(root);
   const repositoryHistoryRoot = path.resolve(root, familyRoots.worldModelHistoryDir);
@@ -342,18 +664,47 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
 
   const remainingFiles = Math.max(0, maximumFiles - files.length);
   const stateHistory = stateAuthorityWorldModelFiles(
-    root, stateAuthority, familyRoots.worldModelHistoryDir, {
+    stateAuthorityRoot, stateAuthority, familyRoots.worldModelHistoryDir, {
       maximumFiles: Math.min(remainingFiles, maximumRecords),
       maximumFileBytes
     }
   );
   files.push(...stateHistory.files);
 
-  const families = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, resultFor(entry)]));
+  // Enumerating every locally materialized branch is intentionally opt-in. Doctor and ordinary
+  // read paths need the checked-out/state-authority view and must not pay up to thousands of Git
+  // tree reads. Workspace reinitialize enables this complete migration-readiness proof explicitly.
+  const refSnapshot = includeLifecycleRefs
+    ? localLifecycleRefs(root, maximumRefs)
+    : Object.freeze({ refs: Object.freeze([]), truncated: false, failures: Object.freeze([]) });
+  const remainingRefFiles = Math.max(0, maximumFiles - files.length);
+  const refHistory = includeLifecycleRefs
+    ? lifecycleRefFiles(
+      root, refSnapshot.refs, selectedRoots, familyRoots.worldModelHistoryDir, {
+        maximumFiles: Math.min(remainingRefFiles, maximumRecords),
+        maximumFileBytes,
+        maximumBytes: maximumLifecycleBytes
+      }
+    )
+    : Object.freeze({
+      files: Object.freeze([]), failures: Object.freeze([]),
+      refs: Object.freeze([]), truncated: false
+    });
+  files.push(...refHistory.files);
+
+  const registry = migrationRegistrySnapshot();
+  const familyDefinitions = new Map(registry.map((entry) => [entry.id, entry]));
+  const families = new Map(registry.map((entry) => [entry.id, resultFor(entry)]));
   const unregistered = [];
-  const unreadable = [...stateHistory.failures];
+  const unreadable = [
+    ...stateHistory.failures,
+    ...refSnapshot.failures,
+    ...refHistory.failures
+  ];
   let scannedRecords = 0;
+  let scannedFiles = 0;
   let recordLimitReached = false;
+  const observedPathContents = new Set();
   const recordFailure = (summary, error, familyId, storedVersion, filePath) => {
     const failure = { path: filePath, ...safeReadFailure(error, familyId, storedVersion) };
     summary.unreadable.push(failure);
@@ -363,7 +714,7 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
   const historyObjectPath = new RegExp(
     `^${historyRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/objects/sha256/[a-f0-9]{2}/[a-f0-9]{64}$`
   );
-  const observe = (record, filePath, familyPath) => {
+  const observe = (record, filePath, familyPath, selectedFamily = null) => {
     if (scannedRecords >= maximumRecords) { recordLimitReached = true; return; }
     scannedRecords += 1;
     // Content-addressed history objects do not encode their MIG family in the path. Their owning
@@ -371,7 +722,24 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     // schema range and semantic owner as one closure. Guessing a family here would either
     // misclassify an object or falsely block reinitialization as "unregistered".
     if (historyObjectPath.test(familyPath)) return;
-    const family = familyForStoredPath(familyPath, familyRoots);
+    const family = selectedFamily ?? familyForStoredPath(familyPath, familyRoots);
+    // Legacy v3 manifests predate the registered-v4 durable schema and deliberately use
+    // `schema_version`/`source_schema_version`. Their path is shared with the v4 manifest, so path
+    // matching alone cannot decide the family. Keep a recognized v3 manifest visible as an
+    // unregistered migration advisory; do not misreport it as a corrupt v4 record. An unversioned
+    // object that claims to be wmb-v4 is still handled by the registered family below and fails
+    // closed with SCHEMA_VERSION_MISSING.
+    if (family?.id === 'world-model-manifest'
+        && record && typeof record === 'object' && !Array.isArray(record)
+        && record.schemaVersion == null
+        && classifyWorldModelInput(record).classification === LEGACY_WORLD_MODEL_CLASSIFICATION) {
+      unregistered.push({
+        path: filePath,
+        schemaVersion: null,
+        code: 'WMB_LEGACY_MANIFEST'
+      });
+      return;
+    }
     if (!record || typeof record !== 'object' || Array.isArray(record)) {
       if (!family) return;
       const summary = families.get(family.id);
@@ -430,7 +798,26 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     // They remain a registered record family and are tested through their own reader/writer path,
     // but are not part of repository schema-upgrade readiness.
     if (/^\$git\/(?:dx|performance)\//.test(file.relative)) continue;
+    const explicitFamilyIds = file.familyIds ?? [];
+    if (explicitFamilyIds.length > 1) {
+      scannedFiles += 1;
+      unreadable.push(unreadableFile(
+        file.relative,
+        'SCHEMA_CENSUS_LIFECYCLE_REF_FAMILY_AMBIGUOUS',
+        'the same lifecycle bytes are assigned to different durable-record families by local refs'
+      ));
+      continue;
+    }
+    const selectedFamily = explicitFamilyIds.length
+      ? familyDefinitions.get(explicitFamilyIds[0]) ?? null
+      : familyForStoredPath(file.familyPath ?? file.relative, familyRoots);
+    const semanticFamily = selectedFamily?.id ?? 'unregistered';
     if (file.bytes > maximumFileBytes) {
+      const oversizedKey = `${file.familyPath ?? file.relative}\0${semanticFamily}`
+        + `\0object:${file.object ?? file.relative}`;
+      if (observedPathContents.has(oversizedKey)) continue;
+      observedPathContents.add(oversizedKey);
+      scannedFiles += 1;
       unreadable.push(unreadableFile(
         file.relative,
         'SCHEMA_CENSUS_FILE_TOO_LARGE',
@@ -445,6 +832,7 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     catch {
       // OS errors may contain an absolute path, username, share name, or other machine-local
       // material. The bounded relative path already identifies the record for repair.
+      scannedFiles += 1;
       unreadable.push(unreadableFile(
         file.relative,
         'SCHEMA_CENSUS_FILE_READ_FAILED',
@@ -452,12 +840,21 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
       ));
       continue;
     }
+    const contentKey = `${file.familyPath ?? file.relative}\0${semanticFamily}`
+      + `\0sha256:${createHash('sha256')
+      .update(content).digest('hex')}`;
+    if (observedPathContents.has(contentKey)) continue;
+    observedPathContents.add(contentKey);
+    scannedFiles += 1;
     if (file.relative.endsWith('.jsonl')) {
       for (const [index, line] of content.split(/\r?\n/).entries()) {
         if (!line.trim()) continue;
         if (scannedRecords >= maximumRecords) { recordLimitReached = true; break; }
         try {
-          observe(JSON.parse(line), `${file.relative}#L${index + 1}`, file.familyPath ?? file.relative);
+          observe(
+            JSON.parse(line), `${file.relative}#L${index + 1}`,
+            file.familyPath ?? file.relative, selectedFamily
+          );
         }
         catch {
           // Current Node versions include an excerpt of malformed input in JSON.parse messages.
@@ -470,7 +867,9 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
         }
       }
     } else {
-      try { observe(JSON.parse(content), file.relative, file.familyPath ?? file.relative); }
+      try {
+        observe(JSON.parse(content), file.relative, file.familyPath ?? file.relative, selectedFamily);
+      }
       catch {
         unreadable.push(unreadableFile(
           file.relative,
@@ -492,14 +891,17 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     roots: Object.freeze([
       ...selectedRoots.map((entry) => `${entry.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`),
       '$git/',
+      ...(refSnapshot.refs.length || refSnapshot.failures.length ? ['$refs/'] : []),
       ...(stateHistory.status === 'missing' ? [] : [`$state/${familyRoots.worldModelHistoryDir}/`])
     ]),
     scanned: scannedRecords,
-    scannedFiles: files.length,
-    truncated: files.length >= maximumFiles || recordLimitReached || stateHistory.truncated,
+    scannedFiles,
+    truncated: files.length >= maximumFiles || recordLimitReached || stateHistory.truncated
+      || refSnapshot.truncated || refHistory.truncated,
+    lifecycleRefs: Object.freeze(refHistory.refs.map((entry) => Object.freeze({ ...entry }))),
     healthy: outsideRange === 0 && unreadable.length === 0,
     totals: Object.freeze({
-      registeredFamilies: migrationRegistrySnapshot().length,
+      registeredFamilies: registry.length,
       observedFamilies: selected.length,
       registeredRecords: selected.reduce((total, entry) => total + entry.records, 0),
       validatedRecords,

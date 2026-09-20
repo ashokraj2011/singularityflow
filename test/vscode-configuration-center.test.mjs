@@ -10,7 +10,12 @@ const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name)
 const {
   authorityWithMember,
   configurationCenterView,
+  configurationPendingProposalStatus,
+  pendingConfigurationProposal,
   configurationRefreshDecision,
+  configurationSaveDisposition,
+  configurationSavePlan,
+  configurationSavePlanCliArgs,
   prepareWorldModelDraftForSave,
   updateApprovalSecurityProfileYaml,
   updateAutoYaml,
@@ -420,7 +425,7 @@ test('configuration center serializes every configuration mutation through one h
     /\['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model'\]/);
   assert.match(host, /\['delete-authority', 'delete-mcp'\]/);
   assert.match(host, /if \(mutation && this\.saving\)/);
-  assert.match(host, /try \{ await this\.receiveReady\(message\); \}\s*finally \{ this\.saving = false; \}/);
+  assert.match(host, /try \{ await this\.receiveReady\(message\); \}\s*finally \{[\s\S]{0,300}this\.saving = false;[\s\S]{0,300}this\.storeChanged\(\);/);
   assert.doesNotMatch(host, /private save[\s\S]{0,300}this\.saving = true/,
     'the mutex must cover the whole mutation, not only the eventual CLI write');
 });
@@ -546,6 +551,71 @@ test('configuration refresh preserves dirty forms and detects repository conflic
   assert.equal(configurationRefreshDecision(true, rendered, { ...rendered, portfolioText: 'portfolio-b' }), 'conflict');
 });
 
+test('configuration saves bind CAS to the authority they actually mutate', () => {
+  const approvedWorkflow = 'approved workflow\n';
+  const approvedPortfolio = 'approved portfolio\n';
+  const source = {
+    editor: 'effective',
+    effective: {
+      kind: 'approved-configuration-ref', ref: 'refs/remotes/origin/sflow/config',
+      commit: 'a'.repeat(40), sha256: '1'.repeat(64),
+      remoteFingerprint: '3'.repeat(64), sourceCommit: 'a'.repeat(40),
+      files: {
+        'singularity/workflow.yml': '1'.repeat(64),
+        'singularity/portfolio.yml': '2'.repeat(64)
+      },
+      worldModelFormat: 'legacy-v3'
+    },
+    candidate: null
+  };
+  assert.deepEqual(configurationSavePlan(
+    source, 'singularity/workflow.yml', approvedWorkflow
+  ), {
+    writable: true, proposal: true, expectedSha256: '1'.repeat(64),
+    expectedAuthorityKind: 'approved-configuration-ref', expectedAuthorityCommit: 'a'.repeat(40),
+    expectedAuthorityRemoteFingerprint: '3'.repeat(64), expectedAuthoritySourceCommit: 'a'.repeat(40)
+  });
+  assert.deepEqual(configurationSavePlan(
+    source, 'singularity/portfolio.yml', approvedPortfolio
+  ), {
+    writable: true, proposal: true, expectedSha256: '2'.repeat(64),
+    expectedAuthorityKind: 'approved-configuration-ref', expectedAuthorityCommit: 'a'.repeat(40),
+    expectedAuthorityRemoteFingerprint: '3'.repeat(64), expectedAuthoritySourceCommit: 'a'.repeat(40)
+  });
+
+  const local = {
+    ...source,
+    effective: { ...source.effective, kind: 'working-tree' }
+  };
+  assert.deepEqual(configurationSavePlan(
+    local, 'singularity/workflow.yml', approvedWorkflow
+  ), {
+    writable: true, proposal: false,
+    expectedSha256: '1539ba452e5de3cde6a5c79eea50871ce404c74f73a920021acbe8d7c23b2edc'
+  });
+
+  const mirror = configurationSavePlan({
+    ...source,
+    effective: { ...source.effective, kind: 'verified-state-mirror', commit: 'b'.repeat(40) }
+  }, 'singularity/workflow.yml', approvedWorkflow);
+  assert.equal(mirror.writable, false);
+  assert.equal(mirror.proposal, false);
+  assert.match(mirror.blockedReason, /Restore or reinitialize sflow\/config/);
+  assert.throws(() => configurationSavePlanCliArgs(mirror), /readable only from the verified state recovery mirror/);
+
+  const argv = configurationSavePlanCliArgs(configurationSavePlan(
+    source, 'singularity/workflow.yml', approvedWorkflow
+  ));
+  assert.deepEqual(argv, [
+    '--expected-sha256', '1'.repeat(64),
+    '--expected-authority-kind', 'approved-configuration-ref',
+    '--expected-authority-commit', 'a'.repeat(40),
+    '--expected-authority-remote-fingerprint', '3'.repeat(64),
+    '--expected-authority-source-commit', 'a'.repeat(40),
+    '--propose', '--json'
+  ]);
+});
+
 test('configuration center reports dirty edits and offers an explicit conflict decision', () => {
   const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
@@ -555,6 +625,93 @@ test('configuration center reports dirty edits and offers an explicit conflict d
   assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'form-dirty'/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /configuration-repository-changed/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /configuration-save-error/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /event\.data\.conflict === true/);
+});
+
+test('configuration center reloads the store and routes external saves through proposals', async () => {
+  const panel = await readFile(source('configuration-center.ts'), 'utf8');
+  const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
+  assert.match(panel, /reload-dirty[\s\S]{0,220}action: 'refresh'/,
+    'Reload must fetch a new snapshot rather than repaint cached bytes');
+  assert.match(extension, /configurationSavePlanCliArgs\(message\)/,
+    'external authority saves must carry destination and authority CAS through the governed proposal route');
+  assert.match(extension, /application checkout was not changed/);
+  assert.match(extension, /store\.current\.error/,
+    'refresh must inspect the store result because WorkspaceStore.refresh resolves after failures');
+  assert.match(panel, /reloadInFlight/,
+    'repository change notifications must be suppressed while an explicit reload is settling');
+  assert.match(panel, /configuration-proposal-pending/,
+    'successful proposals must preserve and freeze the submitted form rather than repaint approved bytes');
+  assert.match(panel, /authorityMutation && this\.pendingProposal/,
+    'a retained panel must refuse a second write while the first proposal is unmerged');
+  assert.match(panel, /restorePendingProposal/,
+    'opening or revealing a panel must restore durable pending proposal state');
+  assert.match(extension, /workflow', 'proposals', '--all', '--json'/,
+    'proposal reconciliation must inspect exact remote proposal ancestry');
+  assert.match(panel, /type: 'proposal-status'/,
+    'a deleted review branch must be resolved from exact proposal-commit ancestry');
+  assert.match(extension, /'workflow', 'proposal-status'/,
+    'the host must route deleted-branch merge proof through the governed CLI');
+});
+
+test('configuration save disposition and pending proposal follow actual authority state', () => {
+  assert.deepEqual(configurationSaveDisposition(JSON.stringify({
+    reviewRequired: true,
+    branch: 'sflow/config-edit/example',
+    baseBranch: 'sflow/config',
+    commit: 'e'.repeat(40),
+    files: ['singularity/workflow.yml']
+  }), true), {
+    kind: 'proposal',
+    branch: 'sflow/config-edit/example',
+    baseBranch: 'sflow/config',
+    proposalCommit: 'e'.repeat(40),
+    files: ['singularity/workflow.yml']
+  });
+  assert.deepEqual(configurationSaveDisposition(JSON.stringify({
+    reviewRequired: false, authorityMode: 'local'
+  }), true), { kind: 'local' });
+  assert.deepEqual(configurationSaveDisposition(JSON.stringify({ reviewRequired: false }), true), {
+    kind: 'unchanged'
+  });
+  assert.throws(() => configurationSaveDisposition(JSON.stringify({
+    reviewRequired: true, branch: 'sflow/config-change/workflow/save-file-example'
+  }), true), /exact branch and commit/,
+  'a malformed proposal response must fail closed instead of looking unchanged');
+
+  const pending = {
+    branch: 'sflow/config-edit/example', baseBranch: 'sflow/config',
+    proposalCommit: 'e'.repeat(40)
+  };
+  assert.equal(configurationPendingProposalStatus(pending, []), 'pending');
+  assert.equal(configurationPendingProposalStatus(pending, [{
+    ...pending, targetBranch: 'sflow/config', merged: false
+  }]), 'pending', 'an unrelated authority advance must not clear an unmerged proposal');
+  assert.equal(configurationPendingProposalStatus(pending, [{
+    ...pending, targetBranch: 'sflow/config', merged: true
+  }]), 'merged');
+
+  const restored = pendingConfigurationProposal([{
+    branch: `sflow/config-change/workflow/save-file-workflow-${'f'.repeat(12)}-${'a'.repeat(8)}`,
+    proposalCommit: 'f'.repeat(40), targetBranch: 'sflow/config', merged: false
+  }]);
+  assert.equal(restored?.proposalCommit, 'f'.repeat(40),
+    'an unmerged save-file proposal must restore the panel guard after reopen');
+});
+
+test('configuration center marks an unmerged proposal read-only', () => {
+  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, [], {
+    branch: 'sflow/config-edit/example', baseBranch: 'sflow/config'
+  });
+  assert.match(html, /Configuration proposal pending review/);
+  assert.match(html, /sflow\/config-edit\/example/);
+  assert.match(html, /fieldset disabled/);
+  assert.match(html, /configuration-pending-refresh/);
+  assert.match(html, /configuration-resume-approved/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /configuration-proposal-pending/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /form input, form select, form textarea, form button/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /resume-approved-baseline/);
 });
 
 test('world-model editor preserves comments, advanced context, and injection rules', () => {

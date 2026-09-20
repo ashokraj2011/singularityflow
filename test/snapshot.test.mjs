@@ -357,6 +357,14 @@ test('read-only snapshots load approved configuration without copying it onto th
   assert.equal(snapshot.configuration.definition.version, 2);
   assert.match(snapshot.configuration.definitionText, /^version: 2/m);
   assert.equal(snapshot.configuration.configurationSource.editor, 'effective');
+  assert.equal(
+    snapshot.configuration.configurationSource.effective.files['singularity/workflow.yml'],
+    createHash('sha256').update(snapshot.configuration.definitionText).digest('hex')
+  );
+  assert.equal(
+    snapshot.configuration.configurationSource.effective.files['singularity/portfolio.yml'],
+    createHash('sha256').update(snapshot.configuration.portfolioText).digest('hex')
+  );
   assert.equal(snapshot.configuration.configurationSource.candidate, null,
     'a clean checkout keeps the approved authority instead of inventing a local candidate');
   assert.equal(snapshot.capabilities.path, 'singularity/capabilities.yml');
@@ -379,19 +387,39 @@ test('read-only snapshots load approved configuration without copying it onto th
   assert.deepEqual(envelope.included, ['repository', 'lifecycle', 'capabilities']);
 });
 
-test('configuration snapshots round-trip a validated working-tree candidate over older approved policy', async () => {
+test('configuration snapshot keeps approved save revisions separate from a clean divergent application file', async () => {
   const root = await repository();
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const approvedText = await readFile(workflowPath, 'utf8');
   run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], root);
   run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], root);
 
-  // Keep this fixture focused on the editor candidate. Initiative view migration is governed by
-  // the portfolio editor, so its legacy assignments are removed in the same local candidate.
-  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
-  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
-  for (const phase of Object.values(portfolio.initiativePhases ?? {})) phase.worldModelViews = [];
-  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  const applicationText = `${approvedText}\n# application projection deliberately differs\n`;
+  await writeFile(workflowPath, applicationText);
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'diverge application projection'], root);
+  assert.equal(run('git', ['status', '--porcelain=v1'], root).stdout, '');
+
+  const scoped = await repositorySnapshot(root, null, null, { included: ['configuration'] });
+  assert.equal(scoped.configuration.configurationSource.editor, 'effective');
+  assert.equal(scoped.configuration.definitionText, approvedText);
+  assert.notEqual(
+    createHash('sha256').update(applicationText).digest('hex'),
+    scoped.configuration.configurationSource.effective.files['singularity/workflow.yml']
+  );
+  assert.equal(
+    scoped.configuration.configurationSource.effective.files['singularity/workflow.yml'],
+    createHash('sha256').update(approvedText).digest('hex'),
+    'proposal CAS binds the approved authority, never the different application checkout'
+  );
+});
+
+test('configuration snapshots round-trip a validated working-tree candidate over older approved policy', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const approvedText = await readFile(workflowPath, 'utf8');
+  run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], root);
+  run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], root);
 
   const candidate = YAML.parse(approvedText);
   candidate.worldModel.format = 'registered-v4';
@@ -1033,9 +1061,29 @@ test('visual editor rejects a stale configuration revision without overwriting c
 
   await assert.rejects(
     () => saveConfigurationFile(root, 'singularity/workflow.yml', rendered, { expectedSha256 }),
-    /changed since the editor loaded/i
+    (error) => error?.code === 'CONFIGURATION_REVISION_CHANGED'
+      && error.details?.stage === 'before-validation'
+      && error.details?.expectedSha256 === expectedSha256
   );
   assert.equal(await readFile(workflowPath, 'utf8'), concurrent);
+});
+
+test('visual editor reports a stale byte lease before parsing a concurrently malformed workflow', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const rendered = await readFile(workflowPath, 'utf8');
+  const expectedSha256 = createHash('sha256').update(rendered).digest('hex');
+  const malformedConcurrent = 'version: [\n';
+  await writeFile(workflowPath, malformedConcurrent);
+
+  await assert.rejects(
+    () => saveConfigurationFile(root, 'singularity/workflow.yml', rendered, { expectedSha256 }),
+    (error) => error?.code === 'CONFIGURATION_REVISION_CHANGED'
+      && error.details?.stage === 'before-validation'
+      && error.details?.actualSha256
+        === createHash('sha256').update(malformedConcurrent).digest('hex')
+  );
+  assert.equal(await readFile(workflowPath, 'utf8'), malformedConcurrent);
 });
 
 test('visual editor can create an absent optional configuration file from an empty rendered revision', async () => {

@@ -7,7 +7,7 @@
  * compatibility. Historical records are never rewritten by this command.
  */
 import { createHash } from 'node:crypto';
-import { lstat } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { publishOrganisationCapabilityMap } from './organisation.mjs';
@@ -31,7 +31,7 @@ export const REINITIALIZATION_SCHEMA_POLICY = Object.freeze({
 });
 
 const successfulRefreshStatuses = new Set([
-  'current', 'updated', 'would-update', 'would-initialize'
+  'current', 'updated', 'would-update', 'would-initialize', 'initialization-created'
 ]);
 const CONFIGURATION_PLAN = /^cfgp-([a-f0-9]{24})$/;
 const REINITIALIZATION_PLAN = /^wrip-([a-f0-9]{24})-([a-f0-9]{64})$/;
@@ -144,7 +144,25 @@ function routingTopologyIdentity(topology) {
   };
 }
 
-function reinitializationPlanId(configurationPlanId, topology) {
+function lifecycleRefSnapshot(census) {
+  return (census?.lifecycleRefs ?? []).map((entry) => ({
+    ref: entry.ref,
+    commit: entry.commit
+  })).sort((left, right) => left.ref.localeCompare(right.ref)
+    || left.commit.localeCompare(right.commit));
+}
+
+function schemaAuthorityIdentity(censuses) {
+  return (censuses ?? []).map((census) => ({
+    repository: census.repository,
+    remote: census.remote,
+    path: path.resolve(census.path),
+    lifecycleRefs: lifecycleRefSnapshot(census)
+  })).sort((left, right) => left.path.localeCompare(right.path)
+    || String(left.repository ?? '').localeCompare(String(right.repository ?? '')));
+}
+
+function reinitializationPlanId(configurationPlanId, topology, schemaCensuses = []) {
   const match = String(configurationPlanId ?? '').match(CONFIGURATION_PLAN);
   if (!match) return null;
   const identity = {
@@ -154,7 +172,8 @@ function reinitializationPlanId(configurationPlanId, topology) {
       remote: lead.remote,
       status: lead.authorityObservation?.status ?? 'unavailable',
       configurationCommit: lead.authorityObservation?.commit ?? null
-    }))
+    })),
+    schemaAuthorities: schemaAuthorityIdentity(schemaCensuses)
   };
   return `wrip-${match[1]}-${sha256(identity)}`;
 }
@@ -219,7 +238,8 @@ function migrationSummary(census) {
     outsideReadableRange: census.totals.outsideRange,
     unregistered: census.totals.unregistered,
     unreadable: census.totals.unreadable,
-    truncated: census.truncated
+    truncated: census.truncated,
+    lifecycleRefs: lifecycleRefSnapshot(census)
   };
 }
 
@@ -395,7 +415,72 @@ async function selectedTopology(registryFile, results, services, { observeLeads 
   };
 }
 
-async function censusCheckouts(checkouts, services) {
+function authorityCensusCollector(services, expectedLifecycleRefs = null) {
+  const observations = new Map();
+  return {
+    observations,
+    async inspect(candidate) {
+      const paths = [...new Set(candidate.repository.localPaths
+        ?? (candidate.repository.localPath ? [candidate.repository.localPath] : []))];
+      const failures = [];
+      await Promise.all(paths.map(async (checkoutPath) => {
+        const requested = path.resolve(checkoutPath);
+        const key = await realpath(requested).catch(() => requested);
+        try {
+          const census = await services.schemaCensus(key, {
+            includeLifecycleRefs: true,
+            configurationRoot: candidate.root,
+            stateAuthorityRoot: candidate.root
+          });
+          const summary = migrationSummary(census);
+          observations.set(key, {
+            census,
+            authority: {
+              source: 'approved-configuration-candidate',
+              configurationSourceCommit: candidate.sourceCommit ?? null,
+              stateAuthorityCommit: candidate.stateBefore?.stateCommit ?? null
+            }
+          });
+          const actualLifecycleRefs = lifecycleRefSnapshot(census);
+          if (expectedLifecycleRefs?.has(key)
+              && sha256(actualLifecycleRefs) !== expectedLifecycleRefs.get(key)) {
+            throw new SingularityFlowError(
+              `Lifecycle refs changed after schema migration readiness was reviewed for '${key}'.`, {
+                code: 'WORKSPACE_REINITIALIZE_SCHEMA_AUTHORITY_CHANGED'
+              }
+            );
+          }
+          // The apply path invokes this hook before publishing configuration. Propagate a schema
+          // blocker into refresh preflight so a record that changed after the reviewed preview
+          // cannot turn a supposedly safe reinitialization into a partial mutation.
+          if (!summary.healthy || summary.truncated) {
+            throw new SingularityFlowError(
+              `Schema migration readiness is blocked for '${key}'.`, {
+                code: 'WORKSPACE_REINITIALIZE_SCHEMA_BLOCKED'
+              }
+            );
+          }
+        } catch (error) {
+          if (!observations.has(key)) observations.set(key, { error });
+          failures.push(error);
+        }
+      }));
+      if (failures.length) throw failures[0];
+    }
+  };
+}
+
+async function lifecycleRefExpectations(censuses) {
+  const expected = new Map();
+  await Promise.all((censuses ?? []).map(async (census) => {
+    const requested = path.resolve(census.path);
+    const key = await realpath(requested).catch(() => requested);
+    expected.set(key, sha256(lifecycleRefSnapshot(census)));
+  }));
+  return expected;
+}
+
+async function censusCheckouts(checkouts, services, authoritative = new Map()) {
   return Promise.all(checkouts.map(async (checkout) => {
     const exists = await lstat(checkout.path).catch(() => null);
     if (!exists?.isDirectory()) return {
@@ -404,10 +489,16 @@ async function censusCheckouts(checkouts, services) {
       reason: 'The registered repository checkout is not present on this machine; remote configuration was still reviewed independently.'
     };
     try {
-      const summary = migrationSummary(await services.schemaCensus(checkout.path));
+      const requested = path.resolve(checkout.path);
+      const key = await realpath(requested).catch(() => requested);
+      const observation = authoritative.get(key);
+      if (observation?.error) throw observation.error;
+      const summary = migrationSummary(observation?.census
+        ?? await services.schemaCensus(checkout.path, { includeLifecycleRefs: true }));
       return {
         ...checkout,
         ...summary,
+        schemaAuthority: observation?.authority ?? { source: 'working-tree' },
         ...(summary.status === 'attention-required' ? {
           nextAction: commandAction(['singularity-flow', 'doctor', '--json'], {
             cwd: checkout.path
@@ -558,8 +649,10 @@ export async function reinitializeWorkspaces({
   // Applying a compound plan begins with the same read-only configuration preview used to create
   // it. This verifies both the embedded cfgp identity and the local workspace/lead topology before
   // `refreshWorkspaceConfigurations` receives any authority to mutate a remote ref.
+  const previewCensusCollector = authorityCensusCollector(services);
   const preview = await services.refreshWorkspaceConfigurations({
-    ...refreshInput, dryRun: true, confirmPlan: null
+    ...refreshInput, dryRun: true, confirmPlan: null,
+    inspectCandidate: previewCensusCollector.inspect
   });
   const previewTopology = await selectedTopology(registryFile, preview.results, services, {
     observeLeads: true
@@ -573,11 +666,15 @@ export async function reinitializeWorkspaces({
   // Schema compatibility is part of the reviewed boundary, not an after-the-fact diagnostic.
   // A missing checkout, bounded/truncated census, unreadable record, or out-of-range version must
   // prevent both plan issuance and mutation.
-  const previewSchemaCensuses = await censusCheckouts(previewTopology.checkouts, services);
+  const previewSchemaCensuses = await censusCheckouts(
+    previewTopology.checkouts, services, previewCensusCollector.observations
+  );
   const previewSchemaBlockers = blockingSchemaCensuses(previewSchemaCensuses);
   const observedPlanId = previewTopology.issues.length || previewSchemaBlockers.length
     || !preview.planId
-    ? null : reinitializationPlanId(preview.planId, previewTopology);
+    ? null : reinitializationPlanId(
+      preview.planId, previewTopology, previewSchemaCensuses
+    );
 
   if (dryRun) {
     const planId = preview.status === 'blocked' || previewSchemaBlockers.length
@@ -659,8 +756,12 @@ export async function reinitializeWorkspaces({
     });
   }
 
+  const applyCensusCollector = authorityCensusCollector(
+    services, await lifecycleRefExpectations(previewSchemaCensuses)
+  );
   const refresh = await services.refreshWorkspaceConfigurations({
-    ...refreshInput, dryRun: false, confirmPlan: confirmed.configurationPlanId
+    ...refreshInput, dryRun: false, confirmPlan: confirmed.configurationPlanId,
+    inspectCandidate: applyCensusCollector.inspect
   });
   // Configuration publication may legitimately change sflow/config. Rebind only the local routing
   // fields after it completes; lead commit movement is instead constrained by the cfgp apply and
@@ -674,7 +775,9 @@ export async function reinitializeWorkspaces({
       reason: 'Configuration apply did not return one result for every selected repository; capability locators were not changed.'
     });
   }
-  const schemaCensuses = await censusCheckouts(topology.checkouts, services);
+  const schemaCensuses = await censusCheckouts(
+    topology.checkouts, services, applyCensusCollector.observations
+  );
   const schemaBlockers = blockingSchemaCensuses(schemaCensuses);
   const topologyChanged = sha256(routingTopologyIdentity(previewTopology))
     !== sha256(routingTopologyIdentity(topology));
@@ -694,9 +797,10 @@ export async function reinitializeWorkspaces({
       plannedLeads: [],
       results: []
     };
-  } else if (refresh.status === 'blocked') {
+  } else if (refresh.status !== 'complete') {
     capabilityPortability = {
-      status: 'not-run-configuration-blocked',
+      status: refresh.status === 'partial'
+        ? 'not-run-configuration-partial' : 'not-run-configuration-blocked',
       plannedLeads: [],
       results: []
     };
@@ -715,7 +819,7 @@ export async function reinitializeWorkspaces({
   const status = refresh.status === 'blocked' ? 'blocked'
       : refresh.status === 'partial' || schemaBlocked || portabilityBlocked || topologyBlocked ? 'partial'
         : 'complete';
-  const nextAction = topologyBlocked || schemaBlocked
+  const nextAction = topologyBlocked || schemaBlocked || refresh.status !== 'complete'
     ? reinitializeAction(commandInput, ['--dry-run']) : null;
   return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary reinitialization report, never persisted

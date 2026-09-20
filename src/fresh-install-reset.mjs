@@ -601,7 +601,11 @@ async function machineResetPlan({
       registryWarning = `Unreadable workspace registry will be forgotten without inspecting workspace directories: ${error.message}`;
     }
   }
-  const entries = await readWorkspaceRegistry(registryFile);
+  // Forget-only deliberately permits an unreadable registry because it removes the complete
+  // machine-local state root without trusting or traversing any paths named by that file. The
+  // strict shared reader must still fail closed everywhere else, so do not ask it to reinterpret a
+  // registry this planner has already classified as opaque disposal input.
+  const entries = registryWarning ? [] : await readWorkspaceRegistry(registryFile);
   const workspaces = [];
   const missingRegistrations = [];
   const resetTargetProofs = new Map([[localStateRoot, localState]]);

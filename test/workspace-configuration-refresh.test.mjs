@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { PassThrough } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
@@ -1252,6 +1252,68 @@ test('confirmed first-authority refresh keeps initialization on its previewed ex
   'a rewrite target cannot receive first-authority creation');
 });
 
+test('multi-repository initialization reports durable partial progress when one authority push fails', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-partial-initialize-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const first = await repositoryFixture(root, 'first');
+  await rm(path.join(root, 'configuration-publisher'), { recursive: true, force: true });
+  const second = await repositoryFixture(root, 'second');
+  for (const fixture of [first, second]) {
+    run('git', ['--git-dir', fixture.remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  }
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = {
+    version: 1,
+    id: 'partial-initialize-workspace',
+    name: 'Partial initialize workspace',
+    path: workspaceRoot,
+    anchor: {
+      provider: 'workspace', key: 'partial-initialize-workspace',
+      title: 'Partial initialize workspace'
+    },
+    leadRepository: 'first',
+    repositories: Object.fromEntries([['first', first], ['second', second]].map(([id, fixture]) =>
+      [id, {
+        id, url: fixture.remote, defaultBranch: 'main', required: true,
+        path: `repos/${id}`, role: id === 'first' ? 'lead' : 'delivery', capabilities: []
+      }]))
+  };
+  const registry = path.join(root, 'workspaces.json');
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await rememberWorkspace(registry, manifest);
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
+  assert.deepEqual(preview.results.map((entry) => entry.status), [
+    'would-initialize', 'would-initialize'
+  ]);
+
+  const rejectingHook = path.join(second.remote, 'hooks', 'pre-receive');
+  await writeFile(rejectingHook, '#!/bin/sh\nexit 1\n');
+  await chmod(rejectingHook, 0o700);
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId
+  });
+
+  assert.equal(applied.status, 'partial', JSON.stringify(applied, null, 2));
+  assert.equal(applied.updated, 1);
+  assert.equal(applied.failed, 1);
+  const created = applied.results.find((entry) => entry.repository === 'first');
+  const failed = applied.results.find((entry) => entry.repository === 'second');
+  assert.equal(created.status, 'initialization-created');
+  assert.equal(created.configurationChanged, true);
+  assert.match(created.configurationCommit, /^[a-f0-9]{40}$/);
+  assert.equal(created.stateChanged, false);
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.configurationChanged, false);
+  assert.equal(run('git', [
+    '--git-dir', first.remote, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
+  ], { allowFailure: true }).status, 0, 'the created authority remains durable and reported');
+  assert.equal(run('git', [
+    '--git-dir', second.remote, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
+  ], { allowFailure: true }).status, 1, 'the rejected authority remains absent');
+});
+
 test('refresh preview, cache-miss clone, and confirmed apply share one sanitized enterprise Git environment', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-hostile-env-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -1522,15 +1584,33 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   git(statePublisher, ['remote', 'add', 'origin', remote]);
   git(statePublisher, ['push', 'origin', 'HEAD:state']);
 
+  const inspectedCandidates = [];
   const previewTimer = commandTimer('configuration-refresh-preview');
   const preview = await withCommandTiming(previewTimer, () =>
-    refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true }));
+    refreshWorkspaceConfigurations({
+      registryFile: registry,
+      dryRun: true,
+      inspectCandidate: async (candidate) => {
+        inspectedCandidates.push({
+          localPaths: candidate.repository.localPaths,
+          defaultBaseBranch: (await loadDefinition(candidate.root)).defaultBaseBranch,
+          sourceCommit: candidate.sourceCommit,
+          stateCommit: candidate.stateBefore.stateCommit
+        });
+      }
+    }));
   const previewCounters = previewTimer.finish().counters;
   assert.equal(preview.status, 'preview');
   assert.match(preview.planId, /^cfgp-[a-f0-9]{24}$/);
   assert.equal(preview.results[0].stateStatus, 'would-follow-configuration');
   assert.equal(previewCounters['git.remote.command.clone'], 1);
   assert.equal(previewCounters['git.remote.command.fetch'], 1);
+  assert.deepEqual(inspectedCandidates, [{
+    localPaths: [await realpath(repository)],
+    defaultBaseBranch: 'release',
+    sourceCommit: git(remote, ['rev-parse', 'refs/heads/sflow/config']),
+    stateCommit: git(remote, ['rev-parse', 'refs/heads/state'])
+  }], 'candidate inspection must see the exact approved configuration and state authority');
 
   const applyTimer = commandTimer('configuration-refresh-apply');
   const result = await withCommandTiming(applyTimer, () => refreshWorkspaceConfigurations({
@@ -1611,8 +1691,37 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   // A preview-bound UI apply may also be the first operation to establish sflow/config. Its plan
   // must be checked before initialization, then remain valid across that intentional branch create.
   run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
-  let initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  const staleLocalWorkflow = 'version: 1\nworkItemRoot: stale/local-only-items\n';
+  await mkdir(path.join(repository, 'singularity'), { recursive: true });
+  await writeFile(path.join(repository, 'singularity/workflow.yml'), staleLocalWorkflow);
+  const bootstrapInspections = [];
+  let initializePreview = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    dryRun: true,
+    inspectCandidate: async (candidate) => {
+      const definition = await loadDefinition(candidate.root);
+      bootstrapInspections.push({
+        sourceCommit: candidate.sourceCommit,
+        bootstrapCommit: candidate.bootstrapCommit,
+        stateCommit: candidate.stateBefore.stateCommit,
+        version: definition.version,
+        defaultBaseBranch: definition.defaultBaseBranch,
+        root: candidate.root
+      });
+    }
+  });
   assert.equal(initializePreview.results[0].status, 'would-initialize');
+  assert.deepEqual(bootstrapInspections.map(({ root: _root, ...entry }) => entry), [{
+    sourceCommit: null,
+    bootstrapCommit: git(remote, ['rev-parse', 'refs/heads/main']),
+    stateCommit: git(remote, ['rev-parse', 'refs/heads/state']),
+    version: 2,
+    defaultBaseBranch: 'main'
+  }], 'first-authority preview inspects the bundled candidate and current state authority');
+  assert.notEqual(path.resolve(bootstrapInspections[0].root), path.resolve(repository),
+    'bootstrap inspection must never read configuration from the application checkout');
+  assert.equal(await readFile(path.join(repository, 'singularity/workflow.yml'), 'utf8'),
+    staleLocalWorkflow, 'bootstrap inspection leaves a stale local working-tree copy untouched');
 
   // The application branch is the source of a first authority. Moving it after preview must make
   // that preview stale; otherwise apply would approve configuration bytes that were never shown.
@@ -1632,6 +1741,18 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   assert.equal(run('git', [
     '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/sflow/config'
   ], { allowFailure: true }).status, 128, 'a stale preview cannot create configuration authority');
+
+  initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  const refusedInitialization = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: initializePreview.planId,
+    inspectCandidate: async () => { throw new Error('schema authority moved'); }
+  });
+  assert.equal(refusedInitialization.status, 'blocked');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/sflow/config'
+  ], { allowFailure: true }).status, 128,
+  'bootstrap candidate inspection must finish before the first configuration publication');
 
   initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   const initialized = await refreshWorkspaceConfigurations({

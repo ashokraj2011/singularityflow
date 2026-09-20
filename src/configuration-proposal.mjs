@@ -15,7 +15,8 @@ import { mkdtemp } from 'node:fs/promises';
 import YAML from 'yaml';
 
 import {
-  CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, resolveConfigurationRemote
+  CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, resolveConfigurationRemote,
+  STATE_CONFIGURATION_BRANCH
 } from './configuration-branch.mjs';
 import { validateDefinition } from './config.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
@@ -26,7 +27,7 @@ import {
 import { gitCommitIdentity } from './git.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,
-  frozenRemoteTransport, redactDiagnosticText, sanitizeRemote
+  frozenRemoteTransport, redactDiagnosticText, remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
@@ -36,6 +37,42 @@ import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
+
+function expectedAuthorityIdentity(value) {
+  if (value == null) return null;
+  const identity = {
+    kind: String(value.kind ?? '').trim() || null,
+    commit: String(value.commit ?? '').trim() || null,
+    remoteFingerprint: String(value.remoteFingerprint ?? '').trim() || null,
+    sourceCommit: String(value.sourceCommit ?? '').trim() || null
+  };
+  for (const field of ['commit', 'sourceCommit']) {
+    if (identity[field] != null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(identity[field])) {
+      throw new SingularityFlowError(`Expected configuration authority ${field} is not an exact Git object ID.`, {
+        code: 'CONFIGURATION_PROPOSAL_AUTHORITY_EXPECTATION_INVALID'
+      });
+    }
+  }
+  if (identity.remoteFingerprint != null && !/^[0-9a-f]{64}$/u.test(identity.remoteFingerprint)) {
+    throw new SingularityFlowError('Expected configuration authority remote fingerprint is invalid.', {
+      code: 'CONFIGURATION_PROPOSAL_AUTHORITY_EXPECTATION_INVALID'
+    });
+  }
+  if (identity.kind != null && !['approved-configuration-ref', 'verified-state-mirror'].includes(identity.kind)) {
+    throw new SingularityFlowError(`Expected configuration authority kind '${identity.kind}' is unsupported.`, {
+      code: 'CONFIGURATION_PROPOSAL_AUTHORITY_EXPECTATION_INVALID'
+    });
+  }
+  return identity;
+}
+
+function authorityChanged(message, expected, actual) {
+  throw new SingularityFlowError(
+    `${message} Reload the approved configuration and review the newer authority before saving again; nothing was changed.`, {
+      code: 'CONFIGURATION_PROPOSAL_AUTHORITY_CHANGED', details: { expected, actual }
+    }
+  );
+}
 
 function configurationRepositoryHead(root, env = process.env) {
   const commit = executeGitQuery(root, 'repository.head', {}, { env });
@@ -379,6 +416,64 @@ export async function inspectWorkflowConfigurationProposal(root, branch) {
 }
 
 /**
+ * Prove whether one exact proposal commit reached the approved authority, even when the review
+ * platform deleted its source branch after merge. This is deliberately a fresh remote read: an
+ * authority SHA advance alone is not merge evidence, and a missing branch can also mean discard.
+ */
+export async function configurationProposalCommitStatus(root, requestedBranch, requestedCommit, {
+  env = process.env, session = null
+} = {}) {
+  const branch = workflowProposalBranch(requestedBranch);
+  const proposalCommit = String(requestedCommit ?? '').trim();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(proposalCommit)) {
+    throw new SingularityFlowError('Configuration proposal status requires an exact proposal commit.', {
+      code: 'CONFIGURATION_PROPOSAL_COMMIT_INVALID'
+    });
+  }
+  const gitEnv = enterpriseGitEnvironment(env);
+  const remoteSession = session ?? new GitRemoteSession({ env: gitEnv });
+  const remote = await proposalRemote(root, remoteSession);
+  const transport = frozenRemoteTransport(remote, { env: gitEnv });
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposal-status-'));
+  try {
+    // Full approved history is required: a post-merge branch deletion removes the review ref, but
+    // the exact proposal commit remains reachable through the merge/fast-forward ancestry.
+    const cloned = await runRemoteGitAsync([
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+      '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
+    if (cloned.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot read approved configuration from '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`,
+        { code: cloned.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE' }
+      );
+    }
+    const targetCommit = configurationRepositoryHead(scratch, transport.env);
+    const merged = run('git', ['merge-base', '--is-ancestor', proposalCommit, 'HEAD'], {
+      cwd: scratch, env: transport.env, allowFailure: true
+    }).status === 0;
+    const proposalRef = `refs/heads/${branch}`;
+    const observed = await remoteSession.observeAsync(remote, {
+      refs: [proposalRef], includeHead: false, refresh: true
+    });
+    requireRemoteObservation(observed, `configuration proposal '${branch}'`);
+    const branchCommit = observed.refs.get(proposalRef) ?? null;
+    return {
+      branch,
+      proposalCommit,
+      targetBranch: CONFIGURATION_BRANCH,
+      targetCommit,
+      merged,
+      branchStatus: branchCommit == null ? 'absent'
+        : branchCommit === proposalCommit ? 'matching' : 'replaced',
+      branchCommit
+    };
+  } finally {
+    await removeTemporaryTree(scratch);
+  }
+}
+
+/**
  * Activate one exact reviewed workflow proposal using an exact compare-and-swap update.
  * Protected branches remain under their repository review controls; an unprotected direct update
  * requires a separate explicit acknowledgement.
@@ -625,7 +720,7 @@ export function assertLocalConfigurationAuthoringAllowed(root) {
  * before the commit is retained and pushed.
  */
 export async function proposeConfigurationChange(root, {
-  operation, subject, message, mutate
+  operation, subject, message, mutate, expectedAuthority = null
 }, { transport = {}, env = transport.env ?? process.env, session = null } = {}) {
   if (typeof mutate !== 'function') {
     throw new SingularityFlowError('A configuration proposal needs a mutation.', {
@@ -637,6 +732,7 @@ export async function proposeConfigurationChange(root, {
   const identityEnv = withoutGitProcessOverrides(env);
   const gitEnv = enterpriseGitEnvironment(env);
   const remoteSession = session ?? new GitRemoteSession({ env: gitEnv });
+  const expected = expectedAuthorityIdentity(expectedAuthority);
   const remoteUrl = await resolveConfigurationRemote(root, 'origin', { session: remoteSession });
   if (!remoteUrl) {
     // A local FOS bootstrap is intentionally not a remote proposal authority. Do not suggest a
@@ -662,6 +758,13 @@ export async function proposeConfigurationChange(root, {
     );
   }
 
+  const actualRemoteFingerprint = remoteFingerprint(remoteUrl);
+  if (expected?.remoteFingerprint && expected.remoteFingerprint !== actualRemoteFingerprint) {
+    authorityChanged('The approved configuration remote changed after this editor loaded.', {
+      remoteFingerprint: expected.remoteFingerprint
+    }, { remoteFingerprint: actualRemoteFingerprint });
+  }
+
   const authorityTransport = frozenRemoteTransport(remoteUrl, { push: true, env: gitEnv });
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposal-'));
   try {
@@ -685,6 +788,30 @@ export async function proposeConfigurationChange(root, {
     }
 
     const baseCommit = configurationRepositoryHead(scratch, authorityTransport.env);
+    const expectedSourceCommit = expected?.sourceCommit
+      ?? (expected?.kind === 'verified-state-mirror' ? null : expected?.commit);
+    if (expectedSourceCommit && expectedSourceCommit !== baseCommit) {
+      authorityChanged('The approved sflow/config commit changed after this editor loaded.', {
+        sourceCommit: expectedSourceCommit
+      }, { sourceCommit: baseCommit });
+    }
+    if (expected?.kind === 'verified-state-mirror' && expected.commit) {
+      const stateRef = `refs/heads/${STATE_CONFIGURATION_BRANCH}`;
+      const observed = await remoteSession.observeAsync(remoteUrl, {
+        refs: [stateRef], includeHead: false, refresh: true
+      });
+      requireRemoteObservation(observed, 'configuration proposal authority');
+      const actualStateCommit = observed.refs.get(stateRef) ?? null;
+      if (actualStateCommit !== expected.commit) {
+        authorityChanged('The verified state configuration mirror changed after this editor loaded.', {
+          commit: expected.commit
+        }, { commit: actualStateCommit });
+      }
+    } else if (expected?.commit && expected.commit !== baseCommit) {
+      authorityChanged('The approved configuration commit changed after this editor loaded.', {
+        commit: expected.commit
+      }, { commit: baseCommit });
+    }
     const result = await mutate(scratch);
     run('git', ['add', '-A'], { cwd: scratch, env: authorityTransport.env });
     const files = run('git', ['diff', '--cached', '--name-only'], {

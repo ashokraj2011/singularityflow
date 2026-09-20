@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "974296732c6e1b98b35253b51d60e65d66ce5180",
+  "sourceCommit": "f90fb6277480ba0e7a1b15058c39f8180e2940a2",
   "topicCount": 67,
-  "contentSha256": "2c29138893b4b1c9191e2ced8686d4cb81543262dd91103bc81184cd5dce7061",
+  "contentSha256": "ecfec5aecdf8b01072f5112855deebf05ab96d4f4f825eb356078ad7b76b658e",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -256,8 +256,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 14,
-      "sha256": "8aecbc650c5a76572abdfda96be3b1c92f8a03cfcfd3df654401092e3cef982c",
+      "version": 15,
+      "sha256": "8a787caba23f7c18eb0e9ffdf5cc41b874f61659b34cf66ac8b24f9a826ddcfa",
       "routingSha256": "9282900d02a0dc95200075b3b65d398903af09edd17350009d3f3379eee4b584",
       "file": "installation-and-upgrades.md"
     },
@@ -536,8 +536,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 25,
-      "sha256": "fafdaaada85740b208641b00d69804ba743579d8d5dda7dc2fb69b21675d8821",
+      "version": 26,
+      "sha256": "98c0a567a9fb7ae0a4f1531c1d55e76221da595bf411637baba5e3044e36a5f7",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

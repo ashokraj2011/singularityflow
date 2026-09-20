@@ -5995,7 +5995,8 @@ test('the instruction designer separates agents, prompts, repository skills and 
     worldModel: { views: [{ id: 'development', references: [] }] },
     agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true,
       content: `---\nname: architect\ndescription: Designs systems.\ntools: [read, search]\nmetadata:\n  sflow-label: "Architect"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n  sflow-world-model-views: "architecture,security"\n---\n\n# Architect\n\nUse evidence.\n\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| security-guide | https://docs.example.test/security.md | design | false | 4096 |\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| design-template | https://docs.example.test/design.md | design | false | - |\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n|---|---|---|---|---|---|\n| external-review | https://docs.example.test/{workId}/review.md | design | artifacts/design/external-review.md | true | - |` }],
-    agentMappings: { path: 'singularity/agent-mappings.yml', exists: true, rows: [
+    agentMappings: { path: 'singularity/agent-mappings.yml', exists: true,
+      content: 'version: 1\nmappings:\n  architecture: architect\n', rows: [
       { copilotAgent: 'architecture', agentId: 'architect', source: 'configured' },
       { copilotAgent: 'architect', agentId: 'architect', source: 'same-name fallback' }
     ] },
@@ -6011,6 +6012,8 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.equal(catalog.prompts.length, 1);
   assert.equal(catalog.skills.length, 1);
   assert.equal(catalog.packs.length, 1);
+  assert.equal(catalog.mappingContent, instructionSnapshot.agentMappings.content,
+    'the mapping form retains the exact authority bytes it rendered for destination-bound CAS');
   assert.deepEqual(catalog.worldModelViews, ['architecture', 'security', 'development'],
     'approved repository order is retained before inferred generated views');
   const registeredCatalog = instructionCatalog({
@@ -6057,7 +6060,8 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.match(renderSkill(skill), /disable-model-invocation: false/);
 
   const html = instructionDesignerHtml(catalog, {
-    tab: 'agents', selected: catalog.agents[0], agent: parsed, prompt: null, skill: null, errors: [], notice: null
+    tab: 'agents', selected: catalog.agents[0], agent: parsed, prompt: null, skill: null, errors: [], notice: null,
+    configurationBlockedReason: null
   });
   assert.match(html, /Agents, prompts &amp; skills/);
   assert.match(html, /Prompt composition/);
@@ -6065,12 +6069,31 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.match(html, /Repository world-model views/);
 
   const delivery = instructionDesignerHtml(catalog, {
-    tab: 'delivery', selected: null, agent: null, prompt: null, skill: null, errors: [], notice: null
+    tab: 'delivery', selected: null, agent: null, prompt: null, skill: null, errors: [], notice: null,
+    configurationBlockedReason: null
   });
   assert.match(delivery, /Copilot → Flow agent mappings/);
   assert.match(delivery, /architecture/);
   assert.match(delivery, /Remote resource trust/);
   assert.match(delivery, /Review (?:&|&amp;) trust/);
+});
+
+test('instruction authoring preserves per-file authority CAS and proposes external changes', async () => {
+  const panel = await readFile(source('views/instruction-designer.ts'), 'utf8');
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(panel, /configurationSavePlan\(baselineConfiguration, path, baselineText\)/,
+    'each instruction file is saved against the exact bytes loaded into its form');
+  assert.match(panel, /mappingSourceText = catalog\.mappingContent/,
+    'agent mappings retain their own per-file baseline rather than borrowing workflow.yml CAS');
+  assert.match(extension, /configurationSavePlanCliArgs\(message\)/,
+    'the host routes externally governed instructions through destination and authority CAS');
+  assert.match(panel, /if \(!plan\.writable\)/,
+    'the instruction designer refuses writes when only a recovery mirror is available');
+  assert.match(panel, /pendingProposalPath === path/,
+    'a second write cannot reuse the approved digest while the first proposal is unmerged');
+  assert.match(extension, /configurationSaveDisposition\(text, message\.proposal\)/,
+    'the panel receives the actual proposal, local, or no-op disposition');
+  assert.match(extension, /The application checkout was not changed/);
 });
 
 
@@ -6124,6 +6147,19 @@ test('Flow Impact has a dedicated configuration and reporting entry point', asyn
   assert.match(panel, /minimumCohortSize/);
   assert.match(panel, /impact', 'doctor'/);
   assert.match(panel, /impact', 'export'/);
+  assert.match(panel, /configuration', 'read', 'singularity\/impact\.yml', '--json'/,
+    'Flow Impact reads the approved configuration overlay instead of the application checkout');
+  assert.match(panel, /configurationSavePlan\(this\.renderedConfigurationSource, 'singularity\/impact\.yml', source\)/);
+  assert.match(panel, /configurationSavePlanCliArgs\(plan\)/,
+    'externally governed Flow Impact edits carry destination and authority CAS into the proposal');
+  assert.match(panel, /if \(!plan\.writable\)/,
+    'a recovery-mirror-only Flow Impact view cannot invoke configuration save');
+  assert.match(panel, /configurationSaveDisposition\(output, plan\.proposal\)/,
+    'Flow Impact labels proposal, local, and no-op results from the CLI outcome');
+  assert.match(panel, /private async reload\(notice: string\)[\s\S]*await this\.store\.refresh\(\)/,
+    'Flow Impact refresh reloads authority state before rerendering');
+  assert.match(panel, /Approved configuration reload failed/,
+    'Flow Impact does not claim reload success after WorkspaceStore retained an error');
 });
 
 test('capability proposals have an exact review and activation UI', async () => {
@@ -6214,9 +6250,15 @@ test('workflow creation stays visible and offers exact guarded activation', asyn
     'phases', buildProfiles(DESIGN_SNAPSHOT), [], null, 'all', [], 'singularity/portfolio.yml',
     null, null, null, undefined, [], [], '', [], [], [proposal], true, null
   );
-  assert.match(html, /Pending workflow proposals \(1\)/);
+  assert.match(html, /Pending configuration proposals \(1\)/);
   assert.match(html, /Demo workflow \(added\)/);
   assert.match(html, /data-review-proposal="sflow\/config-change\/workflow\/create-demo-abc123"/);
+  const settingsOnly = designerHtml(
+    'phases', buildProfiles(DESIGN_SNAPSHOT), [], null, 'all', [], 'singularity/portfolio.yml',
+    null, null, null, undefined, [], [], '', [], [], [{ ...proposal, workflows: [] }], true, null
+  );
+  assert.match(settingsOnly, /Configuration-only change \(for example World Model, policy, agent, or template settings\)/,
+    'a settings-only proposal must not look like a failed workflow diff');
   assert.match(DESIGNER_SCRIPT, /type: 'review-proposal'/,
     'the persistent proposal row dispatches review through the host boundary');
   assert.match(extension, /'workflow', 'proposals', '--json'/,

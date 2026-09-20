@@ -11,13 +11,14 @@ import { chmodSync, constants as fsConstants, existsSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
 import {
   activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
+  configurationProposalCommitStatus,
   inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals,
   proposeConfigurationChange
 } from './configuration-proposal.mjs';
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, prepareRemoteBranchTracking, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
@@ -8074,6 +8075,31 @@ async function authorProposedOrLocalConfiguration(root, proposal) {
   };
 }
 
+function expectedConfigurationAuthority(options) {
+  const expected = {
+    kind: optionString(options, 'expected-authority-kind'),
+    commit: optionString(options, 'expected-authority-commit'),
+    remoteFingerprint: optionString(options, 'expected-authority-remote-fingerprint'),
+    sourceCommit: optionString(options, 'expected-authority-source-commit')
+  };
+  return Object.values(expected).some((value) => value != null) ? expected : null;
+}
+
+function configurationProposalFileSubject(root, requestedPath) {
+  const relative = path.posix.normalize(repoRelative(root, requestedPath));
+  const pathSha256 = createHash('sha256').update(relative).digest('hex').slice(0, 12);
+  // Normalize to bounded ASCII before measuring/truncating. JavaScript string slicing counts UTF-16
+  // code units, while Git and remote filesystems constrain ref components in bytes; using only
+  // ASCII here makes the bound portable and cannot split a multi-byte filename. The digest retains
+  // the complete normalized path identity even when the readable basename is shortened.
+  const readable = path.posix.basename(relative).toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 64)
+    .replace(/[-.]+$/gu, '') || 'file';
+  return `${readable}-${pathSha256}`;
+}
+
 async function workflowCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'workflow subcommand'); const root = repoRoot();
   if (subcommand === 'list') {
@@ -8138,6 +8164,16 @@ async function workflowCommand(positionals, options) {
     }
     for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
     if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);
+    return;
+  }
+
+  if (subcommand === 'proposal-status') {
+    const branch = requirePositional(positionals, 2, 'workflow proposal branch');
+    const result = await configurationProposalCommitStatus(
+      root, branch, optionString(options, 'commit')
+    );
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.branch}@${result.proposalCommit.slice(0, 12)}: ${result.merged ? 'merged' : result.branchStatus}`);
     return;
   }
 
@@ -11760,17 +11796,27 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
     if (optionBoolean(options, 'propose')) {
       result = await authorProposedOrLocalConfiguration(root, {
         operation: 'save-file',
-        subject: path.posix.basename(requestedPath),
+        subject: configurationProposalFileSubject(root, requestedPath),
         message: `[configuration] update ${requestedPath}`,
+        expectedAuthority: expectedConfigurationAuthority(options),
         mutate: (target) => saveConfigurationFile(target, requestedPath, content, saveOptions)
       });
     } else {
       result = await saveConfigurationFile(root, requestedPath, content, saveOptions);
     }
   }
-  else if (subcommand === 'read') result = await withApprovedConfigurationRead(
-    root, () => readConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'))
-  );
+  else if (subcommand === 'read') {
+    const requestedPath = requirePositional(positionals, 2, 'configuration path');
+    repoRelative(root, requestedPath);
+    result = await withApprovedConfigurationRead(
+      root, () => readConfigurationFile(root, requestedPath), {
+        // A configuration editor must see the same approved bytes it will propose against. Without
+        // this preference an application checkout that still carries an older projection wins the
+        // early working-tree shortcut, so reload faithfully returns the wrong file forever.
+        preferAuthority: true
+      }
+    );
+  }
   else if (subcommand === 'export-bundle') result = await exportConfigurationBundle(root);
   else if (subcommand === 'delete-file') result = await deleteConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));
   else if (subcommand === 'delete-template') result = await deleteConfigurationTemplate(root, requirePositional(positionals, 2, 'template path'));
@@ -12525,7 +12571,12 @@ async function workspaceCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'list';
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
-  const compatibility = await discardUnsupportedWorkflowWorkspaces(registry, selectionFile);
+  // Refresh and reinitialization are the recovery boundary for old repositories. Removing their
+  // registration based on a stale application-checkout workflow before either command can inspect
+  // approved sflow/config turns repair into a misleading zero-target success.
+  await discardUnsupportedWorkflowWorkspaces(registry, selectionFile, {
+    preserveForRecovery: ['refresh-configuration', 'reinitialize'].includes(subcommand)
+  });
   if (subcommand === 'prepare') {
     const source = requirePositional(positionals, 2, 'repository URL or workspace manifest');
     const input = await workspaceBootstrapInput(source, options);

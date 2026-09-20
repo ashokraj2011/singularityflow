@@ -63,6 +63,8 @@ export interface InstructionCatalog {
   promptUsage: Record<string, string[]>;
   mappings: Array<{ copilotAgent: string; agentId: string; source: string }>;
   mappingPath: string;
+  /** Exact authority bytes rendered into the mapping editor, used as its save CAS baseline. */
+  mappingContent: string;
   agentStatus: Array<{
     id: string; status: string; sourceChanged: boolean;
     dependencies: Array<{ id: string; type: string; status: string; sha256: string | null; optional: boolean }>;
@@ -182,6 +184,7 @@ export function instructionCatalog(snapshot: RepositorySnapshot): InstructionCat
     promptUsage,
     mappings: snapshot.agentMappings?.rows ?? [],
     mappingPath: snapshot.agentMappings?.path ?? 'singularity/agent-mappings.yml',
+    mappingContent: snapshot.agentMappings?.content ?? '',
     agentStatus: (snapshot.agentStatus ?? []).map((entry) => ({
       id: entry.id, status: entry.status, sourceChanged: entry.sourceChanged,
       dependencies: entry.dependencies.map((dependency) => ({

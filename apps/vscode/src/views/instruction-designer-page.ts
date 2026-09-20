@@ -18,6 +18,7 @@ export interface InstructionDesignerView {
   skill: SkillDraft | null;
   errors: string[];
   notice: string | null;
+  configurationBlockedReason: string | null;
 }
 
 function tabs(tab: InstructionTab, catalog: InstructionCatalog): string {
@@ -191,10 +192,13 @@ export function instructionDesignerHtml(catalog: InstructionCatalog, view: Instr
       return draft.phases.includes(phase.id);
     }).map((agent) => agent.name); return result;
   }, {})).filter(([, agents]) => agents.length);
-  return `<header>${brandLockup()}<h1>${icon('agent', { size: 24 })}Agents, prompts &amp; skills</h1><p class="meta">Design what Copilot receives, see where it runs, and keep every instruction as governed Markdown.</p></header>
+  return `<header>${brandLockup()}<h1>${icon('agent', { size: 24 })}Agents, prompts &amp; skills</h1><p class="meta">Design what Copilot receives, see where it runs, and keep every instruction as governed Markdown.</p><p><button class="secondary" data-agent-action="refresh" data-agent-id="*">${icon('refresh')}Reload approved instructions</button></p></header>
     ${tabs(view.tab, catalog)}
+    ${view.configurationBlockedReason ? `<p class="blockers"><strong>Read-only recovery configuration</strong><br>${escape(view.configurationBlockedReason)} Restore or reinitialize <code>sflow/config</code> before editing.</p>` : ''}
+    ${view.configurationBlockedReason ? '<fieldset disabled>' : ''}
     <section class="relationship-strip"><strong>Phase routing</strong>${links.length ? links.map(([phase, agents]) => `<span><b>${escape(phase)}</b> → ${escape(agents.join(', '))}</span>`).join('') : '<span class="muted">No repository agents are routed to phases yet.</span>'}</section>
-    ${view.tab === 'delivery' ? `<main class="instruction-studio single"><div>${editor}</div></main>` : `<main class="instruction-studio">${inventory(view.tab, entries, view.selected)}<div>${editor}</div></main>`}`;
+    ${view.tab === 'delivery' ? `<main class="instruction-studio single"><div>${editor}</div></main>` : `<main class="instruction-studio">${inventory(view.tab, entries, view.selected)}<div>${editor}</div></main>`}
+    ${view.configurationBlockedReason ? '</fieldset>' : ''}`;
 }
 
 function parseAgentForPage(entry: InstructionEntry): AgentDraft {

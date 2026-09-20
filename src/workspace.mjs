@@ -4790,7 +4790,8 @@ export async function resolveWorkspaceDocument(workspacePath, documentPath) {
 }
 
 function normalizeRegistryEntry(entry) {
-  if (!entry || typeof entry.path !== 'string') return null;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+      || typeof entry.path !== 'string' || !entry.path.trim()) return null;
   const workspacePath = path.resolve(entry.path);
   return {
     id: String(entry.id ?? path.basename(workspacePath)),
@@ -4805,16 +4806,38 @@ function normalizeRegistryEntry(entry) {
   };
 }
 
+function invalidWorkspaceRegistry(file, reason, cause = undefined) {
+  const registryFile = path.resolve(file);
+  return new SingularityFlowError(
+    `The local workspace registry is unreadable or invalid: ${registryFile}. Repair or remove it before retrying.`,
+    {
+      code: 'WORKSPACE_REGISTRY_INVALID',
+      details: { registryFile, reason },
+      cause
+    }
+  );
+}
+
 export async function readWorkspaceRegistry(file) {
+  let contents;
+  try { contents = await readFile(file, 'utf8'); }
+  catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw invalidWorkspaceRegistry(file, 'unreadable', error);
+  }
   let parsed;
-  try { parsed = JSON.parse(await readFile(file, 'utf8')); } catch { return []; }
-  if (!Array.isArray(parsed)) parsed = readRecord('workspace-registry', parsed).record;
+  try { parsed = JSON.parse(contents); }
+  catch (error) { throw invalidWorkspaceRegistry(file, 'malformed-json', error); }
+  if (!Array.isArray(parsed)) {
+    try { parsed = readRecord('workspace-registry', parsed).record; }
+    catch (error) { throw invalidWorkspaceRegistry(file, 'invalid-record', error); }
+  }
   const values = Array.isArray(parsed) ? parsed : parsed?.workspaces;
-  if (!Array.isArray(values)) return [];
+  if (!Array.isArray(values)) throw invalidWorkspaceRegistry(file, 'invalid-shape');
   const unique = new Map();
   for (const value of values) {
     const entry = normalizeRegistryEntry(value);
-    if (!entry) continue;
+    if (!entry) throw invalidWorkspaceRegistry(file, 'invalid-entry');
     const originalPath = entry.path;
     entry.path = await realpath(originalPath).catch(() => originalPath);
     if (entry.leadRepositoryPath && entry.path !== originalPath) {

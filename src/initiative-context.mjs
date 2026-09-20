@@ -9,6 +9,7 @@ import {
   groundingMode
 } from './grounding.mjs';
 import { resolveGroundingPlan } from './world-model-selection.mjs';
+import { effectiveWorldModelAssignmentViews } from './world-model-views.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { assertWorldModelStaleness } from './world-model-policy.mjs';
 import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
@@ -360,8 +361,21 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   if (!phaseId || phaseId !== initiative.currentPhase) {
     throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot compose '${phaseId ?? 'none'}'.`);
   }
-  const phase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
-  if (!phase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
+  const pinnedPhase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
+  if (!pinnedPhase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
+  // Resolutions created before the registered-v4 transition policy was applied can still contain
+  // the closed legacy-v3 vocabulary. Keep the pinned phase contract immutable, but project its
+  // assignment through the current approved workflow before any grounding or capability reader
+  // sees it. Validation keeps mixed and unknown assignments fail-closed.
+  validatePortfolioWorldModelViews({ initiativePhases: { [phaseId]: pinnedPhase } }, definition);
+  const phase = {
+    ...pinnedPhase,
+    worldModelViews: effectiveWorldModelAssignmentViews(
+      definition,
+      pinnedPhase.worldModelViews ?? [],
+      `Initiative phase '${phaseId}' pinned World-Model assignment`
+    )
+  };
   const session = await loadSession(root, { required: false });
   const sessionAgentApplies = Boolean(
     session?.agent

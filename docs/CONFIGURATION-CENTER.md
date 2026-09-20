@@ -67,13 +67,20 @@ preservation evidence, and legal next actions.
 
 Every governed save goes through `singularity-flow configuration save`. The CLI validates the complete resulting file before writing it, so a visual edit cannot leave an unknown phase, authority, agent, or MCP policy behind. YAML comments and unrelated keys are retained.
 
-Saving is authoring, not publication. Once one or more files change, the
-Configuration tree adds **Unpublished configuration**, shows the exact paths, and
-offers **Review & publish configuration**. The preview names the current branch
-and complete commit scope. Publication calls the same scoped engine transaction as
-`singularity-flow configuration publish`: it refuses unrelated working-tree or
-staged files, refuses the protected application branch, creates one commit, and
-pushes only the current governed review branch.
+Saving is authoring, not publication. The destination depends on the authority shown by the
+Configuration Center:
+
+- For an external approved `sflow/config` authority, Save creates a review proposal from that exact
+  authority revision. It never writes the application or active Story checkout. Merge the proposal
+  into `sflow/config`, then refresh workspace configuration before the new policy is effective.
+- For a true working-tree/local-FOS authority, Save writes a validated local draft. The
+  Configuration tree then adds **Unpublished configuration**, shows the exact paths, and offers
+  **Review & publish configuration**. Publication refuses unrelated changes and protected
+  application branches.
+
+The compare-and-swap token is bound to the file in the destination being mutated. Approved overlay
+bytes are never compared with a different application-branch file. **Reload newer configuration**
+performs a fresh store read before replacing a dirty form; it is not a repaint of cached bytes.
 
 ## Agents and remote Markdown delivery
 

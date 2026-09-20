@@ -142,10 +142,13 @@ async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
  *
  * Missing workflow files stay registered: an uninitialized clone is a valid setup state. YAML that
  * cannot be parsed also stays registered so Configuration can expose the file for repair. Only an
- * unambiguous, successfully parsed non-v2 declaration is discarded. There is intentionally no
- * conversion path during this POC.
+ * unambiguous, successfully parsed non-v2 declaration is discarded. Recovery callers preserve
+ * those registrations because approved sflow/config—not this potentially stale checkout—is their
+ * upgrade source of truth. There is intentionally no implicit in-place conversion path.
  */
-export async function discardUnsupportedWorkflowWorkspaces(registryFile, selectionFile = null) {
+export async function discardUnsupportedWorkflowWorkspaces(registryFile, selectionFile = null, {
+  preserveForRecovery = false
+} = {}) {
   const {
     forgetWorkspace, readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath
   } = await workspaceModule();
@@ -169,7 +172,7 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
     try { workflow = YAML.parse(text); }
     catch { continue; }
     if (workflow?.version === 2) continue;
-    removed.push({
+    const incompatible = {
       id: entry.id,
       name: entry.name,
       path: entry.path,
@@ -178,7 +181,9 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
       reason: workflow?.version == null
         ? 'workflow.yml does not declare version 2'
         : `workflow.yml declares unsupported version ${workflow.version}`
-    });
+    };
+    if (preserveForRecovery) continue;
+    removed.push(incompatible);
     await forgetWorkspace(registryFile, entry.path);
   }
 

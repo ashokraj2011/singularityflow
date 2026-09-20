@@ -214,7 +214,17 @@ test('AST Intelligence is contributed, navigable, favorite-capable, and exact-co
   assert.match(extension, /'workspace', 'use', target,[\s\S]*'--repository', repositoryId/);
   assert.match(panel, /CLEAR AST CACHE/);
   assert.match(panel, /PRUNE AST CACHE/);
-  assert.match(panel, /configuration', 'save'.*--expected-sha256/s);
+  assert.match(panel, /configuration', 'save'.*configurationSavePlanCliArgs\(plan\)/s);
+  assert.match(panel, /configurationSavePlan\(snapshot\.configurationSource, target, source\)/,
+    'AST policy authoring binds its CAS to the authority bytes rendered in the form');
+  assert.match(panel, /if \(!plan\.writable\)/,
+    'a state-mirror-only recovery view cannot invoke configuration save');
+  assert.match(panel, /configurationSaveDisposition\(output, plan\.proposal\)/,
+    'the success message comes from the actual proposal, local, or no-op result');
+  assert.match(panel, /private async reload\(\)[\s\S]*await this\.store\.refresh\(\)/,
+    'the explicit refresh action reloads the configuration snapshot instead of only rerendering');
+  assert.match(panel, /this\.store\.current\.error/,
+    'a refresh failure remains visible and is not mistaken for reloaded authority state');
   assert.match(panel, /openHelp', \{ id: 'help:world-model' \}/);
   assert.doesNotMatch(panel, /exec\(|spawn\(|createTerminal/);
 });

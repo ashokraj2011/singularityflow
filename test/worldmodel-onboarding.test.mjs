@@ -116,6 +116,45 @@ test('registered-v4 onboarding keeps an omitted all-active catalog implicit', as
     'self-heal must not narrow omitted all-active semantics');
 });
 
+test('portfolio bootstrap resolves the packaged legacy assignments through registered-v4 policy', async () => {
+  const root = await repository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.format = 'registered-v4';
+  workflow.worldModel.promptSource = 'builtin';
+  workflow.worldModel.views = ['dev.impact@4'];
+  workflow.worldModel.v4 = {
+    composer: 'deterministic',
+    consumer: 'developer',
+    cachePolicy: 'reuse-valid',
+    totalMaximumOutputTokens: 1400,
+    legacyAssignments: 'inherit-configured'
+  };
+  for (const phase of Object.values(workflow.phases)) {
+    if (phase.worldModel?.views?.length) phase.worldModel.views = ['dev.impact'];
+  }
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  await pinRepositoryAgentsToRegisteredView(root);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await rm(portfolioFile, { force: true });
+  git(['add', '-A'], root);
+  git(['commit', '-m', 'configure registered-v4 repository before portfolio bootstrap'], root);
+
+  const result = await bootstrapWorkspacePortfolio(root, {
+    approvalEmail: 'onboard@example.com',
+    repository: { id: 'app', url: 'https://example.com/app.git' }
+  });
+  assert.deepEqual(result.portfolio.initiativePhases.define.worldModelViews, ['business'],
+    'the packaged governance source remains auditable and unchanged');
+  const definition = await loadDefinition(root);
+  assert.deepEqual(portfolioWorldModelViews(result.portfolio, definition), ['dev.impact']);
+  assert.deepEqual(
+    YAML.parse(await readFile(workflowFile, 'utf8')).worldModel.views,
+    ['dev.impact@4'],
+    'bootstrap preserves the exact registered contract instead of declaring legacy-v3 names'
+  );
+});
+
 test('portfolio bootstrap self-heals a repo with no worldModel block instead of failing', async () => {
   const root = await repository();
   await stripWorldModel(root);

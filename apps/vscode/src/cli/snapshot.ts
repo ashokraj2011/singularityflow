@@ -946,6 +946,12 @@ export interface RepositorySnapshot {
     editor: 'effective' | 'candidate';
     effective: {
       kind: string; ref: string | null; commit: string | null; sha256: string;
+      /** Hash of the credential-free authority URL; never expose or persist credentials in UI state. */
+      remoteFingerprint?: string | null;
+      /** Reviewed sflow/config commit; differs from `commit` when bytes arrived through state. */
+      sourceCommit?: string | null;
+      /** Exact approved revision per editable root; proposal CAS never targets checkout bytes. */
+      files?: Record<string, string>;
       worldModelFormat: string;
     };
     candidate: null | {

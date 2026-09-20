@@ -6,8 +6,8 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import {
-  loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution, validatePortfolio,
-  validatePortfolioWorldModelViews
+  loadPortfolio, portfolioWorldModelViews, resolveInitiativeProfile, snapshotInitiativeResolution,
+  validatePortfolio, validatePortfolioWorldModelViews
 } from '../src/initiative-config.mjs';
 import {
   createInitiative, initiativeProgress, initiativeStartPreflight, loadInitiative, prepareInitiativePhase
@@ -199,6 +199,57 @@ test('initiative world-model views must be declared by the repository workflow',
   }, {
     worldModel: { format: 'registered-v4', views: ['dev.impact@4'] }
   }), 'portfolio logical IDs join exact registered repository contracts');
+  const migrating = {
+    worldModel: {
+      format: 'registered-v4',
+      views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'],
+      v4: { legacyAssignments: 'inherit-configured' }
+    }
+  };
+  assert.doesNotThrow(() => validatePortfolioWorldModelViews({
+    initiativePhases: { define: { worldModelViews: ['business', 'architecture'] } }
+  }, migrating), 'known legacy Initiative assignments inherit the configured exact v4 catalog');
+  assert.throws(() => validatePortfolioWorldModelViews({
+    initiativePhases: { define: { worldModelViews: ['business', 'dev.impact'] } }
+  }, migrating), (error) => error?.code === 'WMB_VIEW_ASSIGNMENT_MIXED');
+  assert.throws(() => validatePortfolioWorldModelViews({
+    initiativePhases: { define: { worldModelViews: ['unknown-view'] } }
+  }, migrating), /WMB v4 view|installed/i);
+
+  const packaged = await loadPortfolio(root);
+  const configuredIds = ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'];
+  assert.deepEqual(
+    portfolioWorldModelViews(packaged, migrating),
+    configuredIds,
+    'the packaged legacy portfolio declares the effective registered-v4 catalog during bootstrap'
+  );
+  const resolved = resolveInitiativeProfile(packaged, 'initiative-lite', {
+    workflowDefinition: migrating
+  });
+  for (const phase of resolved.phases) {
+    assert.deepEqual(
+      phase.worldModelViews,
+      configuredIds,
+      `resolved phase ${phase.id} pins the effective registered-v4 IDs`
+    );
+  }
+
+  const mixedOverride = structuredClone(packaged);
+  mixedOverride.initiativeProfiles['initiative-lite'].phaseOverrides.define = {
+    worldModelViews: ['business', 'dev.impact']
+  };
+  assert.throws(
+    () => resolveInitiativeProfile(mixedOverride, 'initiative-lite', { workflowDefinition: migrating }),
+    (error) => error?.code === 'WMB_VIEW_ASSIGNMENT_MIXED'
+  );
+  const unknownOverride = structuredClone(packaged);
+  unknownOverride.initiativeProfiles['initiative-lite'].phaseOverrides.define = {
+    worldModelViews: ['dev.imapct']
+  };
+  assert.throws(
+    () => resolveInitiativeProfile(unknownOverride, 'initiative-lite', { workflowDefinition: migrating }),
+    /WMB v4 view|installed/i
+  );
 });
 
 test('initiative creation snapshots the profile and prepares phase-specific outputs', async () => {

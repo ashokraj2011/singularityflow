@@ -22,7 +22,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 14
+version: 15
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -135,7 +135,15 @@ configuration, schema, and capability-portability report, then apply the returne
 by the plan; a filtered delivery-only plan cannot publish capability links from an unreviewed lead
 revision and instead returns the exact lead-scoped preview command. This command never rewrites
 immutable historical records. Registered older records are migrated in memory by their readers;
-future or unreadable schema versions remain explicit blockers with upgrade guidance.
+future or unreadable schema versions remain explicit blockers with upgrade guidance. Compatibility
+roots and registered-v4 state requirements come from the exact isolated approved configuration
+candidate, not a potentially stale application checkout. Old local workflow formats remain
+registered long enough for this recovery command to inspect and upgrade them. A corrupt workspace
+registry is an explicit `WORKSPACE_REGISTRY_INVALID` refusal rather than a misleading successful
+zero-target refresh; only a registry that does not exist means there are no registered workspaces.
+Recognized v3 World Model manifests use the older `schema_version` field and are reported as
+migration advisories, not corrupt v4 records; an unversioned artifact that claims `wmb-v4` still
+fails closed.
 
 Remote Git used by refresh is bounded and non-interactive. Exact ref observations are shared within
 one operation, independent repositories are prepared and published with up to four workers, and

@@ -216,7 +216,9 @@ const TELEMETRY_SUBCOMMANDS = Object.freeze([...TELEMETRY_READ_SUBCOMMANDS, ...T
 const HELP_METRICS_READ_SUBCOMMANDS = Object.freeze(['status']);
 const HELP_METRICS_MUTATION_SUBCOMMANDS = Object.freeze(['on', 'off', 'clear']);
 const HELP_METRICS_SUBCOMMANDS = Object.freeze([...HELP_METRICS_READ_SUBCOMMANDS, ...HELP_METRICS_MUTATION_SUBCOMMANDS]);
-const WORKFLOW_READ_SUBCOMMANDS = Object.freeze(['list', 'proposals', 'proposal', 'simulate', 'validate', 'diff']);
+const WORKFLOW_READ_SUBCOMMANDS = Object.freeze([
+  'list', 'proposals', 'proposal', 'proposal-status', 'simulate', 'validate', 'diff'
+]);
 const WORKFLOW_MUTATION_SUBCOMMANDS = Object.freeze(['activate', 'create', 'edit', 'phase', 'install', 'add', 'upgrade']);
 const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS]);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse']);

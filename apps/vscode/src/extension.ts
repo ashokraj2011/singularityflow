@@ -38,8 +38,9 @@ import { buildInboxTree } from './views/inbox-model.ts';
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
 import type { DesignerMessage } from './views/designer.ts';
-import type { ConfigurationCenterMessage } from './views/configuration-center.ts';
+import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
+import { configurationSaveDisposition, configurationSavePlanCliArgs } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
@@ -5444,15 +5445,81 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
-  const configurationMessage = async (message: ConfigurationCenterMessage): Promise<string | null> => {
+  const configurationMessage = async (message: ConfigurationCenterMessage): Promise<ConfigurationCenterReply> => {
     if (message.type === 'save') {
-      output.appendLine(`\n$ singularity-flow configuration save ${message.path} --expected-sha256 ${message.expectedSha256}`);
+      if (!message.writable) return message.blockedReason ?? 'The approved configuration authority is read-only.';
+      const args = [
+        'configuration', 'save', message.path, ...configurationSavePlanCliArgs(message)
+      ];
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(args)}`);
       try {
-        await client.runText(['configuration', 'save', message.path, '--expected-sha256', message.expectedSha256], { input: message.content });
+        const text = await client.runText(args, { input: message.content });
+        const disposition = configurationSaveDisposition(text, message.proposal);
         await refreshAfterKnownMutation();
-        return null;
+        if (store.current.error) {
+          output.appendLine(`  configuration refresh warning: ${store.current.error.message}`);
+          void vscode.window.showWarningMessage(
+            `The configuration change completed, but the approved snapshot could not be refreshed: ${store.current.error.message}`
+          );
+        }
+        if (disposition.kind === 'proposal') {
+            const review = 'Review proposals';
+            const selected = await vscode.window.showInformationMessage(
+              `Configuration proposal ${disposition.branch} was created from the approved authority. `
+              + `Merge it into ${disposition.baseBranch}, then refresh workspace configuration. `
+              + 'The application checkout was not changed.',
+              review, 'Later'
+            );
+            if (selected === review) {
+              await vscode.commands.executeCommand('singularityFlow.openDesigner');
+            }
+        } else if (disposition.kind === 'unchanged') {
+            void vscode.window.showInformationMessage(
+              'The approved configuration already contains this change; no proposal was required.'
+            );
+        }
+        return { error: null, disposition };
       } catch (error) {
         output.appendLine(`  refused: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    }
+    if (message.type === 'action' && message.action === 'refresh') {
+      try {
+        await store.refresh();
+        if (store.current.error) {
+          output.appendLine(`  configuration refresh refused: ${store.current.error.message}`);
+          return store.current.error.message;
+        }
+        return null;
+      } catch (error) {
+        output.appendLine(`  configuration refresh refused: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    }
+    if (message.type === 'action' && message.action === 'pending-proposals') {
+      try {
+        const proposals = await client.run<Array<{
+          branch: string; proposalCommit: string; targetBranch?: string; merged: boolean;
+        }>>(['workflow', 'proposals', '--all', '--json']);
+        return { error: null, proposals };
+      } catch (error) {
+        output.appendLine(`  configuration proposal refresh refused: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    }
+    if (message.type === 'proposal-status') {
+      try {
+        const proposalStatus = await client.run<{
+          branch: string; proposalCommit: string; targetBranch: string;
+          merged: boolean; branchStatus: string;
+        }>([
+          'workflow', 'proposal-status', message.branch,
+          '--commit', message.proposalCommit, '--json'
+        ]);
+        return { error: null, proposalStatus };
+      } catch (error) {
+        output.appendLine(`  configuration proposal status refused: ${(error as Error).message}`);
         return (error as Error).message;
       }
     }
@@ -6204,7 +6271,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (message.type === 'agent-action') {
         if (message.action === 'refresh') {
           await store.refresh();
-          return null;
+          return store.current.error
+            ? `Approved instruction reload failed: ${store.current.error.message}`
+            : null;
         }
         if (message.action === 'sync') {
           output.appendLine(`\n$ singularity-flow agents sync ${message.agentId}`);
@@ -6237,11 +6306,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         terminal.sendText(args.join(' '), true);
         return null;
       }
-      output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
+      if (!message.writable) return message.blockedReason ?? 'The approved configuration authority is read-only.';
+      const command = [
+        'configuration', 'save', message.path, ...configurationSavePlanCliArgs(message)
+      ];
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
       try {
-        await client.runText(['configuration', 'save', message.path], { input: message.content });
+        const text = await client.runText(command, { input: message.content });
         await refreshAfterKnownMutation();
-        return null;
+        const disposition = configurationSaveDisposition(text, message.proposal);
+        if (disposition.kind === 'proposal') {
+          void vscode.window.showInformationMessage(
+            `Instruction proposal ${disposition.branch} is ready for review. Merge it into `
+            + `${disposition.baseBranch}, then refresh workspace configuration. `
+            + 'The application checkout was not changed.'
+          );
+        } else if (disposition.kind === 'local') {
+          void vscode.window.showInformationMessage(
+            'Instruction changes were saved as a local configuration draft. Review and commit them through the local authority.'
+          );
+        } else {
+          void vscode.window.showInformationMessage(
+            'The approved instructions already contain this change; no proposal was required.'
+          );
+        }
+        return { error: null, disposition };
       } catch (error) {
         output.appendLine(`  refused: ${(error as Error).message}`);
         return (error as Error).message;

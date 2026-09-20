@@ -8,6 +8,7 @@ import { isInitiativeGenerator } from './initiative-generators.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
+import { effectiveWorldModelAssignmentViews } from './world-model-views.mjs';
 
 export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 export const INITIATIVE_REQUIREMENTS = new Set(['must', 'optional', 'conditional']);
@@ -673,20 +674,57 @@ export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) 
     ? BUILTIN_VIEW_IDS : workflowDefinition.worldModel?.views ?? [];
   const declared = new Set(configured.map(logical));
   const unknown = [];
-  for (const [phaseId, phase] of Object.entries(portfolio.initiativePhases ?? {})) {
-    for (const view of phase.worldModelViews ?? []) if (!declared.has(logical(view))) unknown.push(`${phaseId}:${view}`);
+  const assignments = Object.entries(portfolio.initiativePhases ?? {}).map(([phaseId, phase]) => ({
+    key: phaseId,
+    label: `Initiative phase '${phaseId}' World-Model assignment`,
+    views: phase.worldModelViews ?? []
+  }));
+  for (const [profileId, profile] of Object.entries(portfolio.initiativeProfiles ?? {})) {
+    for (const [phaseId, override] of Object.entries(profile.phaseOverrides ?? {})) {
+      if (override.worldModelViews == null) continue;
+      assignments.push({
+        key: `${profileId}/${phaseId}`,
+        label: `Initiative profile '${profileId}' phase '${phaseId}' World-Model assignment`,
+        views: override.worldModelViews
+      });
+    }
+  }
+  for (const assignment of assignments) {
+    const assigned = registered
+      ? effectiveWorldModelAssignmentViews(
+          workflowDefinition,
+          assignment.views,
+          assignment.label
+        )
+      : assignment.views;
+    for (const view of assigned) if (!declared.has(logical(view))) unknown.push(`${assignment.key}:${view}`);
   }
   if (unknown.length) throw new SingularityFlowError(`Initiative phases reference undeclared repository world-model views: ${unknown.join(', ')}.`);
   return true;
 }
 
-// The sorted union of every world-model view the portfolio's initiative phases route context to.
-// Used to auto-declare the repository's worldModel.views during onboarding so bootstrap self-heals
-// instead of throwing validatePortfolioWorldModelViews.
-export function portfolioWorldModelViews(portfolio) {
+// The sorted union of every base/profile-override view the portfolio can route context to. When a
+// workflow is supplied, apply its registered-v4 transition policy before onboarding declares the
+// repository catalog; the authored portfolio remains unchanged and auditable.
+export function portfolioWorldModelViews(portfolio, workflowDefinition = null) {
   const views = new Set();
-  for (const phase of Object.values(portfolio.initiativePhases ?? {})) {
-    for (const view of phase.worldModelViews ?? []) views.add(view);
+  const include = (assigned, label) => {
+    const effective = workflowDefinition
+      ? effectiveWorldModelAssignmentViews(workflowDefinition, assigned, label)
+      : assigned;
+    for (const view of effective) views.add(view);
+  };
+  for (const [phaseId, phase] of Object.entries(portfolio.initiativePhases ?? {})) {
+    include(phase.worldModelViews ?? [], `Initiative phase '${phaseId}' World-Model assignment`);
+  }
+  for (const [profileId, profile] of Object.entries(portfolio.initiativeProfiles ?? {})) {
+    for (const [phaseId, override] of Object.entries(profile.phaseOverrides ?? {})) {
+      if (override.worldModelViews == null) continue;
+      include(
+        override.worldModelViews,
+        `Initiative profile '${profileId}' phase '${phaseId}' World-Model assignment`
+      );
+    }
   }
   return [...views].sort();
 }
@@ -694,7 +732,7 @@ export function portfolioWorldModelViews(portfolio) {
 // Layer a profile's overrides over the shared phase definition. Mirrors resolveWorkType on the story
 // side: the override supplies only the keys it changes, and nested policy objects merge rather than
 // replace, so narrowing one output's `required` does not silently drop the rest of its definition.
-function resolveProfilePhase(portfolio, profile, phaseId, order) {
+function resolveProfilePhase(portfolio, profileId, profile, phaseId, order, workflowDefinition = null) {
   const phase = structuredClone(portfolio.initiativePhases[phaseId]);
   const override = structuredClone(profile.phaseOverrides?.[phaseId] ?? {});
   const templateOverrides = profile.templateOverrides ?? {};
@@ -712,7 +750,13 @@ function resolveProfilePhase(portfolio, profile, phaseId, order) {
     ...phase,
     ...override,
     label: override.label ?? phase.label,
-    worldModelViews: override.worldModelViews ?? phase.worldModelViews,
+    worldModelViews: workflowDefinition
+      ? effectiveWorldModelAssignmentViews(
+          workflowDefinition,
+          override.worldModelViews ?? phase.worldModelViews,
+          `Initiative profile '${profileId}' phase '${phaseId}' World-Model assignment`
+        )
+      : override.worldModelViews ?? phase.worldModelViews,
     agents: override.agents ?? phase.agents,
     bundleApproval: override.bundleApproval ?? phase.bundleApproval,
     outputs,
@@ -721,9 +765,13 @@ function resolveProfilePhase(portfolio, profile, phaseId, order) {
   };
 }
 
-export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = null } = {}) {
+export function resolveInitiativeProfile(portfolio, profileId, {
+  idAuthority = null,
+  workflowDefinition = null
+} = {}) {
   const profile = portfolio.initiativeProfiles[profileId];
   if (!profile) throw new SingularityFlowError(`Unknown initiative profile '${profileId}'.`);
+  if (workflowDefinition) validatePortfolioWorldModelViews(portfolio, workflowDefinition);
   const authority = idAuthority ?? portfolio.identity.authority;
   if (!ID_AUTHORITIES.has(authority)) throw new SingularityFlowError(`Unsupported initiative identity authority '${authority}'.`);
   if (!portfolio.identity.configurablePerEpic && authority !== portfolio.identity.authority) {
@@ -736,7 +784,9 @@ export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = n
     id: profileId,
     label: profile.label,
     lifecycleMode: profile.lifecycleMode,
-    phases: profile.phases.map((id, order) => resolveProfilePhase(portfolio, profile, id, order)),
+    phases: profile.phases.map((id, order) => (
+      resolveProfilePhase(portfolio, profileId, profile, id, order, workflowDefinition)
+    )),
     packs: structuredClone(profile.packs ?? []),
     // Pinned for the same reason as phases and packs: a conditional check is only meaningful
     // alongside the question that was asked. Reading the live portfolio meant the wording someone

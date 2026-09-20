@@ -4,7 +4,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import YAML from 'yaml';
 
+import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import {
   REINITIALIZATION_SCHEMA_POLICY, reinitializeWorkspaces
 } from '../src/workspace-reinitialize.mjs';
@@ -86,6 +88,36 @@ function services(overrides = {}) {
   };
 }
 
+async function installMovableLifecycleRef(repositoryRoot, branch = 'lifecycle-plan') {
+  execFileSync('git', ['config', 'user.name', 'Reinitialize Test'], { cwd: repositoryRoot });
+  execFileSync('git', ['config', 'user.email', 'reinitialize@example.test'], {
+    cwd: repositoryRoot
+  });
+  await writeFile(path.join(repositoryRoot, 'application.txt'), 'application source\n');
+  execFileSync('git', ['add', 'application.txt'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'application baseline'], { cwd: repositoryRoot });
+  execFileSync('git', ['switch', '-q', '-c', branch], { cwd: repositoryRoot });
+  const probe = path.join(repositoryRoot, 'singularity', 'migration-probe.json');
+  await mkdir(path.dirname(probe), { recursive: true });
+  await writeFile(probe, '{"schemaVersion":1,"kind":"migration-probe"}\n');
+  execFileSync('git', ['add', 'singularity/migration-probe.json'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'lifecycle schema probe'], { cwd: repositoryRoot });
+  const reviewed = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repositoryRoot, encoding: 'utf8'
+  }).trim();
+  execFileSync('git', ['commit', '--allow-empty', '-qm', 'advance lifecycle ref'], {
+    cwd: repositoryRoot
+  });
+  const advanced = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repositoryRoot, encoding: 'utf8'
+  }).trim();
+  execFileSync('git', ['switch', '-q', 'main'], { cwd: repositoryRoot });
+  execFileSync('git', ['update-ref', `refs/heads/${branch}`, reviewed], {
+    cwd: repositoryRoot
+  });
+  return { branch, reviewed, advanced };
+}
+
 function deliveryRefreshResult(status, { dryRun, itemStatus }) {
   return {
     ...refreshResult(status, { dryRun, itemStatus }),
@@ -156,6 +188,19 @@ test('workspace reinitialize is plan-first with structured shell-safe recovery',
   );
 });
 
+test('workspace reinitialize refuses a corrupt registry instead of issuing a zero-target plan', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-reinitialize-invalid-registry-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const registryFile = path.join(root, 'workspaces.json');
+  await writeFile(registryFile, '{"schemaVersion":1,"workspaces":[');
+
+  await assert.rejects(
+    () => reinitializeWorkspaces({ registryFile, dryRun: true }),
+    (error) => error?.name === 'SingularityFlowError'
+      && error.code === 'WORKSPACE_REGISTRY_INVALID'
+  );
+});
+
 test('preview binds a compound plan, stays read-only, and reports read-time migration', async (t) => {
   const { registryFile } = await fixture(t);
   let capabilityPublications = 0;
@@ -183,6 +228,190 @@ test('preview binds a compound plan, stays read-only, and reports read-time migr
   assert.equal(result.schemaMigrationPolicy, REINITIALIZATION_SCHEMA_POLICY);
   assert.equal(result.schemaMigrationPolicy.immutableRecordsRewritten, false);
   assert.deepEqual(result.nextAction.argv.slice(-3), ['--confirm-plan', result.planId, '--json']);
+});
+
+test('preview derives schema roots from the exact approved configuration candidate', async (t) => {
+  const { registryFile, repositoryRoot } = await fixture(t);
+  const authorityRoot = path.join(path.dirname(registryFile), 'approved-configuration');
+  await mkdir(authorityRoot, { recursive: true });
+  execFileSync('git', ['init', '-q', '-b', 'sflow/config'], { cwd: authorityRoot });
+  await initializeDefinition(authorityRoot);
+  const approved = await loadDefinition(authorityRoot);
+  approved.workItemRoot = 'approved/work-items';
+  await writeFile(
+    path.join(authorityRoot, 'singularity', 'workflow.yml'), YAML.stringify(approved)
+  );
+  const futureRecord = path.join(
+    repositoryRoot, 'approved', 'work-items', 'FUTURE-1', 'workflow.json'
+  );
+  await mkdir(path.dirname(futureRecord), { recursive: true });
+  await writeFile(futureRecord, '{"schemaVersion":99}\n');
+
+  const refreshWorkspaceConfigurations = async (options) => {
+    let blocked = false;
+    try {
+      await options.inspectCandidate?.({
+        root: authorityRoot,
+        sourceCommit: 'd'.repeat(40),
+        stateBefore: { stateCommit: null },
+        repository: {
+          localPath: repositoryRoot,
+          localPaths: [repositoryRoot]
+        }
+      });
+    } catch (error) {
+      assert.equal(error.code, 'WORKSPACE_REINITIALIZE_SCHEMA_BLOCKED');
+      blocked = true;
+    }
+    const refresh = refreshResult(blocked ? 'blocked' : 'preview', {
+      dryRun: true, itemStatus: blocked ? 'blocked' : 'current'
+    });
+    if (blocked) refresh.planId = null;
+    return refresh;
+  };
+  const result = await reinitializeWorkspaces({ registryFile, dryRun: true }, services({
+    refreshWorkspaceConfigurations
+  }));
+
+  assert.equal(result.status, 'blocked', JSON.stringify(result.schemaCensuses));
+  assert.equal(result.planId, null);
+  assert.equal(result.schemaCensuses[0].outsideReadableRange, 1);
+  assert.deepEqual(result.schemaCensuses[0].schemaAuthority, {
+    source: 'approved-configuration-candidate',
+    configurationSourceCommit: 'd'.repeat(40),
+    stateAuthorityCommit: null
+  });
+});
+
+test('a schema blocker appearing after preview stops configuration publication', async (t) => {
+  const { registryFile, repositoryRoot } = await fixture(t);
+  const authorityRoot = path.join(path.dirname(registryFile), 'race-authority');
+  await mkdir(authorityRoot, { recursive: true });
+  execFileSync('git', ['init', '-q', '-b', 'sflow/config'], { cwd: authorityRoot });
+  await initializeDefinition(authorityRoot);
+  let published = false;
+  const refreshWorkspaceConfigurations = async (options) => {
+    if (!options.dryRun) {
+      const futureRecord = path.join(
+        repositoryRoot, 'singularity', 'work-items', 'RACE-1', 'workflow.json'
+      );
+      await mkdir(path.dirname(futureRecord), { recursive: true });
+      await writeFile(futureRecord, '{"schemaVersion":99}\n');
+    }
+    try {
+      await options.inspectCandidate?.({
+        root: authorityRoot,
+        sourceCommit: authorityBefore,
+        stateBefore: { stateCommit: null },
+        repository: { localPath: repositoryRoot, localPaths: [repositoryRoot] }
+      });
+    } catch (error) {
+      assert.equal(error.code, 'WORKSPACE_REINITIALIZE_SCHEMA_BLOCKED');
+      return refreshResult('blocked', { dryRun: options.dryRun, itemStatus: 'failed' });
+    }
+    if (!options.dryRun) published = true;
+    return refreshResult(options.dryRun ? 'preview' : 'complete', {
+      dryRun: options.dryRun,
+      itemStatus: options.dryRun ? 'current' : 'updated'
+    });
+  };
+  const service = services({ refreshWorkspaceConfigurations });
+  const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
+  assert.equal(preview.status, 'preview');
+
+  const result = await reinitializeWorkspaces({
+    registryFile, confirmPlan: preview.planId
+  }, service);
+  assert.equal(result.status, 'blocked');
+  assert.equal(published, false,
+    'the second authority-bound census must finish before configuration publication');
+  assert.equal(result.schemaCensuses[0].outsideReadableRange, 1);
+});
+
+test('compound plan binds lifecycle-ref SHAs before any configuration mutation', async (t) => {
+  const { registryFile, repositoryRoot } = await fixture(t);
+  const lifecycle = await installMovableLifecycleRef(repositoryRoot);
+  let refreshMutations = 0;
+  const service = services({
+    refreshWorkspaceConfigurations: async (options) => {
+      if (!options.dryRun) refreshMutations += 1;
+      return refreshResult(options.dryRun ? 'preview' : 'complete', {
+        dryRun: options.dryRun,
+        itemStatus: options.dryRun ? 'current' : 'updated'
+      });
+    }
+  });
+
+  const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
+  assert.equal(preview.status, 'preview');
+  assert.deepEqual(preview.schemaCensuses[0].lifecycleRefs, [{
+    ref: `refs/heads/${lifecycle.branch}`,
+    commit: lifecycle.reviewed
+  }]);
+
+  execFileSync('git', [
+    'update-ref', `refs/heads/${lifecycle.branch}`, lifecycle.advanced, lifecycle.reviewed
+  ], { cwd: repositoryRoot });
+  const result = await reinitializeWorkspaces({
+    registryFile,
+    confirmPlan: preview.planId
+  }, service);
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.topologyStatus, 'stale-plan');
+  assert.equal(refreshMutations, 0,
+    'a lifecycle ref that moved after review must invalidate wrip before apply begins');
+});
+
+test('lifecycle refs are rechecked in the final candidate preflight before publication', async (t) => {
+  const { registryFile, repositoryRoot } = await fixture(t);
+  const lifecycle = await installMovableLifecycleRef(repositoryRoot, 'lifecycle-apply-race');
+  const authorityRoot = path.join(path.dirname(registryFile), 'candidate-authority');
+  await mkdir(authorityRoot, { recursive: true });
+  execFileSync('git', ['init', '-q', '-b', 'sflow/config'], { cwd: authorityRoot });
+  await initializeDefinition(authorityRoot);
+  let publicationStarted = false;
+  let applyRaceInjected = false;
+  let observedFailure = null;
+  const refreshWorkspaceConfigurations = async (options) => {
+    if (!options.dryRun && !applyRaceInjected) {
+      execFileSync('git', [
+        'update-ref', `refs/heads/${lifecycle.branch}`,
+        lifecycle.advanced, lifecycle.reviewed
+      ], { cwd: repositoryRoot });
+      applyRaceInjected = true;
+    }
+    try {
+      await options.inspectCandidate?.({
+        root: authorityRoot,
+        sourceCommit: authorityBefore,
+        stateBefore: { stateCommit: null },
+        repository: { localPath: repositoryRoot, localPaths: [repositoryRoot] }
+      });
+    } catch (error) {
+      observedFailure = error.code;
+      return refreshResult('blocked', {
+        dryRun: options.dryRun,
+        itemStatus: 'failed'
+      });
+    }
+    if (!options.dryRun) publicationStarted = true;
+    return refreshResult(options.dryRun ? 'preview' : 'complete', {
+      dryRun: options.dryRun,
+      itemStatus: options.dryRun ? 'current' : 'updated'
+    });
+  };
+  const service = services({ refreshWorkspaceConfigurations });
+  const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
+  assert.equal(preview.status, 'preview');
+
+  const result = await reinitializeWorkspaces({
+    registryFile,
+    confirmPlan: preview.planId
+  }, service);
+  assert.equal(result.status, 'blocked');
+  assert.equal(observedFailure, 'WORKSPACE_REINITIALIZE_SCHEMA_AUTHORITY_CHANGED');
+  assert.equal(publicationStarted, false,
+    'candidate inspection must finish before configuration publication can start');
 });
 
 test('confirmed compound plan applies exact cfgp and repairs capability portability', async (t) => {
@@ -247,6 +476,34 @@ test('policy-disabled capability publication with portable locators completes', 
   assert.equal(result.capabilityPortability.status, 'complete');
   assert.equal(result.capabilityPortability.results[0].status, 'current');
   assert.equal(result.capabilityPortability.results[0].stateStatus, 'policy-disabled');
+});
+
+test('partial configuration refresh never publishes capability portability', async (t) => {
+  const { registryFile } = await fixture(t);
+  let applied = false;
+  let publications = 0;
+  const service = services({
+    refreshWorkspaceConfigurations: async (options) => {
+      if (options.dryRun) {
+        return refreshResult('preview', { dryRun: true, itemStatus: 'would-update' });
+      }
+      applied = true;
+      return {
+        ...refreshResult('partial', { dryRun: false, itemStatus: 'updated' }),
+        failed: 1
+      };
+    },
+    observeLeadConfiguration: async () => ({
+      status: 'current', commit: applied ? authorityAfter : authorityBefore
+    }),
+    publishOrganisationCapabilityMap: async () => { publications += 1; }
+  });
+  const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
+  const result = await reinitializeWorkspaces({ registryFile, confirmPlan: preview.planId }, service);
+  assert.equal(result.status, 'partial');
+  assert.equal(result.capabilityPortability.status, 'not-run-configuration-partial');
+  assert.equal(publications, 0, 'partial configuration rollout must not publish capability locators');
+  assert.deepEqual(result.nextAction.argv.slice(-2), ['--dry-run', '--json']);
 });
 
 test('filtered delivery cannot publish from an unbound lead', async (t) => {

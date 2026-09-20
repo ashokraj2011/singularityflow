@@ -6,12 +6,15 @@
  * study observe?" and delegates every calculation and mutation to the CLI.
  */
 import * as vscode from 'vscode';
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { SingularityFlowClient } from '../cli/client.ts';
+import type { RepositorySnapshot } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import {
+  configurationSaveDisposition, configurationSavePlan, configurationSavePlanCliArgs
+} from './configuration-save.ts';
 
 interface ImpactGroup { id: string; label: string; assistanceMode: string }
 export interface ImpactStudy {
@@ -64,6 +67,9 @@ export interface FlowImpactState {
   selectedStudyId: string | null;
   configText: string;
   configMissing: boolean;
+  externalConfigurationAuthority: boolean;
+  configurationWritable: boolean;
+  configurationBlockedReason: string | null;
   loading: boolean;
   notice: string | null;
   error: string | null;
@@ -198,7 +204,8 @@ export function flowImpactBody(state: FlowImpactState, tab = 'overview'): string
     ${tab === 'configuration' ? `<section class="plain"><div class="section-heading"><div class="grow"><h2>${icon('configuration')}Study configuration</h2><p class="muted"><code>singularity/impact.yml</code> is validated by the CLI before it is saved. Prompt-set studies compare two reviewed Markdown prompts while keeping the governed agent and lifecycle ceremony fixed. Enabling a study affects future enrollment; active Stories retain their pinned study hash.</p></div><button class="secondary" data-action="open-config">Open as file</button></div>
       ${state.configMissing ? '<p class="warning-text">No impact.yml exists. The starter below is disabled by default and safe to review before saving.</p>' : ''}
       <p class="card-foot"><button class="secondary" data-action="prompt-hash">Calculate reviewed prompt hash…</button><span class="muted">Choose Markdown from <code>singularity/prompts/</code>; the result is safe to paste into a variant.</span></p>
-      <textarea id="impact-config" class="prompt-content" rows="30" spellcheck="false">${escape(state.configText)}</textarea><p class="card-foot"><button data-action="save-config">Validate and save configuration</button><span class="muted">Saving changes the working tree; commit it through your normal governed configuration review.</span></p></section>` : ''}`;
+      ${state.configurationBlockedReason ? `<p class="warning-text"><strong>Read-only recovery configuration:</strong> ${escape(state.configurationBlockedReason)} Restore or reinitialize <code>sflow/config</code> in Configuration Center before editing.</p>` : ''}
+      <textarea id="impact-config" class="prompt-content" rows="30" spellcheck="false"${state.loading || !state.configurationWritable ? ' disabled' : ''}>${escape(state.configText)}</textarea><p class="card-foot"><button data-action="save-config"${state.loading || !state.configurationWritable ? ' disabled' : ''}>Validate and save configuration</button><span class="muted">${state.loading ? 'Loading the exact approved configuration revision…' : !state.configurationWritable ? 'Editing is disabled until the approved configuration authority is restored.' : state.externalConfigurationAuthority ? 'Saving creates a review proposal from the approved configuration authority; the application checkout is not changed.' : 'Saving changes the working tree; commit it through your normal governed configuration review.'}</span></p></section>` : ''}`;
 }
 
 const SCRIPT = `
@@ -235,11 +242,14 @@ export class FlowImpactPanel {
   private disposed = false;
   private refreshRevision = 0;
   private refreshPending = false;
+  private renderedConfigurationSource: RepositorySnapshot['configurationSource'] = undefined;
   private tab = 'overview';
   private state: FlowImpactState = {
     studies: [], workIds: [], selectedWorkId: null, status: null, doctor: null,
     comparison: null, selectedStudyId: null, configText: DEFAULT_IMPACT,
-    configMissing: true, loading: true, notice: null, error: null
+    configMissing: true, externalConfigurationAuthority: false,
+    configurationWritable: true, configurationBlockedReason: null,
+    loading: true, notice: null, error: null
   };
 
   private constructor(
@@ -302,23 +312,46 @@ export class FlowImpactPanel {
     };
     this.render();
     try {
-      const [studies, configText, status] = await Promise.all([
+      const [studies, configFile, status] = await Promise.all([
         this.client.run<ImpactStudy[]>(['impact', 'study', 'list', '--json']).catch(() => []),
-        readFile(path.join(this.client.repository, 'singularity/impact.yml'), 'utf8').catch(() => null),
+        this.client.run<{ content: string }>(['configuration', 'read', 'singularity/impact.yml', '--json']).catch(() => null),
         selected ? this.client.run<ImpactStatus>(['impact', 'status', selected, '--json']).catch(() => null) : Promise.resolve(null)
       ]);
       if (revision !== this.refreshRevision) return;
+      const configText = configFile?.content ?? null;
       const selectedStudyId = this.state.selectedStudyId && studies.some((item) => item.id === this.state.selectedStudyId)
         ? this.state.selectedStudyId : status?.measurement.plan?.studyId ?? studies[0]?.id ?? null;
+      this.renderedConfigurationSource = snapshot?.configurationSource;
+      const savePlan = configurationSavePlan(
+        snapshot?.configurationSource, 'singularity/impact.yml', configText ?? ''
+      );
       this.state = {
         ...this.state, studies, status, selectedStudyId, configText: configText ?? DEFAULT_IMPACT,
-        configMissing: configText == null, loading: false
+        configMissing: configText == null,
+        externalConfigurationAuthority: Boolean(snapshot?.configurationSource?.effective?.kind
+          && snapshot.configurationSource.effective.kind !== 'working-tree'),
+        configurationWritable: savePlan.writable,
+        configurationBlockedReason: savePlan.blockedReason ?? null,
+        loading: false
       };
     } catch (error) {
       if (revision !== this.refreshRevision) return;
       this.state = { ...this.state, loading: false, error: (error as Error).message };
     }
     this.render();
+  }
+
+  private async reload(notice: string): Promise<void> {
+    await this.store.refresh();
+    if (this.store.current.error) {
+      this.state = {
+        ...this.state, loading: false, notice: null,
+        error: `Approved configuration reload failed: ${this.store.current.error.message}`
+      };
+      this.render();
+      return;
+    }
+    await this.refresh(notice);
   }
 
   private async mutation(action: () => Promise<string>, success: string): Promise<void> {
@@ -340,10 +373,15 @@ export class FlowImpactPanel {
       await this.refresh(); return;
     }
     const workId = this.state.selectedWorkId;
-    if (message.action === 'refresh') { await this.refresh('Flow Impact data refreshed.'); return; }
+    if (message.action === 'refresh') { await this.reload('Flow Impact data refreshed.'); return; }
     if (message.action === 'open-config') {
       if (this.state.configMissing) {
         this.state = { ...this.state, notice: 'Save the reviewed starter configuration first; no impact.yml exists yet.', error: null };
+        this.render();
+        return;
+      }
+      if (this.state.externalConfigurationAuthority) {
+        this.state = { ...this.state, notice: 'This approved Flow Impact configuration is supplied by sflow/config. Edit it in this panel to create a governed review proposal.', error: null };
         this.render();
         return;
       }
@@ -372,8 +410,31 @@ export class FlowImpactPanel {
       ); return;
     }
     if (message.action === 'save-config') {
+      if (this.state.loading) {
+        this.state = { ...this.state, error: 'Wait for the approved Flow Impact configuration to finish loading before saving.', notice: null };
+        this.render();
+        return;
+      }
+      const source = this.state.configMissing ? '' : this.state.configText;
+      const plan = configurationSavePlan(this.renderedConfigurationSource, 'singularity/impact.yml', source);
+      if (!plan.writable) {
+        this.state = { ...this.state, error: plan.blockedReason ?? 'The approved configuration authority is read-only.', notice: null };
+        this.render();
+        return;
+      }
       await this.mutation(
-        () => this.client.runText(['configuration', 'save', 'singularity/impact.yml'], { input: message.content ?? '' }),
+        async () => {
+          const output = await this.client.runText([
+            'configuration', 'save', 'singularity/impact.yml',
+            ...configurationSavePlanCliArgs(plan)
+          ], { input: message.content ?? '' });
+          const disposition = configurationSaveDisposition(output, plan.proposal);
+          if (disposition.kind === 'proposal') return `Flow Impact configuration proposal ${disposition.branch} is ready for review. Merge it into ${disposition.baseBranch}, then refresh workspace configuration. The application checkout was not changed.`;
+          if (disposition.kind === 'unchanged') return 'The approved Flow Impact configuration already contains this change; no proposal was required.';
+          return plan.proposal
+            ? 'Flow Impact configuration was saved as a local authority draft; review and commit it through the local configuration path.'
+            : '';
+        },
         'Impact configuration validated and saved.'
       ); return;
     }

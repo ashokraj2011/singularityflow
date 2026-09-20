@@ -288,19 +288,19 @@ function phasesHtml(
    */
   if (!profile && !draft && !phaseDraft) return '<section class="empty-state"><h3>No workflow exists yet</h3><p>Create the first workflow from the phase catalog, or define a phase to use in one.</p><button data-new-workflow="1">Create workflow</button><button class="secondary" data-new-phase="1">New phase</button></section>';
   return `
-  <section class="plain proposal-inventory" aria-labelledby="pending-workflow-proposals">
-    <div class="toolbar-row"><div><p class="eyebrow">Configuration review</p><h2 id="pending-workflow-proposals">Pending workflow proposals${proposalsLoaded ? ` (${proposals.length})` : ''}</h2></div><span class="grow"></span><button class="secondary" data-refresh-proposals="1">Refresh</button></div>
+  <section class="plain proposal-inventory" aria-labelledby="pending-configuration-proposals">
+    <div class="toolbar-row"><div><p class="eyebrow">Configuration review</p><h2 id="pending-configuration-proposals">Pending configuration proposals${proposalsLoaded ? ` (${proposals.length})` : ''}</h2></div><span class="grow"></span><button class="secondary" data-refresh-proposals="1">Refresh</button></div>
     ${!proposalsLoaded ? '<p class="muted">Checking the approved configuration remote…</p>'
       : proposalsError ? `<div class="blockers"><strong>Could not load pending proposals</strong><p>${escape(proposalsError)}</p></div>`
       : proposals.length ? `<div class="template-grid">${proposals.map((proposal) => {
         const names = proposal.workflows.length
           ? proposal.workflows.map((workflow) => `${workflow.label ?? workflow.id} (${workflow.change})`).join(', ')
-          : 'No readable workflow changes';
+          : 'Configuration-only change (for example World Model, policy, agent, or template settings)';
         return `<article class="template-tile"><strong>${escape(names)}</strong><span><code>${escape(proposal.proposalCommit.slice(0, 12))}</code> · ${escape(proposal.branch)}</span>${proposal.valid
           ? `<button class="secondary" data-review-proposal="${escape(proposal.branch)}">Review and activate</button>`
           : `<span class="blockers">Blocked${proposal.failure?.message ? `: ${escape(proposal.failure.message)}` : ''}</span>`}</article>`;
       }).join('')}</div>`
-      : '<p class="muted">No workflow proposals are waiting for review.</p>'}
+      : '<p class="muted">No configuration proposals are waiting for review.</p>'}
   </section>
   <section class="plain toolbar-row">
     ${profile ? `<label class="field compact"><span>Workflow</span><select data-profile-pick>${profiles.map((entry) => `<option value="${escape(entry.id)}"${entry.id === profile.id ? ' selected' : ''}>${escape(workflowOptionLabel(entry))}</option>`).join('')}</select></label>` : ''}

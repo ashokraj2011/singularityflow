@@ -1,6 +1,5 @@
 /** Guided VS Code surface for repository AST policy, machine preference, diagnostics, and cache. */
 import * as vscode from 'vscode';
-import { createHash } from 'node:crypto';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { activeRepositoryContext, type ActiveRepositoryContext } from '../gateway-runtime-client.ts';
@@ -16,6 +15,9 @@ import {
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { enumField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
+import {
+  configurationSaveDisposition, configurationSavePlan, configurationSavePlanCliArgs
+} from './configuration-save.ts';
 
 interface AstCacheStatus { exists?: boolean; files?: number; bytes?: number }
 interface AstDoctorResult {
@@ -227,10 +229,14 @@ function presetChoice(value: AstPolicyPreset, current: AstPolicyPreset, title: s
   return `<label class="choice${value === current ? ' chosen' : ''}" data-ast-preset="${value}"><input type="radio" name="preset" value="${value}"${value === current ? ' checked' : ''}><span class="choice-label">${escape(title)}</span><span class="choice-detail">${escape(detail)}</span></label>`;
 }
 
-function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null, doctor: AstDoctorResult | null): string {
+function policyForm(
+  policy: AstPolicyDraft, scope: AstRepositoryScopeView | null, doctor: AstDoctorResult | null,
+  blockedReason: string | null = null
+): string {
   const repository = scope?.repository ?? 'the selected repository';
   const preset = astPolicyPreset(policy);
   return `<section><div class="section-heading"><div><h2>${icon('worldModel')}Repository policy</h2><p>Saved through the governed configuration engine. Review and publish <code>singularity/workflow.yml</code> through the normal configuration path.</p></div><button class="secondary" data-message="open-configuration">Configuration Center</button></div>
+    ${blockedReason ? `<p class="notice warning"><strong>Read-only recovery configuration:</strong> ${escape(blockedReason)} Open Configuration Center to restore or reinitialize the approved authority.</p>` : ''}
     <form id="ast-policy-form">
       <div class="editor-card"><h3>Choose how AST works for ${escape(repository)}</h3><div class="choices">
         ${presetChoice('automatic', preset, 'Automatic — Recommended', 'Use safe managed limits and detect supported languages only when requested.')}
@@ -260,7 +266,7 @@ function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null
         <div class="editor-card"><h3>Language overrides</h3><label class="stack"><span>One language per line</span><textarea name="languages" rows="5" placeholder="java | auto | text | sflow-polyglot-syntax\nkotlin | auto | semantic | | sflow-kotlin-analysis | android-debug">${escape(languageRows(policy))}</textarea><small><code>language | auto/off | text/syntax/semantic | parser provider | semantic provider | profile</code>. Leave empty for automatic language detection. The bundled preview is text-assured; syntax and semantic assurance require reviewed providers.</small></label></div>
         <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="6" placeholder="boundary | required | import-boundary | src/api | syntax | java,kotlin | * | forbidden.internal">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | type | path/symbol/module | assurance | languages | profiles | comparison</code>. These expert diagnostics remain optional and never become workflow gates.</small></label></div>
       </details>
-      <p class="card-foot"><button type="submit">Save AST setting</button><button class="secondary" type="button" data-message="open-workflow">Open advanced YAML</button></p>
+      <p class="card-foot"><button type="submit"${blockedReason ? ' disabled' : ''}>Save AST setting</button><button class="secondary" type="button" data-message="open-workflow">Open advanced YAML</button></p>
     </form></section>`;
 }
 
@@ -354,11 +360,11 @@ function languageMatrixSection(doctor: AstDoctorResult | null): string {
     <details><summary>${escape(projects?.bindingCount ?? 0)} existing project binding(s) discovered without running a build</summary>${projectRows.length ? `<ul>${projectRows.map((binding) => `<li><strong>${escape(binding.projectKind ?? 'project')}</strong> · <code>${escape(binding.root ?? '.')}</code> · ${binding.complete ? 'complete' : `incomplete: ${escape((binding.unavailable ?? []).join(', ') || 'toolchain/profile')}`}</li>`).join('')}</ul>` : '<p>No Maven, Gradle/Android, Python, SwiftPM, or Xcode metadata was found in the selected scope.</p>'}</details></section>`;
 }
 
-export function astIntelligenceBody(policy: AstPolicyDraft, doctor: AstDoctorResult | null, run: AstRunResult | null, preview: AstCachePreview | null, warmPreview: AstWarmPreview | null, notice: string | null, error: string | null, scope: AstRepositoryScopeView | null, inventory: AstWorkspaceRepositoryInventory | null, inventoryError: string | null): string {
+export function astIntelligenceBody(policy: AstPolicyDraft, doctor: AstDoctorResult | null, run: AstRunResult | null, preview: AstCachePreview | null, warmPreview: AstWarmPreview | null, notice: string | null, error: string | null, scope: AstRepositoryScopeView | null, inventory: AstWorkspaceRepositoryInventory | null, inventoryError: string | null, configurationBlockedReason: string | null = null): string {
   return `<div data-repository-scope="${escape(scope?.key ?? '')}"><header class="inbox-header"><p class="eyebrow">Configuration · World model</p><h1>${icon('worldModel', { size: 24 })}AST Intelligence</h1><p class="meta">Bounded structural facts, explicit assurance, and content-aware local caching. No daemon and no implicit whole-repository scan.</p></header>
     ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${error ? `<div class="notice error"><strong>AST action refused</strong><p>${escape(error)}</p></div>` : ''}
     <p class="card-foot"><button class="secondary" data-message="refresh">Refresh status</button><button class="secondary" data-message="open-help">Open AST guide</button></p>
-    ${repositoryScope(scope, inventory, inventoryError)}${policyForm(policy, scope, doctor)}${runResult(run)}
+    ${repositoryScope(scope, inventory, inventoryError)}${policyForm(policy, scope, doctor, configurationBlockedReason)}${runResult(run)}
     <details id="ast-advanced-tools" class="configuration-advanced-tools"><summary>Advanced diagnostics and tools</summary>
       ${runtimeSummary(doctor)}${languageMatrixSection(doctor)}${semanticWarmSection(doctor, warmPreview)}${machinePreference(doctor)}${scopeRunner(policy)}${cacheSection(doctor, preview)}${adapterSection(doctor)}
     </details></div>`;
@@ -431,7 +437,7 @@ export class AstIntelligencePanel {
   }
   static repositoryChanged(): void { if (AstIntelligencePanel.current) { AstIntelligencePanel.current.doctor = null; AstIntelligencePanel.current.preview = null; AstIntelligencePanel.current.warmPreview = null; AstIntelligencePanel.current.result = null; AstIntelligencePanel.current.notice = null; AstIntelligencePanel.current.error = null; AstIntelligencePanel.current.repositoryInventory = null; AstIntelligencePanel.current.repositoryInventoryError = null; AstIntelligencePanel.current.repositoryInventoryLoaded = false; void AstIntelligencePanel.current.refresh(); } }
   private router = registerMessageRouter('singularityFlow.astIntelligence', {
-    refresh: () => this.refresh(),
+    refresh: () => this.reload(),
     'save-machine': (message) => { const mode = enumField(message, 'mode', ['auto', 'off'] as const); return mode ? this.saveMachine(mode) : undefined; },
     'select-repository': (message) => this.selectRepository(message),
     'save-policy': (message) => this.savePolicy(message),
@@ -502,6 +508,16 @@ export class AstIntelligencePanel {
     }
     this.render();
   }
+  /** A person asking to refresh expects new authority bytes, not another render of the old lease. */
+  private async reload(): Promise<void> {
+    await this.store.refresh();
+    if (this.store.current.error) {
+      this.error = `Approved configuration reload failed: ${this.store.current.error.message}`;
+      this.render();
+      return;
+    }
+    await this.refresh();
+  }
   private async selectRepository(message: InboundMessage): Promise<void> {
     if (!this.acceptsRepositoryScope(message)) return;
     const repository = stringField(message, 'repository');
@@ -561,9 +577,24 @@ export class AstIntelligencePanel {
     const snapshot = this.store.current.snapshot; const source = String(snapshot?.definitionText ?? '');
     if (!snapshot || !source) { this.error = 'The governed workflow definition is unavailable. Refresh the repository before saving.'; this.render(); return; }
     try {
-      const expected = createHash('sha256').update(source).digest('hex');
-      await this.client.runText(['configuration', 'save', snapshot.definitionPath ?? 'singularity/workflow.yml', '--expected-sha256', expected], { input: updateAstPolicyYaml(source, draft) });
-      this.notice = `Repository AST policy saved locally for ${this.repositoryScope()?.repository ?? 'the selected repository'}. Review and publish the configuration when ready.`; this.error = null;
+      const target = snapshot.definitionPath ?? 'singularity/workflow.yml';
+      const plan = configurationSavePlan(snapshot.configurationSource, target, source);
+      if (!plan.writable) {
+        this.error = plan.blockedReason ?? 'The approved configuration authority is read-only.';
+        this.render();
+        return;
+      }
+      const args = [
+        'configuration', 'save', target, ...configurationSavePlanCliArgs(plan)
+      ];
+      const output = await this.client.runText(args, { input: updateAstPolicyYaml(source, draft) });
+      const disposition = configurationSaveDisposition(output, plan.proposal);
+      if (disposition.kind === 'proposal') {
+        this.notice = `Repository AST policy proposal ${disposition.branch} is ready for review. Merge it into ${disposition.baseBranch}, then refresh workspace configuration. The application checkout was not changed.`;
+      } else if (disposition.kind === 'local') {
+        this.notice = `Repository AST policy saved locally for ${this.repositoryScope()?.repository ?? 'the selected repository'}. Review and publish the configuration when ready.`;
+      } else this.notice = 'The approved repository AST policy already contains this change; no proposal was required.';
+      this.error = null;
       // Saving is complete before the independent repository refresh begins. Keep that success
       // visible even when a hidden panel deliberately defers its heavier diagnostics reload.
       this.render();
@@ -651,6 +682,9 @@ export class AstIntelligencePanel {
   private render(): void {
     const scope = this.repositoryScope();
     this.panel.title = scope ? `AST Intelligence — ${scope.repository}` : 'AST Intelligence';
-    const token = nonce(); this.panel.webview.html = page('AST Intelligence', astIntelligenceBody(this.policy(), this.doctor, this.result, this.preview, this.warmPreview, this.notice, this.error, scope, this.repositoryInventory, this.repositoryInventoryError), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'configuration' });
+    const snapshot = this.store.current.snapshot;
+    const target = snapshot?.definitionPath ?? 'singularity/workflow.yml';
+    const plan = configurationSavePlan(snapshot?.configurationSource, target, String(snapshot?.definitionText ?? ''));
+    const token = nonce(); this.panel.webview.html = page('AST Intelligence', astIntelligenceBody(this.policy(), this.doctor, this.result, this.preview, this.warmPreview, this.notice, this.error, scope, this.repositoryInventory, this.repositoryInventoryError, plan.writable ? null : plan.blockedReason ?? 'The approved configuration authority is read-only.'), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'configuration' });
   }
 }

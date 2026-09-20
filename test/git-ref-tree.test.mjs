@@ -27,7 +27,7 @@ function fakeRepository(files, { corruptAfter = null, algorithm = 'sha1' } = {})
     if (args[0] === 'rev-parse') return { status: 0, stdout: `${algorithm === 'sha256' ? 'a'.repeat(64) : TREE_OID}\n`, stderr: '' };
     if (args[0] === 'ls-tree') return {
       status: 0,
-      stdout: `${entries.map((entry) => `${entry.oid}\t${entry.content.length}\t${entry.file}`).join('\0')}\0`,
+      stdout: `${entries.map((entry) => `100644\tblob\t${entry.oid}\t${entry.content.length}\t${entry.file}`).join('\0')}\0`,
       stderr: ''
     };
     const requested = Buffer.from(options.input).toString('utf8').trim().split('\n');
@@ -100,7 +100,7 @@ test('ref movement after verification cannot change the tree being listed', () =
     if (args[0] === 'ls-tree') {
       const tree = args[4] === 'state' ? currentTree : args[4];
       const blob = tree === firstTree ? firstBlob : secondBlob;
-      return { status: 0, stdout: `${blob}\t5\tstate.json\0`, stderr: '' };
+      return { status: 0, stdout: `100644\tblob\t${blob}\t5\tstate.json\0`, stderr: '' };
     }
     const oid = String(options.input).trim();
     const body = oid === firstBlob ? 'first' : 'later';
@@ -135,6 +135,8 @@ test('a filter can bound blob admission from listed object sizes before material
   assert.deepEqual(listed.map(({ file, size }) => ({ file, size })), [...files].map(
     ([file, contents]) => ({ file, size: Buffer.byteLength(contents) })
   ));
+  assert.ok(listed.every(({ mode, type }) => mode === '100644' && type === 'blob'),
+    'filters receive the tree entry kind before admitting content');
   const requested = fake.calls.find((call) => call.args[0] === 'cat-file').options.input;
   assert.equal(requested.includes(fake.entries[1].oid), false,
     'a filtered blob must never be handed to cat-file');

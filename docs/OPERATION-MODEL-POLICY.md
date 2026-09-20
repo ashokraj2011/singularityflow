@@ -633,6 +633,7 @@ Every public operation is classified before its implementation module is importe
 | workflow.list | read | never | — | — |
 | workflow.phase | mutation | never | — | — |
 | workflow.proposal | read | never | — | — |
+| workflow.proposal-status | read | never | — | — |
 | workflow.proposals | read | never | — | — |
 | workflow.simulate | read | never | — | — |
 | workflow.validate | read | never | — | — |

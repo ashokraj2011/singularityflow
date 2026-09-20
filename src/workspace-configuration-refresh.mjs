@@ -16,7 +16,8 @@ import {
 import {
   configurationAssetSearchRoots, mergeConfigurationAssetPolicies
 } from './configuration-assets.mjs';
-import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { initializeDefinition, loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { setDefaultBaseBranch } from './bootstrap.mjs';
 import { gitCommitIdentity } from './git.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { publishToStateBranch } from './ledger.mjs';
@@ -724,6 +725,71 @@ async function cloneConfiguration(remote, { env = process.env } = {}) {
     );
   }
   return { root: scratch, env: transport.env };
+}
+
+/**
+ * Build the configuration candidate that a first-authority apply would create, without publishing
+ * the branch. Reinitialization uses this disposable checkout for schema-root/state inspection so a
+ * missing sflow/config branch cannot fall back to stale application-checkout policy during preview.
+ */
+async function prepareBootstrapInspectionCandidate(observation, options, {
+  env = process.env
+} = {}) {
+  const { repository, bootstrapCommit } = observation;
+  const transport = frozenRemoteTransport(repository.remote, { push: true, env });
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-bootstrap-preview-'));
+  try {
+    const cloned = await runRemoteGitAsync([
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      '--branch', repository.defaultBranch, transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
+    if (cloned.status !== 0) throw new SingularityFlowError(
+      `Cannot inspect the would-be configuration authority for '${repository.displayRemote}'. `
+        + remoteFailureMessage(cloned),
+      { code: 'CONFIGURATION_BOOTSTRAP_PREVIEW_UNAVAILABLE' }
+    );
+    const clonedCommit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    if (clonedCommit !== bootstrapCommit) throw new SingularityFlowError(
+      'The application source branch changed while its configuration bootstrap was being previewed.', {
+        code: 'CONFIGURATION_BOOTSTRAP_SOURCE_CHANGED'
+      }
+    );
+    run('git', ['switch', '-q', '-c', CONFIGURATION_BRANCH], {
+      cwd: scratch, env: transport.env
+    });
+    // Configuration bootstrap first imports any governed assets from the application source, then
+    // fills an absent definition from the packaged catalog and pins that new definition to the
+    // repository's actual integration branch. Reproduce that non-publishing transformation here;
+    // otherwise a repository with no workflow.yml cannot be inspected at all and reinitialize
+    // silently falls back to the stale application checkout.
+    const initialized = await initializeDefinition(scratch);
+    if (initialized.includes(WORKFLOW_PATH)) {
+      await setDefaultBaseBranch(scratch, repository.defaultBranch);
+    }
+    const refresh = await refreshPackagedConfiguration(scratch, options);
+    const desired = await desiredStateProjection(scratch, { env: transport.env });
+    const stateCommit = await fetchStateRefAsync(scratch, desired.stateConfig, {
+      env: transport.env
+    });
+    const stateBefore = observeStateProjection(
+      scratch, desired, null, refresh.product, { stateCommit, env: transport.env }
+    );
+    return {
+      repository,
+      root: scratch,
+      sourceCommit: null,
+      bootstrapCommit,
+      refresh,
+      desired,
+      stateBefore,
+      gitEnv: transport.env
+    };
+  } catch (error) {
+    await removeTemporaryTree(scratch);
+    throw error;
+  }
 }
 
 function refreshCacheRoot(registryFile) {
@@ -1521,6 +1587,7 @@ async function registeredRepositories(registryFile, { workspace = null, reposito
       const membership = { workspaceId: manifest.id, workspaceName: manifest.name, repositoryId: repository.id };
       if (existing) {
         existing.memberships.push(membership);
+        existing.localPaths.push(workspaceRepositoryPath(manifest, repository));
         continue;
       }
       unique.set(operationalRemote, {
@@ -1530,6 +1597,7 @@ async function registeredRepositories(registryFile, { workspace = null, reposito
         displayRemote,
         defaultBranch: repository.defaultBranch,
         localPath: workspaceRepositoryPath(manifest, repository),
+        localPaths: [workspaceRepositoryPath(manifest, repository)],
         memberships: [membership]
       });
     }
@@ -1928,7 +1996,8 @@ export async function refreshWorkspaceConfigurations({
   dryRun = false,
   acceptBundledConflicts = false,
   resolutions = {},
-  confirmPlan = null
+  confirmPlan = null,
+  inspectCandidate = null
 } = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace configuration refresh requires the workspace registry path.');
   const normalizedResolutions = normalizeRefreshResolutions(resolutions);
@@ -1995,6 +2064,19 @@ export async function refreshWorkspaceConfigurations({
           bootstrapCommit: observation.bootstrapCommit,
           stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
         };
+        if (inspectCandidate) {
+          let inspectionCandidate;
+          try {
+            inspectionCandidate = await prepareBootstrapInspectionCandidate(observation, {
+              dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
+            }, { env: gitEnv });
+            await inspectCandidate(inspectionCandidate);
+          } catch (error) {
+            if (inspectionCandidate?.root) await removeTemporaryTree(inspectionCandidate.root);
+            return { planCandidate: null, result: refreshPreflightFailure(observation, error) };
+          }
+          await removeTemporaryTree(inspectionCandidate.root);
+        }
         return { planCandidate, result: {
           status: 'would-initialize', repository: observation.repository.id,
           remote: observation.repository.displayRemote, memberships: observation.repository.memberships,
@@ -2006,7 +2088,9 @@ export async function refreshWorkspaceConfigurations({
         candidate = await prepareCandidate(observation.repository, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
         }, { env: gitEnv });
+        if (inspectCandidate) await inspectCandidate(candidate);
       } catch (error) {
+        if (candidate?.root) await removeTemporaryTree(candidate.root);
         return { planCandidate: null, result: refreshPreflightFailure(observation, error) };
       }
       const stateChanged = candidate.refresh.changed || candidate.stateBefore.changed;
@@ -2110,6 +2194,44 @@ export async function refreshWorkspaceConfigurations({
     }
   }
 
+  // Establishing a first sflow/config branch is itself a remote publication. Reinitialization's
+  // schema/ref preflight therefore has to run against the disposable bootstrap candidate before
+  // ensureConfigurationBranch makes that ref visible. The normal post-initialization inspection
+  // still runs below against the exact created authority, closing both sides of the bootstrap.
+  if (inspectCandidate && observations.some((item) => !item.commit)) {
+    const bootstrapInspectionFailures = [];
+    await mapLimit(
+      observations.filter((item) => !item.commit), workers, async (observation) => {
+        let candidate;
+        try {
+          candidate = await prepareBootstrapInspectionCandidate(observation, {
+            dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
+          }, { env: gitEnv });
+          await inspectCandidate(candidate);
+        } catch (error) {
+          bootstrapInspectionFailures.push({ observation, error });
+        } finally {
+          if (candidate?.root) await removeTemporaryTree(candidate.root);
+        }
+      }
+    );
+    if (bootstrapInspectionFailures.length) {
+      await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+      return {
+        status: 'blocked', dryRun: false, total: targets.length, updated: 0,
+        results: observations.map((item) => {
+          const failed = bootstrapInspectionFailures.find((entry) => entry.observation === item);
+          return {
+            status: failed ? 'failed' : 'preflight-passed', repository: item.repository.id,
+            remote: item.repository.displayRemote, memberships: item.repository.memberships,
+            configurationChanged: false, stateChanged: false,
+            error: failed ? refreshErrorMessage(failed.error) : null
+          };
+        })
+      };
+    }
+  }
+
   // New workspace repositories receive the same authority as a normal bootstrap after any bound
   // preview has been validated. Existing authorities remain untouched during this step.
   const initialized = await mapLimit(
@@ -2128,13 +2250,29 @@ export async function refreshWorkspaceConfigurations({
   const initializationFailures = initialized.filter((entry) => entry.error);
   if (initializationFailures.length) {
     await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+    const createdInitializations = initialized.filter((entry) =>
+      !entry.error && entry.initialization?.created === true);
     return {
-      status: 'blocked', dryRun: false, total: targets.length, updated: 0,
+      // Branch creation is an irreversible remote publication. If one repository succeeded while
+      // a peer failed, report that durable progress instead of claiming the whole apply was
+      // blocked without changes. A rerun observes the created authority and resumes its state
+      // projection while retrying only the missing authority.
+      status: createdInitializations.length ? 'partial' : 'blocked',
+      dryRun: false,
+      ...(previewBoundPlanId ? { planId: previewBoundPlanId } : {}),
+      total: targets.length,
+      updated: createdInitializations.length,
+      failed: initializationFailures.length,
       results: observations.map((item) => {
         const failed = initializationFailures.find((entry) => entry.observation === item);
+        const created = createdInitializations.find((entry) => entry.observation === item);
         return {
-          status: failed ? 'failed' : 'preflight-passed', repository: item.repository.id,
+          status: failed ? 'failed' : created ? 'initialization-created' : 'preflight-passed',
+          repository: item.repository.id,
           remote: item.repository.displayRemote, memberships: item.repository.memberships,
+          configurationChanged: Boolean(created),
+          configurationCommit: created?.initialization?.commit ?? null,
+          stateChanged: false,
           error: refreshErrorMessage(failed?.error)
         };
       })
@@ -2145,14 +2283,25 @@ export async function refreshWorkspaceConfigurations({
     : [];
   if (concurrentInitializations.length) {
     await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+    const createdInitializations = initialized.filter((entry) =>
+      !entry.error && entry.initialization?.created === true);
     return {
-      status: 'blocked', dryRun: false, total: targets.length, updated: 0,
+      status: createdInitializations.length ? 'partial' : 'blocked',
+      dryRun: false,
+      ...(previewBoundPlanId ? { planId: previewBoundPlanId } : {}),
+      total: targets.length,
+      updated: createdInitializations.length,
+      failed: concurrentInitializations.length,
       results: observations.map((item) => {
         const moved = concurrentInitializations.find((entry) => entry.observation === item);
+        const created = createdInitializations.find((entry) => entry.observation === item);
         return {
-          status: moved ? 'stale-plan' : 'preflight-passed', repository: item.repository.id,
+          status: moved ? 'stale-plan' : created ? 'initialization-created' : 'preflight-passed',
+          repository: item.repository.id,
           remote: item.repository.displayRemote, memberships: item.repository.memberships,
-          configurationChanged: false, stateChanged: false,
+          configurationChanged: Boolean(created),
+          configurationCommit: created?.initialization?.commit ?? null,
+          stateChanged: false,
           error: moved
             ? 'Configuration authority was created concurrently after preview. Create and review a fresh plan before applying it.'
             : null
@@ -2189,6 +2338,29 @@ export async function refreshWorkspaceConfigurations({
         };
       })
     };
+  }
+
+  if (inspectCandidate) {
+    const inspectionFailures = [];
+    await mapLimit(candidates, workers, async (candidate) => {
+      try { await inspectCandidate(candidate); }
+      catch (error) { inspectionFailures.push({ candidate, error }); }
+    });
+    if (inspectionFailures.length) {
+      await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+      return {
+        status: 'blocked', dryRun: false, total: targets.length, updated: 0,
+        results: candidates.map((candidate) => {
+          const failed = inspectionFailures.find((entry) => entry.candidate === candidate);
+          return {
+            status: failed ? 'failed' : 'preflight-passed', repository: candidate.repository.id,
+            remote: candidate.repository.displayRemote, memberships: candidate.repository.memberships,
+            configurationChanged: false, stateChanged: false,
+            error: failed ? refreshErrorMessage(failed.error) : null
+          };
+        })
+      };
+    }
   }
 
   const planId = previewBoundPlanId ?? refreshPlanId(candidates, {

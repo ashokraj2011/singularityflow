@@ -371,12 +371,15 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
 function worldModel(view: ConfigurationCenterView): string {
   const model = view.worldModel;
   const source = view.configurationState;
+  const proposed = Boolean(source.effective?.kind && source.effective.kind !== 'working-tree');
   const editorLabel = source.editor === 'candidate'
     ? 'validated local candidate'
     : 'approved effective configuration';
   return `<section class="plain world-model-settings">
     ${worldModelExplorer(view)}
-    <p class="notice">Build / refresh uses the approved repository configuration, or the accepted Story's pinned execution configuration when a Story is active. The editor below changes checkout files only; save and publish configuration before expecting a repository-level build to use those edits. An existing Story retains its pin.
+    <p class="notice">Build / refresh uses the approved repository configuration, or the accepted Story's pinned execution configuration when a Story is active. ${proposed
+    ? 'Saving creates a review proposal from the exact approved authority; it never rewrites the application checkout. Merge the proposal into <code>sflow/config</code>, then refresh workspace configuration before expecting a repository-level build to use it.'
+    : 'This repository uses local configuration authority. Saving writes a validated local draft; review and publish it before expecting a repository-level build to use it.'} An existing Story retains its pin.
       <span class="muted"> Editor source: ${escape(editorLabel)} · Editor format: <code>${escape(model.format)}</code> · Approved format: <code>${escape(source.effective?.worldModelFormat ?? model.format)}</code> · Current built-model format: <code>${escape(view.worldModelStatus.format ?? 'not built')}</code>.</span>
       ${view.publish.changes.length ? `<strong>${view.publish.changes.length} local configuration change${view.publish.changes.length === 1 ? '' : 's'} awaiting publication.</strong>` : ''}</p>
     ${architectureProjectionExplorer(view)}
@@ -554,18 +557,30 @@ function mcp(view: ConfigurationCenterView, selected: McpServerView | null): str
   </section>`;
 }
 
-export function configurationCenterHtml(view: ConfigurationCenterView, tab: ConfigurationTab, selectedAuthority: AuthorityView | null, selectedMcp: McpServerView | null, notice: string | null, errors: string[]): string {
+export function configurationCenterHtml(
+  view: ConfigurationCenterView,
+  tab: ConfigurationTab,
+  selectedAuthority: AuthorityView | null,
+  selectedMcp: McpServerView | null,
+  notice: string | null,
+  errors: string[],
+  pendingProposal: { branch: string; baseBranch: string } | null = null
+): string {
   const candidate = view.configurationState.candidate;
   const candidateNotice = candidate?.status === 'invalid'
     ? `<div class="notice error"><p><strong>Local configuration candidate was not loaded.</strong> ${escape(candidate.error ?? 'Validation failed.')}</p><p>The editor continues to show approved effective configuration. Open the YAML, repair the candidate, and reload.</p><button class="secondary" data-action="open-workflow">Open workflow YAML</button></div>`
     : candidate?.status === 'valid'
       ? `<div class="notice warning"><strong>Validated local configuration candidate.</strong> These editable values are not effective authority until configuration is reviewed and published.</div>`
       : '';
+  const content = `${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}${candidateNotice}
+      ${tab === 'overview' ? overview(view) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
+  const guardedContent = pendingProposal
+    ? `<div class="notice warning" role="status"><strong>Configuration proposal pending review.</strong> The submitted settings are on <code>${escape(pendingProposal.branch)}</code> and are not approved yet. Merge it into <code>${escape(pendingProposal.baseBranch)}</code>, then recheck the approved authority. If you discarded it instead, deliberately resume the approved baseline. The approved baseline below is read-only until then.<span class="grow"></span><button class="secondary" type="button" data-action="proposals">Review proposals</button><button class="secondary" id="configuration-pending-refresh" type="button">Recheck approved authority</button><button class="secondary" id="configuration-resume-approved" type="button">Resume approved baseline</button></div><fieldset disabled aria-label="Approved configuration is read-only while a proposal is pending">${content}</fieldset>`
+    : content;
   return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
-    <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button></div>
+    <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button><button class="secondary" id="configuration-runtime-resume-approved" type="button" hidden>Resume approved baseline</button></div>
     <div class="configuration-shell">${navigation(tab)}<main class="configuration-content">
-      ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}${candidateNotice}
-      ${tab === 'overview' ? overview(view) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}
+      ${guardedContent}
     </main></div>`;
 }
 
@@ -595,11 +610,22 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (event.data?.type === 'configuration-save-error') {
       savingForm = false;
       document.querySelectorAll('form button[type="submit"]').forEach((button) => { button.disabled = false; });
-      showRuntime((event.data.errors || []).join(' '), false);
+      showRuntime((event.data.errors || []).join(' '), event.data.conflict === true);
     }
     if (event.data?.type === 'configuration-save-busy') showRuntime('A configuration save is already being validated. Wait for that result before retrying.', false);
+    if (event.data?.type === 'configuration-proposal-pending') {
+      savingForm = false;
+      dirty = false;
+      document.querySelectorAll('form input, form select, form textarea, form button').forEach((control) => { control.disabled = true; });
+      showRuntime('Configuration proposal ' + event.data.branch + ' is pending review into ' + event.data.baseBranch + '. The submitted values are shown read-only; merge or discard the proposal before editing again.', false);
+      const resume = document.getElementById('configuration-runtime-resume-approved');
+      if (resume) resume.hidden = false;
+    }
   });
   document.getElementById('configuration-reload')?.addEventListener('click', () => vscode.postMessage({ type: 'reload-dirty' }));
+  document.getElementById('configuration-pending-refresh')?.addEventListener('click', () => vscode.postMessage({ type: 'reload-dirty' }));
+  document.getElementById('configuration-resume-approved')?.addEventListener('click', () => vscode.postMessage({ type: 'resume-approved-baseline' }));
+  document.getElementById('configuration-runtime-resume-approved')?.addEventListener('click', () => vscode.postMessage({ type: 'resume-approved-baseline' }));
   document.getElementById('configuration-keep')?.addEventListener('click', () => { if (runtime) runtime.hidden = true; vscode.postMessage({ type: 'keep-dirty' }); });
   const applyWorldModelFilters = () => {
     const workflow = document.getElementById('wm-workflow-filter')?.value || 'all';

@@ -33,7 +33,7 @@ import {
 import {
   assertNoActiveSubjectLocks, withRepositoryResetBarrier
 } from '../src/subject-lock.mjs';
-import { run } from '../src/util.mjs';
+import { run, SingularityFlowError } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
@@ -2891,6 +2891,40 @@ test('workspace registry is local, bounded, and forget never deletes workspace f
   assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
 });
 
+test('workspace registry distinguishes absence from unreadable or invalid durable state', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-registry-invalid-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const missing = path.join(root, 'missing.json');
+  assert.deepEqual(await readWorkspaceRegistry(missing), [],
+    'an uncreated machine-local registry is an empty registry');
+
+  const fixtures = [
+    ['malformed.json', '{"schemaVersion":1,"workspaces":['],
+    ['unreadable-schema.json', '{"schemaVersion":999,"workspaces":[]}'],
+    ['invalid-shape.json', '{"schemaVersion":1,"workspaces":{}}'],
+    ['invalid-entry.json', '{"schemaVersion":1,"workspaces":[{"id":"missing-path"}]}']
+  ];
+  for (const [name, contents] of fixtures) {
+    const registry = path.join(root, name);
+    await writeFile(registry, contents);
+    await assert.rejects(
+      () => readWorkspaceRegistry(registry),
+      (error) => error instanceof SingularityFlowError
+        && error.code === 'WORKSPACE_REGISTRY_INVALID'
+        && error.details?.registryFile === registry
+    );
+  }
+
+  const unreadable = path.join(root, 'registry-directory');
+  await mkdir(unreadable);
+  await assert.rejects(
+    () => readWorkspaceRegistry(unreadable),
+    (error) => error instanceof SingularityFlowError
+      && error.code === 'WORKSPACE_REGISTRY_INVALID'
+      && error.details?.reason === 'unreadable'
+  );
+});
+
 test('the registry caps active recency without deleting archived workspace history', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-registry-archive-cap-'));
   const registry = path.join(root, 'registry.json');
@@ -2934,6 +2968,14 @@ test('workspace registry discards explicit non-v2 workflows without deleting wor
     workspaceId: created.workspace.id,
     workspacePath: created.workspace.path
   })}\n`);
+
+  const preserved = await discardUnsupportedWorkflowWorkspaces(registry, selection, {
+    preserveForRecovery: true
+  });
+  assert.equal(preserved.removed.length, 0,
+    'refresh/reinitialize recovery must not silently forget an old local checkout');
+  assert.equal((await readWorkspaceRegistry(registry)).length, 1);
+  assert.equal(JSON.parse(await readFile(selection, 'utf8')).workspaceId, created.workspace.id);
 
   const result = await discardUnsupportedWorkflowWorkspaces(registry, selection);
   assert.equal(result.removed.length, 1);

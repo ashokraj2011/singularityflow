@@ -148,7 +148,8 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
   }
 
   const listed = runCommand('git', [
-    'ls-tree', '-r', '-z', '--format=%(objectname)%x09%(objectsize)%x09%(path)',
+    'ls-tree', '-r', '-z',
+    '--format=%(objectmode)%x09%(objecttype)%x09%(objectname)%x09%(objectsize)%x09%(path)',
     treeOid, '--', ...pathspecs
   ], { cwd: root, allowFailure: true, env: localEnv });
   if (listed.status !== 0) {
@@ -162,24 +163,25 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
   const errors = [];
   for (const row of String(listed.stdout ?? '').split('\0')) {
     if (!row) continue;
-    const [oid, rawSize, ...pathParts] = row.split('\t');
+    const [mode, type, oid, rawSize, ...pathParts] = row.split('\t');
     const file = pathParts.join('\t');
     const size = Number(rawSize);
-    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid ?? '') || oid.length !== treeOid.length
+    if (!/^[0-7]{6}$/.test(mode ?? '') || !['blob', 'commit'].includes(type)
+        || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid ?? '') || oid.length !== treeOid.length
         || !file || !Number.isSafeInteger(size) || size < 0) {
       errors.push(diagnostic('REF_TREE_LIST_INVALID', `Git returned an invalid tree entry at '${ref}'.`, { ref }));
       continue;
     }
     // Size and object identity let bounded callers make an admission decision before any blob is
     // materialized. Existing path-only filters remain source-compatible.
-    if (filter && !filter(file, Object.freeze({ oid, size }))) continue;
+    if (filter && !filter(file, Object.freeze({ oid, size, mode, type }))) continue;
     if (size > maxObjectBytes) {
       errors.push(diagnostic('REF_TREE_OBJECT_TOO_LARGE', `${file} exceeds the governed-state object limit.`, {
         path: file, bytes: size, maximumBytes: maxObjectBytes
       }));
       continue;
     }
-    entries.push({ oid, file, size });
+    entries.push({ oid, file, size, mode, type });
   }
   if (errors.length) return result('unavailable', new Map(), errors, entries.length, 0);
   if (!entries.length) return result('ok', new Map(), [], 0, 0);

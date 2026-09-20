@@ -541,9 +541,9 @@
     },
     "src/configuration-proposal.mjs": {
       "counts": {
-        "command-run": 21
+        "command-run": 22
       },
-      "digest": "ef8f037b4555cb59d010c4ca6ba92785706bdbdfdbe6bcb37926415fbbe0ba59"
+      "digest": "9f40e0a0842c351e57d92e1c3adb7ed52d8c5c0bcc95bfcc9b9a818d0a494893"
     },
     "src/context-history.mjs": {
       "counts": {
@@ -728,7 +728,7 @@
       "counts": {
         "command-runCommand": 3
       },
-      "digest": "f19b6ee4357d181c176439543494408110ba679dbaa5631d1fda0c303a355e59"
+      "digest": "0ab2e722260a0fc9154691bf2fb131e87e2329d741e62959e48e923c50634e07"
     },
     "src/git-remote-diagnostics.mjs": {
       "counts": {
@@ -1031,6 +1031,12 @@
       },
       "digest": "4a7f4ccf4e21719dc244608c31f894a2ac5e8cdd9eb552403cb25d1501370df4"
     },
+    "src/schema-census.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "9696a7c67506ee426f3feefe8c17dd0f23ea777b877c9523685703712bb4eae1"
+    },
     "src/session.mjs": {
       "counts": {
         "command-run": 1
@@ -1199,9 +1205,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 26
+        "command-run": 28
       },
-      "digest": "391031fd032c12692686670f356ed0356495ed97357787c0265426ad574d738a"
+      "digest": "029bf663843c4593e2ad7dd21aed7e109d50b094ffa33aad1ee988fb9100d583"
     },
     "src/workspace-impact.mjs": {
       "counts": {

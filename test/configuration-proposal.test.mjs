@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import YAML from 'yaml';
@@ -12,6 +13,7 @@ import {
   activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
   listWorkflowConfigurationProposals, proposeConfigurationChange
 } from '../src/configuration-proposal.mjs';
+import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { run } from '../src/util.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -97,6 +99,268 @@ process.exit(result.status == null ? 1 : result.status);
         return true;
       }
     );
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('configuration save proposals CAS approved authority without touching a divergent application checkout', async () => {
+  const item = await fixture();
+  try {
+    const workflowPath = path.join(item.story, 'singularity', 'workflow.yml');
+    const approvedText = run('git', [
+      '--git-dir', item.remote, 'show', 'sflow/config:singularity/workflow.yml'
+    ]).stdout;
+    const applicationText = `${approvedText}\n# application branch projection differs\n`;
+    await writeFile(workflowPath, applicationText);
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: item.story });
+    run('git', ['commit', '-qm', 'diverge application configuration projection'], { cwd: item.story });
+    const applicationHead = run('git', ['rev-parse', 'HEAD'], { cwd: item.story }).stdout.trim();
+    const desiredText = `${approvedText}\n# registered-v4 visual proposal\n`;
+    const expectedSha256 = createHash('sha256').update(approvedText).digest('hex');
+
+    const saved = spawnSync(process.execPath, [
+      cli, 'configuration', 'save', 'singularity/workflow.yml',
+      '--expected-sha256', expectedSha256,
+      '--expected-authority-kind', 'approved-configuration-ref',
+      '--expected-authority-commit', item.approved,
+      '--expected-authority-source-commit', item.approved,
+      '--expected-authority-remote-fingerprint', remoteFingerprint(item.remote),
+      '--propose', '--json'
+    ], {
+      cwd: item.story,
+      input: desiredText,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'test', NO_COLOR: '1',
+        SINGULARITY_FLOW_TEST_IDENTITY: 'Workflow Author',
+        SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox,
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json')
+      }
+    });
+    assert.equal(saved.status, 0, `${saved.stderr}\n${saved.stdout}`);
+    const proposal = JSON.parse(saved.stdout);
+    assert.equal(proposal.reviewRequired, true);
+    const subjectHash = createHash('sha256').update('singularity/workflow.yml').digest('hex').slice(0, 12);
+    assert.match(proposal.branch, new RegExp(
+      `^sflow/config-change/workflow/save-file-workflow\\.yml-${subjectHash}-`
+    ));
+    assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: item.story }).stdout.trim(), applicationHead);
+    assert.equal(await readFile(workflowPath, 'utf8'), applicationText);
+    assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: item.story }).stdout, '');
+    assert.equal(run('git', [
+      '--git-dir', item.remote, 'show', `${proposal.branch}:singularity/workflow.yml`
+    ]).stdout, desiredText);
+    assert.equal(run('git', [
+      '--git-dir', item.remote, 'rev-parse', `${proposal.branch}^`
+    ]).stdout.trim(), item.approved);
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('configuration proposal refuses an authority commit move even when file bytes are unchanged', async () => {
+  const item = await fixture();
+  let mutated = false;
+  try {
+    const tree = run('git', ['rev-parse', `${item.approved}^{tree}`], { cwd: item.story }).stdout.trim();
+    const moved = run('git', [
+      '-c', 'user.name=Authority mover', '-c', 'user.email=authority@example.test',
+      'commit-tree', tree, '-p', item.approved, '-m', 'move authority without changing files'
+    ], { cwd: item.story }).stdout.trim();
+    run('git', ['push', '-q', '--force', 'origin', `${moved}:refs/heads/sflow/config`], { cwd: item.story });
+
+    await assert.rejects(() => proposeConfigurationChange(item.story, {
+      operation: 'save-file', subject: 'workflow.yml', message: 'must not mutate stale authority',
+      expectedAuthority: {
+        kind: 'approved-configuration-ref', commit: item.approved,
+        sourceCommit: item.approved, remoteFingerprint: remoteFingerprint(item.remote)
+      },
+      async mutate() { mutated = true; }
+    }), (error) => error.code === 'CONFIGURATION_PROPOSAL_AUTHORITY_CHANGED'
+      && /commit changed after this editor loaded/i.test(error.message));
+    assert.equal(mutated, false, 'authority identity CAS runs before the proposed mutation');
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('configuration proposal refuses an authority remote switch with identical bytes', async () => {
+  const item = await fixture();
+  const replacement = path.join(item.base, 'replacement.git');
+  let mutated = false;
+  try {
+    run('git', ['clone', '-q', '--bare', item.remote, replacement], { cwd: item.base });
+    run('git', ['remote', 'set-url', 'origin', replacement], { cwd: item.story });
+    await assert.rejects(() => proposeConfigurationChange(item.story, {
+      operation: 'save-file', subject: 'workflow.yml', message: 'must not switch authority',
+      expectedAuthority: {
+        kind: 'approved-configuration-ref', commit: item.approved,
+        sourceCommit: item.approved, remoteFingerprint: remoteFingerprint(item.remote)
+      },
+      async mutate() { mutated = true; }
+    }), (error) => error.code === 'CONFIGURATION_PROPOSAL_AUTHORITY_CHANGED'
+      && /remote changed after this editor loaded/i.test(error.message));
+    assert.equal(mutated, false);
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('configuration proposal binds both commits of a verified state mirror before mutation', async () => {
+  const item = await fixture();
+  let mutated = false;
+  try {
+    run('git', ['push', '-q', 'origin', `${item.approved}:refs/heads/state`], { cwd: item.story });
+    const tree = run('git', ['rev-parse', `${item.approved}^{tree}`], { cwd: item.story }).stdout.trim();
+    const movedMirror = run('git', [
+      '-c', 'user.name=Mirror mover', '-c', 'user.email=mirror@example.test',
+      'commit-tree', tree, '-p', item.approved, '-m', 'move mirror without changing bytes'
+    ], { cwd: item.story }).stdout.trim();
+    run('git', ['push', '-q', '--force', 'origin', `${movedMirror}:refs/heads/state`], { cwd: item.story });
+
+    await assert.rejects(() => proposeConfigurationChange(item.story, {
+      operation: 'save-file', subject: 'workflow.yml', message: 'must not mutate stale mirror',
+      expectedAuthority: {
+        kind: 'verified-state-mirror', commit: item.approved,
+        sourceCommit: item.approved, remoteFingerprint: remoteFingerprint(item.remote)
+      },
+      async mutate() { mutated = true; }
+    }), (error) => error.code === 'CONFIGURATION_PROPOSAL_AUTHORITY_CHANGED'
+      && /state configuration mirror changed/i.test(error.message));
+    assert.equal(mutated, false);
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('configuration save proposal identities distinguish equal basenames in different paths', async () => {
+  const item = await fixture();
+  try {
+    const paths = [
+      'singularity/templates/feature/intake.md',
+      'singularity/templates/chore/intake.md'
+    ];
+    const branches = [];
+    for (const relative of paths) {
+      const approvedText = run('git', [
+        '--git-dir', item.remote, 'show', `sflow/config:${relative}`
+      ]).stdout;
+      const expectedSha256 = createHash('sha256').update(approvedText).digest('hex');
+      const saved = spawnSync(process.execPath, [
+        cli, 'configuration', 'save', relative,
+        '--expected-sha256', expectedSha256, '--propose', '--json'
+      ], {
+        cwd: item.story,
+        input: `${approvedText}\nProposal for ${relative}.\n`,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_ENV: 'test', NO_COLOR: '1',
+          SINGULARITY_FLOW_TEST_IDENTITY: 'Workflow Author',
+          SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox,
+          SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+          SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json')
+        }
+      });
+      assert.equal(saved.status, 0, `${saved.stderr}\n${saved.stdout}`);
+      const proposal = JSON.parse(saved.stdout);
+      const subjectHash = createHash('sha256').update(relative).digest('hex').slice(0, 12);
+      assert.match(proposal.branch, new RegExp(`${subjectHash}-[0-9a-f]{8}$`));
+      branches.push(proposal.branch);
+    }
+
+    assert.equal(new Set(branches).size, paths.length,
+      'equal basenames in distinct repository paths must never share a proposal branch');
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('configuration save bounds long filename proposal refs and retains full-path identity', async () => {
+  const item = await fixture();
+  try {
+    // Long enough to prove the branch label is bounded, while retaining headroom for the
+    // repository writer's same-directory atomic temporary suffix on conservative filesystems.
+    const basename = `${'long-name-'.repeat(16)}template.md`;
+    assert.ok(Buffer.byteLength(basename) < 256,
+      'the configuration filename itself must remain a legal filesystem component');
+    const relative = `singularity/templates/feature/${basename}`;
+    const saved = spawnSync(process.execPath, [
+      cli, 'configuration', 'save', relative,
+      '--expected-sha256', createHash('sha256').update('').digest('hex'),
+      '--propose', '--json'
+    ], {
+      cwd: item.story,
+      input: '# Long configuration template\n',
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'test', NO_COLOR: '1',
+        SINGULARITY_FLOW_TEST_IDENTITY: 'Workflow Author',
+        SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox,
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json')
+      }
+    });
+    assert.equal(saved.status, 0, `${saved.stderr}\n${saved.stdout}`);
+    const proposal = JSON.parse(saved.stdout);
+    const component = proposal.branch.split('/').at(-1);
+    assert.ok(Buffer.byteLength(component) <= 96,
+      `proposal ref component must remain conservatively portable, got ${Buffer.byteLength(component)} bytes`);
+    const pathDigest = createHash('sha256').update(relative).digest('hex').slice(0, 12);
+    assert.match(component, new RegExp(`${pathDigest}-[0-9a-f]{8}$`),
+      'the bounded ref must preserve the full normalized path digest');
+    assert.equal(run('git', [
+      '--git-dir', item.remote, 'show-ref', '--verify', '--quiet', `refs/heads/${proposal.branch}`
+    ], { allowFailure: true }).status, 0, 'the bounded proposal ref is published remotely');
+
+    // Model an external review system that fast-forwards the approved authority and immediately
+    // deletes the source branch. Status must still prove the exact saved commit through ancestry.
+    run('git', ['--git-dir', item.remote, 'update-ref', 'refs/heads/sflow/config', proposal.commit]);
+    run('git', ['--git-dir', item.remote, 'update-ref', '-d', `refs/heads/${proposal.branch}`]);
+    const status = spawnSync(process.execPath, [
+      cli, 'workflow', 'proposal-status', proposal.branch,
+      '--commit', proposal.commit, '--json'
+    ], {
+      cwd: item.story,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'test', NO_COLOR: '1',
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json')
+      }
+    });
+    assert.equal(status.status, 0, `${status.stderr}\n${status.stdout}`);
+    const observed = JSON.parse(status.stdout);
+    assert.equal(observed.merged, true);
+    assert.equal(observed.branchStatus, 'absent');
+    assert.equal(observed.proposalCommit, proposal.commit);
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('configuration read prefers approved authority over a stale application projection', async () => {
+  const item = await fixture();
+  try {
+    const relative = 'singularity/impact.yml';
+    const target = path.join(item.story, relative);
+    const approvedText = run('git', [
+      '--git-dir', item.remote, 'show', `sflow/config:${relative}`
+    ]).stdout;
+    await writeFile(target, `${approvedText}\n# stale application projection\n`);
+    const read = spawnSync(process.execPath, [cli, 'configuration', 'read', relative, '--json'], {
+      cwd: item.story, encoding: 'utf8',
+      env: { ...process.env, NODE_ENV: 'test', NO_COLOR: '1' }
+    });
+    assert.equal(read.status, 0, `${read.stderr}\n${read.stdout}`);
+    assert.equal(JSON.parse(read.stdout).content, approvedText);
+    assert.match(await readFile(target, 'utf8'), /stale application projection/,
+      'the read-only authority overlay never rewrites the physical checkout');
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

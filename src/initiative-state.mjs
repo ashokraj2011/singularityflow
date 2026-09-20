@@ -233,7 +233,10 @@ export async function initiativeStartPreflight(root, {
   const portfolio = await loadPortfolio(root);
   const definition = await loadDefinition(root);
   validatePortfolioWorldModelViews(portfolio, definition);
-  const resolved = resolveInitiativeProfile(portfolio, profile, { idAuthority });
+  const resolved = resolveInitiativeProfile(portfolio, profile, {
+    idAuthority,
+    workflowDefinition: definition
+  });
   assertAuthorityMembership(resolved);
   const actor = identity(root);
   if (!actor.email) {
@@ -749,10 +752,13 @@ export function initiativeApplicabilityState(portfolio, initiative) {
 export async function restartInitiative(root, id = branch(root), { reason = null, agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, id);
   if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must be ${id} to restart it. Run singularity-flow initiative resume ${id} first.`);
-  const resolved = resolveInitiativeProfile(portfolio, initiative.initiative.profile);
+  const definition = await loadDefinition(root);
+  validatePortfolioWorldModelViews(portfolio, definition);
+  const resolved = resolveInitiativeProfile(portfolio, initiative.initiative.profile, {
+    workflowDefinition: definition
+  });
   await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
-  const definition = await loadDefinition(root);
   resolution.worldModelTiming = initiative.initiative.profile === 'epic-planning' ? 'story-intake' : 'initiative';
   resolution.worldModelGrounding = resolution.worldModelTiming === 'story-intake'
     ? 'off'

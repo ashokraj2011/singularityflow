@@ -2002,6 +2002,102 @@ test('AST Intelligence selects one repository from a multi-repository workspace 
     && /repos\/web/.test(line)), 'other VS Code surfaces were repointed through the shared context');
 });
 
+test('configuration sub-editors propose approved-overlay changes without touching a divergent checkout', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository({ approvedWorldModelAuthority: true });
+  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const impactPath = path.join(root, 'singularity', 'impact.yml');
+  const localWorkflow = `${await readFile(workflowPath, 'utf8')}\n# application projection intentionally differs\n`;
+  const localImpact = `${await readFile(impactPath, 'utf8')}\n# application impact projection intentionally differs\n`;
+  await writeFile(workflowPath, localWorkflow);
+  await writeFile(impactPath, localImpact);
+  run('git', ['add', 'singularity/workflow.yml', 'singularity/impact.yml'], { cwd: root });
+  run('git', ['commit', '-m', 'Diverge application configuration projection'], { cwd: root });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const proposal = async (glob, label) => until(() => {
+    const refs = run('git', [
+      '--git-dir', remote, 'for-each-ref', '--format=%(refname:short)', glob
+    ]).stdout.trim();
+    return refs.split('\n').filter(Boolean).at(-1) ?? null;
+  }, { what: label });
+
+  await registered.commands.get('singularityFlow.configureAstIntelligence')();
+  const ast = registered.panels.find((entry) => entry.id === 'singularityFlow.astIntelligence');
+  assert.ok(ast);
+  await until(() => ast.webview.html.includes('data-repository-scope=') ? true : null);
+  const repositoryScope = ast.webview.html.match(/data-repository-scope="([a-f0-9]{64})"/)?.[1];
+  assert.ok(repositoryScope);
+  await ast.post({
+    type: 'save-policy', repositoryScope, mode: 'off', fallback: 'text-only',
+    evidenceMode: 'identified', evidenceStore: 'local-directory', generatedRoots: '',
+    storyStartWarmMode: 'off', storyStartWarmScope: 'configured-roots',
+    maxFiles: 41, maxBytes: 4096, maxFileBytes: 1024, languages: '', predicates: ''
+  });
+  const astProposal = await proposal(
+    'refs/heads/sflow/config-change/workflow/save-file-workflow.yml-*',
+    'the AST configuration proposal'
+  );
+  assert.match(run('git', ['--git-dir', remote, 'show', `${astProposal}:singularity/workflow.yml`]).stdout,
+    /ast:\n  mode: off/);
+  assert.equal(await readFile(workflowPath, 'utf8'), localWorkflow,
+    'AST policy authoring never rewrites the divergent application projection');
+
+  await registered.commands.get('singularityFlow.openFlowImpact')();
+  const flow = registered.panels.find((entry) => entry.id === 'singularityFlow.flowImpact');
+  assert.ok(flow);
+  await flow.post({ type: 'tab', tab: 'configuration' });
+  await until(() => flow.webview.html.includes('review proposal from the approved configuration authority') ? true : null,
+    { what: 'the approved Flow Impact configuration to load' });
+  const approvedImpact = run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/impact.yml'
+  ]).stdout;
+  await flow.post({ type: 'action', action: 'save-config', content: `${approvedImpact}\n# reviewed Flow Impact update\n` });
+  const impactProposal = await proposal(
+    'refs/heads/sflow/config-change/workflow/save-file-impact.yml-*',
+    'the Flow Impact configuration proposal'
+  );
+  assert.match(run('git', ['--git-dir', remote, 'show', `${impactProposal}:singularity/impact.yml`]).stdout,
+    /reviewed Flow Impact update/);
+  assert.equal(await readFile(impactPath, 'utf8'), localImpact,
+    'Flow Impact authoring never rewrites the divergent application projection');
+
+  await registered.commands.get('singularityFlow.openInstructionDesigner')();
+  const instructions = registered.panels.find((entry) => entry.id === 'singularityFlow.instructionDesigner');
+  assert.ok(instructions);
+  await instructions.post({ type: 'tab', tab: 'prompts' });
+  await instructions.post({ type: 'new' });
+  await instructions.post({
+    type: 'save-prompt', id: 'authority-overlay-proof', body: '# Authority overlay proof\n\nUse approved evidence.'
+  });
+  const instructionProposal = await proposal(
+    'refs/heads/sflow/config-change/workflow/save-file-authority-overlay-proof.md-*',
+    'the instruction configuration proposal'
+  );
+  assert.match(run('git', [
+    '--git-dir', remote, 'show', `${instructionProposal}:singularity/prompts/authority-overlay-proof.md`
+  ]).stdout, /Use approved evidence/);
+  assert.equal(existsSync(path.join(root, 'singularity/prompts/authority-overlay-proof.md')), false,
+    'instruction authoring does not create files in the application checkout');
+  await until(() => registered.infos.some((message) => /Instruction proposal .* ready for review/.test(message)) ? true : null,
+    { what: 'the instruction proposal save to settle' });
+  await instructions.post({
+    type: 'save-prompt', id: 'authority-overlay-proof', body: '# Authority overlay proof\n\nSecond unreviewed edit.'
+  });
+  await until(() => instructions.webview.html.includes('already has an unmerged review proposal') ? true : null,
+    { what: 'the instruction editor to refuse a second save against unmerged proposal bytes' });
+  const instructionRefs = run('git', [
+    '--git-dir', remote, 'for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/workflow/save-file-authority-overlay-proof.md-*'
+  ]).stdout.trim().split('\n').filter(Boolean);
+  assert.equal(instructionRefs.length, 1,
+    'repeat save is held until approved instructions are explicitly reloaded');
+});
+
 test('the journey panel opens with a strict CSP and no remote origins', async (t) => {
   if (!requireBundle(t)) return;
   const { registered } = await activated();

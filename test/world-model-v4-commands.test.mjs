@@ -1655,31 +1655,42 @@ test('a phase-scoped registered-v4 build remains exact for that phase when the r
   assert.deepEqual(resolved.views.map((entry) => entry.viewId), ['dev.impact']);
 });
 
-test('Initiative composition consumes the exact registered-v4 state projection', async (t) => {
+test('Initiative start and composition migrate packaged legacy assignments to the exact registered-v4 projection', async (t) => {
   const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.v4.legacyAssignments = 'inherit-configured';
+  await writeFile(workflowPath, YAML.stringify(workflow));
   const portfolioPath = path.join(root, 'singularity', 'portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
   for (const authority of Object.values(portfolio.approvalAuthorities ?? {})) {
     authority.members = [{ name: 'WMB Test', email: 'wmb@example.invalid' }];
   }
-  for (const phase of Object.values(portfolio.initiativePhases ?? {})) {
-    if (phase.worldModelViews?.length) phase.worldModelViews = ['dev.impact'];
-  }
   await writeFile(portfolioPath, YAML.stringify(portfolio));
-  git(root, ['add', 'singularity/portfolio.yml']);
-  git(root, ['commit', '-q', '-m', 'configure registered views for Initiatives']);
+  git(root, ['add', 'singularity/workflow.yml', 'singularity/portfolio.yml']);
+  git(root, ['commit', '-q', '-m', 'enable registered-v4 Initiative migration']);
   await quiet(() => worldModelCommand(root, ['wm', 'build'], {
     format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
   }));
 
   git(root, ['switch', '-q', '-c', 'WMB-V4-INIT']);
-  await createInitiative(root, {
+  const { initiative } = await createInitiative(root, {
     id: 'WMB-V4-INIT', title: 'Consume exact Initiative grounding',
     profile: 'initiative-lite', agent: 'product-owner'
   });
+  assert.ok(initiative.resolution.phases.every((phase) => (
+    phase.worldModelViews.length === 0
+    || phase.worldModelViews.length === 1 && phase.worldModelViews[0] === 'dev.impact'
+  )), 'start persists only the effective registered-v4 IDs');
+  const statePath = path.join(root, 'singularity', 'initiatives', 'WMB-V4-INIT', 'state.json');
+  const preMigrationState = JSON.parse(await readFile(statePath, 'utf8'));
+  preMigrationState.resolution.phases.find((phase) => phase.id === 'define').worldModelViews = ['business'];
+  await writeFile(statePath, `${JSON.stringify(preMigrationState, null, 2)}\n`);
   const composed = await composeInitiativeContext(root, 'WMB-V4-INIT', 'define', {
     agent: 'product-owner'
   });
+  assert.deepEqual(composed.phase.worldModelViews, ['dev.impact'],
+    'context projects a resolution written before the Initiative migration fix');
   assert.equal(composed.record.worldModel.available, true);
   assert.equal(composed.record.worldModel.format, 'registered-v4');
   assert.match(composed.rendered, /SFlow World-Model View/);

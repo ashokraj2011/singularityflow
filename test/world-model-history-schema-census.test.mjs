@@ -147,6 +147,79 @@ test('schema census scans and validates a configured WMP history root outside si
     'extensionless retained objects are validated through their owning ObjectRef, not guessed by census');
 });
 
+test('legacy v3 World Model manifests are migration advisories, not corrupt v4 records', async (t) => {
+  const { repositoryRoot } = await repositoryFixture(t);
+  const manifest = path.join(repositoryRoot, 'singularity', 'world-model', 'manifest.json');
+  await mkdir(path.dirname(manifest), { recursive: true });
+  await writeFile(manifest, JSON.stringify({
+    schema_version: '2.0',
+    repository_commit: 'a'.repeat(40),
+    views_generated: ['architecture']
+  }));
+
+  const legacy = await schemaCensus(repositoryRoot);
+  assert.equal(legacy.healthy, true, JSON.stringify(legacy.unreadable));
+  assert.ok(legacy.unregistered.some((entry) =>
+    entry.path === 'singularity/world-model/manifest.json'
+      && entry.code === 'WMB_LEGACY_MANIFEST'));
+
+  await writeFile(manifest, JSON.stringify({
+    kind: 'world-model-manifest',
+    format: 'wmb-v4'
+  }));
+  const malformedV4 = await schemaCensus(repositoryRoot);
+  assert.equal(malformedV4.healthy, false);
+  assert.ok(malformedV4.unreadable.some((entry) =>
+    entry.path === 'singularity/world-model/manifest.json'
+      && entry.code === 'SCHEMA_VERSION_MISSING'));
+});
+
+test('schema census can bind configuration and state to an exact approved checkout', async (t) => {
+  const { repositoryRoot } = await repositoryFixture(t);
+  const authorityRoot = path.resolve(repositoryRoot, '../../../approved-authority');
+  const approvedHistoryDir = '.approved/world-model-history';
+  await mkdir(authorityRoot, { recursive: true });
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: authorityRoot });
+  execFileSync('git', ['config', 'user.name', 'WMP Authority Test'], { cwd: authorityRoot });
+  execFileSync('git', ['config', 'user.email', 'authority@example.test'], { cwd: authorityRoot });
+  await initializeDefinition(authorityRoot);
+  const approved = await loadDefinition(authorityRoot);
+  approved.worldModel.historyDir = approvedHistoryDir;
+  await writeFile(
+    path.join(authorityRoot, 'singularity', 'workflow.yml'), YAML.stringify(approved)
+  );
+  await mkdir(path.join(authorityRoot, approvedHistoryDir, 'models'), { recursive: true });
+  await installUnreadableRemoteStateBinding(authorityRoot, approvedHistoryDir);
+
+  const census = await schemaCensus(repositoryRoot, {
+    configurationRoot: authorityRoot,
+    stateAuthorityRoot: authorityRoot
+  });
+  assert.equal(census.healthy, false);
+  assert.equal(census.totals.unreadable, 1);
+  assert.equal(census.unreadable[0].path,
+    `$state/${approvedHistoryDir}/models/${unreadableBindingDigestHex}.json`);
+  assert.ok(census.roots.includes(`$state/${approvedHistoryDir}/`));
+  assert.equal(census.roots.includes(`$state/${customHistoryDir}/`), false);
+});
+
+test('schema census fails closed when an explicit approved configuration cannot be loaded', async (t) => {
+  const { repositoryRoot } = await repositoryFixture(t);
+  const authorityRoot = path.resolve(repositoryRoot, '../../../invalid-approved-authority');
+  await mkdir(authorityRoot, { recursive: true });
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: authorityRoot });
+  await initializeDefinition(authorityRoot);
+  await writeFile(path.join(authorityRoot, 'singularity', 'portfolio.yml'), 'version: [invalid\n');
+
+  await assert.rejects(
+    () => schemaCensus(repositoryRoot, {
+      configurationRoot: authorityRoot,
+      stateAuthorityRoot: authorityRoot
+    }),
+    /portfolio|unexpected|flow|collection/i
+  );
+});
+
 test('workspace reinitialize includes configured WMP history in its schema-readiness census', async (t) => {
   const { registryFile } = await repositoryFixture(t);
   let customHistoryObserved = false;
@@ -398,4 +471,162 @@ test('registered-v4 census requires its configured state authority to be materia
   assert.equal(census.families.some((entry) =>
     entry.family === 'world-model-model-binding'), false,
   'checkout history must not substitute for missing registered-v4 authority');
+});
+
+test('reinitialization census finds non-current local and remote-tracking lifecycle records once', async (t) => {
+  const { repositoryRoot } = await repositoryFixture(t);
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: repositoryRoot });
+  execFileSync('git', ['switch', '-q', '-c', 'lifecycle-future'], { cwd: repositoryRoot });
+  const record = path.join(
+    repositoryRoot, 'singularity', 'work-items', 'REF-FUTURE', 'workflow.json'
+  );
+  await mkdir(path.dirname(record), { recursive: true });
+  await writeFile(record, '{"schemaVersion":99}\n');
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'future lifecycle record'], { cwd: repositoryRoot });
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repositoryRoot, encoding: 'utf8'
+  }).trim();
+  execFileSync('git', [
+    'update-ref', 'refs/remotes/origin/lifecycle-future', commit
+  ], { cwd: repositoryRoot });
+  execFileSync('git', ['switch', '-q', 'main'], { cwd: repositoryRoot });
+
+  const census = await schemaCensus(repositoryRoot, { includeLifecycleRefs: true });
+  const story = census.families.find((entry) => entry.family === 'story-workflow');
+  assert.equal(census.healthy, false);
+  assert.equal(story.outsideRange.length, 1,
+    'the same path/blob shared by local and remote-tracking refs is counted once');
+  assert.deepEqual(census.lifecycleRefs, [
+    { ref: 'refs/heads/lifecycle-future', commit },
+    { ref: 'refs/remotes/origin/lifecycle-future', commit }
+  ]);
+
+  execFileSync('git', ['branch', '-D', 'lifecycle-future'], {
+    cwd: repositoryRoot, stdio: 'ignore'
+  });
+  const remoteOnly = await schemaCensus(repositoryRoot, { includeLifecycleRefs: true });
+  assert.equal(remoteOnly.families.find((entry) =>
+    entry.family === 'story-workflow').outsideRange.length, 1);
+  assert.deepEqual(remoteOnly.lifecycleRefs, [
+    { ref: 'refs/remotes/origin/lifecycle-future', commit }
+  ]);
+});
+
+test('lifecycle census uses each branch configuration to classify a historical custom root', async (t) => {
+  const { repositoryRoot } = await repositoryFixture(t);
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: repositoryRoot });
+  execFileSync('git', ['switch', '-q', '-c', 'custom-lifecycle-root'], {
+    cwd: repositoryRoot
+  });
+  const definition = await loadDefinition(repositoryRoot);
+  definition.workItemRoot = 'legacy/work-items';
+  await writeFile(
+    path.join(repositoryRoot, 'singularity', 'workflow.yml'), YAML.stringify(definition)
+  );
+  const record = path.join(repositoryRoot, 'legacy', 'work-items', 'CUSTOM-1', 'workflow.json');
+  await mkdir(path.dirname(record), { recursive: true });
+  await writeFile(record, '{"schemaVersion":99}\n');
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'custom-root lifecycle record'], {
+    cwd: repositoryRoot
+  });
+  execFileSync('git', ['switch', '-q', 'main'], { cwd: repositoryRoot });
+
+  const census = await schemaCensus(repositoryRoot, { includeLifecycleRefs: true });
+  const story = census.families.find((entry) => entry.family === 'story-workflow');
+  assert.equal(census.healthy, false);
+  assert.deepEqual(story.outsideRange, [{
+    path: '$ref/refs/heads/custom-lifecycle-root/legacy/work-items/CUSTOM-1/workflow.json',
+    storedVersion: 99
+  }]);
+});
+
+test('lifecycle census fails closed when an advertised ref object is missing locally', async (t) => {
+  const { repositoryRoot } = await repositoryFixture(t);
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: repositoryRoot });
+  execFileSync('git', ['switch', '-q', '-c', 'missing-lifecycle-object'], {
+    cwd: repositoryRoot
+  });
+  const record = path.join(
+    repositoryRoot, 'singularity', 'work-items', 'MISSING-1', 'workflow.json'
+  );
+  await mkdir(path.dirname(record), { recursive: true });
+  await writeFile(record, '{"schemaVersion":98,"missingObjectFixture":true}\n');
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'record whose blob will be absent'], {
+    cwd: repositoryRoot
+  });
+  const blob = execFileSync('git', [
+    'rev-parse', 'HEAD:singularity/work-items/MISSING-1/workflow.json'
+  ], { cwd: repositoryRoot, encoding: 'utf8' }).trim();
+  execFileSync('git', ['switch', '-q', 'main'], { cwd: repositoryRoot });
+  await rm(path.join(repositoryRoot, '.git', 'objects', blob.slice(0, 2), blob.slice(2)), {
+    force: true
+  });
+
+  const census = await schemaCensus(repositoryRoot, { includeLifecycleRefs: true });
+  assert.equal(census.healthy, false);
+  assert.ok(census.unreadable.some((entry) =>
+    entry.path.startsWith('$ref/refs/heads/missing-lifecycle-object/')
+      && ['SCHEMA_CENSUS_LIFECYCLE_REF_OBJECT_MISSING',
+        'SCHEMA_CENSUS_LIFECYCLE_REF_UNAVAILABLE'].includes(entry.code)),
+  JSON.stringify(census.unreadable));
+});
+
+test('lifecycle-ref scan is explicit and its ref bound is fail-closed', async (t) => {
+  const { repositoryRoot } = await repositoryFixture(t);
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: repositoryRoot });
+  execFileSync('git', ['branch', 'another-local-ref'], { cwd: repositoryRoot });
+
+  const ordinary = await schemaCensus(repositoryRoot, { maximumRefs: 1 });
+  assert.equal(ordinary.truncated, false);
+  assert.deepEqual(ordinary.lifecycleRefs, []);
+  assert.equal(ordinary.roots.includes('$refs/'), false,
+    'ordinary diagnostics do not enumerate lifecycle refs');
+
+  const migration = await schemaCensus(repositoryRoot, {
+    includeLifecycleRefs: true,
+    maximumRefs: 1
+  });
+  assert.equal(migration.truncated, true);
+  assert.ok(migration.roots.includes('$refs/'));
+});
+
+test('one lifecycle ref cannot exceed the aggregate byte admission ceiling', async (t) => {
+  const { repositoryRoot } = await repositoryFixture(t);
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'baseline'], { cwd: repositoryRoot });
+  execFileSync('git', ['switch', '-q', '-c', 'aggregate-lifecycle-bytes'], {
+    cwd: repositoryRoot
+  });
+  for (let index = 1; index <= 3; index += 1) {
+    const record = JSON.stringify({ schemaVersion: 99, fixture: index });
+    const contents = `${record}${' '.repeat(1024 - record.length - 1)}\n`;
+    const target = path.join(
+      repositoryRoot, 'singularity', 'work-items', `AGGREGATE-${index}`, 'workflow.json'
+    );
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, contents);
+  }
+  execFileSync('git', ['add', '-A'], { cwd: repositoryRoot });
+  execFileSync('git', ['commit', '-qm', 'aggregate lifecycle fixtures'], {
+    cwd: repositoryRoot
+  });
+  execFileSync('git', ['switch', '-q', 'main'], { cwd: repositoryRoot });
+
+  const census = await schemaCensus(repositoryRoot, {
+    includeLifecycleRefs: true,
+    maximumLifecycleBytes: 2048
+  });
+  const branchRecords = census.families
+    .find((entry) => entry.family === 'story-workflow')
+    ?.outsideRange.filter((entry) => entry.path.includes('/aggregate-lifecycle-bytes/')) ?? [];
+  assert.equal(census.truncated, true);
+  assert.equal(branchRecords.length, 2,
+    'the third individually valid 1 KiB record is not materialized after the 2 KiB aggregate cap');
 });

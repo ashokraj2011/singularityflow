@@ -617,7 +617,7 @@ workTypes:
 
   classic-delivery:
     label: Classic delivery
-    description: Intake, code, testing, and code checking with committed test receipts and explicit reviewer feedback/rework to Code; REV feedback attachments are evidence only.
+    description: Intake, code, testing, and code checking with committed test receipts, the guarded manual REV refinement pilot during Code, and explicit reviewer feedback/rework to Code; REV feedback attachments are evidence only.
     phases: [intake, implementation, testing, conformance]
     plannedClaims:
       mode: required

@@ -1396,11 +1396,15 @@ const PAGES = Object.freeze({
     seeAlso: ['wm', 'capability', 'phase']
   },
   revision: {
-    summary: 'Inspect REV activation or stage verified feedback files; no revision runs.',
+    summary: 'Inspect, preview, and recover a bounded revision of the exact active code Candidate.',
     description: [
-      'Revision activation reports repository-specific pilot prerequisites without changing state.',
-      'It separates installed internal Candidate/precheck/compare foundations from unavailable Program, authenticated-attempt, durable-receipt, recovery, public-UX, and release-evidence authority.',
-      'Revision capabilities reports the installed execution profile. Code execution requires every pilot gate.',
+      'Revision activation reports repository-specific guarded-pilot prerequisites without changing state.',
+      'Capabilities and activation distinguish the installed safe built-in execution profile from autonomous model execution, external-effect authority, release eligibility, and normal phase publication.',
+      'Status, card, and show are read-only projections. Resume is a bounded recovery mutation: it may complete a durable opening, frozen-Candidate precheck, abandonment, or exact journal/pointer reconciliation, but never repeats an uncertain attempt.',
+      'The confirmed revise form rereads those inputs before opening one bounded interval. It does not publish, submit, approve, merge, deploy, amend approved intent, or waive a later Testing/Verification phase.',
+      'Specification, ambiguous, or unrelated feedback is routing-required. It creates no durable Human Request and cannot be confirmed. The preview routing field is the exact result; /sf-recommend or singularity-flow recommend --json only re-evaluates the repository\'s current next step.',
+      'After bounded edits are saved, capture is separately previewed and confirmed. Capture freezes the exact saved bytes and records deterministic precheck; it does not publish them.',
+      'Use feedback standard input so private text does not enter argv, environment variables, or repository files.',
       'The attachments subcommand reports the native Copilot byte bridge as unavailable for opaque',
       'uploads; a genuine local VS Code file URI',
       'can be verified and registered only after a separate confirmation. A chat-visible file',
@@ -1411,19 +1415,35 @@ const PAGES = Object.freeze({
       'PDF, DOCX, and image registration is disabled until approved malware scanning and validated parsing are available.'
     ],
     options: [
+      ['--dry-run', 'Preview one exact revision plan without opening an interval or changing code.'],
+      ['--criteria CLAUSE-ID', 'Bind feedback to one exact approved requirement or acceptance criterion; never rewrite its body.'],
+      ['--attachment-set SHA256', 'Bind one exact active registered attachment set to the same feedback, Story phase, repository, and context, or select a set for attachment removal commands.'],
+      ['--feedback-stdin', 'Read identical bounded feedback bytes from standard input for both preview and confirmation.'],
+      ['--preview', 'Preview capture or abandonment without changing local loop state.'],
+      ['--note TEXT', 'Describe the exact saved implementation change being captured.'],
+      ['--saved-buffers-confirmed', 'Assert that relevant editor buffers are saved before capture inventory.'],
+      ['--plan SHA256', 'Supply the exact capture or abandonment preview plan being confirmed.'],
+      ['--confirm SHA256', 'Confirm only the exact current revise plan, or the capture/abandonment plan also named by --plan.'],
       ['--file LOCAL-FILE', 'Select the file to preview or register; this is not a chat filename or summary.'],
       ['--select NUMBER', 'Select a one-based file number from repeated --file operands; repeat for multiple files. Defaults to all files.'],
       ['--line-range NUMBER:START-END', 'Select one-based inclusive lines of an explicitly selected text file; repeat for disjoint ranges.'],
-      ['--feedback-stdin', 'Read bounded feedback from standard input so it is absent from process arguments.'],
       ['--feedback TEXT', 'Compatibility form; text may be exposed in shell history or process listings.'],
-      ['--confirm SHA256', 'Register only the exact current preview plan digest.'],
-      ['--attachment-set SHA256', 'Choose one registered attachment set for a reviewed revocation preview.'],
       ['--idempotency-key KEY', 'Optional retry key; reuse only for the identical import.'],
       ['--json', 'Emit the capability, preview, receipt, or list as structured JSON.']
     ],
     examples: [
-      ['singularity-flow revision activation --json', 'Inspect the exact repository pilot blockers; this does not activate REV.'],
-      ['singularity-flow revision capabilities --json', 'Inspect the REV execution profile and unavailable boundaries without starting a loop.'],
+      ['singularity-flow revision activation --json', 'Inspect exact repository pilot eligibility and blockers; this never grants phase publication authority.'],
+      ['singularity-flow revision capabilities --json', 'Inspect the installed guarded profile and evidence boundaries without starting a loop.'],
+      ['singularity-flow revision status --json', 'Inspect the active Story Code phase, Candidate head, interval, and recovery status.'],
+      ['singularity-flow revision card --json', 'Render the current Candidate and deterministic-precheck card.'],
+      ['singularity-flow revise --dry-run --feedback-stdin --saved-buffers-confirmed --json', 'Preview an exact feedback-to-Candidate plan from private standard input after saving editor buffers.'],
+      ['singularity-flow revise --feedback-stdin --saved-buffers-confirmed --confirm sha256:<PLAN> --json', 'After separate review, open only that exact interval using the same feedback bytes, selectors, and saved-buffer assertion.'],
+      ['singularity-flow revision show <INTERVAL-ID> --json', 'Inspect immutable interval lineage, attempts, selected Candidate, and precheck.'],
+      ['singularity-flow revision resume [<INTERVAL-ID>] --json', 'Run only a reported recovery step; this may update the private pointer or finish an exact pending local transition.'],
+      ['singularity-flow revision capture --preview --note "Correct bounded retry handling" --saved-buffers-confirmed --json', 'Preview capture of the exact saved implementation bytes without freezing a Candidate.'],
+      ['singularity-flow revision capture --note "Correct bounded retry handling" --saved-buffers-confirmed --plan sha256:<PLAN> --confirm sha256:<PLAN> --json', 'Freeze and precheck only the exact reviewed capture plan.'],
+      ['singularity-flow revision abandon <LOOP-ID|INTERVAL-ID> --preview --json', 'Preview closing the local loop by its loop ID or selected interval ID while preserving its selected Candidate head.'],
+      ['singularity-flow revision abandon <LOOP-ID|INTERVAL-ID> --plan sha256:<PLAN> --confirm sha256:<PLAN> --json', 'Close only the exact reviewed local loop; use its loop ID before the first interval exists, and do not restore or replace its selected head.'],
       ['singularity-flow revision attachments capabilities --json', 'Inspect supported formats and the current Copilot byte-bridge boundary.'],
       ['singularity-flow revision attachments preview --file review.md --feedback-stdin --json', 'Preview one Story/phase-bound local-file import with exact feedback on standard input.'],
       ['singularity-flow revision attachments register --file review.md --feedback-stdin --confirm sha256:<PLAN> --json', 'Register only the exact confirmed evidence using the same feedback bytes.'],
@@ -1432,7 +1452,36 @@ const PAGES = Object.freeze({
       ['singularity-flow revision attachments remove-preview --attachment-set sha256:<SET> --json', 'Preview exclusion of one exact registered set; no evidence is deleted.'],
       ['singularity-flow revision attachments remove --confirm sha256:<PLAN> --json', 'After review, exclude the set from future routing with an append-only revocation.']
     ],
-    seeAlso: ['documents', 'session', 'phase']
+    seeAlso: ['documents', 'session', 'phase', 'workflow']
+  },
+  revise: {
+    summary: 'Preview and open one exact bounded correction interval for the active code Candidate.',
+    description: [
+      'Revise is the mutation entry point for the guarded interactive REV pilot. It requires a ready Story session, an open code-generation task, saved or explicitly captured editor bytes, an unpublished Candidate, and no pending recovery.',
+      'The dry run classifies the feedback and binds the exact clean source snapshot (or an already-retained loop head), approved criteria, specification disposition, repository and workflow identities, policy, execution unit, and budgets into one content-addressed plan. It retains no first parent, opens no interval, and changes no application code. Successful first confirmation retains that snapshot as the immutable first parent.',
+      'Confirmation must receive the same feedback bytes and selectors. Any changed Candidate, authority, phase, buffer, classification, or plan fails closed. Feedback belongs on standard input so it is absent from argv and shell history.',
+      'Routing-required feedback creates no durable Human Request and cannot be confirmed as an implementation revision. The preview routing field is the exact result; /sf-recommend and singularity-flow recommend --json only re-evaluate the repository\'s current next step.',
+      'Registered feedback attachments may be selected by exact active --attachment-set digest; preview and confirmation revalidate their feedback, Story phase, repository, and context binding.',
+      'After the interval opens, use only the bounded packet and the capture/precheck action returned by the CLI. Revise never publishes, submits, approves, merges, deploys, amends approved criteria, or replaces a later Testing/Verification verdict.',
+      'The safe built-in pilot is not an autonomous coding-model executor and carries no external-effect or release attestation. Inspect the exact installed boundary with revision capabilities and activation.'
+    ],
+    options: [
+      ['--dry-run', 'Create the exact current preview; do not open an interval or change code.'],
+      ['--feedback-stdin', 'Read bounded UTF-8 feedback from standard input for both preview and confirmation.'],
+      ['--saved-buffers-confirmed', 'Assert that relevant editor buffers are saved before both preview and confirmation.'],
+      ['--criteria CLAUSE-ID', 'Bind one exact approved requirement or acceptance criterion without rewriting it.'],
+      ['--disposition RESULT', 'Resolve a genuinely ambiguous classification explicitly; deterministic conflict evidence still wins.'],
+      ['--attachment-set SHA256', 'Bind one exact active registered attachment set to this same feedback and Story context.'],
+      ['--confirm SHA256', 'Open only the exact current preview after every binding is revalidated.'],
+      ['--json', 'Emit the preview or confirmed interval as structured JSON.']
+    ],
+    examples: [
+      ['singularity-flow revise --dry-run --feedback-stdin --saved-buffers-confirmed --json', 'Preview feedback against the exact active Candidate and show its full plan digest.'],
+      ['singularity-flow revise --feedback-stdin --saved-buffers-confirmed --confirm sha256:<PLAN> --json', 'Use the same feedback bytes, selectors, and saved-buffer assertion to open only the reviewed interval.'],
+      ['singularity-flow revision status --json', 'Inspect the Candidate head, active interval, precheck, recovery, and next legal action.'],
+      ['/sf-revise <feedback>', 'Run the same preview and exact-confirmation contract through Copilot.']
+    ],
+    seeAlso: ['revision', 'session', 'phase', 'documents']
   },
   epic: {
     summary: 'Run an Epic: sources, planning, Story creation, merge order, and completion.',

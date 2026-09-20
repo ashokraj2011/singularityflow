@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { validateRevisionRecord } from './contracts.mjs';
 import { assertCurrentRevisionRoute, revisionTextSha256, verifyRevisionAttachmentSet } from './router.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
@@ -95,8 +96,10 @@ function selectedRenditions(receipt, renditions) {
  */
 export async function buildRevisionPacket({
   routePlan, routeInput, parentCandidate, verifyCandidate, attachmentRenditions = [],
-  verifyAttachmentSet, criteria, rules, diff, skeletons = [], effectPolicy,
-  expansions = [], budgets = DEFAULT_BUDGETS
+  verifyAttachmentSet, criteria, feedbackId, feedbackRecordSha256,
+  criteriaBindingSha256, specificationDispositionSha256,
+  rules, diff, skeletons = [], effectPolicy,
+  expansions = [], budgets = DEFAULT_BUDGETS, producer
 }) {
   assertCurrentRevisionRoute(routePlan, routeInput);
   if (routePlan.classification.route !== 'code-revision'
@@ -140,6 +143,12 @@ export async function buildRevisionPacket({
     fail('REV_CRITERIA_SELECTION_REQUIRED', 'Choose the exact bounded criteria; none may be silently truncated.');
   }
   bounded(criteria, 32 * 1024, 'Criteria');
+  if (!/^REVFB-[A-Za-z0-9._:-]{6,127}$/u.test(String(feedbackId ?? ''))) {
+    fail('REV_PACKET_INPUT', 'Feedback record ID is required.');
+  }
+  requireHash(feedbackRecordSha256, 'Feedback record');
+  requireHash(criteriaBindingSha256, 'Criteria-binding record');
+  requireHash(specificationDispositionSha256, 'Specification-disposition record');
   if (!rules || typeof rules !== 'object' || !effectPolicy || typeof effectPolicy !== 'object'
       || typeof diff !== 'string' || !Array.isArray(skeletons) || !Array.isArray(expansions)) {
     fail('REV_PACKET_INPUT', 'Rules, diff, skeletons, and effect policy are required.');
@@ -164,28 +173,30 @@ export async function buildRevisionPacket({
       candidateRefSha256
     },
     feedback: {
+      feedbackId, feedbackRecordSha256,
       feedbackSha256: routePlan.feedbackSha256, text: feedbackText,
       ...(routePlan.attachmentSetSha256 ? { attachmentSetSha256: routePlan.attachmentSetSha256 } : {})
     },
     attachments,
     criteria,
-    criteriaBindingSha256: hash(criteria),
-    specificationDispositionSha256: hash(routeInput.context.specificationDisposition),
+    criteriaBindingSha256,
+    specificationDispositionSha256,
     rules, rulesSha256: hash(rules),
     diff, diffSha256: hashBytes(Buffer.from(diff)),
     skeletons, skeletonSetSha256: hash(skeletons),
     effectPolicy, effectPolicySha256: hash(effectPolicy),
-    expansions, budgets: boundBudgets
+    expansions, budgets: boundBudgets, producer
   };
   const packet = { ...core, packetSha256: hash(core) };
   if (Buffer.byteLength(canonicalJson(packet)) > boundBudgets.maximumInputBytes) {
     fail('REV_PACKET_LIMIT', 'Revision packet exceeds its exact input-byte budget.');
   }
-  return packet;
+  return validateRevisionRecord('revision-packet', packet);
 }
 
 export function verifyRevisionPacket(packet, { routePlan, attachmentSetSha256 = null } = {}) {
-  if (!packet || packet.kind !== 'revision-packet' || !HASH.test(packet.packetSha256)) {
+  try { packet = validateRevisionRecord('revision-packet', packet); }
+  catch {
     fail('REV_PACKET_INVALID', 'An exact revision packet is required.');
   }
   if (!routePlan?.classification || !packet.feedback || !packet.parentCandidate
@@ -206,8 +217,10 @@ export function verifyRevisionPacket(packet, { routePlan, attachmentSetSha256 = 
       || (packet.feedback.attachmentSetSha256 ?? null) !== attachmentSetSha256
       || (attachmentSetSha256 === null ? packet.attachments.length !== 0 : packet.attachments.length === 0)
       || packet.feedback.feedbackSha256 !== revisionTextSha256(packet.feedback.text)
-      || packet.criteriaBindingSha256 !== hash(packet.criteria)
-      || packet.specificationDispositionSha256 !== hash(routePlan.classification.specificationDisposition)
+      || !/^REVFB-[A-Za-z0-9._:-]{6,127}$/u.test(String(packet.feedback.feedbackId ?? ''))
+      || !HASH.test(String(packet.feedback.feedbackRecordSha256 ?? ''))
+      || !HASH.test(packet.criteriaBindingSha256)
+      || !HASH.test(packet.specificationDispositionSha256)
       || packet.rulesSha256 !== hash(packet.rules)
       || packet.diffSha256 !== hashBytes(Buffer.from(packet.diff))
       || packet.skeletonSetSha256 !== hash(packet.skeletons)

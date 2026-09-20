@@ -20,6 +20,9 @@ import { assertRevisionExecutionInstalled, planRevisionExecution } from '../src/
 const h = (value) => `sha256:${recordSha256(value)}`;
 const bytesHash = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const H = (character) => `sha256:${character.repeat(64)}`;
+const producer = Object.freeze({
+  id: 'revision-test', version: '1', implementationSha256: H('f')
+});
 const feedbackText = 'Fix the retry behavior without changing the accepted criterion.';
 const candidate = Object.freeze({
   family: 'sgos-candidate', namespace: 'refs/singularity-flow/candidates/CAN-ABCDEF123456',
@@ -44,7 +47,8 @@ function attachmentSet(ctx = context(), text = feedbackText, rendition = Buffer.
   const core = {
     schemaVersion: 1, kind: 'revision-feedback-attachment-set',
     workId: ctx.workId, phaseId: ctx.phaseId, phaseGeneration: ctx.phaseGeneration,
-    loopId: null, loopRevision: null, loopStatus: 'not-available',
+    loopId: ctx.loopId ?? null, loopRevision: ctx.loopRevision ?? null,
+    loopStatus: ctx.loopId == null ? 'not-available' : 'open',
     headCommit: ctx.headCommit, sourceTreeSha256: ctx.sourceTreeSha256,
     configSha256: ctx.configSha256, workflowSha256: ctx.workflowSha256,
     repositorySha256: H('4'), feedbackSha256: revisionTextSha256(text),
@@ -59,6 +63,22 @@ function attachmentSet(ctx = context(), text = feedbackText, rendition = Buffer.
   };
   return { ...core, attachmentSetSha256: h(core) };
 }
+
+test('route planning rejects a loop-bound attachment receipt outside its exact loop revision', () => {
+  const boundContext = context({ loopId: 'REVLOOP-PAY-142', loopRevision: 1 });
+  const receipt = attachmentSet(boundContext);
+  assert.equal(planRevisionRoute({
+    context: boundContext, feedbackText, attachmentSet: receipt
+  }).attachmentSetSha256, receipt.attachmentSetSha256);
+
+  assert.throws(() => planRevisionRoute({
+    context: context(), feedbackText, attachmentSet: receipt
+  }), { code: 'REV_ATTACHMENT_SET_STALE' });
+  assert.throws(() => planRevisionRoute({
+    context: context({ loopId: boundContext.loopId, loopRevision: 2 }),
+    feedbackText, attachmentSet: receipt
+  }), { code: 'REV_ATTACHMENT_SET_STALE' });
+});
 
 test('route planning is deterministic, no-effect, and binds exact selected attachment receipt', () => {
   const ctx = context();
@@ -125,19 +145,28 @@ test('packet builder requires retained candidate proof, exact route, and exact s
   const routePlan = planRevisionRoute(routeInput);
   const input = {
     routePlan, routeInput, parentCandidate: candidate,
+    producer,
     verifyCandidate: async (reference) => reference.candidateId === candidate.candidateId,
     verifyAttachmentSet: async (digest) => digest === attachment.attachmentSetSha256,
     attachmentRenditions: [rendition],
+    feedbackId: 'REVFB-ABCDEF123456', feedbackRecordSha256: H('7'),
     criteria: { items: [{ id: 'AC-1', text: 'Retries stop after a bound.' }] },
-    rules: { scope: 'approved implementation only' }, diff: 'diff --git a/src/a b/src/a\n',
-    skeletons: [{ path: 'src/a', symbols: ['retry'] }], effectPolicy: { paths: ['src/a'], network: 'deny' }
+    criteriaBindingSha256: H('8'), specificationDispositionSha256: H('9'),
+    rules: { task: 'code', writeScope: 'source-and-artifact', protectedPaths: [] },
+    diff: 'diff --git a/src/a b/src/a\n',
+    skeletons: [{ path: 'src/a', operation: 'modify', type: 'source' }],
+    effectPolicy: {
+      writeScope: 'source-and-artifact', maximumChangedFiles: 32,
+      protectedPaths: [], protectedPathsSha256: h([]),
+      applicationPathPolicySha256: H('a'), externalEffectsAllowed: false
+    }
   };
   const packet = await buildRevisionPacket(input);
   assert.equal(canonicalJson(packet), canonicalJson(await buildRevisionPacket(input)));
   assert.equal(packet.attachments.length, 1);
   assert.equal(packet.attachments[0].text, rendition.toString());
   assert.equal(packet.attachments[0].kind, 'untrusted-user-document-rendition');
-  assert.equal(verifyRevisionPacket(packet, {
+  assert.deepEqual(verifyRevisionPacket(packet, {
     routePlan, attachmentSetSha256: attachment.attachmentSetSha256
   }), packet);
   const execution = planRevisionExecution({
@@ -169,8 +198,17 @@ test('packet refuses silent criterion truncation and unregistered attachment byt
   const routePlan = planRevisionRoute(routeInput);
   const base = {
     routePlan, routeInput, parentCandidate: candidate, verifyCandidate: async () => true,
-    criteria: { items: [{ id: 'AC-1', text: 'Bound retries.' }] }, rules: {}, diff: '',
-    effectPolicy: {}
+    producer,
+    feedbackId: 'REVFB-ABCDEF123456', feedbackRecordSha256: H('7'),
+    criteria: { items: [{ id: 'AC-1', text: 'Bound retries.' }] },
+    rules: { task: 'code', writeScope: 'source-and-artifact', protectedPaths: [] }, diff: '',
+    criteriaBindingSha256: H('8'), specificationDispositionSha256: H('9'),
+    skeletons: [],
+    effectPolicy: {
+      writeScope: 'source-and-artifact', maximumChangedFiles: 32,
+      protectedPaths: [], protectedPathsSha256: h([]),
+      applicationPathPolicySha256: H('a'), externalEffectsAllowed: false
+    }
   };
   await assert.rejects(buildRevisionPacket({ ...base, criteria: { items: [] } }), {
     code: 'REV_CRITERIA_SELECTION_REQUIRED'
@@ -189,7 +227,7 @@ test('packet refuses silent criterion truncation and unregistered attachment byt
   delete injectedCore.packetSha256;
   assert.throws(() => verifyRevisionPacket({ ...injectedCore, packetSha256: h(injectedCore) }, {
     routePlan, attachmentSetSha256: null
-  }), { code: 'REV_PACKET_STALE' });
+  }), { code: 'REV_PACKET_INVALID' });
   await assert.rejects(buildRevisionPacket({ ...base, criteria: {
     items: [{ id: 'AC-1', text: 'x'.repeat(40000) }]
   } }), { code: 'REV_PACKET_LIMIT' });

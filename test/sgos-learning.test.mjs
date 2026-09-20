@@ -171,7 +171,7 @@ test('learning fixtures are bounded text-only identities and refuse unsafe paylo
 
   const secret = structuredClone(fixture);
   delete secret.fixtureSha256;
-  secret.files[0].content = '-----BEGIN PRIVATE KEY-----\nnot-a-real-key';
+  secret.files[0].content = '-----BEGIN PRIVATE KEY-----\nnot-a-real-key'; // sflow-allow-secret: invented key marker asserting learning-fixture refusal
   assert.throws(() => createLearningFixture(secret),
     (error) => error.code === 'SGOS_LEARN_SECRET_REFUSED');
 });
@@ -286,8 +286,10 @@ test('interrupted learning materialization is diagnosed and resumes exact fixtur
   const partialWorkspace = path.join(
     root, '.git', 'singularity-flow', 'sgos', 'learning', missionSegment, 'workspace'
   );
-  await mkdir(partialWorkspace, { recursive: true });
-  await writeFile(path.join(partialWorkspace, 'README.md'), fixture.files[0].content);
+  await mkdir(partialWorkspace, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(partialWorkspace, 'README.md'), fixture.files[0].content, {
+    mode: 0o600
+  });
 
   const interrupted = await service.status(plan.missionId);
   assert.equal(interrupted.status, 'interrupted');
@@ -450,7 +452,7 @@ test('learning progress v1 migrates in memory and its portable token remains imp
   const progressFile = path.join(
     firstRoot, '.git', 'singularity-flow', 'sgos', 'learning', missionSegment, 'progress.json'
   );
-  await writeFile(progressFile, canonicalJson(v1));
+  await writeFile(progressFile, canonicalJson(v1), { mode: 0o600 });
 
   const migrated = await first.progress(firstWorkspace.missionId);
   assert.deepEqual(migrated.completedCheckIds, ['recovery-choice']);

@@ -107,6 +107,14 @@ test('preview plan staging and registration are never read-cacheable in the exte
   assert.equal(commandClass(['revision', 'attachments', 'register', '--json']), 'mutation');
   assert.equal(commandClass(['revision', 'attachments', 'remove-preview', '--json']), 'mutation');
   assert.equal(commandClass(['revision', 'attachments', 'remove', '--json']), 'mutation');
+  assert.equal(commandClass(['revision', 'status', '--json']), 'read');
+  assert.equal(commandClass(['revision', 'card', '--json']), 'read');
+  assert.equal(commandClass(['revision', 'show', 'REV-001', '--json']), 'read');
+  assert.equal(commandClass(['revision', 'resume', 'REV-001', '--json']), 'mutation');
+  assert.equal(commandClass(['revision', 'abandon', 'REV-001', '--preview', '--json']), 'read');
+  assert.equal(commandClass(['revision', 'abandon', 'REV-001', '--confirm', `sha256:${'a'.repeat(64)}`]), 'mutation');
+  assert.equal(commandClass(['revise', '--dry-run', '--feedback-stdin', '--json']), 'read');
+  assert.equal(commandClass(['revise', '--feedback-stdin', '--confirm', `sha256:${'a'.repeat(64)}`]), 'mutation');
 });
 
 test('chat attachment status/removal require exact commands and no supplied references', () => {

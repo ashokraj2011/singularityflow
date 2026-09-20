@@ -485,6 +485,188 @@ function renderReadiness(stream: vscode.ChatResponseStream, card: ReturnType<typ
   stream.markdown('\n');
 }
 
+type RevisionChatAction =
+  | { kind: 'guide' }
+  | { kind: 'status' }
+  | { kind: 'card'; intervalId: string | null }
+  | { kind: 'show'; intervalId: string }
+  | { kind: 'prepare'; feedback: string }
+  | { kind: 'unavailable'; reason: string };
+
+const REVISION_INTERVAL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const MAX_REVISION_PREFILL_BYTES = 8_192;
+
+/** Exact local routing only; feedback is opaque data and never becomes CLI argv here. */
+function revisionChatAction(prompt: string): RevisionChatAction {
+  const value = prompt.trim();
+  if (!value) return { kind: 'guide' };
+  if (value.toLowerCase() === 'status') return { kind: 'status' };
+  if (value.toLowerCase() === 'card') return { kind: 'card', intervalId: null };
+  if (value.toLowerCase() === 'show') {
+    return { kind: 'unavailable', reason: '`show` requires one exact interval ID.' };
+  }
+  const inspection = /^(card|show)\s+(.+)$/i.exec(value);
+  if (inspection) {
+    const intervalId = inspection[2]!.trim();
+    if (!REVISION_INTERVAL_ID.test(intervalId)) {
+      return { kind: 'unavailable', reason: 'The interval ID is invalid or exceeds its bounded length.' };
+    }
+    return inspection[1]!.toLowerCase() === 'card'
+      ? { kind: 'card', intervalId }
+      : { kind: 'show', intervalId };
+  }
+  if (/^resume(?:\s|$)/i.test(value)) {
+    return {
+      kind: 'unavailable',
+      reason: 'The participant exposes status/card/show reads only. Use `/sf-revise resume [INTERVAL-ID]` for guarded local pointer repair; an incomplete opening has no interval ID, and resume reruns no attempt or external effect.'
+    };
+  }
+  if (/^abandon(?:\s|$)/i.test(value)) {
+    return {
+      kind: 'unavailable',
+      reason: 'Recovery mutations are not executed by the participant. Use `/sf-revise abandon <LOOP-ID|INTERVAL-ID>` so the exact loop or selected interval and recovery confirmation are reviewed.'
+    };
+  }
+  if (Buffer.byteLength(value) > MAX_REVISION_PREFILL_BYTES) {
+    return { kind: 'unavailable', reason: 'Feedback exceeds the participant prefill limit; use `/sf-revise` with a bounded local feedback document.' };
+  }
+  return { kind: 'prepare', feedback: value };
+}
+
+function firstRevisionScalar(objects: JsonObject[], keys: string[]): string | number | boolean | null {
+  for (const object of objects) {
+    for (const key of keys) {
+      const value = object[key];
+      if ((typeof value === 'string' && value !== '')
+          || typeof value === 'number' || typeof value === 'boolean') return value;
+    }
+  }
+  return null;
+}
+
+/** Render only bounded identifiers/status; the full structured record remains available from Shell. */
+function renderRevisionInspection(value: unknown, action: 'status' | 'card' | 'show', intervalId: string | null): string {
+  const envelope = jsonObject(value) ?? {};
+  const data = jsonObject(envelope.data) ?? {};
+  const active = jsonObject(data.active) ?? {};
+  const activeSubject = jsonObject(active.subject) ?? {};
+  const state = jsonObject(data.state) ?? {};
+  const status = jsonObject(data.status) ?? {};
+  const scope = jsonObject(status.scope) ?? {};
+  const head = jsonObject(status.head) ?? {};
+  const loop = jsonObject(data.loop) ?? {};
+  const interval = jsonObject(data.interval) ?? {};
+  const card = jsonObject(data.card) ?? {};
+  const cardCandidate = jsonObject(card.candidate) ?? {};
+  const candidate = jsonObject(data.candidate) ?? jsonObject(data.selectedCandidate) ?? {};
+  const precheck = jsonObject(data.precheck) ?? jsonObject(candidate.precheck) ?? {};
+  const subject = jsonObject(envelope.subject) ?? {};
+  const outcome = jsonObject(envelope.outcome) ?? {};
+  const outcomeSlots = jsonObject(outcome.slots) ?? {};
+  const objects = [activeSubject, active, state, status, scope, head, loop, interval,
+    cardCandidate, candidate, precheck, card, subject, outcomeSlots, outcome, data];
+  const row = (label: string, keys: string[], sources = objects) => {
+    const found = firstRevisionScalar(sources, keys);
+    return found == null ? '' : `- ${label}: **${markdownValue(found, 300)}**\n`;
+  };
+  let markdown = `### Revision ${action}${intervalId ? ` · ${safeMarkdown(intervalId)}` : ''}\n\n`;
+  markdown += row('Story', ['workId', 'id'], [activeSubject, subject, state, data]);
+  markdown += row('Phase', ['phaseId', 'phase'], [activeSubject, active, scope, state, outcomeSlots, data]);
+  markdown += row('Phase status', ['phaseStatus'], [active, data]);
+  markdown += row('Loop state', ['loopStatus', 'status'], [status, loop, state, data]);
+  markdown += row('Interval', ['intervalId'], [interval, state, status, data]);
+  markdown += row('Selected Candidate', ['selectedCandidateId', 'candidateId', 'id'],
+    [head, cardCandidate, candidate, precheck, state, data]);
+  markdown += row('Parent Candidate', ['parentCandidateId'], [state, interval, candidate, data]);
+  markdown += row('Precheck', ['precheckStatus', 'verdict', 'result', 'publicationEligible'],
+    [precheck, card, state, data]);
+  const message = firstRevisionScalar([outcome, data], ['message', 'messageId', 'reason']);
+  if (message != null) markdown += `\n${markdownValue(message, 1_000)}\n`;
+  if (markdown.split('\n').length <= 4) {
+    markdown += 'The bounded read completed. Use the Shell command below for its complete structured record.\n';
+  }
+  return markdown;
+}
+
+async function handleChatRevision(
+  prompt: string,
+  referenceCount: number,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  context: vscode.ExtensionContext,
+  getCurrentWork: () => CurrentWork
+): Promise<'resolved' | 'unavailable'> {
+  const action = revisionChatAction(prompt);
+  if (action.kind === 'guide') {
+    stream.markdown('### Bounded Candidate revision\n\nUse `@sflow /revise status`, `@sflow /revise card [INTERVAL-ID]`, or `@sflow /revise show <INTERVAL-ID>` for read-only inspection. Enter authored feedback after `/revise` to prefill `/sf-revise`; the skill performs a separate preview, displays the exact Candidate/criteria/plan binding, and waits for explicit confirmation. The participant never starts, publishes, submits, or approves a revision.\n');
+    stream.button({
+      command: 'workbench.action.chat.open', title: 'Revision status',
+      arguments: [{ query: '@sflow /revise status', isPartialQuery: true }]
+    });
+    stream.button({
+      command: 'workbench.action.chat.open', title: 'Candidate card',
+      arguments: [{ query: '@sflow /revise card', isPartialQuery: true }]
+    });
+    stream.button({
+      command: 'workbench.action.chat.open', title: 'Prepare /sf-revise',
+      arguments: [{ query: '/sf-revise ', isPartialQuery: true }]
+    });
+    return 'resolved';
+  }
+  if (action.kind === 'unavailable') {
+    stream.markdown(`### Revision action unavailable\n\n${action.reason}\n\nNothing was executed.\n`);
+    stream.button({
+      command: 'workbench.action.chat.open', title: 'Prepare /sf-revise',
+      arguments: [{ query: '/sf-revise ', isPartialQuery: true }]
+    });
+    return 'unavailable';
+  }
+  if (action.kind === 'prepare') {
+    if (referenceCount > 0) {
+      stream.markdown('### Register feedback documents first\n\n`@sflow /revise` does not silently convert chat references into governed evidence. Use `@sflow /attachments` with genuine local file references, confirm the returned attachment set, then invoke `/sf-revise` with that exact set digest. Opaque uploads remain unavailable because their original bytes cannot be verified. Nothing was executed.\n');
+      stream.button({
+        command: 'workbench.action.chat.open', title: 'Prepare @sflow /attachments',
+        arguments: [{ query: '@sflow /attachments ', isPartialQuery: true }]
+      });
+      return 'unavailable';
+    }
+    stream.markdown('### Revision preview prepared for review\n\nThe feedback remains unexecuted. Continue in `/sf-revise`, which will bind it to the exact current Candidate, classify it, show criteria/specification disposition and the full preview digest, then wait for a separate exact confirmation. This button only prefills Copilot Chat. It does not send the prompt or run a lifecycle command.\n');
+    stream.button({
+      command: 'workbench.action.chat.open', title: 'Review with /sf-revise',
+      arguments: [{ query: `/sf-revise ${action.feedback}`, isPartialQuery: true }]
+    });
+    return 'resolved';
+  }
+
+  const cancellation = chatAbortSignal(token);
+  try {
+    const active = await activeAttachmentSession(context, getCurrentWork, cancellation.signal);
+    const argv = ['revision', action.kind];
+    const intervalId = action.kind === 'status' ? null : action.intervalId;
+    if (intervalId) argv.push(intervalId);
+    argv.push('--json');
+    if (commandClass(argv) !== 'read') {
+      throw new Error('The requested revision inspection is not classified as read-only.');
+    }
+    stream.progress(`Reading model-free revision ${action.kind}…`);
+    const value = await active.client.run(argv, cancellation.signal);
+    if (token.isCancellationRequested) return 'resolved';
+    stream.markdown(renderRevisionInspection(value, action.kind, intervalId));
+    const shell = `singularity-flow ${argv.join(' ')}`;
+    stream.markdown(`\n**Shell:** ${inlineCode(shell)}\n\n**Copilot:** ${inlineCode(`/sf-revise ${action.kind}${intervalId ? ` ${intervalId}` : ''}`)}\n`);
+    stream.button({
+      command: 'singularityFlow.copyParticipantCommand', title: 'Copy Shell',
+      arguments: [shell, 'revise']
+    });
+    return 'resolved';
+  } catch {
+    stream.markdown('### Revision inspection unavailable\n\nThe selected editor repository, ready Story session, or requested REV record could not be verified. Use `/sf-session`, then retry `/sf-revise status`. Nothing was changed.\n');
+    return 'unavailable';
+  } finally {
+    cancellation.dispose();
+  }
+}
+
 function examples(stream: vscode.ChatResponseStream): SflowChatMetadata {
   stream.markdown('Ask about Singularity Flow or choose a declared command. Deterministic commands are local/CLI reads and never call a model. Human decisions open a separate guarded flow.\n\n');
   for (const command of PARTICIPANT_COMMANDS) {
@@ -973,6 +1155,18 @@ export function registerSflowChat(
       );
       zeroModelFooter(stream, participantStartedAt, 'human-decision');
       return { metadata: { intent: 'procedure', topicId: null, followups: [] } satisfies SflowChatMetadata };
+    }
+    if (declared.id === 'revise') {
+      const outcome = await handleChatRevision(
+        effectivePrompt, request.references?.length ?? 0, stream, token, context, getCurrentWork
+      );
+      await recordLocalParticipantMetric('revise', participantStartedAt, outcome);
+      zeroModelFooter(stream, participantStartedAt, 'human-decision');
+      return {
+        metadata: {
+          intent: 'procedure', topicId: 'revision-loop', followups: []
+        } satisfies SflowChatMetadata
+      };
     }
     if (declared.id === 'topics') {
       const index = await resolveHelp('');

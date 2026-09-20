@@ -14,6 +14,12 @@ import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
 
 const hash = (value) => `sha256:${recordSha256(value)}`;
 const digest = (letter) => `sha256:${letter.repeat(64)}`;
+const subject = Object.freeze({
+  workId: 'REV-STORY-1', phaseId: 'intake', phaseGeneration: 1
+});
+const producer = Object.freeze({
+  id: 'revision-test', version: '1', implementationSha256: digest('d')
+});
 const checks = [
   'candidateIntegrity', 'candidateFreeze', 'parentResultLineage', 'scope', 'protectedPaths',
   'forbiddenEffects', 'secretScan', 'hunkDisposition', 'criteriaBindingFreshness',
@@ -79,12 +85,15 @@ async function fixture(t) {
   };
   const hunkClaimSet = {
     schemaVersion: 1, kind: 'revision-hunk-claim-set',
+    subject, producer,
     parentCandidateId: 'CAN-PARENT1', resultCandidateId: candidate.candidateId,
     claims: [{ hunkId: 'HUNK-001', cause: { kind: 'criterion', id: 'REV-STORY-1:AC-001' }, status: 'claimed' }],
     unexplained: []
   };
   hunkClaimSet.claimSetSha256 = hash(hunkClaimSet);
   const precheckInput = {
+    subject,
+    producer,
     candidateReference,
     head: {
       ...candidate, headRevision: 1,

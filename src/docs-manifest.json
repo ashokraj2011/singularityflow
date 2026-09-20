@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "e60f5bd3f34ddce00a1fb618ea2c000096830f2b",
-  "topicCount": 66,
-  "contentSha256": "c3d319a03a9b4bb8d94941d9d517428cd84beb42e63be76746fc697400e38b81",
+  "sourceCommit": "974296732c6e1b98b35253b51d60e65d66ce5180",
+  "topicCount": 67,
+  "contentSha256": "2c29138893b4b1c9191e2ced8686d4cb81543262dd91103bc81184cd5dce7061",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -120,9 +120,9 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 8,
-      "sha256": "e4daf939a3fadaa70e07d71186c38aac6f7db3f02fa7e908754e1acf9d549925",
-      "routingSha256": "67cb5270f225f45ecf1358a176ff906fbc914d883459b1101c8444405f8cd16c",
+      "version": 9,
+      "sha256": "3ccdd0ac427bfdc42ced320ade71ec4d4d8a466ec06ddfa18d5aa8d2cf3005e6",
+      "routingSha256": "548b95980ef4bb0755e04b820ccc4a041aa172419db2619bd04509ae3e7fbcf9",
       "file": "copilot-and-surfaces.md"
     },
     {
@@ -408,10 +408,18 @@
     {
       "id": "revision-feedback-attachments",
       "title": "Revision feedback attachment staging",
-      "version": 4,
-      "sha256": "5e62ab1c851d59b48f69c3d275da6de8cb583738ac37e1360218d8635977ec60",
-      "routingSha256": "2377aa615ffd138c3bebf438ea0538d552323920bfeb60de11445242b6bda2e9",
+      "version": 5,
+      "sha256": "4c1c58a51693418f981c94e1b2ebae68381de8aa4098340606dd530cace02faf",
+      "routingSha256": "5170043c54234fa7eafdf7437e7be50a5a7b9f97d04a0ddfcd42a9292f8a3027",
       "file": "revision-feedback-attachments.md"
+    },
+    {
+      "id": "revision-loop",
+      "title": "Bounded code Candidate revision loop",
+      "version": 1,
+      "sha256": "fbc9a0631981ca185fec2987cfad58b5380f2da8d8533628a6983c01341f5c6f",
+      "routingSha256": "da32593b0266e2e0d23bceecf9bd245d71449ec93893456df95884e41dd890c0",
+      "file": "revision-loop.md"
     },
     {
       "id": "secrets",

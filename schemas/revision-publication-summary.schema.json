@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-publication-summary.schema.json",
+  "title": "Singularity Flow immutable revision publication summary v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "revisionLoop", "publishedCandidate", "chain", "publishedAt", "producer", "summarySha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "revision-publication-summary" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "revisionLoop": { "type": "object", "required": ["intervalCount", "initialCandidateId", "publishedCandidateId", "loopSha256", "intervalSetSha256", "correctedRefusalCount", "unresolvedRefusalCount"],
+      "properties": {
+        "intervalCount": { "type": "integer", "minimum": 0 },
+        "initialCandidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+        "publishedCandidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+        "loopSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "intervalSetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "correctedRefusalCount": { "type": "integer", "minimum": 0 },
+        "unresolvedRefusalCount": { "const": 0 }
+      }, "additionalProperties": false
+    },
+    "publishedCandidate": { "$ref": "revision-contract-definitions.schema.json#/$defs/publishedCandidate" },
+    "chain": { "type": "object", "required": ["path", "manifestSha256", "chainSha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "manifestSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "chainSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      }, "additionalProperties": false
+    },
+    "publishedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "summarySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  }, "additionalProperties": false
+}

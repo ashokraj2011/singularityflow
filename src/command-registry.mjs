@@ -1,11 +1,11 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'explain', 'workflow', 'documents']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -61,7 +61,8 @@ const LAZY_MODULES = Object.freeze({
   cache: './commands/fos.mjs',
   local: './commands/local.mjs',
   architecture: './commands/architecture.mjs',
-  revision: './commands/revision.mjs'
+  revision: './commands/revision.mjs',
+  revise: './commands/revise.mjs'
 });
 
 function operation(id, modelPolicy = 'never', overrides = {}) {
@@ -107,7 +108,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['architecture'], ['revision'], ['hook'], ['bootstrap'], ['secrets'],
+  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['architecture'], ['revision'], ['revise'], ['hook'], ['bootstrap'], ['secrets'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
   // door; the flag still works.
@@ -223,6 +224,15 @@ const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'upload', 'add',
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
 const REVISION_ATTACHMENT_ACTIONS = Object.freeze([
   'capabilities', 'preview', 'register', 'list', 'status', 'remove-preview', 'remove'
+]);
+const REVISION_READ_SUBCOMMANDS = Object.freeze([
+  'activation', 'capabilities', 'status', 'card', 'show'
+]);
+const REVISION_MUTATION_SUBCOMMANDS = Object.freeze([
+  'abandon', 'capture', 'resume'
+]);
+const REVISION_SUBCOMMANDS = Object.freeze([
+  ...REVISION_READ_SUBCOMMANDS, ...REVISION_MUTATION_SUBCOMMANDS, 'attachments'
 ]);
 const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
 const MCP_SUBCOMMANDS = Object.freeze([
@@ -1173,17 +1183,35 @@ function resolveSgosOperation(definition, positionals, options) {
   );
 }
 
-function resolveRevisionOperation(definition, positionals) {
+function resolveRevisionOperation(definition, positionals, options) {
   const subcommand = positionals[1];
-  if (subcommand === 'activation') return never('revision.activation', definition, 'read');
-  if (subcommand === 'capabilities') return never('revision.capabilities', definition, 'read');
-  if (subcommand !== 'attachments') return unknownSubcommand('revision', subcommand, ['activation', 'capabilities', 'attachments']);
+  if (REVISION_READ_SUBCOMMANDS.includes(subcommand)) {
+    return never(`revision.${subcommand}`, definition, 'read');
+  }
+  if (REVISION_MUTATION_SUBCOMMANDS.includes(subcommand)) {
+    if (subcommand === 'abandon' && optionBoolean(options, 'preview')) {
+      return never('revision.abandon.preview', definition, 'read');
+    }
+    if (subcommand === 'capture' && optionBoolean(options, 'preview')) {
+      return never('revision.capture.preview', definition, 'read');
+    }
+    return never(`revision.${subcommand}`, definition, 'mutation');
+  }
+  if (subcommand !== 'attachments') {
+    return unknownSubcommand('revision', subcommand, REVISION_SUBCOMMANDS);
+  }
   const action = positionals[2];
   if (!REVISION_ATTACHMENT_ACTIONS.includes(action)) {
     return unknownSubcommand('revision attachments', action, REVISION_ATTACHMENT_ACTIONS, 'action');
   }
   return never('revision.attachments.' + action, definition,
     ['preview', 'register', 'remove-preview', 'remove'].includes(action) ? 'mutation' : 'read');
+}
+
+function resolveReviseOperation(definition, options) {
+  return optionBoolean(options, 'dry-run')
+    ? never('revise.preview', definition, 'read')
+    : never('revise.apply', definition, 'mutation');
 }
 
 export function resolveOperation({ requestedCommand, positionals, options = {}, context = {} }) {
@@ -1240,7 +1268,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'context') return resolveContextOperation(definition, positionals);
   if (definition.name === 'tokens') return resolveTokensOperation(definition, positionals);
   if (definition.name === 'architecture') return resolveArchitectureOperation(definition, positionals);
-  if (definition.name === 'revision') return resolveRevisionOperation(definition, positionals);
+  if (definition.name === 'revision') return resolveRevisionOperation(definition, positionals, options);
+  if (definition.name === 'revise') return resolveReviseOperation(definition, options);
   if (definition.name === 'auto') return resolveAutoOperation(definition, positionals, options);
   if (definition.name === 'adhoc') return resolveAdhocOperation(definition, positionals);
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
@@ -1336,6 +1365,7 @@ export function operationCatalog() {
   const proofDefinition = commandDefinition('proof');
   const deliveryDefinition = commandDefinition('delivery');
   const revisionDefinition = commandDefinition('revision');
+  const reviseDefinition = commandDefinition('revise');
   const storyDefinition = commandDefinition('story');
   const sessionDefinition = commandDefinition('session');
   const capabilityDefinition = commandDefinition('capability');
@@ -1394,8 +1424,12 @@ export function operationCatalog() {
   sgos.push(never('learn.progress-import.plan', commandDefinition('learn'), 'read'));
   sgos.push(never('learn.reset.plan', commandDefinition('learn'), 'read'));
   const modelFreeMixed = [
-    never('revision.activation', revisionDefinition, 'read'),
-    never('revision.capabilities', revisionDefinition, 'read'),
+    never('revise.preview', reviseDefinition, 'read'),
+    never('revise.apply', reviseDefinition, 'mutation'),
+    ...REVISION_READ_SUBCOMMANDS.map((name) => never(`revision.${name}`, revisionDefinition, 'read')),
+    ...REVISION_MUTATION_SUBCOMMANDS.map((name) => never(`revision.${name}`, revisionDefinition, 'mutation')),
+    never('revision.abandon.preview', revisionDefinition, 'read'),
+    never('revision.capture.preview', revisionDefinition, 'read'),
     ...REVISION_ATTACHMENT_ACTIONS.map((action) => never(
       'revision.attachments.' + action, revisionDefinition,
       ['preview', 'register', 'remove-preview', 'remove'].includes(action) ? 'mutation' : 'read'

@@ -7,11 +7,12 @@ aliases:
 commands:
   - revision
 related:
+  - revision-loop
   - copilot-and-surfaces
   - artifacts-and-generation
-version: 4
+version: 5
 ---
-`singularity-flow revision attachments` stages verified local files as feedback evidence for the selected Story and active phase. This is the attachment-intake slice only: it does not open or execute a REV loop, invoke a model, amend approved intent, or publish a candidate. A deterministic route and packet kernel exists, but mutating REV execution remains disabled until durable interval, recovery, and publication guarantees are implemented and witnessed.
+`singularity-flow revision attachments` stages verified local files as feedback evidence for the selected Story and active phase. This is attachment intake only: it does not open or execute a REV loop, invoke a model, amend approved intent, or publish a Candidate. When the guarded pilot is eligible, a separate `/sf-revise` invocation may bind one active attachment set into an exact preview and confirmed interval.
 
 ## Purpose and prerequisites
 
@@ -48,8 +49,8 @@ Only formats returned by `capabilities` are accepted. `.txt`, `.md`, `.json`, `.
 
 ## Troubleshooting
 
-If native Copilot bytes are unavailable, use the explicit local-file path. If the selected Story or phase changed, reselect it and preview again; never replay an old confirmation. Unsupported, oversized, non-UTF-8, or secret-bearing files are refused rather than summarized into substitute evidence. The full `/sflow-revise` execution route is not installed in this slice.
+If native Copilot bytes are unavailable, use the explicit local-file path. If the selected Story or phase changed, reselect it and preview again; never replay an old confirmation. Unsupported, oversized, non-UTF-8, or secret-bearing files are refused rather than summarized into substitute evidence. Attachment registration alone never starts `/sf-revise`; preview and confirm the active attachment-set digest separately.
 
 ## Related topics
 
-Continue with `sflow explain copilot-and-surfaces` and `sflow explain artifacts-and-generation`.
+Continue with `sflow explain revision-loop`, `sflow explain copilot-and-surfaces`, and `sflow explain artifacts-and-generation`.

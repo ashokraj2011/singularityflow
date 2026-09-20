@@ -4,8 +4,9 @@
  * process, model, or persistence capability; a receipt is never a verification result.
  */
 import { canonicalJson, recordSha256 } from '../records.mjs';
-import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
+import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { validateRevisionRecord } from './contracts.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const OBJECT = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/;
@@ -65,6 +66,23 @@ function integer(value, label) {
 function boolean(value, label) {
   if (typeof value !== 'boolean') fail('REV_PRECHECK_INPUT', `${label} must be boolean.`);
   return value;
+}
+function subject(value) {
+  plain(value, 'subject', ['workId', 'phaseId', 'phaseGeneration']);
+  id(value.workId, 'subject.workId');
+  id(value.phaseId, 'subject.phaseId');
+  integer(value.phaseGeneration, 'subject.phaseGeneration');
+  return structuredClone(value);
+}
+function producer(value) {
+  plain(value, 'producer', ['id', 'version', 'implementationSha256']);
+  id(value.id, 'producer.id');
+  if (typeof value.version !== 'string' || !value.version.trim()
+      || Buffer.byteLength(value.version) > 64) {
+    fail('REV_PRECHECK_INPUT', 'producer.version must be bounded nonempty text.');
+  }
+  sha(value.implementationSha256, 'producer.implementationSha256');
+  return structuredClone(value);
 }
 function list(value, label, maximum = 512) {
   if (!Array.isArray(value) || value.length > maximum) {
@@ -144,14 +162,15 @@ function bindings(value) {
   for (const key of Object.keys(value)) sha(value[key], `bindings.${key}`);
   return structuredClone(value);
 }
-function claimSet(value, binding, candidateId) {
-  value = readRecord('revision-hunk-claim-set', value).record;
-  plain(value, 'hunkClaimSet', [
-    'schemaVersion', 'kind', 'parentCandidateId', 'resultCandidateId',
-    'claims', 'unexplained', 'claimSetSha256'
-  ]);
+function claimSet(value, binding, candidateId, selectedSubject, selectedProducer) {
+  try { value = validateRevisionRecord('revision-hunk-claim-set', value); }
+  catch { fail('REV_PRECHECK_INPUT', 'Hunk claim set is not a closed durable REV record.'); }
   if (value.kind !== 'revision-hunk-claim-set' || value.resultCandidateId !== candidateId) {
     fail('REV_PRECHECK_INPUT', 'Hunk claim set is not for the selected candidate.');
+  }
+  if (digest(value.subject) !== digest(selectedSubject)
+      || digest(value.producer) !== digest(selectedProducer)) {
+    fail('REV_PRECHECK_STALE', 'Hunk claim set subject or producer differs from precheck authority.');
   }
   id(value.parentCandidateId, 'hunkClaimSet.parentCandidateId');
   const claims = list(value.claims, 'hunkClaimSet.claims').map((claim) => {
@@ -172,8 +191,9 @@ function claimSet(value, binding, candidateId) {
   }
   const body = {
     schemaVersion: currentSchemaVersion('revision-hunk-claim-set'), kind: 'revision-hunk-claim-set',
+    subject: value.subject,
     parentCandidateId: value.parentCandidateId, resultCandidateId: value.resultCandidateId,
-    claims, unexplained
+    claims, unexplained, producer: value.producer
   };
   const actual = digest(body);
   if (value.claimSetSha256 !== actual || binding !== actual) {
@@ -324,14 +344,17 @@ export function revisionHeadSnapshotSha256(candidateReference, selectedHead) {
 /** Deterministic, side-effect-free readiness receipt for one exact frozen selected head. */
 export function computeRevisionPrecheck(input) {
   plain(input, 'precheck input', [
-    'candidateReference', 'head', 'bindings', 'hunkClaimSet', 'worktree',
+    'subject', 'producer', 'candidateReference', 'head', 'bindings', 'hunkClaimSet', 'worktree',
     'validations', 'criteria', 'refusalSummary', 'proofProfile'
   ]);
+  const selectedSubject = subject(input.subject);
+  const selectedProducer = producer(input.producer);
   const ref = reference(input.candidateReference);
   const candidateRefSha256 = digest(ref);
   const selected = head(input.head, ref, candidateRefSha256);
   const bound = bindings(input.bindings);
-  const claims = claimSet(input.hunkClaimSet, bound.hunkClaimSetSha256, ref.candidateId);
+  const claims = claimSet(input.hunkClaimSet, bound.hunkClaimSetSha256, ref.candidateId,
+    selectedSubject, selectedProducer);
   const saved = worktree(input.worktree, selected, ref.repository.candidateTree);
   const checks = validations(input.validations);
   if (!['standard', 'high-assurance', 'regulated'].includes(input.proofProfile)) {
@@ -355,6 +378,7 @@ export function computeRevisionPrecheck(input) {
   ];
   const receipt = {
     schemaVersion: currentSchemaVersion('revision-precheck'), kind: 'revision-precheck',
+    subject: selectedSubject,
     candidateId: ref.candidateId,
     candidateSha256: ref.candidateSha256,
     candidateRefSha256,
@@ -380,19 +404,21 @@ export function computeRevisionPrecheck(input) {
     remainingObligations: obligations,
     precheckPassed: failedChecks.length === 0 && !refusals.unresolved
       && !precheckBlockingHunks && !rows.some((row) => row.readiness === 'contradicted'),
-    publicationEligible: obligations.length === 0
+    publicationEligible: obligations.length === 0,
+    producer: selectedProducer
   };
-  return Object.freeze({ ...receipt, precheckSha256: digest(receipt) });
+  return validateRevisionRecord('revision-precheck', {
+    ...receipt, precheckSha256: digest(receipt)
+  });
 }
 
 /** Reject an old card when any selected-head, candidate, worktree, policy, or claim input moved. */
 export function assertCurrentRevisionPrecheck(receipt, input) {
   const current = computeRevisionPrecheck(input);
-  if (!receipt || receipt.kind !== 'revision-precheck'
-      || receipt.precheckSha256 !== digest(Object.fromEntries(
-        Object.entries(receipt).filter(([key]) => key !== 'precheckSha256')
-      ))
-      || receipt.precheckSha256 !== current.precheckSha256) {
+  let selected;
+  try { selected = validateRevisionRecord('revision-precheck', receipt); }
+  catch { fail('REV_PRECHECK_STALE', 'Precheck receipt is not a closed durable REV record.'); }
+  if (selected.precheckSha256 !== current.precheckSha256) {
     fail('REV_PRECHECK_STALE', 'Precheck receipt does not bind the current selected head and inputs.');
   }
   return current;

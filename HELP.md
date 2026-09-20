@@ -1467,7 +1467,9 @@ Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implement
 
 `classic-delivery` starts with reviewed acceptance criteria and a planned source/test claim, then changes code in the Code phase. Code publication runs the configured structured repository tests; its normalized passing receipt is committed with the governed generation on the Story branch. Testing reviews that exact receipt, and Code checking verifies the approved code and test evidence again before its final approval. The latter two phases cannot substitute a handwritten test claim for missing or failed Git-bound evidence. Choose it with `--work-type classic-delivery` when starting a Story, or inspect it with `singularity-flow workflow simulate classic-delivery`. The repository must have a working structured test command; its setup belongs in approved configuration before Code publication, not in a protected workflow file edited by the Story.
 
-Classic Delivery reviewers can record optional local feedback through `/sf-revision-attachments` (shell: `singularity-flow revision attachments ...`) and explicitly reject Testing or Code checking back to Code for a new governed generation. Attachment registration does not run a revision or travel as a committed Story test receipt. Use `singularity-flow revision activation --json` to inspect the installed REV execution boundary; a disabled result cannot be overridden with an opt-in file. See [Classic Delivery review and rework](docs/CLASSIC-DELIVERY-REVIEW-AND-REWORK.md).
+Classic Delivery reviewers can record optional local feedback through `/sf-revision-attachments` (shell: `singularity-flow revision attachments ...`) and explicitly reject Testing or Code checking back to Code for a new governed generation. Attachment registration does not run a revision or travel as a committed Story test receipt. The guarded `/sf-revise` pilot is a narrower option inside an eligible, still-open code Candidate: it previews and binds feedback, requires exact confirmation, and stops before ordinary phase publication, submission, or approval. It does not run an autonomous coding model or replace Testing. Use `singularity-flow revision activation --json` and `singularity-flow revision status --json` to inspect the installed runtime and current Story boundary. See [Classic Delivery review and rework](docs/CLASSIC-DELIVERY-REVIEW-AND-REWORK.md) and [REV delivery status](docs/REV-DELIVERY-STATUS.md).
+
+Routing-required REV feedback creates no durable Human Request; use `/sf-recommend` or `singularity-flow recommend --json` for the deterministic next route. After manually saving the bounded implementation edits, preview capture with `singularity-flow revision capture --preview --note <NOTE> --saved-buffers-confirmed`, then repeat the same note with `--plan sha256:<PLAN> --confirm sha256:<PLAN>` only after reviewing that digest. Abandonment uses the same separate preview/confirmation discipline: it closes the local loop and preserves its selected Candidate head rather than restoring or replacing it. A registered attachment set may be selected only by its exact active digest and is revalidated against the same feedback, Story phase, repository, and context.
 
 `benchmarking-a` and `benchmarking-b` are deliberately paired. Both run the same templates, agents,
 artifacts, approvals, and rejection routes. A pins `worldModel: required`, `ast: optional-context`,
@@ -3344,6 +3346,16 @@ singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL]
 singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
 singularity-flow revision activation [--json]
 singularity-flow revision capabilities [--json]
+singularity-flow revision status [--json]
+singularity-flow revision card [INTERVAL-ID] [--json]
+singularity-flow revision show <INTERVAL-ID> [--json]
+singularity-flow revise --dry-run --feedback-stdin --saved-buffers-confirmed [--criteria CLAUSE-ID] [--disposition RESULT] [--attachment-set SHA256] [--json]
+singularity-flow revise --feedback-stdin --saved-buffers-confirmed [--criteria CLAUSE-ID] [--disposition RESULT] [--attachment-set SHA256] --confirm SHA256 [--json]
+singularity-flow revision resume [INTERVAL-ID] [--json]
+singularity-flow revision capture --preview --note TEXT --saved-buffers-confirmed [--json]
+singularity-flow revision capture --note TEXT --saved-buffers-confirmed --plan SHA256 --confirm SHA256 [--json]
+singularity-flow revision abandon <LOOP-ID|INTERVAL-ID> --preview [--json]
+singularity-flow revision abandon <LOOP-ID|INTERVAL-ID> --plan SHA256 --confirm SHA256 [--json]
 singularity-flow revision attachments capabilities [--json]
 singularity-flow revision attachments preview --file LOCAL-FILE [--file LOCAL-FILE...] [--select NUMBER...] [--line-range NUMBER:START-END...] (--feedback-stdin | --feedback TEXT) [--json]
 singularity-flow revision attachments register --file LOCAL-FILE [--file LOCAL-FILE...] [--select NUMBER...] [--line-range NUMBER:START-END...] (--feedback-stdin | --feedback TEXT) --confirm SHA256 [--idempotency-key KEY] [--json]

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-hunk-claim-set.schema.json",
+  "title": "Singularity Flow immutable revision hunk claim set v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "subject", "parentCandidateId", "resultCandidateId",
+    "claims", "unexplained", "producer", "claimSetSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-hunk-claim-set" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "parentCandidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+    "resultCandidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+    "claims": {
+      "type": "array", "maxItems": 512,
+      "items": {
+        "type": "object",
+        "required": ["hunkId", "cause", "status"],
+        "properties": {
+          "hunkId": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" },
+          "cause": {
+            "type": "object",
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "feedback", "criterion", "registered-tool-effect", "manual-note",
+                  "approved-existing-drift"
+                ]
+              },
+              "id": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" }
+            },
+            "additionalProperties": false
+          },
+          "status": { "const": "claimed" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unexplained": {
+      "type": "array", "maxItems": 512, "uniqueItems": true,
+      "items": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" }
+    },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "claimSetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "additionalProperties": false
+}

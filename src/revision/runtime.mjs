@@ -1,4 +1,4 @@
-/** Honest capability boundary until a transactional REV head/interval writer is installed. */
+/** Honest capability boundary for the guarded local writer and unavailable full REV profile. */
 import { execFileSync } from 'node:child_process';
 import { constants } from 'node:fs';
 import { lstat, open, readFile, realpath } from 'node:fs/promises';
@@ -94,6 +94,12 @@ export const revisionRuntimeCapabilities = Object.freeze({
   schemaVersion: 1,
   kind: 'revision-runtime-capabilities',
   activationProfile: 'disabled',
+  // These guarded local operations are available without claiming the externally witnessed,
+  // autonomous REV activation profile below.
+  guardedInteractivePreviewAvailable: true,
+  guardedManualCaptureAvailable: true,
+  guardedLocalHeadCasAvailable: true,
+  registeredAttachmentRoutingAvailable: true,
   routeKernelAvailable: true,
   publicRoutePreviewAvailable: false,
   packetKernelAvailable: true,
@@ -115,15 +121,43 @@ export const revisionRuntimeCapabilities = Object.freeze({
   reasonCode: 'REV_EXECUTION_UNAVAILABLE'
 });
 
+const GUARDED_OPERATIONS = Object.freeze({
+  preview: Object.freeze([
+    'guardedInteractivePreviewAvailable', 'guardedLocalHeadCasAvailable',
+    'registeredAttachmentRoutingAvailable'
+  ]),
+  capture: Object.freeze([
+    'guardedManualCaptureAvailable', 'guardedLocalHeadCasAvailable'
+  ]),
+  inspect: Object.freeze(['guardedInteractivePreviewAvailable']),
+  recovery: Object.freeze(['guardedLocalHeadCasAvailable'])
+});
+
+/**
+ * Authoritative gate for the safe built-in profile. This intentionally does not claim the full
+ * externally witnessed/autonomous activation profile; it only admits the named local operation
+ * when every compiled guarded capability needed by that operation is present.
+ */
+export function assertGuardedRevisionCapability(operation) {
+  const required = GUARDED_OPERATIONS[operation];
+  if (!required) refusePilot(`Unknown guarded REV operation '${operation}'.`, 'REV_GUARDED_OPERATION_UNKNOWN');
+  const missing = required.filter((flag) => revisionRuntimeCapabilities[flag] !== true);
+  if (missing.length) {
+    refusePilot(`Guarded REV '${operation}' is unavailable: ${missing.join(', ')}.`,
+      'REV_GUARDED_CAPABILITY_UNAVAILABLE');
+  }
+  return Object.freeze({ operation, eligible: true, required: Object.freeze([...required]) });
+}
+
 const ACTIVATION_FOUNDATIONS = Object.freeze([
-  Object.freeze({ id: 'candidate-head-cas', status: 'internal-only',
-    detail: 'The machine-local append-only head journal, exact retained Candidate references, and compare-and-swap selection kernel are installed.' }),
-  Object.freeze({ id: 'candidate-precheck-publication', status: 'internal-only',
-    detail: 'Candidate-bound precheck and exact selected-tree publication primitives are installed but have no public loop route.' }),
+  Object.freeze({ id: 'candidate-head-cas', status: 'guarded-local',
+    detail: 'The guarded interactive command exposes the machine-local append-only head journal and exact retained Candidate CAS; autonomous execution remains disabled.' }),
+  Object.freeze({ id: 'candidate-precheck-publication', status: 'guarded-local-precheck-only',
+    detail: 'Candidate-bound precheck is exposed by the guarded local flow. Exact selected-tree Story publication is not bridged in this build.' }),
   Object.freeze({ id: 'code-check-projection', status: 'projection-only',
     detail: 'Code-check planning and result projection exist; no authenticated durable Code-check receipt can be produced.' }),
   Object.freeze({ id: 'compare-discard-restore', status: 'kernel-only',
-    detail: 'Exact Candidate comparison and head restoration are tested kernel primitives; user-facing loop UX is not activated.' })
+    detail: 'Exact Candidate comparison and head restoration are tested kernel primitives; the guarded UX exposes inspection, recovery, and abandonment, not unrestricted restoration.' })
 ]);
 
 function activationBlocker(code, message, remediationClass, extra = {}) {
@@ -193,8 +227,11 @@ export async function inspectRevisionPilotActivation({ repositoryRoot } = {}) {
   if (!optIn) blockers.push(activationBlocker('REV_PILOT_OPT_IN_REQUIRED',
     `Future prerequisite after pilot runtime and witnesses are released: opt in at ${REV_PILOT_OPT_IN_PATH}. An opt-in cannot enable REV in this build.`,
     'future-repository-choice'));
+  const guardedOperations = Object.freeze(Object.fromEntries(Object.keys(GUARDED_OPERATIONS)
+    .map((operation) => [operation, assertGuardedRevisionCapability(operation)])));
   return Object.freeze({ schemaVersion: 1, kind: 'revision-pilot-activation-status',
     requested: Boolean(optIn), activationProfile: 'disabled', eligible: false,
+    guardedEligible: true, guardedOperations,
     blockers: Object.freeze(blockers.map((blocker) => Object.freeze(blocker))),
     foundations: ACTIVATION_FOUNDATIONS,
     evidenceBoundary: revisionRuntimeCapabilities.evidenceBoundary,

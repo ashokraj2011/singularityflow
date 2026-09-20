@@ -147,6 +147,19 @@ test('mutation skills carry reviewed confirmations into noninteractive CLI forms
   assert.match(submit, /Never loop quality commands/i);
 });
 
+test('revision skill preserves exact preview, confirmation, execution, and publication boundaries', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-revise', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow session current --json/);
+  assert.match(content, /registered task is `code`/);
+  assert.match(content, /revise --dry-run --feedback-stdin/);
+  assert.match(content, /same bytes and selectors/);
+  assert.match(content, /--confirm sha256:<PLAN>/);
+  assert.match(content, /user to type that full digest/);
+  assert.match(content, /never argv, environment, logs, or repository files/i);
+  assert.match(content, /never process\/configuration paths, Git, workflow state, approvals/);
+  assert.match(content, /Never publish, submit, approve, merge, deploy/);
+});
+
 test('plugin provides direct Jira connection, assigned work, sprint board, and guarded update skills', async () => {
   const status = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-status', 'SKILL.md'), 'utf8');
   const doctor = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-doctor', 'SKILL.md'), 'utf8');

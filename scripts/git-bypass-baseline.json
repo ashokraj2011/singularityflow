@@ -175,11 +175,11 @@
     },
     "scripts/packaged-cli-smoke.mjs": {
       "counts": {
-        "command-run": 12,
+        "command-run": 13,
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "ac3d387339f3984534bbbbb151d6fb5f9c87ccdc2f70e7a1447291dc69c728d0"
+      "digest": "7f9cd6c0f9311f7ce5a26de7c36cba7df364a820f8d728d41a27f6991345aa17"
     },
     "scripts/packaged-vsix-engine-smoke.mjs": {
       "counts": {

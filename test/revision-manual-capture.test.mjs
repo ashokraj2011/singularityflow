@@ -40,6 +40,79 @@ const editorProof = async () => ({
 });
 const subjectId = 'PAY-142:implementation';
 
+test('manual capture refuses configured protected paths during planning', async (t) => {
+  const { root, git, parentCandidate } = await fixture(t);
+  await writeFile(path.join(root, 'src', 'app.js'), 'export const value = 3;\n');
+  const refsBefore = git('show-ref');
+  let editorProofCalls = 0;
+
+  await assert.rejects(planManualRevisionCapture({
+    root, subjectId, parentCandidate, note: 'Attempt to capture a protected source file',
+    allowedPaths: ['src/app.js'],
+    config: { governance: { protectedPaths: ['src/'] } }, workflow: {},
+    verifySavedEditorBuffers: async () => {
+      editorProofCalls += 1;
+      return editorProof();
+    }
+  }), (error) => {
+    assert.equal(error.code, 'REV_MANUAL_PROTECTED_PATH');
+    assert.match(error.message, /src\/app\.js/u);
+    return true;
+  });
+
+  assert.equal(editorProofCalls, 0, 'protected paths must be refused before editor proof or freeze');
+  assert.equal(git('show-ref'), refsBefore, 'planning must not create a revision Candidate');
+});
+
+test('manual capture refuses secret-bearing saved bytes before candidate freeze', async (t) => {
+  const { root, git, parentCandidate } = await fixture(t);
+  const credential = `AKIA${'Q7RJ2NXWMBK4TZVD'}`;
+  await writeFile(path.join(root, 'src', 'app.js'),
+    `export const credential = "${credential}";\n`);
+  const refsBefore = git('show-ref');
+  let editorProofCalls = 0;
+
+  await assert.rejects(planManualRevisionCapture({
+    root, subjectId, parentCandidate, note: 'Attempt to capture secret-bearing saved bytes',
+    allowedPaths: ['src/app.js'], config: {}, workflow: {},
+    verifySavedEditorBuffers: async () => {
+      editorProofCalls += 1;
+      return editorProof();
+    }
+  }), (error) => {
+    assert.equal(error.code, 'REV_MANUAL_SECRET_DETECTED');
+    assert.match(error.message, /AWS access key ID/u);
+    assert.doesNotMatch(error.message, new RegExp(credential, 'u'));
+    return true;
+  });
+
+  assert.equal(editorProofCalls, 0, 'secret scanning must finish before editor proof or freeze');
+  assert.equal(git('show-ref'), refsBefore, 'secret refusal must not create a revision Candidate');
+});
+
+test('clean manual plan records safety passes and transparent editor-proof assurance', async (t) => {
+  const { root, parentCandidate } = await fixture(t);
+  await writeFile(path.join(root, 'src', 'app.js'), 'export const value = 3;\n');
+  const snapshotSha256 = `sha256:${'c'.repeat(64)}`;
+  const plan = await planManualRevisionCapture({
+    root, subjectId, parentCandidate, note: 'Capture clean saved source',
+    allowedPaths: ['src/app.js'],
+    config: { governance: { protectedPaths: ['config'] } },
+    workflow: { resolution: { capability: { policy: { protectedPaths: ['infra/'] } } } },
+    verifySavedEditorBuffers: async () => ({
+      status: 'all-saved', snapshotSha256, assurance: 'user-asserted'
+    })
+  });
+
+  assert.equal(plan.status, 'ready-for-explicit-freeze');
+  assert.deepEqual(plan.findings, []);
+  assert.deepEqual(plan.protectedPathCheck,
+    { status: 'pass', checkedPathCount: 1, guardCount: 2 });
+  assert.deepEqual(plan.secretScan, { status: 'pass', scanned: 1, skipped: 0, waived: 0 });
+  assert.deepEqual(plan.editorBuffers,
+    { status: 'all-saved', snapshotSha256, assurance: 'user-asserted' });
+});
+
 test('manual plan inventories index, saved worktree, untracked files, and candidate separately', async (t) => {
   const { root, git, parentCandidate } = await fixture(t);
   await writeFile(path.join(root, 'src', 'app.js'), 'export const value = 3;\n');

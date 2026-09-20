@@ -347,8 +347,10 @@ test('the runtime reader migrates and reseals a genuine v1 flight with current c
   const directory = path.join(
     root, '.git', 'singularity-flow', 'auto-flights', legacy.flightId
   );
-  await mkdir(directory, { recursive: true });
-  await writeFile(path.join(directory, 'state.json'), `${JSON.stringify(legacy)}\n`);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(directory, 'state.json'), `${JSON.stringify(legacy)}\n`, {
+    mode: 0o600
+  });
 
   const migrated = await readAutoFlightState(root, legacy.flightId);
   assert.equal(migrated.schemaVersion, 3);
@@ -374,9 +376,9 @@ test('a frozen v2 report reads and renders with explicit unavailable v3 projecti
     root, '.git', 'singularity-flow', 'auto-flights', legacy.flightId
   );
   const reportPath = path.join(directory, 'report.json');
-  await mkdir(directory, { recursive: true });
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   const originalBytes = `${JSON.stringify(legacy)}\n`;
-  await writeFile(reportPath, originalBytes);
+  await writeFile(reportPath, originalBytes, { mode: 0o600 });
 
   const migrated = await readAutoFlightReport(root, legacy.flightId);
   assert.equal(migrated.schemaVersion, 3);
@@ -673,7 +675,9 @@ test('self-consistent wrong-family state and report records fail closed', async 
   report.kind = 'auto-plan';
   delete report.reportSha256;
   report.reportSha256 = `sha256:${recordSha256(report)}`;
-  await writeFile(path.join(directory, 'report.json'), JSON.stringify(report));
+  await writeFile(path.join(directory, 'report.json'), JSON.stringify(report), {
+    mode: 0o600
+  });
   await assert.rejects(
     () => readAutoFlightReport(root, flightId),
     (error) => error.code === 'AUTO_FLIGHT_CORRUPT'

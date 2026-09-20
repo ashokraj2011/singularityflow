@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-interactive-start-pin.schema.json",
+  "title": "Singularity Flow immutable interactive revision start pin v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "startPlanSha256", "feedbackSha256", "feedbackText", "author", "criteria", "disposition", "privacyPolicySha256", "capturedAt", "producer", "pinSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-interactive-start-pin" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "startPlanSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "feedbackSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "feedbackText": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "author": {
+      "type": "object", "required": ["kind", "id", "name"],
+      "properties": {
+        "kind": { "enum": ["configured-local", "authenticated-user", "service"] },
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }, "additionalProperties": false
+    },
+    "criteria": {
+      "type": "object", "required": ["mode", "bound", "packet"],
+      "properties": {
+        "mode": { "enum": ["explicit", "exact-id", "exact-phrase", "structural-reference", "unscoped", "ambiguous"] },
+        "bound": { "$ref": "#/$defs/criteria" },
+        "packet": { "$ref": "#/$defs/criteria" }
+      }, "additionalProperties": false
+    },
+    "disposition": {
+      "type": "object", "required": ["result", "predicateId", "human"],
+      "properties": {
+        "result": { "enum": ["implementation-change", "specification-change", "ambiguous", "unrelated"] },
+        "predicateId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "human": { "type": "boolean" }
+      }, "additionalProperties": false
+    },
+    "privacyPolicySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "capturedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "pinSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "$defs": {
+    "criteria": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "required": ["id", "clauseSha256"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "clauseSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+        }, "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

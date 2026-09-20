@@ -409,7 +409,10 @@ function loadExtension(api) {
 }
 
 /** A real repository with an enterprise-delivery Epic, generated artifacts, and Stories. */
-async function demoRepository({ registeredWorldModel = false } = {}) {
+async function demoRepository({
+  registeredWorldModel = false,
+  approvedWorldModelAuthority = false
+} = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-host-'));
   const child = async (name) => {
     const dir = path.join(base, name);
@@ -488,6 +491,9 @@ async function demoRepository({ registeredWorldModel = false } = {}) {
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
   run('git', ['remote', 'add', 'origin', lead], { cwd: root });
   run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+  if (approvedWorldModelAuthority) {
+    run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
+  }
   run('git', ['switch', '-c', 'INIT-CHECKOUT'], { cwd: root });
 
   const created = await createInitiative(root, { id: 'INIT-CHECKOUT', profile: 'enterprise-delivery' });
@@ -1292,6 +1298,39 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   assert.deepEqual(prefill?.args, [{ query: '/sf-worldmodel ', isPartialQuery: true }]);
   assert.equal(registered.terminals.length, 0, 'prefill still executes no lifecycle command');
 
+  const revision = { markdown: [], buttons: [], references: [], progress: [] };
+  await participant.handler({
+    command: 'revise', prompt: 'reuse the existing parser', references: [],
+    get model() { throw new Error('revision prefill must never read request.model'); }
+  }, {}, {
+    markdown: (value) => revision.markdown.push(String(value)),
+    button: (value) => revision.buttons.push(value),
+    reference: (value) => revision.references.push(value),
+    progress: (value) => revision.progress.push(String(value))
+  }, { isCancellationRequested: false });
+  assert.match(revision.markdown.join(''), /only prefills Copilot Chat|only prefills|does not send the prompt/i);
+  const revisionButton = revision.buttons.find((button) => button.title === 'Review with /sf-revise');
+  assert.deepEqual(revisionButton?.arguments, [{
+    query: '/sf-revise reuse the existing parser', isPartialQuery: true
+  }]);
+  assert.equal(registered.terminals.length, 0, 'revision prefill runs no lifecycle command');
+
+  const revisionGuide = { markdown: [], buttons: [], references: [], progress: [] };
+  await participant.handler({
+    command: 'revise', prompt: '', references: [],
+    get model() { throw new Error('revision guide must never read request.model'); }
+  }, {}, {
+    markdown: (value) => revisionGuide.markdown.push(String(value)),
+    button: (value) => revisionGuide.buttons.push(value),
+    reference: (value) => revisionGuide.references.push(value),
+    progress: (value) => revisionGuide.progress.push(String(value))
+  }, { isCancellationRequested: false });
+  assert.match(revisionGuide.markdown.join(''), /participant never starts, publishes, submits, or approves/i);
+  assert.ok(revisionGuide.buttons.some((button) =>
+    button.arguments?.[0]?.query === '@sflow /revise status' && button.arguments[0].isPartialQuery === true));
+  assert.ok(revisionGuide.buttons.some((button) =>
+    button.arguments?.[0]?.query === '@sflow /revise card' && button.arguments[0].isPartialQuery === true));
+
   await registered.commands.get('singularityFlow.openHelp')({ id: 'help:all' });
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
   assert.ok(panel, 'the natural-language Help Center opened');
@@ -1663,6 +1702,9 @@ test('the built extension leases, evicts, and reacquires exact comprehension dat
   await registered.commands.get('singularityFlow.openComprehensionCenter')();
   const panel = await until(() => registered.panels.find((entry) =>
     entry.id === 'singularityFlow.comprehensionCenter'));
+  await until(() => panel.webview.html.includes('Why each change is there')
+    && panel.webview.html.includes('README.md') ? panel.webview.html : null);
+  await panel.post({ type: 'tab', tab: 'regions' });
   await until(() => panel.webview.html.includes('Exact change regions')
     && panel.webview.html.includes('README.md') ? panel.webview.html : null);
   const sourceReference = panel.webview.html.match(/data-source-ref="([^"]+)">after<\/button>/)?.[1];
@@ -1729,7 +1771,10 @@ test('Auto card controls only prefill the exact selected command and never execu
 
 test('Configuration Center prepares world-model generation for review and never executes it', async (t) => {
   if (!requireBundle(t)) return;
-  const { root, registered } = await activated({ registeredWorldModel: true });
+  const { root, registered } = await activated({
+    registeredWorldModel: true,
+    approvedWorldModelAuthority: true
+  });
   const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
   const beforeStateRefs = run('git', [
@@ -1773,7 +1818,7 @@ test('Configuration Center prepares world-model generation for review and never 
 
 test('World Model build offers a reviewed deterministic legacy-v3 path without silently running it', async (t) => {
   if (!requireBundle(t)) return;
-  const { root, registered } = await activated();
+  const { root, registered } = await activated({ approvedWorldModelAuthority: true });
   const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   await registered.commands.get('singularityFlow.buildWorldModel')();
   assert.equal(registered.quickPicks.length, 0, 'legacy configuration never enters the v4 picker');
@@ -1793,7 +1838,7 @@ test('World Model build offers a reviewed deterministic legacy-v3 path without s
 
 test('reviewed legacy light build creates a reusable model without opening a model picker', async (t) => {
   if (!requireBundle(t)) return;
-  const { root, registered } = await activated();
+  const { root, registered } = await activated({ approvedWorldModelAuthority: true });
   const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
   registered.warningAnswers.push('Build deterministic legacy model');

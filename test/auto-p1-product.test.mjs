@@ -585,9 +585,9 @@ test('AUT v2 private readers verify and migrate every frozen v1 P1 family withou
     const legacy = goldens[family].find((entry) => entry.schemaVersion === 1);
     const target = path.join(root, '.git', 'singularity-flow', 'auto-flights', legacy.flightId,
       directory, `${legacy[idField]}.json`);
-    await mkdir(path.dirname(target), { recursive: true });
+    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     const bytes = `${JSON.stringify(legacy)}\n`;
-    await writeFile(target, bytes);
+    await writeFile(target, bytes, { mode: 0o600 });
     const migrated = await readAutoP1Record(root, family, legacy.flightId, legacy[idField]);
     assert.equal(migrated.schemaVersion, currentSchemaVersion(family), family);
     assert.equal(await readFile(target, 'utf8'), bytes, `${family} rewrote archival bytes`);
@@ -607,10 +607,10 @@ test('Human Request v2 migration accepts only the historical v2 vocabulary', asy
   const directory = path.join(
     root, '.git', 'singularity-flow', 'auto-flights', FLIGHT_ID, 'human-requests'
   );
-  await mkdir(directory, { recursive: true });
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   const validPath = path.join(directory, `${valid.requestId}.json`);
   const validBytes = `${JSON.stringify(valid)}\n`;
-  await writeFile(validPath, validBytes);
+  await writeFile(validPath, validBytes, { mode: 0o600 });
 
   const migrated = await readAutoP1Record(
     root, 'auto-human-request', FLIGHT_ID, valid.requestId
@@ -630,7 +630,8 @@ test('Human Request v2 migration accepts only the historical v2 vocabulary', asy
     detail: { reason: 'This type did not exist in v2.' },
     options: ['accept', 'reject']
   });
-  await writeFile(path.join(directory, `${forged.requestId}.json`), `${JSON.stringify(forged)}\n`);
+  await writeFile(path.join(directory, `${forged.requestId}.json`),
+    `${JSON.stringify(forged)}\n`, { mode: 0o600 });
   assert.throws(
     () => readRecord('auto-human-request', forged),
     (error) => error.code === 'SCHEMA_MIGRATION_SOURCE_CORRUPT'

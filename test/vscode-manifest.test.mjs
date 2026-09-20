@@ -84,6 +84,14 @@ test('the participant command table is safe, unique, and has an installed skill 
     const skill = await readFile(path.join(packageRoot, 'plugin', 'skills', skillDirectory, 'SKILL.md'), 'utf8');
     assert.match(skill, new RegExp(`name: ${skillDirectory}\\b`));
   }
+  const revise = participantCommands.find((entry) => entry.id === 'revise');
+  assert.deepEqual({
+    transport: revise?.transport, effect: revise?.effect,
+    confirmation: revise?.confirmation, skill: revise?.skill
+  }, {
+    transport: 'local', effect: 'human-decision',
+    confirmation: 'separate-guarded-flow', skill: '/sf-revise'
+  }, 'REV feedback is prefilled into its guarded skill instead of executing a participant mutation');
   const participantSource = await readFile(path.join(extensionRoot, 'src', 'sflow-chat.ts'), 'utf8');
   const participantTableSource = await readFile(
     path.join(extensionRoot, 'src', 'participant-command-table.ts'), 'utf8'

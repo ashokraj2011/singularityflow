@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-attempt-restoration.schema.json",
+  "title": "Singularity Flow immutable revision restoration receipt v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "attemptId", "parentCandidate", "preimageSha256", "postimageSha256", "processTreeQuiesced", "filesystemRestored", "externalEffectsAbsent", "status", "reasonCode", "restoredAt", "producer", "restorationReceiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "revision-attempt-restoration" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "attemptId": { "type": "string", "pattern": "^REVATT-[A-Za-z0-9._:-]{4,127}$" },
+    "parentCandidate": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidate" },
+    "preimageSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "postimageSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "processTreeQuiesced": { "type": "boolean" }, "filesystemRestored": { "type": "boolean" },
+    "externalEffectsAbsent": { "type": "boolean" },
+    "status": { "enum": ["restored", "failed", "uncertain"] },
+    "reasonCode": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{1,127}$" },
+    "restoredAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "restorationReceiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  }, "additionalProperties": false
+}

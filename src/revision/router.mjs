@@ -80,8 +80,9 @@ export function verifyRevisionAttachmentSet(receipt, { subject, feedbackSha256, 
       || receipt.headCommit !== binding.headCommit
       || receipt.sourceTreeSha256 !== binding.sourceTreeSha256
       || receipt.repositorySha256 !== binding.repositorySha256
-      || (binding.loopId != null && receipt.loopId !== binding.loopId)
-      || (binding.loopRevision != null && receipt.loopRevision !== binding.loopRevision)) {
+      || (receipt.loopId ?? null) !== (binding.loopId ?? null)
+      || (receipt.loopRevision ?? null) !== (binding.loopRevision ?? null)
+      || receipt.loopStatus !== (binding.loopId == null ? 'not-available' : 'open')) {
     fail('REV_ATTACHMENT_SET_STALE', 'Attachment set does not match the current feedback, loop, phase, or repository binding.');
   }
   for (const item of receipt.attachments) {

@@ -245,6 +245,28 @@ produces one final reviewed mechanical transition:
 The package-root isolation regression, registry and extractor-conformance suites, exact-history
 replay tests, and aggregate release suite own this transition.
 
+## CALM refusal-preservation acceptance
+
+The governed v4/CALM repair at `d3412f5304008dc41f441bc94146357b2a85c75c` preserves typed
+optional-projection refusals in the public build result and reports their projection identity in
+the completion error. The change is presentation and evidence retention only: it does not change
+an extractor algorithm, parser declaration, Fact or View Contract vocabulary, permission, cache
+policy, or publication authority. Because extractor identities deliberately bind the complete
+packaged World-Model kernel, the reviewed `service.mjs` change still causes a mechanical identity
+transition:
+
+| Identity | Prior accepted | Accepted after CALM refusal preservation |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:b042f23949f063775180dfc97053afd9150f1aaa836ab77efdde76b5bb1b5fbe` | `sha256:83f7260677dbcb7a127825b6e06be16e7ad7e3f8c17e34aa3ee81440449e557d` |
+| Coverage implementation | `sha256:6785462065946f2637d86290092fff8aaafb091ad85cc7fd1fd09184b27a440f` | `sha256:40795f43ba5a8a474d8b05be7b6fabf52dcc6e23f2cbcc65f15f3b34c1bdc745` |
+| Coverage conformance receipt | `sha256:a75a4540d89438146341153fce72ca8de685474d77a4d31d1d498f1ba8beb3c0` | `sha256:9dcf1ab5a80b85bfc0fda3e237109e6e7a02be1a39f8d8477bf4857e7c0ccfab` |
+| Coverage manifest | `sha256:a7978d77bee6ad0639d9449e86f9fe0511ce6202ac99f1f2fd680a79425a7a93` | `sha256:71f1680b9cc520b1248fe7172250443d701b0e8e461168bfe2578f712ab93262` |
+| Built-in Extractor Registry | `sha256:0ddd7ed4a60f4da2b276e1569f2e5163320242d3156da7c8cb999a1ca2616c8d` | `sha256:f5ddab132c91bd76cb1b51354fc5744b8fa4718a4ef99ac1df57ea0e03bb1e38` |
+
+The CALM publication, v4 registry, extractor-conformance, exact-history replay, and full
+World-Model suites own this transition. The accepted identities were derived from the reviewed
+source closure; they were not copied from a failed publication.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

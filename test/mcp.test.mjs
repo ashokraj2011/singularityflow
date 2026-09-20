@@ -401,13 +401,21 @@ test('Windows Playwright acquisition recursively secures the cache and re-verifi
   const definition = { mcpServers: configured() };
   await scaffoldPlaywrightMcp(root);
   const aclCalls = [];
+  const recursivelySecured = new Set();
   let staging = null;
   let offlineStarts = 0;
   const windowsAcl = async (target, options) => {
     aclCalls.push({ target, ...options });
+    if (path.basename(target).startsWith('.acquire-') && !options.apply
+        && !recursivelySecured.has(target)) {
+      const error = new Error('fresh staging ACL must be applied before it is verified');
+      error.code = 'MCP_AUTH_WINDOWS_ACL_UNSAFE';
+      throw error;
+    }
     if (options.recursive && options.apply && path.basename(target).startsWith('.acquire-')) {
       staging = target;
     }
+    if (options.recursive && options.apply) recursivelySecured.add(target);
     return options.recursive
       ? { protected: true, principal: 'current-user', access: 'full-control', recursive: true, entries: 6 }
       : { protected: true, principal: 'current-user', access: 'full-control' };
@@ -452,6 +460,9 @@ test('Windows Playwright acquisition recursively secures the cache and re-verifi
   });
   assert.equal(receipt.acquisition.status, 'acquired');
   assert.equal(offlineStarts, 1);
+  assert.ok(aclCalls.filter((call) => call.recursive === true && call.apply === true
+    && path.basename(call.target).startsWith('.acquire-')).length >= 2,
+  'the staging tree must be secured again after npm creates its dependency closure');
   assert.ok(aclCalls.some((call) => call.recursive === true && call.apply === true
     && call.target.endsWith(path.join('playwright', '0.0.79'))));
   assert.ok(aclCalls.some((call) => call.recursive === true && call.apply === false
@@ -460,6 +471,8 @@ test('Windows Playwright acquisition recursively secures the cache and re-verifi
   const cacheRoot = path.join(gitCommonDir(root), 'singularity-flow/mcp');
   assert.ok(aclCalls.every((call) => call.target === cacheRoot
     || call.target.startsWith(`${cacheRoot}${path.sep}`)));
+  assert.equal(aclCalls.some((call) => /\.(?:js|json)$/u.test(call.target)), false,
+    'the bounded recursive ACL operation must replace per-file PowerShell checks');
 });
 
 test('managed Playwright launch revalidation blocks ACL failure and verify-to-spawn replacement', async (context) => {

@@ -55,7 +55,9 @@ test('Auto private reads reject oversized and non-regular records', async (t) =>
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
   const oversized = path.join(directory, `APL-${'B'.repeat(26)}.json`);
-  await writeFile(oversized, Buffer.alloc(AUTO_PRIVATE_RECORD_LIMITS.plan + 1));
+  await writeFile(oversized, Buffer.alloc(AUTO_PRIVATE_RECORD_LIMITS.plan + 1), {
+    mode: 0o600
+  });
   await assert.rejects(
     () => readAutoPrivateRecord(root, oversized, 'plan'),
     (error) => error.code === 'AUTO_PRIVATE_STORE_SIZE_LIMIT'

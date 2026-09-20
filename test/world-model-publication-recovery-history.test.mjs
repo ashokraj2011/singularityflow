@@ -295,7 +295,7 @@ test('a migrated v1 recovery keeps the previously admitted 128 MiB sidecar bound
   assert.ok(legacyBytes.length > 96 * 1024 * 1024, legacyBytes.length);
   assert.ok(legacyBytes.length <= 128 * 1024 * 1024, legacyBytes.length);
   const recoveryPath = path.join(path.dirname(seed.path), `${legacy.id}.json`);
-  await writeFile(recoveryPath, legacyBytes);
+  await writeFile(recoveryPath, legacyBytes, { mode: 0o600 });
 
   const recoveryId = legacy.id;
   publication = null;

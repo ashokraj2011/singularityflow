@@ -1321,8 +1321,10 @@ test('workspace concurrency is atomic and corrupt flight state fails closed', as
   const root = await repository();
   const corruptId = `AFL-${'E'.repeat(26)}`;
   const corruptDirectory = path.join(root, '.git/singularity-flow/auto-flights', corruptId);
-  await mkdir(corruptDirectory, { recursive: true });
-  await writeFile(path.join(corruptDirectory, 'state.json'), '{not-json\n');
+  await mkdir(corruptDirectory, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(corruptDirectory, 'state.json'), '{not-json\n', {
+    mode: 0o600
+  });
   const blockedPlan = await createAutoPlan(root, 'Do not start while concurrency state is unreadable.', proposal, {
     workId: 'AUT-CORRUPT-BLOCK', workType: 'feature', fromBranch: 'main'
   });

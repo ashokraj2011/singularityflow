@@ -453,6 +453,10 @@ Every public operation is classified before its implementation module is importe
 | return.plan | read | never | — | — |
 | review.render | read | never | — | — |
 | review.write | mutation | never | — | — |
+| revise.apply | mutation | never | — | — |
+| revise.preview | read | never | — | — |
+| revision.abandon | mutation | never | — | — |
+| revision.abandon.preview | read | never | — | — |
 | revision.activation | read | never | — | — |
 | revision.attachments.capabilities | read | never | — | — |
 | revision.attachments.list | read | never | — | — |
@@ -462,6 +466,12 @@ Every public operation is classified before its implementation module is importe
 | revision.attachments.remove-preview | mutation | never | — | — |
 | revision.attachments.status | read | never | — | — |
 | revision.capabilities | read | never | — | — |
+| revision.capture | mutation | never | — | — |
+| revision.capture.preview | read | never | — | — |
+| revision.card | read | never | — | — |
+| revision.resume | mutation | never | — | — |
+| revision.show | read | never | — | — |
+| revision.status | read | never | — | — |
 | run | mutation | never | — | — |
 | secrets.protect | mutation | never | — | — |
 | secrets.scan | read | never | — | — |

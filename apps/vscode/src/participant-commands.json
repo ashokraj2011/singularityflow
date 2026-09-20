@@ -225,6 +225,21 @@
     "confirmation": "separate-guarded-flow"
   },
   {
+    "id": "revise",
+    "class": "deterministic",
+    "transport": "local",
+    "effect": "human-decision",
+    "runtime": null,
+    "template": "revision",
+    "skill": "/sf-revise",
+    "description": "Inspect REV status/cards or prepare a separately confirmed Candidate revision",
+    "keywords": ["revise", "revision status", "revision card"],
+    "acceptsArguments": true,
+    "requiresRepository": true,
+    "requiresSession": true,
+    "confirmation": "separate-guarded-flow"
+  },
+  {
     "id": "topics",
     "class": "deterministic",
     "transport": "local",

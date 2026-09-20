@@ -77,6 +77,19 @@ function validateIndexDetail(params) {
   return Object.freeze({ objectFormat: validatedObjectFormat(params) });
 }
 
+function validateRevisionCandidateDiff(params) {
+  const baseline = String(params?.baseline ?? '');
+  const candidateTree = String(params?.candidateTree ?? '');
+  const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+  if (!oid.test(baseline) || !oid.test(candidateTree)
+      || baseline.length !== candidateTree.length) {
+    throw new SingularityFlowError('REV Candidate diff requires exact same-format Git object IDs.', {
+      code: 'GIT_QUERY_INPUT_INVALID'
+    });
+  }
+  return Object.freeze({ baseline, candidateTree });
+}
+
 function localBranchName(params) {
   const branch = String(params?.branch ?? '');
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/.test(branch)
@@ -216,6 +229,15 @@ const descriptors = [
     argv: () => ['ls-files', '-z'], parser: nul,
     // Preserve project discovery's original output and deadline boundaries during cutover.
     maxBuffer: 32 * 1024 * 1024, timeoutClass: null
+  }),
+  descriptor('revision.candidate-diff', {
+    validate: validateRevisionCandidateDiff,
+    argv: (params) => [
+      'diff', '--no-ext-diff', '--no-textconv', '--binary',
+      params.baseline, params.candidateTree, '--'
+    ],
+    dependency: 'repository-instance', maxBuffer: 64 * 1024,
+    parser: (result) => result.stdout
   }),
   descriptor('repository.remotes', {
     argv: () => ['remote'], dependency: 'configuration', parser: lines

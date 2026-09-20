@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-contract-definitions.schema.json",
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "gitObject": { "type": "string", "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$" },
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "candidateId": { "type": "string", "pattern": "^CAN-[A-Za-z0-9._:-]{6,127}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "subject": {
+      "type": "object",
+      "required": ["workId", "phaseId", "phaseGeneration"],
+      "properties": {
+        "workId": { "$ref": "#/$defs/identifier" },
+        "phaseId": { "$ref": "#/$defs/identifier" },
+        "phaseGeneration": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "producer": {
+      "type": "object",
+      "required": ["id", "version", "implementationSha256"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "implementationSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["candidateId", "candidateSha256"],
+      "properties": {
+        "candidateId": { "$ref": "#/$defs/candidateId" },
+        "candidateSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "publishedCandidate": {
+      "type": "object",
+      "required": ["candidateId", "candidateSha256", "candidateTree", "sourceManifestSha256"],
+      "properties": {
+        "candidateId": { "$ref": "#/$defs/candidateId" },
+        "candidateSha256": { "$ref": "#/$defs/hash" },
+        "candidateTree": { "$ref": "#/$defs/gitObject" },
+        "sourceManifestSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

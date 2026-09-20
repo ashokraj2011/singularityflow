@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-precheck.schema.json",
+  "title": "Singularity Flow immutable revision precheck v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "subject", "candidateId", "candidateSha256",
+    "candidateRefSha256", "candidateTree", "headSnapshotSha256", "headRevision",
+    "headTransitionSha256", "phaseGeneration", "workflowSha256", "configSha256",
+    "proofProfile", "proofProfileSha256", "editorDiskIndexBaselineSha256",
+    "criteriaBindingSha256", "specificationDispositionSha256", "hunkClaimSetSha256",
+    "precheckInputsSha256", "criteria", "owed", "unexplainedHunks", "refusalSummary",
+    "deterministicChecks", "remainingObligations", "precheckPassed",
+    "publicationEligible", "producer", "precheckSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-precheck" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "candidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+    "candidateSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "candidateRefSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "candidateTree": { "$ref": "revision-contract-definitions.schema.json#/$defs/gitObject" },
+    "headSnapshotSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "headRevision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "headTransitionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "phaseGeneration": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "workflowSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "configSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "proofProfile": { "enum": ["standard", "high-assurance", "regulated"] },
+    "proofProfileSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "editorDiskIndexBaselineSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "criteriaBindingSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "specificationDispositionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "hunkClaimSetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "precheckInputsSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "criteria": {
+      "type": "array", "maxItems": 128,
+      "items": { "$ref": "#/$defs/criterion" }
+    },
+    "owed": {
+      "type": "array", "maxItems": 128, "uniqueItems": true,
+      "items": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" }
+    },
+    "unexplainedHunks": {
+      "type": "array", "maxItems": 512, "uniqueItems": true,
+      "items": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" }
+    },
+    "refusalSummary": {
+      "type": "object",
+      "required": ["count", "corrected", "unresolved"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "corrected": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "unresolved": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "additionalProperties": false
+    },
+    "deterministicChecks": {
+      "type": "object",
+      "required": [
+        "candidateIntegrity", "candidateFreeze", "parentResultLineage", "scope",
+        "protectedPaths", "forbiddenEffects", "secretScan", "hunkDisposition",
+        "criteriaBindingFreshness", "specificationDisposition", "requiredStructure",
+        "kernelChecks", "proofProfileReadiness", "pendingRecovery", "worktreeEquality"
+      ],
+      "properties": {
+        "candidateIntegrity": { "$ref": "#/$defs/check" },
+        "candidateFreeze": { "$ref": "#/$defs/check" },
+        "parentResultLineage": { "$ref": "#/$defs/check" },
+        "scope": { "$ref": "#/$defs/check" },
+        "protectedPaths": { "$ref": "#/$defs/check" },
+        "forbiddenEffects": { "$ref": "#/$defs/check" },
+        "secretScan": { "$ref": "#/$defs/check" },
+        "hunkDisposition": { "$ref": "#/$defs/check" },
+        "criteriaBindingFreshness": { "$ref": "#/$defs/check" },
+        "specificationDisposition": { "$ref": "#/$defs/check" },
+        "requiredStructure": { "$ref": "#/$defs/check" },
+        "kernelChecks": { "$ref": "#/$defs/check" },
+        "proofProfileReadiness": { "$ref": "#/$defs/check" },
+        "pendingRecovery": { "$ref": "#/$defs/check" },
+        "worktreeEquality": { "$ref": "#/$defs/check" }
+      },
+      "additionalProperties": false
+    },
+    "remainingObligations": {
+      "type": "array", "maxItems": 512, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+    },
+    "precheckPassed": { "type": "boolean" },
+    "publicationEligible": { "type": "boolean" },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "precheckSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "$defs": {
+    "criterion": {
+      "type": "object",
+      "required": [
+        "clauseId", "readiness", "reason", "witnessCount",
+        "executedAgainstCandidate", "staleWitnessCount"
+      ],
+      "properties": {
+        "clauseId": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" },
+        "readiness": {
+          "enum": [
+            "addressed", "witness-ready", "witness-passed-current", "owed",
+            "unavailable", "contradicted", "not-applicable"
+          ]
+        },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "witnessCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "executedAgainstCandidate": { "type": "boolean" },
+        "staleWitnessCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "required": ["status", "evidenceSha256"],
+      "properties": {
+        "status": { "enum": ["pass", "fail", "unavailable"] },
+        "evidenceSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

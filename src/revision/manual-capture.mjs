@@ -11,6 +11,8 @@ import path from 'node:path';
 import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
 import { gitDisabledHooksPath } from '../git-isolation-paths.mjs';
 import { recordSha256 } from '../records.mjs';
+import { repositoryCaseInsensitivePaths } from '../repository-change-set.mjs';
+import { scannablePath, scanEntries, secretRefusal } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { verifySgosRevisionCandidateReference } from './candidate-adapter.mjs';
 import {
@@ -201,22 +203,76 @@ function captureNote(note) {
   return note.trim();
 }
 
+function protectedPathGuards(config, workflow) {
+  return [...new Set([
+    ...(config?.governance?.protectedPaths ?? []),
+    ...(workflow?.resolution?.capability?.policy?.protectedPaths ?? [])
+  ].filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => value.replace(/\/$/u, '')))];
+}
+
+function assertNoProtectedManualPaths(root, drift, config, workflow) {
+  const fold = repositoryCaseInsensitivePaths(root)
+    ? (value) => value.toLocaleLowerCase('en-US') : (value) => value;
+  const guards = protectedPathGuards(config, workflow).map(fold);
+  const blocked = drift.filter((item) => item.candidateDrift).map((item) => item.path)
+    .filter((item) => guards.some((guard) => fold(item) === guard
+      || fold(item).startsWith(`${guard}/`)));
+  if (blocked.length) {
+    fail('REV_MANUAL_PROTECTED_PATH',
+      `Manual revision cannot capture protected path(s): ${blocked.join(', ')}.`);
+  }
+  return Object.freeze({ status: 'pass', checkedPathCount: drift.length,
+    guardCount: guards.length });
+}
+
+function assertNoManualSecrets(drift, savedBytes) {
+  const entries = [];
+  for (const item of drift.filter((candidate) => candidate.candidateDrift && candidate.saved)) {
+    const bytes = savedBytes.get(item.path);
+    if (!bytes) fail('REV_MANUAL_SECRET_SCAN_UNAVAILABLE',
+      `Saved bytes for '${item.path}' are unavailable to the secret scanner.`);
+    if (!scannablePath(item.path)) {
+      fail('REV_MANUAL_SECRET_SCAN_UNAVAILABLE',
+        `Saved path '${item.path}' has no registered content scanner.`);
+    }
+    const content = bytes.toString('utf8');
+    if (bytes.includes(0) || !Buffer.from(content, 'utf8').equals(bytes)) {
+      fail('REV_MANUAL_SECRET_SCAN_UNAVAILABLE',
+        `Saved path '${item.path}' is not valid UTF-8 and has no registered binary scanner.`);
+    }
+    entries.push({ path: item.path, content });
+  }
+  const scan = scanEntries(entries);
+  if (scan.skipped.length || scan.waived.length) {
+    fail('REV_MANUAL_SECRET_SCAN_UNAVAILABLE',
+      'Every captured result byte must pass the installed secret scanner without skips or waivers.');
+  }
+  const refusal = secretRefusal(scan);
+  if (refusal) fail('REV_MANUAL_SECRET_DETECTED', refusal);
+  return Object.freeze({ status: 'pass', scanned: scan.scanned,
+    skipped: scan.skipped.length, waived: scan.waived.length });
+}
+
 async function editorProof(verifySavedEditorBuffers, root, changedPaths) {
   if (typeof verifySavedEditorBuffers !== 'function') return null;
   let proof;
   try { proof = await verifySavedEditorBuffers({ root, changedPaths: Object.freeze([...changedPaths]) }); }
   catch { return null; }
   if (proof?.status !== 'all-saved' || !HASH.test(String(proof.snapshotSha256 ?? ''))) return null;
-  return { status: 'all-saved', snapshotSha256: proof.snapshotSha256 };
+  const assurance = proof.assurance === 'user-asserted'
+    ? 'user-asserted' : 'trusted-adapter';
+  return { status: 'all-saved', snapshotSha256: proof.snapshotSha256, assurance };
 }
 
 /** Inventory exact Git/index/saved bytes against a retained selected parent; no mutation. */
 export async function planManualRevisionCapture({
   root, subjectId, parentCandidate, allowedPaths, note, stagedDisposition, untrackedDisposition,
-  config = {}, workflow = {}, verifySavedEditorBuffers
+  ignoredPaths = [], config = {}, workflow = {}, verifySavedEditorBuffers
 } = {}) {
   const requestedNote = captureNote(note);
   const selected = explicitPaths(allowedPaths);
+  const ignored = explicitPaths(ignoredPaths);
   if (!root || typeof subjectId !== 'string' || !subjectId || subjectId.length > 256
       || !parentCandidate || !config || !workflow
       || await verifySgosRevisionCandidateReference(root, parentCandidate, { subjectId }) !== true) {
@@ -280,11 +336,23 @@ export async function planManualRevisionCapture({
       || await verifySgosRevisionCandidateReference(root, parentCandidate, { subjectId }) !== true) {
     fail('REV_MANUAL_SNAPSHOT_CHANGED', 'The index, HEAD, or retained candidate changed during inventory.');
   }
-  const changedPaths = drift.map((item) => item.path);
+  const ignoredSet = new Set(ignored);
+  const unexpectedIgnored = ignored.filter((item) => {
+    const observed = drift.find((entry) => entry.path === item);
+    return !observed || observed.applicationPath;
+  });
+  if (unexpectedIgnored.length) {
+    fail('REV_MANUAL_SCOPE_REFUSED',
+      `Ignored paths are not exact observed non-application drift: ${unexpectedIgnored.join(', ')}.`);
+  }
+  const admittedDrift = drift.filter((item) => !ignoredSet.has(item.path));
+  const changedPaths = admittedDrift.map((item) => item.path);
+  const protectedPathCheck = assertNoProtectedManualPaths(canonicalRoot, admittedDrift, config, workflow);
+  const secretScan = assertNoManualSecrets(admittedDrift, savedBytes);
   const buffers = await editorProof(verifySavedEditorBuffers, canonicalRoot, changedPaths);
   const findings = [];
   if (!buffers) findings.push({ code: 'REV_UNSAVED_BUFFERS', message: 'A trusted editor adapter has not proved all relevant buffers saved.' });
-  if (drift.some((item) => !item.applicationPath || !['100644', '100755', undefined].includes(item.saved?.mode)
+  if (admittedDrift.some((item) => !item.applicationPath || !['100644', '100755', undefined].includes(item.saved?.mode)
       || !['100644', '100755', undefined].includes(item.index?.mode)
       || !['100644', '100755', undefined].includes(item.candidate?.mode))) {
     findings.push({ code: 'REV_MANUAL_SCOPE_REFUSED', message: 'Changed paths include governed or unsupported Git entries.' });
@@ -292,13 +360,13 @@ export async function planManualRevisionCapture({
   if (hash(selected) !== hash(changedPaths)) {
     findings.push({ code: 'REV_MANUAL_PATH_SELECTION_REQUIRED', message: 'Explicit allowed paths must equal the exact saved/index drift inventory.' });
   }
-  if (drift.some((item) => item.staged) && stagedDisposition !== 'capture-saved-disk') {
+  if (admittedDrift.some((item) => item.staged) && stagedDisposition !== 'capture-saved-disk') {
     findings.push({ code: 'REV_MANUAL_INDEX_DISPOSITION_REQUIRED', message: 'Staged changes require explicit saved-disk disposition.' });
   }
-  if (drift.some((item) => item.untracked) && untrackedDisposition !== 'capture-listed') {
+  if (admittedDrift.some((item) => item.untracked) && untrackedDisposition !== 'capture-listed') {
     findings.push({ code: 'REV_MANUAL_UNTRACKED_DISPOSITION_REQUIRED', message: 'Untracked files require explicit listed-file disposition.' });
   }
-  if (!drift.some((item) => item.candidateDrift)) {
+  if (!admittedDrift.some((item) => item.candidateDrift)) {
     findings.push({ code: 'REV_MANUAL_NO_CANDIDATE_DRIFT', message: 'Saved files do not differ from the selected frozen candidate.' });
   }
   const core = {
@@ -311,10 +379,10 @@ export async function planManualRevisionCapture({
     baselineCommit, candidateTree: parentCandidate.repository.candidateTree,
     indexSha256: hash([...indexAfter]),
     editorBuffers: buffers ?? { status: 'unverified', snapshotSha256: null },
-    allowedPaths: selected, note: requestedNote,
+    allowedPaths: selected, ignoredPaths: ignored, note: requestedNote,
     stagedDisposition: stagedDisposition ?? null,
     untrackedDisposition: untrackedDisposition ?? null,
-    drift, findings,
+    drift: admittedDrift, findings, protectedPathCheck, secretScan,
     ignoredFilesIncluded: false, loopHeadAdvanced: false, storyPublished: false
   };
   const plan = Object.freeze({ ...core, planSha256: hash(core) });
@@ -341,6 +409,7 @@ export async function freezeManualRevisionCandidate({
   }
   const fresh = await planManualRevisionCapture({
     root, subjectId, parentCandidate, allowedPaths: plan.allowedPaths, note: plan.note,
+    ignoredPaths: plan.ignoredPaths,
     stagedDisposition: plan.stagedDisposition,
     untrackedDisposition: plan.untrackedDisposition,
     config, workflow, verifySavedEditorBuffers
@@ -360,6 +429,10 @@ export async function freezeManualRevisionCandidate({
   const attemptResult = await executeIsolatedRevisionAttempt({
     root, parentCandidate, driver, allowedPaths: edits.map((item) => item.path), config, workflow
   });
+  if (attemptResult.status === 'recovery-required') {
+    fail('REV_ATTEMPT_ROLLBACK_FAILED',
+      'The isolated saved-byte attempt could not prove cleanup; explicit recovery is required.');
+  }
   if (attemptResult.status !== 'bounded-effects-collected' || attemptResult.cleanup?.verified !== true) {
     fail('REV_MANUAL_ATTEMPT_UNAVAILABLE', 'The isolated saved-byte attempt did not complete safely.');
   }
@@ -369,6 +442,7 @@ export async function freezeManualRevisionCandidate({
   }
   const finalSnapshot = await planManualRevisionCapture({
     root, subjectId, parentCandidate, allowedPaths: plan.allowedPaths, note: plan.note,
+    ignoredPaths: plan.ignoredPaths,
     stagedDisposition: plan.stagedDisposition,
     untrackedDisposition: plan.untrackedDisposition,
     config, workflow, verifySavedEditorBuffers

@@ -133,6 +133,10 @@ function cacheableRead(args: string[]): boolean {
   return !(args[0] === 'configuration' && args[1] === 'validate')
     // Revocation can arrive from another process; the chat status command must see the store now.
     && !(args[0] === 'revision' && args[1] === 'attachments' && args[2] === 'status')
+    // Candidate selection, interval progress, and recovery may change in another Copilot/CLI host.
+    // A card presented for human review must therefore be read from the journal now, not from the
+    // extension's short-lived coalescing cache.
+    && !(args[0] === 'revision' && ['status', 'card', 'show'].includes(args[1] ?? ''))
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
     && args[0] !== 'factory-reset';
@@ -144,6 +148,16 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   // not alter Story/Git state; register appends a durable private receipt.
   if (args[0] === 'revision' && args[1] === 'attachments') {
     return ['capabilities', 'list', 'status'].includes(args[2] ?? '') ? 'read' : 'mutation';
+  }
+  if (args[0] === 'revision') {
+    if (['activation', 'capabilities', 'status', 'card', 'show'].includes(args[1] ?? '')) {
+      return 'read';
+    }
+    return args[1] === 'abandon' && enabledBooleanOption(args, 'preview')
+      ? 'read' : 'mutation';
+  }
+  if (args[0] === 'revise') {
+    return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   }
   if (args[0] === 'factory-reset') {
     return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';

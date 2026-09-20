@@ -194,6 +194,74 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `REV activation profile: ${slot(s.activationProfile)}; ${slot(s.blockerCount, '0')} prerequisite(s) remain.`,
     preserves: true
   },
+  'revision.status-reported': {
+    headline: (s) => `REV loop is ${slot(s.state)} after ${slot(s.intervalSequence, '0')} completed interval(s).`,
+    preserves: true
+  },
+  'revision.card-reported': {
+    headline: (s) => `REV Candidate ${slot(s.candidateId, 'none')} is ${s.publicationEligible ? '' : 'not '}publication-eligible.`,
+    preserves: true
+  },
+  'revision.interval-reported': {
+    headline: (s) => `REV interval ${slot(s.intervalId)} is recorded in loop state ${slot(s.state)}.`,
+    preserves: true
+  },
+  'revision.resume-completed': {
+    headline: (s) => `Recovered the exact durable state for REV interval ${slot(s.intervalId)}; state is ${slot(s.state)}.`,
+    preserves: false
+  },
+  'revision.resume-already-completed': {
+    headline: (s) => `REV interval ${slot(s.intervalId)} was already recovered in state ${slot(s.state)}.`,
+    preserves: true
+  },
+  'revision.resume-recovery-required': {
+    headline: (s) => `REV interval ${slot(s.intervalId)} could not be reconciled automatically; state is ${slot(s.state)}.`,
+    preserves: false
+  },
+  'revision.capture-previewed': {
+    headline: (s) => `REV capture plan ${slot(s.planSha256)} is ready for exact review.`,
+    preserves: true
+  },
+  'revision.capture-completed': {
+    headline: (s) => `Captured REV Candidate ${slot(s.candidateId)}; publication eligible: ${slot(s.publicationEligible)}.`,
+    preserves: false
+  },
+  'revision.capture-already-completed': {
+    headline: (s) => `REV Candidate ${slot(s.candidateId)} was already captured; the exact retry made no change.`,
+    preserves: true
+  },
+  'revision.abandon-previewed': {
+    headline: (s) => `Abandonment plan ${slot(s.planSha256)} for ${slot(s.targetKind)} target ${slot(s.targetId)} is ready for exact review.`,
+    preserves: true
+  },
+  'revision.abandoned': {
+    headline: (s) => s.targetKind === 'interval'
+      ? `Abandoned REV loop ${slot(s.loopId)} from selected interval ${slot(s.targetId)}.`
+      : `Abandoned REV loop ${slot(s.loopId)}.`,
+    preserves: false
+  },
+  'revision.abandon-already-completed': {
+    headline: (s) => s.targetKind === 'interval'
+      ? `REV loop ${slot(s.loopId)} selected by interval ${slot(s.targetId)} was already abandoned.`
+      : `REV loop ${slot(s.loopId)} was already abandoned.`,
+    preserves: true
+  },
+  'revise.previewed': {
+    headline: (s) => `REV plan ${slot(s.planSha256)} classified the feedback as ${slot(s.disposition)}.`,
+    preserves: true
+  },
+  'revise.opened': {
+    headline: (s) => `Opened REV loop ${slot(s.loopId)} in ${slot(s.status)} state.`,
+    preserves: false
+  },
+  'revise.already-opened': {
+    headline: (s) => `REV loop ${slot(s.loopId)} was already ${slot(s.status)}; the exact retry made no change.`,
+    preserves: true
+  },
+  'revise.confirmation-recovered': {
+    headline: (s) => `Recovered the immutable confirmation receipt for REV loop ${slot(s.loopId)} in ${slot(s.status)} state.`,
+    preserves: false
+  },
   'revision.attachments-capabilities-reported': {
     headline: () => 'Opaque Copilot uploads have no verifiable bytes; genuine local file references can use the guarded registration bridge.',
     preserves: true

@@ -97,6 +97,7 @@ export async function runPackagedCliSmoke({
       'src/wel-javascript.mjs',
       'src/wel-junit5.mjs',
       'src/wel/WelJunitCatalog.java',
+      'src/revision/producer-lock.json',
       'scripts/cmp-corpus-measurement.mjs',
       'scripts/wel-corpus-measurement.mjs',
       'docs/CMP-ROADMAP.md',
@@ -139,6 +140,7 @@ export async function runPackagedCliSmoke({
     if (version !== sourceManifest.version) {
       throw new Error(`Installed CLI reports '${version || 'no version'}', expected '${sourceManifest.version}'.`);
     }
+    let revisionCapabilities = false;
 
     // Import the two feature surfaces from the installed package itself. This catches an omitted
     // transitive module and proves the WEL helper selection remains model-free without requiring a
@@ -182,6 +184,14 @@ export async function runPackagedCliSmoke({
     run('git', ['config', 'user.email', 'packaged-cmp@example.invalid'], {
       cwd: repository, env: isolatedEnvironment
     });
+    const revisionProjection = JSON.parse(run(installedCommand, [
+      'revision', 'capabilities', '--json'
+    ], { cwd: repository, env: isolatedEnvironment }));
+    revisionCapabilities = revisionProjection?.operation?.id === 'revision.capabilities'
+      && revisionProjection?.outcome?.status === 'succeeded'
+      && revisionProjection?.data?.kind === 'revision-runtime-capabilities';
+    requireCondition(revisionCapabilities,
+      'the installed REV command could not load its shipped producer authority.');
     await writeFile(path.join(repository, 'singularity', 'workflow.yml'), '{}\n');
     await writeFile(path.join(repository, 'service.txt'), 'before\n');
     run('git', ['add', '-A'], { cwd: repository, env: isolatedEnvironment });
@@ -209,6 +219,7 @@ export async function runPackagedCliSmoke({
       package: `${installedManifest.name}@${installedManifest.version}`,
       packagePath: tarball,
       version,
+      revisionCapabilities: true,
       cmpRecordPreview: true,
       welParserPackaged: true
     };

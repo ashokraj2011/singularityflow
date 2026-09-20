@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-specification-disposition.schema.json",
+  "title": "Singularity Flow immutable revision specification disposition v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "feedbackSha256", "bindingSha256", "result", "predicateResults", "humanResolution", "producer", "dispositionSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "revision-specification-disposition" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "feedbackSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "bindingSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "result": { "enum": ["implementation-change", "specification-change", "ambiguous", "unrelated"] },
+    "predicateResults": { "type": "array", "maxItems": 64, "items": {
+      "type": "object", "required": ["predicateId", "result"],
+      "properties": {
+        "predicateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" },
+        "result": { "enum": ["pass", "fail", "unavailable", "not-applicable"] }
+      }, "additionalProperties": false
+    } },
+    "humanResolution": { "oneOf": [{ "type": "null" }, {
+      "type": "object", "required": ["decision", "decidedBy", "decidedAt", "reason"],
+      "properties": {
+        "decision": { "enum": ["implementation-change", "specification-change", "unrelated"] },
+        "decidedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "decidedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2048 }
+      }, "additionalProperties": false
+    }] },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "dispositionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  }, "additionalProperties": false
+}

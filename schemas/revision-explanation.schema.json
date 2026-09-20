@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-explanation.schema.json",
+  "title": "Singularity Flow deterministic revision explanation v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "loopSha256", "intervalId", "feedbackSha256", "parentCandidate", "resultCandidate", "attemptCount", "refusals", "precheckSha256", "authority", "producer", "explanationSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "revision-explanation" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "loopSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "intervalId": { "type": "string", "pattern": "^REV-[A-Za-z0-9._:-]{4,127}$" },
+    "feedbackSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "parentCandidate": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidate" },
+    "resultCandidate": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidate" },
+    "attemptCount": { "type": "integer", "minimum": 1, "maximum": 64 },
+    "refusals": { "type": "array", "maxItems": 128, "items": {
+      "type": "object", "required": ["attemptId", "code", "resourcesSha256", "corrected"],
+      "properties": {
+        "attemptId": { "type": "string", "pattern": "^REVATT-[A-Za-z0-9._:-]{4,127}$" },
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,127}$" },
+        "resourcesSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "corrected": { "type": "boolean" }
+      }, "additionalProperties": false
+    } },
+    "precheckSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "authority": { "const": "deterministic-records" },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "explanationSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  }, "additionalProperties": false
+}

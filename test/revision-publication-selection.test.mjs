@@ -15,6 +15,9 @@ import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
 
 const hash = (value) => `sha256:${recordSha256(value)}`;
 const digest = (letter) => `sha256:${letter.repeat(64)}`;
+const producer = Object.freeze({
+  id: 'revision-test', version: '1', implementationSha256: digest('d')
+});
 const requiredChecks = [
   'candidateIntegrity', 'candidateFreeze', 'parentResultLineage', 'scope', 'protectedPaths',
   'forbiddenEffects', 'secretScan', 'hunkDisposition', 'criteriaBindingFreshness',
@@ -63,7 +66,7 @@ async function fixture(t) {
   let liveContext = context;
   let currentPrecheckInput = null;
   const loopStore = createRevisionLoopStore({
-    root, ...scope, assertCurrentContext: async ({ scope: selected, context: latest }) =>
+    root, ...scope, producer, assertCurrentContext: async ({ scope: selected, context: latest }) =>
       hash(selected) === hash(scope) && hash(latest) === hash(liveContext),
     verifyRetainedCandidate: async (candidate, { scope: selected }) => {
       const reference = [initialReference, candidateReference]
@@ -95,11 +98,12 @@ async function fixture(t) {
     toCandidateRefSha256: nextCandidate.candidateRefSha256,
     worktreeIndexEditorPreimageSha256: context.editorDiskIndexBaselineSha256,
     materializedPostimageSha256: context.editorDiskIndexBaselineSha256,
-    reason: 'admitted-result'
+    reason: 'admitted-result', producer
   };
   const headTransition = { ...transitionCore, transitionSha256: hash(transitionCore) };
   const hunkClaimSet = {
     schemaVersion: 1, kind: 'revision-hunk-claim-set',
+    subject: scope, producer,
     parentCandidateId: initialReference.candidateId,
     resultCandidateId: candidateReference.candidateId,
     claims: [{ hunkId: 'HUNK-001', cause: { kind: 'criterion', id: 'PAY-142:AC-001' }, status: 'claimed' }],
@@ -107,6 +111,8 @@ async function fixture(t) {
   };
   hunkClaimSet.claimSetSha256 = hash(hunkClaimSet);
   const precheckInput = {
+    subject: scope,
+    producer,
     candidateReference,
     head: {
       ...nextCandidate,
@@ -160,9 +166,20 @@ async function fixture(t) {
   const intervalCore = {
     schemaVersion: 1, kind: 'revision-interval',
     intervalId: 'REV-PAY-142-IMPLEMENTATION-001', sequence: 1,
-    subject: scope, trigger: { kind: 'developer-feedback', feedbackSha256: digest('6') },
+    subject: scope, trigger: {
+      kind: 'developer-feedback', feedbackId: 'REVFB-ABCDEF123456',
+      author: { kind: 'configured-local', id: 'developer', name: 'Developer' },
+      feedbackSha256: digest('6'), feedbackRecordSha256: digest('7'),
+      criteriaBindingSha256: digest('4'), specificationDispositionSha256: digest('5'),
+      startPinSha256: digest('9'), noteSha256: digest('a')
+    },
     parentCandidate: summary(initialReference), resultCandidate: nextCandidate,
-    packetSha256: digest('7'), precheckSha256: precheckReceipt.precheckSha256,
+    packetSha256: digest('b'), criteriaBindingSha256: digest('4'),
+    specificationDispositionSha256: digest('5'), executionAttempts: [digest('c')],
+    hunkClaimSetSha256: precheckInput.bindings.hunkClaimSetSha256,
+    startedAt: '2026-09-17T00:00:00.000Z', endedAt: '2026-09-17T00:00:00.000Z',
+    producer,
+    precheckSha256: precheckReceipt.precheckSha256,
     status: 'prechecked'
   };
   const interval = { ...intervalCore, intervalSha256: hash(intervalCore) };
@@ -251,7 +268,7 @@ test('restore clears old precheck authority; a fresh head-bound receipt can be s
     toCandidateRefSha256: selectedCandidate.candidateRefSha256,
     worktreeIndexEditorPreimageSha256: current.context.editorDiskIndexBaselineSha256,
     materializedPostimageSha256: restoredContext.editorDiskIndexBaselineSha256,
-    reason: 'restore'
+    reason: 'restore', producer
   };
   const headTransition = { ...transitionCore, transitionSha256: hash(transitionCore) };
   const snapshotCore = {
@@ -294,6 +311,7 @@ test('restore clears old precheck authority; a fresh head-bound receipt can be s
   };
   freshInput.hunkClaimSet = {
     schemaVersion: 1, kind: 'revision-hunk-claim-set',
+    subject: value.loopStore.scope, producer,
     parentCandidateId: value.candidateReference.candidateId,
     resultCandidateId: value.initialReference.candidateId,
     claims: [], unexplained: []

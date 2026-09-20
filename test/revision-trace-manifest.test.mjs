@@ -172,6 +172,9 @@ test('REV pilot activation requires a real repository-local opt-in and refuses f
     revisionRuntimeCapabilities);
   const dormant = await inspectRevisionPilotActivation({ repositoryRoot, releaseRoot });
   assert.equal(dormant.eligible, false);
+  assert.equal(dormant.guardedEligible, true);
+  assert.deepEqual(Object.keys(dormant.guardedOperations).sort(),
+    ['capture', 'inspect', 'preview', 'recovery']);
   assert.equal(dormant.missingPilotCoreCriterionCount, 134);
   assert.equal(dormant.blockers[0].code, 'REV_PILOT_ATTESTATION_UNAVAILABLE');
   assert.equal(dormant.blockers[0].remediationClass, 'external-release-evidence');
@@ -185,8 +188,8 @@ test('REV pilot activation requires a real repository-local opt-in and refuses f
     compareRestore: 'kernel-only-no-public-ux'
   });
   assert.deepEqual(dormant.foundations.map(({ id, status }) => ({ id, status })), [
-    { id: 'candidate-head-cas', status: 'internal-only' },
-    { id: 'candidate-precheck-publication', status: 'internal-only' },
+    { id: 'candidate-head-cas', status: 'guarded-local' },
+    { id: 'candidate-precheck-publication', status: 'guarded-local-precheck-only' },
     { id: 'code-check-projection', status: 'projection-only' },
     { id: 'compare-discard-restore', status: 'kernel-only' }
   ]);

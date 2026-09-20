@@ -12,6 +12,10 @@ import {
 const hash = (value) => `sha256:${recordSha256(value)}`;
 const textHash = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const digest = (letter) => `sha256:${letter.repeat(64)}`;
+const subject = Object.freeze({ workId: 'PAY-142', phaseId: 'implementation', phaseGeneration: 1 });
+const producer = Object.freeze({
+  id: 'revision-test', version: '1', implementationSha256: digest('d')
+});
 const checks = [
   'candidateIntegrity', 'candidateFreeze', 'parentResultLineage', 'scope', 'protectedPaths',
   'forbiddenEffects', 'secretScan', 'hunkDisposition', 'criteriaBindingFreshness',
@@ -37,6 +41,7 @@ function fixture() {
   };
   const hunkClaimSet = {
     schemaVersion: 1, kind: 'revision-hunk-claim-set',
+    subject, producer,
     parentCandidateId: 'CAN-PARENT1', resultCandidateId: 'CAN-RESULT1',
     claims: [{
       hunkId: 'HUNK-001', cause: { kind: 'criterion', id: 'PAY-142:AC-001' }, status: 'claimed'
@@ -45,6 +50,8 @@ function fixture() {
   };
   hunkClaimSet.claimSetSha256 = hash(hunkClaimSet);
   return {
+    subject,
+    producer,
     candidateReference,
     head: {
       candidateId: candidateReference.candidateId,
@@ -237,7 +244,7 @@ test('unknown authority fields and forged hunk digest are rejected', () => {
   delete input.loopSha256;
   input.hunkClaimSet.claimSetSha256 = digest('e');
   assert.throws(() => computeRevisionPrecheck(input),
-    (error) => error.code === 'REV_PRECHECK_STALE');
+    (error) => error.code === 'REV_PRECHECK_INPUT');
 });
 
 test('precheck never invokes a model, project command, or writes a receipt', async (t) => {

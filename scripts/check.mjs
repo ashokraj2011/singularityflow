@@ -1,4 +1,5 @@
 import { execFile, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
@@ -89,6 +90,8 @@ const vscodeJson = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', '
 const pluginJson = JSON.parse(await readFile(path.join(root, 'plugin', 'plugin.json'), 'utf8'));
 const marketplaceJson = JSON.parse(await readFile(path.join(root, '.github', 'plugin', 'marketplace.json'), 'utf8'));
 const lockJson = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+const revisionProducerLock = JSON.parse(await readFile(
+  path.join(root, 'src', 'revision', 'producer-lock.json'), 'utf8'));
 const npmPackPackageJson = JSON.parse(await readFile(path.join(root, 'toolchains', 'npm-pack', 'package.json'), 'utf8'));
 const npmPackLockJson = JSON.parse(await readFile(path.join(root, 'toolchains', 'npm-pack', 'package-lock.json'), 'utf8'));
 const vsceToolchainPackageJson = JSON.parse(await readFile(path.join(root, 'toolchains', 'vsce', 'package.json'), 'utf8'));
@@ -99,11 +102,22 @@ checked.push(
   'plugin/plugin.json',
   '.github/plugin/marketplace.json',
   'package-lock.json',
+  'src/revision/producer-lock.json',
   'toolchains/npm-pack/package.json',
   'toolchains/npm-pack/package-lock.json',
   'toolchains/vsce/package.json',
   'toolchains/vsce/package-lock.json'
 );
+
+{
+  const lockBytes = await readFile(path.join(root, 'package-lock.json'));
+  const expected = `sha256:${createHash('sha256').update(lockBytes).digest('hex')}`;
+  if (revisionProducerLock?.schemaVersion !== 1
+      || revisionProducerLock?.algorithm !== 'sha256'
+      || revisionProducerLock?.packageLockSha256 !== expected) {
+    fail('src/revision/producer-lock.json must contain the exact package-lock.json SHA-256.');
+  }
+}
 
 if (packageJson.version !== pluginJson.version) fail(`Version mismatch: package ${packageJson.version}, plugin ${pluginJson.version}`);
 for (const [name, version] of Object.entries({
@@ -835,6 +849,35 @@ function validateAutoDurableContractSchema(schema, schemaFile) {
   if (fullyCompiledAutoSchemas.has(kind)) compileWorldModelSchemaGraph(schema, schemaFile);
 }
 
+/** REV records are independently packaged proof contracts and must stay closed/version-bound. */
+function validateRevisionDurableContractSchema(schema, schemaFile) {
+  if (schemaFile.endsWith('/revision-contract-definitions.schema.json')) {
+    if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema'
+        || !schema.$defs || typeof schema.$defs !== 'object') {
+      fail(`${schemaFile}: must declare the shared draft-2020-12 REV definitions`);
+    }
+    return;
+  }
+  const kind = schema.properties?.kind?.const;
+  if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema'
+      || schema.type !== 'object' || schema.additionalProperties !== false) {
+    fail(`${schemaFile}: REV durable records must use a closed draft-2020-12 object schema`);
+  }
+  if (typeof kind !== 'string' || !kind.startsWith('revision-')
+      || !durableRecordFamilies.has(kind)) {
+    fail(`${schemaFile}: must bind one registered revision record kind`);
+  }
+  if (schema.properties?.schemaVersion?.const !== currentSchemaVersion(kind)) {
+    fail(`${schemaFile}: schemaVersion must equal the migration-registry version`);
+  }
+  for (const required of schema.required ?? []) {
+    if (!Object.hasOwn(schema.properties ?? {}, required)) {
+      fail(`${schemaFile}: requires undeclared property '${required}'`);
+    }
+  }
+  validateLocalSchemaReferences(schema, schemaFile);
+}
+
 const baselineSchemaFiles = [
   'schemas/config.schema.json',
   'schemas/workflow.schema.json',
@@ -904,7 +947,12 @@ const baselineSchemaFiles = [
 const worldModelSchemaFiles = (await readdir(path.join(root, 'schemas')))
   .filter((name) => /^world-model-.+\.schema\.json$/.test(name))
   .sort().map((name) => `schemas/${name}`);
-for (const schemaFile of [...new Set([...baselineSchemaFiles, ...worldModelSchemaFiles])]) {
+const revisionSchemaFiles = (await readdir(path.join(root, 'schemas')))
+  .filter((name) => /^revision-.+\.schema\.json$/.test(name))
+  .sort().map((name) => `schemas/${name}`);
+for (const schemaFile of [...new Set([
+  ...baselineSchemaFiles, ...worldModelSchemaFiles, ...revisionSchemaFiles
+])]) {
   const schema = JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   if (schemaFile === 'schemas/sgos-contract.schema.json') validateSgosContractSchema(schema, schemaFile);
   if (schemaFile === 'schemas/auto-authorization.schema.json') {
@@ -920,6 +968,9 @@ for (const schemaFile of [...new Set([...baselineSchemaFiles, ...worldModelSchem
   }
   if (schemaFile.startsWith('schemas/world-model-')) {
     validateWorldModelContractSchema(schema, schemaFile);
+  }
+  if (schemaFile.startsWith('schemas/revision-')) {
+    validateRevisionDurableContractSchema(schema, schemaFile);
   }
   if (schemaFile === 'schemas/story-world-model-history-pin.schema.json') {
     validateStoryWorldModelHistoryPinSchema(schema, schemaFile);

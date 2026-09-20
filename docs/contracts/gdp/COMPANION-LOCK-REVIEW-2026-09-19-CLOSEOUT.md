@@ -1,7 +1,7 @@
 # GDP companion authority closeout review — 2026-09-19
 
-**Review boundary:** `main@b6d059cfd6ffceff90c36454a173cace32efd9fe` plus the bounded
-persisted-history activation change reviewed in this working tree.
+**Review boundary:** `main@974296732c6e1b98b35253b51d60e65d66ce5180` plus the bounded
+REV durable-record migration additions reviewed in this working tree.
 
 **M0 baseline retained:** `70db564e59224b03729bab0f9a340807f3086c61`
 
@@ -15,11 +15,12 @@ without rebuilding it during Story creation.
 | Companion | Authority change reviewed | Previous digest | Accepted digest |
 | --- | --- | --- | --- |
 | `code-assurance-bridge` | Clarifies that authenticated runner and lifecycle joins remain null until CAB-R2/CAB-R6 provide their authority | `sha256:2bde8058e87c4bb4ceadecb16ea60cec05927de0441f734a5eeb8f81af872235` | `sha256:5fbbe8e7fef0bb5fb0c7cd4df9d1a7d0486e4a72fa63812c0612f4379e0fd1e6` |
-| `migration-registry` | Adds Story-workflow v8 and prompt-injection v7 compatibility readers; legacy Stories omit the optional history pin and retain no unproven persisted-grounding authority | `sha256:5cd400375ac96899136649d149da7d7f104ac1d975b70597f40ed563eb102296` | `sha256:b5eb6f0e78ed66c83e1e707987fa62bc6ad1dd1da5dc18fc0a2faa857cd8072f` |
+| `migration-registry` | Retains Story-workflow v8 and prompt-injection v7 readers and registers the closed REV durable-record families without granting execution or publication authority | `sha256:b5eb6f0e78ed66c83e1e707987fa62bc6ad1dd1da5dc18fc0a2faa857cd8072f` | `sha256:82fb9e535737ef32753c296f84c7f796a0c367f19ec2566c10ff863ebaa230f4` |
 | `sgos-contract` | Documents the implementation-pinned live Operational Store cutover, exact migration, fsck, and retained external qualification boundary | `sha256:d70606dc4c9a87d2776c8f64958178c53ac315f9056004e9496f9552aa35f880` | `sha256:2ad0cb4a68fe523ec865ed694928d10f9c910186fcfcabbb9056c014583e9200` |
 | `sgos-delivery-status` | Reconciles completed code-local live-store/meta-tool work while retaining signed platform, broker, certification, and telemetry gates | `sha256:9276736321ccee3800d01428de1a87043c9d62448625ba502ff33be7f5a281e2` | `sha256:a491940d51fece3f7096119555bec896d23b61ed8c24e1c8bfe856c2602be305` |
 | `witnessed-engineering-delivery-status` | Makes corpus execution and the unavailable authenticated execution/lifecycle dependencies explicit | `sha256:bdc18dada515fceb72ac300e2413664371f05d1524299de08f68bc6fde7422a8` | `sha256:bd67f0907e4d28636fa9a4c432eb48b4a12949dccd41686cbd2768578448cbe7` |
-| `world-model-v4` | Documents lifecycle-owned, read-only exact-history selection and immutable pinning for new registered-v4 Stories, with no hidden build | `sha256:badf17ea209193ed630f93ef42ce239284830586cefd28d8fb97ba486ecc6659` | `sha256:83bdf74bf9b836a46f10a2f49f3440e4927aa8c0cd47553009b050543d192b18` |
+| `workflow-configuration` | Describes the already-guarded manual REV refinement surface on Classic Delivery Code, explicitly keeps feedback attachments evidence-only, and does not change phases, gates, approvals, or publication authority | `sha256:6d3aa787490db9b9db23d2b938018776634d2af57734df2c326350894d82db4d` | `sha256:54bd7a46e35299e0a51170ad4ef89c24253d55422fe6ecfa84385a297ca95635` |
+| `world-model-v4` | Documents lifecycle-owned exact-history pinning plus the reviewed legacy-to-v4 assignment transition and typed CALM projection refusals, with no hidden build | `sha256:83bdf74bf9b836a46f10a2f49f3440e4927aa8c0cd47553009b050543d192b18` | `sha256:ef6898bada60e1ec02c4accc1a14b4b2042958dea7233943ead948c3a8b87c56` |
 
 The owning migration, SGOS, WEL, CAB, registered-v4, persisted-history, Story activation, prompt
 integrity, and GDP lock tests establish these transitions. The repository-wide check and aggregate

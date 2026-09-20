@@ -7,20 +7,27 @@ Neither downstream phase edits product source or treats a written claim as a tes
 
 ## What can be enabled now
 
-You can use Classic Delivery and its explicit reject-to-Code rework path now. Optional REV
-feedback attachments can bind a local text file to the active Story and phase. They are private,
-staged feedback evidence—not an open Revision Loop, a committed Story artifact, a test receipt,
-or approval. The installed REV executor is disabled. Verify the exact build before use:
+You can use Classic Delivery, its explicit reject-to-Code rework path, and the guarded local REV
+pilot during an open unpublished Code generation. Optional REV feedback attachments can bind a
+local text file to the active Story and phase. They are private staged evidence—not a committed
+Story artifact, test receipt, or approval. The guarded pilot never invokes an autonomous model,
+an arbitrary shell or Git authoring command, a project test command, or an external effect. It uses
+bounded deterministic Git plumbing only to inventory and freeze exact Candidate bytes; Git is not
+the authoring executor. Verify the exact build before use:
 
 ```bash
 singularity-flow revision capabilities --json
 singularity-flow revision activation --json
 ```
 
-When `activationProfile` is `disabled` or `eligible` is `false`, there is **no enable flag** for
-executable REV. Do not create `.sflow/revision-pilot.json` to work around this result: an opt-in
-alone cannot install the missing isolated executor, candidate-bound checks, publication bridge,
-or release witnesses. `/sf-revision-attachments` remains available for evidence-only intake.
+When `guardedEligible` is `true` and the required entries in `guardedOperations` are eligible, use
+`/sf-revise` to preview and confirm an interval, make the bounded edit manually in the IDE, then use
+the returned `revision capture` preview/confirmation and inspect the deterministic precheck card.
+`activationProfile: disabled` and `eligible: false` describe the unavailable autonomous/full REV
+profile; they do not disable the separately reported guarded local operations. A repository flag
+cannot override a missing guarded capability, wrong phase, unsaved buffers, publication, or
+recovery state. The pilot stops before ordinary phase publication, submission, approval, merge, or
+deployment.
 
 ## Prepare Classic Delivery
 
@@ -82,6 +89,21 @@ their pinned workflow; installing an updated template does not rewrite a running
    and repeat the normal submission, approval, Testing, and Code-checking gates. Do not treat
    the earlier Code receipt as proof for the changed generation.
 
+During Code, a developer may instead refine the current unpublished Candidate before publication:
+
+```bash
+singularity-flow revise --dry-run --feedback-stdin --saved-buffers-confirmed --json < feedback.txt
+singularity-flow revise --feedback-stdin --saved-buffers-confirmed --confirm sha256:<PLAN> --json < feedback.txt
+# Make and save only the bounded source/test edit in the IDE.
+singularity-flow revision capture --preview --note "Applied reviewer correction" --saved-buffers-confirmed --json
+singularity-flow revision capture --note "Applied reviewer correction" --saved-buffers-confirmed --plan sha256:<CAPTURE-PLAN> --confirm sha256:<CAPTURE-PLAN> --json
+singularity-flow revision card --json
+```
+
+Copilot uses `/sf-revise`; `@sflow /revise` is read-only or prefills that skill. A green REV card
+is not a test verdict and the selected head is not automatically published. Complete the ordinary
+`/sf-code` test and publication flow separately against the same reviewed bytes.
+
 If source or test files were already edited while Testing is **in progress**, ordinary Testing
 publication must still refuse: its earlier Code receipt no longer describes those bytes. Keep the
 edits and preview a governed early return instead:
@@ -98,6 +120,6 @@ browser or environment failure with **no** source/test change should be re-obser
 not sent back to Code. Protected workflow configuration still uses its separate authority.
 
 Classic Delivery currently **reviews** Code's committed tests in Testing; it does not claim an
-independent Testing rerun receipt. Full REV pilot activation would additionally require the
-specification's candidate/head transaction, isolated execution and cleanup proof, Code-check
-result before candidate acceptance, distinct Testing evidence, and its release witness gate.
+independent Testing rerun receipt. Autonomous REV execution and selected-head publication remain
+disabled until the specification's isolated execution/cleanup, durable quality receipts, exact
+publication bridge, distinct Testing evidence, and release witness gates are satisfied.

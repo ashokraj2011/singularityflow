@@ -123,7 +123,8 @@ const entries = {
   gate: ['sf-gate'],
   wm: ['sf-worldmodel', 'sf-show-prompt'],
   architecture: ['sf-architecture'],
-  revision: ['sf-revision', 'sf-revision-attachments'],
+  revision: ['sf-revision', 'sf-revise', 'sf-revision-attachments'],
+  revise: ['sf-revise'],
   jira: [
     'sf-jira-work', 'sf-jira-status', 'sf-jira-doctor', 'sf-jira-assigned', 'sf-jira-story',
     'sf-jira-board', 'sf-jira-update', 'sf-jira-initiative'
@@ -206,6 +207,13 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     'show-prompt': 'sf-show-prompt'
   }),
   revision: route('sf-revision', {
+    status: 'sf-revise',
+    card: 'sf-revise',
+    show: 'sf-revise',
+    resume: 'sf-revise',
+    abandon: 'sf-revise',
+    capture: 'sf-revise',
+    precheck: 'sf-revise',
     'attachments capabilities': 'sf-revision',
     'attachments preview': 'sf-revision-attachments',
     'attachments register': 'sf-revision-attachments',
@@ -214,6 +222,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     'attachments remove-preview': 'sf-revision-attachments',
     'attachments remove': 'sf-revision-attachments'
   }),
+  revise: route('sf-revise'),
   capability: route('sf-capability-map', {
     add: 'sf-capability-add',
     protect: 'sf-capability-protect',

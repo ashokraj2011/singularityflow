@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const RAW_STATE_IMPORT = /from\s+['"][^'"]*(?:state|initiative-state)\.mjs['"]/;
+// Match the aggregate modules by exact basename. Revision components may legitimately contain
+// local state in names such as interactive-state.mjs; those are not Story/Initiative stores.
+const RAW_STATE_IMPORT = /from\s+['"](?:[^'"]*\/)?(?:state|initiative-state)\.mjs['"]/;
 
 async function sourceFiles(directory) {
   const absolute = path.join(packageRoot, directory);

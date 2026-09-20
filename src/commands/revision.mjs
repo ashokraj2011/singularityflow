@@ -14,6 +14,14 @@ import {
 } from '../revision/feedback-attachments.mjs';
 import { createFeedbackAttachmentStore } from '../revision/feedback-attachment-store.mjs';
 import { inspectRevisionPilotActivation, revisionRuntimeCapabilities } from '../revision/runtime.mjs';
+import { producerIdentity } from '../revision/product-context.mjs';
+import { createRevisionLoopStore } from '../revision/loop-store.mjs';
+import {
+  confirmInteractiveAbandon, confirmInteractiveCapture, inspectInteractiveRevision,
+  previewInteractiveAbandon, previewInteractiveCapture, renderRevisionCard,
+  replayInteractiveAbandonConfirmation,
+  resumeInteractiveRevision, showInteractiveInterval
+} from '../revision/interactive-service.mjs';
 
 function refuse(code, message) { throw new SingularityFlowError(message, { code }); }
 
@@ -42,6 +50,21 @@ async function activeStory(root) {
   return { config, workflow, session, phaseId, phaseGeneration: phase.generation };
 }
 
+async function feedbackContext(root, active, feedbackText) {
+  const loop = await attachmentLoop(root, active);
+  return {
+    repositoryRoot: root,
+    workId: active.workflow.workItem.id,
+    phaseId: active.phaseId,
+    phaseGeneration: active.phaseGeneration,
+    loopId: loop?.loopId ?? null,
+    loopRevision: loop?.revision ?? null,
+    active: true,
+    feedbackText,
+    ...await revisionBinding(root, active)
+  };
+}
+
 async function revisionBinding(root, active) {
   return {
     headCommit: head(root),
@@ -51,28 +74,31 @@ async function revisionBinding(root, active) {
   };
 }
 
-async function feedbackContext(root, active, feedbackText) {
-  return {
-    repositoryRoot: root,
-    workId: active.workflow.workItem.id,
-    phaseId: active.phaseId,
-    phaseGeneration: active.phaseGeneration,
-    loopId: null,
-    loopRevision: null,
-    active: true,
-    feedbackText,
-    ...await revisionBinding(root, active)
-  };
+async function attachmentLoop(root, active) {
+  const store = createRevisionLoopStore({
+    root, workId: active.workflow.workItem.id, phaseId: active.phaseId,
+    phaseGeneration: active.phaseGeneration, producer: producerIdentity(),
+    assertCurrentContext: async () => false,
+    verifyRetainedCandidate: async () => false,
+    verifyCurrentPrecheck: async () => false
+  });
+  return store.read();
 }
 
 function contextMatches(root) {
-  return async (expected) => {
+  return async (context, planned = null) => {
     try {
+      const expected = planned ?? context;
       const latest = await activeStory(root);
+      const loop = await attachmentLoop(root, latest);
       const binding = await revisionBinding(root, latest);
       return latest.workflow.workItem.id === expected.workId
         && latest.phaseId === expected.phaseId
         && latest.phaseGeneration === expected.phaseGeneration
+        && (loop?.loopId ?? null) === expected.loopId
+        && (loop?.revision ?? null) === expected.loopRevision
+        && (loop?.status ?? 'not-available')
+          === (expected.loopStatus ?? (expected.loopId == null ? 'not-available' : 'open'))
         && binding.headCommit === expected.headCommit
         && binding.sourceTreeSha256 === expected.sourceTreeSha256
         && binding.configSha256 === expected.configSha256
@@ -186,9 +212,9 @@ function storeFor(root, active) {
 const CAPABILITIES = Object.freeze({
   schemaVersion: 1,
   kind: 'revision-feedback-attachment-capabilities',
-  profile: 'staged-local-evidence-only',
-  revisionLoopAvailable: false,
-  registeredAttachmentExecutionAvailable: false,
+  profile: 'guarded-local-revision-evidence',
+  revisionLoopAvailable: true,
+  registeredAttachmentExecutionAvailable: true,
   execution: revisionRuntimeCapabilities,
   localFile: { available: true, formats: feedbackAttachmentFormats },
   selection: { multipleFiles: true, lineRanges: true },
@@ -206,6 +232,245 @@ const CAPABILITIES = Object.freeze({
   originalBytesPerFileMaximum: feedbackAttachmentDefaults.maximumOriginalBytesPerFile,
   fallback: 'singularity-flow revision attachments preview --file <LOCAL_FILE> --feedback-stdin'
 });
+
+function interactiveSubject(value) {
+  return { kind: 'story', id: value.active.subject.workId };
+}
+
+function exactPlan(options, generated, action) {
+  const supplied = optionString(options, 'plan');
+  const confirmation = optionString(options, 'confirm');
+  if (!supplied || !confirmation) {
+    refuse('REV_CONFIRMATION_REQUIRED',
+      `${action} requires --plan <preview-plan-sha256> and --confirm <same-preview-plan-sha256>.`);
+  }
+  if (supplied !== generated.planSha256) {
+    refuse('REV_PLAN_STALE', `${action} plan does not match the exact current preview.`);
+  }
+  return confirmation;
+}
+
+function intervalId(positionals, action) {
+  const value = positionals?.[2];
+  if (!value) refuse('REV_INTERVAL_REQUIRED', `${action} requires one exact interval ID.`);
+  return value;
+}
+
+function abandonTargetId(positionals) {
+  const value = positionals?.[2];
+  if (!value) {
+    refuse('REV_INTERVAL_REQUIRED',
+      'Abandon requires one exact loop or interval ID. Use the loop ID before the first interval is captured.');
+  }
+  return value;
+}
+
+/**
+ * The durable feedback and packet records are intentionally private sidecars.  A read command may
+ * expose their integrity metadata, but never the original developer feedback bytes.  Keep the
+ * redaction at the public command boundary so recovery and validation continue to use the exact
+ * private records internally.
+ */
+export function publicRevisionRecordChain(chain) {
+  const { text: _feedbackText, ...feedback } = chain.feedback ?? {};
+  const { text: _packetFeedbackText, ...packetFeedback } = chain.packet?.feedback ?? {};
+  const attachments = (chain.packet?.attachments ?? []).map(({ text: _attachmentText, ...item }) =>
+    item);
+  return Object.freeze({
+    packet: chain.packet == null ? null : {
+      ...chain.packet,
+      feedback: packetFeedback,
+      attachments
+    },
+    feedback,
+    criteriaBinding: chain.binding,
+    specificationDisposition: chain.disposition,
+    hunkClaimSet: chain.claims,
+    attempts: chain.attempts,
+    restorations: chain.restorations,
+    precheckInput: chain.precheckInput
+  });
+}
+
+async function intervalProjection(root, id, { includeRecordChain = false } = {}) {
+  const inspected = await inspectInteractiveRevision(root);
+  const shown = await showInteractiveInterval(root, id);
+  const projection = {
+    ...inspected,
+    interval: shown.interval,
+    precheck: shown.precheck,
+    card: renderRevisionCard({
+      status: inspected.status, precheck: shown.precheck, state: inspected.state,
+      historical: true, freshness: inspected.freshness?.status ?? 'current'
+    }),
+    headSnapshot: shown.headSnapshot, loop: shown.loop,
+    journal: shown.journal
+  };
+  if (includeRecordChain) projection.recordChain = publicRevisionRecordChain(shown);
+  return projection;
+}
+
+async function assertAbandonTarget(root, id) {
+  const inspected = await inspectInteractiveRevision(root);
+  const known = new Set([
+    inspected.state?.loopId,
+    inspected.status?.headIntervalId,
+    inspected.interval?.intervalId
+  ].filter(Boolean));
+  if (!known.has(id)) {
+    refuse('REV_INTERVAL_UNKNOWN',
+      `Revision loop or interval '${id}' is not the active local loop or selected interval.`);
+  }
+  return inspected;
+}
+
+function abandonTargetSlots(inspected, id) {
+  return {
+    targetId: id,
+    targetKind: inspected.state?.loopId === id ? 'loop' : 'interval'
+  };
+}
+
+async function runInteractive(positionals, options) {
+  const action = positionals[1];
+  const root = repoRoot();
+  if (action === 'status') {
+    const inspected = await inspectInteractiveRevision(root);
+    return emit(
+      { id: 'revision.status', classification: 'read' }, interactiveSubject(inspected),
+      succeeded('revision.status-reported', {
+        state: inspected.state?.status ?? inspected.status.state,
+        intervalSequence: inspected.status.intervalSequence
+      }), noEffects(), inspected, options, { restState: 'informational' }
+    );
+  }
+  if (action === 'card') {
+    const id = positionals[2];
+    const inspected = id
+      ? await intervalProjection(root, id)
+      : await inspectInteractiveRevision(root);
+    return emit(
+      { id: 'revision.card', classification: 'read' }, interactiveSubject(inspected),
+      succeeded('revision.card-reported', {
+        candidateId: inspected.card.candidate?.id ?? inspected.card.candidate?.candidateId ?? 'none',
+        publicationEligible: inspected.card.publicationEligible
+      }), noEffects(), inspected, options, { restState: 'informational' }
+    );
+  }
+  if (action === 'show') {
+    const id = intervalId(positionals, action[0].toUpperCase() + action.slice(1));
+    const inspected = await intervalProjection(root, id, { includeRecordChain: true });
+    return emit(
+      { id: `revision.${action}`, classification: 'read' }, interactiveSubject(inspected),
+      succeeded('revision.interval-reported', { intervalId: id, state: inspected.status.state }),
+      noEffects(), inspected, options, { restState: 'informational' }
+    );
+  }
+  if (action === 'resume') {
+    if (positionals.length > 3) refuse('UNKNOWN_SUBCOMMAND', 'Use: revision resume [INTERVAL-ID].');
+    const id = positionals[2] ?? null;
+    const result = await resumeInteractiveRevision(root, id);
+    const inspected = await inspectInteractiveRevision(root);
+    return emit(
+      { id: 'revision.resume', classification: 'mutation' }, interactiveSubject(inspected),
+      (result.replayed ? noop : succeeded)(result.replayed
+        ? 'revision.resume-already-completed' : result.recovered
+          ? 'revision.resume-completed' : 'revision.resume-recovery-required', {
+        intervalId: id ?? 'opening', state: result.state.status
+      }), result.replayed ? noEffects() : effects({ stateChanged: true, filesChanged: false }),
+      { ...inspected, result }, options, { restState: 'informational' }
+    );
+  }
+  if (action === 'capture') {
+    const preview = optionBoolean(options, 'preview');
+    const captureOptions = {
+      note: optionString(options, 'note'),
+      savedBuffersConfirmed: optionBoolean(options, 'saved-buffers-confirmed')
+    };
+    const plan = await previewInteractiveCapture(root, captureOptions);
+    const before = await inspectInteractiveRevision(root);
+    if (preview) {
+      if (optionString(options, 'plan') || optionString(options, 'confirm')) {
+        refuse('REV_CONFIRMATION_CONFLICT', 'Capture --preview cannot be combined with --plan or --confirm.');
+      }
+      return emit(
+        { id: 'revision.capture.preview', classification: 'read' }, interactiveSubject(before),
+        succeeded('revision.capture-previewed', { planSha256: plan.planSha256 }),
+        noEffects(), { ...before, plan }, options, { next: [nextAction({
+          id: 'revision.capture',
+          label: 'Confirm this exact capture plan with the same note and saved-buffer assertion',
+          command: `singularity-flow revision capture --note <SAME-NOTE> --saved-buffers-confirmed --plan ${plan.planSha256} --confirm ${plan.planSha256}`,
+          skill: 'sf-revise', kind: 'review'
+        })], restState: null }
+      );
+    }
+    const result = await confirmInteractiveCapture(root, {
+      plan, confirmation: exactPlan(options, plan, 'Capture'), ...captureOptions
+    });
+    const inspected = await inspectInteractiveRevision(root);
+    return emit(
+      { id: 'revision.capture', classification: 'mutation' }, interactiveSubject(inspected),
+      (result.replayed ? noop : succeeded)(
+        result.replayed ? 'revision.capture-already-completed' : 'revision.capture-completed', {
+          candidateId: result.state.resultCandidateId,
+          publicationEligible: result.card?.publicationEligible ?? inspected.card.publicationEligible
+        }),
+      result.replayed ? noEffects() : effects({ stateChanged: true, filesChanged: false }),
+      { ...inspected, result, plan }, options, { restState: 'informational' }
+    );
+  }
+  if (action === 'abandon') {
+    const id = abandonTargetId(positionals);
+    if (!optionBoolean(options, 'preview')) {
+      const confirmation = optionString(options, 'confirm');
+      const replay = await replayInteractiveAbandonConfirmation(root, {
+        confirmation, targetId: id
+      });
+      if (replay) {
+        const inspected = await inspectInteractiveRevision(root);
+        return emit(
+          { id: 'revision.abandon', classification: 'mutation' }, interactiveSubject(inspected),
+          noop('revision.abandon-already-completed', {
+            ...abandonTargetSlots(inspected, id), loopId: replay.state.loopId
+          }), noEffects(),
+          { ...inspected, result: replay }, options, { restState: 'informational' }
+        );
+      }
+    }
+    const before = await assertAbandonTarget(root, id);
+    const plan = await previewInteractiveAbandon(root);
+    if (optionBoolean(options, 'preview')) {
+      if (optionString(options, 'plan') || optionString(options, 'confirm')) {
+        refuse('REV_CONFIRMATION_CONFLICT', 'Abandon --preview cannot be combined with --plan or --confirm.');
+      }
+      return emit(
+        { id: 'revision.abandon.preview', classification: 'read' }, interactiveSubject(before),
+        succeeded('revision.abandon-previewed', {
+          ...abandonTargetSlots(before, id), planSha256: plan.planSha256
+        }),
+        noEffects(), { ...before, plan }, options, { next: [nextAction({
+          id: 'revision.abandon',
+          label: 'Confirm this exact abandonment plan',
+          command: `singularity-flow revision abandon ${id} --plan ${plan.planSha256} --confirm ${plan.planSha256}`,
+          skill: 'sf-revise', kind: 'review'
+        })], restState: null }
+      );
+    }
+    const result = await confirmInteractiveAbandon(root, {
+      plan, confirmation: exactPlan(options, plan, 'Abandon')
+    });
+    const inspected = await inspectInteractiveRevision(root);
+    return emit(
+      { id: 'revision.abandon', classification: 'mutation' }, interactiveSubject(inspected),
+      succeeded('revision.abandoned', {
+        ...abandonTargetSlots(before, id), loopId: result.state.loopId
+      }),
+      effects({ stateChanged: true, filesChanged: false }),
+      { ...inspected, result, plan }, options, { restState: 'informational' }
+    );
+  }
+  return null;
+}
 
 export async function run(_argv, { positionals, options } = {}) {
   if (positionals?.[1] === 'activation') {
@@ -227,8 +492,11 @@ export async function run(_argv, { positionals, options } = {}) {
       { restState: null }
     );
   }
+  if (['status', 'card', 'show', 'resume', 'capture', 'abandon'].includes(positionals?.[1])) {
+    return runInteractive(positionals, options ?? {});
+  }
   if (positionals?.[1] !== 'attachments') {
-    refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision activation|capabilities, or revision attachments capabilities|preview|register|list|status|remove-preview|remove.');
+    refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision activation|capabilities|status|card|show|resume|capture|abandon, or revision attachments capabilities|preview|register|list|status|remove-preview|remove.');
   }
   const action = positionals[2];
   if (action === 'capabilities') {

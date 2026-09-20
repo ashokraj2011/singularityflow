@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-interval.schema.json",
+  "title": "Singularity Flow immutable revision interval v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "intervalId", "sequence", "subject", "trigger",
+    "parentCandidate", "resultCandidate", "packetSha256", "criteriaBindingSha256",
+    "specificationDispositionSha256", "executionAttempts", "hunkClaimSetSha256",
+    "startedAt", "endedAt", "producer", "precheckSha256", "status", "intervalSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-interval" },
+    "intervalId": { "type": "string", "pattern": "^REV-[A-Za-z0-9._:-]{4,127}$" },
+    "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "trigger": {
+      "type": "object",
+      "required": [
+        "kind", "feedbackId", "author", "feedbackSha256", "feedbackRecordSha256",
+        "criteriaBindingSha256", "specificationDispositionSha256", "startPinSha256",
+        "noteSha256"
+      ],
+      "properties": {
+        "kind": { "const": "developer-feedback" },
+        "feedbackId": { "type": "string", "pattern": "^REVFB-[A-Za-z0-9._:-]{6,127}$" },
+        "author": {
+          "type": "object",
+          "required": ["kind", "id", "name"],
+          "properties": {
+            "kind": { "enum": ["configured-local", "authenticated-user", "service"] },
+            "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "name": { "type": "string", "minLength": 1, "maxLength": 256 }
+          },
+          "additionalProperties": false
+        },
+        "feedbackSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "feedbackRecordSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "criteriaBindingSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "specificationDispositionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "startPinSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "noteSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "parentCandidate": { "$ref": "#/$defs/candidate" },
+    "resultCandidate": { "$ref": "#/$defs/candidate" },
+    "packetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "criteriaBindingSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "specificationDispositionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "executionAttempts": {
+      "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+      "items": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+    },
+    "hunkClaimSetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "startedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "endedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "precheckSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "status": { "const": "prechecked" },
+    "intervalSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "required": ["candidateId", "candidateSha256", "candidateRefSha256", "candidateTree"],
+      "properties": {
+        "candidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+        "candidateSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateRefSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateTree": { "$ref": "revision-contract-definitions.schema.json#/$defs/gitObject" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

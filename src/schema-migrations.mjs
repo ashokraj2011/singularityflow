@@ -2062,6 +2062,16 @@ function family({
   });
 }
 
+function revisionRecordPaths(kind, { shared = true } = {}) {
+  const escaped = kind.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [
+    new RegExp(`^\\$git/revisions/[^/]+/[^/]+/[0-9]+/records/${escaped}/[a-f0-9]{64}\\.json$`),
+    ...(shared ? [new RegExp(
+      `^singularity/work-items/[^/]+/evidence/revisions/[^/]+/[a-f0-9]{64}/records/${escaped}/[a-f0-9]{64}\\.json$`
+    )] : [])
+  ];
+}
+
 const families = [
   // GDP-M2 registers only the two immutable identities needed by the opt-in shadow Passport.
   // The M2 reader creates these records in memory and never writes them; the paths reserve the
@@ -3506,36 +3516,87 @@ const families = [
   // REV intake is private, Story/phase-scoped evidence staging. No earlier durable shape exists.
   family({
     id: 'revision-feedback-attachment-import-plan', currentVersion: 1, immutable: true,
-    paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/plans\/[a-f0-9]{64}\.json$/]
+    paths: [/^\$git\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/plans\/[a-f0-9]{64}\.json$/]
   }),
   family({ id: 'revision-feedback-attachment-set', currentVersion: 1, immutable: true }),
   family({
     id: 'revision-feedback-attachment-revocation-plan', currentVersion: 1, immutable: true,
-    paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/revocation-plans\/[a-f0-9]{64}\.json$/]
+    paths: [/^\$git\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/revocation-plans\/[a-f0-9]{64}\.json$/]
   }),
   family({
     id: 'revision-feedback-attachment-revocation', currentVersion: 1, immutable: true,
-    paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/revocations\/[a-f0-9]{64}\.json$/]
+    paths: [/^\$git\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/revocations\/[a-f0-9]{64}\.json$/]
   }),
   family({
     id: 'revision-feedback-attachment-store-entry', currentVersion: 1, immutable: true,
-    paths: [/^\$git\/singularity-flow\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/requests\/[a-f0-9]{64}\.json$/]
+    paths: [/^\$git\/revision-feedback-attachments\/[^/]+\/[^/]+\/\d{4}\/requests\/[a-f0-9]{64}\.json$/]
   }),
+  // REV semantic records are immutable, content-addressed proof inputs. Their first durable shape
+  // is frozen: changing semantics requires a new family rather than reinterpretation in place.
+  family({ id: 'revision-feedback', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-feedback') }),
+  family({ id: 'revision-criteria-binding', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-criteria-binding') }),
+  family({ id: 'revision-specification-disposition', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-specification-disposition') }),
+  family({ id: 'revision-packet', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-packet') }),
+  family({ id: 'revision-attempt', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-attempt') }),
+  family({ id: 'revision-attempt-restoration', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-attempt-restoration') }),
+  family({ id: 'revision-publication-summary', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-publication-summary') }),
+  family({ id: 'revision-recovery-journal', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: revisionRecordPaths('revision-recovery-journal', { shared: false }) }),
+  family({ id: 'revision-explanation', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-explanation') }),
   // New REV journal/proof identities have no predecessor. Their v1 shape is frozen: a later
   // semantic shape requires a new family, never an implicit reinterpretation of old proof.
+  family({ id: 'revision-loop', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-loop') }),
   family({
     id: 'revision-loop-journal-entry', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
-    paths: [/^\$git\/singularity-flow\/revisions\/[a-f0-9]{64}\/journal\/\d{10}\.json$/]
+    paths: [/^\$git\/revisions\/[a-f0-9]{64}\/journal\/\d{10}\.json$/]
   }),
   family({ id: 'revision-interval', currentVersion: 1, immutable: true,
-    migrationPolicy: 'frozen-identity' }),
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-interval') }),
   family({ id: 'revision-head-transition', currentVersion: 1, immutable: true,
-    migrationPolicy: 'frozen-identity' }),
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-head-transition') }),
   family({ id: 'revision-hunk-claim-set', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-hunk-claim-set') }),
+  // Guarded interactive REV plans are transient confirmation envelopes. The pointer is a
+  // machine-private mutable locator whose immutable evidence remains in the record store and
+  // append-only loop journal. Register both families so readers fail closed on future shapes.
+  family({ id: 'revision-orchestration-plan', currentVersion: 1,
     migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-interactive-plan', currentVersion: 1,
+    migrationPolicy: 'frozen-identity' }),
+  // Interactive authority envelopes and deterministic precheck inputs share one immutable,
+  // content-addressed payload namespace. Early precheck inputs were deliberately unversioned;
+  // declaring them as v1 keeps census compatibility explicit without rewriting digest-bound bytes.
+  family({ id: 'revision-interactive-payload', currentVersion: 1, immutable: true,
+    unversionedAs: 1, migrationPolicy: 'frozen-identity',
+    paths: [/^\$git\/revisions\/[a-f0-9]{64}\/interactive\/payloads\/[a-f0-9]{64}\.json$/] }),
+  family({ id: 'revision-interactive-start-pin', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [/^\$git\/revisions\/[a-f0-9]{64}\/interactive\/confirmations\/[a-f0-9]{64}\.json$/] }),
+  family({
+    id: 'revision-interactive-confirmation-result', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [
+      /^\$git\/revisions\/[a-f0-9]{64}\/interactive\/confirmation-results\/[a-f0-9]{64}\.json$/,
+      /^\$git\/revisions\/[a-f0-9]{64}\/interactive\/confirmation-recovery\/[a-f0-9]{64}\.json$/
+    ]
+  }),
+  family({
+    id: 'revision-interactive-state', currentVersion: 1,
+    paths: [/^\$git\/revisions\/[a-f0-9]{64}\/interactive\/state\.json$/]
+  }),
   family({ id: 'revision-precheck', currentVersion: 1, immutable: true,
-    migrationPolicy: 'frozen-identity' }),
+    migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-precheck') }),
   family({ id: 'revision-code-check-receipt', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity' }),
   family({ id: 'revision-publication-selection', currentVersion: 1, immutable: true,
@@ -3543,12 +3604,12 @@ const families = [
   family({
     id: 'revision-publication-prepared', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
-    paths: [/^\$git\/singularity-flow\/revision-publication-attestations\/[a-f0-9]{64}\.prepared\.json$/]
+    paths: [/^\$git\/revision-publication-attestations\/[a-f0-9]{64}\.prepared\.json$/]
   }),
   family({
     id: 'revision-publication-commit-retained', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity',
-    paths: [/^\$git\/singularity-flow\/revision-publication-attestations\/[a-f0-9]{64}\.committed\.json$/]
+    paths: [/^\$git\/revision-publication-attestations\/[a-f0-9]{64}\.committed\.json$/]
   }),
   family({
     id: 'revision-trace-manifest', currentVersion: 1, immutable: true,

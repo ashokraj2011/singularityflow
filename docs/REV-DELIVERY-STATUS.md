@@ -1,52 +1,59 @@
 # REV delivery status and activation boundary
 
-The source specification is `SPEC-REV-Revision-Loop-Strong-v0.6.md`. Its decision owner and validator are still unset; it explicitly forbids default activation without its release gate. This document records the implemented slice and the remaining work without treating attachment intake as an executable Revision Loop.
+Singularity Flow includes a guarded, interactive Revision Loop pilot for exact code-Candidate refinement. The pilot joins Candidate retention, route, packet, append-only head journal, manual capture, and deterministic precheck behind preview/confirmation contracts. It does not expose a public Candidate-comparison UI. Restoration and ordinary Story publication integration are not exposed by this guarded profile.
 
-Check the installed execution boundary with `singularity-flow revision capabilities --json`; run `singularity-flow revision activation --json` from a repository to see its exact pilot prerequisites. Both commands are read-only. A result of `activationProfile: "disabled"` means there is no safe command or configuration toggle to start a code revision loop in that build.
+It is deliberately **not** an autonomous model executor and does not imply release eligibility. Check the installed boundary with `singularity-flow revision capabilities --json`; run `singularity-flow revision activation --json` from the exact repository to see current eligibility and blockers. Those commands are read-only and are the operational source of truth for the installed build.
 
-Classic Delivery can use the existing, explicit reject-to-Code cycle and optional private feedback attachments while REV execution remains disabled. See [Classic Delivery review and rework](CLASSIC-DELIVERY-REVIEW-AND-REWORK.md); this is not an activated REV pilot.
+## Guarded pilot available now
 
-## Available now
+- `singularity-flow revision status|card|show ... --json` reads bounded loop, Candidate, interval, precheck, and recovery state.
+- `singularity-flow revise --dry-run --feedback-stdin --saved-buffers-confirmed [--criteria ID] [--attachment-set SHA] --json` creates an exact preview. It binds feedback bytes, the exact clean source snapshot (or an already-retained loop head), approved criterion identities, active attachment set, repository/Story/phase generation, route, policy, proof profile, execution unit, and budgets. It does not retain a first parent, open an interval, or change application code.
+- `singularity-flow revise --feedback-stdin --saved-buffers-confirmed [same selectors] --confirm sha256:<PLAN> --json` revalidates the exact preview before opening one bounded interval. Changed authority, Candidate, phase, buffers, attachments, feedback, or plan fails closed.
+- For the first interval, successful confirmation retains the previewed source snapshot as the immutable parent Candidate. Later previews bind the loop's already-retained selected head.
+- A routing-required preview cannot be confirmed. Its structured `routing` field is the exact result. `/sf-recommend` and `singularity-flow recommend --json` only re-evaluate the repository's current next step; they do not consume the preview's routing plan.
+- `/sf-revise` provides the same preview/explicit-confirmation flow in Copilot. It stops before ordinary phase publication, submission, approval, merge, or deployment. `@sflow /revise` performs read-only status/card inspection or prefills `/sf-revise`; the participant never starts a revision directly.
+- A confirmed interval can admit only a result Candidate produced through the returned safe built-in packet/capture/precheck actions. It cannot run arbitrary shell commands, Git commands, an autonomous model agent, unknown network effects, or organization-specific test infrastructure.
+- `revision resume` is a bounded local recovery mutation: it may finish precheck from an already retained Candidate or repair a journal/pointer gap when exact immutable evidence exists. It never repeats an uncertain attempt. Capturing or recovery-required state cannot be abandoned; the separately previewed/confirmed abandon flow applies only when no capture is in flight.
+- The guarded pilot stops at a retained, prechecked local Candidate. This build does **not** bridge that selected REV head into ordinary phase publication; ordinary publication does not consume a REV selection automatically. Full selected-Candidate publication remains disabled until registered quality/proof adapters and the publication bridge are release-qualified.
+
+## Feedback attachments
 
 - `revision attachments capabilities|preview|register|list|status|remove-preview|remove` binds private feedback evidence to an exact Story, phase generation, HEAD, source tree, configuration, workflow, feedback digest, and repository identity. Registration and exclusion require separate exact confirmations. Exclusion is append-only; it does not erase historical proof.
-- Shell selection supports up to five explicit files, one-based file selection, and bounded line ranges. The default local-file formats are `.txt`, `.md`, `.json`, `.csv`, and `.tsv`. CSV/TSV preserve selected-row provenance. Binary PDF/DOCX/image intake has a tested provider interface but no installed production scanner/extractor, so it fails closed.
-- VS Code `@sflow /attachments` can preview 1–5 genuine local file URIs, selecting each whole file, and offer a one-use confirmation button for private registration. Native status and reviewed exclusion controls are available. It cannot ingest opaque Copilot upload bytes or editor ranges. The shell skill remains available for line-range selection.
-- The deterministic route and packet kernel can validate exact attachment-set and retained-candidate bindings. The exposed runtime capability explicitly reports code-revision execution unavailable. No model invocation, revision interval, candidate publication, or Story lifecycle transition occurs through the attachment commands.
-- A revoked set cannot be resurrected by replaying its registration key. Expired, unreferenced private preview plans are pruned on ordinary preview access. Attachment status reads bounded receipt/revocation metadata without rehashing every stored file and marks object integrity as not checked; a proof read verifies the selected bytes, while a full list verifies all registered objects.
+- Shell selection supports up to five explicit files, one-based file selection, and bounded line ranges. Default local-file formats are `.txt`, `.md`, `.json`, `.csv`, and `.tsv`; CSV/TSV preserve selected-row provenance.
+- VS Code `@sflow /attachments` previews genuine local file URIs and offers a one-use registration confirmation. It cannot recover opaque Copilot-upload bytes. Binary PDF/DOCX/image intake remains disabled without an installed, approved scanner/extractor.
+- Attachment registration never starts a revision. A later `/sf-revise` preview must name and revalidate the exact active attachment-set digest.
 
-## Internal foundations, not an activated REV loop
+## Evidence and safety boundary
 
-The implementation now has an append-only, machine-local loop journal with selected-head CAS and precheck binding; exact retained-Candidate comparison plus restore/discard head selection; a pure head-bound precheck; exact application-tree publication selection; private isolated declarative attempt and immutable child-candidate freeze; a manual-capture planner; and candidate-bound Code-check planning, probe, and result projection. Story publication has a disabled-by-default internal opt-in that checks the selected head before Story-owned writes, checks the admitted application tree, and records a private local commit attestation. If the attestation write fails after the ref advances, both remote and local-only modes retain an exact pending marker; sync completes that attestation before pushing or clearing the marker. These are tested primitives, not a `/sflow-revise` execution route or public compare/discard/restore experience.
+The machine-local append-only journal uses compare-and-swap for the selected head. Candidate references, route/packet plans, context, and precheck are content-addressed and rechecked at mutation time. Each successful start confirmation has an immutable result receipt keyed by its exact plan digest, so the same feedback and selectors replay the original result even after a later interval replaces the current pointer. Other historical mutations are not replayable. Changed bytes or authority require a new preview. This profile neither claims automatic restoration nor creates an ordinary phase-publication selection.
 
-The Code-check probe deliberately returns `observed-unverified`, even when an injected executor exits successfully. It is not a trusted isolated test runner, a verified result receipt, a Testing/Verification phase verdict, or publication authority. The context reader likewise refuses CLI-only use when it cannot establish the editor's unsaved-buffer state. A self-hashed receipt or user assertion is not substituted for that observation.
+The built-in attempt bridge is intentionally narrow. It can apply only explicitly admitted bounded operations and return exact non-promoting bytes after cleanup. It is not authority to:
 
-A fixed-worker broker can now execute bounded declarative write/delete/wait operations and return non-promoting exact bytes after cleanup. It does not run model agents, shell commands, or tests, cannot itself admit a retained Candidate, and cannot satisfy the pilot Code-check or witness requirements. The pilot activation inspector names those gaps rather than inviting a flag-only override.
+- invoke an autonomous Copilot/model coding agent;
+- launch arbitrary shell, Git, project-build, or project-test commands;
+- claim network or other external effects are absent without a witness;
+- convert `observed-unverified` Code-check output into a signed test receipt;
+- amend approved specification text or requirement identities;
+- publish, submit, approve, merge, or deploy.
 
-The activation report also separates the exact internal foundations from unavailable authority. Its
-`evidenceBoundary` labels Candidate handling as a retained-reference foundation, Program binding as
-unavailable, attempts as declarative and unverified, Code-check output as projection-only, recovery
-as private/local, and compare/restore as kernel-only. Every blocker has a remediation class and every
-suggested next action is read-only. These diagnostics do not turn any foundation into execution,
-authentication, lifecycle evidence, or publication authority.
+Code-phase tests, screenshots, or Playwright observations may be attached to the Candidate card only with their real provenance. They remain evidence for review and do not replace the workflow's later Testing/Verification verdict.
 
-`REV_POC_SINGLE_REPO` and `REV_FULL_DEFAULT` remain disabled. The REV trace manifest in this working tree names the disabled loop profile, advertises no loop-execution or Code-result mutations, and explicitly defers their applicable criteria. Feedback-attachment intake is a separately available, confirmed mutation and is not certified by this disabled loop trace. Release packaging checks the manifest even when the full test suite is skipped. Changing a flag alone cannot activate the pilot.
+## Remaining work beyond the safe built-in pilot
 
-## Remaining activation work
+- Replace the current single-journal 512-entry safety ceiling with durable journal-segment rollover
+  and segment-chain verification. The `revision-loop.segments` values currently summarize groups of
+  interval digests; they do not yet remove that local storage ceiling. This is a guarded-pilot
+  limitation, not a claim that revision count is governance authority.
+- Approved isolated model/code executor with process-tree quiescence and external-effect resolution.
+- Trusted editor-buffer adapter where the host cannot prove saved/captured buffers.
+- Organization-approved quality-command adapters and authenticated durable test receipts.
+- Exact selected-head integration with ordinary Story phase publication.
+- Binary attachment scanning/extraction and timed quarantine expiry.
+- Full macOS/Linux/Windows fault witness matrix and a release-owned profile attestation.
+- Decision owner and independent validator for default/full-profile activation.
 
-- Install a trusted editor-buffer observation adapter and approved-intent/route/proof binding readers for the current Story Code phase. The raw CLI cannot see unsaved VS Code/Copilot buffers; it must refuse until a trusted host proves they were saved or captured.
-- Install an isolated model/code executor with process-tree quiescence, denial of agent Git mutations, bounded effects, and recovery for uncertain external effects. The present declarative edit driver cannot run an arbitrary agent or project test command.
-- Align the approved quality-command definition, candidate-tree test-body hash, adapter identity, and signed/durable Code-check receipt. Then add a separate, explicit `revision.checks.run` operation and show real results without merging them into the later Testing/Verification verdict.
-- After the trusted host, executor, receipt, and witness prerequisites exist, wire route, packet, manual capture, interval CAS, precheck, and selected-candidate publication into one guarded user-facing pilot command and skill. Expose the already-tested compare/discard/restore kernel through reviewed UX and an explain chain before advertising the loop.
-- Complete the closed `REV_POC_SINGLE_REPO` criterion-to-test witness map and macOS/Linux/Windows fault tests. Default activation additionally requires the specification's decision owner and validator, the full applicable gate, and a current release manifest.
-
-An executor must recheck attachment revocation and current routing under its own lock immediately before consuming bytes or committing effects. No public command currently joins all of the above primitives into that safety boundary.
-
-The attachment preview currently stages a short-lived private plan; it is not a read-only operation as stated in the draft spec. The CLI reports `stateChanged` and `filesChanged` for that private staging and leaves the Story worktree and Git refs unchanged. Either the specification must explicitly permit this private-plan effect or the preview protocol must be redesigned and witnessed before claiming full conformance.
-
-The default text intake has bounded UTF-8, type, secret, and provenance checks, but no installed organization-approved malware/content scanner. All binary intake and all REV execution therefore remain disabled; scanner and privacy clearance must be witnessed, not inferred from parser tests. Crash-orphan private bytes are recovered on the next append, but a timed quarantine expiry service is not installed.
-
-Native chat selection is all supplied whole files; fine-grained line/row selection remains shell-only. A two-step register-then-revoke sequence can replace an attachment set, but it is not an atomic replacement.
+Classic Delivery's reviewer reject-to-Code cycle and workflow rework loops remain available and are different from REV. A workflow loop changes the active phase route; a REV interval refines an exact Candidate inside one open code generation.
 
 ## Release gate
 
-Do not label this feature “REV complete” or enable a mutating `/sflow-revise` skill until the applicable witness matrix passes on macOS, Linux, and Windows and the exact active profile is included in a generated release manifest. Default activation also requires the specification's decision owner and validator. The command capability response is the operational source of truth for the installed build.
+Do not label the guarded built-in profile “REV complete,” “autonomous,” or “release certified.” Do not enable unrestricted execution from a repository flag. Full/default activation requires the applicable witness matrix, current release manifest, platform coverage, approved executor and receipt boundaries, and the specification's independent decision owner and validator.

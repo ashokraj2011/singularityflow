@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-feedback.schema.json",
+  "title": "Singularity Flow immutable revision feedback v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "feedbackId", "subject", "author", "text", "bytes", "feedbackSha256", "capturedAt", "producer", "recordSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-feedback" },
+    "feedbackId": { "type": "string", "pattern": "^REVFB-[A-Za-z0-9._:-]{6,127}$" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "author": {
+      "type": "object", "required": ["kind", "id", "name"],
+      "properties": {
+        "kind": { "enum": ["configured-local", "authenticated-user", "service"] },
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }, "additionalProperties": false
+    },
+    "text": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "bytes": { "type": "integer", "minimum": 1, "maximum": 8192 },
+    "feedbackSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "capturedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "recordSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "additionalProperties": false
+}

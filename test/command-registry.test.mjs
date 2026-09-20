@@ -118,6 +118,30 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(classify('session', ['session', 'doctor']), 'read');
   assert.equal(classify('session', ['session', 'attach', 'CFA-STORY']), 'mutation');
   assert.equal(classify('session', ['session', 'repair-selection', 'CFA-STORY']), 'mutation');
+  assert.equal(classify('revise', ['revise'], { 'dry-run': true }), 'read');
+  assert.equal(classify('revise', ['revise'], { 'dry-run': 'false' }), 'mutation');
+  assert.equal(resolveOperation({
+    requestedCommand: 'revise', positionals: ['revise'], options: { 'dry-run': true }
+  }).id, 'revise.preview');
+  assert.equal(resolveOperation({
+    requestedCommand: 'revise', positionals: ['revise'], options: {}
+  }).id, 'revise.apply');
+  for (const action of ['activation', 'capabilities', 'status', 'card', 'show']) {
+    assert.equal(classify('revision', ['revision', action]), 'read', `revision ${action}`);
+  }
+  for (const action of ['abandon', 'capture', 'resume']) {
+    assert.equal(classify('revision', ['revision', action]), 'mutation', `revision ${action}`);
+  }
+  assert.equal(resolveOperation({
+    requestedCommand: 'revision', positionals: ['revision', 'abandon'], options: { preview: true }
+  }).id, 'revision.abandon.preview');
+  assert.equal(classify('revision', ['revision', 'abandon'], { preview: true }), 'read');
+  assert.equal(resolveOperation({
+    requestedCommand: 'revision', positionals: ['revision', 'capture'], options: { preview: true }
+  }).id, 'revision.capture.preview');
+  assert.equal(classify('revision', ['revision', 'capture'], { preview: true }), 'read');
+  assert.equal(classify('revision', ['revision', 'attachments', 'list']), 'read');
+  assert.equal(classify('revision', ['revision', 'attachments', 'preview']), 'mutation');
   assert.equal(classify('process', ['process', 'run', 'PROC-1']), 'mutation');
   assert.equal(resolveOperation({
     requestedCommand: 'process', positionals: ['process', 'run', 'PROC-1'],
@@ -271,7 +295,12 @@ test('every deterministic preview has its own cataloged never-model operation', 
     'workspace.impact.analyze.preview',
     'wm.light',
     'program.approve.plan',
-    'task.retry.plan'
+    'task.retry.plan',
+    'revise.preview',
+    'revise.apply',
+    'revision.status',
+    'revision.capture',
+    'revision.abandon.preview'
   ]) {
     assert.equal(catalog.get(id)?.modelPolicy, 'never', id);
     assert.ok(catalog.get(id)?.noModelFixture, id);

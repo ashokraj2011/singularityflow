@@ -13,6 +13,9 @@ import { canonicalJson, recordSha256 } from '../records.mjs';
 import { readRecord, stampCurrentRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import {
+  buildRevisionLoop, validateRevisionRecord
+} from './contracts.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const OID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/;
@@ -20,6 +23,7 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const CANDIDATE_ID = /^CAN-[A-Za-z0-9._:-]{6,127}$/;
 const MAX_ENTRIES = 512;
 const MAX_ENTRY_BYTES = 128 * 1024;
+const PROJECTION_SEGMENT_SIZE = 100;
 const FILE = /^(\d{10})\.json$/;
 const TEMP = /^\.\d{10}\.json\.tmp-\d+-[a-f0-9-]{36}$/;
 const CONTEXT_KEYS = [
@@ -88,6 +92,43 @@ function validateCandidate(candidate) {
   requiredHash(candidate.candidateSha256, 'candidateSha256');
   requiredHash(candidate.candidateRefSha256, 'candidateRefSha256');
 }
+function validateProducer(value, label = 'Producer') {
+  exactKeys(value, ['id', 'version', 'implementationSha256'], label);
+  identifier(value.id, `${label} ID`);
+  if (typeof value.version !== 'string' || !value.version.trim()
+      || Buffer.byteLength(value.version) > 64) {
+    fail('REV_LOOP_INVALID', `${label} version is invalid.`);
+  }
+  requiredHash(value.implementationSha256, `${label} implementationSha256`);
+}
+function producerVersionSupported(value, installed) {
+  if (value.id !== installed.id) return false;
+  if (value.version === installed.version) return true;
+  const historical = /^(0|[1-9][0-9]*)$/u.exec(value.version);
+  const current = /^(0|[1-9][0-9]*)$/u.exec(installed.version);
+  return historical && current && Number(historical[1]) === Number(current[1]) - 1;
+}
+function producerEqual(left, right) { return hash(left) === hash(right); }
+function validateEntryProducerBinding(entry, installed) {
+  if (!producerVersionSupported(entry.producer, installed)) {
+    fail('REV_LOOP_PRODUCER_UNSUPPORTED',
+      'Loop journal producer is newer than, or foreign to, the installed revision kernel. The journal was preserved and mutation is blocked.');
+  }
+  const transitionProducer = entry.transition?.type === 'commit-interval'
+    ? entry.transition.interval?.producer
+    : entry.transition?.type === 'select-head'
+      ? entry.transition.headTransition?.producer : null;
+  if (transitionProducer && !producerEqual(entry.producer, transitionProducer)) {
+    fail('REV_LOOP_CORRUPT', 'Loop journal entry and transition producer identities differ.');
+  }
+}
+function legacyJournalEntry(entry) { return !Object.hasOwn(entry, 'producer'); }
+function rejectLegacyAuthority(journal) {
+  if (journal.some(legacyJournalEntry)) {
+    fail('REV_LOOP_PRODUCER_UNSUPPORTED',
+      'Legacy v1 loop journal entries do not bind producer authority. Exact reads and idempotent replay remain available, but new authority requires an explicit migration.');
+  }
+}
 function validateOpen(transition) {
   exactKeys(transition, ['type', 'loopId', 'initialCandidate'], 'Open-loop transition');
   identifier(transition.loopId, 'Loop ID');
@@ -123,8 +164,9 @@ function validateHeadTransition(headTransition, previous, destination, context) 
     'schemaVersion', 'kind', 'expectedLoopRevision', 'expectedHeadTransitionSha256',
     'fromCandidateRefSha256', 'toCandidateRefSha256',
     'worktreeIndexEditorPreimageSha256', 'materializedPostimageSha256',
-    'reason', 'transitionSha256'
+    'reason', 'producer', 'transitionSha256'
   ], 'Head transition');
+  validateProducer(headTransition.producer, 'Head transition producer');
   requiredHash(headTransition.worktreeIndexEditorPreimageSha256, 'Head preimage');
   requiredHash(headTransition.materializedPostimageSha256, 'Head postimage');
   if (typeof headTransition.reason !== 'string' || !headTransition.reason
@@ -146,10 +188,77 @@ function validateCommit(transition, scope, previous, context, revision) {
   exactKeys(transition, ['type', 'loopId', 'interval', 'headTransition', 'headSnapshot', 'precheck'], 'Interval commit');
   if (transition.loopId !== previous.loopId) fail('REV_LOOP_SCOPE', 'Interval belongs to another loop.');
   const { interval, headTransition, headSnapshot, precheck } = transition;
-  selfHash(interval, 'intervalSha256', 'revision-interval');
+  try { validateRevisionRecord('revision-interval', interval); }
+  catch (error) {
+    fail('REV_LOOP_INVALID', `Expected a closed revision-interval record: ${error.message}`);
+  }
+  exactKeys(interval, [
+    'schemaVersion', 'kind', 'intervalId', 'sequence', 'subject', 'trigger',
+    'parentCandidate', 'resultCandidate', 'packetSha256', 'criteriaBindingSha256',
+    'specificationDispositionSha256', 'executionAttempts', 'hunkClaimSetSha256',
+    'startedAt', 'endedAt', 'producer', 'precheckSha256', 'status', 'intervalSha256'
+  ], 'Revision interval');
+  exactKeys(interval.trigger, [
+    'kind', 'feedbackId', 'author', 'feedbackSha256', 'feedbackRecordSha256',
+    'criteriaBindingSha256', 'specificationDispositionSha256', 'startPinSha256',
+    'noteSha256'
+  ], 'Revision interval trigger');
+  identifier(interval.trigger.feedbackId, 'Feedback ID');
+  exactKeys(interval.trigger.author, ['kind', 'id', 'name'], 'Revision feedback author');
+  if (!['configured-local', 'authenticated-user', 'service'].includes(interval.trigger.author.kind)
+      || typeof interval.trigger.author.name !== 'string'
+      || !interval.trigger.author.name.trim()) {
+    fail('REV_LOOP_INVALID', 'Revision feedback author is invalid.');
+  }
+  if (typeof interval.trigger.author.id !== 'string' || !interval.trigger.author.id.trim()
+      || Buffer.byteLength(interval.trigger.author.id) > 256
+      || /[\u0000-\u001f\u007f]/u.test(interval.trigger.author.id)) {
+    fail('REV_LOOP_INVALID', 'Revision feedback author ID is invalid.');
+  }
+  if (interval.trigger.kind !== 'developer-feedback') {
+    fail('REV_LOOP_INVALID', 'Revision interval trigger kind is invalid.');
+  }
+  for (const field of [
+    'feedbackSha256', 'feedbackRecordSha256', 'criteriaBindingSha256',
+    'specificationDispositionSha256', 'startPinSha256', 'noteSha256'
+  ]) requiredHash(interval.trigger[field], `trigger.${field}`);
+  for (const field of [
+    'packetSha256', 'criteriaBindingSha256', 'specificationDispositionSha256',
+    'hunkClaimSetSha256'
+  ]) requiredHash(interval[field], field);
+  if (interval.criteriaBindingSha256 !== interval.trigger.criteriaBindingSha256
+      || interval.specificationDispositionSha256
+        !== interval.trigger.specificationDispositionSha256
+      || !Array.isArray(interval.executionAttempts) || !interval.executionAttempts.length
+      || interval.executionAttempts.length > 64
+      || new Set(interval.executionAttempts).size !== interval.executionAttempts.length) {
+    fail('REV_LOOP_INVALID', 'Interval durable-record bindings are incomplete or inconsistent.');
+  }
+  interval.executionAttempts.forEach((value) => requiredHash(value, 'executionAttempts'));
+  for (const field of ['startedAt', 'endedAt']) {
+    if (typeof interval[field] !== 'string' || Number.isNaN(Date.parse(interval[field]))
+        || new Date(interval[field]).toISOString() !== interval[field]) {
+      fail('REV_LOOP_INVALID', `Interval ${field} is invalid.`);
+    }
+  }
+  if (Date.parse(interval.endedAt) < Date.parse(interval.startedAt)) {
+    fail('REV_LOOP_INVALID', 'Interval endedAt precedes startedAt.');
+  }
+  exactKeys(interval.producer, ['id', 'version', 'implementationSha256'], 'Interval producer');
+  identifier(interval.producer.id, 'Interval producer ID');
+  if (typeof interval.producer.version !== 'string' || !interval.producer.version.trim()) {
+    fail('REV_LOOP_INVALID', 'Interval producer version is invalid.');
+  }
+  requiredHash(interval.producer.implementationSha256, 'producer.implementationSha256');
   validateCandidate(interval.resultCandidate);
   validateHeadTransition(headTransition, previous, interval.resultCandidate, context);
-  selfHash(precheck, 'precheckSha256', 'revision-precheck');
+  if (hash(headTransition.producer) !== hash(interval.producer)) {
+    fail('REV_LOOP_INVALID', 'Head transition and interval producer identities differ.');
+  }
+  try { validateRevisionRecord('revision-precheck', precheck); }
+  catch (error) {
+    fail('REV_LOOP_INVALID', `Expected a closed revision-precheck record: ${error.message}`);
+  }
   if (interval.subject?.workId !== scope.workId || interval.subject?.phaseId !== scope.phaseId
       || interval.subject?.phaseGeneration !== scope.phaseGeneration || interval.status !== 'prechecked'
       || !ID.test(String(interval.intervalId ?? '')) || !Number.isSafeInteger(interval.sequence)
@@ -176,7 +285,14 @@ function validateCommit(transition, scope, previous, context, revision) {
       || precheck.workflowSha256 !== context.workflowSha256
       || precheck.configSha256 !== context.configSha256
       || precheck.editorDiskIndexBaselineSha256 !== context.editorDiskIndexBaselineSha256
-      || precheck.proofProfileSha256 !== context.proofProfileSha256) {
+      || precheck.proofProfileSha256 !== context.proofProfileSha256
+      || precheck.subject.workId !== interval.subject.workId
+      || precheck.subject.phaseId !== interval.subject.phaseId
+      || precheck.subject.phaseGeneration !== interval.subject.phaseGeneration
+      || precheck.criteriaBindingSha256 !== interval.criteriaBindingSha256
+      || precheck.specificationDispositionSha256 !== interval.specificationDispositionSha256
+      || precheck.hunkClaimSetSha256 !== interval.hunkClaimSetSha256
+      || hash(precheck.producer) !== hash(interval.producer)) {
     fail('REV_LOOP_INVALID', 'Precheck is not bound to the exact proposed head.');
   }
 }
@@ -193,6 +309,91 @@ function validateSelect(transition, scope, previous, context, revision, candidat
   validateHeadTransition(transition.headTransition, previous, transition.selectedCandidate, context);
   if (!['restore', 'discard', 'developer-rejected-result'].includes(transition.headTransition.reason)) {
     fail('REV_LOOP_INVALID', 'Selection reason must be restore or discard.');
+  }
+  validateSnapshot(transition.headSnapshot, transition.selectedCandidate, scope, context,
+    revision, transition.headTransition.transitionSha256);
+  return historical;
+}
+function validateLegacyHeadTransition(headTransition, previous, destination, context) {
+  selfHash(headTransition, 'transitionSha256', 'revision-head-transition');
+  exactKeys(headTransition, [
+    'schemaVersion', 'kind', 'expectedLoopRevision', 'expectedHeadTransitionSha256',
+    'fromCandidateRefSha256', 'toCandidateRefSha256',
+    'worktreeIndexEditorPreimageSha256', 'materializedPostimageSha256',
+    'reason', 'transitionSha256'
+  ], 'Legacy head transition');
+  requiredHash(headTransition.worktreeIndexEditorPreimageSha256, 'Legacy head preimage');
+  requiredHash(headTransition.materializedPostimageSha256, 'Legacy head postimage');
+  if (typeof headTransition.reason !== 'string' || !headTransition.reason
+      || headTransition.reason.length > 128) {
+    fail('REV_LOOP_INVALID', 'Legacy head transition needs a bounded reason.');
+  }
+  if (headTransition.expectedLoopRevision !== previous.revision
+      || headTransition.expectedHeadTransitionSha256 !== previous.headTransitionSha256
+      || headTransition.fromCandidateRefSha256 !== previous.head.candidateRefSha256
+      || headTransition.toCandidateRefSha256 !== destination.candidateRefSha256) {
+    fail('REV_LOOP_ADVANCED', 'Legacy head transition does not compare-and-swap the selected parent.');
+  }
+  if (headTransition.worktreeIndexEditorPreimageSha256
+        !== previous.context.editorDiskIndexBaselineSha256
+      || headTransition.materializedPostimageSha256
+        !== context.editorDiskIndexBaselineSha256) {
+    fail('REV_LOOP_STALE', 'Legacy head materialization proof differs from its bound context.');
+  }
+}
+function validateLegacyCommit(transition, scope, previous, context, revision) {
+  exactKeys(transition, ['type', 'loopId', 'interval', 'headTransition', 'headSnapshot', 'precheck'],
+    'Legacy interval commit');
+  if (transition.loopId !== previous.loopId) fail('REV_LOOP_SCOPE', 'Legacy interval belongs to another loop.');
+  const { interval, headTransition, headSnapshot, precheck } = transition;
+  selfHash(interval, 'intervalSha256', 'revision-interval');
+  validateCandidate(interval.resultCandidate);
+  validateLegacyHeadTransition(headTransition, previous, interval.resultCandidate, context);
+  selfHash(precheck, 'precheckSha256', 'revision-precheck');
+  if (interval.subject?.workId !== scope.workId || interval.subject?.phaseId !== scope.phaseId
+      || interval.subject?.phaseGeneration !== scope.phaseGeneration || interval.status !== 'prechecked'
+      || !ID.test(String(interval.intervalId ?? '')) || !Number.isSafeInteger(interval.sequence)
+      || interval.sequence < 1 || interval.precheckSha256 !== precheck.precheckSha256) {
+    fail('REV_LOOP_INVALID', 'Legacy interval lacks exact phase, sequence, or precheck binding.');
+  }
+  if (interval.parentCandidate?.candidateId !== previous.head.candidateId
+      || interval.parentCandidate?.candidateSha256 !== previous.head.candidateSha256
+      || interval.parentCandidate?.candidateRefSha256 !== previous.head.candidateRefSha256
+      || interval.sequence !== previous.intervalSequence + 1) {
+    fail('REV_LOOP_ADVANCED', 'Legacy interval does not extend the selected parent candidate and sequence.');
+  }
+  validateSnapshot(headSnapshot, interval.resultCandidate, scope, context, revision,
+    headTransition.transitionSha256);
+  const candidate = interval.resultCandidate;
+  if (precheck.candidateId !== candidate.candidateId
+      || precheck.candidateSha256 !== candidate.candidateSha256
+      || precheck.candidateRefSha256 !== candidate.candidateRefSha256
+      || precheck.candidateTree !== candidate.candidateTree
+      || precheck.phaseGeneration !== scope.phaseGeneration
+      || precheck.headRevision !== revision
+      || precheck.headTransitionSha256 !== headTransition.transitionSha256
+      || precheck.headSnapshotSha256 !== headSnapshot.headSnapshotSha256
+      || precheck.workflowSha256 !== context.workflowSha256
+      || precheck.configSha256 !== context.configSha256
+      || precheck.editorDiskIndexBaselineSha256 !== context.editorDiskIndexBaselineSha256
+      || precheck.proofProfileSha256 !== context.proofProfileSha256) {
+    fail('REV_LOOP_INVALID', 'Legacy precheck is not bound to the exact proposed head.');
+  }
+}
+function validateLegacySelect(transition, scope, previous, context, revision, candidateHistory) {
+  exactKeys(transition, ['type', 'loopId', 'selectedCandidate', 'headTransition', 'headSnapshot'],
+    'Legacy select-head transition');
+  if (transition.loopId !== previous.loopId) fail('REV_LOOP_SCOPE', 'Legacy head selection belongs to another loop.');
+  validateCandidate(transition.selectedCandidate);
+  const historical = candidateHistory.get(transition.selectedCandidate.candidateRefSha256);
+  if (!historical || hash(historical.candidate) !== hash(transition.selectedCandidate)
+      || transition.selectedCandidate.candidateRefSha256 === previous.head.candidateRefSha256) {
+    fail('REV_LOOP_INVALID', 'Legacy selection must restore a different retained candidate from this loop.');
+  }
+  validateLegacyHeadTransition(transition.headTransition, previous,
+    transition.selectedCandidate, context);
+  if (!['restore', 'discard', 'developer-rejected-result'].includes(transition.headTransition.reason)) {
+    fail('REV_LOOP_INVALID', 'Legacy selection reason is invalid.');
   }
   validateSnapshot(transition.headSnapshot, transition.selectedCandidate, scope, context,
     revision, transition.headTransition.transitionSha256);
@@ -234,7 +435,9 @@ function logicalHead(records, scope) {
       }
     }
     if (entry.transition.type === 'commit-interval') {
-      validateCommit(entry.transition, scope, state, entry.context, entry.revision);
+      if (legacyJournalEntry(entry)) {
+        validateLegacyCommit(entry.transition, scope, state, entry.context, entry.revision);
+      } else validateCommit(entry.transition, scope, state, entry.context, entry.revision);
       if (candidateHistory.has(entry.transition.interval.resultCandidate.candidateRefSha256)) {
         fail('REV_LOOP_CORRUPT', 'Loop journal reuses a result candidate reference.');
       }
@@ -256,8 +459,11 @@ function logicalHead(records, scope) {
         context: entry.context
       };
     } else if (entry.transition.type === 'select-head') {
-      const historical = validateSelect(entry.transition, scope, state, entry.context,
-        entry.revision, candidateHistory);
+      const historical = legacyJournalEntry(entry)
+        ? validateLegacySelect(entry.transition, scope, state, entry.context,
+          entry.revision, candidateHistory)
+        : validateSelect(entry.transition, scope, state, entry.context,
+          entry.revision, candidateHistory);
       state = {
         ...state, revision: entry.revision, head: entry.transition.selectedCandidate,
         headTransitionSha256: entry.transition.headTransition.transitionSha256,
@@ -276,8 +482,9 @@ function logicalHead(records, scope) {
 }
 
 async function privateDirectory(directory, { create, platform, windowsAcl, enforceMode }) {
+  let created = false;
   if (create) {
-    try { await mkdir(directory, { mode: 0o700 }); }
+    try { await mkdir(directory, { mode: 0o700 }); created = true; }
     catch (error) { if (error?.code !== 'EEXIST') throw error; }
   }
   let info;
@@ -291,7 +498,7 @@ async function privateDirectory(directory, { create, platform, windowsAcl, enfor
       if (((await lstat(directory)).mode & 0o077) !== 0) fail('REV_LOOP_UNSAFE', 'Loop store directory is not private.');
     }
   }
-  return true;
+  return { created };
 }
 async function fileInfo(file, runtime) {
   const info = await lstat(file);
@@ -359,10 +566,10 @@ async function durableExclusive(file, bytes, runtime) {
   }
 }
 
-/** No public runtime path imports this store; constructing it never activates execution. */
+/** Constructing this local journal never activates execution or grants publication authority. */
 export function createRevisionLoopStore({
   root, workId, phaseId, phaseGeneration, assertCurrentContext, verifyRetainedCandidate,
-  verifyCurrentPrecheck,
+  verifyCurrentPrecheck, producer,
   platform = process.platform, windowsAcl = secureWindowsAuthAcl
 }) {
   identifier(workId, 'Work ID');
@@ -371,6 +578,8 @@ export function createRevisionLoopStore({
     fail('REV_LOOP_INVALID', 'Phase generation must be non-negative.');
   }
   const scope = { workId, phaseId, phaseGeneration };
+  validateProducer(producer, 'Loop-store producer');
+  producer = JSON.parse(JSON.stringify(producer));
   const runtime = { platform, windowsAcl };
   const scopeHash = createHash('sha256').update(canonicalJson(scope)).digest('hex');
 
@@ -379,11 +588,13 @@ export function createRevisionLoopStore({
     if (!(await lstat(common)).isDirectory()) fail('REV_LOOP_UNSAFE', 'Git common directory is unsafe.');
     let directory = common;
     for (const [index, part] of ['singularity-flow', 'revisions', scopeHash, 'journal'].entries()) {
+      const parent = directory;
       directory = path.join(directory, part);
       const exists = await privateDirectory(directory, {
         create, platform, windowsAcl, enforceMode: index > 0
       });
       if (!exists) return null;
+      if (exists.created) await flushDirectory(parent, platform);
     }
     return directory;
   }
@@ -411,12 +622,23 @@ export function createRevisionLoopStore({
           || entry.scope?.phaseId !== phaseId || entry.scope?.phaseGeneration !== phaseGeneration) {
         fail('REV_LOOP_CORRUPT', 'Loop journal entry has the wrong schema or phase.');
       }
+      const legacy = legacyJournalEntry(entry);
       exactKeys(entry, [
         'schemaVersion', 'kind', 'scope', 'revision', 'expectedRevision',
         'expectedHeadCandidateRefSha256', 'previousEntrySha256',
         'idempotencyKeySha256', 'requestSha256', 'context', 'transition',
-        'committedAt', 'entrySha256'
+        'committedAt', ...(legacy ? [] : ['producer']), 'entrySha256'
       ], 'Loop journal entry');
+      if (!legacy) {
+        validateProducer(entry.producer, 'Loop journal producer');
+        // Historical entries remain readable across a kernel implementation upgrade. Their exact
+        // implementation digest is self-bound by the entry hash and must agree with every nested
+        // transition record. Only newly appended entries use the installed producer below.
+        validateEntryProducerBinding(entry, producer);
+      }
+      if (result.length && legacy !== legacyJournalEntry(result[0])) {
+        fail('REV_LOOP_CORRUPT', 'Loop journal mixes legacy and producer-bound entry identities.');
+      }
       exactKeys(entry.scope, ['workId', 'phaseId', 'phaseGeneration'], 'Loop journal subject');
       if (typeof entry.committedAt !== 'string'
           || !Number.isFinite(Date.parse(entry.committedAt))
@@ -440,6 +662,41 @@ export function createRevisionLoopStore({
 
   async function read() { return logicalHead(await entries(), scope); }
   async function list() { return entries(); }
+  async function projection() {
+    const journal = await entries();
+    if (!journal.length) return null;
+    rejectLegacyAuthority(journal);
+    const selected = logicalHead(journal, scope);
+    const intervals = journal.filter((entry) => entry.transition.type === 'commit-interval')
+      .map((entry) => entry.transition.interval)
+      .sort((left, right) => left.sequence - right.sequence);
+    const segments = [];
+    for (let offset = 0; offset < intervals.length; offset += PROJECTION_SEGMENT_SIZE) {
+      const group = intervals.slice(offset, offset + PROJECTION_SEGMENT_SIZE);
+      segments.push({
+        segment: segments.length + 1,
+        firstSequence: group[0].sequence,
+        lastSequence: group.at(-1).sequence,
+        intervalSetSha256: hash(group.map((interval) => ({
+          sequence: interval.sequence, intervalSha256: interval.intervalSha256
+        })))
+      });
+    }
+    return buildRevisionLoop({
+      subject: scope,
+      workflow: {
+        definitionSha256: selected.context.workflowSha256,
+        configurationSha256: selected.context.configSha256
+      },
+      initialCandidateId: journal[0].transition.initialCandidate.candidateId,
+      headCandidateId: selected.head.candidateId,
+      headIntervalId: selected.headIntervalId,
+      state: selected.status,
+      revision: selected.revision,
+      segments,
+      producer
+    });
+  }
   /** Compare retained references only. This does not inspect a candidate diff or run checks. */
   async function compare({ fromCandidateRefSha256, toCandidateRefSha256 }) {
     requiredHash(fromCandidateRefSha256, 'From candidate reference');
@@ -497,9 +754,6 @@ export function createRevisionLoopStore({
       context, idempotencyKey, transition });
     const keySha256 = `sha256:${createHash('sha256').update(idempotencyKey).digest('hex')}`;
     return withSubjectLock(root, { kind: 'story', id: workId }, async () => {
-      if (await assertCurrentContext({ scope: structuredClone(scope), context: structuredClone(context) }) !== true) {
-        fail('REV_LOOP_STALE', 'Current phase, generation, or context changed before the loop write.');
-      }
       const directory = await journalDirectory(true);
       const journal = await entries();
       const replay = journal.find((entry) => entry.idempotencyKeySha256 === keySha256);
@@ -509,6 +763,13 @@ export function createRevisionLoopStore({
         }
         await flushDirectory(directory, platform);
         return replay;
+      }
+      rejectLegacyAuthority(journal);
+      // An exact committed request is an observation, not a new authority decision. Resolve it
+      // before consulting mutable live context so crash-after-CAS retries remain replayable after
+      // the editor/worktree has moved on. Every new append still requires the live recheck below.
+      if (await assertCurrentContext({ scope: structuredClone(scope), context: structuredClone(context) }) !== true) {
+        fail('REV_LOOP_STALE', 'Current phase, generation, or context changed before the loop write.');
       }
       const head = logicalHead(journal, scope);
       if ((head?.revision ?? -1) !== expectedRevision
@@ -581,7 +842,7 @@ export function createRevisionLoopStore({
         expectedRevision, expectedHeadCandidateRefSha256,
         previousEntrySha256: journal.at(-1)?.entrySha256 ?? null,
         idempotencyKeySha256: keySha256, requestSha256, context, transition,
-        committedAt: new Date().toISOString()
+        committedAt: new Date().toISOString(), producer
       });
       const entry = { ...core, entrySha256: hash(core) };
       const bytes = canonicalJson(entry);
@@ -602,5 +863,5 @@ export function createRevisionLoopStore({
       return persisted.at(-1);
     });
   }
-  return Object.freeze({ scope, read, list, compare, append });
+  return Object.freeze({ scope, read, list, projection, compare, append });
 }

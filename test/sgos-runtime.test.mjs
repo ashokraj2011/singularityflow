@@ -1894,7 +1894,8 @@ test('runtime fan-out replays after expansion and forks through exact cross-Proc
   );
   await writeFile(
     path.join(forkPlanDirectory, `${forgedPlan.forkPlanSha256.slice(7)}.json`),
-    canonicalJson(forgedPlan)
+    canonicalJson(forgedPlan),
+    { mode: 0o600 }
   );
   await assert.rejects(
     forkSgosProcess(fixture.root, started.process.processId, {

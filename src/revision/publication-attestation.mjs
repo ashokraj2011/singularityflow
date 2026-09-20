@@ -19,7 +19,6 @@ import { readRecord, stampCurrentRecord } from '../schema-migrations.mjs';
 import {
   readPrivateSidecar, safePrivateSidecarDirectory, writeImmutablePrivateSidecar
 } from '../private-sidecar.mjs';
-import { secureWindowsAuthAcl } from '../mcp-auth-profile.mjs';
 import { currentSubjectLockOwner } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
@@ -94,12 +93,10 @@ export function revisionPublicationAttestationPaths(root, { subject, transaction
 }
 async function readImmutable(file, kind, digestField) {
   const root = await rootFromAttestationPath(file);
-  const bytes = await readPrivateSidecar(root, file, { maximumBytes: MAX_BYTES, optional: true });
+  const bytes = await readPrivateSidecar(root, file, {
+    maximumBytes: MAX_BYTES, optional: true, enforceWindowsAcl: true
+  });
   if (bytes === null) return null;
-  if (process.platform === 'win32') {
-    await secureWindowsAuthAcl(path.dirname(file), { directory: true, apply: false });
-    await secureWindowsAuthAcl(file, { directory: false, apply: false });
-  }
   let value;
   try { value = JSON.parse(bytes.toString('utf8')); }
   catch { fail('REV_ATTESTATION_CORRUPT', 'REV publication attestation is not valid JSON.'); }
@@ -134,18 +131,16 @@ async function writeImmutable(file, value, kind, digestField) {
     return existing;
   }
   const directory = path.dirname(file);
-  await safePrivateSidecarDirectory(root, directory, { create: true });
-  if (process.platform === 'win32') {
-    await secureWindowsAuthAcl(directory, { directory: true, apply: true });
-  }
+  await safePrivateSidecarDirectory(root, directory, {
+    create: true, enforceWindowsAcl: true
+  });
   const content = canonicalJson(value);
   if (Buffer.byteLength(content) > MAX_BYTES) {
     fail('REV_ATTESTATION_LIMIT', 'REV publication attestation exceeds its byte limit.');
   }
-  await writeImmutablePrivateSidecar(root, file, Buffer.from(content), { maximumBytes: MAX_BYTES });
-  if (process.platform === 'win32') {
-    await secureWindowsAuthAcl(file, { directory: false, apply: true });
-  }
+  await writeImmutablePrivateSidecar(root, file, Buffer.from(content), {
+    maximumBytes: MAX_BYTES, enforceWindowsAcl: true
+  });
   return value;
 }
 

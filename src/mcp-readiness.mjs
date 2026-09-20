@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdtemp, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import {
+  lstat, mkdtemp, open, readFile, readdir, realpath, rename, rm
+} from 'node:fs/promises';
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { StringDecoder } from 'node:string_decoder';
@@ -20,7 +23,8 @@ import {
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import {
-  readPrivateSidecar, safePrivateSidecarDirectory, writeMutablePrivateSidecar
+  readPrivateSidecar, safePrivateSidecarDirectory, safeSidecarTreeDirectory,
+  writeMutablePrivateSidecar
 } from './private-sidecar.mjs';
 import {
   currentPlaywrightAuthBinding, playwrightAuthProfileStatus, resolvePlaywrightAuthRuntime,
@@ -42,6 +46,7 @@ const MCP_PACKAGE_MANIFEST_MAX_BYTES = 2 * 1024 * 1024;
 const MCP_PACKAGE_LOCK_MAX_BYTES = 16 * 1024 * 1024;
 const MCP_PACKAGE_EXECUTABLE_MAX_BYTES = 32 * 1024 * 1024;
 const MCP_PACKAGE_CLOSURE_MAX_FILES = 50_000;
+const MCP_PACKAGE_TREE_MAX_ENTRIES = MCP_PACKAGE_CLOSURE_MAX_FILES + 1;
 const MCP_PACKAGE_CLOSURE_MAX_BYTES = 512 * 1024 * 1024;
 const MCP_PACKAGE_CLOSURE_FILE_MAX_BYTES = 64 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
@@ -104,9 +109,91 @@ async function securePlaywrightPackageAncestors(root, {
   const packages = path.join(machine, 'packages');
   const playwright = path.join(packages, 'playwright');
   for (const directory of [machine, packages, playwright]) {
-    await safePrivateSidecarDirectory(root, directory, { create: apply });
+    await safePrivateSidecarDirectory(root, directory, {
+      create: apply, platform, windowsAcl, enforceWindowsAcl: true
+    });
     await windowsAcl(directory, { directory: true, apply, recursive: false });
   }
+}
+
+async function securePosixPlaywrightPackageTree(directory, { apply = false } = {}) {
+  let entryCount = 0;
+  const visit = async (target, relative = '') => {
+    const before = await lstat(target);
+    entryCount += 1;
+    if (entryCount > MCP_PACKAGE_TREE_MAX_ENTRIES) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure exceeds its entry-count ceiling.',
+        { code: 'MCP_WARM_PACKAGE_INVALID' }
+      );
+    }
+    if (before.isSymbolicLink()) {
+      if (relative.startsWith('node_modules/.bin/')) return;
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure contains an unexpected symbolic link.',
+        { code: 'MCP_WARM_PACKAGE_INVALID' }
+      );
+    }
+    if (!before.isDirectory() && !before.isFile()) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure contains an unsupported filesystem entry.',
+        { code: 'MCP_WARM_PACKAGE_INVALID' }
+      );
+    }
+    let secured = before;
+    if (apply) {
+      const mode = before.isDirectory() ? 0o700 : 0o600 | (before.mode & 0o100);
+      let handle;
+      try {
+        handle = await open(target,
+          fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
+          | (fsConstants.O_NONBLOCK ?? 0)
+          | (before.isDirectory() ? (fsConstants.O_DIRECTORY ?? 0) : 0));
+        const opened = await handle.stat();
+        if (opened.dev !== before.dev || opened.ino !== before.ino
+            || opened.isDirectory() !== before.isDirectory()
+            || opened.isFile() !== before.isFile()) {
+          throw new SingularityFlowError(
+            'The acquired Playwright MCP dependency closure changed identity while it was secured.',
+            { code: 'MCP_WARM_PACKAGE_CHANGED' }
+          );
+        }
+        await handle.chmod(mode);
+        secured = await handle.stat();
+      } finally {
+        await handle?.close().catch(() => {});
+      }
+      const rebound = await lstat(target);
+      if (rebound.dev !== secured.dev || rebound.ino !== secured.ino
+          || rebound.isDirectory() !== secured.isDirectory()
+          || rebound.isFile() !== secured.isFile()) {
+        throw new SingularityFlowError(
+          'The acquired Playwright MCP dependency closure changed identity while it was secured.',
+          { code: 'MCP_WARM_PACKAGE_CHANGED' }
+        );
+      }
+      secured = rebound;
+    }
+    if (secured.isSymbolicLink() || secured.dev !== before.dev || secured.ino !== before.ino) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure changed identity while it was secured.',
+        { code: 'MCP_WARM_PACKAGE_CHANGED' }
+      );
+    }
+    if ((secured.mode & 0o077) !== 0) {
+      throw new SingularityFlowError(
+        `Private sidecar '${target}' grants group or other access.`,
+        { code: 'PRIVATE_SIDECAR_PATH_UNSAFE' }
+      );
+    }
+    if (!secured.isDirectory()) return;
+    const children = await readdir(target);
+    for (const child of children.sort((left, right) => left.localeCompare(right))) {
+      const childRelative = relative ? `${relative}/${child}` : child;
+      await visit(path.join(target, child), childRelative);
+    }
+  };
+  await visit(directory);
 }
 
 async function securePlaywrightPackageTree(root, directory, {
@@ -114,9 +201,12 @@ async function securePlaywrightPackageTree(root, directory, {
   windowsAcl = secureWindowsAuthAcl,
   apply = false
 } = {}) {
-  if (platform !== 'win32') return;
+  await safeSidecarTreeDirectory(root, directory);
+  if (platform !== 'win32') {
+    await securePosixPlaywrightPackageTree(directory, { apply });
+    return;
+  }
   await securePlaywrightPackageAncestors(root, { platform, windowsAcl, apply });
-  await safePrivateSidecarDirectory(root, directory);
   // One bounded PowerShell traversal applies/verifies every existing entry and refuses reparse
   // points. A per-file process would make a normal Playwright closure prohibitively expensive.
   await windowsAcl(directory, { directory: true, apply, recursive: true });
@@ -135,16 +225,17 @@ function localMcpPath(root, absolute) {
   return relative.split(path.sep).join('/');
 }
 
-async function writePrivateJson(root, file, value) {
+async function writePrivateJson(root, file, value, { enforceWindowsAcl = true } = {}) {
   await writeMutablePrivateSidecar(root, file, canonicalJson(value), {
-    maximumBytes: MCP_RECEIPT_MAX_BYTES
+    maximumBytes: MCP_RECEIPT_MAX_BYTES, enforceWindowsAcl
   });
 }
 
 async function readPrivateRecord(root, file, family) {
   const bytes = await readPrivateSidecar(root, file, {
     maximumBytes: MCP_RECEIPT_MAX_BYTES,
-    optional: true
+    optional: true,
+    enforceWindowsAcl: true
   });
   return bytes == null ? null : readRecord(family, bytes).record;
 }
@@ -327,7 +418,9 @@ async function playwrightRuntimeArguments(root, entry) {
     );
   }
   const outputDirectory = path.join(mcpMachineRoot(root), 'playwright-output');
-  await safePrivateSidecarDirectory(root, outputDirectory, { create: true });
+  await safePrivateSidecarDirectory(root, outputDirectory, {
+    create: true, enforceWindowsAcl: true
+  });
   arguments_[outputIndex + 1] = outputDirectory;
   return arguments_;
 }
@@ -340,11 +433,71 @@ function packageBin(manifest) {
   return (entries.find(([name]) => name === 'playwright-mcp') ?? entries.sort(([left], [right]) => left.localeCompare(right))[0])?.[1] ?? null;
 }
 
-async function playwrightPackageClosure(root, directory) {
+async function readSecuredPlaywrightPackageFile(target, { maximumBytes }) {
+  let entry;
+  let handle;
+  try {
+    entry = await lstat(target);
+    if (entry.isSymbolicLink() || !entry.isFile()) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure contains an unsupported filesystem entry.',
+        { code: 'MCP_WARM_PACKAGE_INVALID' }
+      );
+    }
+    if (entry.size > maximumBytes) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure contains an oversized file.',
+        { code: 'MCP_WARM_PACKAGE_INVALID' }
+      );
+    }
+    handle = await open(target,
+      fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
+    const info = await handle.stat();
+    if (!info.isFile() || info.dev !== entry.dev || info.ino !== entry.ino) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure changed identity while it was opened.',
+        { code: 'MCP_WARM_PACKAGE_CHANGED' }
+      );
+    }
+    if (info.size > maximumBytes) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure contains an oversized file.',
+        { code: 'MCP_WARM_PACKAGE_INVALID' }
+      );
+    }
+    const bounded = Buffer.alloc(maximumBytes + 1);
+    let offset = 0;
+    while (offset < bounded.length) {
+      const { bytesRead } = await handle.read(
+        bounded, offset, bounded.length - offset, offset
+      );
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset > maximumBytes) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure contains an oversized file.',
+        { code: 'MCP_WARM_PACKAGE_INVALID' }
+      );
+    }
+    return bounded.subarray(0, offset);
+  } catch (error) {
+    if (['ELOOP', 'EMLINK'].includes(error?.code)) {
+      throw new SingularityFlowError(
+        'The acquired Playwright MCP dependency closure contains an unexpected symbolic link.',
+        { code: 'MCP_WARM_PACKAGE_INVALID', cause: error }
+      );
+    }
+    throw error;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+async function playwrightPackageClosure(directory) {
   const entries = [];
   let totalBytes = 0;
   const visit = async (current, relative = '') => {
-    await safePrivateSidecarDirectory(root, current);
     const children = await readdir(current, { withFileTypes: true });
     for (const child of children.sort((left, right) => left.name.localeCompare(right.name))) {
       const childRelative = relative ? `${relative}/${child.name}` : child.name;
@@ -371,7 +524,7 @@ async function playwrightPackageClosure(root, directory) {
           code: 'MCP_WARM_PACKAGE_INVALID'
         });
       }
-      const bytes = await readPrivateSidecar(root, absolute, {
+      const bytes = await readSecuredPlaywrightPackageFile(absolute, {
         maximumBytes: MCP_PACKAGE_CLOSURE_FILE_MAX_BYTES
       });
       totalBytes += bytes.length;
@@ -398,23 +551,25 @@ async function playwrightPackageClosure(root, directory) {
 async function inspectPlaywrightPackage(root, directory, {
   platform = process.platform,
   windowsAcl = secureWindowsAuthAcl,
-  applyWindowsAcl = false
+  applyPackageSecurity = false
 } = {}) {
   const packageDirectory = path.join(directory, 'node_modules', '@playwright', 'mcp');
   let manifest;
   let lock;
   try {
-    await safePrivateSidecarDirectory(root, directory);
     await securePlaywrightPackageTree(root, directory, {
-      platform, windowsAcl, apply: applyWindowsAcl
+      platform, windowsAcl, apply: applyPackageSecurity
     });
-    await safePrivateSidecarDirectory(root, packageDirectory);
-    const manifestBytes = await readPrivateSidecar(root, path.join(packageDirectory, 'package.json'), {
-      maximumBytes: MCP_PACKAGE_MANIFEST_MAX_BYTES
-    });
-    const lockBytes = await readPrivateSidecar(root, path.join(directory, 'package-lock.json'), {
-      maximumBytes: MCP_PACKAGE_LOCK_MAX_BYTES
-    });
+    const manifestBytes = await readSecuredPlaywrightPackageFile(
+      path.join(packageDirectory, 'package.json'), {
+        maximumBytes: MCP_PACKAGE_MANIFEST_MAX_BYTES
+      }
+    );
+    const lockBytes = await readSecuredPlaywrightPackageFile(
+      path.join(directory, 'package-lock.json'), {
+        maximumBytes: MCP_PACKAGE_LOCK_MAX_BYTES
+      }
+    );
     manifest = JSON.parse(manifestBytes.toString('utf8'));
     lock = JSON.parse(lockBytes.toString('utf8'));
   } catch (error) {
@@ -451,10 +606,11 @@ async function inspectPlaywrightPackage(root, directory, {
       code: 'MCP_WARM_PACKAGE_INVALID'
     });
   }
-  const executableBytes = await readPrivateSidecar(root, executable, {
+  const executableBytes = await readSecuredPlaywrightPackageFile(executable, {
     maximumBytes: MCP_PACKAGE_EXECUTABLE_MAX_BYTES
   });
-  const closure = await playwrightPackageClosure(root, directory);
+  const closure = await playwrightPackageClosure(directory);
+  await securePlaywrightPackageTree(root, directory, { platform, windowsAcl });
   const canonicalPackageAfter = await realpath(packageDirectory).catch(() => null);
   const canonicalExecutableAfter = await realpath(executable).catch(() => null);
   const packageStatAfter = await lstat(packageDirectory).catch(() => null);
@@ -521,7 +677,16 @@ async function revalidatePlaywrightInspection(root, expected, {
       code: 'MCP_WARM_PACKAGE_CHANGED'
     });
   }
-  const observed = await inspectPlaywrightPackage(root, packageDirectory, { platform, windowsAcl });
+  let observed;
+  try {
+    observed = await inspectPlaywrightPackage(root, packageDirectory, { platform, windowsAcl });
+  } catch (error) {
+    if (error?.code !== 'PRIVATE_SIDECAR_PATH_UNSAFE') throw error;
+    throw new SingularityFlowError(
+      'The acquired Playwright MCP package no longer has private filesystem permissions.',
+      { code: 'MCP_WARM_PACKAGE_CHANGED', cause: error }
+    );
+  }
   if (!samePlaywrightInspection(expected, observed)) {
     throw new SingularityFlowError(
       'The acquired Playwright MCP package, dependency closure, or launch identity changed before process start.',
@@ -548,10 +713,12 @@ export async function acquirePlaywrightPackage(root, entry, {
   }
   const parent = path.join(mcpMachineRoot(root), 'packages', 'playwright');
   const target = playwrightPackageDirectory(root);
-  await safePrivateSidecarDirectory(root, parent, { create: true });
+  await safePrivateSidecarDirectory(root, parent, {
+    create: true, platform, windowsAcl, enforceWindowsAcl: true
+  });
   await securePlaywrightPackageAncestors(root, { platform, windowsAcl, apply: true });
   if (await exists(target)) {
-    await safePrivateSidecarDirectory(root, target);
+    await safeSidecarTreeDirectory(root, target);
     try {
       return {
         status: 'reused',
@@ -567,16 +734,18 @@ export async function acquirePlaywrightPackage(root, entry, {
   const staging = await mkdtemp(path.join(parent, '.acquire-'));
   let backup = null;
   try {
-    await safePrivateSidecarDirectory(root, staging);
+    await safeSidecarTreeDirectory(root, staging);
     await securePlaywrightPackageTree(root, staging, {
       platform, windowsAcl, apply: true
     });
+    // The package closure is secured as one bounded recursive operation below. Do not turn this
+    // bootstrap manifest into a separate per-file Windows ACL subprocess.
     await writePrivateJson(root, path.join(staging, 'package.json'), {
       name: 'singularity-flow-playwright-mcp-cache',
       version: '0.0.0',
       private: true,
       dependencies: { [PLAYWRIGHT_PACKAGE]: MCP_SCAFFOLD_VERSIONS.playwright }
-    });
+    }, { enforceWindowsAcl: false });
     const logicalArguments = [
       'install', '--prefix', staging, '--ignore-scripts', '--no-audit', '--no-fund',
       '--no-update-notifier', '--package-lock=true', '--save-exact', '--omit=dev', spec
@@ -603,18 +772,20 @@ export async function acquirePlaywrightPackage(root, entry, {
       );
     }
     await inspectPlaywrightPackage(root, staging, {
-      platform, windowsAcl, applyWindowsAcl: true
+      platform, windowsAcl, applyPackageSecurity: true
     });
-    await safePrivateSidecarDirectory(root, parent);
+    await safePrivateSidecarDirectory(root, parent, {
+      platform, windowsAcl, enforceWindowsAcl: true
+    });
     if (await exists(target)) {
-      await safePrivateSidecarDirectory(root, target);
+      await safeSidecarTreeDirectory(root, target);
       backup = `${target}.previous-${process.pid}-${Date.now()}`;
       await rename(target, backup);
     }
     await rename(staging, target);
-    await safePrivateSidecarDirectory(root, target);
+    await safeSidecarTreeDirectory(root, target);
     const acquired = await inspectPlaywrightPackage(root, target, {
-      platform, windowsAcl, applyWindowsAcl: true
+      platform, windowsAcl, applyPackageSecurity: true
     });
     if (backup) await rm(backup, { recursive: true, force: true });
     return { status: 'acquired', ...acquired };

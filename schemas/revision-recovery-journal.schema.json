@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-recovery-journal.schema.json",
+  "title": "Singularity Flow immutable revision recovery journal snapshot v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "journalId", "subject", "loopId", "state", "reasonCode", "rescueContentSha256", "actions", "createdAt", "updatedAt", "producer", "journalSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "revision-recovery-journal" },
+    "journalId": { "type": "string", "pattern": "^REVREC-[A-Za-z0-9._:-]{5,127}$" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "loopId": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" },
+    "state": { "enum": ["pending", "resolved", "abandoned"] },
+    "reasonCode": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{1,127}$" },
+    "rescueContentSha256": { "oneOf": [{ "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }, { "type": "null" }] },
+    "actions": { "type": "array", "maxItems": 128, "items": {
+      "type": "object", "required": ["sequence", "kind", "status", "receiptSha256"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 128 },
+        "kind": { "enum": ["quiesce", "restore", "inspect", "reconcile", "abandon"] },
+        "status": { "enum": ["planned", "succeeded", "failed"] },
+        "receiptSha256": { "oneOf": [{ "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }, { "type": "null" }] }
+      }, "additionalProperties": false
+    } },
+    "createdAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "updatedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "journalSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  }, "additionalProperties": false
+}

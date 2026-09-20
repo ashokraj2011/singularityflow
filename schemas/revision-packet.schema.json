@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-packet.schema.json",
+  "title": "Singularity Flow immutable revision packet v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "routePlanSha256", "parentCandidate", "feedback", "attachments", "criteria", "criteriaBindingSha256", "specificationDispositionSha256", "rules", "rulesSha256", "diff", "diffSha256", "skeletons", "skeletonSetSha256", "effectPolicy", "effectPolicySha256", "expansions", "budgets", "producer", "packetSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "revision-packet" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "routePlanSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "parentCandidate": { "type": "object", "required": ["candidateId", "candidateSha256", "candidateRefSha256"],
+      "properties": {
+        "candidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+        "candidateSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateRefSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      }, "additionalProperties": false
+    },
+    "feedback": {
+      "type": "object",
+      "required": ["feedbackId", "feedbackRecordSha256", "feedbackSha256", "text"],
+      "properties": {
+        "feedbackId": { "type": "string", "pattern": "^REVFB-[A-Za-z0-9._:-]{6,127}$" },
+        "feedbackRecordSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "feedbackSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "attachmentSetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      }, "additionalProperties": false
+    },
+    "attachments": {
+      "type": "array", "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["kind", "displayName", "mediaType", "originalSha256", "renditionSha256", "selectedRanges", "text"],
+        "properties": {
+          "kind": { "const": "untrusted-user-document-rendition" },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "mediaType": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "originalSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+          "renditionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+          "selectedRanges": { "type": "array", "maxItems": 256 },
+          "text": { "type": "string" }
+        }, "additionalProperties": false
+      }
+    },
+    "criteria": {
+      "type": "object", "required": ["items"],
+      "properties": {
+        "items": { "type": "array", "minItems": 1, "maxItems": 128, "items": {
+          "type": "object", "required": ["id", "text"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "text": { "type": "string", "minLength": 1, "maxLength": 8192 }
+          }, "additionalProperties": false
+        } }
+      }, "additionalProperties": false
+    },
+    "criteriaBindingSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "specificationDispositionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "rules": {
+      "type": "object", "required": ["task", "writeScope", "protectedPaths"],
+      "properties": {
+        "task": { "const": "code" },
+        "writeScope": { "const": "source-and-artifact" },
+        "protectedPaths": { "type": "array", "uniqueItems": true, "maxItems": 256,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1024 } }
+      }, "additionalProperties": false
+    }, "rulesSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "diff": { "type": "string", "maxLength": 32768 }, "diffSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "skeletons": { "type": "array", "maxItems": 4096, "items": {
+      "type": "object", "required": ["path", "operation", "type"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "operation": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "type": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }, "additionalProperties": false
+    } }, "skeletonSetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "effectPolicy": {
+      "type": "object",
+      "required": ["writeScope", "maximumChangedFiles", "protectedPaths", "protectedPathsSha256", "applicationPathPolicySha256", "externalEffectsAllowed"],
+      "properties": {
+        "writeScope": { "const": "source-and-artifact" },
+        "maximumChangedFiles": { "type": "integer", "minimum": 1, "maximum": 128 },
+        "protectedPaths": { "type": "array", "uniqueItems": true, "maxItems": 256,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1024 } },
+        "protectedPathsSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "applicationPathPolicySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "externalEffectsAllowed": { "const": false }
+      }, "additionalProperties": false
+    }, "effectPolicySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "expansions": { "type": "array", "maxItems": 0 },
+    "budgets": { "type": "object", "required": ["maximumInputBytes", "maximumOutputBytes", "maximumToolCalls", "maximumSubattempts"],
+      "properties": {
+        "maximumInputBytes": { "type": "integer", "minimum": 1, "maximum": 131072 },
+        "maximumOutputBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "maximumToolCalls": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "maximumSubattempts": { "type": "integer", "minimum": 1, "maximum": 3 }
+      }, "additionalProperties": false
+    },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "packetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  }, "additionalProperties": false
+}

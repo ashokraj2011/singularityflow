@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-loop.schema.json",
+  "title": "Singularity Flow immutable revision loop projection v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "subject", "workflow", "initialCandidateId",
+    "headCandidateId", "headIntervalId", "state", "revision", "segments",
+    "producer", "loopSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-loop" },
+    "subject": { "$ref": "revision-contract-definitions.schema.json#/$defs/subject" },
+    "workflow": {
+      "type": "object",
+      "required": ["definitionSha256", "configurationSha256"],
+      "properties": {
+        "definitionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "configurationSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "initialCandidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+    "headCandidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+    "headIntervalId": {
+      "oneOf": [
+        { "type": "string", "pattern": "^REV-[A-Za-z0-9._:-]{4,127}$" },
+        { "type": "null" }
+      ]
+    },
+    "state": { "enum": ["open", "abandoned"] },
+    "revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "segments": {
+      "type": "array", "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "required": ["segment", "firstSequence", "lastSequence", "intervalSetSha256"],
+        "properties": {
+          "segment": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "firstSequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "lastSequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "intervalSetSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "producer": { "$ref": "revision-contract-definitions.schema.json#/$defs/producer" },
+    "loopSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "additionalProperties": false
+}

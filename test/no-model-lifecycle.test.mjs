@@ -27,6 +27,7 @@ import {
   resolveWorldModelRepositoryIdentityAuthority
 } from '../src/world-model/history/repository-identity-authority.mjs';
 import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
+import { removeTemporaryTree } from '../src/util.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -45,7 +46,7 @@ async function quiet(operation) {
 
 async function activePersistedStoryFixture(t) {
   const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmp-publish-'));
-  t.after(() => rm(transport, { recursive: true, force: true }));
+  t.after(() => removeTemporaryTree(transport));
   const root = path.join(transport, 'application');
   const remote = path.join(transport, 'application.git');
   await mkdir(root, { recursive: true });
@@ -229,7 +230,7 @@ async function publishFixtureGeneration(fixture) {
 
 test('a migrated pre-anchor Story is not reported as policy tampering', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-legacy-policy-anchor-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => removeTemporaryTree(root));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Legacy Author');
   git(root, 'config', 'user.email', 'legacy@example.invalid');
@@ -347,7 +348,7 @@ test('a migrated pre-anchor Story is not reported as policy tampering', async (t
 
 test('an honestly anchored v3 Story survives the deterministic convergence policy upgrade', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-v3-policy-anchor-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => removeTemporaryTree(root));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Upgrade Author');
   git(root, 'config', 'user.email', 'upgrade@example.invalid');
@@ -436,7 +437,7 @@ test('governed publication verifies the exact persisted Story grounding receipt'
 
 test('an enrolled v7 WFA Story loads, saves, validates, and publishes without policy drift', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-v7-wfa-policy-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => removeTemporaryTree(root));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'WFA Upgrade Author');
   git(root, 'config', 'user.email', 'wfa-upgrade@example.invalid');

@@ -42,6 +42,10 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
     const match = value.match(/^(?:singularity-flow|sflow)\s+auto(?:\s+(.+))?$/u);
     return match?.[1] ? `${selected} ${match[1]}` : selected;
   }
+  if (selected === '/sf-explain-code') {
+    const match = value.match(/^(?:singularity-flow|sflow)\s+explain\s+code(?:\s+(.+))?$/u);
+    return match?.[1] ? `${selected} ${match[1]}` : selected;
+  }
   return selected;
 }
 

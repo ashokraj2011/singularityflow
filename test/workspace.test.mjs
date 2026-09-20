@@ -186,6 +186,12 @@ test('repository commands can route through the explicitly selected workspace', 
     'repository-local capability reads still use the explicitly selected workspace');
   assert.equal(await activeWorkspaceRepositoryRoot('doctor', { env }), await realpath(repository),
     'ordinary doctor remains repository-scoped and follows the selected workspace');
+  assert.equal(await activeWorkspaceRepositoryRoot('explain', {
+    env, subcommand: 'approvals'
+  }), null, 'documentation explanation remains repository-independent');
+  assert.equal(await activeWorkspaceRepositoryRoot('explain', {
+    env, subcommand: 'code'
+  }), await realpath(repository), 'code explanation follows the explicitly selected repository');
   assert.equal(await activeWorkspaceRepositoryRoot('doctor', {
     env, options: { performance: true }
   }), null, 'doctor --performance deliberately measures the invoking checkout');

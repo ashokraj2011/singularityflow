@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'explain']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -546,6 +546,19 @@ function resolveComprehensionOperation(definition, positionals) {
     return never('comprehension.backfill.validate', definition, 'read');
   }
   return never(`comprehension.${subcommand}`, definition, 'read');
+}
+
+/**
+ * Preserve `explain <topic>` as the repository-independent documentation service while giving
+ * the explicit `explain code` route its own repository-bound, auditable operation identity.
+ * Narration is optional: `--no-model` and unavailable providers fall back to the identical
+ * computed explanation rather than making code inspection unavailable.
+ */
+function resolveExplainOperation(definition, positionals, options) {
+  if (positionals[1] !== 'code') return never('explain', definition, 'read');
+  return optionBoolean(options, 'narrate')
+    ? optional('explain.code.narrate', 'explain.code', definition)
+    : never('explain.code', definition, 'read');
 }
 
 function resolveChangeOperation(definition, positionals, options) {
@@ -1174,6 +1187,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'doctor') return resolveDoctorOperation(definition, options);
   if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
+  if (definition.name === 'explain') return resolveExplainOperation(definition, positionals, options);
   if (definition.name === 'comprehension') return resolveComprehensionOperation(definition, positionals);
   if (definition.name === 'change') return resolveChangeOperation(definition, positionals, options);
   if (definition.name === 'proof') return resolveProofOperation(definition, positionals);
@@ -1281,6 +1295,7 @@ export function operationCatalog() {
   const inputsDefinition = commandDefinition('inputs');
   const specDefinition = commandDefinition('spec');
   const comprehensionDefinition = commandDefinition('comprehension');
+  const explainDefinition = commandDefinition('explain');
   const changeDefinition = commandDefinition('change');
   const proofDefinition = commandDefinition('proof');
   const deliveryDefinition = commandDefinition('delivery');
@@ -1399,6 +1414,9 @@ export function operationCatalog() {
     never('spec.tasks', specDefinition, 'mutation'),
     never('spec.tasks.dry-run', specDefinition, 'read'),
     never('spec.trace', specDefinition, 'read'),
+    never('explain', explainDefinition, 'read'),
+    never('explain.code', explainDefinition, 'read'),
+    optional('explain.code.narrate', 'explain.code', explainDefinition),
     ...COMPREHENSION_SUBCOMMANDS.filter((name) => !['walkthrough', 'backfill'].includes(name))
       .map((name) => never(`comprehension.${name}`, comprehensionDefinition, 'read')),
     never('comprehension.backfill.validate', comprehensionDefinition, 'read'),

@@ -1176,6 +1176,79 @@ export interface ComprehensionIdeSnapshot {
       }>;
     }>;
   };
+  codeExplanation?: {
+    schemaVersion: 1;
+    kind: 'comprehension-code-explanation';
+    mode: 'observe-only';
+    authoritative: false;
+    authority: 'none';
+    lifecycleGate: false;
+    status: 'available' | 'unavailable' | 'not-applicable';
+    reason: string | null;
+    explanationSha256: string;
+    candidate: {
+      binding: string; sha256: string; truth: string;
+      context: { workId: string | null; phase: string | null; base: string | null; source: string | null };
+    };
+    availability: {
+      diff: { status: string; reason: string | null };
+      structure: { status: string; reason: string | null; sourceStatus: string };
+      cause: { status: string; reason: string };
+      impact: { status: string; reason: string; truth: string | null };
+      proof: { status: string; reason: string };
+    };
+    whyEachChange: Array<{
+      unitId: string;
+      unitKind: 'diff-hunk' | 'tracked-file-opaque' | 'untracked-region-opaque' | 'change-region-opaque';
+      explanationStatus: 'unexplained' | 'opaque';
+      regionId: string;
+      regionSha256: string;
+      sourceChangeId: string;
+      operation: string;
+      location: { pathBefore: string | null; pathAfter: string | null };
+      hunk: null | {
+        hunkId: string; header: string;
+        before: { start: number; lines: number; end: number | null };
+        after: { start: number; lines: number; end: number | null };
+      };
+      opacity: null | { status: 'opaque'; reason: string };
+      declarations: Array<{
+        id: string; name: string; qualifiedName: string | null; declarationKind: string;
+        signature: string | null; path: string; line: number; assurance: string;
+        extractor: string; match: string;
+      }>;
+      structure: { status: string; reason: string | null };
+      cause: {
+        status: string;
+        reason: string;
+        clauseIds: string[];
+        references: Array<{
+          causeKind: string;
+          causeId: string;
+          authorityRecordSha256: string | null;
+          relationship: string | null;
+          scope: 'change-region';
+          hunkBound: false;
+        }>;
+      };
+      explanationUnitSha256: string;
+    }>;
+    impact: {
+      status: string; reason: string; truth: string | null;
+      callers: unknown[]; importers: unknown[]; tests: unknown[]; contracts: unknown[];
+    };
+    proof: {
+      status: string; reason: string; vocabulary: string[]; clauses: unknown[]; records: unknown[];
+    };
+    unexplained: { reason: string; hunkIds: string[]; opaqueUnitIds: string[] };
+    counts: {
+      regions: number; trackedFiles: number; untrackedRegions: number; unclassifiedRegions: number;
+      diffHunks: number;
+      opaqueUnits: number; explanationUnits: number; declarationLinks: number;
+      causeBoundHunks: number; unexplainedHunks: number; returnedUnits: number;
+      returnedHunks: number; returnedOpaqueUnits: number;
+    };
+  };
   evidence: {
     schemaVersion: 1;
     kind: 'comprehension-recorded-evidence';
@@ -1278,12 +1351,12 @@ export interface ComprehensionIdeSnapshot {
     regions: number; materialRegions: number; explained: number; unresolved: number;
     causes: number; edges: number; symbols: number; replayEvents: number;
     newRegions: number; legacyTouched: number; mechanicalMoveCandidates: number;
-    sourceReferences: number;
+    sourceReferences: number; explanationUnits: number; opaqueExplanationUnits: number;
   };
   availability: {
     structure: string; causeGraph: string; durableAuthority: string;
     walkthrough: string; replay: string; diff: string; evidence: string; brownfield: string;
-    source: string;
+    source: string; codeExplanation: string;
   };
 }
 

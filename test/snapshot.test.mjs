@@ -291,6 +291,19 @@ test('Comprehension Center is a lazy model-free snapshot slice with explicit unk
   assert.equal(scoped.comprehension.diff.status, 'unavailable');
   assert.equal(scoped.comprehension.diff.reason, 'untracked-content-not-projected');
   assert.equal(scoped.comprehension.diff.omittedUntrackedRegions, 1);
+  assert.equal(scoped.comprehension.codeExplanation.kind, 'comprehension-code-explanation');
+  assert.equal(scoped.comprehension.codeExplanation.mode, 'observe-only');
+  assert.equal(scoped.comprehension.codeExplanation.authoritative, false);
+  assert.equal(scoped.comprehension.codeExplanation.authority, 'none');
+  assert.equal(scoped.comprehension.codeExplanation.lifecycleGate, false);
+  assert.equal(scoped.comprehension.codeExplanation.counts.explanationUnits, 1);
+  assert.equal(scoped.comprehension.codeExplanation.counts.opaqueUnits, 1);
+  assert.equal(scoped.comprehension.codeExplanation.whyEachChange[0].unitKind,
+    'untracked-region-opaque');
+  assert.equal(scoped.comprehension.codeExplanation.whyEachChange[0].explanationStatus, 'opaque');
+  assert.equal(scoped.comprehension.summary.explanationUnits, 1);
+  assert.equal(scoped.comprehension.summary.opaqueExplanationUnits, 1);
+  assert.equal(scoped.comprehension.availability.codeExplanation, 'available');
   assert.equal(scoped.comprehension.evidence.status, 'not-applicable');
   assert.equal(scoped.comprehension.evidence.reason, 'no-active-story');
   assert.equal(scoped.comprehension.availability.evidence, 'not-applicable');
@@ -305,6 +318,8 @@ test('Comprehension Center is a lazy model-free snapshot slice with explicit unk
   assert.deepEqual(envelope.included, ['comprehension']);
   assert.equal(envelope.comprehension.manifest.manifestSha256,
     scoped.comprehension.manifest.manifestSha256);
+  assert.equal(envelope.comprehension.codeExplanation.explanationSha256,
+    scoped.comprehension.codeExplanation.explanationSha256);
 });
 
 test('read-only snapshots load approved configuration without copying it onto the application branch', async () => {

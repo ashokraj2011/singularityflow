@@ -324,6 +324,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Comprehension explanation for ${slot(s.type)} '${slot(s.subject)}' is ${slot(s.status)} with ${slot(s.nodes, '0')} related node(s).`,
     preserves: true
   },
+  'code-explanation.reported': {
+    headline: (s) => `Code explanation projected ${slot(s.units, '0')} change unit(s); ${slot(s.unexplained, '0')} remain unexplained.`,
+    preserves: true
+  },
   'comprehension.replay-reported': {
     headline: (s) => `Projected ${slot(s.events, '0')} comprehension replay event(s) for ${slot(s.workId)}${s.truncated ? ' (truncated)' : ''}.`,
     preserves: true

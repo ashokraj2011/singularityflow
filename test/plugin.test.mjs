@@ -670,6 +670,18 @@ test('help skill serves natural questions from cited docs and delegates work IDs
   assert.match(content, /Do not generate, submit, approve, reject, upload, commit, push/);
 });
 
+test('code explanation skill uses one read-only computed route and keeps narration explicit', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-explain-code', 'SKILL.md'), 'utf8');
+  assert.match(content, /^name: sflow-explain-code$/m);
+  assert.match(content, /disable-model-invocation:\s*true/);
+  assert.match(content, /singularity-flow session current --json/);
+  assert.match(content, /singularity-flow explain code \$ARGUMENTS --json/);
+  assert.match(content, /explicitly asks for a narrative or walkthrough/);
+  assert.match(content, /Narrative — advisory, not a record/);
+  assert.match(content, /Never read or summarize source files yourself/);
+  assert.match(content, /perform any lifecycle mutation/);
+});
+
 test('advise skill turns confusion into grounded choices without executing them', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-advise', 'SKILL.md'), 'utf8');
   assert.match(content, /singularity-flow home --json --request "\$ARGUMENTS"/);

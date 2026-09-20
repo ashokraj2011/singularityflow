@@ -212,8 +212,9 @@ test('tripwire: explain answers with models disabled and no repository at all', 
 
   const registry = COMMAND_REGISTRY.find((entry) => entry.name === 'explain');
   assert.equal(registry.classification, 'read');
-  assert.equal(registry.modelPolicy, 'never');
-  assert.ok(registry.operation.noModelFixture, 'explain has no no-model tripwire fixture');
+  assert.equal(registry.modelPolicy, 'mixed');
+  assert.equal(registry.operation, null,
+    'the command family must resolve docs and code explanation separately');
 });
 
 test('--here renders both planes with distinct citations, and degrades without a subject', async () => {

@@ -29,6 +29,8 @@ Usage:
   sflow converge [WORK-ID] [--json]
   sflow verify [WORK-ID] [--json]
   singularity-flow explain [TOPIC|ALIAS] [--here] [--section HEADING] [--max-bytes N] [--json]
+  singularity-flow explain [code [--hunk H-ID | --symbol ID | --clause ID] [--since REVISION]
+    [--narrate] [--length brief|standard|long] [--json]]
   singularity-flow show <SFREF-HANDLE|SFDOC-HANDLE> [--section HEADING | --json-pointer POINTER | --range RANGE]
     [--max-bytes N] [--json]
   singularity-flow harness report [--json]

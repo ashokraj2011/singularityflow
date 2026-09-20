@@ -116,8 +116,14 @@ async function situationHere() {
   }
 }
 
-export async function run(argv, { positionals, options } = { positionals: [], options: new Map() }) {
-  const operation = operationById(OPERATION);
+export async function run(argv, {
+  positionals, options, operation: suppliedOperation = null
+} = { positionals: [], options: new Map(), operation: null }) {
+  if (positionals[1] === 'code') {
+    const { runCodeExplanation } = await import('../comprehension/code-explanation-command.mjs');
+    return runCodeExplanation(argv, { positionals, options, operation: suppliedOperation });
+  }
+  const operation = suppliedOperation ?? operationById(OPERATION);
   const json = optionBoolean(options, 'json');
   const query = positionals[1];
   const resolution = await resolveHelp(query, {

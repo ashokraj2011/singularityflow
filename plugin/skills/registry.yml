@@ -111,6 +111,7 @@ skills:
   sflow-constitution: { class: mutation, executionBoundary: repository }
   sflow-design: { class: generative }
   sflow-docs: { class: echo, executionBoundary: machine }
+  sflow-explain-code: { class: conversational, kernelModelPolicy: conditional }
   sflow-specify: { class: echo }
   sflow-plan: { class: echo }
   sflow-converge: { class: echo }

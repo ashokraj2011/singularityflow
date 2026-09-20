@@ -64,6 +64,10 @@ test('journey mappings keep low-level plumbing behind the guided skill', () => {
   assert.deepEqual(skillsForCommand('choices'), ['sf-start', 'sf-approve']);
   assert.equal(primarySkillForCommand('converge'), 'sf-converge');
   assert.equal(primarySkillForCommand('cockpit'), 'sf-home');
+  assert.equal(primarySkillForCommand('explain'), 'sf-docs');
+  assert.ok(skillsForCommand('explain').includes('sf-explain-code'));
+  assert.equal(skillForCommandLine('singularity-flow explain approvals'), 'sf-docs');
+  assert.equal(skillForCommandLine('singularity-flow explain code --since HEAD'), 'sf-explain-code');
 });
 
 test('every exact command-line route belongs to its family and names a packaged skill', async () => {

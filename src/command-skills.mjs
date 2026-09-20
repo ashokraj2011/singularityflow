@@ -20,7 +20,7 @@ const entries = {
   converge: ['sf-converge'],
   about: ['sf-about'],
   help: ['sf-help'],
-  explain: ['sf-docs'],
+  explain: ['sf-docs', 'sf-explain-code'],
   show: ['sf-show'],
   harness: ['sf-harness'],
   init: ['sf-init'],
@@ -182,6 +182,9 @@ function route(defaultSkill, subcommands = {}) {
  * packaged.
  */
 export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
+  explain: route('sf-docs', {
+    code: 'sf-explain-code'
+  }),
   precheck: route('sf-ready'),
   choices: route('sf-start', {
     'begin start': 'sf-start',

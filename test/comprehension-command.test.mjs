@@ -117,6 +117,82 @@ test('comprehension regions is a model-free, read-only exact change projection',
   assert.equal(git(root, ['status', '--porcelain=v1']), before);
 });
 
+test('explain code projects every current change without a model or mutation', async (t) => {
+  const root = await repository(t);
+  const before = git(root, ['status', '--porcelain=v1']);
+  const result = command(root, [
+    '--no-model', 'explain', 'code', '--since', 'HEAD', '--json'
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.operation.id, 'explain.code');
+  assert.equal(response.operation.classification, 'read');
+  assert.equal(response.data.mode, 'observe-only');
+  assert.equal(response.data.narrative, null);
+  const explanation = response.data.explanation;
+  assert.equal(explanation.authoritative, false);
+  assert.equal(explanation.lifecycleGate, false);
+  assert.equal(explanation.counts.regions, 2);
+  assert.equal(explanation.counts.explanationUnits, 2);
+  assert.equal(explanation.whyEachChange.length, 2);
+  assert.deepEqual(
+    explanation.whyEachChange.map((entry) => entry.unitKind).sort(),
+    ['untracked-region-opaque', 'diff-hunk'].sort()
+  );
+  assert.equal(explanation.impact.status, 'unavailable');
+  assert.equal(explanation.proof.status, 'unavailable');
+  assert.match(explanation.explanationSha256, /^sha256:[a-f0-9]{64}$/);
+  const narrate = response.next.find((entry) => entry.id === 'code-explanation.narrate');
+  assert.equal(narrate.command, 'singularity-flow explain code --since HEAD --narrate');
+  assert.equal(narrate.copilotCommand, '/sf-explain-code --since HEAD --narrate');
+  assert.deepEqual(response.effects, {
+    stateChanged: false, filesChanged: false, publicationCreated: false,
+    externalSystemsChanged: false
+  });
+  assert.equal(git(root, ['status', '--porcelain=v1']), before);
+});
+
+test('explain code narration falls back to the identical computed projection when models are disabled', async (t) => {
+  const root = await repository(t);
+  const computedResult = command(root, [
+    '--no-model', 'explain', 'code', '--since', 'HEAD', '--json'
+  ]);
+  assert.equal(computedResult.status, 0, computedResult.stderr);
+  const computed = JSON.parse(computedResult.stdout);
+  const narratedResult = command(root, [
+    '--no-model', 'explain', 'code', '--since', 'HEAD', '--narrate', '--json'
+  ]);
+  assert.equal(narratedResult.status, 0, narratedResult.stderr);
+  const narrated = JSON.parse(narratedResult.stdout);
+  assert.equal(narrated.operation.id, 'explain.code');
+  assert.deepEqual(narrated.data.explanation, computed.data.explanation,
+    'model admission fallback must not alter the deterministic explanation');
+  assert.deepEqual(narrated.data.narrative, {
+    status: 'unavailable',
+    reason: 'model-disabled-fallback',
+    banner: 'Narrative — advisory, not a record',
+    authority: 'none',
+    stored: false
+  });
+});
+
+test('explain code refuses invalid narrative length and distinguishes an empty drill-down', async (t) => {
+  const root = await repository(t);
+  const invalidLength = command(root, [
+    '--no-model', 'explain', 'code', '--since', 'HEAD', '--narrate', '--length', 'unbounded', '--json'
+  ]);
+  assert.notEqual(invalidLength.status, 0);
+  assert.match(invalidLength.stderr, /Narrative length 'unbounded' is invalid/u);
+
+  const noMatch = command(root, [
+    '--no-model', 'explain', 'code', '--since', 'HEAD', '--hunk', 'H-999'
+  ]);
+  assert.equal(noMatch.status, 0, noMatch.stderr);
+  assert.match(noMatch.stdout, /No exact change units matched hunk=H-999/u);
+  assert.doesNotMatch(noMatch.stdout, /No observable change units exist/u);
+  assert.match(noMatch.stdout, /compatibility subject/u);
+});
+
 test('comprehension source expands only current Candidate-bound references in bounded pages', async (t) => {
   const root = await repository(t);
   const before = git(root, ['status', '--porcelain=v1']);

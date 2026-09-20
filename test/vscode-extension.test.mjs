@@ -6232,6 +6232,22 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
     'per-region inspection reuses offsets into one bounded patch instead of copying source bytes');
   assert.match(panel, /Recorded delivery evidence/,
     'the Center exposes only the delivery references already recorded for the current phase');
+  assert.match(panel, /Why each change is there/,
+    'the default explanation view enumerates every observable change unit');
+  assert.match(panel, /What it touches[\s\S]*What is proven, what is not/,
+    'the fixed XPL sections remain ordered across the VS Code surface');
+  assert.match(panel, /region-level reference, not hunk-bound/,
+    'region cause hints never masquerade as hunk-bound authority');
+  assert.match(panel, /runtime has been upgraded[\s\S]*does not infer an explanation/,
+    'older snapshots degrade explicitly instead of crashing or inventing prose');
+  assert.match(panel, /<details class="card">[\s\S]*<summary>/,
+    'each explanation unit is an accessible expandable review card');
+  assert.match(panel, /Prepare advisory narrative in Copilot/,
+    'the optional narrative remains a user-reviewed Copilot handoff');
+  assert.match(panel, /query: '\/sf-explain-code --narrate '[\s\S]*isPartialQuery: true/,
+    'the narrative button prefills Chat and never submits or executes the request');
+  assert.match(panel, /data-message="narrate"[\s\S]*postMessage\(\{ type:'narrate' \}\)/,
+    'the webview bridge actually delivers the reviewed narration request to the host router');
   assert.match(panel, /Incremental brownfield adoption/,
     'the Center explains touched-area adoption without requiring a full repository backfill');
   assert.match(panel, /never retains a legacy label, creates history, approves a proposal, or blocks lifecycle work/,

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b6d059cfd6ffceff90c36454a173cace32efd9fe",
-  "topicCount": 65,
-  "contentSha256": "d5e5a3e13dc805665040612bcbe411abf135eb77afdd9936f3e497ff733e84e1",
+  "sourceCommit": "804419ae888299236f7f6a00409957cb0a65fbe5",
+  "topicCount": 66,
+  "contentSha256": "504bdecad42a72ce4cf48712bdbfa1ea3532a8a4bd3a6506c286121c41ca1ecd",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -92,6 +92,14 @@
       "sha256": "7b44f5047aed57f5ef87dbff34858cad7786439cef6779d958bfd9651ac2ce6a",
       "routingSha256": "4c603b239aa79d5fc63a34667b70be0962a94c8d0283a23c8d11935c87b35bf3",
       "file": "checkpoints-pause-continue.md"
+    },
+    {
+      "id": "code-explanation",
+      "title": "Explain current code changes",
+      "version": 2,
+      "sha256": "1987ba8dcf5485ab67f9bc5b4aeb5afb76620ce5d5de2617bb13ef707488552b",
+      "routingSha256": "e3d49ec198e00a6d32ca54a43dbac6a4aa57c0e5e3df2ff03054435f631f7c40",
+      "file": "code-explanation.md"
     },
     {
       "id": "configuration",

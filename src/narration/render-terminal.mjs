@@ -317,6 +317,76 @@ function comprehensionText(result) {
   return [style.heading(headline(result)), preservationLine(result)].filter(Boolean).join('\n\n');
 }
 
+function codeExplanationTerminalValue(value, fallback = 'unavailable', maximum = 2_000) {
+  const normalized = String(value ?? fallback)
+    .normalize('NFKC')
+    .replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  const selected = normalized || fallback;
+  return selected.length > maximum ? `${selected.slice(0, maximum - 1)}…` : selected;
+}
+
+function codeExplanationText(result) {
+  const { context = {}, explanation, narrative = null } = result.data ?? {};
+  if (!explanation) return [headline(result), preservationLine(result)].filter(Boolean).join('\n');
+  const safe = codeExplanationTerminalValue;
+  const short = (value) => safe(value).replace(/^sha256:/u, '').slice(0, 12);
+  const unitLines = explanation.whyEachChange.length ? explanation.whyEachChange.flatMap((unit) => {
+    const file = safe(unit.location?.pathAfter ?? unit.location?.pathBefore, 'unknown path');
+    const range = unit.hunk
+      ? `+${unit.hunk.after.start}${unit.hunk.after.lines ? `,${unit.hunk.after.lines}` : ''}`
+      : safe(unit.opacity?.reason, 'opaque change');
+    const symbols = unit.declarations?.length
+      ? unit.declarations.map((entry) => `${safe(entry.qualifiedName ?? entry.name)}:${entry.line} (${safe(entry.assurance)}; navigation only)`).join(', ')
+      : `declaration unavailable: ${safe(unit.structure?.reason, 'no exact structural boundary')}`;
+    const causeReferences = unit.cause?.references?.length
+      ? unit.cause.references.map((entry) => `${safe(entry.causeKind)}:${safe(entry.causeId)} (region reference; not hunk-bound)`).join(', ')
+      : 'no recorded cause reference';
+    return [
+      `  ${safe(unit.unitId)}  ${safe(unit.explanationStatus, 'unexplained').toUpperCase()} · ${safe(unit.cause?.reason, 'no validated cause binding')}`,
+      `     ${file} · ${safe(unit.operation)} · ${range}`,
+      `     ${symbols}`,
+      `     ${causeReferences}`
+    ];
+  }) : [explanation.counts?.explanationUnits
+    ? `  No exact change units matched ${safe(explanation.query?.type)}=${safe(explanation.query?.value)}; ${explanation.counts.explanationUnits} unit(s) remain outside this drill-down.`
+    : '  No observable change units exist in the selected interval.'];
+  const symbolRows = explanation.whyEachChange.flatMap((unit) => unit.declarations ?? []);
+  const impactLines = explanation.availability?.impact?.status === 'available'
+    ? ['  Exact impact records are available in the JSON result.']
+    : [
+      `  Impact unavailable: ${safe(explanation.availability?.impact?.reason, 'repository impact was not projected')}.`,
+      ...(symbolRows.length
+        ? [`  ${symbolRows.length} cached declaration overlap(s) are navigation hints, not caller or ownership proof.`]
+        : ['  No cached declaration overlap is available.'])
+    ];
+  const proofLines = explanation.availability?.proof?.status === 'available'
+    ? ['  Recorded proof references are available in the JSON result.']
+    : [`  Proof unavailable: ${safe(explanation.availability?.proof?.reason, 'candidate-bound proof was not projected')}.`];
+  const narrativeLines = narrative ? [
+    '', style.heading(safe(narrative.banner, 'Narrative — advisory, not a record')),
+    narrative.status === 'available'
+      ? safe(narrative.text, 'No citation-valid narrative sentence was returned.')
+      : `Unavailable: ${safe(narrative.reason, 'model narration unavailable')}.`,
+    narrative.status === 'available'
+      ? style.detail(`${narrative.removedUncited ?? 0} uncited · ${narrative.removedInvalid ?? 0} invalid removed · ${narrative.rewrittenToRecords ?? 0} selection(s) rendered from records · ${narrative.rewrittenOverclaims ?? 0} overclaim(s) neutralized`)
+      : null
+  ] : [];
+  return [
+    style.heading(safe(headline(result), 'Code explanation')),
+    `${safe(context.workId, 'Repository')} · ${safe(context.phase, 'no active phase')} · compatibility subject ${short(explanation.candidate?.sha256)} · baseline ${short(context.base)}`,
+    `${explanation.counts.regions} changed region(s) · ${explanation.counts.diffHunks} text hunk(s) · ${explanation.counts.opaqueUnits} opaque unit(s) · authority: none`,
+    '', style.heading('WHY EACH CHANGE IS THERE'), ...unitLines,
+    '', style.heading('WHAT IT TOUCHES'), ...impactLines,
+    '', style.heading('WHAT IS PROVEN, WHAT IS NOT'), ...proofLines,
+    ...narrativeLines,
+    ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
+    '', style.detail('Observe only: this projection cannot approve, publish, gate, or change lifecycle state.'),
+    style.detail(preservationLine(result))
+  ].filter((value) => value !== null && value !== '').join('\n');
+}
+
 function shadowPassportText(result) {
   const passport = result.data ?? {};
   return [
@@ -420,6 +490,7 @@ export function renderCommandResult(result) {
     ].filter(Boolean).join('\n');
   }
   if (result.operation.id.startsWith('comprehension.')) return comprehensionText(result);
+  if (result.operation.id.startsWith('explain.code')) return codeExplanationText(result);
   if (result.operation.id === 'change.show.shadow') return shadowPassportText(result);
   if (result.operation.id.startsWith('proof.')) return proofObservationText(result);
   if (result.operation.id.startsWith('auto.') && result.data?.card) return result.data.card;

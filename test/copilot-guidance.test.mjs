@@ -41,7 +41,7 @@ test('SGOS and learning commands never route through the workflow catalog skill'
   assert.equal(copilotSkillForCommand('singularity-flow workflow list'), '/sf-workflows');
 });
 
-test('the SGOS Copilot command retains the exact family, subcommand, and arguments', () => {
+test('exact relay skills retain their command families, subcommands, and arguments', () => {
   assert.equal(
     copilotCommandForCommand('singularity-flow process status --json'),
     '/sf-sgos process status --json'
@@ -57,6 +57,12 @@ test('the SGOS Copilot command retains the exact family, subcommand, and argumen
   assert.equal(
     copilotCommandForCommand('singularity-flow auto pause AFL-1 --confirm sha256:abc'),
     '/sf-auto pause AFL-1 --confirm sha256:abc'
+  );
+  assert.equal(
+    copilotCommandForCommand(
+      'singularity-flow explain code --since HEAD --work-id XPL-17 --phase implementation --hunk H-001 --narrate'
+    ),
+    '/sf-explain-code --since HEAD --work-id XPL-17 --phase implementation --hunk H-001 --narrate'
   );
 });
 

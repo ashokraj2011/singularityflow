@@ -188,6 +188,8 @@ Every public operation is classified before its implementation module is importe
 | execution-unit.doctor | read | never | — | — |
 | execution-unit.list | read | never | — | — |
 | explain | read | never | — | — |
+| explain.code | read | never | — | — |
+| explain.code.narrate | read | optional | explain.code | copilot-cli |
 | factory-reset | mutation | never | — | — |
 | fault.list | read | never | — | — |
 | fault.report | mutation | never | — | — |

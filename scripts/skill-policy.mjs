@@ -24,6 +24,7 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'auto.plan': /\bsingularity-flow\s+auto\s+plan\b/,
   'auto.repair': /\bsingularity-flow\s+auto\s+repair\b/,
   'copilot.launch': /\bsingularity-flow\s+copilot\b/,
+  'explain.code.narrate': /\bsingularity-flow\s+explain\s+code\b[^\n`]*--narrate\b/,
   'next.orchestrate': /\bsingularity-flow\s+next\b/,
   'pr.describe.polish': /\bsingularity-flow\s+pr\s+describe\b[^\n`]*--polish\b/,
   'process.run.model': /\bsingularity-flow\s+process\s+run\b[^\n`]*--allow-model\b/,

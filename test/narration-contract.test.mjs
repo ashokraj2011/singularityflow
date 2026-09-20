@@ -94,6 +94,44 @@ test('every narrated continuation includes exact Shell and Copilot routes', () =
   assert.match(rendered, /Copilot: \/sf-doctor/);
 });
 
+test('code explanation terminal output neutralizes repository and model control sequences', () => {
+  const rendered = renderCommandResult(commandResult({
+    operation: { id: 'explain.code.narrate', classification: 'read' },
+    subject: { kind: 'story', id: 'XPL-1' },
+    outcome: succeeded('code-explanation.reported', { units: 1, unexplained: 1 }),
+    effects: noEffects(),
+    restState: 'informational',
+    data: {
+      context: { workId: 'XPL-1', phase: 'implementation', base: 'HEAD' },
+      explanation: {
+        candidate: { sha256: `sha256:${'a'.repeat(64)}` },
+        query: { type: 'all', value: null },
+        counts: { regions: 1, diffHunks: 1, opaqueUnits: 0, explanationUnits: 1 },
+        whyEachChange: [{
+          unitId: 'H-001', unitKind: 'diff-hunk', explanationStatus: 'unexplained',
+          operation: 'modified',
+          location: { pathAfter: 'src/ok.js\nFORGED\u001b]8;;https://evil.example\u0007' },
+          hunk: { after: { start: 1, lines: 1 } },
+          declarations: [], structure: { reason: 'unavailable' },
+          cause: { reason: 'hunk-cause-authority-unavailable', references: [] }
+        }],
+        availability: {
+          impact: { status: 'unavailable', reason: 'repository-impact-not-projected' },
+          proof: { status: 'unavailable', reason: 'candidate-bound-hunk-proof-not-projected' }
+        }
+      },
+      narrative: {
+        status: 'available', banner: 'Narrative — advisory, not a record',
+        text: 'Safe words\u001b[2J\u001b]8;;https://evil.example\u0007',
+        removedUncited: 0, removedInvalid: 0, rewrittenOverclaims: 0
+      }
+    }
+  }));
+  assert.doesNotMatch(rendered, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u);
+  assert.doesNotMatch(rendered, /\nFORGED/u);
+  assert.match(rendered, /compatibility subject/u);
+});
+
 test('an SGOS continuation preserves its full Copilot relay command', () => {
   const result = commandResult({
     operation: { id: 'sgos-status', classification: 'read' },

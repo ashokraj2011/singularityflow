@@ -13,7 +13,7 @@ import { navigateTo } from './navigate.ts';
 import { commandData } from './surface-adapters.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 
-type Tab = 'regions' | 'source' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
+type Tab = 'explanation' | 'regions' | 'source' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
 
 function shortDigest(value: unknown): string {
   const digest = String(value ?? '');
@@ -131,6 +131,30 @@ function evidence(snapshot: ComprehensionIdeSnapshot): string {
     <p class="callout"><strong>Authority boundary:</strong> these are references already recorded in workflow state. This read-only view does not reopen receipts, upgrade assurance, or authorize lifecycle progress.</p></section>`;
 }
 
+function codeExplanation(snapshot: ComprehensionIdeSnapshot): string {
+  const value = snapshot.codeExplanation;
+  if (!value) {
+    return '<section><h2>Code explanation</h2><div class="empty"><p>The computed explanation is unavailable in this snapshot. Refresh after the Singularity Flow runtime has been upgraded.</p></div><p class="callout"><strong>Authority boundary:</strong> absence is preserved; this surface does not infer an explanation from source text.</p></section>';
+  }
+  const why = value.whyEachChange.length ? value.whyEachChange.map((unit) => {
+    const file = unit.location.pathAfter ?? unit.location.pathBefore ?? 'unknown';
+    const range = unit.hunk
+      ? `${unit.hunk.hunkId} · +${unit.hunk.after.start},${unit.hunk.after.lines}`
+      : `${unit.unitId} · ${unit.opacity?.reason ?? 'opaque change'}`;
+    const declarations = unit.declarations.length
+      ? `<ul>${unit.declarations.map((entry) => `<li><button class="link" type="button" data-open-file="${escape(entry.path)}" data-open-line="${entry.line}">${escape(entry.qualifiedName ?? entry.name)}:${entry.line}</button> <span class="badge">${escape(entry.assurance)}</span> <span class="muted">navigation hint only</span></li>`).join('')}</ul>`
+      : `<p class="muted">Declaration unavailable: <code>${escape(unit.structure.reason ?? 'no exact semantic boundary')}</code>.</p>`;
+    const causeReferences = unit.cause.references.length
+      ? `<ul>${unit.cause.references.map((entry) => `<li><code>${escape(entry.causeId)}</code> · ${escape(entry.causeKind)} · region-level reference, not hunk-bound</li>`).join('')}</ul>`
+      : '<p class="muted">No recorded cause reference is available for this change region.</p>';
+    return `<details class="card"><summary><strong>${escape(range)}</strong> <span class="badge">${escape(unit.explanationStatus)}</span> · ${escape(file)}</summary><p><button class="link" type="button" data-open-file="${escape(file)}">Open ${escape(file)}</button> · ${escape(unit.operation)}</p><h4>Declaration navigation</h4>${declarations}<h4>Cause boundary</h4><p class="meta">${escape(unit.cause.reason)}</p>${causeReferences}<p class="meta">Unit <code>${escape(shortDigest(unit.explanationUnitSha256))}</code></p></details>`;
+  }).join('') : '<div class="empty"><p>No observable changes exist in this interval.</p></div>';
+  return `<section><h2>Why each change is there</h2><p class="meta">Every observable tracked hunk is listed once. Metadata, binary, and untracked changes remain visible as opaque units. Missing cause authority stays unexplained.</p><p><button class="secondary" type="button" data-message="narrate">Prepare advisory narrative in Copilot</button></p>${why}</section>
+    <section><h2>What it touches</h2><div class="empty"><p>Repository impact is ${escape(value.availability.impact.status)}: <code>${escape(value.availability.impact.reason)}</code>. Cached declaration overlaps above are navigation aids; they do not prove ownership, callers, or contract impact.</p></div></section>
+    <section><h2>What is proven, what is not</h2><div class="empty"><p>Candidate-bound proof is ${escape(value.availability.proof.status)}: <code>${escape(value.availability.proof.reason)}</code>. This view never promotes a claim or path-level test reference into passed proof.</p></div>
+    <p class="callout"><strong>Authority boundary:</strong> observe-only · authority none · lifecycle gate false. Explanation <code>${escape(shortDigest(value.explanationSha256))}</code>.</p></section>`;
+}
+
 function walkthrough(snapshot: ComprehensionIdeSnapshot): string {
   const draft = snapshot.walkthrough.draft;
   if (!draft) return `<div class="empty"><p>No deterministic walkthrough draft is available: <code>${escape(snapshot.walkthrough.unavailableReason ?? 'CMP_WALKTHROUGH_UNAVAILABLE')}</code>.</p></div>`;
@@ -165,12 +189,13 @@ export function comprehensionCenterBody(
   source: ComprehensionSourceExpansion | null = null
 ): string {
   const tabs: Array<[Tab, string]> = [
-    ['regions', 'Regions'], ['source', 'Source'], ['brownfield', 'Brownfield'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
+    ['explanation', 'Code explanation'], ['regions', 'Regions'], ['source', 'Source'], ['brownfield', 'Brownfield'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
     ['replay', 'Replay'], ['unknowns', 'Unknowns']
   ];
   const content = !snapshot
     ? '<div class="empty"><p>The comprehension projection is not available yet.</p></div>'
-    : tab === 'regions' ? regions(snapshot)
+    : tab === 'explanation' ? codeExplanation(snapshot)
+      : tab === 'regions' ? regions(snapshot)
       : tab === 'source' ? sourceView(source)
         : tab === 'brownfield' ? brownfield(snapshot)
           : tab === 'diff' ? diff(snapshot)
@@ -198,6 +223,8 @@ const SCRIPT = `
     if (tab) return vscode.postMessage({ type:'tab', tab:tab.dataset.tab });
     const refresh = event.target.closest('[data-message="refresh"]');
     if (refresh) return vscode.postMessage({ type:'refresh' });
+    const narrate = event.target.closest('[data-message="narrate"]');
+    if (narrate) return vscode.postMessage({ type:'narrate' });
     const source = event.target.closest('[data-source-ref]');
     if (source) return vscode.postMessage({ type:'source', reference:source.dataset.sourceRef });
     const next = event.target.closest('[data-source-next]');
@@ -229,7 +256,7 @@ export class ComprehensionCenterPanel {
   private lease: SliceLease | null = null;
   private leaseAcquisition: Promise<void> | null = null;
   private renewal: ReturnType<typeof setInterval> | null = null;
-  private tab: Tab = 'regions';
+  private tab: Tab = 'explanation';
   private loading = true;
   private error: string | null = null;
   private source: ComprehensionSourceExpansion | null = null;
@@ -248,10 +275,11 @@ export class ComprehensionCenterPanel {
     this.client = client;
     const router = registerMessageRouter('singularityFlow.comprehensionCenter', {
       tab: (message) => {
-        const tab = enumField(message, 'tab', ['regions', 'source', 'brownfield', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
+        const tab = enumField(message, 'tab', ['explanation', 'regions', 'source', 'brownfield', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
         if (tab) { this.tab = tab; this.render(); }
       },
       refresh: () => void this.refresh(),
+      narrate: () => void this.prefillNarration(),
       source: (message) => {
         const reference = stringField(message, 'reference');
         if (reference) void this.loadSource(reference, 0);
@@ -290,6 +318,13 @@ export class ComprehensionCenterPanel {
       this.render();
     });
     this.render();
+  }
+
+  private async prefillNarration(): Promise<void> {
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+      query: '/sf-explain-code --narrate ',
+      isPartialQuery: true
+    });
   }
 
   static show(

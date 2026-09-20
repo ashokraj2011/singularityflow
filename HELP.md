@@ -2999,10 +2999,18 @@ records, and current pilot limits, read
 
 ```text
 singularity-flow explain [TOPIC|ALIAS] [--here] [--section HEADING] [--max-bytes N] [--json]
+singularity-flow explain [code [--hunk H-ID | --symbol ID | --clause ID] [--since REVISION]
+  [--narrate] [--length brief|standard|long] [--json]]
 singularity-flow why [QUESTION] [--json]
 ```
 
 `explain` serves the shipped documentation topics. It never invokes a model and never needs a repository, so it answers from a global install with no clone at all. With no argument it lists every topic. Resolution is exact id, then alias, then unique prefix; an ambiguous prefix returns the candidates rather than guessing, and an unknown topic returns the nearest ids. Every response carries the topic id, its version, and the commit the docs manifest was stamped from. `--here` adds the current work item's situation as a second, separately cited part, and degrades to the concept alone when no work item resolves. In Copilot use `/sf-docs`.
+
+The exact `explain code` subcommand is repository-bound and renders a deterministic, read-only
+projection of current change units. It keeps unavailable causes, impact, and proof explicit instead
+of inventing them. `--narrate` is optional advisory prose over that computed projection; it does not
+become evidence. In Copilot use `/sf-explain-code`. See
+[Code explanation](docs/CODE-EXPLANATION.md) for the current authority boundary and deferred joins.
 
 ### Governed reference expansion
 

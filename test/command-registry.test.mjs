@@ -71,6 +71,27 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(classify('comprehension', ['comprehension', 'replay', 'phase', 'implementation']), 'read');
   assert.equal(classify('comprehension', ['comprehension', 'brownfield']), 'read');
   assert.equal(classify('comprehension', ['comprehension', 'backfill', 'validate', 'review/backfill.json']), 'read');
+  const docsExplanation = resolveOperation({
+    requestedCommand: 'explain', positionals: ['explain', 'approvals'], options: {}
+  });
+  assert.equal(docsExplanation.id, 'explain');
+  assert.equal(docsExplanation.classification, 'read');
+  assert.equal(docsExplanation.modelPolicy, 'never');
+  const computedExplanation = resolveOperation({
+    requestedCommand: 'explain', positionals: ['explain', 'code'], options: {}
+  });
+  assert.equal(computedExplanation.id, 'explain.code');
+  assert.equal(computedExplanation.classification, 'read');
+  assert.equal(computedExplanation.modelPolicy, 'never');
+  const narratedExplanation = resolveOperation({
+    requestedCommand: 'explain', positionals: ['explain', 'code'], options: { narrate: true }
+  });
+  assert.equal(narratedExplanation.id, 'explain.code.narrate');
+  assert.equal(narratedExplanation.classification, 'read');
+  assert.equal(narratedExplanation.modelPolicy, 'optional');
+  assert.deepEqual(narratedExplanation.fallback, {
+    operationId: 'explain.code', mode: 'automatic'
+  });
   assert.equal(classify('visual', ['visual', 'status']), 'read');
   assert.equal(classify('visual', ['visual', 'compare']), 'mutation');
   assert.equal(classify('mcp', ['mcp', 'probe', 'playwright'], { network: true }), 'read');

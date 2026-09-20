@@ -32,7 +32,7 @@ const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
 // repository-scoped and may safely use the repository explicitly selected by `workspace use` when
 // Copilot or another host starts the CLI outside a Git checkout.
 export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
-  'about', 'help', 'explain', 'guide', 'show', 'quickstart', 'home',
+  'about', 'help', 'guide', 'show', 'quickstart', 'home',
   'init', 'precheck', 'bootstrap', 'onboard', 'authority', 'cache',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall',
   'workspace', 'session', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local'
@@ -61,6 +61,10 @@ export const MACHINE_LOCAL_TELEMETRY_SUBCOMMANDS = new Set([
 
 export function excludesActiveWorkspaceRouting(command, subcommand = null, options = {}) {
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
+    // Documentation topics remain machine-local and repository-independent. Code explanation is
+    // deliberately repository-bound and may use the repository selected by `workspace use` when
+    // Copilot starts from a neutral directory.
+    || (command === 'explain' && subcommand !== 'code')
     // `doctor --performance` measures the Git checkout a person invoked it from, including a fresh
     // checkout with no workflow yet. Ordinary doctor remains repository-scoped and follows the
     // selected workspace when Copilot starts it outside a checkout.

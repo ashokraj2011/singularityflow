@@ -300,10 +300,12 @@ export function showResultCard(view: ResultCardView,
  * Returns nothing and never throws: a failure to render a refusal must not become a second failure
  * on top of the first, which is how a reader ends up with no information at all.
  */
-export function showRefusal(error: unknown, { headline }: { headline?: string } = {}): void {
+export function showRefusal(error: unknown, {
+  headline, repositoryRoot = repositoryBinding?.root ?? null
+}: { headline?: string; repositoryRoot?: string | null } = {}): void {
   let refusal: Refusal;
   try {
-    refusal = refusalFor(error, { headline });
+    refusal = refusalFor(error, { headline, repositoryRoot });
   } catch {
     // Last resort, and still not a dead end — the message, at least, reaches the reader.
     void vscode.window.showErrorMessage(String((error as { message?: string })?.message ?? error));

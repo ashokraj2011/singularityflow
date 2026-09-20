@@ -1153,7 +1153,7 @@ function configuredStoryRemote(root, remoteName) {
 
 /** Find a Story-readable authority in this repository or its active workspace lead. */
 export async function resolveStoryConfigurationAuthority(root, remoteName = 'origin', {
-  session = new GitRemoteSession()
+  session = new GitRemoteSession({ cwd: root })
 } = {}) {
   const workspace = await activeWorkspaceForRepository(root);
   // A capability-derived workspace records the organisation repository that actually owns
@@ -1183,7 +1183,7 @@ export async function resolveStoryConfigurationAuthority(root, remoteName = 'ori
  */
 export async function resolveNewStoryConfigurationAuthority(root, {
   pinnedRemote = null,
-  session = new GitRemoteSession()
+  session = new GitRemoteSession({ cwd: root })
 } = {}) {
   const workspace = await activeWorkspaceForRepository(root);
   const configuredAuthority = workspace?.capabilityAuthority?.url;

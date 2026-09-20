@@ -6318,7 +6318,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage(worldModelBuildCompletionMessage(outcome));
       } catch (error) {
         output.appendLine(`  exact world-model build refused: ${(error as Error).message}`);
-        showRefusal(error, { headline: 'Could not build the World Model' });
+        // Keep recovery bound to the repository that produced the failure even if the user changes
+        // the active workspace while an authority probe or reviewed build is still in flight.
+        showRefusal(error, {
+          headline: 'Could not build the World Model', repositoryRoot: active.root
+        });
       }
     },
     'singularityFlow.configureAstIntelligence': async () => {

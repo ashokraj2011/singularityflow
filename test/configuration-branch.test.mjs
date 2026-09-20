@@ -712,6 +712,32 @@ test('one verified Story snapshot validates and materializes without a second re
   }
 });
 
+test('Story authority resolution uses the repository root when the host process cwd is /', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'root-cwd-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    const moduleUrl = new URL('../src/configuration-branch.mjs', import.meta.url).href;
+    const script = [
+      `import { resolveStoryConfigurationAuthority } from ${JSON.stringify(moduleUrl)};`,
+      `const authority = await resolveStoryConfigurationAuthority(${JSON.stringify(checkout)});`,
+      'process.stdout.write(JSON.stringify({ branch: authority?.branch, commit: authority?.commit }));'
+    ].join('\n');
+    const probe = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+      cwd: '/', encoding: 'utf8', env: process.env
+    });
+    assert.equal(probe.status, 0, probe.stderr || probe.stdout);
+    const authority = JSON.parse(probe.stdout);
+    assert.equal(authority.branch, CONFIGURATION_BRANCH);
+    assert.match(authority.commit, /^[0-9a-f]{40}$/);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('remote authority discovery observes configuration and state together exactly once', async () => {
   const calls = [];
   const session = {

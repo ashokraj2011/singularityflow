@@ -542,8 +542,10 @@ function remoteObservation(url, patterns, result) {
  */
 export class GitRemoteSession {
   constructor({
-    env = process.env, runCommand = run, runAsyncCommand = runRemoteGitAsync
+    cwd = process.cwd(), env = process.env, runCommand = run,
+    runAsyncCommand = runRemoteGitAsync
   } = {}) {
+    this.cwd = cwd;
     this.env = env;
     this.runCommand = runCommand;
     this.runAsyncCommand = runAsyncCommand;
@@ -611,7 +613,7 @@ export class GitRemoteSession {
     const generation = this.nextObservationGeneration(key);
     const transport = frozenRemoteTransport(url, { env: this.env });
     const result = runRemoteGit(['ls-remote', '--symref', '--', transport.remote, ...patterns], {
-      operation: 'remote-probe', timeoutMs: effectiveTimeoutMs, env: transport.env,
+      cwd: this.cwd, operation: 'remote-probe', timeoutMs: effectiveTimeoutMs, env: transport.env,
       runCommand: this.runCommand, allowFailure: true
     });
     const observation = remoteObservation(url, patterns, result);
@@ -652,7 +654,8 @@ export class GitRemoteSession {
       const result = await this.runAsyncCommand(
         ['ls-remote', '--symref', '--', transport.remote, ...patterns],
         {
-          operation: 'remote-probe', timeoutMs: effectiveTimeoutMs, env: transport.env,
+          cwd: this.cwd, operation: 'remote-probe', timeoutMs: effectiveTimeoutMs,
+          env: transport.env,
           allowFailure: true, signal
         }
       );

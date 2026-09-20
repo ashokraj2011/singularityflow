@@ -26,6 +26,7 @@
 import { buildResultCard, type CardAction, type ResultCardView } from './result-card-model.ts';
 import { message } from './result-messages.ts';
 import { commandGuidance } from '../copilot-command.ts';
+import { terminalCommand } from '../cli/runner.ts';
 
 /** Where a card's facts came from, so the panel can say so rather than implying full fidelity. */
 export type RefusalFidelity = 'sflow-result-v2' | 'command-result-v1' | 'refusal-plan-v1' | 'message-only';
@@ -54,16 +55,30 @@ function structuredResult(stderr: string): any | null {
 type ReviewableRecovery = {
   readonly id?: string;
   readonly label?: string;
-  readonly command: string;
+  readonly command?: string;
+  readonly executable?: 'singularity-flow' | 'sflow';
+  readonly argv?: readonly string[];
   readonly skill?: string;
   readonly copilotCommand?: string;
 };
 
-/** Convert only closed-crosswalk CLI guidance into reviewable, never-executed card actions. */
-function reviewableActions(planned: readonly ReviewableRecovery[]): readonly CardAction[] {
+/**
+ * Convert only closed-crosswalk CLI guidance into reviewable, never-executed card actions.
+ *
+ * A diagnostic copied out of a repository-bound refusal must keep that repository boundary. The
+ * public command remains the registered SFlow argv, while the shell form changes directory using
+ * the same cross-platform quoting helper as timeout recovery. Without this, a command copied from
+ * a World Model failure can run from HOME and active-workspace routing may diagnose a completely
+ * different repository.
+ */
+function reviewableActions(planned: readonly ReviewableRecovery[],
+  repositoryRoot: string | null = null): readonly CardAction[] {
   return Object.freeze(planned.slice(0, 3).flatMap((entry, index) => {
     const guidance = commandGuidance(entry);
     if (!guidance) return [];
+    const command = repositoryRoot
+      ? terminalCommand(repositoryRoot, guidance.argv)
+      : guidance.command;
     return [{
       id: String(entry?.id ?? `recovery:${index}`),
       handle: String(entry?.id ?? `recovery:${index}`),
@@ -71,8 +86,10 @@ function reviewableActions(planned: readonly ReviewableRecovery[]): readonly Car
       emphasis: index === 0 ? 'primary' as const : 'secondary' as const,
       interaction: 'navigation',
       executable: false,
-      detail: 'Prepared for review. Opening it never runs the command.',
-      command: guidance.command,
+      detail: repositoryRoot
+        ? `Prepared for review in the exact repository ${repositoryRoot}. Opening it never runs the command.`
+        : 'Prepared for review. Opening it never runs the command.',
+      command,
       skill: guidance.skill,
       copilotCommand: guidance.copilotCommand,
       copyable: guidance.copyable
@@ -81,11 +98,12 @@ function reviewableActions(planned: readonly ReviewableRecovery[]): readonly Car
 }
 
 /** Adapt bounded process-boundary guidance without claiming any effects or preservation. */
-function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
+function fromRefusalPlan(result: any, displayMessage: string,
+  repositoryRoot: string | null = null): ResultCardView {
   const planned = Array.isArray(result.remediationPlan?.steps)
     ? result.remediationPlan.steps
     : [];
-  const actions = reviewableActions(planned);
+  const actions = reviewableActions(planned, repositoryRoot);
   const code = String(result.error?.code ?? result.remediationPlan?.code ?? 'SINGULARITY_FLOW_ERROR');
   return Object.freeze({
     tone: 'refusal' as const,
@@ -240,25 +258,41 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
  * Do not turn that into invented effects or an automatic retry. Offer only bounded, read-only
  * diagnostics whose shell/Copilot pairing is already registered by `commandGuidance`.
  */
-function messageOnlyRecovery(error: unknown, text: string): readonly CardAction[] {
+function messageOnlyRecovery(error: unknown, text: string,
+  repositoryRoot: string | null = null): readonly CardAction[] {
   const code = String((error as { code?: unknown })?.code ?? '');
+  const typedDetails = (error as { details?: unknown })?.details;
+  const exactRemote = typedDetails && typeof typedDetails === 'object'
+    && typeof (typedDetails as { remote?: unknown }).remote === 'string'
+    ? String((typedDetails as { remote: string }).remote).trim()
+    : '';
   const authorityFailure = /Story configuration authority|configuration authority/i.test(text);
   const remoteFailure = authorityFailure || /^REMOTE_/.test(code);
   const worldModelFailure = /^(?:WMB|WMC|WORLD_MODEL)_/.test(code)
     || /World[ -]Model/i.test(text);
   if (remoteFailure) {
+    const exactCandidate: ReviewableRecovery | null = exactRemote ? {
+      id: 'diagnose-authority',
+      label: 'Check this exact Story configuration authority.',
+      executable: 'singularity-flow',
+      argv: ['workspace', 'doctor', '--network', '--repository', exactRemote, '--json']
+    } : null;
+    // A redacted or credential-shaped remote is not an executable operand. Fall back to the exact
+    // repository doctor instead of dropping the leading action or widening to all bootstrap URLs.
+    const exactAuthorityDiagnostic: ReviewableRecovery = exactCandidate
+      && commandGuidance(exactCandidate) ? exactCandidate : {
+        id: 'diagnose-repository',
+        label: 'Inspect this exact repository and its configured authority.',
+        command: 'singularity-flow doctor --json'
+      };
     return reviewableActions([
-      {
-        id: 'diagnose-authority',
-        label: 'Check repository and Story configuration authority access.',
-        command: 'singularity-flow workspace doctor --network --json'
-      },
+      exactAuthorityDiagnostic,
       {
         id: 'diagnose-world-model',
         label: 'Inspect World Model configuration, contracts, and stored artifacts.',
         command: 'singularity-flow wm doctor --json'
       }
-    ]);
+    ], repositoryRoot);
   }
   if (worldModelFailure) {
     return reviewableActions([
@@ -272,7 +306,7 @@ function messageOnlyRecovery(error: unknown, text: string): readonly CardAction[
         label: 'Ask the deterministic planner for the next legal repair.',
         command: 'singularity-flow recommend --json'
       }
-    ]);
+    ], repositoryRoot);
   }
   return reviewableActions([
     {
@@ -285,7 +319,7 @@ function messageOnlyRecovery(error: unknown, text: string): readonly CardAction[
       label: 'Ask the deterministic planner for the next legal action.',
       command: 'singularity-flow recommend --json'
     }
-  ]);
+  ], repositoryRoot);
 }
 
 /**
@@ -296,7 +330,9 @@ function messageOnlyRecovery(error: unknown, text: string): readonly CardAction[
  * its own outcome from the catalog, that name is the accurate one, and a caller's summary of its
  * own intent would replace a fact with a paraphrase.
  */
-export function refusalFor(error: unknown, { headline }: { headline?: string } = {}): Refusal {
+export function refusalFor(error: unknown, {
+  headline, repositoryRoot = null
+}: { headline?: string; repositoryRoot?: string | null } = {}): Refusal {
   const stderr = String((error as { stderr?: string })?.stderr ?? '');
   const text = String((error as { message?: string })?.message ?? error ?? '');
   const exitCode = (error as { exitCode?: number | null })?.exitCode ?? null;
@@ -309,7 +345,9 @@ export function refusalFor(error: unknown, { headline }: { headline?: string } =
     return { view: buildResultCard(fromCommandResultV1(structured)), fidelity: 'command-result-v1' };
   }
   if (structured?.resultType === 'sflow-refusal-plan') {
-    return { view: fromRefusalPlan(structured, text), fidelity: 'refusal-plan-v1' };
+    return {
+      view: fromRefusalPlan(structured, text, repositoryRoot), fidelity: 'refusal-plan-v1'
+    };
   }
   const rawCode = String((error as { code?: unknown })?.code ?? '');
   const safeCodes = new Set([
@@ -339,7 +377,7 @@ export function refusalFor(error: unknown, { headline }: { headline?: string } =
   if (code) details.code = code;
   if (classification) details.classification = classification;
   if (retryable) details.retryable = retryable;
-  const actions = messageOnlyRecovery(error, text);
+  const actions = messageOnlyRecovery(error, text, repositoryRoot);
   return {
     view: fromMessage(text, details, headline, actions),
     fidelity: 'message-only'

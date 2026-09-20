@@ -18,6 +18,7 @@ const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const { fidelityNote, refusalFor } = await import(view('refusal.ts'));
 const { resultCardHtml } = await import(view('result-card-page.ts'));
 const { commandGuidance } = await import(path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts'));
+const { terminalCommand } = await import(path.join(root, 'apps', 'vscode', 'src', 'cli', 'runner.ts'));
 
 function expectedGuidance(command, argv, skill, copilotCommand = skill) {
   const rendered = ['singularity-flow', ...argv].map((entry) => `'${entry}'`).join(' ');
@@ -138,6 +139,7 @@ test('a native World Model authority error keeps safe diagnostics and omits raw 
     details: {
       classification: 'unknown',
       retryable: false,
+      remote: 'https://example.invalid/RuleEngineUI.git',
       diagnostic: 'https://credential-user:office-secret@example.invalid/private.git'
     }
   });
@@ -147,7 +149,7 @@ test('a native World Model authority error keeps safe diagnostics and omits raw 
   assert.deepEqual(card.preserved, []);
   assert.deepEqual(card.actions.map(({ command, copilotCommand }) => ({ command, copilotCommand })), [
     {
-      command: 'singularity-flow workspace doctor --network --json',
+      command: 'singularity-flow workspace doctor --network --repository https://example.invalid/RuleEngineUI.git --json',
       copilotCommand: '/sf-workspace-bootstrap'
     },
     { command: 'singularity-flow wm doctor --json', copilotCommand: '/sf-worldmodel' }
@@ -158,6 +160,57 @@ test('a native World Model authority error keeps safe diagnostics and omits raw 
   assert.equal(card.details.retryable, 'false');
   assert.doesNotMatch(JSON.stringify(card), /office-secret|credential-user/);
   assert.doesNotMatch(resultCardHtml(card), /There is no step you can take here right now/);
+});
+
+test('World Model recovery remains bound to the exact repository when copied from VS Code', () => {
+  const error = Object.assign(new Error(
+    'Cannot read Story configuration authority. Inspect the exact authority and retry.'
+  ), {
+    code: 'REMOTE_UNKNOWN',
+    details: {
+      classification: 'unknown', retryable: false,
+      remote: 'https://example.invalid/RuleEngineUI.git'
+    }
+  });
+  const repositoryRoot = path.join(root, 'fixtures', 'RuleEngineUI');
+  const { view: card } = refusalFor(error, { repositoryRoot });
+  assert.deepEqual(card.actions.map(({ command }) => command), [
+    terminalCommand(repositoryRoot, [
+      'workspace', 'doctor', '--network', '--repository',
+      'https://example.invalid/RuleEngineUI.git', '--json'
+    ]),
+    terminalCommand(repositoryRoot, ['wm', 'doctor', '--json'])
+  ]);
+  assert.match(card.actions[0].detail, /exact repository/);
+  assert.match(card.actions[0].detail, new RegExp(repositoryRoot.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')));
+  assert.doesNotMatch(card.actions[0].command, /singularity-platform/);
+});
+
+test('an authority refusal without a validated remote never diagnoses unrelated bootstrap remotes', () => {
+  const error = Object.assign(new Error('Cannot read Story configuration authority.'), {
+    code: 'REMOTE_UNKNOWN',
+    details: { classification: 'unknown', retryable: false }
+  });
+  const { view: card } = refusalFor(error, {
+    repositoryRoot: '/Users/example/RuleEngineUI'
+  });
+  assert.match(card.actions[0].command, /'singularity-flow' 'doctor' '--json'$/);
+  assert.doesNotMatch(card.actions[0].command, /workspace' 'doctor/);
+});
+
+test('a credential-shaped authority is never copied into exact recovery guidance', () => {
+  const error = Object.assign(new Error('Cannot read Story configuration authority.'), {
+    code: 'REMOTE_UNKNOWN',
+    details: {
+      classification: 'unknown', retryable: false,
+      remote: 'https://credential-user:office-secret@example.invalid/private.git'
+    }
+  });
+  const { view: card } = refusalFor(error, {
+    repositoryRoot: '/Users/example/RuleEngineUI'
+  });
+  assert.match(card.actions[0].command, /'singularity-flow' 'doctor' '--json'$/);
+  assert.doesNotMatch(JSON.stringify(card), /office-secret|credential-user/);
 });
 
 test('a local registered-v4 validation error leads with local diagnosis and bounds native metadata', () => {

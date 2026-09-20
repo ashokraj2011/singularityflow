@@ -208,6 +208,16 @@ const classificationCases = [
     advice: /restart the calling application/
   },
   {
+    name: 'POSIX cannot resolve native Git outside the supplied working directory',
+    result: failed('', {
+      error: new TypeError(
+        'POSIX could not resolve a native Git executable from absolute PATH entries.'
+      )
+    }),
+    classification: 'git-unavailable',
+    advice: /restart the calling application/
+  },
+  {
     name: 'an authenticated identity lacks repository permission',
     result: failed('remote: Write access to repository not granted. fatal: unable to access: HTTP 403'),
     classification: 'authorization-denied',

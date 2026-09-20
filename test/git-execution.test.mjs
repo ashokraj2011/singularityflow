@@ -47,6 +47,43 @@ test('one remote session reuses an exact observation and parses the advertised a
   assert.equal(calls.length, 2);
 });
 
+test('remote sessions forward their verified cwd to sync and async Git observations', async () => {
+  const cwd = path.join(os.tmpdir(), 'sflow-verified-repository');
+  const syncCalls = [];
+  const asyncCalls = [];
+  const session = new GitRemoteSession({
+    cwd,
+    runCommand(_command, _args, options) {
+      syncCalls.push(options);
+      return {
+        status: 0,
+        stdout: `${'1'.repeat(40)}\trefs/heads/sflow/config\n`,
+        stderr: '', timedOut: false, failure: null
+      };
+    },
+    async runAsyncCommand(_args, options) {
+      asyncCalls.push(options);
+      return {
+        status: 0,
+        stdout: `${'2'.repeat(40)}\trefs/heads/state\n`,
+        stderr: '', timedOut: false, failure: null
+      };
+    }
+  });
+
+  session.observe('https://example.com/acme/sync.git', {
+    refs: ['refs/heads/sflow/config'], includeHead: false
+  });
+  await session.observeAsync('https://example.com/acme/async.git', {
+    refs: ['refs/heads/state'], includeHead: false
+  });
+
+  assert.equal(syncCalls.length, 1);
+  assert.equal(syncCalls[0].cwd, cwd);
+  assert.equal(asyncCalls.length, 1);
+  assert.equal(asyncCalls[0].cwd, cwd);
+});
+
 test('remote sessions refuse non-HEAD symbolic authority instead of accepting its target OID', () => {
   const session = new GitRemoteSession({
     runCommand() {

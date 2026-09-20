@@ -622,6 +622,7 @@ export function failureEvidence(result) {
 function gitExecutableUnavailable(result, output, cwdAvailable) {
   if (result?.error?.code === 'ENOENT' && cwdAvailable !== false) return true;
   if (/\bWindows (?:could not resolve a native git\.exe from PATH|Git must be a trusted absolute git\.exe or a PATH-resolved git\.exe)\b/i.test(output)) return true;
+  if (/\bPOSIX could not resolve a native Git executable from absolute PATH entries\b/i.test(output)) return true;
   return /(?:^|[\r\n])(?:fatal:\s*)?(?:windows\s+)?(?:unable to|could not) resolve git(?:\.exe)?(?:\s+from path)?\b/i.test(output)
     || /\bspawn(?:sync)?\s+(?:[^\r\n]*[\\/])?git(?:\.exe)?\s+enoent\b/i.test(output)
     || /(?:^|[\r\n])\s*(?:sh:\s*\d+:\s*)?git:\s*(?:command\s+)?not found\b/i.test(output)

@@ -23,7 +23,7 @@
  * exactly what `[DHR:CON-060]` forbids — the one time it is wrong is the time it matters. Tier 4
  * says what it knows and stops.
  */
-import { buildResultCard, type ResultCardView } from './result-card-model.ts';
+import { buildResultCard, type CardAction, type ResultCardView } from './result-card-model.ts';
 import { message } from './result-messages.ts';
 import { commandGuidance } from '../copilot-command.ts';
 
@@ -51,12 +51,17 @@ function structuredResult(stderr: string): any | null {
   return null;
 }
 
-/** Adapt bounded process-boundary guidance without claiming any effects or preservation. */
-function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
-  const planned = Array.isArray(result.remediationPlan?.steps)
-    ? result.remediationPlan.steps.slice(0, 3)
-    : [];
-  const actions = planned.flatMap((entry: any, index: number) => {
+type ReviewableRecovery = {
+  readonly id?: string;
+  readonly label?: string;
+  readonly command: string;
+  readonly skill?: string;
+  readonly copilotCommand?: string;
+};
+
+/** Convert only closed-crosswalk CLI guidance into reviewable, never-executed card actions. */
+function reviewableActions(planned: readonly ReviewableRecovery[]): readonly CardAction[] {
+  return Object.freeze(planned.slice(0, 3).flatMap((entry, index) => {
     const guidance = commandGuidance(entry);
     if (!guidance) return [];
     return [{
@@ -69,9 +74,18 @@ function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
       detail: 'Prepared for review. Opening it never runs the command.',
       command: guidance.command,
       skill: guidance.skill,
-      copilotCommand: guidance.copilotCommand
+      copilotCommand: guidance.copilotCommand,
+      copyable: guidance.copyable
     }];
-  });
+  }));
+}
+
+/** Adapt bounded process-boundary guidance without claiming any effects or preservation. */
+function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
+  const planned = Array.isArray(result.remediationPlan?.steps)
+    ? result.remediationPlan.steps
+    : [];
+  const actions = reviewableActions(planned);
   const code = String(result.error?.code ?? result.remediationPlan?.code ?? 'SINGULARITY_FLOW_ERROR');
   return Object.freeze({
     tone: 'refusal' as const,
@@ -83,7 +97,7 @@ function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
     checklist: [],
     gates: null,
     preserved: [],
-    actions: Object.freeze(actions),
+    actions,
     rail: [],
     receipt: null,
     faults: [],
@@ -92,7 +106,7 @@ function fromRefusalPlan(result: any, displayMessage: string): ResultCardView {
     guidance: null,
     home: null,
     since: null,
-    rest: 'blocked',
+    rest: actions.length ? null : 'blocked',
     details: Object.freeze({
       code,
       source: 'deterministic recovery planner',
@@ -185,7 +199,8 @@ function fromCommandResultV1(result: any): any {
  * is the honest way to render an unstructured failure without pretending it is a governed result —
  * and `fidelity` tells the panel to say so.
  */
-function fromMessage(text: string, details: Record<string, string>, headline?: string): ResultCardView {
+function fromMessage(text: string, details: Record<string, string>, headline?: string,
+  actions: readonly CardAction[] = []): ResultCardView {
   return Object.freeze({
     tone: 'refusal' as const,
     headline: headline ?? message('gateway.refused').label,
@@ -199,7 +214,7 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
      * matters on the day it is wrong.
      */
     preserved: [],
-    actions: [],
+    actions,
     // An unstructured failure knows nothing about phases, and claims nothing.
     rail: [],
     receipt: null,
@@ -215,9 +230,62 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
      * briefing block on a failed command would be answering a question the reader did not ask.
      */
     since: null,
-    rest: 'blocked',
+    rest: actions.length ? null : 'blocked',
     details: Object.freeze(details)
   });
+}
+
+/**
+ * A native error can retain a stable code even when the subprocess did not emit a result envelope.
+ * Do not turn that into invented effects or an automatic retry. Offer only bounded, read-only
+ * diagnostics whose shell/Copilot pairing is already registered by `commandGuidance`.
+ */
+function messageOnlyRecovery(error: unknown, text: string): readonly CardAction[] {
+  const code = String((error as { code?: unknown })?.code ?? '');
+  const authorityFailure = /Story configuration authority|configuration authority/i.test(text);
+  const remoteFailure = authorityFailure || /^REMOTE_/.test(code);
+  const worldModelFailure = /^(?:WMB|WMC|WORLD_MODEL)_/.test(code)
+    || /World[ -]Model/i.test(text);
+  if (remoteFailure) {
+    return reviewableActions([
+      {
+        id: 'diagnose-authority',
+        label: 'Check repository and Story configuration authority access.',
+        command: 'singularity-flow workspace doctor --network --json'
+      },
+      {
+        id: 'diagnose-world-model',
+        label: 'Inspect World Model configuration, contracts, and stored artifacts.',
+        command: 'singularity-flow wm doctor --json'
+      }
+    ]);
+  }
+  if (worldModelFailure) {
+    return reviewableActions([
+      {
+        id: 'diagnose-world-model',
+        label: 'Inspect World Model configuration, contracts, and stored artifacts.',
+        command: 'singularity-flow wm doctor --json'
+      },
+      {
+        id: 'recommended-next',
+        label: 'Ask the deterministic planner for the next legal repair.',
+        command: 'singularity-flow recommend --json'
+      }
+    ]);
+  }
+  return reviewableActions([
+    {
+      id: 'diagnose-repository',
+      label: 'Run read-only repository and policy diagnostics.',
+      command: 'singularity-flow doctor --json'
+    },
+    {
+      id: 'recommended-next',
+      label: 'Ask the deterministic planner for the next legal action.',
+      command: 'singularity-flow recommend --json'
+    }
+  ]);
 }
 
 /**
@@ -243,11 +311,37 @@ export function refusalFor(error: unknown, { headline }: { headline?: string } =
   if (structured?.resultType === 'sflow-refusal-plan') {
     return { view: fromRefusalPlan(structured, text), fidelity: 'refusal-plan-v1' };
   }
+  const rawCode = String((error as { code?: unknown })?.code ?? '');
+  const safeCodes = new Set([
+    'REMOTE_UNKNOWN', 'WMB_VIEW_UNKNOWN', 'WMB_VIEW_VERSION_UNSUPPORTED',
+    'WMB_VIEW_ASSIGNMENT_MIXED', 'WMB_SOURCE_SNAPSHOT_REQUIRED'
+  ]);
+  const code = safeCodes.has(rawCode) ? rawCode : '';
+  const typedDetails = (error as { details?: unknown })?.details;
+  const rawClassification = typedDetails && typeof typedDetails === 'object'
+    ? String((typedDetails as { classification?: unknown }).classification ?? '') : '';
+  const safeClassifications = new Set([
+    'network-transient', 'offline', 'git-unavailable', 'working-directory-unavailable',
+    'credential-helper-unavailable', 'authentication-required', 'sso-authorization-required',
+    'authorization-denied', 'tls-trust', 'proxy-configuration', 'remote-not-found',
+    'branch-not-found', 'rate-limited', 'policy-rejected', 'atomic-push-unsupported',
+    'protocol-unsupported', 'unknown'
+  ]);
+  const classification = safeClassifications.has(rawClassification) ? rawClassification : '';
+  const retryable = typedDetails && typeof typedDetails === 'object'
+    && typeof (typedDetails as { retryable?: unknown }).retryable === 'boolean'
+    ? String((typedDetails as { retryable: boolean }).retryable)
+    : '';
+  const details: Record<string, string> = {
+    exitCode: exitCode === null ? 'none' : String(exitCode),
+    source: 'command output'
+  };
+  if (code) details.code = code;
+  if (classification) details.classification = classification;
+  if (retryable) details.retryable = retryable;
+  const actions = messageOnlyRecovery(error, text);
   return {
-    view: fromMessage(text, {
-      exitCode: exitCode === null ? 'none' : String(exitCode),
-      source: 'command output'
-    }, headline),
+    view: fromMessage(text, details, headline, actions),
     fidelity: 'message-only'
   };
 }
@@ -270,5 +364,6 @@ export function fidelityNote(fidelity: RefusalFidelity): string | null {
       + 'review and never run them automatically; no preservation claim is made without an effects record.';
   }
   return 'This command did not report a structured result, so there is no statement here about '
-    + 'what was preserved. Check the command output before assuming anything changed.';
+    + 'what was preserved. Any displayed diagnostics are read-only, user-reviewed next steps; '
+    + 'check the command output before assuming anything changed.';
 }

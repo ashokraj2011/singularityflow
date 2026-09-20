@@ -267,10 +267,19 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   }
   assert.doesNotThrow(() => validateDefinition(exactRegisteredView));
   const invalidRegisteredView = structuredClone(exactRegisteredView);
-  invalidRegisteredView.worldModel.views = ['dev.impact@0'];
+  invalidRegisteredView.worldModel.views = ['dev.impact@3', 'architecture'];
   assert.throws(
     () => validateDefinition(invalidRegisteredView),
-    /dev\.impact@0/
+    (error) => error.code === 'WMB_VIEW_VERSION_UNSUPPORTED'
+      && /worldModel\.views\[0\]=dev\.impact@3/.test(error.message)
+      && /worldModel\.views\[1\]=architecture/.test(error.message)
+      && error.details.views.join(',') === 'dev.impact@3,architecture'
+      && error.details.invalidEntries.length === 2
+      && error.details.invalidEntries[0].source === 'worldModel.views[0]'
+      && error.details.invalidEntries[0].sourceKind === 'repository-catalog'
+      && error.details.invalidEntries[0].code === 'WMB_VIEW_VERSION_UNSUPPORTED'
+      && error.details.invalidEntries[1].source === 'worldModel.views[1]'
+      && error.details.invalidEntries[1].code === 'WMB_VIEW_UNKNOWN'
   );
   const legacyProjection = structuredClone(template);
   legacyProjection.worldModel.projections['arch.calm'].enabled = true;

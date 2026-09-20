@@ -6,6 +6,7 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import {
   configurationCenterView, configurationRefreshDecision,
+  prepareWorldModelDraftForSave,
   updateAuthorityYaml, updateAutoYaml, updateMcpYaml, updateWorldModelYaml,
   validateAuthorityDraft, validateAutoDraft, validateMcpDraft, validateWorldModelDraft,
   CONFIGURATION_TABS,
@@ -219,9 +220,7 @@ export class ConfigurationCenterPanel {
   }
 
   private save(path: string, content: string, sourceText: string): Promise<string | null> {
-    this.saving = true;
-    return this.onMessage({ type: 'save', path, content, expectedSha256: this.expectedSha256(sourceText) })
-      .finally(() => { this.saving = false; });
+    return this.onMessage({ type: 'save', path, content, expectedSha256: this.expectedSha256(sourceText) });
   }
 
   private showErrors(errors: string[]): void {
@@ -235,6 +234,26 @@ export class ConfigurationCenterPanel {
       await vscode.commands.executeCommand('singularityFlow.explainError', 'configuration');
       return;
     }
+    const mutation = ['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model']
+      .includes(String(message.type))
+      || (message.type === 'action' && ['delete-authority', 'delete-mcp'].includes(String(message.action)));
+    // A double click, retained webview, or programmatic postMessage must not fan out writes against
+    // one rendered configuration revision. The mutex covers every Configuration Center mutation,
+    // including the confirmation interval before an identity/delete save reaches the CLI.
+    if (mutation && this.saving) {
+      void this.panel.webview.postMessage({ type: 'configuration-save-busy' });
+      return;
+    }
+    if (mutation) {
+      this.saving = true;
+      try { await this.receiveReady(message); }
+      finally { this.saving = false; }
+      return;
+    }
+    await this.receiveReady(message);
+  }
+
+  private async receiveReady(message: Record<string, unknown>): Promise<void> {
     const view = this.view(); if (!view) return;
     this.errors = []; this.notice = null;
     if (message.type === 'form-dirty') { this.dirty = message.dirty === true; return; }
@@ -303,14 +322,18 @@ export class ConfigurationCenterPanel {
       return this.render();
     }
     if (message.type === 'save-world-model') {
-      const draft = message as unknown as WorldModelDraft;
-      this.errors = validateWorldModelDraft(draft); if (this.errors.length) return this.showErrors(this.errors);
-      const snapshot = this.store.current.snapshot!;
       try {
+        const received = message as unknown as WorldModelDraft;
+        const prepared = prepareWorldModelDraftForSave(this.renderedTexts.definitionText, received);
+        const draft = prepared.draft;
+        this.errors = validateWorldModelDraft(draft); if (this.errors.length) return this.showErrors(this.errors);
+        const snapshot = this.store.current.snapshot!;
         const text = this.renderedTexts.definitionText;
         const error = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateWorldModelYaml(text, draft), text);
         if (error) return this.showErrors([error]);
-        this.dirty = false; this.notice = 'World-model settings saved to this checkout only. Publish configuration before repository-level builds use them. An accepted Story retains its pin; use the base repository checkout or a new Story to consume the approved V4 policy.';
+        this.dirty = false; this.notice = `${prepared.migratedLegacyCatalog
+          ? 'Legacy view names were atomically replaced by the installed exact v4 contract catalog. '
+          : ''}World-model settings saved to this checkout only. Publish configuration before repository-level builds use them. An accepted Story retains its pin; use the base repository checkout or a new Story to consume the approved V4 policy.`;
       } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
     }

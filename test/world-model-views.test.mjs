@@ -143,7 +143,14 @@ test('registered-v4 migration refuses mixed or unknown assignments', async () =>
   unknown.phases.implementation.worldModel.views = ['telepathy'];
   assert.throws(
     () => validateDefinition(unknown),
-    (error) => error.code === 'WMB_VIEW_UNKNOWN' && /telepathy/.test(error.message)
+    (error) => error.code === 'WMB_VIEW_UNKNOWN'
+      && /phase 'implementation'=telepathy/.test(error.message)
+      && error.details.views.includes('telepathy')
+      && error.details.invalidEntries.some((entry) => (
+        entry.view === 'telepathy'
+          && entry.source === "phase 'implementation'"
+          && entry.sourceKind === 'structured-assignment'
+      ))
   );
 });
 

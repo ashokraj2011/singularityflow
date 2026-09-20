@@ -11,6 +11,7 @@ const {
   authorityWithMember,
   configurationCenterView,
   configurationRefreshDecision,
+  prepareWorldModelDraftForSave,
   updateApprovalSecurityProfileYaml,
   updateAutoYaml,
   updateAuthorityYaml,
@@ -20,6 +21,7 @@ const {
   validateAutoDraft,
   validateMcpDraft,
   validateWorldModelDraft,
+  validateWorldModelDraftShape,
   worldModelWorkflowUsage
 } = await import(source('configuration-center-model.ts'));
 const { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } = await import(source('configuration-center-page.ts'));
@@ -319,11 +321,108 @@ test('configuration center stages an explicit fail-closed registered-v4 migratio
   assert.match(saved, /legacyAssignments: inherit-configured/);
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /Registered-v4 accepts the installed contracts/);
-  assert.match(html, /silently carrying legacy IDs into v4/);
+  assert.match(html, /atomically replaces it with the exact installed contracts/);
   assert.match(html, /Legacy assignment migration/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /world-model-format/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /arch\.contracts@4, biz\.rules@4, dev\.hotspots@4, dev\.impact@4/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /explicit migration bridge was enabled/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /if \(savingForm\) return/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /configuration-save-busy/);
+});
+
+test('world-model save atomically replaces an explicitly bridged legacy catalog', () => {
+  const legacy = {
+    ...configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' }).worldModel,
+    format: 'registered-v4',
+    views: ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'],
+    v4: {
+      ...configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' }).worldModel.v4,
+      legacyAssignments: 'inherit-configured'
+    }
+  };
+  const prepared = prepareWorldModelDraftForSave(
+    'version: 2\nworldModel:\n  views: [business, architecture]\n', legacy
+  );
+  assert.equal(prepared.migratedLegacyCatalog, true);
+  assert.deepEqual(prepared.draft.views, [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ]);
+  assert.deepEqual(validateWorldModelDraft(prepared.draft), []);
+  const parsed = YAML.parse(updateWorldModelYaml(
+    'version: 2\nworldModel:\n  views: [business, architecture]\n', legacy
+  ));
+  assert.equal(parsed.worldModel.format, 'registered-v4');
+  assert.equal(parsed.worldModel.v4.legacyAssignments, 'inherit-configured');
+  assert.deepEqual(parsed.worldModel.views, prepared.draft.views);
+});
+
+test('world-model save validates the merged policy from retained and older webviews', () => {
+  const base = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' }).worldModel;
+  const oldMessage = {
+    ...base,
+    format: undefined,
+    v4: undefined,
+    views: ['architecture']
+  };
+  const bridged = `version: 2
+worldModel:
+  format: registered-v4
+  views: [arch.contracts@4]
+  v4:
+    legacyAssignments: inherit-configured
+`;
+  const prepared = prepareWorldModelDraftForSave(bridged, oldMessage);
+  assert.equal(prepared.draft.format, 'registered-v4');
+  assert.equal(prepared.draft.v4.legacyAssignments, 'inherit-configured');
+  assert.equal(prepared.migratedLegacyCatalog, false);
+  assert.deepEqual(prepared.draft.views, ['arch.contracts@4']);
+
+  const strict = bridged.replace('inherit-configured', 'strict');
+  assert.deepEqual(prepareWorldModelDraftForSave(strict, oldMessage).draft.views, ['arch.contracts@4']);
+  const explicitStrict = { ...oldMessage, format: 'registered-v4',
+    v4: { legacyAssignments: 'strict' }, views: ['architecture'] };
+  assert.throws(() => updateWorldModelYaml(strict, explicitStrict), /unsupported: architecture/i);
+
+  const mixed = { ...oldMessage, v4: { legacyAssignments: 'inherit-configured' },
+    format: 'registered-v4', views: ['architecture', 'dev.impact@4'] };
+  assert.equal(prepareWorldModelDraftForSave(bridged, mixed).migratedLegacyCatalog, false);
+  assert.throws(() => updateWorldModelYaml(bridged, mixed), /unsupported: architecture/i);
+
+  const unknown = { ...mixed, views: ['architecturre'] };
+  assert.equal(prepareWorldModelDraftForSave(bridged, unknown).migratedLegacyCatalog, false);
+  assert.throws(() => updateWorldModelYaml(bridged, unknown), /unsupported: architecturre/i);
+
+  const brokenCurrent = bridged.replace('[arch.contracts@4]', '[arch.contracts@4, architecture]');
+  assert.throws(() => updateWorldModelYaml(brokenCurrent, oldMessage), /unsupported: architecture/i,
+    'a retained webview must not silently repair or erase an invalid current catalog');
+});
+
+test('world-model save rejects malformed retained-webview payloads without dereferencing them', () => {
+  assert.deepEqual(validateWorldModelDraftShape(null), [
+    'World-model settings are incomplete. Reload Configuration Center and try again.'
+  ]);
+  assert.deepEqual(validateWorldModelDraftShape({ views: ['arch.contracts@4'] }), [
+    'World-model settings are incomplete. Reload Configuration Center and try again.'
+  ]);
+  assert.deepEqual(validateWorldModelDraftShape({
+    ...configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' }).worldModel,
+    projections: {}
+  }), ['World-model settings are incomplete. Reload Configuration Center and try again.']);
+  assert.throws(
+    () => prepareWorldModelDraftForSave('version: 2\nworldModel: {}\n', { views: null }),
+    /settings are incomplete/i
+  );
+});
+
+test('configuration center serializes every configuration mutation through one host gate', async () => {
+  const host = await readFile(source('configuration-center.ts'), 'utf8');
+  assert.match(host,
+    /\['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model'\]/);
+  assert.match(host, /\['delete-authority', 'delete-mcp'\]/);
+  assert.match(host, /if \(mutation && this\.saving\)/);
+  assert.match(host, /try \{ await this\.receiveReady\(message\); \}\s*finally \{ this\.saving = false; \}/);
+  assert.doesNotMatch(host, /private save[\s\S]{0,300}this\.saving = true/,
+    'the mutex must cover the whole mutation, not only the eventual CLI write');
 });
 
 test('configuration center requires registered-v4 when CALM is enabled', () => {
@@ -461,7 +560,7 @@ test('configuration center reports dirty edits and offers an explicit conflict d
 test('world-model editor preserves comments, advanced context, and injection rules', () => {
   const input = `version: 2\n# keep this policy note\nworldModel:\n  format: registered-v4\n  v4:\n    composer: model-required\n    consumer: architect\n    cachePolicy: rebuild\n    totalMaximumOutputTokens: 7200\n  context:\n    memoize: true\n  injection:\n    rules:\n      - when: { phase: intake }\n        include: [briefs/business.md]\n`;
   const output = updateWorldModelYaml(input, {
-    views: ['business', 'architecture'], outputDir: 'singularity/world-model',
+    views: ['arch.contracts@4', 'biz.rules@4'], outputDir: 'singularity/world-model',
     promptSource: 'singularity/prompts/worldmodel-builder.md', stateFetchTimeoutMs: 10000,
     generation: { parallel: true, maxWorkers: 3, strategy: 'view' },
     materialization: { mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic' },

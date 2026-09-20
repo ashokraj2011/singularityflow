@@ -442,7 +442,7 @@ function worldModel(view: ConfigurationCenterView): string {
       <div class="editor-card">
         <h2>${icon('document')}Content and storage</h2>
         <div class="form-grid">
-          <label class="span-2"><span>Declared views</span><input name="views" id="world-model-views" type="text" value="${csv(model.views)}" placeholder="${escape(BUILTIN_VIEW_REFERENCES.slice(0, 2).join(', '))}"><small>Comma-separated lower-case IDs, optionally pinned to an installed exact version. Registered-v4 accepts the installed contracts <code>${escape(BUILTIN_VIEW_IDS.join('</code>, <code>'))}</code> that are currently active. Change phase and agent assignments before switching a legacy repository; saving is refused instead of silently carrying legacy IDs into v4.</small></label>
+          <label class="span-2"><span>Declared views</span><input name="views" id="world-model-views" type="text" value="${csv(model.views)}" placeholder="${escape(BUILTIN_VIEW_REFERENCES.slice(0, 2).join(', '))}"><small>Comma-separated lower-case IDs, optionally pinned to an installed exact version. Registered-v4 accepts the installed contracts <code>${escape(BUILTIN_VIEW_IDS.join('</code>, <code>'))}</code> that are currently active. With the explicit Migration policy, saving an all-legacy catalog atomically replaces it with the exact installed contracts; unknown or mixed IDs remain refused.</small></label>
           <label class="span-2"><span>Application source roots</span><input name="sourceRoots" type="text" value="${csv(model.sourceRoots)}" placeholder="apps/payments, services/checkout"><small>Comma-separated repository directories. Leave empty to model the whole application tree.</small></label>
           <label class="span-2"><span>Shared source roots</span><input name="sharedRoots" type="text" value="${csv(model.sharedRoots)}" placeholder="libs/contracts, libs/platform"><small>Shared contracts and platform code included alongside the application roots. Sparse-absent tracked files remain present through Git object IDs.</small></label>
           <label><span>Output directory</span><input name="outputDir" type="text" value="${escape(model.outputDir)}"></label>
@@ -579,6 +579,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     const [name = '', email = '', githubLogin = ''] = line.split('|').map((part) => part.trim()); return { name, email, githubLogin };
   });
   let dirty = false;
+  let savingForm = false;
   const markDirty = () => { if (!dirty) { dirty = true; vscode.postMessage({ type: 'form-dirty', dirty: true }); } };
   const runtime = document.getElementById('configuration-runtime-message');
   const runtimeText = document.getElementById('configuration-runtime-text');
@@ -591,7 +592,12 @@ export const CONFIGURATION_CENTER_SCRIPT = `
   };
   window.addEventListener('message', (event) => {
     if (event.data?.type === 'configuration-repository-changed') showRuntime('Repository configuration changed while you were editing. Reload to use the newer version, or keep this draft and review the conflict before saving.', true);
-    if (event.data?.type === 'configuration-save-error') showRuntime((event.data.errors || []).join(' '), false);
+    if (event.data?.type === 'configuration-save-error') {
+      savingForm = false;
+      document.querySelectorAll('form button[type="submit"]').forEach((button) => { button.disabled = false; });
+      showRuntime((event.data.errors || []).join(' '), false);
+    }
+    if (event.data?.type === 'configuration-save-busy') showRuntime('A configuration save is already being validated. Wait for that result before retrying.', false);
   });
   document.getElementById('configuration-reload')?.addEventListener('click', () => vscode.postMessage({ type: 'reload-dirty' }));
   document.getElementById('configuration-keep')?.addEventListener('click', () => { if (runtime) runtime.hidden = true; vscode.postMessage({ type: 'keep-dirty' }); });
@@ -624,7 +630,11 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     const action = event.target.closest('[data-action]'); if (action) return vscode.postMessage({ type: 'action', action: action.dataset.action });
   });
   document.addEventListener('submit', (event) => {
-    event.preventDefault(); const form = event.target; const data = new FormData(form);
+    event.preventDefault(); const form = event.target;
+    if (savingForm) return;
+    savingForm = true;
+    form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = true; });
+    const data = new FormData(form);
     if (form.id === 'profile-form') vscode.postMessage({ type: 'save-profile', name: data.get('name'), role: data.get('role') });
     if (form.id === 'current-identity-authority-form') vscode.postMessage({ type: 'add-current-identity', target: data.get('target'), allowSelfApproval: data.get('allowSelfApproval') === 'on', autoEnrollNewIdentities: data.get('autoEnrollNewIdentities') === 'on' });
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });

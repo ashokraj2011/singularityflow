@@ -122,7 +122,57 @@ test('an error with no structured result claims nothing about preservation', () 
   assert.equal(fidelity, 'message-only');
   assert.deepEqual(card.preserved, []);
   assert.equal(card.why[0].label, 'Something went wrong.');
+  assert.deepEqual(card.actions.map(({ command, copilotCommand }) => ({ command, copilotCommand })), [
+    { command: 'singularity-flow doctor --json', copilotCommand: '/sf-doctor' },
+    { command: 'singularity-flow recommend --json', copilotCommand: '/sf-recommend' }
+  ]);
+  assert.equal(card.rest, null);
   assert.match(fidelityNote(fidelity), /no statement here about what was preserved/);
+});
+
+test('a native World Model authority error keeps safe diagnostics and omits raw provider details', () => {
+  const error = Object.assign(new Error(
+    'Cannot read Story configuration authority. Run workspace doctor --network and inspect Git access outside SFlow before retrying.'
+  ), {
+    code: 'REMOTE_UNKNOWN',
+    details: {
+      classification: 'unknown',
+      retryable: false,
+      diagnostic: 'https://credential-user:office-secret@example.invalid/private.git'
+    }
+  });
+  const { view: card, fidelity } = refusalFor(error, { headline: 'Could not build the World Model' });
+  assert.equal(fidelity, 'message-only');
+  assert.equal(card.headline, 'Could not build the World Model');
+  assert.deepEqual(card.preserved, []);
+  assert.deepEqual(card.actions.map(({ command, copilotCommand }) => ({ command, copilotCommand })), [
+    {
+      command: 'singularity-flow workspace doctor --network --json',
+      copilotCommand: '/sf-workspace-bootstrap'
+    },
+    { command: 'singularity-flow wm doctor --json', copilotCommand: '/sf-worldmodel' }
+  ]);
+  assert.equal(card.rest, null);
+  assert.equal(card.details.code, 'REMOTE_UNKNOWN');
+  assert.equal(card.details.classification, 'unknown');
+  assert.equal(card.details.retryable, 'false');
+  assert.doesNotMatch(JSON.stringify(card), /office-secret|credential-user/);
+  assert.doesNotMatch(resultCardHtml(card), /There is no step you can take here right now/);
+});
+
+test('a local registered-v4 validation error leads with local diagnosis and bounds native metadata', () => {
+  const error = Object.assign(new Error('Registered-v4 World Model rejected an unsupported view.'), {
+    code: 'WMB_VIEW_UNKNOWN',
+    details: { classification: 'office-secret-class', retryable: true }
+  });
+  const { view: card } = refusalFor(error);
+  assert.deepEqual(card.actions.map(({ command }) => command), [
+    'singularity-flow wm doctor --json',
+    'singularity-flow recommend --json'
+  ]);
+  assert.equal(card.details.code, 'WMB_VIEW_UNKNOWN');
+  assert.equal(card.details.classification, undefined);
+  assert.doesNotMatch(JSON.stringify(card), /office-secret-class/);
 });
 
 test('a deterministic refusal plan becomes safe reviewable VS Code actions', () => {

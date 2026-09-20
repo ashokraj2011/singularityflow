@@ -1,10 +1,10 @@
 /** Pure models and governed YAML edits for the Configuration Center. */
 import YAML from 'yaml';
 import {
-  BUILTIN_VIEW_IDS, normalizeBuiltInViewReference
+  BUILTIN_VIEW_IDS, BUILTIN_VIEW_REFERENCES, normalizeBuiltInViewReference
 } from '../../../../src/world-model/registry/views.mjs';
 import {
-  worldModelViewContractCatalog, worldModelViewIdentity
+  LEGACY_WORLD_MODEL_VIEW_IDS, worldModelViewContractCatalog, worldModelViewIdentity
 } from '../../../../src/world-model-views.mjs';
 import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot.ts';
 
@@ -196,6 +196,11 @@ export type WorldModelDraft = Omit<WorldModelSettingsView, 'format' | 'v4' | 'pr
   /** Optional so an older webview cannot turn off a governed projection while saving another field. */
   projections?: WorldModelSettingsView['projections'];
   injection: Omit<WorldModelSettingsView['injection'], 'rulesCount'>;
+};
+
+export type PreparedWorldModelDraft = {
+  readonly draft: WorldModelDraft;
+  readonly migratedLegacyCatalog: boolean;
 };
 export interface AutoDraft {
   enabled: boolean;
@@ -548,7 +553,95 @@ function unsafeRelative(value: string): boolean {
   return /^(?:\/|[A-Za-z]:[\\/])/.test(value) || value.split(/[\\/]+/).includes('..');
 }
 
+/**
+ * Merge a submitted form with the policy fields an older/retained webview did not know about.
+ *
+ * Validation must apply to the document that will actually be written. Previously the form draft
+ * was validated as legacy-v3 and `updateWorldModelYaml` then preserved an existing
+ * `format: registered-v4`, producing a candidate whose legacy catalog was rejected only by the
+ * CLI save boundary. The browser's `change` listener also staged migration, but presentation code
+ * is not an authority boundary and a retained webview can miss that event.
+ *
+ * The only automatic catalog transition is the already-explicit migration policy: registered-v4
+ * plus `inherit-configured`, with every submitted entry drawn from the closed legacy vocabulary.
+ * It replaces that catalog wholesale with the installed exact contracts; it never guesses a
+ * one-to-one semantic mapping. Unknown and mixed catalogs remain untouched so validation refuses
+ * them with their original values.
+ */
+export function prepareWorldModelDraftForSave(text: string, draft: WorldModelDraft): PreparedWorldModelDraft {
+  const shapeErrors = validateWorldModelDraftShape(draft);
+  if (shapeErrors.length) throw new Error(shapeErrors.join(' '));
+  let existing: any = {};
+  try { existing = YAML.parse(text)?.worldModel ?? {}; }
+  catch { /* the governed CLI reports malformed source YAML; never invent replacement policy */ }
+  const retainedV4Form = draft.format === undefined && draft.v4 === undefined
+    && existing.format === 'registered-v4';
+  const format = draft.format ?? existing.format ?? 'legacy-v3';
+  const v4 = {
+    ...(existing.v4 && typeof existing.v4 === 'object' ? existing.v4 : {}),
+    ...(draft.v4 ?? {})
+  } as Partial<WorldModelSettingsView['v4']>;
+  // A webview retained from before the v4 controls existed cannot author the v4 catalog. Preserve
+  // the repository's current value so an unrelated setting never widens or repairs it implicitly;
+  // a mixed/unknown current catalog is then refused by ordinary validation with its exact values.
+  const effective: WorldModelDraft = {
+    ...draft,
+    format,
+    v4,
+    views: retainedV4Form
+      ? (Array.isArray(existing.views) ? [...existing.views] : [...BUILTIN_VIEW_REFERENCES])
+      : draft.views
+  };
+  const explicitMigration = draft.format === 'registered-v4'
+    && draft.v4?.legacyAssignments === 'inherit-configured';
+  if (!explicitMigration) {
+    return Object.freeze({ draft: effective, migratedLegacyCatalog: false });
+  }
+  const legacy = new Set(LEGACY_WORLD_MODEL_VIEW_IDS);
+  const submitted = Array.isArray(effective.views) ? effective.views : [];
+  if (!submitted.length || !submitted.every((view) => legacy.has(String(view).trim()))) {
+    return Object.freeze({ draft: effective, migratedLegacyCatalog: false });
+  }
+  return Object.freeze({
+    draft: {
+      ...effective,
+      views: [...BUILTIN_VIEW_REFERENCES]
+    },
+    migratedLegacyCatalog: true
+  });
+}
+
+/** Reject malformed/retained postMessage payloads before any property is dereferenced. */
+export function validateWorldModelDraftShape(draft: unknown): string[] {
+  if (!draft || typeof draft !== 'object') {
+    return ['World-model settings are incomplete. Reload Configuration Center and try again.'];
+  }
+  const candidate = draft as Partial<WorldModelDraft>;
+  const strings = (value: unknown): value is string[] => Array.isArray(value)
+    && value.every((entry) => typeof entry === 'string');
+  const record = (value: unknown): value is Record<string, unknown> => Boolean(value)
+    && typeof value === 'object' && !Array.isArray(value);
+  if (!strings(candidate.views)
+      || (candidate.sourceRoots !== undefined && !strings(candidate.sourceRoots))
+      || (candidate.sharedRoots !== undefined && !strings(candidate.sharedRoots))
+      || typeof candidate.outputDir !== 'string'
+      || typeof candidate.promptSource !== 'string'
+      || typeof candidate.stateFetchTimeoutMs !== 'number'
+      || (candidate.v4 !== undefined && !record(candidate.v4))
+      || (candidate.projections !== undefined && (
+        !record(candidate.projections) || !record(candidate.projections.archCalm)
+      ))
+      || !record(candidate.generation)
+      || !record(candidate.materialization)
+      || !record(candidate.injection)) {
+    return ['World-model settings are incomplete. Reload Configuration Center and try again.'];
+  }
+  return [];
+}
+
 export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
+  const shapeErrors = validateWorldModelDraftShape(draft);
+  if (shapeErrors.length) return shapeErrors;
   const errors: string[] = [];
   const format = draft.format ?? 'legacy-v3';
   const v4 = {
@@ -765,68 +858,69 @@ export function updateAutoYaml(text: string, draft: AutoDraft): string {
 /** Update only guided world-model fields. Advanced context and injection rules remain untouched. */
 export function updateWorldModelYaml(text: string, draft: WorldModelDraft): string {
   const parsed = document(text, 'workflow.yml');
-  const errors = validateWorldModelDraft(draft);
+  const prepared = prepareWorldModelDraftForSave(text, draft).draft;
+  const errors = validateWorldModelDraft(prepared);
   if (errors.length) throw new Error(errors.join(' '));
   // An older webview does not send these fields. In that case preserve the exact existing policy
   // instead of silently downgrading a registered-v4 repository during an otherwise unrelated save.
-  if (draft.format !== undefined) parsed.setIn(['worldModel', 'format'], draft.format);
-  if (draft.v4 !== undefined) {
-    if (draft.v4.composer !== undefined) parsed.setIn(['worldModel', 'v4', 'composer'], draft.v4.composer);
-    if (draft.v4.consumer !== undefined) parsed.setIn(['worldModel', 'v4', 'consumer'], draft.v4.consumer);
-    if (draft.v4.cachePolicy !== undefined) parsed.setIn(['worldModel', 'v4', 'cachePolicy'], draft.v4.cachePolicy);
-    if (draft.v4.legacyAssignments !== undefined) {
-      parsed.setIn(['worldModel', 'v4', 'legacyAssignments'], draft.v4.legacyAssignments);
+  if (prepared.format !== undefined) parsed.setIn(['worldModel', 'format'], prepared.format);
+  if (prepared.v4 !== undefined) {
+    if (prepared.v4.composer !== undefined) parsed.setIn(['worldModel', 'v4', 'composer'], prepared.v4.composer);
+    if (prepared.v4.consumer !== undefined) parsed.setIn(['worldModel', 'v4', 'consumer'], prepared.v4.consumer);
+    if (prepared.v4.cachePolicy !== undefined) parsed.setIn(['worldModel', 'v4', 'cachePolicy'], prepared.v4.cachePolicy);
+    if (prepared.v4.legacyAssignments !== undefined) {
+      parsed.setIn(['worldModel', 'v4', 'legacyAssignments'], prepared.v4.legacyAssignments);
     }
-    if (draft.v4.totalMaximumOutputTokens !== undefined) {
-      parsed.setIn(['worldModel', 'v4', 'totalMaximumOutputTokens'], draft.v4.totalMaximumOutputTokens);
+    if (prepared.v4.totalMaximumOutputTokens !== undefined) {
+      parsed.setIn(['worldModel', 'v4', 'totalMaximumOutputTokens'], prepared.v4.totalMaximumOutputTokens);
     }
   }
-  if (draft.projections !== undefined) {
-    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'enabled'], draft.projections.archCalm.enabled);
-    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'required'], draft.projections.archCalm.required);
+  if (prepared.projections !== undefined) {
+    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'enabled'], prepared.projections.archCalm.enabled);
+    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'required'], prepared.projections.archCalm.required);
     parsed.setIn(['worldModel', 'projections', 'arch.calm', 'contract'], 'arch.calm@1');
     parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'schemaRelease'], '1.2');
-    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'strict'], draft.projections.archCalm.strict);
-    if (typeof draft.projections.archCalm.includeGovernanceActors === 'boolean') {
+    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'strict'], prepared.projections.archCalm.strict);
+    if (typeof prepared.projections.archCalm.includeGovernanceActors === 'boolean') {
       parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeGovernanceActors'],
-        draft.projections.archCalm.includeGovernanceActors);
+        prepared.projections.archCalm.includeGovernanceActors);
     }
-    if (typeof draft.projections.archCalm.includeControls === 'boolean') {
+    if (typeof prepared.projections.archCalm.includeControls === 'boolean') {
       parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeControls'],
-        draft.projections.archCalm.includeControls);
+        prepared.projections.archCalm.includeControls);
     }
-    if (typeof draft.projections.archCalm.includeFlows === 'boolean') {
+    if (typeof prepared.projections.archCalm.includeFlows === 'boolean') {
       parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeFlows'],
-        draft.projections.archCalm.includeFlows);
+        prepared.projections.archCalm.includeFlows);
     }
     if (['off', 'direct-architecture-only'].includes(
-      draft.projections.archCalm.includeExternalDependencies
+      prepared.projections.archCalm.includeExternalDependencies
     )) {
       parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeExternalDependencies'],
-        draft.projections.archCalm.includeExternalDependencies);
+        prepared.projections.archCalm.includeExternalDependencies);
     }
   }
-  parsed.setIn(['worldModel', 'views'], draft.views);
+  parsed.setIn(['worldModel', 'views'], prepared.views);
   // Callers from before scoped world models omit these fields. Preserve the existing YAML in that
   // case; the current form always supplies arrays, including [] when the user deliberately selects
   // the whole repository.
-  if (Array.isArray(draft.sourceRoots)) parsed.setIn(['worldModel', 'sourceRoots'], draft.sourceRoots);
-  if (Array.isArray(draft.sharedRoots)) parsed.setIn(['worldModel', 'sharedRoots'], draft.sharedRoots);
-  parsed.setIn(['worldModel', 'outputDir'], draft.outputDir.trim());
-  parsed.setIn(['worldModel', 'promptSource'], draft.promptSource.trim());
-  parsed.setIn(['worldModel', 'stateFetchTimeoutMs'], draft.stateFetchTimeoutMs);
-  parsed.setIn(['worldModel', 'generation', 'parallel'], draft.generation.parallel);
-  parsed.setIn(['worldModel', 'generation', 'maxWorkers'], draft.generation.maxWorkers);
+  if (Array.isArray(prepared.sourceRoots)) parsed.setIn(['worldModel', 'sourceRoots'], prepared.sourceRoots);
+  if (Array.isArray(prepared.sharedRoots)) parsed.setIn(['worldModel', 'sharedRoots'], prepared.sharedRoots);
+  parsed.setIn(['worldModel', 'outputDir'], prepared.outputDir.trim());
+  parsed.setIn(['worldModel', 'promptSource'], prepared.promptSource.trim());
+  parsed.setIn(['worldModel', 'stateFetchTimeoutMs'], prepared.stateFetchTimeoutMs);
+  parsed.setIn(['worldModel', 'generation', 'parallel'], prepared.generation.parallel);
+  parsed.setIn(['worldModel', 'generation', 'maxWorkers'], prepared.generation.maxWorkers);
   parsed.setIn(['worldModel', 'generation', 'strategy'], 'view');
-  parsed.setIn(['worldModel', 'materialization', 'mode'], draft.materialization.mode);
-  parsed.setIn(['worldModel', 'materialization', 'publish'], draft.materialization.publish);
-  parsed.setIn(['worldModel', 'materialization', 'lookahead'], draft.materialization.lookahead);
-  parsed.setIn(['worldModel', 'materialization', 'depth'], draft.materialization.depth);
-  parsed.setIn(['worldModel', 'materialization', 'confirmation'], draft.materialization.confirmation);
-  parsed.setIn(['worldModel', 'grounding'], draft.grounding);
-  parsed.setIn(['worldModel', 'staleness'], draft.staleness);
-  parsed.setIn(['worldModel', 'injection', 'placeholder'], draft.injection.placeholder);
-  parsed.setIn(['worldModel', 'injection', 'mode'], draft.injection.mode);
-  parsed.setIn(['worldModel', 'injection', 'maxBytes'], draft.injection.maxBytes);
+  parsed.setIn(['worldModel', 'materialization', 'mode'], prepared.materialization.mode);
+  parsed.setIn(['worldModel', 'materialization', 'publish'], prepared.materialization.publish);
+  parsed.setIn(['worldModel', 'materialization', 'lookahead'], prepared.materialization.lookahead);
+  parsed.setIn(['worldModel', 'materialization', 'depth'], prepared.materialization.depth);
+  parsed.setIn(['worldModel', 'materialization', 'confirmation'], prepared.materialization.confirmation);
+  parsed.setIn(['worldModel', 'grounding'], prepared.grounding);
+  parsed.setIn(['worldModel', 'staleness'], prepared.staleness);
+  parsed.setIn(['worldModel', 'injection', 'placeholder'], prepared.injection.placeholder);
+  parsed.setIn(['worldModel', 'injection', 'mode'], prepared.injection.mode);
+  parsed.setIn(['worldModel', 'injection', 'maxBytes'], prepared.injection.maxBytes);
   return String(parsed);
 }

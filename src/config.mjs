@@ -1037,39 +1037,53 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       // the exact repository v4 catalog in memory; unknown and mixed identities remain refusals.
       applyRegisteredV4LegacyAssignmentMigration(definition);
       const configured = worldModel.views ?? [];
-      const referenced = [...structuredWorldModelViewReferences(definition).keys()];
+      const referenced = structuredWorldModelViewReferences(definition);
       const normalizedConfigured = [];
-      for (const view of configured) {
+      const invalidEntries = [];
+      let firstInvalidCause = null;
+      const validateRegisteredView = ({ view, source, sourceKind }) => {
         try {
           const normalized = normalizeBuiltInViewReference(view);
-          normalizedConfigured.push(normalized.reference);
+          return normalized;
         } catch (error) {
-          throw new SingularityFlowError(
-            `Registered-v4 World Model accepts only installed active view contracts (${BUILTIN_VIEW_IDS.join(', ')}); `
-            + 'replace worldModel.views with exact installed contracts. While existing phase or agent assignments '
-            + 'are being migrated, set worldModel.v4.legacyAssignments to inherit-configured; unknown and mixed '
-            + `assignments remain refused. Unsupported: ${view}.`,
-            {
-              code: error?.code ?? 'WMB_VIEW_UNKNOWN', cause: error,
-              details: { views: [view], registeredViews: [...BUILTIN_VIEW_IDS] }
-            }
-          );
+          firstInvalidCause ??= error;
+          invalidEntries.push(Object.freeze({
+            view,
+            source,
+            sourceKind,
+            code: error?.code ?? 'WMB_VIEW_UNKNOWN'
+          }));
+          return null;
+        }
+      };
+      for (const [index, view] of configured.entries()) {
+        const normalized = validateRegisteredView({
+          view, source: `worldModel.views[${index}]`, sourceKind: 'repository-catalog'
+        });
+        if (normalized) normalizedConfigured.push(normalized.reference);
+      }
+      for (const [view, sources] of referenced) {
+        for (const source of sources) {
+          validateRegisteredView({ view, source, sourceKind: 'structured-assignment' });
         }
       }
-      for (const view of referenced) {
-        try { normalizeBuiltInViewReference(view); }
-        catch (error) {
-          throw new SingularityFlowError(
-            `Registered-v4 World Model accepts only installed active view contracts (${BUILTIN_VIEW_IDS.join(', ')}); `
-            + 'replace worldModel.views with exact installed contracts. While existing phase or agent assignments '
-            + 'are being migrated, set worldModel.v4.legacyAssignments to inherit-configured; unknown and mixed '
-            + `assignments remain refused. Unsupported: ${view}.`,
-            {
-              code: error?.code ?? 'WMB_VIEW_UNKNOWN', cause: error,
-              details: { views: [view], registeredViews: [...BUILTIN_VIEW_IDS] }
+      if (invalidEntries.length) {
+        const locations = invalidEntries.map(({ view, source }) => `${source}=${view}`).join('; ');
+        throw new SingularityFlowError(
+          `Registered-v4 World Model accepts only installed active view contracts (${BUILTIN_VIEW_IDS.join(', ')}); `
+          + 'replace worldModel.views with exact installed contracts. While existing phase or agent assignments '
+          + 'are being migrated, set worldModel.v4.legacyAssignments to inherit-configured; unknown and mixed '
+          + `assignments remain refused. Unsupported entries: ${locations}.`,
+          {
+            code: firstInvalidCause?.code ?? 'WMB_VIEW_UNKNOWN',
+            cause: firstInvalidCause,
+            details: {
+              views: [...new Set(invalidEntries.map(({ view }) => view))],
+              registeredViews: [...BUILTIN_VIEW_IDS],
+              invalidEntries
             }
-          );
-        }
+          }
+        );
       }
       if (new Set(normalizedConfigured).size !== normalizedConfigured.length) {
         throw new SingularityFlowError(

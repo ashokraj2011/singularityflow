@@ -53,6 +53,12 @@ export const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-authority-snapshot');
+// Remote-only Git reads do not need the host application's ambient cwd. VS Code extension hosts
+// can start at the filesystem root, where the hardened executable resolver must reject every
+// absolute executable as a possible cwd-local binary. Bind those reads to the OS temp directory;
+// repository-aware observations use their verified repository root, while private clones use the
+// parent of their freshly-created scratch directory.
+const REMOTE_GIT_READ_CWD = path.resolve(os.tmpdir());
 
 function configurationRepositoryHead(root, env = process.env) {
   const commit = executeGitQuery(root, 'repository.head', {}, { env });
@@ -553,7 +559,7 @@ export async function remoteHasConfigurationBranch(remote, options = {}) {
  * remote so stale data is never presented as an empty organisation.
  */
 export async function configurationBranchHead(remote, {
-  session = new GitRemoteSession(), refresh = false, observation = null
+  session = new GitRemoteSession({ cwd: REMOTE_GIT_READ_CWD }), refresh = false, observation = null
 } = {}) {
   const observed = observation ?? await session.observeAsync(remote, {
     refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false, refresh
@@ -644,7 +650,7 @@ export async function ensureConfigurationBranch(remote, {
   const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
   const transportOptions = { ...transport, env: gitEnv };
   const frozen = frozenRemoteTransport(url, { push: true, env: gitEnv });
-  const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
+  const session = remoteSession ?? new GitRemoteSession({ cwd: REMOTE_GIT_READ_CWD, env: gitEnv });
   const configurationObservation = observedHead?.observation ?? await session.observeAsync(url, {
     refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false
   });
@@ -710,7 +716,7 @@ export async function ensureConfigurationBranch(remote, {
     const clone = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--no-checkout', '--branch', importBranch, frozen.remote, scratch
-    ], { operation: 'remote-configuration', env: frozen.env });
+    ], { cwd: path.dirname(scratch), operation: 'remote-configuration', env: frozen.env });
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(url)}'. ${clone.failure?.advice ?? 'Git remote access failed.'}`,
@@ -889,7 +895,7 @@ async function cloneConfiguration(remote, target, { env = process.env } = {}) {
   const clone = await runRemoteGitAsync([
     '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
     '--branch', CONFIGURATION_BRANCH, frozen.remote, target
-  ], { operation: 'remote-configuration', env: frozen.env });
+  ], { cwd: path.dirname(target), operation: 'remote-configuration', env: frozen.env });
   if (clone.status !== 0) {
     throw new SingularityFlowError(
       `Cannot read approved configuration from '${sanitizeRemote(remote)}' branch '${CONFIGURATION_BRANCH}'. `
@@ -911,7 +917,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
     const clone = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--no-checkout', '--branch', branch, frozen.remote, source
-    ], { operation: 'remote-configuration', env: frozen.env });
+    ], { cwd: path.dirname(source), operation: 'remote-configuration', env: frozen.env });
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read configuration recovery mirror from '${sanitizeRemote(remote)}' branch '${branch}'. `
@@ -1050,7 +1056,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
 }
 
 async function storyConfigurationAuthorityObservation(remote, {
-  session = new GitRemoteSession()
+  session = new GitRemoteSession({ cwd: REMOTE_GIT_READ_CWD })
 } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) return { url, configurationCommit: null, stateCommit: null, observation: null };
@@ -1488,7 +1494,7 @@ export async function withStoryConfigurationSnapshotRead(root, snapshot, fn, { s
 
 /** Find the organisation configuration for a repository inside or outside a managed workspace. */
 export async function resolveConfigurationRemote(root, remoteName = 'origin', {
-  session = new GitRemoteSession()
+  session = new GitRemoteSession({ cwd: root })
 } = {}) {
   const workspace = await activeWorkspaceForRepository(root);
   const resolveCandidate = async (remote, label) => {

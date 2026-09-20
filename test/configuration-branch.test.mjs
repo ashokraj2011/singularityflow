@@ -722,9 +722,15 @@ test('Story authority resolution uses the repository root when the host process 
     run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
     const moduleUrl = new URL('../src/configuration-branch.mjs', import.meta.url).href;
     const script = [
-      `import { resolveStoryConfigurationAuthority } from ${JSON.stringify(moduleUrl)};`,
+      `import { loadStoryConfigurationSnapshot, resolveStoryConfigurationAuthority } from ${JSON.stringify(moduleUrl)};`,
       `const authority = await resolveStoryConfigurationAuthority(${JSON.stringify(checkout)});`,
-      'process.stdout.write(JSON.stringify({ branch: authority?.branch, commit: authority?.commit }));'
+      'const snapshot = await loadStoryConfigurationSnapshot(authority);',
+      'process.stdout.write(JSON.stringify({',
+      '  branch: authority?.branch,',
+      '  commit: authority?.commit,',
+      '  observedCommit: snapshot?.observedCommit,',
+      '  version: snapshot?.definition?.version',
+      '}));'
     ].join('\n');
     const probe = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
       cwd: '/', encoding: 'utf8', env: process.env
@@ -733,6 +739,8 @@ test('Story authority resolution uses the repository root when the host process 
     const authority = JSON.parse(probe.stdout);
     assert.equal(authority.branch, CONFIGURATION_BRANCH);
     assert.match(authority.commit, /^[0-9a-f]{40}$/);
+    assert.equal(authority.observedCommit, authority.commit);
+    assert.equal(authority.version, 2);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

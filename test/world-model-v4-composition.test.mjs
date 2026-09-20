@@ -40,6 +40,7 @@ async function fixture(t) {
     "import { helper } from './support.mjs';\nexport function service() { return helper(); }\n"
   );
   await writeFile(path.join(root, 'src', 'support.mjs'), 'export function helper() { return 1; }\n');
+  await writeFile(path.join(root, 'src', 'App.tsx'), 'export function App() { return null; }\n');
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'fixture');
   const scopeManifest = createScopeManifest({
@@ -84,6 +85,27 @@ test('composition validation accepts the registered candidate and refuses minted
   assert.throws(() => validate(mintedDerivation, context), (error) => error.code === 'WMB_DERIVATION_INVALID');
 });
 
+test('scope validation accepts a registered source-file basename as a path, not a compound symbol', async (t) => {
+  const base = await fixture(t);
+  const contract = resolveBuiltInViewContract('arch.contracts@4');
+  const registration = runDeterministicRegistration({
+    root: base.root,
+    scopeManifest: base.scopeManifest,
+    requestedViews: ['arch.contracts@4']
+  });
+  const viewFactLedger = registration.viewFactLedgers[0];
+  const appFact = viewFactLedger.facts.find((fact) => fact.claim?.includes('App.tsx'));
+  assert.ok(appFact, 'fixture must expose a selected App.tsx fact');
+  const candidate = renderDeterministicCandidate(contract, viewFactLedger);
+  assert.match(JSON.stringify(candidate), /App\.tsx/);
+  assert.equal(validateCompositionCandidate(candidate, {
+    contract,
+    viewFactLedger,
+    evidenceCatalog: registration.evidenceCatalog,
+    scopeManifest: base.scopeManifest
+  }).receipt.status, 'passed');
+});
+
 test('deny-by-default body and kernel metadata guards cover alternate Markdown forms', async (t) => {
   const context = await fixture(t);
   const candidate = renderDeterministicCandidate(context.contract, context.viewFactLedger);
@@ -110,7 +132,8 @@ test('scope validation refuses unquoted excluded paths and invented compound sym
   const factRef = `[F:${candidate.usedFactIds[0]}]`;
   for (const [claim, token] of [
     [`src/admin/secrets.ts contains credentials. ${factRef}`, 'src/admin/secrets.ts'],
-    [`PaymentGateway.stealSecret is called. ${factRef}`, 'PaymentGateway.stealSecret']
+    [`PaymentGateway.stealSecret is called. ${factRef}`, 'PaymentGateway.stealSecret'],
+    [`Hidden.tsx#Fake is called. ${factRef}`, 'Hidden.tsx#Fake']
   ]) {
     const changed = structuredClone(candidate);
     changed.sections[0].markdown = claim;

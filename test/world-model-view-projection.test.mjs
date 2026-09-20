@@ -5,15 +5,23 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { canonicalJson } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sha256 } from '../src/world-model/canonicalize.mjs';
 import {
   createViewProjectionRegistration, runDeterministicRegistration
 } from '../src/world-model/extract/index.mjs';
 import {
   REQUIRED_FACT_COVERAGE_ID
 } from '../src/world-model/extract/adapters/required-fact-coverage.mjs';
+import {
+  LEGACY_REGISTERED_SELECTION_POLICY_SHA256
+} from '../src/world-model/extract/selection.mjs';
+import {
+  renderPersistedOverviewView
+} from '../src/world-model/materialize/overview-view.mjs';
 import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
-import { BUILTIN_VIEW_REGISTRY } from '../src/world-model/registry/views.mjs';
+import {
+  BUILTIN_VIEW_REGISTRY, WMP_OVERVIEW_VIEW_REGISTRY, resolveWmpOverviewViewContract
+} from '../src/world-model/registry/views.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 
 function git(root, ...args) {
@@ -111,4 +119,40 @@ test('view projection refuses a base that already owns view-dependent coverage',
     factLedger: full.factLedger,
     viewContracts: activeViews()
   }), (error) => error?.code === 'WMP_PROJECTION_BASE_INVALID');
+});
+
+test('persisted overview projection retains lexical v1 selection for exact renderer replay', async (t) => {
+  const root = await repository(t);
+  const scopeManifest = createScopeManifest({
+    capabilityId: 'view-projection', allowedPaths: ['src/**']
+  });
+  const base = runDeterministicRegistration({
+    root, scopeManifest, requestedViews: []
+  });
+  const contract = resolveWmpOverviewViewContract('repository.development@1');
+  const projected = createViewProjectionRegistration({
+    sourceSnapshot: base.sourceSnapshot,
+    scopeManifest: base.scopeManifest,
+    extractorRegistry: BUILTIN_EXTRACTOR_REGISTRY,
+    viewRegistry: WMP_OVERVIEW_VIEW_REGISTRY,
+    evidenceCatalog: base.evidenceCatalog,
+    derivationCatalog: base.derivationCatalog,
+    factLedger: base.factLedger,
+    viewContracts: [contract]
+  });
+  const selected = projected.viewFactLedgers[0];
+  assert.equal(
+    selected.selectionPolicySha256,
+    LEGACY_REGISTERED_SELECTION_POLICY_SHA256
+  );
+
+  const rendered = renderPersistedOverviewView({
+    view: contract.id,
+    sourceFactLedger: projected.factLedger,
+    viewFactLedger: selected,
+    modelPayloadSha256: sha256({ fixture: 'projection-model' }),
+    viewInputsSha256: sha256({ fixture: 'projection-inputs' })
+  });
+  assert.equal(rendered.selectedFactIds.length, selected.facts.length);
+  assert.equal(rendered.omittedFactIds.length, 0);
 });

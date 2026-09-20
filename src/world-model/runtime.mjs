@@ -640,7 +640,11 @@ async function executeOneView(root, context, requested, options) {
     providerResult = await composeWithModel(root, assembled.prompt, contract, viewOutputBudget, options);
     rawCandidate = providerResult.output;
     observedModel = providerResult.model ?? null;
-  } else rawCandidate = renderDeterministicCandidate(contract, viewFactLedger);
+  } else {
+    rawCandidate = renderDeterministicCandidate(contract, viewFactLedger, {
+      outputBudget: viewOutputBudget
+    });
+  }
 
   const { candidate, receipt } = validateCompositionCandidate(rawCandidate, {
     contract,

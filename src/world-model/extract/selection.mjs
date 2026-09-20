@@ -8,7 +8,7 @@ import {
 import { validateViewContract } from '../registry/views.mjs';
 import { validateFactLedger, validateFactRecord } from './fact-ledger.mjs';
 
-export const REGISTERED_SELECTION_POLICY = Object.freeze({
+export const LEGACY_REGISTERED_SELECTION_POLICY = Object.freeze({
   id: 'registered-view-fact-selection',
   version: 1,
   ordering: 'fact-id-lexical',
@@ -16,17 +16,45 @@ export const REGISTERED_SELECTION_POLICY = Object.freeze({
   requiredFacts: 'never-prune',
   contradictions: 'material-and-never-prune'
 });
+export const LEGACY_REGISTERED_SELECTION_POLICY_SHA256 = sha256(
+  LEGACY_REGISTERED_SELECTION_POLICY
+);
+
+/**
+ * Required Fact types express type-level coverage, not an instruction to copy every matching
+ * repository Fact into one bounded view. Version 1 accidentally treated the two as equivalent,
+ * making ordinary repositories impossible to render once a required type had more instances than
+ * the View Contract ceiling. Version 2 keeps the complete source Fact Ledger, selects at least one
+ * canonical Fact for every required type, retains every material contradiction, and then fills the
+ * remaining view capacity with a deterministic type-balanced traversal.
+ */
+export const REGISTERED_SELECTION_POLICY = Object.freeze({
+  id: 'registered-view-fact-selection',
+  version: 2,
+  ordering: 'fact-type-round-robin-then-fact-id-lexical',
+  staleFacts: 'exclude',
+  requiredFactTypes: 'minimum-one-then-balanced-fill',
+  requiredUnavailableSubjects: 'one-when-coverage-is-unavailable',
+  contradictions: 'material-and-never-prune'
+});
 export const REGISTERED_SELECTION_POLICY_SHA256 = sha256(REGISTERED_SELECTION_POLICY);
+
+const REGISTERED_SELECTION_POLICIES = new Map([
+  [LEGACY_REGISTERED_SELECTION_POLICY_SHA256, LEGACY_REGISTERED_SELECTION_POLICY],
+  [REGISTERED_SELECTION_POLICY_SHA256, REGISTERED_SELECTION_POLICY]
+]);
 
 function assertRegisteredPolicy(value) {
   const policy = value ?? REGISTERED_SELECTION_POLICY;
-  if (canonicalJson(policy) !== canonicalJson(REGISTERED_SELECTION_POLICY)) {
+  const digest = sha256(policy);
+  const registered = REGISTERED_SELECTION_POLICIES.get(digest);
+  if (!registered || canonicalJson(policy) !== canonicalJson(registered)) {
     contractFailure('View Fact selection policy is not registered.', 'WMB_SELECTION_POLICY_NOT_REGISTERED');
   }
-  return policy;
+  return registered;
 }
 
-function computeViewSelection(source, view) {
+function eligibleViewFacts(source, view) {
   const eligibleTypes = new Set([
     ...view.factPolicy.requiredFactTypes,
     ...view.factPolicy.optionalFactTypes,
@@ -35,7 +63,8 @@ function computeViewSelection(source, view) {
   const eligible = source.facts.filter((fact) => eligibleTypes.has(fact.factType)
     && fact.status !== 'stale'
     && view.factPolicy.allowedStatus.includes(fact.status)
-    && view.factPolicy.allowedAssurance.includes(fact.assurance));
+    && view.factPolicy.allowedAssurance.includes(fact.assurance))
+    .sort((left, right) => compareText(left.id, right.id));
 
   const required = eligible.filter((fact) => view.factPolicy.requiredFactTypes.includes(fact.factType));
   for (const factType of view.factPolicy.requiredFactTypes) {
@@ -50,13 +79,24 @@ function computeViewSelection(source, view) {
       contractFailure(`View '${view.id}@${view.version}' has neither registered coverage nor an unavailable Fact for '${factType}'.`, 'WMB_REQUIRED_UNAVAILABLE_FACT_MISSING');
     }
   }
+  return { eligible, required };
+}
+
+function budgetExceeded(view, count, subject = 'mandatory Facts') {
+  contractFailure(
+    `View '${view.id}@${view.version}' has ${count} ${subject} but its hard ceiling is ${view.facts.maximumSelectedFacts}.`,
+    'WMB_VIEW_FACT_BUDGET_EXCEEDED'
+  );
+}
+
+function computeLegacyViewSelection(source, view) {
+  const { eligible, required } = eligibleViewFacts(source, view);
+  const requiredUnavailable = eligible.filter((fact) => fact.status === 'unavailable'
+    && view.factPolicy.requiredUnavailableSubjects.includes(fact.factType));
   const contradictions = eligible.filter((fact) => fact.status === 'contradicted');
   const mandatoryIds = new Set([...required, ...requiredUnavailable, ...contradictions].map((fact) => fact.id));
   if (mandatoryIds.size > view.facts.maximumSelectedFacts) {
-    contractFailure(
-      `View '${view.id}@${view.version}' has ${mandatoryIds.size} mandatory Facts but its hard ceiling is ${view.facts.maximumSelectedFacts}.`,
-      'WMB_VIEW_FACT_BUDGET_EXCEEDED'
-    );
+    budgetExceeded(view, mandatoryIds.size);
   }
   const optional = eligible.filter((fact) => !mandatoryIds.has(fact.id)).sort((left, right) => compareText(left.id, right.id));
   const remaining = view.facts.maximumSelectedFacts - mandatoryIds.size;
@@ -71,12 +111,99 @@ function computeViewSelection(source, view) {
   };
 }
 
+function takeTypeBalanced(facts, maximum) {
+  if (maximum <= 0 || !facts.length) return [];
+  const queues = new Map();
+  for (const fact of [...facts].sort((left, right) => (
+    compareText(left.factType, right.factType) || compareText(left.id, right.id)
+  ))) {
+    if (!queues.has(fact.factType)) queues.set(fact.factType, []);
+    queues.get(fact.factType).push(fact);
+  }
+  const types = [...queues.keys()].sort(compareText);
+  const selected = [];
+  let offset = 0;
+  while (selected.length < maximum) {
+    let added = false;
+    for (const type of types) {
+      const fact = queues.get(type)[offset];
+      if (!fact) continue;
+      selected.push(fact);
+      added = true;
+      if (selected.length === maximum) break;
+    }
+    if (!added) break;
+    offset += 1;
+  }
+  return selected;
+}
+
+function computeBoundedViewSelection(source, view) {
+  const { eligible, required } = eligibleViewFacts(source, view);
+  const contradictions = eligible.filter((fact) => fact.status === 'contradicted');
+  const mandatoryIds = new Set(contradictions.map((fact) => fact.id));
+  const requiredFactIds = new Set();
+  const requiredUnavailableFactIds = new Set();
+
+  // One canonical Fact establishes each required type's coverage. The remaining instances stay in
+  // the complete source ledger and compete fairly for the bounded view slots below.
+  for (const factType of [...view.factPolicy.requiredFactTypes].sort(compareText)) {
+    const candidates = required.filter((fact) => fact.factType === factType);
+    const anchor = candidates.find((fact) => mandatoryIds.has(fact.id)) ?? candidates[0];
+    mandatoryIds.add(anchor.id);
+    requiredFactIds.add(anchor.id);
+  }
+
+  // requiredUnavailableSubjects asks the view to expose lack of coverage only when every admitted
+  // observation for that subject is unavailable. A real/partial/contradicted observation already
+  // satisfies the coverage contract and must not gain a synthetic limitation beside it.
+  for (const factType of [...view.factPolicy.requiredUnavailableSubjects].sort(compareText)) {
+    const coverage = eligible.filter((fact) => fact.factType === factType);
+    if (coverage.every((fact) => fact.status === 'unavailable')) {
+      const anchor = coverage.find((fact) => mandatoryIds.has(fact.id)) ?? coverage[0];
+      mandatoryIds.add(anchor.id);
+      requiredUnavailableFactIds.add(anchor.id);
+    }
+  }
+
+  if (mandatoryIds.size > view.facts.maximumSelectedFacts) {
+    budgetExceeded(view, mandatoryIds.size, 'minimum coverage and contradiction Facts');
+  }
+
+  const remaining = view.facts.maximumSelectedFacts - mandatoryIds.size;
+  const requiredRemainder = required.filter((fact) => !mandatoryIds.has(fact.id));
+  const selectedRequired = takeTypeBalanced(requiredRemainder, remaining);
+  const selectedIds = new Set([
+    ...mandatoryIds,
+    ...selectedRequired.map((fact) => fact.id)
+  ]);
+  const optionalCapacity = view.facts.maximumSelectedFacts - selectedIds.size;
+  const optional = eligible.filter((fact) => (
+    !view.factPolicy.requiredFactTypes.includes(fact.factType) && !selectedIds.has(fact.id)
+  ));
+  for (const fact of takeTypeBalanced(optional, optionalCapacity)) selectedIds.add(fact.id);
+
+  const facts = eligible.filter((fact) => selectedIds.has(fact.id));
+  return {
+    facts,
+    requiredFactIds: [...requiredFactIds].sort(),
+    requiredUnavailableFactIds: [...requiredUnavailableFactIds].sort(),
+    materialContradictionFactIds: contradictions.map((fact) => fact.id).sort()
+  };
+}
+
+function computeViewSelection(source, view, policy) {
+  return policy.version === 1
+    ? computeLegacyViewSelection(source, view)
+    : computeBoundedViewSelection(source, view);
+}
+
 export function selectViewFacts({ factLedger, viewContract, selectionPolicy = null } = {}) {
   const source = validateFactLedger(factLedger);
   const view = validateViewContract(viewContract);
-  assertRegisteredPolicy(selectionPolicy);
+  const policy = assertRegisteredPolicy(selectionPolicy);
   if (view.validity.status !== 'active') contractFailure(`View '${view.id}@${view.version}' is not active.`, 'WMB_VIEW_NOT_ACTIVE');
-  const selected = computeViewSelection(source, view);
+  const selected = computeViewSelection(source, view, policy);
   return validateViewFactLedger(sealRecord({
     schemaVersion: currentSchemaVersion('world-model-view-fact-ledger'),
     kind: 'world-model-view-fact-ledger',
@@ -85,7 +212,7 @@ export function selectViewFacts({ factLedger, viewContract, selectionPolicy = nu
     viewSpecSha256: view.contractSha256,
     sourceLedgerSha256: source.ledgerSha256,
     ...selected,
-    selectionPolicySha256: REGISTERED_SELECTION_POLICY_SHA256
+    selectionPolicySha256: sha256(policy)
   }, 'ledgerSha256'), { factLedger: source, viewContract: view });
 }
 
@@ -105,7 +232,8 @@ export function validateViewFactLedger(value, { factLedger = null, viewContract 
   for (const field of ['viewSpecSha256', 'sourceLedgerSha256', 'selectionPolicySha256', 'ledgerSha256']) {
     assertSha256(value[field], `View Fact Ledger ${field}`);
   }
-  if (value.selectionPolicySha256 !== REGISTERED_SELECTION_POLICY_SHA256) {
+  const selectionPolicy = REGISTERED_SELECTION_POLICIES.get(value.selectionPolicySha256);
+  if (!selectionPolicy) {
     contractFailure('View Fact Ledger selection policy is not registered.', 'WMB_SELECTION_POLICY_NOT_REGISTERED');
   }
   if (!Array.isArray(value.facts)) contractFailure('View Fact Ledger facts must be an array.');
@@ -148,7 +276,7 @@ export function validateViewFactLedger(value, { factLedger = null, viewContract 
       }
     }
     if (source) {
-      const expected = computeViewSelection(source, view);
+      const expected = computeViewSelection(source, view, selectionPolicy);
       for (const field of ['requiredFactIds', 'requiredUnavailableFactIds', 'materialContradictionFactIds']) {
         if (canonicalJson(value[field]) !== canonicalJson(expected[field])) {
           contractFailure(`View Fact Ledger ${field} does not match deterministic selection.`, 'WMB_SELECTION_INVALID');

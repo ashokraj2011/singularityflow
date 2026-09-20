@@ -6,7 +6,7 @@ import {
   resolveExtractorManifest, validateExtractorRegistry
 } from '../registry/extractors.mjs';
 import {
-  resolveViewContract, validateViewRegistry
+  WMP_OVERVIEW_VIEW_REGISTRY, resolveViewContract, validateViewRegistry
 } from '../registry/views.mjs';
 import { validateScopeManifest } from '../scope/manifest.mjs';
 import { validateSourceSnapshot } from '../source/snapshot.mjs';
@@ -25,7 +25,9 @@ import { validateEvidenceCatalog } from './evidence-catalog.mjs';
 import {
   createFactLedger, factIdentityFromRecord, validateFactLedger
 } from './fact-ledger.mjs';
-import { selectViewFacts } from './selection.mjs';
+import {
+  LEGACY_REGISTERED_SELECTION_POLICY, selectViewFacts
+} from './selection.mjs';
 
 function exactViewContracts(viewRegistry, viewContracts) {
   const registry = validateViewRegistry(viewRegistry);
@@ -151,7 +153,8 @@ export function createViewProjectionRegistration({
     );
   }
 
-  const views = exactViewContracts(viewRegistry, viewContracts);
+  const selectedViewRegistry = validateViewRegistry(viewRegistry);
+  const views = exactViewContracts(selectedViewRegistry, viewContracts);
   if (!views.length) {
     return deepFreeze({
       sourceSnapshot: source,
@@ -244,9 +247,17 @@ export function createViewProjectionRegistration({
       );
     }
   }
+  // Persisted overview renderer/validator v1 owns an immutable lexical-selection contract.
+  // Registered WMB views may adopt newer bounded policies, but replaying a saved overview must
+  // continue to reproduce its exact v1 selected ledger and bytes.
+  const selectionPolicy = selectedViewRegistry.registrySha256
+      === WMP_OVERVIEW_VIEW_REGISTRY.registrySha256
+    ? LEGACY_REGISTERED_SELECTION_POLICY
+    : null;
   const viewFactLedgers = views.map((viewContract) => selectViewFacts({
     factLedger: projectedFacts,
-    viewContract
+    viewContract,
+    ...(selectionPolicy ? { selectionPolicy } : {})
   }));
   return deepFreeze({
     sourceSnapshot: source,

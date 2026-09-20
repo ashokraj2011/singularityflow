@@ -267,6 +267,38 @@ The CALM publication, v4 registry, extractor-conformance, exact-history replay, 
 World-Model suites own this transition. The accepted identities were derived from the reviewed
 source closure; they were not copied from a failed publication.
 
+## Bounded registered-view selection acceptance
+
+The registered-v4 repair on 2026-09-21 corrects a mismatch between the View Contract and the
+selector. A required Fact type means that a bounded view must retain at least one registered Fact
+of that type; it does not make every repository occurrence individually mandatory. The complete
+Fact Ledger remains unchanged and content-addressed. Selection policy v2 now retains one canonical
+coverage anchor per required type, every material contradiction, and a deterministic type-balanced
+remainder up to the view ceiling. Historical policy-v1 ledgers remain valid and the frozen WMP
+overview renderer continues to request policy v1 explicitly.
+
+The deterministic candidate renderer now narrates every coverage anchor and contradiction, then
+admits optional selected Facts only while the exact registered section, total-word, and output-token
+budgets remain valid. Scope validation also distinguishes registered source-file basenames and
+path-qualified symbols from invented compound symbols. No extractor inputs, emitted Fact
+vocabulary, parser grammar, permissions, source-body boundary, model policy, or publication
+authority changed.
+
+Because extractor identities intentionally bind the complete packaged World-Model kernel, these
+reviewed selector, renderer, runtime, and validator changes produce one mechanical transition:
+
+| Identity | Prior accepted | Accepted after bounded selection |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:83f7260677dbcb7a127825b6e06be16e7ad7e3f8c17e34aa3ee81440449e557d` | `sha256:55fe41694090b06cf190fac97047108f7ed689a25f72ce84731a169d78ac97fe` |
+| Coverage implementation | `sha256:40795f43ba5a8a474d8b05be7b6fabf52dcc6e23f2cbcc65f15f3b34c1bdc745` | `sha256:c95eacbbcfdc84fca5431e77449e0260fb13ccd51a311c59b9d257e9dbc43382` |
+| Coverage conformance receipt | `sha256:9dcf1ab5a80b85bfc0fda3e237109e6e7a02be1a39f8d8477bf4857e7c0ccfab` | `sha256:cc4df68578217f5c232ade54a0fd0551e451b3b18a25b18d6fd46a7d5bc9fae9` |
+| Coverage manifest | `sha256:71f1680b9cc520b1248fe7172250443d701b0e8e461168bfe2578f712ab93262` | `sha256:37da766120e488459457e061b4f1e6e1a35e6f93bd4a83e5c8646a4b3ebfdf6b` |
+| Built-in Extractor Registry | `sha256:f5ddab132c91bd76cb1b51354fc5744b8fa4718a4ef99ac1df57ea0e03bb1e38` | `sha256:3a4e1e9a031721eddfb101ff154884fe8de36956b0b64996cdbece12266cee55` |
+
+The accepted identities were computed after reviewing the complete changed WMB source closure and
+running the large-view, contradiction-preservation, candidate-budget, historical-policy,
+persisted-overview replay, extractor, registry, runtime, cache, and live RuleEngineUI validations.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

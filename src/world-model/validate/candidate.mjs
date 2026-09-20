@@ -201,6 +201,7 @@ const PATH_TOKEN = new RegExp(
   'gim'
 );
 const COMPOUND_SYMBOL = /\b(?:[A-Z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*#[A-Za-z_$][A-Za-z0-9_$]*)(?:[.#][A-Za-z_$][A-Za-z0-9_$]*)+\b/g;
+const SOURCE_FILE_BASENAME = new RegExp(String.raw`^[A-Za-z0-9_$@.-]+\.${SOURCE_EXTENSION}$`, 'i');
 
 function normalizedCandidatePath(token) {
   return String(token).replace(/[.,;:!?]+$/, '').replace(/^\.\//, '').replace(/:\d+(?:-\d+)?$/, '');
@@ -242,8 +243,14 @@ function assertNoInventedSourceToken(text, ledger, evidenceCatalog) {
   }
   for (const match of text.matchAll(COMPOUND_SYMBOL)) {
     const token = match[0];
+    if (SOURCE_FILE_BASENAME.test(token)) {
+      if (![...paths].some((known) => known === token || known.endsWith(`/${token}`))) {
+        fail('WMB_SCOPE_VIOLATION', `Candidate names unregistered or out-of-scope path '${token}'.`, { token });
+      }
+      continue;
+    }
     if (!symbols.has(token) && ![...symbols].some((known) => (
-      known.endsWith(`#${token}`) || known.endsWith(`.${token}`)
+      known.endsWith(`#${token}`) || known.endsWith(`.${token}`) || known.endsWith(`/${token}`)
     ))) {
       fail('WMB_SCOPE_VIOLATION', `Candidate names unregistered symbol '${token}'.`, { token });
     }

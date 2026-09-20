@@ -22,7 +22,9 @@ import { add, assertClean, branch, changedFiles, changes, checkout, commit, fast
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
-import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import {
+  generationSkillForPhase, phaseRequiresCodeDelivery, workflowCodeGeneration
+} from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -12747,7 +12749,8 @@ async function workspaceCommand(positionals, options) {
           storyWorkflows: Object.entries(definition.workTypes).map(([id, workflow]) => ({
             id, label: workflow.label ?? id, description: workflow.description ?? '',
             phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
-            governs: 'story', installed: true
+            governs: 'story', installed: true,
+            ...workflowCodeGeneration(resolveWorkType(definition, id))
           })),
           // These are catalog entries, not executable choices. Keeping them in a separate field
           // prevents an editor from accidentally sending an unavailable ID to Story start while
@@ -12756,7 +12759,8 @@ async function workspaceCommand(positionals, options) {
             id: workflow.id, label: workflow.label ?? workflow.id,
             description: workflow.description ?? '', phases: workflow.phases ?? [],
             references: workflow.references?.mode ?? 'optional', governs: 'story',
-            installed: false, status: workflow.status
+            installed: false, status: workflow.status,
+            generatesCode: workflow.generatesCode, codePhases: workflow.codePhases
           })),
           workflowCatalogReason: packagedCatalog.reason,
           workflowReason: null
@@ -12833,7 +12837,8 @@ async function workspaceCommand(positionals, options) {
               storyWorkflows: Object.entries(definition.workTypes).map(([id, workflow]) => ({
                 id, label: workflow.label ?? id, description: workflow.description ?? '',
                 phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
-                governs: 'story', installed: true
+                governs: 'story', installed: true,
+                ...workflowCodeGeneration(resolveWorkType(definition, id))
               }))
             };
           }

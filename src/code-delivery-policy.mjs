@@ -207,6 +207,22 @@ export function phaseRequiresCodeDelivery(phase) {
   return CODE_DELIVERY_ARTIFACT_KINDS.has(artifactKind(phase));
 }
 
+/**
+ * Project the code-generation contract of one resolved workflow.
+ *
+ * Callers must pass the result of `resolveWorkType`, not raw work-type phase ids: generation task
+ * overrides and the legacy implementation-summary inference are resolved at the phase boundary.
+ * Keeping this projection beside `phaseRequiresCodeDelivery` prevents CLI and editor surfaces from
+ * inventing a second, phase-name-based definition of "generates code".
+ */
+export function workflowCodeGeneration(resolvedWorkflow) {
+  const phases = Array.isArray(resolvedWorkflow) ? resolvedWorkflow : resolvedWorkflow?.phases;
+  const codePhases = Array.isArray(phases)
+    ? phases.filter((phase) => phaseRequiresCodeDelivery(phase)).map((phase) => phase.id)
+    : [];
+  return { generatesCode: codePhases.length > 0, codePhases };
+}
+
 /** One deterministic authoring route for every code task, independent of phase name. */
 export function generationSkillForPhase(phase) {
   if (phase?.id === 'convergence' && phaseUsesDeterministicGeneration(phase)) return '/sflow-converge';

@@ -32,6 +32,10 @@ export interface ProfileChoice {
   phases: string[];
   /** Story reference policy exposed by the approved workflow definition. */
   referenceMode?: 'off' | 'optional' | 'required';
+  /** Engine-owned classification. Undefined means this cached/read projection is too old to say. */
+  generatesCode?: boolean;
+  /** Exact phase IDs classified as code-authoring phases by the engine. */
+  codePhases?: string[];
 }
 
 export interface ReferenceRepositoryDraft {
@@ -588,6 +592,7 @@ function storyWorkflowHtml(form: IntakeForm): string {
         <input type="radio" name="workType" value="${escape(workflow.id)}" data-work-type="${escape(workflow.id)}"${workflow.id === form.workType ? ' checked' : ''}>
         <span class="workflow-copy">
           <span class="choice-label">${escape(workflow.label)}</span>
+          ${workflowCodeGenerationBadge(workflow)}
           <span class="workflow-description">${escape(workflow.description)}</span>
         </span>
         ${phaseRailHtml(workflow.phases)}
@@ -610,6 +615,7 @@ function storyWorkflowHtml(form: IntakeForm): string {
           <span class="workflow-copy">
             <span class="choice-label">${escape(workflow.label)}</span>
             <span class="status-chip">Not installed</span>
+            ${workflowCodeGenerationBadge(workflow)}
             <span class="workflow-description">${escape(workflow.description)}</span>
           </span>
           ${phaseRailHtml(workflow.phases)}
@@ -620,6 +626,26 @@ function storyWorkflowHtml(form: IntakeForm): string {
         this screen never installs a workflow or edits protected files directly.</p>
     </div>` : ''}
   </section>`;
+}
+
+/**
+ * Explain code behavior without implying that selecting a workflow executes it.
+ *
+ * The projection is deliberately tri-state. A stale extension snapshot that predates the engine
+ * field must say that it cannot classify the workflow; silently treating absence as false would
+ * put a reassuring but incorrect "No code generation" label on an unknown contract.
+ */
+function workflowCodeGenerationBadge(workflow: ProfileChoice): string {
+  const codePhases = workflow.codePhases ?? [];
+  const detail = workflow.generatesCode === true
+    ? `Contains code-generation phase${codePhases.length === 1 ? '' : 's'}${codePhases.length ? `: ${codePhases.join(', ')}` : ''}. Starting the Story does not generate code automatically; code is authored only when a code phase is run.`
+    : workflow.generatesCode === false
+      ? 'Contains no governed code-generation phase. Starting the Story does not generate application code.'
+      : 'Code-generation behavior is unavailable in this snapshot. Refresh approved configuration before relying on it.';
+  const label = workflow.generatesCode === true ? 'Generates code'
+    : workflow.generatesCode === false ? 'No code generation' : 'Code behavior unavailable';
+  const state = workflow.generatesCode === true ? ' ok' : workflow.generatesCode === undefined ? ' wait' : '';
+  return `<span class="pill${state} workflow-code-generation" role="note" title="${escape(detail)}" aria-label="${escape(detail)}">${label}</span>`;
 }
 
 function pocReadinessHtml(form: IntakeForm): string {

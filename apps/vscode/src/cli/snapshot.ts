@@ -660,6 +660,17 @@ export interface RepositorySnapshot {
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
   workflow: StoryWorkflow | null;
+  /**
+   * Engine-owned classification of approved workflows by workflow ID.
+   *
+   * The UI must not infer this from phase names: custom phases can author code under any ID, and
+   * an older cached snapshot may not contain this projection at all. Absence therefore means
+   * unknown, never "no code generation".
+   */
+  workflowCodeGeneration?: Record<string, {
+    generatesCode: boolean;
+    codePhases: string[];
+  }>;
   /** Explicit submit/generate routing for the selected Story phase. Absent means fail closed. */
   submissionReadiness?: SubmissionReadiness | null;
   architectureIntent?: {

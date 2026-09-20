@@ -114,11 +114,18 @@ import { submissionReadiness } from './submission-readiness.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
+import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
 const PROMPTS_ROOT = 'singularity/prompts';
 const TEXT_FILE_LIMIT = 10 * 1024 * 1024;
+
+function workflowCodeGenerationProjection(definition) {
+  return Object.fromEntries(Object.keys(definition?.workTypes ?? {}).map((id) => [
+    id, workflowCodeGeneration(resolveWorkType(definition, id))
+  ]));
+}
 
 async function mcpConfigurationStatus(root, definition) {
   const [status, readiness] = await Promise.all([
@@ -805,6 +812,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       modelMode: operationContext()?.modelMode ?? { enabled: true, source: 'default' }
     }),
     definition,
+    workflowCodeGeneration: workflowCodeGenerationProjection(definition),
     definitionPath: WORKFLOW_PATH,
     definitionText: await readFile(workflowFile.absolute, 'utf8'),
     // Also in `configurationSlice`, and it has to be in both. The extension now loads that slice on
@@ -1252,6 +1260,9 @@ async function configurationSlice(root) {
     configurationValid: errors.length === 0,
     configurationError: errors.length ? [...new Set(errors)].join(' ') : null,
     definition,
+    workflowCodeGeneration: errors.length === 0
+      ? workflowCodeGenerationProjection(definition)
+      : {},
     definitionPath: WORKFLOW_PATH,
     definitionText,
     modelRouting: await modelRoutingProjection(root, definition),

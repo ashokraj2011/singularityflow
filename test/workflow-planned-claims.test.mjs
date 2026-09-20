@@ -232,7 +232,10 @@ test('new Story workflow has one coherent list, validate, simulate, and diff exp
   const validated = run('validate', 'hotfix', '--json');
   const simulated = run('simulate', 'hotfix', '--json');
   for (const result of [listed, validated, simulated]) assert.equal(result.status, 0, result.stderr);
-  assert.equal(JSON.parse(listed.stdout).find((item) => item.id === 'hotfix').status, 'local');
+  const listedHotfix = JSON.parse(listed.stdout).find((item) => item.id === 'hotfix');
+  assert.equal(listedHotfix.status, 'local');
+  assert.equal(listedHotfix.generatesCode, true);
+  assert.deepEqual(listedHotfix.codePhases, ['implementation']);
   assert.equal(JSON.parse(validated.stdout).workflows[0].status, 'protected');
   assert.equal(JSON.parse(simulated.stdout)[0].id, 'hotfix');
 

@@ -4751,6 +4751,31 @@ test('Story workflow phases render as a horizontal rail beneath the workflow nam
   assert.match(STYLE, /\.choice\.workflow-choice \.workflow-step \{[\s\S]*display: inline-flex;/);
 });
 
+test('Story intake identifies code-generating and non-code workflows without implying execution', () => {
+  const html = intakeHtml(intake({
+    shape: 'story',
+    storyWorkflows: [
+      { id: 'build', label: 'Build', description: 'Implements a change', phases: ['specification', 'implementation'],
+        generatesCode: true, codePhases: ['implementation'] },
+      { id: 'review', label: 'Review', description: 'Reviews documents', phases: ['intake', 'review'],
+        generatesCode: false, codePhases: [] },
+      { id: 'legacy', label: 'Legacy', description: 'Old cached projection', phases: ['intake'] }
+    ],
+    availableStoryWorkflows: [{
+      id: 'packaged-build', label: 'Packaged build', description: 'Not installed yet',
+      phases: ['implementation'], generatesCode: true, codePhases: ['implementation']
+    }]
+  }));
+  assert.match(html, />Generates code<\/span>/);
+  assert.match(html, />No code generation<\/span>/);
+  assert.match(html, />Code behavior unavailable<\/span>/,
+    'an old cached snapshot is unknown rather than being mislabeled as non-code');
+  assert.match(html, /title="[^"]*Starting the Story does not generate code automatically/);
+  assert.match(html, /aria-label="[^"]*code is authored only when a code phase is run/);
+  assert.match(html, /data-available-workflow="packaged-build"[\s\S]*Generates code/,
+    'unavailable packaged workflows carry the same classification');
+});
+
 test('Story intake shows packaged workflows separately without making them selectable', () => {
   const html = intakeHtml(intake({
     shape: 'story',

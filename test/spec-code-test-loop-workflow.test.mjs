@@ -121,7 +121,12 @@ test('new and refreshed repositories receive the versioned workflow and honest r
     assert.ok(specificationTemplate.includes(`## ${heading}\n`), `Specification lacks '${heading}'`);
   }
   assert.match(specificationTemplate, /\| Clause \| Expected paths \| Planned tests \|/);
-  assert.equal((await workflowCatalog(root)).find((entry) => entry.id === WORK_TYPE).status, 'current');
+  const currentCatalogEntry = (await workflowCatalog(root)).find((entry) => entry.id === WORK_TYPE);
+  assert.equal(currentCatalogEntry.status, 'current');
+  assert.deepEqual({
+    generatesCode: currentCatalogEntry.generatesCode,
+    codePhases: currentCatalogEntry.codePhases
+  }, { generatesCode: true, codePhases: ['implementation'] });
   const simulation = (await simulateWorkflow(root, WORK_TYPE))[0];
   assert.deepEqual(simulation.reworkLoops, [{ from: 'testing', to: 'implementation',
     maxAttempts: 3, resetOnPhase: 'specification' }]);
@@ -142,7 +147,12 @@ test('new and refreshed repositories receive the versioned workflow and honest r
   const old = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   delete old.workTypes[WORK_TYPE];
   await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(old));
-  assert.equal((await workflowCatalog(root)).find((entry) => entry.id === WORK_TYPE).status, 'available');
+  const availableCatalogEntry = (await workflowCatalog(root)).find((entry) => entry.id === WORK_TYPE);
+  assert.equal(availableCatalogEntry.status, 'available');
+  assert.deepEqual({
+    generatesCode: availableCatalogEntry.generatesCode,
+    codePhases: availableCatalogEntry.codePhases
+  }, { generatesCode: true, codePhases: ['implementation'] });
   await installWorkflow(root, WORK_TYPE);
   assert.deepEqual(resolveWorkType(await loadDefinition(root), WORK_TYPE).phases.map((phase) => phase.id), PHASES);
 });

@@ -4,8 +4,10 @@ import { readFile } from 'node:fs/promises';
 
 const page = new URL('../apps/vscode/src/views/designer-page.ts', import.meta.url);
 const host = new URL('../apps/vscode/src/views/designer.ts', import.meta.url);
+const model = new URL('../apps/vscode/src/views/designer-model.ts', import.meta.url);
 const loopModel = new URL('../apps/vscode/src/views/workflow-loop-draft.ts', import.meta.url);
 const { designerHtml, DESIGNER_SCRIPT } = await import(page);
+const { buildProfiles } = await import(model);
 const { workflowLoopIssues } = await import(loopModel);
 
 test('Workflow Designer browser script remains valid JavaScript', () => {
@@ -37,7 +39,60 @@ test('Story workflow draft shows planned claims and a phase-contract simulation 
   assert.match(html, /2 \(engineering-reviewers\)/);
   assert.match(html, /implementation=specification/);
   assert.match(html, /Create workflow/);
+  assert.match(html, />Generates code<\/span>/);
+  assert.match(html, /Provisional classification from the selected phase task contracts/);
   assert.match(DESIGNER_SCRIPT, /claimOwners: value\('\[data-workflow-claim-owners\]'\)/);
+});
+
+test('Workflow Designer uses the engine code-generation projection for saved workflow labels', () => {
+  const snapshot = {
+    definition: {
+      workTypes: {
+        build: { label: 'Build delivery', description: 'Code path', phases: ['implementation'] },
+        review: { label: 'Review only', description: 'Document path', phases: ['review'] },
+        legacy: { label: 'Legacy cached', description: 'Classification absent', phases: ['implementation'] }
+      },
+      phases: {
+        implementation: { label: 'Implementation', generation: { task: 'code' } },
+        review: { label: 'Review', generation: { task: 'none' } }
+      }
+    },
+    workflowCodeGeneration: {
+      build: { generatesCode: true, codePhases: ['implementation'] },
+      review: { generatesCode: false, codePhases: [] }
+    },
+    initiatives: []
+  };
+  const profiles = buildProfiles(snapshot);
+  assert.equal(profiles.find((profile) => profile.id === 'build').generatesCode, true);
+  assert.equal(profiles.find((profile) => profile.id === 'review').generatesCode, false);
+  assert.equal(profiles.find((profile) => profile.id === 'legacy').generatesCode, undefined,
+    'the view does not guess from an implementation phase name or phase task');
+  const html = designerHtml('phases', profiles, [], 'build', '', [], 'singularity/portfolio.yml', null);
+  assert.match(html, /Build delivery · story · Generates code/);
+  assert.match(html, /Review only · story · No code generation/);
+  assert.match(html, /Legacy cached · story · Code behavior unavailable/);
+  assert.match(html, /title="[^"]*Selecting or starting this workflow does not generate code automatically/);
+  assert.match(html, /aria-label="[^"]*code is authored only when a code phase is run/);
+});
+
+test('Workflow draft omits a provisional code badge when a phase task contract is unavailable', () => {
+  const html = designerHtml('phases', [], [], null, '', [], 'singularity/portfolio.yml', null, {
+    isNew: true, id: 'unknown-task', label: 'Unknown task', description: '', governs: 'story',
+    phases: [{ id: 'custom', label: 'Custom' }], reworkLoops: []
+  }, null, undefined, [], [{ id: 'custom', label: 'Custom', governs: 'story' }]);
+  assert.doesNotMatch(html, /workflow-code-generation/);
+});
+
+test('Workflow edit never guesses from a shared phase when an effective override may differ', () => {
+  const html = designerHtml('phases', [], [], null, '', [], 'singularity/portfolio.yml', null, {
+    isNew: false, id: 'chore', label: 'Chore', description: '', governs: 'story',
+    phases: [{ id: 'implementation', label: 'Implementation' }], reworkLoops: []
+  }, null, undefined, [], [{
+    id: 'implementation', label: 'Implementation', governs: 'story', task: 'code'
+  }]);
+  assert.doesNotMatch(html, /Provisional classification/,
+    'saved workflows must use the engine projection because a work type can override the shared task');
 });
 
 test('phase editor exposes code task and configured approval groups without inventing authority', () => {

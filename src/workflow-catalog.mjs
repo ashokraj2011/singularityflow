@@ -6,6 +6,7 @@ import { loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } fr
 import { exists, SingularityFlowError, writeText } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 
 const starterPath = path.join(PACKAGE_ROOT, 'templates', 'workflow.yml');
 const OPTIONAL_CATALOG_REASON_MAX_CHARS = 512;
@@ -29,11 +30,13 @@ export async function workflowCatalog(root) {
   const [installed, starter] = await Promise.all([loadDefinition(root), starterDefinition()]);
   const packaged = Object.entries(starter.workTypes).map(([id, profile]) => {
     const current = installed.workTypes[id];
+    const effectiveDefinition = current ? installed : starter;
     return {
       id, label: profile.label, description: profile.description ?? '', phases: profile.phases,
       references: profile.references ?? { mode: 'optional' },
       status: !current ? 'available' : stable(current) === stable(profile) ? 'current' : 'customized',
-      installed: Boolean(current)
+      installed: Boolean(current),
+      ...workflowCodeGeneration(resolveWorkType(effectiveDefinition, id))
     };
   });
   // Anything defined here that no packaged workflow claims: written by this team, for this
@@ -42,7 +45,8 @@ export async function workflowCatalog(root) {
     .filter(([id]) => !starter.workTypes[id])
     .map(([id, profile]) => ({
       id, label: profile.label ?? id, description: profile.description ?? '', phases: profile.phases ?? [],
-      references: profile.references ?? { mode: 'optional' }, status: 'local', installed: true
+      references: profile.references ?? { mode: 'optional' }, status: 'local', installed: true,
+      ...workflowCodeGeneration(resolveWorkType(installed, id))
     }));
   return [...packaged, ...local];
 }

@@ -66,6 +66,8 @@ interface EngineStoryWorkflow {
   governs?: string;
   installed?: boolean;
   references?: 'off' | 'optional' | 'required';
+  generatesCode?: boolean;
+  codePhases?: string[];
 }
 
 /** Keep the launch catalog and exact-base preflight catalog on one validation path. */
@@ -73,7 +75,8 @@ function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoic
   return entries.filter((entry) => entry.id && entry.governs === 'story'
     && entry.installed !== false).map((entry) => ({
     id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
-    phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional'
+    phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
+    generatesCode: entry.generatesCode, codePhases: entry.codePhases
   }));
 }
 
@@ -255,6 +258,7 @@ export class IntakePanel {
           availableStoryWorkflows?: {
             id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
             installed?: boolean; references?: 'off' | 'optional' | 'required';
+            generatesCode?: boolean; codePhases?: string[];
           }[];
           workflowCatalogReason?: string | null;
           workflowReason?: string | null;
@@ -271,7 +275,8 @@ export class IntakePanel {
         (listed.intake?.availableStoryWorkflows ?? []).filter((entry) =>
           entry.id && entry.governs === 'story' && entry.installed === false).map((entry) => ({
           id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
-          phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional'
+          phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
+          generatesCode: entry.generatesCode, codePhases: entry.codePhases
         }));
       const unreachable = listed.unreachable ?? [];
       if (listed.intake?.profileReason) {

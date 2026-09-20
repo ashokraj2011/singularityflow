@@ -75,6 +75,28 @@ function approvalSummary(approval: Phase['bundleApproval']): string {
   return `<span class="muted">${escape(approval.mode ?? 'individual')} · ${escape(authorities)}${approval.minimum && approval.minimum > 1 ? ` ×${approval.minimum}` : ''}</span>`;
 }
 
+function workflowCodeGenerationBadge(
+  generatesCode: boolean | undefined, codePhases: readonly string[] = [], provisional = false
+): string {
+  const prefix = provisional ? 'Provisional classification from the selected phase task contracts. ' : '';
+  const detail = generatesCode === true
+    ? `${prefix}Contains code-generation phase${codePhases.length === 1 ? '' : 's'}${codePhases.length ? `: ${codePhases.join(', ')}` : ''}. Selecting or starting this workflow does not generate code automatically; code is authored only when a code phase is run.`
+    : generatesCode === false
+      ? `${prefix}Contains no governed code-generation phase. Selecting or starting this workflow does not generate application code.`
+      : 'Code-generation behavior is unavailable in this snapshot. Refresh approved configuration before relying on it.';
+  const label = generatesCode === true ? 'Generates code'
+    : generatesCode === false ? 'No code generation' : 'Code behavior unavailable';
+  const state = generatesCode === true ? ' ok' : generatesCode === undefined ? ' wait' : '';
+  return `<span class="pill${state} workflow-code-generation" role="note" title="${escape(detail)}" aria-label="${escape(detail)}">${label}</span>`;
+}
+
+function workflowOptionLabel(profile: Profile): string {
+  const classification = profile.governs !== 'story' ? ''
+    : profile.generatesCode === true ? ' · Generates code'
+      : profile.generatesCode === false ? ' · No code generation' : ' · Code behavior unavailable';
+  return `${profile.label} · ${profile.governs}${classification}`;
+}
+
 function phaseHtml(phase: Phase, profileId: string): string {
   const generated = phase.outputs.filter((output) => output.generator);
   return `
@@ -115,6 +137,12 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
   const eligibleClauses = selected.filter((phase) => phase && ['requirements', 'implementation-spec'].includes(phase.artifactKind ?? ''))
     .map((phase) => phase!.id);
   const codePhases = selected.filter((phase) => phase?.task === 'code').map((phase) => phase!.id);
+  // Existing workflows may override a shared phase's generation task. The draft phase catalog is
+  // intentionally repository-wide and does not carry those per-workflow overrides, so only a new
+  // workflow can be classified safely from these selections. Saved workflows use the engine-owned
+  // resolved projection rendered on the summary above.
+  const canClassifyDraft = draft.isNew && draft.governs === 'story' && selected.length > 0
+    && selected.every((phase) => phase && typeof phase.task === 'string');
   const loops = draft.reworkLoops ?? [];
   const loopIssues = workflowLoopIssues(draft.phases.map((phase) => phase.id), loops);
   const phaseOptions = (value: string, prompt: string) => {
@@ -129,6 +157,7 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
       <p class="eyebrow">${draft.isNew ? 'New workflow' : 'Workflow settings'}</p>
       <h3>${draft.isNew ? 'Create an ordered delivery path' : `Edit ${escape(draft.label)}`}</h3>
       <p class="muted">This is a draft preview. The engine validates the complete contract when you save; active Story worktrees are never changed. Lead-governed configuration creates a review proposal. Self-governed configuration writes an uncommitted local edit that you must commit.</p>
+      ${canClassifyDraft ? `<p>${workflowCodeGenerationBadge(codePhases.length > 0, codePhases, true)}</p>` : ''}
     </div>
     <div class="form-grid">
       <label class="field"><span>Workflow ID</span><input data-workflow-id type="text" value="${escape(draft.id)}" ${draft.isNew ? '' : 'disabled'} placeholder="customer-onboarding"><small>Permanent lower-case identifier.</small></label>
@@ -274,7 +303,7 @@ function phasesHtml(
       : '<p class="muted">No workflow proposals are waiting for review.</p>'}
   </section>
   <section class="plain toolbar-row">
-    ${profile ? `<label class="field compact"><span>Workflow</span><select data-profile-pick>${profiles.map((entry) => `<option value="${escape(entry.id)}"${entry.id === profile.id ? ' selected' : ''}>${escape(entry.label)} · ${entry.governs}</option>`).join('')}</select></label>` : ''}
+    ${profile ? `<label class="field compact"><span>Workflow</span><select data-profile-pick>${profiles.map((entry) => `<option value="${escape(entry.id)}"${entry.id === profile.id ? ' selected' : ''}>${escape(workflowOptionLabel(entry))}</option>`).join('')}</select></label>` : ''}
     <span class="grow"></span>
     ${profile ? '<button class="secondary" data-edit-workflow="1">Edit workflow</button>' : ''}
     <button data-new-workflow="1">New workflow</button>
@@ -284,7 +313,7 @@ function phasesHtml(
   ${phaseDraft ? phaseEditor(phaseDraft, templates, views, agents, authorities) : ''}
   ${profile && !draft && !phaseDraft ? `
     <section class="workflow-summary">
-      <div><p class="eyebrow">${escape(profile.governs)} workflow</p><h3>${escape(profile.label)}</h3><p class="muted">${escape(profile.description || 'No description yet.')}</p></div>
+      <div><p class="eyebrow">${escape(profile.governs)} workflow</p><h3>${escape(profile.label)}</h3>${profile.governs === 'story' ? workflowCodeGenerationBadge(profile.generatesCode, profile.codePhases ?? []) : ''}<p class="muted">${escape(profile.description || 'No description yet.')}</p></div>
       ${graphSvg ? `<details class="graph-preview" open><summary>Dependency graph</summary>${graphSvg}
         <p class="graph-note">Solid edges are declared inputs; dashed edges are rework paths. The strip below is the run order.</p></details>` : ''}
       <div class="workflow-rail">${profile.phases.map((phase, index) => `<span class="rail-node"><b>${index + 1}</b>${escape(phase.label)}</span>${index < profile.phases.length - 1 ? `<span class="rail-arrow">${icon('next')}</span>` : ''}`).join('')}</div>

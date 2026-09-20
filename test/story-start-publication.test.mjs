@@ -528,6 +528,10 @@ test('workspace preflight returns the exact selected-base workflow catalog befor
   assert.equal(staleChoice.preflight.readiness.ready, false);
   assert.ok(staleChoice.intake.storyWorkflows.some((workflow) =>
     workflow.id === 'release-only' && workflow.label === 'Release-only delivery'));
+  const exactBaseWorkflow = staleChoice.intake.storyWorkflows.find((workflow) =>
+    workflow.id === 'release-only');
+  assert.equal(exactBaseWorkflow.generatesCode, true);
+  assert.deepEqual(exactBaseWorkflow.codePhases, ['implementation']);
   assert.equal(staleChoice.intake.storyWorkflows.some((workflow) => workflow.id === 'feature'),
     false, 'the launch checkout workflow is not offered for the selected base');
 
@@ -599,8 +603,20 @@ test('workspace intake aggregates profiles, installed workflows, and one remote 
     profile.id === 'epic-planning' && profile.phases.length > 0));
   assert.ok(result.intake.storyWorkflows.some((workflow) =>
     workflow.id === 'feature' && workflow.governs === 'story' && workflow.installed === true));
+  assert.deepEqual(
+    result.intake.storyWorkflows.find((workflow) => workflow.id === 'feature').codePhases,
+    ['implementation']
+  );
+  assert.equal(
+    result.intake.storyWorkflows.find((workflow) => workflow.id === 'chore').generatesCode,
+    false
+  );
   assert.ok(result.intake.availableStoryWorkflows.some((workflow) =>
     workflow.id === 'benchmarking-a' && workflow.governs === 'story' && workflow.installed === false));
+  const availableBenchmarking = result.intake.availableStoryWorkflows.find((workflow) =>
+    workflow.id === 'benchmarking-a');
+  assert.equal(availableBenchmarking.generatesCode, true);
+  assert.deepEqual(availableBenchmarking.codePhases, ['implementation']);
   assert.ok(result.intake.availableStoryWorkflows.every((workflow) =>
     !result.intake.storyWorkflows.some((installed) => installed.id === workflow.id)));
   assert.equal(result.intake.workflowCatalogReason, null);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, readdir, rename, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -27,7 +27,9 @@ import { groundingMode } from '../src/grounding.mjs';
 import {
   contextBoundaryHandoff, normalizeContextPolicy
 } from '../src/context-policy.mjs';
-import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
+import {
+  phaseRequiresCodeDelivery, workflowCodeGeneration
+} from '../src/code-delivery-policy.mjs';
 import {
   authoredArtifactFingerprint, inspectArtifactContent
 } from '../src/publication-preflight.mjs';
@@ -85,6 +87,34 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.deepEqual(figmaSnapshot.designSources, figmaMobile.designSources);
   assert.match(await agentPrompt(root, definition, 'product-designer'), /hash-pinned exports/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+});
+
+test('workflow code-generation projection honors resolved overrides and legacy code evidence', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-code-projection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, '.git'), { recursive: true });
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+
+  assert.deepEqual(workflowCodeGeneration(resolveWorkType(definition, 'feature')), {
+    generatesCode: true,
+    codePhases: ['implementation']
+  });
+  assert.deepEqual(workflowCodeGeneration(resolveWorkType(definition, 'chore')), {
+    generatesCode: false,
+    codePhases: []
+  }, 'the chore phase override must win over the shared implementation phase code task');
+  assert.deepEqual(workflowCodeGeneration({ phases: [
+    { id: 'legacy-code', artifact: { kind: 'implementation-summary' } },
+    {
+      id: 'explicit-non-code', generation: { task: 'analyze' },
+      artifact: { kind: 'implementation-summary' }
+    },
+    { id: 'explicit-code', generation: { task: 'code' }, artifact: { kind: 'review' } }
+  ] }), {
+    generatesCode: true,
+    codePhases: ['legacy-code', 'explicit-code']
+  }, 'legacy inference applies only when no explicit generation task overrides it');
 });
 
 test('initialization upgrades exact historical packaged agents and preserves a one-byte customization', async () => {

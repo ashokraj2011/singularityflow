@@ -52,6 +52,9 @@ export interface Profile {
   phases: Phase[];
   plannedClaims?: { mode?: string; clausePhases?: string[]; owners?: Record<string, string>; reason?: string };
   reworkLoops?: WorkflowLoopDraft[];
+  /** Approved engine projection; undefined means unknown and must not be inferred by the UI. */
+  generatesCode?: boolean;
+  codePhases?: string[];
 }
 
 /** An Epic that pinned something an edit would change. */
@@ -109,6 +112,7 @@ export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
     }>;
   } | undefined;
   const phases = portfolio?.initiativePhases ?? {};
+  const codeGeneration = snapshot.workflowCodeGeneration ?? {};
 
   const storyProfiles = Object.entries(definition?.workTypes ?? {}).map(([id, profile]) => ({
     id,
@@ -117,6 +121,8 @@ export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
     governs: 'story' as const,
     plannedClaims: profile.plannedClaims,
     reworkLoops: profile.reworkLoops,
+    generatesCode: codeGeneration[id]?.generatesCode,
+    codePhases: codeGeneration[id]?.codePhases,
     phases: (profile.phases ?? []).map((phaseId, order) => {
       const phase = definition?.phases?.[phaseId];
       const template = profile.templateOverrides?.[phaseId] ?? phase?.defaultTemplate ?? null;

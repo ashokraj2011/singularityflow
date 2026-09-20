@@ -135,6 +135,12 @@ test('snapshot exposes configuration and visual workflow data', async () => {
   assert.ok(snapshot.agentStatus.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.definition.sequenceGates.default, 'soft');
   assert.equal(snapshot.definition.sequenceGates.publicationPending, 'hard');
+  assert.deepEqual(snapshot.workflowCodeGeneration.feature, {
+    generatesCode: true, codePhases: ['implementation']
+  });
+  assert.deepEqual(snapshot.workflowCodeGeneration.chore, {
+    generatesCode: false, codePhases: []
+  });
 
   run(process.execPath, [bin, 'start', 'DESK-1', '--from-branch', 'main', '--ref', 'story/DESK-1-editor', '--title', 'Editor workflow'], root);
   snapshot = await repositorySnapshot(root);
@@ -212,6 +218,12 @@ test('configuration snapshot reports an exact state-branch world model without a
   assert.equal(existsSync(path.join(consumer, 'singularity/world-model/manifest.json')), false);
 
   const scoped = await repositorySnapshot(consumer, null, null, { included: ['configuration'] });
+  assert.deepEqual(scoped.configuration.workflowCodeGeneration.feature, {
+    generatesCode: true, codePhases: ['implementation']
+  });
+  assert.deepEqual(scoped.configuration.workflowCodeGeneration.chore, {
+    generatesCode: false, codePhases: []
+  });
   assert.equal(scoped.configuration.worldModel.readiness.ready, true);
   assert.equal(scoped.configuration.worldModel.readiness.status, 'ready');
   assert.equal(scoped.configuration.worldModel.readiness.source, 'state-branch');

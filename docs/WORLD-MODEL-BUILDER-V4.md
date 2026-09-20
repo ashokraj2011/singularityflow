@@ -49,8 +49,24 @@ worldModel:
     consumer: developer
     cachePolicy: reuse-valid
     candidateSnapshots: allow
+    legacyAssignments: inherit-configured
     totalMaximumOutputTokens: 5600
 ```
+
+Existing repositories normally still carry v3-only phase and governed-agent assignments such as
+`business`, `architecture`, `development`, and `testing`. Those names are not aliases for v4
+contracts, so a format-only edit is intentionally refused. The Configuration Center now performs
+an explicit, atomic-safe transition: it stages the exact active v4 contract list and sets
+`worldModel.v4.legacyAssignments: inherit-configured`. Under that policy, an assignment made only
+from the closed seven-name v3 vocabulary inherits the repository's exact configured v4 catalog.
+SFlow does not guess a one-to-one mapping. Unknown or misspelled names and a list mixing v3 and v4
+IDs still fail closed. After phase and Agent Markdown assignments have been rewritten to reviewed
+v4 IDs, set the policy back to `strict`.
+
+Saving the form changes the checkout only. Publish the configuration through the normal
+configuration-review path before repository-level builds use it. An active Story retains the
+format and assignments pinned when that Story started; create a new Story to consume the newly
+approved v4 policy, or run an explicitly reviewed storyless v4 build from the repository checkout.
 
 The built-in active view catalog is:
 
@@ -141,8 +157,10 @@ The one-command override does not reinterpret legacy-v3 view names. When `workfl
 legacy names such as `business`, `architecture`, or `testing`, an override with no `--views` selects
 all active installed registered contracts; an explicit `--views` value is validated only against
 the registered-v4 catalog. Use `sflow wm views` to list those exact IDs. Once `workflow.yml` itself
-declares `format: registered-v4`, every configured phase, agent, and repository view is validated
-strictly and an unknown or version-mismatched ID fails closed with the catalog and repair command.
+declares `format: registered-v4`, every configured phase, agent, and repository view is validated.
+Strict mode accepts registered IDs only. The explicit `inherit-configured` transition mode accepts
+known legacy-only assignments as inheritance, but continues to refuse unknown, mixed, inactive, or
+version-mismatched IDs with the catalog and repair command.
 
 `composer: deterministic` makes no model call. `model-optional` remains deterministic when the
 registered facts are sufficient; `model-required` invokes the governed provider. `--model MODEL`

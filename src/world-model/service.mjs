@@ -1078,6 +1078,17 @@ export async function buildAndPublishWorldModelV4(root, {
       );
     }
   }
+  // Optional projection failures do not refuse the World Model publication, but their typed
+  // refusal is still governed evidence. Preserve it beside any view refusals so native hosts and
+  // callers can explain a degraded projection instead of reporting only a successful manifest.
+  const completedRefusals = Object.freeze([
+    ...runtime.refusals,
+    ...projections
+      .map((entry) => entry.refusal)
+      .filter((refusal) => refusal && !runtime.refusals.some((entry) => (
+        entry.refusalSha256 === refusal.refusalSha256
+      )))
+  ]);
   return Object.freeze({
     schemaVersion: 1, // schema-transient: public API result envelope
     resultType: 'world-model-build-result',
@@ -1095,7 +1106,7 @@ export async function buildAndPublishWorldModelV4(root, {
       projectionSha256: entry.projectionSha256,
       refusalSha256: entry.refusal?.refusalSha256 ?? null
     }))),
-    refusals: runtime.refusals,
+    refusals: completedRefusals,
     warnings: Object.freeze([
       ...(preservationWarning ? [preservationWarning] : []),
       ...retainedStaleness.warnings,
@@ -1140,14 +1151,20 @@ export async function buildAndPublishWorldModelV4(root, {
 export function assertWorldModelV4BuildCompleted(result) {
   if (result?.status === 'completed') return result;
   const first = result?.refusals?.[0];
+  const projection = typeof first?.projectionId === 'string' ? first.projectionId : null;
+  const view = typeof first?.view === 'string' ? first.view : null;
+  const reason = first?.message ?? first?.failures?.[0]?.reason ?? first?.code;
+  const refusalMessage = projection
+    ? `World-model projection '${projection}' was refused: ${reason}`
+    : view ? `World-model view '${view}' was refused: ${reason}` : null;
   throw new SingularityFlowError(
-    first ? `World-model view '${first.view}' was refused: ${first.failures?.[0]?.reason ?? first.code}`
-      : 'The WMB v4 build did not produce a complete manifest.',
+    refusalMessage ?? 'The WMB v4 build did not produce a complete manifest.',
     {
       code: first?.code ?? 'WMB_REQUIRED_VIEW_UNAVAILABLE',
       details: {
         requestSha256: result?.requestSha256 ?? null,
         requiredFailures: result?.runtime?.requiredFailures ?? [],
+        requiredProjectionFailures: projection ? [projection] : [],
         refusals: result?.refusals ?? [],
         next: result?.next ?? []
       }

@@ -138,6 +138,24 @@ export async function worldModelBuildPlanDescriptor({ root, arguments: args, def
     requestedProjections: Object.freeze(
       (planned.plan.projections ?? []).map((entry) => `${entry.projectionId}@${entry.projectionVersion}`)
     ),
+    // Keep the exact projection policy in the human review record. The short reference above is
+    // retained for compatibility, while this bounded shape lets native hosts say whether a
+    // projection is optional or required and which deterministic validation/profile was reviewed.
+    projectionPolicies: Object.freeze((planned.plan.projections ?? []).map((entry) => Object.freeze({
+      projectionId: entry.projectionId,
+      projectionVersion: entry.projectionVersion,
+      reference: `${entry.projectionId}@${entry.projectionVersion}`,
+      required: entry.required === true,
+      cacheStatus: entry.cacheStatus,
+      validation: Object.freeze({ strict: entry.validation?.strict !== false }),
+      profile: Object.freeze({
+        includeGovernanceActors: entry.profile?.includeGovernanceActors !== false,
+        includeControls: entry.profile?.includeControls !== false,
+        includeFlows: entry.profile?.includeFlows !== false,
+        includeExternalDependencies: entry.profile?.includeExternalDependencies
+          ?? 'direct-architecture-only'
+      })
+    }))),
     depth: options.depth,
     consumer: options.consumer,
     composer: options.composer,
@@ -220,6 +238,11 @@ export async function executeWorldModelBuildPlan({
       manifestSha256: result.manifestSha256,
       views: result.views,
       projections: result.projections ?? [],
+      // Optional projections can fail without refusing the World Model publication. Preserve their
+      // typed refusal records so the host does not turn a visible governed degradation into a
+      // success toast which mentions only the view count.
+      refusals: result.refusals ?? [],
+      warnings: result.warnings ?? [],
       publication: result.publication
     }
   });

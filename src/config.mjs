@@ -28,8 +28,9 @@ import {
   validateAgentCatalog
 } from './agents.mjs';
 import {
-  markdownWorldModelViews, structuredWorldModelViewReferences,
-  WORLD_MODEL_VIEW_ID, WORLD_MODEL_VIEW_REFERENCE
+  applyRegisteredV4LegacyAssignmentMigration, isRegisteredV4LegacyAssignment,
+  markdownWorldModelViews, REGISTERED_V4_LEGACY_ASSIGNMENT_MODES,
+  structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID, WORLD_MODEL_VIEW_REFERENCE
 } from './world-model-views.mjs';
 import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
@@ -1014,7 +1015,27 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     if (worldModel.format != null && !['legacy-v3', 'registered-v4'].includes(worldModel.format)) {
       throw new SingularityFlowError("worldModel.format must be 'legacy-v3' or 'registered-v4'.");
     }
+    const legacyAssignments = worldModel.v4?.legacyAssignments ?? 'strict';
+    if (!REGISTERED_V4_LEGACY_ASSIGNMENT_MODES.includes(legacyAssignments)) {
+      throw new SingularityFlowError(
+        'worldModel.v4.legacyAssignments must be strict or inherit-configured.'
+      );
+    }
+    if (Object.values(worldModel.projections ?? {}).some((projection) => (
+      projection.enabled === true || projection.required === true
+    )) && worldModel.format !== 'registered-v4') {
+      throw new SingularityFlowError(
+        'World-Model projections require worldModel.format registered-v4; legacy-v3 builds do not generate or publish registered projections.',
+        {
+          code: 'WMC_PROJECTION_FORMAT_REQUIRED',
+          details: { format: worldModel.format ?? 'legacy-v3', requiredFormat: 'registered-v4' }
+        }
+      );
+    }
     if (worldModel.format === 'registered-v4') {
+      // This is an explicit migration policy, not a name mapping. Known v3-only assignments inherit
+      // the exact repository v4 catalog in memory; unknown and mixed identities remain refusals.
+      applyRegisteredV4LegacyAssignmentMigration(definition);
       const configured = worldModel.views ?? [];
       const referenced = [...structuredWorldModelViewReferences(definition).keys()];
       const normalizedConfigured = [];
@@ -1025,7 +1046,9 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
         } catch (error) {
           throw new SingularityFlowError(
             `Registered-v4 World Model accepts only installed active view contracts (${BUILTIN_VIEW_IDS.join(', ')}); `
-            + `update the configuration and phase/agent view assignments before changing format. Unsupported: ${view}.`,
+            + 'replace worldModel.views with exact installed contracts. While existing phase or agent assignments '
+            + 'are being migrated, set worldModel.v4.legacyAssignments to inherit-configured; unknown and mixed '
+            + `assignments remain refused. Unsupported: ${view}.`,
             {
               code: error?.code ?? 'WMB_VIEW_UNKNOWN', cause: error,
               details: { views: [view], registeredViews: [...BUILTIN_VIEW_IDS] }
@@ -1038,7 +1061,9 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
         catch (error) {
           throw new SingularityFlowError(
             `Registered-v4 World Model accepts only installed active view contracts (${BUILTIN_VIEW_IDS.join(', ')}); `
-            + `update the configuration and phase/agent view assignments before changing format. Unsupported: ${view}.`,
+            + 'replace worldModel.views with exact installed contracts. While existing phase or agent assignments '
+            + 'are being migrated, set worldModel.v4.legacyAssignments to inherit-configured; unknown and mixed '
+            + `assignments remain refused. Unsupported: ${view}.`,
             {
               code: error?.code ?? 'WMB_VIEW_UNKNOWN', cause: error,
               details: { views: [view], registeredViews: [...BUILTIN_VIEW_IDS] }
@@ -1078,7 +1103,8 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
         throw new SingularityFlowError('worldModel.v4 must be an object.');
       }
       for (const key of Object.keys(v4)) if (![
-        'composer', 'consumer', 'cachePolicy', 'candidateSnapshots', 'totalMaximumOutputTokens'
+        'composer', 'consumer', 'cachePolicy', 'candidateSnapshots', 'totalMaximumOutputTokens',
+        'legacyAssignments'
       ].includes(key)) throw new SingularityFlowError(`worldModel.v4 contains unknown field '${key}'.`);
       if (v4.composer != null && ![
         'deterministic', 'model-optional', 'model-required'
@@ -1095,6 +1121,12 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       }
       if (v4.candidateSnapshots != null && !['allow', 'deny'].includes(v4.candidateSnapshots)) {
         throw new SingularityFlowError('worldModel.v4.candidateSnapshots must be allow or deny.');
+      }
+      if (v4.legacyAssignments != null
+          && !REGISTERED_V4_LEGACY_ASSIGNMENT_MODES.includes(v4.legacyAssignments)) {
+        throw new SingularityFlowError(
+          'worldModel.v4.legacyAssignments must be strict or inherit-configured.'
+        );
       }
       if (v4.totalMaximumOutputTokens != null
           && (!Number.isInteger(v4.totalMaximumOutputTokens)
@@ -1404,6 +1436,10 @@ export async function validateWorldModelPromptViewReferences(root, definition) {
   const configured = new Set(declared.map(normalizeView));
   const references = await worldModelPromptViewReferences(root, definition);
   for (const [view, files] of references) {
+    // Legacy builder and governed-agent prose may still name reader-facing v3 artifacts while an
+    // explicitly migrated repository uses registered-v4. They are dormant documentation under
+    // `inherit-configured`; they are never reinterpreted as registered contracts.
+    if (isRegisteredV4LegacyAssignment(definition, view)) continue;
     if (!configured.has(normalizeView(view))) throw new SingularityFlowError(`World-model view '${view}' is referenced by ${files.join(', ')} but is not declared in worldModel.views.`);
   }
   return references;

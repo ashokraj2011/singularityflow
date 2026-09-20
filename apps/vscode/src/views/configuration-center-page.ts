@@ -413,6 +413,7 @@ function worldModel(view: ConfigurationCenterView): string {
           <label><span>v4 composer</span><select name="v4Composer">${option('deterministic', model.v4.composer, 'Deterministic — zero model calls')}${option('model-optional', model.v4.composer, 'Model optional — deterministic when sufficient')}${option('model-required', model.v4.composer, 'Model required — invoke governed provider')}</select></label>
           <label><span>v4 consumer</span><select name="v4Consumer">${['developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'].map((value) => option(value, model.v4.consumer, value.charAt(0).toUpperCase() + value.slice(1))).join('')}</select></label>
           <label><span>v4 cache policy</span><select name="v4CachePolicy">${option('reuse-valid', model.v4.cachePolicy, 'Reuse exact valid entries')}${option('rebuild', model.v4.cachePolicy, 'Rebuild requested views')}</select></label>
+          <label><span title="Strict requires every phase and governed agent to use registered-v4 IDs. Inherit configured is an explicit migration bridge: known legacy-only assignments use the exact repository v4 catalog without guessing a one-to-one mapping.">Legacy assignment migration ⓘ</span><select name="v4LegacyAssignments" id="world-model-v4-legacy-assignments">${option('strict', model.v4.legacyAssignments, 'Strict — require v4 IDs everywhere')}${option('inherit-configured', model.v4.legacyAssignments, 'Migration — inherit configured v4 catalog')}</select><small>Use Migration when upgrading an existing repository. Unknown, misspelled, or mixed legacy/v4 assignments still fail closed.</small></label>
           <label><span>v4 total output-token budget</span><input name="v4TotalMaximumOutputTokens" type="number" min="1" max="1000000" step="1" value="${model.v4.totalMaximumOutputTokens}"><small>Operation-level maximum. Every independent view retains its stricter registered contract ceiling.</small></label>
         </div>
         <div class="notice"><strong>Provider boundary:</strong> <code>--model</code> chooses a concrete model only after the composer requires one. It does not enable model composition by itself.</div>
@@ -619,7 +620,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
     if (form.id === 'mcp-form') vscode.postMessage({ type: 'save-mcp', previousId: form.dataset.previousId, id: data.get('id'), label: data.get('label'), hostReference: data.get('hostReference'), agents: csv(data.get('agents')), phases: csv(data.get('phases')), tools: csv(data.get('tools')), approval: data.get('approval'), required: data.get('required') === 'on', captureToolCalls: data.get('captureToolCalls') === 'on', captureResults: data.get('captureResults') === 'on' });
     if (form.id === 'auto-form') vscode.postMessage({ type: 'save-auto', enabled: data.get('enabled') === 'true', workTypes: Array.from(form.querySelectorAll('[data-auto-work-type]')).map((field) => ({ id: field.dataset.autoWorkType, eligibility: field.value })) });
-    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', format: data.get('format'), v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, projections: { archCalm: { enabled: data.get('archCalmEnabled') === 'on', required: data.get('archCalmRequired') === 'on', schemaRelease: '1.2', strict: data.get('archCalmStrict') === 'on', includeGovernanceActors: data.get('archCalmGovernanceActors') === 'on', includeControls: data.get('archCalmControls') === 'on', includeFlows: data.get('archCalmFlows') === 'on', includeExternalDependencies: data.get('archCalmExternalDependencies') } }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
+    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', format: data.get('format'), v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), legacyAssignments: data.get('v4LegacyAssignments'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, projections: { archCalm: { enabled: data.get('archCalmEnabled') === 'on', required: data.get('archCalmRequired') === 'on', schemaRelease: '1.2', strict: data.get('archCalmStrict') === 'on', includeGovernanceActors: data.get('archCalmGovernanceActors') === 'on', includeControls: data.get('archCalmControls') === 'on', includeFlows: data.get('archCalmFlows') === 'on', includeExternalDependencies: data.get('archCalmExternalDependencies') } }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
   });
   document.addEventListener('change', (event) => {
     if (event.target?.closest('form')) markDirty();
@@ -630,11 +631,28 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     }
     if (event.target && event.target.id === 'world-model-format' && event.target.value === 'registered-v4') {
       const views = document.getElementById('world-model-views');
+      const migration = document.getElementById('world-model-v4-legacy-assignments');
       const selected = csv(views?.value);
       const registered = new Set([...registeredWorldModelReferences, ...registeredWorldModelIds]);
+      if (migration) migration.value = 'inherit-configured';
       if (views && (!selected.length || selected.some((view) => !registered.has(view)))) {
         views.value = registeredWorldModelReferences.join(', ');
-        showRuntime('Registered-v4 selected. Declared views were staged as the active installed exact contracts: ' + registeredWorldModelReferenceDisplay + '. Review phase and agent view assignments before saving; invalid legacy references will be refused.', false);
+        showRuntime('Registered-v4 selected. Exact contracts were staged and the explicit migration bridge was enabled for known legacy-only phase and agent assignments: ' + registeredWorldModelReferenceDisplay + '. Unknown or mixed assignments remain refused.', false);
+      }
+    }
+    if (event.target && event.target.name === 'archCalmEnabled' && event.target.checked) {
+      const format = document.getElementById('world-model-format');
+      const views = document.getElementById('world-model-views');
+      const migration = document.getElementById('world-model-v4-legacy-assignments');
+      if (format && format.value !== 'registered-v4') {
+        format.value = 'registered-v4';
+        const selected = csv(views?.value);
+        const registered = new Set([...registeredWorldModelReferences, ...registeredWorldModelIds]);
+        if (views && (!selected.length || selected.some((view) => !registered.has(view)))) {
+          views.value = registeredWorldModelReferences.join(', ');
+        }
+        if (migration) migration.value = 'inherit-configured';
+        showRuntime('CALM requires Registered v4. The form staged exact v4 contracts and the explicit legacy-assignment migration bridge; review and save to create a governed configuration change.', false);
       }
     }
   });`;

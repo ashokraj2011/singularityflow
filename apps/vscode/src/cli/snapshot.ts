@@ -890,6 +890,7 @@ export interface RepositorySnapshot {
         composer?: 'deterministic' | 'model-optional' | 'model-required';
         consumer?: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
         cachePolicy?: 'reuse-valid' | 'rebuild';
+        legacyAssignments?: 'strict' | 'inherit-configured';
         totalMaximumOutputTokens?: number;
       };
       projections?: {

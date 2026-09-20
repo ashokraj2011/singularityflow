@@ -6263,7 +6263,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // The model builder brings the full writable gateway and World Model graph. Keep that
         // separate from activation and load it only after the person selects this command.
         const {
-          showGovernedWorldModelBuild, worldModelAuthorityRefreshArguments
+          showGovernedWorldModelBuild, worldModelAuthorityRefreshArguments,
+          worldModelBuildCompletionMessage
         } = require(path.join(__dirname, 'world-model-build.cjs')) as typeof import('./world-model-build.ts');
         const modelMode = vscode.workspace.getConfiguration('singularityFlow')
           .get<string>('modelMode', 'auto');
@@ -6313,13 +6314,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return;
         }
-        const manifest = outcome.result?.data?.manifestSha256;
-        const views = Array.isArray(outcome.result?.data?.views)
-          ? outcome.result.data.views.length : 0;
         await refreshAfterSurfaceMutation();
-        void vscode.window.showInformationMessage(
-          `World Model published${manifest ? ` as ${String(manifest).slice(0, 19)}` : ''} with ${views} view${views === 1 ? '' : 's'}.`
-        );
+        void vscode.window.showInformationMessage(worldModelBuildCompletionMessage(outcome));
       } catch (error) {
         output.appendLine(`  exact world-model build refused: ${(error as Error).message}`);
         showRefusal(error, { headline: 'Could not build the World Model' });

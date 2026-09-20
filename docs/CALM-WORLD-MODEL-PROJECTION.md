@@ -13,7 +13,11 @@ or source facts and rebuild the World Model. Do not edit files below
 
 Open **Configuration Center → World model → Behavior & generation settings → Architecture
 projection**, enable **Generate CALM architecture**, and publish the configuration. The recommended
-rollout is enabled and optional:
+rollout is enabled and optional. CALM is a registered projection and therefore requires
+`worldModel.format: registered-v4`; enabling it in the current UI stages the v4 format, the exact
+active contracts, and the explicit legacy-assignment migration bridge together. Core validation
+also refuses an enabled CALM projection under `legacy-v3`, so a save cannot appear successful while
+later legacy builds silently ignore it:
 
 ```yaml
 worldModel:
@@ -29,6 +33,11 @@ worldModel:
 Optional means a projection-toolchain failure creates a durable refusal receipt but does not block
 the ordinary World Model or Story work. Set `required: true` only after the repository has reviewed
 its classifications and the packaged validator works on every supported machine.
+
+The build review lists the exact projection reference, optional/required policy, strict-validation
+setting, profile, external-dependency policy, and cache decision. The completion message reports
+the projection status and any typed refusal receipt; a successful World Model publication can no
+longer hide an unavailable optional CALM projection behind a view-only success message.
 
 ## Build and reuse
 

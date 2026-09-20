@@ -17,19 +17,26 @@ import { loadWorldModelConfig, resolveWorldModelViewIds } from '../../../src/wor
 import { worldModelSourceSnapshot } from '../../../src/grounding.mjs';
 import { worldModelGatewayCapabilities } from '../../../src/gateway/planners/world-model-run.mjs';
 import { DEFAULT_GATEWAY_POLICY } from '../../../src/gateway/policy.mjs';
+import { withApprovedConfigurationRead } from '../../../src/approved-configuration-reader.mjs';
 import { editorPlanners, type ActiveRepositoryContext } from './gateway-session.ts';
 import { currentGitSource, hasConfiguredGitRemote } from './cli/git-observations.ts';
 import {
+  assertWorldModelBuildConfigurationSelection,
   exactWorldModelPlanDetail, legacyWorldModelLightArguments, legacyWorldModelLightDetail,
   loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
-  worldModelAuthorityRefreshArguments,
-  type ExactBuildKernel, type ExactWorldModelBuildOutcome, type WorldModelBuildArguments
+  observeWorldModelBuildConfigurationSelection,
+  worldModelAuthorityRefreshArguments, worldModelBuildCompletionMessage,
+  withWorldModelBuildConfigurationBoundary, worldModelBuildConfigurationBoundary,
+  type ExactBuildKernel, type ExactWorldModelBuildOutcome,
+  type WorldModelBuildArguments, type WorldModelBuildConfigurationSelection
 } from './world-model-build-model.ts';
 
 export {
   exactWorldModelPlanDetail, legacyWorldModelLightArguments, legacyWorldModelLightDetail,
   loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
-  worldModelAuthorityRefreshArguments,
+  observeWorldModelBuildConfigurationSelection,
+  worldModelAuthorityRefreshArguments, worldModelBuildCompletionMessage,
+  withWorldModelBuildConfigurationBoundary, worldModelBuildConfigurationBoundary,
   type ExactWorldModelBuildOutcome, type WorldModelBuildArguments
 } from './world-model-build-model.ts';
 
@@ -90,10 +97,37 @@ export async function showGovernedWorldModelBuild(
     executeLegacyLight?: (argv: readonly string[], signal: AbortSignal) => Promise<void>;
   } = {}
 ): Promise<ExactWorldModelBuildOutcome> {
+  const selection = await observeWorldModelBuildConfigurationSelection(active.root);
+  return withWorldModelBuildConfigurationBoundary(selection.boundary, {
+    readStoryPinned: () => showGovernedWorldModelBuildInConfigurationScope(active, {
+      modelRouting, capabilityId: preferredCapabilityId, executeLegacyLight
+    }, selection),
+    withApprovedAuthority: (read) => withApprovedConfigurationRead(
+      active.root, read, { preferAuthority: true }
+    ),
+    readInScope: () => showGovernedWorldModelBuildInConfigurationScope(active, {
+      modelRouting, capabilityId: preferredCapabilityId, executeLegacyLight
+    }, selection)
+  });
+}
+
+async function showGovernedWorldModelBuildInConfigurationScope(
+  active: ActiveRepositoryContext,
+  {
+    modelRouting, capabilityId: preferredCapabilityId, executeLegacyLight
+  }: {
+    modelRouting: 'enabled' | 'disabled'; capabilityId: string | null;
+    executeLegacyLight?: (argv: readonly string[], signal: AbortSignal) => Promise<void>;
+  },
+  configurationSelection: WorldModelBuildConfigurationSelection
+): Promise<ExactWorldModelBuildOutcome> {
   // The canonical loader resolves the approved configuration overlay/state authority for this
   // exact root; it never searches HOME or borrows context from a previous editor conversation.
   const scoped = await loadScopedWorldModelBuildConfig(
-    (capabilityId) => loadWorldModelConfig(active.root, capabilityId ? { capabilityId } : undefined),
+    (capabilityId) => loadWorldModelConfig(active.root, {
+      ...(capabilityId ? { capabilityId } : {}),
+      ...(configurationSelection.workId ? { workId: configurationSelection.workId } : {})
+    }),
     async (capabilityIds) => {
       const selected = await vscode.window.showQuickPick(
         capabilityIds.map((id) => ({
@@ -133,6 +167,7 @@ export async function showGovernedWorldModelBuild(
     const views = resolveWorldModelViewIds(config, ['all']);
     const reviewIdentity = JSON.stringify({
       repository: active.root, workspace: active.workspaceId, branch, sourceCommit,
+      configurationSelection,
       sourceTreeSha256: source.sha256, definition: config.definition,
       workflow: config.workflow, repositoryCapability: config.repositoryCapability,
       remote, stateBranch
@@ -149,15 +184,19 @@ export async function showGovernedWorldModelBuild(
     if (accepted !== 'Build deterministic legacy model') {
       return { status: 'cancelled', planned: null, result: null, capabilityId, format: 'legacy-v3' };
     }
+    await assertWorldModelBuildConfigurationSelection(active.root, configurationSelection);
     // A modal can stay open while the Story pin, source, or selected repository changes. Repeat
     // the same canonical reads immediately before dispatch; the engine rechecks the source hash.
-    const latest = await loadWorldModelConfig(active.root,
-      capabilityId ? { capabilityId } : undefined);
+    const latest = await loadWorldModelConfig(active.root, {
+      ...(capabilityId ? { capabilityId } : {}),
+      ...(configurationSelection.workId ? { workId: configurationSelection.workId } : {})
+    });
     const latestSource = await worldModelSourceSnapshot(active.root, latest.definition);
     const latestGit = await currentGitSource(active.root);
     const latestIdentity = JSON.stringify({
       repository: active.root, workspace: active.workspaceId,
       branch: latestGit.branch, sourceCommit: latestGit.sourceCommit,
+      configurationSelection,
       sourceTreeSha256: latestSource.sha256, definition: latest.definition,
       workflow: latest.workflow, repositoryCapability: latest.repositoryCapability,
       remote: String(latest.remote ?? 'origin'), stateBranch: String(latest.stateBranch ?? 'state')
@@ -176,7 +215,10 @@ export async function showGovernedWorldModelBuild(
       const controller = new AbortController();
       const cancellation = token.onCancellationRequested?.(() => controller.abort());
       if (token.isCancellationRequested) controller.abort();
-      try { await executeLegacyLight(argv, controller.signal); }
+      try {
+        await assertWorldModelBuildConfigurationSelection(active.root, configurationSelection);
+        await executeLegacyLight(argv, controller.signal);
+      }
       finally { cancellation?.dispose(); }
     });
     return { status: 'completed', planned: null, result: null, capabilityId, format: 'legacy-v3' };
@@ -184,6 +226,7 @@ export async function showGovernedWorldModelBuild(
   const defaults = worldModelV4GatewayDefaults(active.root, config);
   const args = await collectArguments(config, defaults);
   if (!args) return { status: 'cancelled', planned: null, result: null, capabilityId };
+  await assertWorldModelBuildConfigurationSelection(active.root, configurationSelection);
 
   const capabilities = worldModelGatewayCapabilities({ defaults });
   const host = createHostGateway({
@@ -208,7 +251,9 @@ export async function showGovernedWorldModelBuild(
       { modal: true, detail: exactWorldModelPlanDetail(review, { capabilityId }) },
       action
     );
-    return accepted === action;
+    if (accepted !== action) return false;
+    await assertWorldModelBuildConfigurationSelection(active.root, configurationSelection);
+    return true;
   }, (operation) => vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
     title: 'Building and publishing the exact World Model Plan',

@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 24
+version: 25
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -29,6 +29,19 @@ During explicit migration, current deterministic registration runs before narrat
 Exact legacy claims may bind only to current registered Facts; every unresolved claim becomes a
 typed `unavailable` Fact through the model-free migration producer, using only claim identity
 hashes. The regenerated view and exact migration receipt publish together in one state transaction.
+
+Changing only `worldModel.format` is not a complete repository migration because older phase,
+workflow-override, Agent Markdown, and prompt contracts still name v3 reader projections. The VS
+Code form stages exact v4 contracts plus
+`worldModel.v4.legacyAssignments: inherit-configured`. This explicit bridge makes assignments made
+only from the known v3 vocabulary inherit the configured v4 catalog; it never aliases a legacy
+name to a v4 contract. Typos, unknown IDs, and mixed legacy/v4 lists remain refusals. Publish the
+configuration before building. Existing Stories keep their accepted legacy or v4 pin; the approved
+change applies to repository-level builds and newly created Stories.
+
+`arch.calm@1` is a registered-v4 projection. Enabling it while the effective format is legacy-v3 is
+refused rather than ignored. Its reviewed build plan and completion result expose required/optional
+policy, strict validation and profile, final status, and any durable refusal receipt.
 
 The exact cache/current-projection behavior in this section is the operational WMB v4 path. The
 newer WMP immutable per-key history service is additive. For each newly created Story whose

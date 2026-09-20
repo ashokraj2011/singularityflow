@@ -864,6 +864,7 @@ test('registered-v4 configuration refuses legacy view IDs during format transiti
   git(root, ['init', '-q', '-b', 'main']);
   git(root, ['config', 'user.name', 'WMB Test']);
   git(root, ['config', 'user.email', 'wmb@example.invalid']);
+  await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
   await initializeDefinition(root);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
@@ -873,6 +874,46 @@ test('registered-v4 configuration refuses legacy view IDs during format transiti
     () => loadWorldModelConfig(root),
     (error) => error.code === 'WMB_VIEW_UNKNOWN' && /business/.test(error.message)
   );
+});
+
+test('registered-v4 transition bridge loads packaged legacy assignments and selects exact contracts', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-transition-bridge-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.name', 'WMB Test']);
+  git(root, ['config', 'user.email', 'wmb@example.invalid']);
+  await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
+  await initializeDefinition(root);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.format = 'registered-v4';
+  workflow.worldModel.views = [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ];
+  workflow.worldModel.v4 = {
+    ...(workflow.worldModel.v4 ?? {}), legacyAssignments: 'inherit-configured'
+  };
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', '.']);
+  git(root, ['commit', '-q', '-m', 'enable registered-v4 through transition bridge']);
+
+  const config = await loadWorldModelConfig(root);
+  assert.equal(config.definition.worldModel.v4.legacyAssignments, 'inherit-configured');
+  assert.deepEqual(configuredWorldModelV4ViewSelections(config).map((entry) => entry.reference), [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ]);
+  assert.deepEqual(config.definition.phases.implementation.worldModel.views, [
+    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
+  ]);
+  assert.deepEqual(config.definition.agents.developer.worldModelViews, [
+    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
+  ]);
+  const built = await quiet(() => worldModelCommand(root, ['wm', 'build'], { json: true }));
+  assert.equal(built.status, 'completed');
+  assert.deepEqual(built.views.map((entry) => entry.viewId).sort(), [
+    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
+  ]);
+  assert.ok(built.publication?.commit);
 });
 
 test('non-scope World-Model controls do not invalidate an unchanged registered-v4 projection', async (t) => {

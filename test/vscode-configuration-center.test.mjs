@@ -234,24 +234,49 @@ test('configuration center distinguishes staged checkout edits from the effectiv
   assert.match(html, /existing Story retains its pin/);
 });
 
-test('configuration center refuses a format-only transition that carries legacy views into registered-v4', () => {
+test('configuration center stages an explicit fail-closed registered-v4 migration', () => {
   const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
-  const draft = {
+  const unsafe = {
     ...view.worldModel,
     format: 'registered-v4'
   };
-  const errors = validateWorldModelDraft(draft);
+  const errors = validateWorldModelDraft(unsafe);
   assert.ok(errors.some((entry) => /installed active contracts/.test(entry)));
   assert.throws(
-    () => updateWorldModelYaml('version: 2\nworldModel:\n  views: [business, architecture]\n', draft),
+    () => updateWorldModelYaml('version: 2\nworldModel:\n  views: [business, architecture]\n', unsafe),
     /unsupported: business, architecture/
   );
+  const draft = {
+    ...unsafe,
+    views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'],
+    v4: { ...unsafe.v4, legacyAssignments: 'inherit-configured' }
+  };
+  assert.deepEqual(validateWorldModelDraft(draft), []);
+  const saved = updateWorldModelYaml(
+    'version: 2\nworldModel:\n  views: [business, architecture]\n', draft
+  );
+  assert.match(saved, /format: registered-v4/);
+  assert.match(saved, /legacyAssignments: inherit-configured/);
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /Registered-v4 accepts the installed contracts/);
   assert.match(html, /silently carrying legacy IDs into v4/);
+  assert.match(html, /Legacy assignment migration/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /world-model-format/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /arch\.contracts@4, biz\.rules@4, dev\.hotspots@4, dev\.impact@4/);
-  assert.match(CONFIGURATION_CENTER_SCRIPT, /Review phase and agent view assignments before saving/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /explicit migration bridge was enabled/);
+});
+
+test('configuration center requires registered-v4 when CALM is enabled', () => {
+  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  const draft = {
+    ...view.worldModel,
+    projections: {
+      ...view.worldModel.projections,
+      archCalm: { ...view.worldModel.projections.archCalm, enabled: true }
+    }
+  };
+  assert.ok(validateWorldModelDraft(draft).some((entry) => /requires Registered v4/.test(entry)));
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /CALM requires Registered v4/);
 });
 
 test('configuration center joins exact registered contracts to logical phase and generated views', () => {

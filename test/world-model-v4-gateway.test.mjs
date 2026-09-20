@@ -12,8 +12,13 @@ import { SFLOW_TOOLS } from '../src/gateway/tools.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { run } from '../src/util.mjs';
 import { sha256 } from '../src/world-model/canonicalize.mjs';
-import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
+import {
+  assertWorldModelV4BuildCompleted, buildAndPublishWorldModelV4
+} from '../src/world-model/service.mjs';
 import { refreshWorldModelV4Authority } from '../src/world-model/authority-refresh.mjs';
+import {
+  BUILTIN_ARCH_CALM_CONTRACT, BUILTIN_PROJECTION_REGISTRY
+} from '../src/world-model/registry/projections.mjs';
 
 const LEDGER = Object.freeze({
   enabled: true,
@@ -48,7 +53,7 @@ async function repository(t) {
   return root;
 }
 
-function capabilities(root, { selectedCapabilityId = null } = {}) {
+function capabilities(root, { selectedCapabilityId = null, ...overrides } = {}) {
   return worldModelGatewayCapabilities({
     defaults: {
       outputDir: 'singularity/world-model',
@@ -58,9 +63,23 @@ function capabilities(root, { selectedCapabilityId = null } = {}) {
       excludedPaths: ['singularity/**', '.sflow/**', '.singularity-flow/**'],
       policySnapshotSha256: sha256({ fixture: 'wmb-gateway-policy' }),
       selectedCapabilityId,
-      generatedAt: '2026-09-01T00:00:00.000Z'
+      generatedAt: '2026-09-01T00:00:00.000Z',
+      ...overrides
     }
   });
+}
+
+function calmPolicy(required = false) {
+  return {
+    projectionId: 'arch.calm', reference: 'arch.calm@1', required,
+    contract: BUILTIN_ARCH_CALM_CONTRACT,
+    profile: {
+      includeGovernanceActors: true, includeControls: true, includeFlows: true,
+      includeExternalDependencies: 'direct-architecture-only'
+    },
+    budgets: { ...BUILTIN_ARCH_CALM_CONTRACT.budgets },
+    validation: { strict: true }
+  };
 }
 
 function buildOptions(overrides = {}) {
@@ -191,6 +210,112 @@ test('an exact reviewed WMB Plan requires an out-of-band one-time confirmation a
   assert.equal(approval.kind, 'ceremony');
   assert.equal(approval.operation.classification, 'authorization');
   assert.match(approval.next[0].handle, /^ceremony:/);
+});
+
+test('the reviewed gateway Plan and result preserve optional CALM policy and refusal evidence', async (t) => {
+  const root = await repository(t);
+  await publishToStateBranch(root, LEDGER, {
+    'singularity/existing.json': '{"existing":true}\n'
+  }, '[test] establish state authority');
+  const wired = capabilities(root, {
+    projections: [calmPolicy()],
+    projectionRegistry: BUILTIN_PROJECTION_REGISTRY,
+    projectionSetupError: {
+      code: 'WMC_CALM_VALIDATOR_UNAVAILABLE',
+      message: 'The locked CALM validator is unavailable in this fixture.'
+    }
+  });
+  const { kernel } = createHostGateway({
+    root, hostSessionId: 'wmb-gateway-calm-visibility',
+    planners: gatewayPlanners(), readOnly: false, ...wired
+  });
+  const planned = await kernel.resolve({
+    utterance: 'build and publish registered world model',
+    arguments: {
+      views: ['arch.contracts'], depth: 'standard', consumer: 'architect',
+      composer: 'deterministic', cachePolicy: 'reuse-valid'
+    }
+  });
+  assert.equal(planned.kind, 'plan', JSON.stringify(planned, null, 2));
+  assert.deepEqual(planned.data.plan.review.requestedProjections, ['arch.calm@1']);
+  assert.deepEqual(planned.data.plan.review.projectionPolicies, [{
+    projectionId: 'arch.calm', projectionVersion: 1, reference: 'arch.calm@1',
+    required: false, cacheStatus: 'miss', validation: { strict: true },
+    profile: {
+      includeGovernanceActors: true, includeControls: true, includeFlows: true,
+      includeExternalDependencies: 'direct-architecture-only'
+    }
+  }]);
+
+  const confirmation = kernel.confirmPlan({
+    planId: planned.next[0].handle,
+    requestSha256: planned.data.plan.review.requestSha256,
+    planSha256: planned.data.plan.review.planSha256
+  });
+  const completed = await kernel.run(
+    { planId: planned.next[0].handle },
+    { confirmationReceiptId: confirmation.receiptId, confirmationValue: confirmation.value }
+  );
+  assert.equal(completed.outcome.status, 'succeeded');
+  assert.equal(completed.data.projections[0].status, 'unavailable');
+  assert.equal(completed.data.refusals[0].code, 'WMC_CALM_VALIDATOR_UNAVAILABLE');
+  assert.equal(
+    completed.data.refusals[0].refusalSha256,
+    completed.data.projections[0].refusalSha256
+  );
+});
+
+test('a required CALM refusal identifies the projection and never invents an undefined view', async (t) => {
+  const root = await repository(t);
+  const setupError = {
+    code: 'WMC_CALM_VALIDATOR_UNAVAILABLE',
+    message: 'The locked CALM validator is unavailable in this fixture.'
+  };
+  const refused = await buildAndPublishWorldModelV4(root, buildOptions({
+    publish: false,
+    views: ['arch.contracts'],
+    projections: [calmPolicy(true)],
+    projectionRegistry: BUILTIN_PROJECTION_REGISTRY,
+    projectionSetupError: setupError
+  }));
+  assert.equal(refused.status, 'refused');
+  assert.throws(
+    () => assertWorldModelV4BuildCompleted(refused),
+    (error) => error.code === setupError.code
+      && /projection 'arch\.calm' was refused/.test(error.message)
+      && !/undefined/.test(error.message)
+      && error.details.requiredProjectionFailures[0] === 'arch.calm'
+  );
+
+  const wired = capabilities(root, {
+    projections: [calmPolicy(true)],
+    projectionRegistry: BUILTIN_PROJECTION_REGISTRY,
+    projectionSetupError: setupError
+  });
+  const { kernel } = createHostGateway({
+    root, hostSessionId: 'wmb-gateway-required-calm-refusal',
+    planners: gatewayPlanners(), readOnly: false, ...wired
+  });
+  const planned = await kernel.resolve({
+    utterance: 'build and publish registered world model',
+    arguments: { views: ['arch.contracts'], composer: 'deterministic' }
+  });
+  assert.equal(planned.kind, 'plan', JSON.stringify(planned, null, 2));
+  assert.equal(planned.data.plan.review.projectionPolicies[0].required, true);
+  const confirmation = kernel.confirmPlan({
+    planId: planned.next[0].handle,
+    requestSha256: planned.data.plan.review.requestSha256,
+    planSha256: planned.data.plan.review.planSha256
+  });
+  await assert.rejects(
+    () => kernel.run(
+      { planId: planned.next[0].handle },
+      { confirmationReceiptId: confirmation.receiptId, confirmationValue: confirmation.value }
+    ),
+    (error) => error.code === setupError.code
+      && /projection 'arch\.calm' was refused/.test(error.message)
+      && !/undefined/.test(error.message)
+  );
 });
 
 test('confirmed WMB target and state CAS authority cannot be redirected or advanced', async (t) => {

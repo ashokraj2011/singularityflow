@@ -1,9 +1,100 @@
 import {
   BUILTIN_VIEW_IDS, normalizeBuiltInViewReference
 } from './world-model/registry/views.mjs';
+import { SingularityFlowError } from './util.mjs';
 
 export const WORLD_MODEL_VIEW_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 export const WORLD_MODEL_VIEW_REFERENCE = /^[a-z0-9]+(?:[.-][a-z0-9]+)*(?:@[1-9][0-9]*)?$/;
+
+/**
+ * Reader-facing v3 projections are not aliases for registered-v4 contracts.
+ *
+ * They still occur in phase policy and governed Agent Markdown installed by releases which
+ * pre-date WMB v4.  A repository may explicitly choose `inherit-configured` while it migrates:
+ * every assignment made only from this closed legacy vocabulary then inherits the repository's
+ * exact registered-v4 catalog.  No semantic one-to-one mapping is invented, and a typo or a list
+ * mixing legacy and v4 identities still fails closed.
+ */
+export const LEGACY_WORLD_MODEL_VIEW_IDS = Object.freeze([
+  'business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'
+]);
+const LEGACY_WORLD_MODEL_VIEW_ID_SET = new Set(LEGACY_WORLD_MODEL_VIEW_IDS);
+export const REGISTERED_V4_LEGACY_ASSIGNMENT_MODES = Object.freeze([
+  'strict', 'inherit-configured'
+]);
+
+export function registeredV4LegacyAssignmentMode(definition) {
+  return definition?.worldModel?.v4?.legacyAssignments ?? 'strict';
+}
+
+export function isRegisteredV4LegacyAssignment(definition, view) {
+  return definition?.worldModel?.format === 'registered-v4'
+    && registeredV4LegacyAssignmentMode(definition) === 'inherit-configured'
+    && LEGACY_WORLD_MODEL_VIEW_ID_SET.has(String(view ?? '').trim());
+}
+
+function configuredRegisteredV4Ids(definition) {
+  const configured = definition?.worldModel?.views ?? BUILTIN_VIEW_IDS;
+  return [...new Set(configured.flatMap((view) => {
+    const identity = worldModelViewIdentity(definition, view);
+    return identity ? [identity.id] : [];
+  }))];
+}
+
+/** Resolve one phase/agent assignment without reinterpreting a legacy name as a v4 contract. */
+export function effectiveWorldModelAssignmentViews(definition, views = [], label = 'World-Model assignment') {
+  const raw = Array.isArray(views) ? views.map((view) => String(view).trim()).filter(Boolean) : [];
+  if (definition?.worldModel?.format !== 'registered-v4'
+      || registeredV4LegacyAssignmentMode(definition) !== 'inherit-configured') return raw;
+  const legacy = raw.filter((view) => LEGACY_WORLD_MODEL_VIEW_ID_SET.has(view));
+  if (!legacy.length) return raw;
+  const current = raw.filter((view) => !LEGACY_WORLD_MODEL_VIEW_ID_SET.has(view));
+  if (current.length) {
+    throw new SingularityFlowError(
+      `${label} mixes legacy-v3 view IDs (${legacy.join(', ')}) with registered-v4 IDs (${current.join(', ')}). `
+      + 'Use only registered-v4 IDs, or keep the legacy assignment intact so it can inherit the configured v4 catalog.',
+      {
+        code: 'WMB_VIEW_ASSIGNMENT_MIXED',
+        details: { label, legacyViews: legacy, registeredViews: current }
+      }
+    );
+  }
+  return configuredRegisteredV4Ids(definition);
+}
+
+/**
+ * Install the explicit transition semantics into the in-memory definition used by runtime code.
+ * Authored YAML and Agent Markdown remain byte-for-byte unchanged and auditable.
+ */
+export function applyRegisteredV4LegacyAssignmentMigration(definition) {
+  if (definition?.worldModel?.format !== 'registered-v4'
+      || registeredV4LegacyAssignmentMode(definition) !== 'inherit-configured') return definition;
+  for (const [phaseId, phase] of Object.entries(definition.phases ?? {})) {
+    if (Array.isArray(phase.worldModel?.views)) {
+      phase.worldModel.views = effectiveWorldModelAssignmentViews(
+        definition, phase.worldModel.views, `Phase '${phaseId}' World-Model assignment`
+      );
+    }
+  }
+  for (const [agentId, agent] of Object.entries(definition.agents ?? {})) {
+    if (Array.isArray(agent.worldModelViews)) {
+      agent.worldModelViews = effectiveWorldModelAssignmentViews(
+        definition, agent.worldModelViews, `Agent '${agentId}' World-Model assignment`
+      );
+    }
+  }
+  for (const [workTypeId, workType] of Object.entries(definition.workTypes ?? {})) {
+    for (const [phaseId, override] of Object.entries(workType.phaseOverrides ?? {})) {
+      if (Array.isArray(override.worldModel?.views)) {
+        override.worldModel.views = effectiveWorldModelAssignmentViews(
+          definition, override.worldModel.views,
+          `Workflow '${workTypeId}' phase '${phaseId}' World-Model assignment`
+        );
+      }
+    }
+  }
+  return definition;
+}
 
 /**
  * A registered-v4 contract has two deliberately different representations:
@@ -72,19 +163,29 @@ export function markdownWorldModelViews(content) {
 export function structuredWorldModelViewReferences(definition) {
   const references = new Map();
   for (const [phaseId, phase] of Object.entries(definition.phases ?? {})) {
-    for (const view of phase.worldModel?.views ?? []) addReference(references, definition, view, `phase '${phaseId}'`);
+    for (const view of effectiveWorldModelAssignmentViews(
+      definition, phase.worldModel?.views ?? [], `Phase '${phaseId}' World-Model assignment`
+    )) addReference(references, definition, view, `phase '${phaseId}'`);
   }
   for (const [agentId, agent] of Object.entries(definition.agents ?? {})) {
-    for (const view of agent.worldModelViews ?? []) addReference(references, definition, view, `agent '${agentId}' prompt`);
+    for (const view of effectiveWorldModelAssignmentViews(
+      definition, agent.worldModelViews ?? [], `Agent '${agentId}' World-Model assignment`
+    )) addReference(references, definition, view, `agent '${agentId}' prompt`);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes ?? {})) {
     for (const [phaseId, override] of Object.entries(workType.phaseOverrides ?? {})) {
-      for (const view of override.worldModel?.views ?? []) addReference(references, definition, view, `workflow '${workTypeId}' phase '${phaseId}' override`);
+      for (const view of effectiveWorldModelAssignmentViews(
+        definition, override.worldModel?.views ?? [],
+        `Workflow '${workTypeId}' phase '${phaseId}' World-Model assignment`
+      )) addReference(references, definition, view, `workflow '${workTypeId}' phase '${phaseId}' override`);
     }
   }
   for (const [index, rule] of (definition.worldModel?.injection?.rules ?? []).entries()) {
     for (const include of rule.include ?? []) {
       const match = String(include).match(/^views\/([a-z0-9]+(?:[.-][a-z0-9]+)*)\.md$/);
+      // A v3 path has no registered-v4 file identity. Under the explicit transition policy it is
+      // dormant rather than guessed into one or more unrelated v4 contracts.
+      if (match && isRegisteredV4LegacyAssignment(definition, match[1])) continue;
       if (match) addReference(references, definition, match[1], `world-model injection rule ${index + 1}`);
     }
   }
@@ -130,7 +231,9 @@ export function worldModelViewReferences(definition, view, promptReferences = []
  */
 export function worldModelWorkflowViewUsage(definition) {
   const phases = definition?.phases ?? {};
-  const logicalViews = (views) => views.flatMap((view) => {
+  const logicalViews = (views, label) => effectiveWorldModelAssignmentViews(
+    definition, views, label
+  ).flatMap((view) => {
     const identity = worldModelViewIdentity(definition, view);
     return identity ? [identity.id] : [];
   });
@@ -149,7 +252,12 @@ export function worldModelWorkflowViewUsage(definition) {
           label: base.label ?? phaseId,
           // Agent Markdown and workflow phase policy consume logical IDs, never exact `@version`
           // contract references. The repository catalog retains the exact reference separately.
-          views: disabled ? [] : logicalViews(overridden ? override.views : base.worldModel?.views ?? []),
+          views: disabled ? [] : logicalViews(
+            overridden ? override.views : base.worldModel?.views ?? [],
+            overridden
+              ? `Workflow '${workTypeId}' phase '${phaseId}' World-Model assignment`
+              : `Phase '${phaseId}' World-Model assignment`
+          ),
           depth: String(override?.depth ?? base.worldModel?.depth ?? 'standard'),
           source: disabled ? 'disabled' : overridden ? 'workflow-override' : 'shared-phase'
         };

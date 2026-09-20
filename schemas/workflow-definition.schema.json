@@ -485,6 +485,7 @@
             "consumer": { "enum": ["developer", "architect", "tester", "business", "operations", "security", "release"], "default": "developer" },
             "cachePolicy": { "enum": ["reuse-valid", "rebuild"], "default": "reuse-valid" },
             "candidateSnapshots": { "enum": ["allow", "deny"], "default": "allow", "description": "Controls explicit immutable Candidate Snapshot capture/use. Ordinary builds still require a clean committed source." },
+            "legacyAssignments": { "enum": ["strict", "inherit-configured"], "default": "strict", "description": "Explicit v3-to-v4 transition policy. inherit-configured keeps known legacy-only phase and agent assignments dormant and makes them inherit the exact configured v4 catalog; it never maps legacy names to v4 contracts." },
             "totalMaximumOutputTokens": { "type": "integer", "minimum": 1, "maximum": 1000000, "default": 5600 }
           },
           "additionalProperties": false

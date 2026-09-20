@@ -208,6 +208,10 @@ test('the shipped workflow schema stays in parity with token economy and code-de
     schema.properties.models.properties.providers.additionalProperties.properties.promptTransport,
     { enum: ['auto', 'acp-stdio', 'attachment'], default: 'auto' }
   );
+  assert.deepEqual(
+    schema.properties.worldModel.properties.v4.properties.legacyAssignments.enum,
+    ['strict', 'inherit-configured']
+  );
   const worldModelViewPattern = schema.properties.worldModel.properties.views.items.pattern;
   assert.equal(worldModelViewPattern, WORLD_MODEL_VIEW_REFERENCE.source);
   assert.match('dev.impact@4', new RegExp(worldModelViewPattern));
@@ -237,6 +241,12 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   assert.throws(
     () => validateDefinition(invalidRegisteredView),
     /dev\.impact@0/
+  );
+  const legacyProjection = structuredClone(template);
+  legacyProjection.worldModel.projections['arch.calm'].enabled = true;
+  assert.throws(
+    () => validateDefinition(legacyProjection),
+    (error) => error.code === 'WMC_PROJECTION_FORMAT_REQUIRED'
   );
   assert.equal(
     schema.properties.workTypes.additionalProperties.properties.plannedClaims.$ref,

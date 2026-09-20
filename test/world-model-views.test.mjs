@@ -7,7 +7,9 @@ import YAML from 'yaml';
 import { parseAgentDependencies } from '../src/agents.mjs';
 import { validateDefinition } from '../src/config.mjs';
 import {
+  applyRegisteredV4LegacyAssignmentMigration,
   addWorldModelView,
+  effectiveWorldModelAssignmentViews,
   markdownWorldModelViews,
   removeWorldModelView,
   structuredWorldModelViewReferences,
@@ -85,6 +87,64 @@ test('registered-v4 omission expands to every installed active exact contract', 
   assert.deepEqual(worldModelViewContractCatalog(definition).map((entry) => entry.reference), [
     'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
   ]);
+});
+
+test('explicit registered-v4 migration inherits exact configured contracts without aliasing legacy names', () => {
+  const workflow = {
+    worldModel: {
+      format: 'registered-v4', views: ['arch.contracts@4', 'dev.impact@4'],
+      v4: { legacyAssignments: 'inherit-configured' },
+      injection: { rules: [{ include: ['views/security.md'] }] }
+    },
+    phases: { implementation: { worldModel: { views: ['development', 'testing'] } } },
+    agents: { developer: { worldModelViews: ['development', 'architecture'] } },
+    workTypes: {
+      feature: { label: 'Feature', phases: ['implementation'] },
+      overridden: {
+        label: 'Overridden', phases: ['implementation'],
+        phaseOverrides: { implementation: { worldModel: { views: ['security'] } } }
+      }
+    }
+  };
+  assert.deepEqual(effectiveWorldModelAssignmentViews(
+    workflow, ['development', 'testing'], 'phase'
+  ), ['arch.contracts', 'dev.impact']);
+  assert.deepEqual(worldModelWorkflowViewUsage(workflow).map((entry) => entry.phases[0].views), [
+    ['arch.contracts', 'dev.impact'], ['arch.contracts', 'dev.impact']
+  ]);
+  const references = structuredWorldModelViewReferences(workflow);
+  assert.deepEqual([...references.keys()], ['arch.contracts', 'dev.impact']);
+  assert.ok(!references.has('security'), 'legacy injection artifacts stay dormant instead of being aliased');
+
+  applyRegisteredV4LegacyAssignmentMigration(workflow);
+  assert.deepEqual(workflow.phases.implementation.worldModel.views, ['arch.contracts', 'dev.impact']);
+  assert.deepEqual(workflow.agents.developer.worldModelViews, ['arch.contracts', 'dev.impact']);
+  assert.deepEqual(
+    workflow.workTypes.overridden.phaseOverrides.implementation.worldModel.views,
+    ['arch.contracts', 'dev.impact']
+  );
+});
+
+test('registered-v4 migration refuses mixed or unknown assignments', async () => {
+  const workflow = await definition();
+  workflow.worldModel.format = 'registered-v4';
+  workflow.worldModel.views = ['dev.impact@4'];
+  workflow.worldModel.v4 = { legacyAssignments: 'inherit-configured' };
+  workflow.phases.implementation.worldModel.views = ['development', 'dev.impact'];
+  assert.throws(
+    () => validateDefinition(workflow),
+    (error) => error.code === 'WMB_VIEW_ASSIGNMENT_MIXED'
+  );
+
+  const unknown = await definition();
+  unknown.worldModel.format = 'registered-v4';
+  unknown.worldModel.views = ['dev.impact@4'];
+  unknown.worldModel.v4 = { legacyAssignments: 'inherit-configured' };
+  unknown.phases.implementation.worldModel.views = ['telepathy'];
+  assert.throws(
+    () => validateDefinition(unknown),
+    (error) => error.code === 'WMB_VIEW_UNKNOWN' && /telepathy/.test(error.message)
+  );
 });
 
 test('view catalogs accept single-use iterable prompt references on every supported Node runtime', () => {

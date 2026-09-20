@@ -81,6 +81,7 @@ export interface WorldModelSettingsView {
     composer: 'deterministic' | 'model-optional' | 'model-required';
     consumer: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
     cachePolicy: 'reuse-valid' | 'rebuild';
+    legacyAssignments: 'strict' | 'inherit-configured';
     totalMaximumOutputTokens: number;
   };
   projections: {
@@ -219,6 +220,7 @@ const WORLD_MODEL_V4_CONSUMERS = new Set([
   'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
 ]);
 const WORLD_MODEL_V4_CACHE_POLICIES = new Set(['reuse-valid', 'rebuild']);
+const WORLD_MODEL_V4_LEGACY_ASSIGNMENTS = new Set(['strict', 'inherit-configured']);
 const AUTO_ELIGIBILITIES = new Set<AutoEligibility>(['disabled', 'plan-only', 'bounded']);
 const email = /^[^@\s]+@[^@\s]+$/;
 
@@ -480,6 +482,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
         composer: worldModel.v4?.composer ?? 'deterministic',
         consumer: worldModel.v4?.consumer ?? 'developer',
         cachePolicy: worldModel.v4?.cachePolicy ?? 'reuse-valid',
+        legacyAssignments: worldModel.v4?.legacyAssignments ?? 'strict',
         totalMaximumOutputTokens: worldModel.v4?.totalMaximumOutputTokens ?? 5600
       },
       projections: {
@@ -543,6 +546,7 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
     composer: draft.v4?.composer ?? 'deterministic',
     consumer: draft.v4?.consumer ?? 'developer',
     cachePolicy: draft.v4?.cachePolicy ?? 'reuse-valid',
+    legacyAssignments: draft.v4?.legacyAssignments ?? 'strict',
     totalMaximumOutputTokens: draft.v4?.totalMaximumOutputTokens ?? 5600
   };
   if (!WORLD_MODEL_FORMATS.has(format)) errors.push(`Unknown world-model format '${format}'.`);
@@ -565,12 +569,18 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   if (!WORLD_MODEL_V4_COMPOSERS.has(v4.composer)) errors.push(`Unknown registered-v4 composer '${v4.composer}'.`);
   if (!WORLD_MODEL_V4_CONSUMERS.has(v4.consumer)) errors.push(`Unknown registered-v4 consumer '${v4.consumer}'.`);
   if (!WORLD_MODEL_V4_CACHE_POLICIES.has(v4.cachePolicy)) errors.push(`Unknown registered-v4 cache policy '${v4.cachePolicy}'.`);
+  if (!WORLD_MODEL_V4_LEGACY_ASSIGNMENTS.has(v4.legacyAssignments)) {
+    errors.push(`Unknown registered-v4 legacy-assignment policy '${v4.legacyAssignments}'.`);
+  }
   if (!Number.isInteger(v4.totalMaximumOutputTokens)
       || v4.totalMaximumOutputTokens < 1 || v4.totalMaximumOutputTokens > 1_000_000) {
     errors.push('Registered-v4 total output budget must be from 1 through 1000000 tokens.');
   }
   if (draft.projections?.archCalm.required && !draft.projections.archCalm.enabled) {
     errors.push('The CALM architecture projection must be enabled before it can be required.');
+  }
+  if (draft.projections?.archCalm.enabled && format !== 'registered-v4') {
+    errors.push('The CALM architecture projection requires Registered v4; legacy-v3 does not generate registered projections.');
   }
   if (draft.projections?.archCalm.includeExternalDependencies != null
       && !['off', 'direct-architecture-only'].includes(
@@ -755,6 +765,9 @@ export function updateWorldModelYaml(text: string, draft: WorldModelDraft): stri
     if (draft.v4.composer !== undefined) parsed.setIn(['worldModel', 'v4', 'composer'], draft.v4.composer);
     if (draft.v4.consumer !== undefined) parsed.setIn(['worldModel', 'v4', 'consumer'], draft.v4.consumer);
     if (draft.v4.cachePolicy !== undefined) parsed.setIn(['worldModel', 'v4', 'cachePolicy'], draft.v4.cachePolicy);
+    if (draft.v4.legacyAssignments !== undefined) {
+      parsed.setIn(['worldModel', 'v4', 'legacyAssignments'], draft.v4.legacyAssignments);
+    }
     if (draft.v4.totalMaximumOutputTokens !== undefined) {
       parsed.setIn(['worldModel', 'v4', 'totalMaximumOutputTokens'], draft.v4.totalMaximumOutputTokens);
     }

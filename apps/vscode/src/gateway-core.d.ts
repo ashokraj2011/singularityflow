@@ -284,6 +284,14 @@ declare module '*/grounding.mjs' {
   }>;
 }
 
+declare module '*/approved-configuration-reader.mjs' {
+  export function withApprovedConfigurationRead<T>(
+    root: string,
+    fn: (authority: Readonly<Record<string, unknown>> | null) => Promise<T> | T,
+    options?: { readonly preferAuthority?: boolean }
+  ): Promise<T>;
+}
+
 declare module '*/world-model/registry/views.mjs' {
   export const BUILTIN_VIEW_IDS: readonly string[];
   export const BUILTIN_VIEW_REFERENCES: readonly string[];

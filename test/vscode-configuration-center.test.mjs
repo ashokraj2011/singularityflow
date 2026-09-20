@@ -210,13 +210,15 @@ test('configuration center exposes guided world-model policy, generation, and in
   assert.match(html, /Light — deterministic, zero model tokens/);
   assert.match(html, /Disabled — no automatic materialization; explicit builds remain available/);
   assert.match(html, /Prompt injection/);
+  assert.match(html, /name="stateFetchTimeoutMs" type="number" min="250" max="60000" step="1" value="10000" required/);
+  assert.match(html, /name="injectionMaxBytes" type="number" min="1" step="1" value="16384" required/);
   assert.match(html, /Registered v4 — governed facts/);
   assert.match(html, /Deterministic — zero model calls/);
   assert.match(html, /v4 total output-token budget/);
   assert.match(html, /Save world-model settings/);
   assert.match(html, /Build \/ refresh effective model/);
   assert.match(html, /approved repository configuration, or the accepted Story's pinned execution configuration/);
-  assert.match(html, /Editor format: <code>legacy-v3<\/code> · Current model format: <code>not built<\/code>/);
+  assert.match(html, /Editor source: approved effective configuration · Editor format: <code>legacy-v3<\/code> · Approved format: <code>legacy-v3<\/code> · Current built-model format: <code>not built<\/code>/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /format: data\.get\('format'\)/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /totalMaximumOutputTokens: Number\(data\.get\('v4TotalMaximumOutputTokens'\)\)/);
 });
@@ -229,9 +231,67 @@ test('configuration center distinguishes staged checkout edits from the effectiv
   };
   const view = configurationCenterView(staged, { name: 'Ashok', role: 'architect' });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
-  assert.match(html, /Editor format: <code>legacy-v3<\/code> · Current model format: <code>registered-v4<\/code>/);
+  assert.match(html, /Editor format: <code>legacy-v3<\/code> · Approved format: <code>legacy-v3<\/code> · Current built-model format: <code>registered-v4<\/code>/);
   assert.match(html, /local configuration change.*awaiting publication/);
   assert.match(html, /existing Story retains its pin/);
+});
+
+test('configuration center reloads a valid candidate while keeping approved and built formats distinct', () => {
+  const candidate = {
+    ...snapshot,
+    definition: {
+      ...snapshot.definition,
+      worldModel: {
+        ...snapshot.definition.worldModel,
+        format: 'registered-v4',
+        views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'],
+        v4: { legacyAssignments: 'inherit-configured' }
+      }
+    },
+    configurationSource: {
+      editor: 'candidate',
+      effective: {
+        kind: 'approved-configuration-ref', ref: 'refs/remotes/origin/sflow/config',
+        commit: 'a'.repeat(40), sha256: 'b'.repeat(64), worldModelFormat: 'legacy-v3'
+      },
+      candidate: {
+        status: 'valid', error: null, changes: ['singularity/workflow.yml'],
+        sha256: 'c'.repeat(64), worldModelFormat: 'registered-v4'
+      }
+    },
+    repository: { configurationChanges: ['singularity/workflow.yml'] },
+    worldModel: { root: 'singularity/world-model', format: 'legacy-v3', views: [] }
+  };
+  const view = configurationCenterView(candidate, { name: 'Ashok', role: 'architect' });
+  assert.equal(view.worldModel.format, 'registered-v4');
+  assert.equal(view.configurationState.editor, 'candidate');
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
+  assert.match(html, /Validated local configuration candidate/);
+  assert.match(html, /Editor source: validated local candidate/);
+  assert.match(html, /Editor format: <code>registered-v4<\/code> · Approved format: <code>legacy-v3<\/code> · Current built-model format: <code>legacy-v3<\/code>/);
+});
+
+test('configuration center exposes an invalid candidate and keeps approved fields fail closed', () => {
+  const invalid = {
+    ...snapshot,
+    configurationSource: {
+      editor: 'effective',
+      effective: {
+        kind: 'approved-configuration-ref', ref: 'refs/remotes/origin/sflow/config',
+        commit: 'a'.repeat(40), sha256: 'b'.repeat(64), worldModelFormat: 'legacy-v3'
+      },
+      candidate: {
+        status: 'invalid', error: 'Workflow configuration cannot be parsed at line 7.',
+        changes: ['singularity/workflow.yml'], sha256: 'c'.repeat(64), worldModelFormat: null
+      }
+    }
+  };
+  const view = configurationCenterView(invalid, { name: 'Ashok', role: 'architect' });
+  assert.equal(view.worldModel.format, 'legacy-v3');
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
+  assert.match(html, /Local configuration candidate was not loaded/);
+  assert.match(html, /continues to show approved effective configuration/);
+  assert.match(html, /Workflow configuration cannot be parsed at line 7/);
 });
 
 test('configuration center stages an explicit fail-closed registered-v4 migration', () => {

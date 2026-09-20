@@ -1314,6 +1314,97 @@ async function configurationSlice(root) {
   };
 }
 
+function configurationSourceRecord(configuration, authority) {
+  const definitionText = String(configuration?.definitionText ?? '');
+  return {
+    kind: authority?.kind ?? 'working-tree',
+    ref: authority?.ref ?? null,
+    commit: authority?.commit ?? null,
+    sha256: createHash('sha256').update(definitionText).digest('hex'),
+    worldModelFormat: configuration?.definition?.worldModel?.format ?? 'legacy-v3'
+  };
+}
+
+/**
+ * Return approved configuration for clean checkouts, but retain an explicitly validated local
+ * candidate after a Configuration Center save.
+ *
+ * The approved authority remains the effective policy for new work until publication. The editor,
+ * however, must round-trip the bytes it just wrote: otherwise a refresh replaces a valid v4 draft
+ * with the older approved v3 bytes and the next save computes CAS from the wrong baseline. Invalid
+ * working-tree bytes never replace the approved projection; their refusal is exposed separately so
+ * the repair UI stays usable without treating an invalid draft as policy.
+ */
+async function configurationEditorSlice(root) {
+  let authority = null;
+  const approved = await withApprovedConfigurationRead(root, (selectedAuthority) => {
+    authority = selectedAuthority;
+    return withDefinitionCache(() => configurationSlice(root));
+  }, { preferAuthority: true });
+  const effective = configurationSourceRecord(approved, authority);
+
+  // A repository without an external approved authority already reads its working tree directly.
+  // There is no second source to reconcile in that mode.
+  if (!authority || authority.kind === 'working-tree') {
+    return {
+      ...approved,
+      configurationSource: { editor: 'effective', effective, candidate: null }
+    };
+  }
+
+  const changes = changedFiles(root);
+  const scoped = configurationChangeScope(
+    root, approved.definition ?? {}, approved.portfolio ?? null, changes
+  );
+  if (!scoped.configurationChanges.length) {
+    return {
+      ...approved,
+      configurationSource: { editor: 'effective', effective, candidate: null }
+    };
+  }
+
+  const candidateText = await readFile(path.join(root, WORKFLOW_PATH), 'utf8').catch((error) => {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return '';
+    throw error;
+  });
+  const candidateBase = {
+    changes: scoped.configurationChanges,
+    sha256: createHash('sha256').update(candidateText).digest('hex')
+  };
+  try {
+    // This is deliberately outside the approved read scope. It validates the actual candidate and
+    // all of its linked agents/templates before those bytes are allowed to drive editable fields.
+    await withDefinitionCache(() => validateEditorConfiguration(root));
+    const candidate = await withDefinitionCache(() => configurationSlice(root));
+    if (!candidate.configurationValid) {
+      throw new SingularityFlowError(candidate.configurationError
+        ?? 'Working-tree configuration validation failed.');
+    }
+    return {
+      ...candidate,
+      configurationSource: {
+        editor: 'candidate', effective,
+        candidate: {
+          ...candidateBase,
+          status: 'valid', error: null,
+          worldModelFormat: candidate.definition?.worldModel?.format ?? 'legacy-v3'
+        }
+      }
+    };
+  } catch (error) {
+    return {
+      ...approved,
+      configurationSource: {
+        editor: 'effective', effective,
+        candidate: {
+          ...candidateBase,
+          status: 'invalid', error: error?.message ?? String(error), worldModelFormat: null
+        }
+      }
+    };
+  }
+}
+
 async function capabilitySlice(root) {
   const portfolio = await loadPortfolio(root, { required: false });
   const definition = await loadCapabilities(root);
@@ -1511,9 +1602,7 @@ export async function repositorySnapshot(root, requestedWorkId = null, requested
           })
         ))
       : {};
-    const configuration = await withApprovedConfigurationRead(root, () => withDefinitionCache(
-      () => configurationSlice(root)
-    ), { preferAuthority: true });
+    const configuration = await configurationEditorSlice(root);
     return { ...result, configuration };
   }
   return withApprovedConfigurationRead(root, () => withDefinitionCache(

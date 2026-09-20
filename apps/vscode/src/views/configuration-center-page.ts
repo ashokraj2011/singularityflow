@@ -370,10 +370,14 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
 
 function worldModel(view: ConfigurationCenterView): string {
   const model = view.worldModel;
+  const source = view.configurationState;
+  const editorLabel = source.editor === 'candidate'
+    ? 'validated local candidate'
+    : 'approved effective configuration';
   return `<section class="plain world-model-settings">
     ${worldModelExplorer(view)}
     <p class="notice">Build / refresh uses the approved repository configuration, or the accepted Story's pinned execution configuration when a Story is active. The editor below changes checkout files only; save and publish configuration before expecting a repository-level build to use those edits. An existing Story retains its pin.
-      <span class="muted"> Editor format: <code>${escape(model.format)}</code> · Current model format: <code>${escape(view.worldModelStatus.format ?? 'not built')}</code>.</span>
+      <span class="muted"> Editor source: ${escape(editorLabel)} · Editor format: <code>${escape(model.format)}</code> · Approved format: <code>${escape(source.effective?.worldModelFormat ?? model.format)}</code> · Current built-model format: <code>${escape(view.worldModelStatus.format ?? 'not built')}</code>.</span>
       ${view.publish.changes.length ? `<strong>${view.publish.changes.length} local configuration change${view.publish.changes.length === 1 ? '' : 's'} awaiting publication.</strong>` : ''}</p>
     ${architectureProjectionExplorer(view)}
     ${view.worldModelStatus.rebuildReason
@@ -414,7 +418,7 @@ function worldModel(view: ConfigurationCenterView): string {
           <label><span>v4 consumer</span><select name="v4Consumer">${['developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'].map((value) => option(value, model.v4.consumer, value.charAt(0).toUpperCase() + value.slice(1))).join('')}</select></label>
           <label><span>v4 cache policy</span><select name="v4CachePolicy">${option('reuse-valid', model.v4.cachePolicy, 'Reuse exact valid entries')}${option('rebuild', model.v4.cachePolicy, 'Rebuild requested views')}</select></label>
           <label><span title="Strict requires every phase and governed agent to use registered-v4 IDs. Inherit configured is an explicit migration bridge: known legacy-only assignments use the exact repository v4 catalog without guessing a one-to-one mapping.">Legacy assignment migration ⓘ</span><select name="v4LegacyAssignments" id="world-model-v4-legacy-assignments">${option('strict', model.v4.legacyAssignments, 'Strict — require v4 IDs everywhere')}${option('inherit-configured', model.v4.legacyAssignments, 'Migration — inherit configured v4 catalog')}</select><small>Use Migration when upgrading an existing repository. Unknown, misspelled, or mixed legacy/v4 assignments still fail closed.</small></label>
-          <label><span>v4 total output-token budget</span><input name="v4TotalMaximumOutputTokens" type="number" min="1" max="1000000" step="1" value="${model.v4.totalMaximumOutputTokens}"><small>Operation-level maximum. Every independent view retains its stricter registered contract ceiling.</small></label>
+          <label><span>v4 total output-token budget</span><input name="v4TotalMaximumOutputTokens" type="number" min="1" max="1000000" step="1" value="${model.v4.totalMaximumOutputTokens}" required><small>Operation-level maximum. Every independent view retains its stricter registered contract ceiling.</small></label>
         </div>
         <div class="notice"><strong>Provider boundary:</strong> <code>--model</code> chooses a concrete model only after the composer requires one. It does not enable model composition by itself.</div>
       </div>
@@ -443,7 +447,7 @@ function worldModel(view: ConfigurationCenterView): string {
           <label class="span-2"><span>Shared source roots</span><input name="sharedRoots" type="text" value="${csv(model.sharedRoots)}" placeholder="libs/contracts, libs/platform"><small>Shared contracts and platform code included alongside the application roots. Sparse-absent tracked files remain present through Git object IDs.</small></label>
           <label><span>Output directory</span><input name="outputDir" type="text" value="${escape(model.outputDir)}"></label>
           <label><span>Builder prompt</span><input name="promptSource" type="text" value="${escape(model.promptSource)}"><small>Use <code>builtin</code> or a repository-relative Markdown file.</small></label>
-          <label><span>State fetch timeout (ms)</span><input name="stateFetchTimeoutMs" type="number" min="250" max="60000" step="250" value="${model.stateFetchTimeoutMs}"></label>
+          <label><span>State fetch timeout (ms)</span><input name="stateFetchTimeoutMs" type="number" min="250" max="60000" step="1" value="${model.stateFetchTimeoutMs}" required></label>
         </div>
       </div>
 
@@ -451,7 +455,7 @@ function worldModel(view: ConfigurationCenterView): string {
         <h2>${icon('impact')}Generation performance</h2>
         <div class="form-grid">
           <label class="check"><input name="generationParallel" type="checkbox"${model.generation.parallel ? ' checked' : ''}>Build independent views in parallel</label>
-          <label><span>Maximum workers</span><input name="generationMaxWorkers" type="number" min="1" max="16" step="1" value="${model.generation.maxWorkers}"><small>Used only when parallel generation is enabled.</small></label>
+          <label><span>Maximum workers</span><input name="generationMaxWorkers" type="number" min="1" max="16" step="1" value="${model.generation.maxWorkers}" required><small>Used only when parallel generation is enabled.</small></label>
           <label><span>Strategy</span><input type="text" value="One worker per view" disabled><small>The current deterministic strategy is fixed to <code>view</code>.</small></label>
         </div>
         <p class="card-foot"><button class="secondary" type="button" data-action="diagnose-monorepo">Benchmark this repository</button><small>Measures warm Git status and scoped fingerprint cost without changing Git configuration.</small></p>
@@ -461,7 +465,7 @@ function worldModel(view: ConfigurationCenterView): string {
         <h2>${icon('prompt')}Prompt injection</h2>
         <div class="form-grid">
           <label><span>Mode</span><select name="injectionMode">${option('append', model.injection.mode, 'Append when placeholder is absent')}${option('replace', model.injection.mode, 'Replace placeholder only')}${option('off', model.injection.mode, 'Off — do not inject')}</select></label>
-          <label><span>Maximum injected bytes</span><input name="injectionMaxBytes" type="number" min="1" step="1024" value="${model.injection.maxBytes}"></label>
+          <label><span>Maximum injected bytes</span><input name="injectionMaxBytes" type="number" min="1" step="1" value="${model.injection.maxBytes}" required></label>
           <label class="span-2"><span>Placeholder</span><input name="injectionPlaceholder" type="text" value="${escape(model.injection.placeholder)}"></label>
         </div>
         <p class="muted">${model.injection.rulesCount} advanced routing rule${model.injection.rulesCount === 1 ? '' : 's'} configured. Guided saving preserves these rules unchanged; edit them in workflow YAML when conditional agent, phase, or path routing is required.</p>
@@ -551,10 +555,16 @@ function mcp(view: ConfigurationCenterView, selected: McpServerView | null): str
 }
 
 export function configurationCenterHtml(view: ConfigurationCenterView, tab: ConfigurationTab, selectedAuthority: AuthorityView | null, selectedMcp: McpServerView | null, notice: string | null, errors: string[]): string {
+  const candidate = view.configurationState.candidate;
+  const candidateNotice = candidate?.status === 'invalid'
+    ? `<div class="notice error"><p><strong>Local configuration candidate was not loaded.</strong> ${escape(candidate.error ?? 'Validation failed.')}</p><p>The editor continues to show approved effective configuration. Open the YAML, repair the candidate, and reload.</p><button class="secondary" data-action="open-workflow">Open workflow YAML</button></div>`
+    : candidate?.status === 'valid'
+      ? `<div class="notice warning"><strong>Validated local configuration candidate.</strong> These editable values are not effective authority until configuration is reviewed and published.</div>`
+      : '';
   return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button></div>
     <div class="configuration-shell">${navigation(tab)}<main class="configuration-content">
-      ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}
+      ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}${candidateNotice}
       ${tab === 'overview' ? overview(view) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}
     </main></div>`;
 }

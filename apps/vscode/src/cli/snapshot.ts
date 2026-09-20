@@ -926,6 +926,22 @@ export interface RepositorySnapshot {
   };
   definitionPath?: string;
   definitionText?: string;
+  /**
+   * Configuration Center provenance. Effective authority remains approved until publication;
+   * `editor === 'candidate'` means the editable fields intentionally render a separately validated
+   * working-tree draft so reload and consecutive saves preserve its exact bytes.
+   */
+  configurationSource?: {
+    editor: 'effective' | 'candidate';
+    effective: {
+      kind: string; ref: string | null; commit: string | null; sha256: string;
+      worldModelFormat: string;
+    };
+    candidate: null | {
+      status: 'valid' | 'invalid'; error: string | null; changes: string[]; sha256: string;
+      worldModelFormat: string | null;
+    };
+  };
   /** Validation may fail while the configuration inventory remains safely readable. */
   configurationValid?: boolean;
   configurationError?: string | null;

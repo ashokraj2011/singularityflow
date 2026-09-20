@@ -344,6 +344,9 @@ test('read-only snapshots load approved configuration without copying it onto th
   assert.equal(snapshot.configuration.configurationValid, true);
   assert.equal(snapshot.configuration.definition.version, 2);
   assert.match(snapshot.configuration.definitionText, /^version: 2/m);
+  assert.equal(snapshot.configuration.configurationSource.editor, 'effective');
+  assert.equal(snapshot.configuration.configurationSource.candidate, null,
+    'a clean checkout keeps the approved authority instead of inventing a local candidate');
   assert.equal(snapshot.capabilities.path, 'singularity/capabilities.yml');
   assert.equal(existsSync(path.join(root, 'singularity/workflow.yml')), false,
     'the approved configuration is a disposable read view, never a checkout mutation');
@@ -362,6 +365,71 @@ test('read-only snapshots load approved configuration without copying it onto th
   const envelope = JSON.parse(cli.stdout);
   assert.equal(envelope.repository.branch, 'main');
   assert.deepEqual(envelope.included, ['repository', 'lifecycle', 'capabilities']);
+});
+
+test('configuration snapshots round-trip a validated working-tree candidate over older approved policy', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const approvedText = await readFile(workflowPath, 'utf8');
+  run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], root);
+  run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], root);
+
+  // Keep this fixture focused on the editor candidate. Initiative view migration is governed by
+  // the portfolio editor, so its legacy assignments are removed in the same local candidate.
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  for (const phase of Object.values(portfolio.initiativePhases ?? {})) phase.worldModelViews = [];
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+
+  const candidate = YAML.parse(approvedText);
+  candidate.worldModel.format = 'registered-v4';
+  candidate.worldModel.views = [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ];
+  candidate.worldModel.v4 = {
+    ...(candidate.worldModel.v4 ?? {}), legacyAssignments: 'inherit-configured'
+  };
+  const firstCandidateText = YAML.stringify(candidate);
+  await saveConfigurationFile(root, 'singularity/workflow.yml', firstCandidateText, {
+    expectedSha256: createHash('sha256').update(approvedText).digest('hex')
+  });
+
+  let scoped = await repositorySnapshot(root, null, null, {
+    included: ['repository', 'configuration']
+  });
+  assert.equal(scoped.configuration.configurationSource.editor, 'candidate');
+  assert.equal(scoped.configuration.configurationSource.effective.worldModelFormat, 'legacy-v3');
+  assert.equal(scoped.configuration.configurationSource.candidate.status, 'valid');
+  assert.equal(scoped.configuration.configurationSource.candidate.worldModelFormat, 'registered-v4');
+  assert.equal(scoped.configuration.definition.worldModel.format, 'registered-v4');
+  assert.equal(scoped.configuration.definitionText, firstCandidateText);
+
+  candidate.worldModel.v4.cachePolicy = 'rebuild';
+  const secondCandidateText = YAML.stringify(candidate);
+  await saveConfigurationFile(root, 'singularity/workflow.yml', secondCandidateText, {
+    expectedSha256: scoped.configuration.configurationSource.candidate.sha256
+  });
+  scoped = await repositorySnapshot(root, null, null, { included: ['configuration'] });
+  assert.equal(scoped.configuration.configurationSource.editor, 'candidate');
+  assert.equal(scoped.configuration.definition.worldModel.v4.cachePolicy, 'rebuild');
+  assert.equal(scoped.configuration.definitionText, secondCandidateText,
+    'a second save uses and returns the first candidate bytes rather than approved v3');
+});
+
+test('invalid working-tree configuration stays visible but never replaces approved policy', async () => {
+  const root = await repository();
+  run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], root);
+  run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], root);
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: 2\nworldModel: [invalid\n');
+
+  const scoped = await repositorySnapshot(root, null, null, { included: ['configuration'] });
+  assert.equal(scoped.configuration.configurationSource.editor, 'effective');
+  assert.equal(scoped.configuration.configurationSource.candidate.status, 'invalid');
+  assert.match(scoped.configuration.configurationSource.candidate.error, /configuration|YAML|flow/i);
+  assert.equal(scoped.configuration.configurationValid, true,
+    'the editable read remains a valid approved fallback');
+  assert.equal(scoped.configuration.definition.version, 2);
+  assert.doesNotMatch(scoped.configuration.definitionText, /\[invalid/);
 });
 
 test('lifecycle snapshots keep generated phase artifacts regardless of lifecycle status', async () => {

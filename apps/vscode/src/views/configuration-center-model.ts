@@ -134,6 +134,12 @@ export interface ConfigurationCenterView {
   mcpErrors: string[];
   mcpWarnings: string[];
   worldModel: WorldModelSettingsView;
+  /** Approved policy and an optional validated working-tree draft are intentionally distinct. */
+  configurationState: {
+    editor: 'effective' | 'candidate';
+    effective: { kind: string; ref: string | null; commit: string | null; sha256: string; worldModelFormat: string } | null;
+    candidate: { status: 'valid' | 'invalid'; error: string | null; changes: string[]; sha256: string; worldModelFormat: string | null } | null;
+  };
   /** Repository master switch and work-type opt-ins. Capability policy can only tighten these. */
   auto: AutoSettingsView;
   /**
@@ -424,6 +430,9 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       projections: [...(snapshot.worldModel?.projections ?? [])]
     },
     storyArchitecture: snapshot.architectureIntent ?? null,
+    configurationState: snapshot.configurationSource ?? {
+      editor: 'effective', effective: null, candidate: null
+    },
     ledger: ledgerStatus(snapshot),
     publish: {
       changes: [...(snapshot.repository?.configurationChanges ?? [])],

@@ -52,6 +52,9 @@ process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX = path.join(machineState, 'transpo
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');
+const participantCommands = JSON.parse(readFileSync(
+  path.join(packageRoot, 'apps', 'vscode', 'src', 'participant-commands.json'), 'utf8'
+));
 
 /*
  * The extension deliberately loads heavyweight webview modules only when their command runs. Those
@@ -1304,6 +1307,59 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   assert.deepEqual(latest.args, [{ query: '/sf-worldmodel ', isPartialQuery: true }]);
 });
 
+test('@sflow deterministic commands use bounded CLI reads and unmatched text never guesses', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  assert.equal(registered.chatParticipants.length, 1);
+  const participant = registered.chatParticipants[0];
+  let modelRead = false;
+  const invoke = async (request) => {
+    const response = { markdown: [], buttons: [], references: [], progress: [] };
+    const stream = {
+      markdown: (value) => response.markdown.push(String(value)),
+      button: (value) => response.buttons.push(value),
+      reference: (value) => response.references.push(value),
+      progress: (value) => response.progress.push(String(value))
+    };
+    await participant.handler({
+      references: [], ...request,
+      get model() { modelRead = true; throw new Error('deterministic commands must not read request.model'); }
+    }, {}, stream, { isCancellationRequested: false });
+    return response;
+  };
+
+  const workflows = await invoke({ command: 'workflows', prompt: '' });
+  const rendered = workflows.markdown.join('');
+  assert.match(rendered, /Story workflows/);
+  assert.match(rendered, /Feature/);
+  assert.match(rendered, /0 model calls/);
+  assert.equal(modelRead, false);
+  assert.equal(registered.terminals.length, 0, 'the participant uses the bounded client, not a terminal');
+
+  for (const command of ['next', 'status', 'docs']) {
+    const response = await invoke({ command, prompt: '' });
+    const output = response.markdown.join('');
+    assert.doesNotMatch(output, /No selected Story worktree|ready Story session do not match/, command);
+    assert.ok(response.progress.some((entry) => entry.includes(`/${command}`)),
+      `${command} reaches the repository-bound CLI without requiring an in-progress phase`);
+    assert.match(output, /0 model calls/, command);
+  }
+
+  const keyword = await invoke({ prompt: 'workflows' });
+  assert.match(keyword.markdown.join(''), /Story workflows/,
+    'an exact declared free-text keyword resolves locally');
+  assert.equal(modelRead, false);
+
+  const unmatched = await invoke({ prompt: 'please decide and execute whatever is next' });
+  assert.match(unmatched.markdown.join(''), /Free text routes only on an exact declared keyword/);
+  assert.match(unmatched.markdown.join(''), /@sflow \/next/);
+  assert.equal(modelRead, false);
+});
+
 test('@sflow previews only a verified local file in the exact selected Story checkout', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();
@@ -1346,6 +1402,45 @@ test('@sflow previews only a verified local file in the exact selected Story che
 
   const participant = registered.chatParticipants.find((entry) => entry.id === 'singularity-flow.sflow');
   assert.ok(participant);
+  const session = JSON.parse(attached.stdout);
+  const stateFile = path.join(
+    session.repositoryPath, 'singularity', 'work-items', 'STORY-CHAT', 'workflow.json'
+  );
+  const beforeState = await readFile(stateFile);
+  const beforeReadHead = run('git', ['rev-parse', 'HEAD'], { cwd: session.repositoryPath }).stdout;
+  const beforeStatus = run('git', ['status', '--porcelain=v2', '-z'], {
+    cwd: session.repositoryPath, encoding: 'buffer'
+  }).stdout;
+  const prompts = {
+    help: '', explain: 'phase gates', why: 'publication is blocked', how: 'start a Story',
+    recover: 'an interrupted phase', attachments: 'status'
+  };
+  for (const declared of participantCommands) {
+    let modelRead = false;
+    const modelFree = { markdown: [], buttons: [], references: [], progress: [] };
+    await participant.handler({
+      command: declared.id, prompt: prompts[declared.id] ?? '', references: [],
+      get model() { modelRead = true; throw new Error(`/${declared.id} must not read request.model`); }
+    }, {}, {
+      markdown: (value) => modelFree.markdown.push(String(value)),
+      button: (value) => modelFree.buttons.push(value),
+      reference: (value) => modelFree.references.push(value),
+      progress: (value) => modelFree.progress.push(String(value))
+    }, { isCancellationRequested: false });
+    const output = modelFree.markdown.join('');
+    assert.equal(modelRead, false, declared.id);
+    assert.match(output, /0 model calls/, declared.id);
+    if (declared.transport !== 'local' && declared.id !== 'converge') {
+      assert.doesNotMatch(output, /Command unavailable/, `${declared.id} did not reach its read renderer`);
+    }
+    assert.ok(Buffer.byteLength(output) <= 65_536, `${declared.id} output is not bounded`);
+  }
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: session.repositoryPath }).stdout, beforeReadHead);
+  assert.deepEqual(run('git', ['status', '--porcelain=v2', '-z'], {
+    cwd: session.repositoryPath, encoding: 'buffer'
+  }).stdout, beforeStatus);
+  assert.deepEqual(await readFile(stateFile), beforeState,
+    'participant reads and guarded previews do not change lifecycle state');
   const prompt = 'Please address #file before accepting this revision.';
   const marker = prompt.indexOf('#file');
   const request = {

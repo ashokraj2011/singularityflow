@@ -98,10 +98,10 @@
     <h1>Singularity Flow Skill Catalog</h1>
     <p>Every packaged Copilot skill, its invocation and execution policy, and its complete reviewed instruction source. This file is generated from the repository and uses no external scripts, fonts, trackers, or network resources.</p>
     <div class="stats">
-      <span class="stat"><strong>149</strong> skills</span>
+      <span class="stat"><strong>150</strong> skills</span>
       <span class="stat"><strong>12</strong> automatic</span>
-      <span class="stat"><strong>137</strong> explicit only</span>
-      <span class="stat"><strong>138</strong> never-model operations</span>
+      <span class="stat"><strong>138</strong> explicit only</span>
+      <span class="stat"><strong>139</strong> never-model operations</span>
     </div>
   </header>
   <section class="toolbar" aria-label="Catalog filters">
@@ -661,6 +661,10 @@
     <span>sflow-upload</span>
     <small>mutation</small>
   </a>
+  <a href="#sflow-validate" data-skill-link="sflow-validate">
+    <span>sflow-validate</span>
+    <small>echo</small>
+  </a>
   <a href="#sflow-verify" data-skill-link="sflow-verify">
     <span>sflow-verify</span>
     <small>generative</small>
@@ -710,7 +714,7 @@
     <small>interactive</small>
   </a></nav>
     <main>
-      <div class="result-row"><h2>Packaged skills</h2><p id="result-count" aria-live="polite">149 shown</p></div>
+      <div class="result-row"><h2>Packaged skills</h2><p id="result-count" aria-live="polite">150 shown</p></div>
       <div id="empty" class="empty">No skill matches these filters.</div>
       <section id="catalog">
   <article class="skill-card" id="sflow-about"
@@ -8823,6 +8827,56 @@ Use `singularity-flow documents list --all` or `singularity-flow epic sources li
       </div>
     </details>
   </article>
+  <article class="skill-card" id="sflow-validate"
+    data-name="sflow-validate"
+    data-class="echo"
+    data-boundary="repository"
+    data-invocation="explicit"
+    data-model="never">
+    <details>
+      <summary>
+        <span class="skill-number">138</span>
+        <span class="skill-title"><strong>sflow-validate</strong><span>Validate the selected Singularity Flow repository without changing workflow or Git state.</span></span>
+        <span class="chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="skill-content">
+        <div class="pills" aria-label="Skill policy">
+          <span class="pill ">explicit only</span>
+          <span class="pill">echo</span>
+          <span class="pill">repository boundary</span>
+          <span class="pill">model: never</span>
+          <span class="pill">~202 body tokens</span>
+        </div>
+        <dl>
+          <div><dt>Command</dt><dd><code>/sflow-validate</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>none</code></dd></div>
+          <div><dt>Model-capable operations</dt><dd>none</dd></div>
+          <div><dt>Source</dt><dd><code>plugin/skills/sflow-validate/SKILL.md</code></dd></div>
+        </dl>
+        <div class="source-heading">
+          <h3>Complete skill instructions</h3>
+          <button type="button" class="copy" data-copy="sflow-validate">Copy Markdown</button>
+        </div>
+        <pre data-source="sflow-validate"><code>---
+name: sflow-validate
+description: Validate the selected Singularity Flow repository without changing workflow or Git state.
+disable-model-invocation: true
+---
+# Validate the selected repository
+
+&lt;!-- sflow-output-contract: concise-relay --&gt;
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+&lt;!-- sflow-execution-boundary --&gt;
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
+
+1. In the Boundary repository run `singularity-flow validate` exactly once.
+2. Report the validation result without rewriting, repairing, initializing, publishing, committing, or pushing anything.
+3. If validation refuses, preserve its Shell and Copilot remediation routes. Do not execute either route unless the user separately requests that action.
+4. Stop after the read-only result.
+</code></pre>
+      </div>
+    </details>
+  </article>
   <article class="skill-card" id="sflow-verify"
     data-name="sflow-verify"
     data-class="generative"
@@ -8831,7 +8885,7 @@ Use `singularity-flow documents list --all` or `singularity-flow epic sources li
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">138</span>
+        <span class="skill-number">139</span>
         <span class="skill-title"><strong>sflow-verify</strong><span>Verify implementation against acceptance criteria, run checks, capture evidence, and register the Singularity Flow verification artifact.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8893,7 +8947,7 @@ argument-hint: &quot;[test scope or environment]&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">139</span>
+        <span class="skill-number">140</span>
         <span class="skill-title"><strong>sflow-visual</strong><span>Inspect visual-assurance status or compare expected and actual governed visual evidence.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8945,7 +8999,7 @@ argument-hint: &quot;status | compare --expected &lt;record&gt; --actual &lt;rec
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">140</span>
+        <span class="skill-number">141</span>
         <span class="skill-title"><strong>sflow-watch</strong><span>Watch a governed work item for remote lifecycle changes without modifying its branch or state.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8997,7 +9051,7 @@ argument-hint: &quot;[WORK-ID] [--once]&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">141</span>
+        <span class="skill-number">142</span>
         <span class="skill-title"><strong>sflow-work-interval</strong><span>Inspect, checkpoint, reconcile, or safely escalate the current governed Story work interval without committing unfinished source.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9053,7 +9107,7 @@ Use the CLI as the authority. Never stage, commit, push, or copy unfinished sour
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">142</span>
+        <span class="skill-number">143</span>
         <span class="skill-title"><strong>sflow-workflow-rules</strong><span>Background rules for Singularity Flow-managed SDLC work. Load when a repository has governed Story state at its configured work-item root or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9112,7 +9166,7 @@ user-invocable: false
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">143</span>
+        <span class="skill-number">144</span>
         <span class="skill-title"><strong>sflow-workflows</strong><span>List, compare, simulate, or safely install bundled Singularity Flow workflow profiles.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9161,7 +9215,7 @@ Run `singularity-flow workflow $ARGUMENTS`. Default to `list` when no action is 
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">144</span>
+        <span class="skill-number">145</span>
         <span class="skill-title"><strong>sflow-workspace</strong><span>Select a saved Singularity Flow workspace and repository for this Copilot session, optionally binding the visible context to a Story ID.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9221,7 +9275,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">145</span>
+        <span class="skill-number">146</span>
         <span class="skill-title"><strong>sflow-workspace-bootstrap</strong><span>Prepare, diagnose, resume, or abandon a recoverable Singularity Flow workspace setup before governed Story work begins.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9300,7 +9354,7 @@ directory automatically, or claims that a failed push was completed.
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">146</span>
+        <span class="skill-number">147</span>
         <span class="skill-title"><strong>sflow-workspace-impact</strong><span>Run or inspect an advisory impact analysis across the selected workspace without creating a Work ID or lifecycle branch.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9355,7 +9409,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">147</span>
+        <span class="skill-number">148</span>
         <span class="skill-title"><strong>sflow-workspace-session</strong><span>Attach the current terminal or Copilot session to a saved Singularity Flow workspace before selecting Story work.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9412,7 +9466,7 @@ This is context setup only. Do not inspect application files, start implementati
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">148</span>
+        <span class="skill-number">149</span>
         <span class="skill-title"><strong>sflow-workspaces</strong><span>List saved Singularity Flow workspaces, show the active workspace and repository, and display the workspace or Story context label.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9466,7 +9520,7 @@ disable-model-invocation: true
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">149</span>
+        <span class="skill-number">150</span>
         <span class="skill-title"><strong>sflow-worldmodel</strong><span>Build, verify, inspect, and compose the repository-owned world model used to ground governed phase prompts.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>

@@ -37,7 +37,8 @@ test('concurrent help metrics are append-locked, schema-stamped, and content-fre
   const lines = (await readFile(status.logFile, 'utf8')).trim().split('\n').map(JSON.parse);
   const allowed = [
     'schemaVersion', 'timestamp', 'surface', 'intent', 'outcome', 'topicId', 'matchedBy',
-    'latencyMs', 'answerBytes', 'actionCategory'
+    'latencyMs', 'answerBytes', 'actionCategory', 'command', 'commandClass',
+    'modelInvocations', 'inputTokens', 'outputTokens'
   ].sort();
   for (const record of lines) {
     assert.equal(record.schemaVersion, currentSchemaVersion('help-metrics-event'));
@@ -48,6 +49,25 @@ test('concurrent help metrics are append-locked, schema-stamped, and content-fre
       assert.equal(Object.hasOwn(record, forbidden), false, forbidden);
     }
   }
+});
+
+test('participant command metrics record only bounded routing and zero-model accounting', async () => {
+  const root = await repository();
+  await recordHelpMetric(root, metric(7, {
+    surface: 'participant', intent: 'command-discovery', topicId: 'status',
+    matchedBy: 'declared-command', command: 'status', commandClass: 'deterministic',
+    modelInvocations: 0, inputTokens: 0, outputTokens: 0
+  }));
+  const status = await helpMetricsStatus(root);
+  assert.equal(status.surfaces.participant, 1);
+  assert.equal(status.commands.status, 1);
+  assert.equal(status.commandClasses.deterministic, 1);
+  const [record] = (await readFile(status.logFile, 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(record.modelInvocations, 0);
+  assert.equal(record.inputTokens, 0);
+  assert.equal(record.outputTokens, 0);
+  assert.equal(Object.hasOwn(record, 'question'), false);
+  assert.equal(Object.hasOwn(record, 'workId'), false);
 });
 
 test('raw questions and unreviewed fields are rejected before append', async () => {

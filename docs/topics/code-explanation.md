@@ -20,11 +20,27 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 2
+version: 3
 ---
+## Purpose and prerequisites
+
 `singularity-flow explain code` presents one bounded, read-only explanation of the selected
 repository's current changes. `/sf-explain-code` resolves the active Story checkout, runs the same
 command once, and relays its result without reading or summarizing source files independently.
+
+Run it from a selected Git repository. A ready Story session improves the available grounding but
+the computed layer remains explicit about every unavailable join.
+
+## Use it from each surface
+
+- **Shell:** `singularity-flow explain code --json`, optionally with one exact `--hunk`, `--symbol`,
+  `--clause`, or `--since` selector.
+- **Copilot:** `/sf-explain-code` resolves the governed repository boundary and relays the same
+  computed result. Model narration is separate and optional.
+- **VS Code:** open the code-explanation action exposed by Singularity Flow; the extension renders
+  the engine result and does not manufacture missing impact or proof.
+
+## Guided workflow
 
 The computed result always contains `whyEachChange`, `impact`, and `proof`. It is deterministic for
 its reported local inputs, model-free, `observe-only`, and non-authoritative. Tracked textual hunks
@@ -50,6 +66,11 @@ Drill-downs filter the same computed records. They never fuzzy-match, use chat h
 model to fill a gap. `--since` selects a Git baseline; it is not retained Revision Loop Candidate
 lineage.
 
+Review the computed records first. Request narration only when an advisory reader-facing summary is
+useful, and keep the computed IDs visible so every accepted sentence remains traceable.
+
+## State and safety
+
 `--narrate [--length brief|standard|long]` requests a separate optional model operation. The three
 lengths allow at most 100, 250, or 500 words; `standard` is the default. The model receives only the
 computed JSON and no tools or full source. Every accepted sentence cites admitted IDs and appears under
@@ -63,6 +84,16 @@ invocation usage and external terminal, chat, or provider retention can still ap
 This feature does not approve a Candidate, prove a requirement, report complete callers or changed-
 line coverage, or gate publication. See [Code explanation](../CODE-EXPLANATION.md) for degradation,
 security, privacy, and the deferred authority prerequisites.
+
+## Troubleshooting
+
+- If no current change is available, verify the selected repository and Story worktree before
+  retrying; do not search the home directory for another checkout.
+- If a hunk, symbol, or clause is unavailable, use an ID returned by the unfiltered computed result.
+- If impact or proof reports an unavailable reason, treat that reason as the result. Narration cannot
+  upgrade missing Candidate-bound authority.
+- If narration is refused or invalid, use the unchanged computed result; no governed evidence was
+  lost.
 
 ## Related topics
 

@@ -157,6 +157,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'configuration') {
     return READ_ONLY_CONFIGURATION_COMMANDS.has(args[1] ?? '') ? 'read' : 'mutation';
   }
+  if (args[0] === 'precheck') {
+    if (!enabledBooleanOption(args, 'run')) return 'read';
+    return hasOption(args, 'confirm-plan') ? 'mutation' : 'read';
+  }
   if (args[0] === 'return') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
   if (args[0] === 'recover') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
   if (args[0] === 'story' && args[1] === 'return') return 'read';
@@ -170,6 +174,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return args[1] === 'cache' && (args[2] ?? 'status') === 'clear' ? 'mutation' : 'read';
   }
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+  if (args[0] === 'documents') return (args[1] ?? 'list') === 'list' ? 'read' : 'mutation';
+  if (args[0] === 'workflow') return (args[1] ?? 'list') === 'list' ? 'read' : 'mutation';
+  if (args[0] === 'phase') return (args[1] ?? '') === 'show' ? 'read' : 'mutation';
+  if (args[0] === 'converge' || args[0] === 'explain') return 'read';
   if (args[0] === 'spec') {
     const action = args[1] ?? 'trace';
     if (action === 'coverage' || action === 'trace') return 'read';

@@ -20,6 +20,9 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extensionRoot = path.join(packageRoot, 'apps', 'vscode');
 const manifest = JSON.parse(await readFile(path.join(extensionRoot, 'package.json'), 'utf8'));
+const participantCommands = JSON.parse(await readFile(
+  path.join(extensionRoot, 'src', 'participant-commands.json'), 'utf8'
+));
 
 /** Every TypeScript source of the extension, concatenated. */
 async function sources() {
@@ -54,7 +57,53 @@ test('the explicit SFlow participant is sticky, focused, and pinned to the decla
   assert.equal(Object.hasOwn(participant, 'disambiguation'), false,
     'automatic participant detection is intentionally excluded from the first release');
   assert.deepEqual(participant.commands.map((entry) => entry.name),
-    ['help', 'why', 'how', 'recover', 'attachments', 'topics']);
+    participantCommands.map((entry) => entry.id));
+  assert.deepEqual(participant.commands.map((entry) => entry.description),
+    participantCommands.map((entry) => entry.description));
+});
+
+test('the participant command table is safe, unique, and has an installed skill twin', async () => {
+  assert.equal(new Set(participantCommands.map((entry) => entry.id)).size, participantCommands.length);
+  const keywords = participantCommands.flatMap((entry) => entry.keywords);
+  assert.equal(new Set(keywords).size, keywords.length);
+  for (const id of ['next', 'status', 'docs']) {
+    assert.equal(participantCommands.find((entry) => entry.id === id)?.requiresSession, false,
+      `${id} must let the engine render no-Story and terminal-Story states`);
+  }
+  for (const command of participantCommands) {
+    assert.equal(command.class, 'deterministic', `${command.id} is not in the model-free release`);
+    assert.ok(['read', 'human-decision'].includes(command.effect), `${command.id} has an unsafe effect`);
+    if (command.transport !== 'local') {
+      assert.equal(command.requiresRepository, true, `${command.id} CLI route is not repository-bound`);
+      assert.ok(Array.isArray(command.runtime), `${command.id} has no argv array`);
+      assert.equal(command.runtime.includes('next'), false, 'the participant must not invoke the mutating next router');
+      if (command.id === 'checks') assert.deepEqual(command.runtime, ['precheck', '--quick', '--json']);
+      if (command.id === 'inputs') assert.ok(command.runtime.includes('--dry-run'));
+    }
+    const skillDirectory = command.skill.replace(/^\/sf-/, 'sflow-');
+    const skill = await readFile(path.join(packageRoot, 'plugin', 'skills', skillDirectory, 'SKILL.md'), 'utf8');
+    assert.match(skill, new RegExp(`name: ${skillDirectory}\\b`));
+  }
+  const participantSource = await readFile(path.join(extensionRoot, 'src', 'sflow-chat.ts'), 'utf8');
+  const participantTableSource = await readFile(
+    path.join(extensionRoot, 'src', 'participant-command-table.ts'), 'utf8'
+  );
+  assert.match(participantTableSource, /entry\.class !== 'deterministic'/,
+    'the production table loader refuses unsupported drafting routes');
+  assert.match(participantTableSource, /entry\.effect === 'mutation'/,
+    'the production table loader refuses participant mutation routes');
+  assert.match(participantSource, /command\.class !== 'deterministic' \|\| command\.effect === 'mutation'/,
+    'the runtime dispatcher independently refuses unsupported classes and effects');
+  assert.match(participantSource, /commandClass\(argv\) !== 'read'/,
+    'expanded participant argv must cross the production read-only classifier');
+  assert.doesNotMatch(participantSource, /request\.model|\.sendRequest\(|\.countTokens\(/,
+    'the deterministic participant must not acquire or call a chat model');
+  assert.match(participantSource, /commandGuidance\(value\)/,
+    'CLI-returned commands cross the shared credential and shell-syntax presentation boundary');
+  assert.doesNotMatch(participantSource, /renderedCommand\([^)]*\.command\s*,/,
+    'raw CLI command strings must not become participant buttons');
+  assert.match(participantSource, /result\.records\s*\?\?/,
+    'the input preview consumes the CLI records contract');
 });
 
 test('the activity view opens as one compact enterprise navigation surface', () => {

@@ -29,11 +29,21 @@
         "description": "Ask about Singularity Flow workflows, blockers, recovery, commands, AST, and workspaces.",
         "isSticky": true,
         "commands": [
-          { "name": "help", "description": "Answer from reviewed Singularity Flow documentation" },
-          { "name": "why", "description": "Explain a blocker or refusal" },
-          { "name": "how", "description": "Show the reviewed procedure for a task" },
-          { "name": "recover", "description": "Find the safe recovery path for a failure" },
-          { "name": "attachments", "description": "Preview 1–5 local files, show set status, or stage guarded removal" },
+          { "name": "help", "description": "Show model-free participant commands or answer from reviewed help" },
+          { "name": "next", "description": "Read the next legal action without executing it" },
+          { "name": "status", "description": "Show bounded Story and phase status" },
+          { "name": "checks", "description": "Run the read-only quick readiness checks" },
+          { "name": "explain", "description": "Resolve a reviewed help topic without a model" },
+          { "name": "converge", "description": "Read the convergence router result without following it" },
+          { "name": "docs", "description": "List active governed documents" },
+          { "name": "inputs", "description": "Preview active-phase inputs without writing the managed record" },
+          { "name": "workflows", "description": "List installed and available workflow profiles" },
+          { "name": "approve", "description": "Show exact approval context and prepare the guarded approval form" },
+          { "name": "validate", "description": "Validate the current workflow without changing it" },
+          { "name": "why", "description": "Explain a blocker from reviewed help" },
+          { "name": "how", "description": "Show a reviewed procedure" },
+          { "name": "recover", "description": "Find the reviewed recovery route" },
+          { "name": "attachments", "description": "Preview or inspect private feedback attachment sets" },
           { "name": "topics", "description": "List reviewed offline help topics" }
         ]
       }

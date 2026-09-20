@@ -151,7 +151,7 @@ export async function runCodeExplanation(_argv, {
   const next = [action({
     id: 'code-explanation.precheck',
     label: 'Inspect repository readiness without changing it.',
-    command: 'singularity-flow precheck',
+    command: 'singularity-flow precheck --quick --json',
     kind: 'informational'
   })];
   if (!wantsNarrative) next.unshift(action({

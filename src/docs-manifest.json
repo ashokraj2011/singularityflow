@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "804419ae888299236f7f6a00409957cb0a65fbe5",
+  "sourceCommit": "7126d71eb11bbc8e01037c6f2efc775e2df506e8",
   "topicCount": 66,
-  "contentSha256": "504bdecad42a72ce4cf48712bdbfa1ea3532a8a4bd3a6506c286121c41ca1ecd",
+  "contentSha256": "99475297d9cb4e73ef2002d00fa0b19d0c989078eab7b638470d71353c8fceef",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "code-explanation",
       "title": "Explain current code changes",
-      "version": 2,
-      "sha256": "1987ba8dcf5485ab67f9bc5b4aeb5afb76620ce5d5de2617bb13ef707488552b",
+      "version": 3,
+      "sha256": "82f2e79cd8204d07c43d24af6ce38832d2a568e50f7f7321170b11106048cc94",
       "routingSha256": "e3d49ec198e00a6d32ca54a43dbac6a4aa57c0e5e3df2ff03054435f631f7c40",
       "file": "code-explanation.md"
     },
@@ -224,8 +224,8 @@
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 4,
-      "sha256": "3647cb9c6ca1e40000e066e9d6466ce9ce3f8fed1d930f0b2dac68aaf88eed3c",
+      "version": 5,
+      "sha256": "0c31c1da3fd50fe099fe90e96794eef4274e0892214289e5a0c20253d7b7910e",
       "routingSha256": "1ccccb5ccfaf7c105a2c911929eade75bc4232056e1aa57b56ec97a7de9b38e9",
       "file": "help-and-docs.md"
     },

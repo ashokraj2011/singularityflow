@@ -21,7 +21,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 4
+version: 5
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -32,10 +32,14 @@ a weak match is refused and a close tie returns choices. This classification sel
 never a lifecycle operation. Questions about current blockers remain on the durable Home/readiness
 path, and action-shaped prose still requires the normal explicit governed selection.
 
-VS Code also contributes the explicit `@sflow` participant. Use `@sflow /help`, `/why`, `/how`,
-`/recover`, or `/topics`. It uses the same resolver and never calls the chat model. Its action
-buttons open a partial `/sf-*` query for review; they do not submit the query or execute a lifecycle
-command.
+VS Code also contributes the explicit `@sflow` participant. Its `/help`, `/why`, `/how`, `/recover`,
+and `/topics` routes use the same resolver and never call the chat model; `/explain` also remains
+a reviewed-topic route in this increment. Declared zero-model adapters cover `/next`, `/status`, `/checks`, `/converge`, `/docs`, `/inputs`,
+`/workflows`, `/approve`, and `/validate`. The safety mappings matter: `/next` reads `nextsteps`,
+`/checks` selects `precheck --quick`, `/inputs` is an active-phase `--dry-run`, and `/approve` only
+reviews current context before opening the existing guarded approval flow. Buttons and `/sf-*`
+queries are handoffs for review; the participant neither executes the displayed next action nor
+turns chat prose into approval. See [the complete participant boundary](../CPT-CHAT-PARTICIPANT.md).
 
 ## Purpose and prerequisites
 
@@ -44,7 +48,7 @@ Use this topic when the current goal matches **help and docs**. Start in a gover
 ## Use it from each surface
 
 - **Shell:** `sflow nextsteps`, `sflow doctor`, `sflow about`, `sflow help`, `sflow explain`. Quote a natural question as one argument, for example `sflow explain "What is project binding?"`. Add `--here` when the concept should be paired with the current Story snapshot. Run `singularity-flow nextsteps --help` for the exact forms supported by this build.
-- **Copilot:** `@sflow /why Why can’t I submit?`, `@sflow /help What is project binding?`, or the existing `/sf-nextsteps`, `/sf-doctor`, `/sf-about`, and `/sf-help` skills. Help relays bounded cited documentation and never mutates state.
+- **Copilot:** Type `@sflow` explicitly, then use a declared slash command such as `@sflow /why Why can’t I submit?`, `@sflow /next`, or `@sflow /checks`. Unknown free text shows participant help rather than using a model to route it. The existing `/sf-nextsteps`, `/sf-doctor`, `/sf-about`, and `/sf-help` skills remain the fallback on hosts without participants. Help relays bounded cited documentation and never mutates state.
 - **VS Code:** open Singularity Flow **Help Center**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

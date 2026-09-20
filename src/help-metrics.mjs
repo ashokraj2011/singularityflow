@@ -21,10 +21,11 @@ const DEFAULT_MAXIMUM_BYTES = 4 * 1024 * 1024;
 const LOCK_RETRIES = 250;
 const LOCK_RETRY_MS = 20;
 const LOCK_STALE_MS = 5 * 60_000;
-const SURFACES = new Set(['chat', 'help-center', 'cli', 'error-link']);
+const SURFACES = new Set(['chat', 'participant', 'help-center', 'cli', 'error-link']);
 const INTENTS = new Set(['concept', 'procedure', 'diagnose', 'compare', 'command-discovery', 'recover']);
 const OUTCOMES = new Set(['resolved', 'ambiguous', 'no-match', 'unavailable']);
 const ACTIONS = new Set(['followup-opened', 'command-copied', 'command-prefilled', 'topic-opened', 'error-explained']);
+const COMMAND_CLASSES = new Set(['deterministic', 'drafting']);
 const SAFE_ID = /^[a-z0-9]+(?:[-.][a-z0-9]+)*$/;
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -140,9 +141,21 @@ function safeId(value, field, { nullable = false } = {}) {
   return normalized;
 }
 
+function safeCount(value, field, { nullable = true } = {}) {
+  if (value == null && nullable) return null;
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 0 || count > 1_000_000_000) {
+    throw new SingularityFlowError(`Help-metrics ${field} must be a bounded non-negative integer.`, {
+      code: 'HELP_METRICS_EVENT_INVALID'
+    });
+  }
+  return count;
+}
+
 function eventRecord(input, now = new Date()) {
   const allowed = new Set([
-    'surface', 'intent', 'outcome', 'topicId', 'matchedBy', 'latencyMs', 'answerBytes', 'actionCategory'
+    'surface', 'intent', 'outcome', 'topicId', 'matchedBy', 'latencyMs', 'answerBytes',
+    'actionCategory', 'command', 'commandClass', 'modelInvocations', 'inputTokens', 'outputTokens'
   ]);
   for (const key of Object.keys(input ?? {})) {
     if (!allowed.has(key)) throw new SingularityFlowError(`Help-metrics refuses unrecognized field '${key}'.`, {
@@ -168,7 +181,13 @@ function eventRecord(input, now = new Date()) {
     latencyMs,
     answerBytes,
     actionCategory: input.actionCategory == null
-      ? null : safeEnum(input.actionCategory, ACTIONS, 'actionCategory')
+      ? null : safeEnum(input.actionCategory, ACTIONS, 'actionCategory'),
+    command: safeId(input.command, 'command', { nullable: true }),
+    commandClass: input.commandClass == null
+      ? null : safeEnum(input.commandClass, COMMAND_CLASSES, 'commandClass'),
+    modelInvocations: safeCount(input.modelInvocations, 'modelInvocations'),
+    inputTokens: safeCount(input.inputTokens, 'inputTokens'),
+    outputTokens: safeCount(input.outputTokens, 'outputTokens')
   });
 }
 
@@ -242,6 +261,8 @@ export async function helpMetricsStatus(root) {
     intents: counts(loaded.values, 'intent'),
     topics: counts(loaded.values.filter((record) => record.topicId), 'topicId'),
     surfaces: counts(loaded.values, 'surface'),
+    commands: counts(loaded.values.filter((record) => record.command), 'command'),
+    commandClasses: counts(loaded.values.filter((record) => record.commandClass), 'commandClass'),
     actions: counts(loaded.values.filter((record) => record.actionCategory), 'actionCategory'),
     unresolvedIntents: counts(loaded.values.filter((record) => ['ambiguous', 'no-match'].includes(record.outcome)), 'intent'),
     ambiguousIntents: counts(loaded.values.filter((record) => record.outcome === 'ambiguous'), 'intent'),

@@ -41,6 +41,8 @@ const { renderReworkRollForwardPreview } = await import(source('views/rework-rol
 
 const snapshot = JSON.parse(await readFile(
   path.join(packageRoot, 'apps', 'vscode', 'test', 'fixtures', 'snapshot-initiative-lite.json'), 'utf8'));
+const participantCommands = JSON.parse(await readFile(
+  path.join(packageRoot, 'apps', 'vscode', 'src', 'participant-commands.json'), 'utf8'));
 
 test('VS Code receipt parsing stays aligned with engine boolean options', () => {
   assert.deepEqual([...DISPLAY_BOOLEAN_OPTIONS].sort(), [...BOOLEAN_OPTIONS].sort());
@@ -227,6 +229,16 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['configuration', 'save', 'singularity/workflow.yml']), 'mutation');
   assert.equal(commandClass(['configuration', 'publish', '--json']), 'mutation');
   assert.equal(commandClass(['configuration', 'portfolio-bootstrap']), 'mutation');
+  assert.equal(commandClass(['documents', 'list', '--active', '--json']), 'read');
+  assert.equal(commandClass(['documents', 'publish']), 'mutation');
+  assert.equal(commandClass(['workflow', 'list', '--json']), 'read');
+  assert.equal(commandClass(['workflow', 'create']), 'mutation');
+  assert.equal(commandClass(['phase', 'show', 'planning', '--json']), 'read');
+  assert.equal(commandClass(['phase', 'publish', 'planning']), 'mutation');
+  assert.equal(commandClass(['converge', '--json']), 'read');
+  assert.equal(commandClass(['explain', 'phase gates', '--json']), 'read');
+  assert.equal(commandClass(['inputs', 'planning', '--dry-run', '--json']), 'read');
+  assert.equal(commandClass(['inputs', 'planning', '--json']), 'mutation');
   assert.equal(commandClass(['recover', 'WORK-1', '--phase', 'implementation', '--json']), 'read');
   assert.equal(commandClass(['recover', 'WORK-1', '--apply', '--confirm', 'sha256:plan']), 'mutation');
   assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--dry-run']), 'read');
@@ -243,6 +255,21 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--drop-local', '--dry-run']), 'read');
   assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--dry-run=false']), 'mutation');
   assert.equal(commandClass(['capability', 'inspect-repository', 'https://code.example/repo.git']), 'read');
+});
+
+test('every CLI-backed participant route expands to a read while disguised mutations remain blocked', () => {
+  for (const command of participantCommands.filter((entry) => entry.transport !== 'local')) {
+    const argv = command.runtime.map((argument) => argument === '$PHASE' ? 'planning' : argument);
+    assert.equal(commandClass(argv), 'read', command.id);
+  }
+  for (const argv of [
+    ['next', '--json'],
+    ['phase', 'publish', 'planning', '--json'],
+    ['inputs', 'planning', '--json'],
+    ['precheck', '--run', '--confirm-plan', 'sha256:plan', '--json']
+  ]) {
+    assert.equal(commandClass(argv), 'mutation', argv.join(' '));
+  }
 });
 
 test('VS Code command audit classification follows mixed read and mutation subcommands', () => {

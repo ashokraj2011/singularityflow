@@ -237,7 +237,7 @@ declare module '*/help-service.mjs' {
 
 declare module '*/help-metrics.mjs' {
   export function recordHelpMetric(root: string, input: {
-    surface: 'chat' | 'help-center' | 'cli' | 'error-link';
+    surface: 'chat' | 'participant' | 'help-center' | 'cli' | 'error-link';
     intent: 'concept' | 'procedure' | 'diagnose' | 'compare' | 'command-discovery' | 'recover';
     outcome: 'resolved' | 'ambiguous' | 'no-match' | 'unavailable';
     topicId: string | null;
@@ -245,10 +245,16 @@ declare module '*/help-metrics.mjs' {
     latencyMs: number;
     answerBytes: number;
     actionCategory: 'followup-opened' | 'command-copied' | 'command-prefilled' | 'topic-opened' | 'error-explained' | null;
+    command?: string | null;
+    commandClass?: 'deterministic' | 'drafting' | null;
+    modelInvocations?: number | null;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
   }): Promise<unknown>;
   export function helpMetricsStatus(root: string): Promise<{
     enabled: boolean; count: number; outcomes: Record<string, number>;
     intents: Record<string, number>; topics: Record<string, number>;
+    commands: Record<string, number>; commandClasses: Record<string, number>;
     unresolvedIntents: Record<string, number>;
     ambiguousIntents: Record<string, number>; noMatchIntents: Record<string, number>;
   }>;

@@ -90,6 +90,7 @@ Use these for user surfaces, Copilot skills, and external tool wiring.
 | Document | Use it for |
 |---|---|
 | [VS Code guide](VS-CODE.md) | Extension panels, lifecycle, inbox, and configuration |
+| [`@sflow` Chat Participant](CPT-CHAT-PARTICIPANT.md) | Implemented zero-model commands, safety mappings, and explicitly deferred drafting prerequisites |
 | [Configuration Center](CONFIGURATION-CENTER.md) | Visual configuration workflows |
 | [Singularity Flow Skill Catalog](SINGULARITY-FLOW-SKILLS.html) | Offline catalog of packaged Copilot skills |
 | [Native Copilot](../NATIVE-COPILOT.md) | Native Copilot handoff |

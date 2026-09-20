@@ -43,6 +43,18 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function helpMetricsEventV1ToV2(source) {
+  return {
+    ...clone(source),
+    schemaVersion: 2,
+    command: null,
+    commandClass: null,
+    modelInvocations: null,
+    inputTokens: null,
+    outputTokens: null
+  };
+}
+
 function fosSealedInputV1ToV2(source) {
   return {
     ...clone(source),
@@ -3175,7 +3187,8 @@ const families = [
     paths: [/^(?:\$git|\$workspace)\/help-metrics\/settings\.json$/]
   }),
   family({
-    id: 'help-metrics-event', currentVersion: 1,
+    id: 'help-metrics-event', currentVersion: 2,
+    steps: [migration(1, 2, helpMetricsEventV1ToV2)],
     paths: [/^(?:\$git|\$workspace)\/help-metrics\/events\.jsonl$/], immutable: true
   }),
   family({

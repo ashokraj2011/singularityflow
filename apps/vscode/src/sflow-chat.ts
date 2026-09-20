@@ -9,7 +9,12 @@ import { PACKAGE_ROOT } from '../../../src/package-root.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-runtime-client.ts';
 import { commandGuidance } from './copilot-command.ts';
-import { resolveCli, SingularityFlowClient } from './cli/client.ts';
+import { commandClass, resolveCli, SingularityFlowClient } from './cli/client.ts';
+import { CliError } from './cli/runner.ts';
+import {
+  PARTICIPANT_COMMANDS, PARTICIPANT_COMMAND_BY_ID, matchParticipantCommand,
+  participantRuntimeArgv, type ParticipantCommandDefinition
+} from './participant-command-table.ts';
 import {
   ChatAttachmentConfirmations, ChatAttachmentRemovals, chatAttachmentAction,
   chatAttachmentStatusSets, chatFilePreviewInput, matchesChatAttachmentReceipt,
@@ -82,7 +87,8 @@ function sameRealRepository(first: string, second: string): boolean {
 
 async function activeAttachmentSession(
   context: vscode.ExtensionContext,
-  getCurrentWork: () => CurrentWork
+  getCurrentWork: () => CurrentWork,
+  signal?: AbortSignal
 ): Promise<{ client: SingularityFlowClient; editorRoot: string; workId: string; phaseId: string }> {
   const active = activeRepositoryContext();
   const selectedWork = getCurrentWork();
@@ -98,7 +104,7 @@ async function activeAttachmentSession(
   });
   const session = await client.run<{
     ready?: boolean; repositoryPath?: string; workId?: string; phase?: string; status?: string;
-  }>(['session', 'current', '--json']);
+  }>(['session', 'current', '--json'], signal);
   const [editorRoot, sessionRoot] = await Promise.all([
     realpath(active.root), session.repositoryPath ? realpath(session.repositoryPath) : Promise.resolve(null)
   ]);
@@ -480,8 +486,11 @@ function renderReadiness(stream: vscode.ChatResponseStream, card: ReturnType<typ
 }
 
 function examples(stream: vscode.ChatResponseStream): SflowChatMetadata {
-  stream.markdown('Ask a question about Singularity Flow. This participant reads reviewed offline topics and does not call a model. Its attachment preview also stays model-free.\n\n');
-  stream.markdown('- `@sflow /why can’t I submit?`\n- `@sflow /how start a Story`\n- `@sflow /recover interrupted implementation`\n- `@sflow /attachments` with feedback and one to five local file references\n- `@sflow /attachments status`\n- `@sflow /attachments remove sha256:<exact set digest>`\n- `@sflow /topics`\n');
+  stream.markdown('Ask about Singularity Flow or choose a declared command. Deterministic commands are local/CLI reads and never call a model. Human decisions open a separate guarded flow.\n\n');
+  for (const command of PARTICIPANT_COMMANDS) {
+    stream.markdown(`- \`@sflow /${command.id}\` — ${command.description}\n`);
+  }
+  stream.markdown('\nFree text routes only on an exact declared keyword; unmatched text shows this list instead of guessing.\n');
   return {
     intent: 'concept', topicId: null,
     followups: [
@@ -490,6 +499,334 @@ function examples(stream: vscode.ChatResponseStream): SflowChatMetadata {
       { label: 'How does recovery work?', prompt: 'an interrupted phase', command: 'recover' }
     ]
   };
+}
+
+type JsonObject = Record<string, unknown>;
+type ParticipantRendered = {
+  markdown: string;
+  shell?: string | null;
+  shellCopyable?: boolean;
+  copilot?: string | null;
+  openApproval?: boolean;
+};
+
+function jsonObject(value: unknown): JsonObject | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonObject : null;
+}
+
+function jsonArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function bounded(value: unknown, maximum = 600): string {
+  const normalized = String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+  return normalized.length <= maximum ? normalized : `${normalized.slice(0, maximum - 1)}…`;
+}
+
+function inlineCode(value: unknown, maximum = 1200): string {
+  const text = bounded(value, maximum);
+  const longestRun = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
+  const delimiter = '`'.repeat(longestRun + 1);
+  return `${delimiter}${text}${delimiter}`;
+}
+
+function markdownValue(value: unknown, maximum = 600): string {
+  return safeMarkdown(bounded(value, maximum));
+}
+
+function participantClient(context: vscode.ExtensionContext): SingularityFlowClient {
+  const active = activeRepositoryContext();
+  if (!active?.root) throw new Error('Open or select a Singularity Flow repository before using this command.');
+  const settings = vscode.workspace.getConfiguration('singularityFlow');
+  return new SingularityFlowClient({
+    location: resolveCli({
+      configuredCli: settings.get<string>('cliPath'),
+      configuredNode: settings.get<string>('nodePath'),
+      extensionPath: context.extensionPath
+    }),
+    repository: active.root
+  });
+}
+
+function chatAbortSignal(token: vscode.CancellationToken): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController();
+  if (token.isCancellationRequested) controller.abort();
+  const subscription = token.onCancellationRequested?.(() => controller.abort());
+  return { signal: controller.signal, dispose: () => subscription?.dispose() };
+}
+
+function renderedCommand(value: unknown): Pick<ParticipantRendered, 'shell' | 'shellCopyable' | 'copilot'> {
+  const guidance = commandGuidance(value);
+  return guidance
+    ? {
+        shell: bounded(guidance.command, 1200), shellCopyable: guidance.copyable,
+        copilot: bounded(guidance.copilotCommand, 200)
+      }
+    : { shell: null, shellCopyable: false, copilot: null };
+}
+
+function renderNextAction(value: unknown): ParticipantRendered {
+  const result = jsonObject(value) ?? {};
+  const actions = jsonArray(result.actions).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
+  const action = actions.find((entry) => entry.timing === 'now') ?? actions[0] ?? null;
+  let markdown = `### Next legal action\n\n- Story: **${markdownValue(result.workId ?? 'not selected')}**\n`;
+  markdown += `- Current phase: **${markdownValue(result.currentPhase ?? 'unavailable')}**\n`;
+  if (!action) return { markdown: `${markdown}- No currently available action was returned.\n` };
+  markdown += `- Why: ${markdownValue(action.reason ?? 'No reason returned.', 1000)}\n`;
+  markdown += `- Availability: ${markdownValue(action.availability ?? 'unknown')}\n`;
+  const commands = renderedCommand(action);
+  if (commands.shell) markdown += `\n**Shell:** ${inlineCode(commands.shell)}\n`;
+  if (commands.copilot) markdown += `\n**Copilot:** ${inlineCode(commands.copilot)}\n`;
+  markdown += '\nNothing was executed. Review or prefill the returned action.\n';
+  return { markdown, ...commands };
+}
+
+function renderStatus(value: unknown): ParticipantRendered {
+  const result = jsonObject(value) ?? {};
+  const work = jsonObject(result.workItem) ?? {};
+  const phaseId = typeof result.currentPhase === 'string' ? result.currentPhase : '';
+  const phases = jsonObject(result.phases) ?? {};
+  const phase = jsonObject(phases[phaseId]) ?? {};
+  const generation = Number.isSafeInteger(phase.generation) ? phase.generation : 0;
+  const artifacts = jsonArray(phase.artifacts);
+  const checks = jsonArray(phase.checks).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
+  const approvals = jsonArray(phase.approvals).map(jsonObject)
+    .filter((entry): entry is JsonObject => Boolean(entry))
+    .filter((entry) => !entry.invalidatedAt && entry.decision === 'approved');
+  const approvalPolicy = jsonObject(phase.approvalPolicy) ?? {};
+  const minimum = Number.isSafeInteger(approvalPolicy.minimum) ? Number(approvalPolicy.minimum) : 0;
+  const authorities = jsonArray(approvalPolicy.authorities).slice(0, 8).map((entry) => bounded(entry, 80));
+  const passed = checks.filter((entry) => ['pass', 'passed'].includes(String(entry.status))).length;
+  const failed = checks.filter((entry) => ['fail', 'failed', 'blocked'].includes(String(entry.status))).length;
+  return { markdown: `### Story status\n\n`
+    + `- Story: **${markdownValue(work.id ?? 'not selected')}** — ${markdownValue(work.title ?? 'untitled')}\n`
+    + `- Workflow: ${markdownValue(work.workTypeLabel ?? work.workType ?? 'unavailable')}\n`
+    + `- Lifecycle: ${markdownValue(result.status ?? 'unavailable')}\n`
+    + `- Phase: **${markdownValue(phase.label ?? (phaseId || 'unavailable'))}** · ${markdownValue(phase.status ?? 'unavailable')} · generation ${generation}\n`
+    + `- Agent: ${markdownValue(phase.defaultAgent ?? 'unassigned')}\n`
+    + `- Evidence: ${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'} · checks ${passed} passed / ${failed} failed / ${checks.length} total\n`
+    + `- Approvals: ${approvals.length}/${minimum}${approvals.length < minimum && authorities.length ? ` · waiting on ${safeMarkdown(authorities.join(', '))}` : ''}\n` };
+}
+
+function renderChecks(value: unknown): ParticipantRendered {
+  const result = jsonObject(value) ?? {};
+  const data = jsonObject(result.data) ?? {};
+  const precheck = jsonObject(data.precheck) ?? {};
+  const checks = jsonArray(precheck.checks).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
+  const important = checks.filter((entry) => entry.status !== 'pass');
+  const displayed = (important.length ? important : checks).slice(0, 10);
+  let markdown = `### Quick readiness checks\n\nOverall: **${markdownValue(precheck.status ?? 'unavailable')}**\n\n`;
+  if (!displayed.length) markdown += 'No check rows were returned.\n';
+  for (const check of displayed) {
+    markdown += `- **${markdownValue(check.id ?? 'check')}** · ${markdownValue(check.status ?? 'unknown')}`;
+    if (check.reason) markdown += ` — ${markdownValue(check.reason)}`;
+    markdown += '\n';
+  }
+  return { markdown };
+}
+
+function renderRouter(value: unknown): ParticipantRendered {
+  const result = jsonObject(value) ?? {};
+  const rendered = jsonObject(result.rendered) ?? {};
+  const outcome = jsonObject(result.outcome) ?? {};
+  const next = jsonArray(result.next).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry))[0] ?? null;
+  let markdown = `### Deterministic router\n\n${markdownValue(rendered.headline ?? outcome.status ?? 'Router completed.')}\n`;
+  if (!next) return { markdown: `${markdown}\nNo next action was returned.\n` };
+  markdown += `\n- ${markdownValue(next.label ?? next.id ?? 'Next action', 1000)}\n`;
+  const commands = renderedCommand(next);
+  if (commands.shell) markdown += `\n**Shell:** ${inlineCode(commands.shell)}\n`;
+  if (commands.copilot) markdown += `\n**Copilot:** ${inlineCode(commands.copilot)}\n`;
+  markdown += '\nThe returned action was not executed.\n';
+  return { markdown, ...commands };
+}
+
+function renderDocuments(value: unknown): ParticipantRendered {
+  const documents = jsonArray(value).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
+  let markdown = `### Active governed documents\n\n${documents.length} document${documents.length === 1 ? '' : 's'} returned.\n\n`;
+  for (const document of documents.slice(0, 20)) {
+    const digest = typeof document.sha256 === 'string' ? document.sha256.slice(0, 12) : 'unavailable';
+    markdown += `- **${markdownValue(document.label ?? document.id ?? 'Document')}**`;
+    if (document.phase) markdown += ` · ${markdownValue(document.phase)}`;
+    markdown += ` · \`${markdownValue(digest)}\`\n`;
+  }
+  if (documents.length > 20) markdown += `- …and ${documents.length - 20} more. Open Documents for the complete list.\n`;
+  return { markdown };
+}
+
+function renderWorkflows(value: unknown): ParticipantRendered {
+  const workflows = jsonArray(value).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
+  let markdown = `### Story workflows\n\n${workflows.length} workflow${workflows.length === 1 ? '' : 's'} returned.\n\n`;
+  for (const workflow of workflows.slice(0, 20)) {
+    const phases = jsonArray(workflow.phases).map((phase) => bounded(phase, 40)).join(' → ');
+    markdown += `- **${markdownValue(workflow.label ?? workflow.id ?? 'Workflow')}** · ${markdownValue(workflow.status ?? 'unknown')}`;
+    if (phases) markdown += ` · ${safeMarkdown(phases)}`;
+    markdown += '\n';
+  }
+  if (workflows.length > 20) markdown += `- …and ${workflows.length - 20} more.\n`;
+  return { markdown };
+}
+
+function renderApprovalReview(value: unknown): ParticipantRendered {
+  const result = jsonObject(value) ?? {};
+  const documents = jsonArray(result.documents).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
+  let markdown = `### Approval context\n\n`
+    + `- Story: **${markdownValue(result.workId ?? 'unavailable')}**\n`
+    + `- Phase: **${markdownValue(result.phaseLabel ?? result.phase ?? 'unavailable')}**\n`
+    + `- Status: ${markdownValue(result.status ?? 'unavailable')} · generation ${markdownValue(result.generation ?? 0)}\n`;
+  for (const document of documents.slice(0, 8)) {
+    const digest = typeof document.sha256 === 'string' ? document.sha256.slice(0, 12) : 'unavailable';
+    markdown += `- Artifact: ${markdownValue(document.label ?? document.id ?? 'document')} · \`${markdownValue(digest)}\`\n`;
+  }
+  markdown += '\nApproval was **not** recorded. Open the guarded Approvals form to review the exact checklist and receipt-bound decision.\n';
+  return { markdown, copilot: '/sf-approve', openApproval: true };
+}
+
+function renderInputs(value: unknown, phaseId: string): ParticipantRendered {
+  const result = jsonObject(value) ?? {};
+  const data = jsonObject(result.data) ?? {};
+  const rendered = jsonObject(result.rendered) ?? {};
+  const inputRows = jsonArray(result.records ?? result.inputs ?? data.inputs).map(jsonObject)
+    .filter((entry): entry is JsonObject => Boolean(entry));
+  let markdown = `### ${markdownValue(phaseId)} input preview\n\n`;
+  if (rendered.headline) markdown += `${markdownValue(rendered.headline, 1000)}\n\n`;
+  if (!inputRows.length) markdown += 'The dry-run completed without exposing a writable input record.\n';
+  for (const input of inputRows.slice(0, 12)) {
+    markdown += `- **${markdownValue(input.id ?? input.phase ?? input.name ?? 'input')}** · ${markdownValue(input.status ?? 'captured')}\n`;
+  }
+  markdown += '\nNo managed input record was written.\n';
+  return { markdown };
+}
+
+function renderParticipantResult(
+  command: ParticipantCommandDefinition, value: unknown, phaseId: string
+): ParticipantRendered {
+  if (command.template === 'next-action') return renderNextAction(value);
+  if (command.template === 'status') return renderStatus(value);
+  if (command.template === 'checks') return renderChecks(value);
+  if (command.template === 'router') return renderRouter(value);
+  if (command.template === 'documents') return renderDocuments(value);
+  if (command.template === 'workflows') return renderWorkflows(value);
+  if (command.template === 'approval-review') return renderApprovalReview(value);
+  if (command.template === 'inputs') return renderInputs(value, phaseId);
+  if (command.template === 'validation') {
+    return { markdown: `### Workflow validation\n\n${markdownValue(value, 4000)}\n` };
+  }
+  return { markdown: 'The deterministic command completed. Its full internal payload was intentionally not rendered.\n' };
+}
+
+function renderParticipantRefusal(error: unknown): ParticipantRendered {
+  const cli = error instanceof CliError ? error : null;
+  const result = jsonObject(cli?.result);
+  const plan = jsonObject(result?.remediationPlan);
+  const steps = jsonArray(plan?.steps).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
+  let markdown = `### Command unavailable\n\n${markdownValue(cli?.message ?? (error as Error)?.message ?? 'The command could not be completed.', 1800)}\n`;
+  if (steps.length) markdown += '\n**Safe remediation plan**\n\n';
+  for (const step of steps.slice(0, 3)) {
+    markdown += `- ${markdownValue(step.label ?? step.id ?? 'Review the blocker.', 800)}\n`;
+    const commands = renderedCommand(step);
+    if (commands.shell) markdown += `  - Shell: ${inlineCode(commands.shell)}\n`;
+    if (commands.copilot) markdown += `  - Copilot: ${inlineCode(commands.copilot)}\n`;
+  }
+  const first = steps[0];
+  return { markdown, ...renderedCommand(first) };
+}
+
+function addParticipantButtons(
+  stream: vscode.ChatResponseStream,
+  command: ParticipantCommandDefinition,
+  rendered: ParticipantRendered
+): void {
+  if (rendered.shell && rendered.shellCopyable !== false) {
+    stream.button({
+      command: 'singularityFlow.copyParticipantCommand', title: 'Copy Shell',
+      arguments: [rendered.shell, command.id]
+    });
+  }
+  if (rendered.copilot) {
+    stream.button({
+      command: 'singularityFlow.prefillParticipantAction', title: `Prepare ${rendered.copilot}`,
+      arguments: [rendered.copilot, command.id]
+    });
+  }
+  if (rendered.openApproval) {
+    stream.button({ command: 'singularityFlow.openApprovals', title: 'Open guarded approval form' });
+  }
+}
+
+function zeroModelFooter(stream: vscode.ChatResponseStream, startedAt: number, effect = 'read'): void {
+  stream.markdown(`\n_0 model calls · ${Math.max(0, Date.now() - startedAt)} ms · ${effect}_\n`);
+}
+
+async function recordLocalParticipantMetric(
+  command: string,
+  startedAt: number,
+  outcome: 'resolved' | 'unavailable' = 'resolved'
+): Promise<void> {
+  await metric({
+    surface: 'participant', intent: 'command-discovery', outcome, topicId: command,
+    matchedBy: 'declared-command', latencyMs: Math.max(0, Date.now() - startedAt),
+    answerBytes: 0, actionCategory: null, command, commandClass: 'deterministic',
+    modelInvocations: 0, inputTokens: 0, outputTokens: 0
+  });
+}
+
+async function executeParticipantCommand(
+  command: ParticipantCommandDefinition,
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  context: vscode.ExtensionContext,
+  getCurrentWork: () => CurrentWork
+): Promise<SflowChatMetadata> {
+  const startedAt = Date.now();
+  const cancellation = chatAbortSignal(token);
+  let rendered: ParticipantRendered;
+  let outcome: 'resolved' | 'unavailable' = 'resolved';
+  try {
+    if (command.class !== 'deterministic' || command.effect === 'mutation') {
+      throw new Error(`Participant command '/${command.id}' is not enabled by the zero-model dispatcher.`);
+    }
+    let client: SingularityFlowClient;
+    let phaseId = '';
+    if (command.requiresSession) {
+      const active = await activeAttachmentSession(context, getCurrentWork, cancellation.signal);
+      client = active.client;
+      phaseId = active.phaseId;
+    } else {
+      client = participantClient(context);
+    }
+    const argv = participantRuntimeArgv(command, { prompt, phase: phaseId });
+    if (!argv) throw new Error(`Participant command '${command.id}' has no CLI route.`);
+    if (commandClass(argv) !== 'read') {
+      throw new Error(`Participant command '/${command.id}' does not resolve to a read-only CLI operation.`);
+    }
+    stream.progress(`Running model-free /${command.id}…`);
+    const value = command.transport === 'cli-text'
+      ? await client.runText(argv, { signal: cancellation.signal })
+      : await client.run(argv, cancellation.signal);
+    if (token.isCancellationRequested) return {
+      intent: 'command-discovery', topicId: command.id, followups: []
+    };
+    rendered = renderParticipantResult(command, value, phaseId);
+  } catch (error) {
+    outcome = 'unavailable';
+    rendered = renderParticipantRefusal(error);
+  } finally {
+    cancellation.dispose();
+  }
+  const elapsed = Math.max(0, Date.now() - startedAt);
+  const footer = `\n_0 model calls · ${elapsed} ms · ${command.effect}_\n`;
+  stream.markdown(`${rendered.markdown}${footer}`);
+  addParticipantButtons(stream, command, rendered);
+  await metric({
+    surface: 'participant', intent: 'command-discovery', outcome, topicId: command.id,
+    matchedBy: 'declared-command', latencyMs: elapsed,
+    answerBytes: Math.min(65_536, Buffer.byteLength(rendered.markdown + footer)),
+    actionCategory: null, command: command.id, commandClass: command.class,
+    modelInvocations: 0, inputTokens: 0, outputTokens: 0
+  });
+  return { intent: 'command-discovery', topicId: command.id, followups: [] };
 }
 
 export function registerSflowChat(
@@ -527,8 +864,10 @@ export function registerSflowChat(
       if (!command) return;
       await vscode.env.clipboard.writeText(command);
       await metric({
-        surface: 'chat', intent: 'command-discovery', outcome: 'resolved', topicId,
-        matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'command-copied'
+        surface: 'participant', intent: 'command-discovery', outcome: 'resolved', topicId,
+        matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'command-copied',
+        command: 'help', commandClass: 'deterministic', modelInvocations: 0,
+        inputTokens: 0, outputTokens: 0
       });
     }
   ));
@@ -540,8 +879,10 @@ export function registerSflowChat(
         isPartialQuery: true
       });
       await metric({
-        surface: 'chat', intent: 'procedure', outcome: 'resolved', topicId,
-        matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'command-prefilled'
+        surface: 'participant', intent: 'procedure', outcome: 'resolved', topicId,
+        matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'command-prefilled',
+        command: 'help', commandClass: 'deterministic', modelInvocations: 0,
+        inputTokens: 0, outputTokens: 0
       });
     }
   ));
@@ -550,16 +891,72 @@ export function registerSflowChat(
       if (!topicId) return;
       await vscode.commands.executeCommand('singularityFlow.explainTopic', { id: `help:topic:${topicId}` });
       await metric({
-        surface: 'chat', intent: 'concept', outcome: 'resolved', topicId,
-        matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'topic-opened'
+        surface: 'participant', intent: 'concept', outcome: 'resolved', topicId,
+        matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'topic-opened',
+        command: 'help', commandClass: 'deterministic', modelInvocations: 0,
+        inputTokens: 0, outputTokens: 0
+      });
+    }
+  ));
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.copyParticipantCommand', async (command: string, commandId: string) => {
+      if (!command) return;
+      await vscode.env.clipboard.writeText(command);
+      await metric({
+        surface: 'participant', intent: 'command-discovery', outcome: 'resolved',
+        topicId: commandId, matchedBy: 'action', latencyMs: 0, answerBytes: 0,
+        actionCategory: 'command-copied', command: commandId, commandClass: 'deterministic',
+        modelInvocations: 0, inputTokens: 0, outputTokens: 0
+      });
+    }
+  ));
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.prefillParticipantAction', async (skill: string, commandId: string) => {
+      if (!skill) return;
+      await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: `${skill} `, isPartialQuery: true
+      });
+      await metric({
+        surface: 'participant', intent: 'procedure', outcome: 'resolved', topicId: commandId,
+        matchedBy: 'action', latencyMs: 0, answerBytes: 0,
+        actionCategory: 'command-prefilled', command: commandId, commandClass: 'deterministic',
+        modelInvocations: 0, inputTokens: 0, outputTokens: 0
       });
     }
   ));
 
   const handler: vscode.ChatRequestHandler = async (request, _chatContext, stream, token) => {
+    const participantStartedAt = Date.now();
     if (token.isCancellationRequested) return;
-    if (request.command === 'attachments') {
-      const action = chatAttachmentAction(request.prompt, request.references?.length ?? 0);
+    const keywordMatch = request.command ? null : matchParticipantCommand(request.prompt);
+    const declared = request.command
+      ? PARTICIPANT_COMMAND_BY_ID.get(request.command)
+      : keywordMatch?.command;
+    const effectivePrompt = keywordMatch?.argument ?? request.prompt;
+    if (!declared) {
+      const metadata = examples(stream);
+      await recordLocalParticipantMetric('help', participantStartedAt);
+      zeroModelFooter(stream, participantStartedAt);
+      return { metadata };
+    }
+    if (!declared.acceptsArguments && effectivePrompt.trim()) {
+      stream.markdown(`### Command unavailable\n\n\`/${declared.id}\` does not accept free-text arguments. Remove the extra text and retry; nothing was executed.\n`);
+      await recordLocalParticipantMetric(declared.id, participantStartedAt, 'unavailable');
+      zeroModelFooter(stream, participantStartedAt, declared.effect);
+      return {
+        metadata: {
+          intent: 'command-discovery', topicId: declared.id, followups: []
+        } satisfies SflowChatMetadata
+      };
+    }
+    if (declared.transport !== 'local') {
+      const metadata = await executeParticipantCommand(
+        declared, effectivePrompt, stream, token, context, getCurrentWork
+      );
+      return { metadata };
+    }
+    if (declared.id === 'attachments') {
+      const action = chatAttachmentAction(effectivePrompt, request.references?.length ?? 0);
       if (action.kind === 'status') {
         await statusChatAttachments(stream, token, context, getCurrentWork);
       } else if (action.kind === 'remove') {
@@ -571,21 +968,33 @@ export function registerSflowChat(
       } else {
         await previewChatAttachment(request, stream, token, context, getCurrentWork, confirmations);
       }
+      await recordLocalParticipantMetric(
+        'attachments', participantStartedAt, action.kind === 'unavailable' ? 'unavailable' : 'resolved'
+      );
+      zeroModelFooter(stream, participantStartedAt, 'human-decision');
       return { metadata: { intent: 'procedure', topicId: null, followups: [] } satisfies SflowChatMetadata };
     }
-    if (request.command === 'topics') {
+    if (declared.id === 'topics') {
       const index = await resolveHelp('');
       stream.markdown('### Reviewed Singularity Flow topics\n\n');
       stream.markdown(index.topics.map((topic) => `- **${topic.title}** — \`${topic.id}\``).join('\n'));
       await metric({
-        surface: 'chat', intent: 'concept', outcome: 'resolved', topicId: null,
-        matchedBy: 'index', latencyMs: index.latencyMs, answerBytes: 0, actionCategory: null
+        surface: 'participant', intent: 'concept', outcome: 'resolved', topicId: null,
+        matchedBy: 'index', latencyMs: index.latencyMs, answerBytes: 0, actionCategory: null,
+        command: 'topics', commandClass: 'deterministic', modelInvocations: 0,
+        inputTokens: 0, outputTokens: 0
       });
+      zeroModelFooter(stream, participantStartedAt);
       return { metadata: { intent: 'concept', topicId: null, followups: [] } satisfies SflowChatMetadata };
     }
 
-    const question = questionFor(request.command, request.prompt);
-    if (!question) return { metadata: examples(stream) };
+    const question = questionFor(declared.id, effectivePrompt);
+    if (!question) {
+      const metadata = examples(stream);
+      await recordLocalParticipantMetric(declared.id, participantStartedAt);
+      zeroModelFooter(stream, participantStartedAt, declared.effect);
+      return { metadata };
+    }
     stream.progress('Reading reviewed Singularity Flow documentation…');
     const [answer, current] = await Promise.all([
       resolveHelp(question, { maxBytes: 4000 }),
@@ -594,9 +1003,11 @@ export function registerSflowChat(
     if (token.isCancellationRequested) return;
 
     await metric({
-      surface: 'chat', intent: answer.helpIntent, outcome: outcomeOf(answer.status),
+      surface: 'participant', intent: answer.helpIntent, outcome: outcomeOf(answer.status),
       topicId: answer.topic?.id ?? null, matchedBy: answer.matchedBy,
-      latencyMs: answer.latencyMs, answerBytes: answer.served?.bytes ?? 0, actionCategory: null
+      latencyMs: answer.latencyMs, answerBytes: answer.served?.bytes ?? 0, actionCategory: null,
+      command: declared.id, commandClass: 'deterministic', modelInvocations: 0,
+      inputTokens: 0, outputTokens: 0
     });
 
     renderReadiness(stream, current);
@@ -616,6 +1027,7 @@ export function registerSflowChat(
       const followups = answer.candidates.slice(0, 3).map((candidate) => ({
         prompt: candidate.id, label: candidate.title, command: 'help'
       }));
+      zeroModelFooter(stream, participantStartedAt);
       return { metadata: { intent: answer.helpIntent, topicId: null, followups } satisfies SflowChatMetadata };
     }
 
@@ -623,6 +1035,7 @@ export function registerSflowChat(
     const served = answer.served;
     if (!topic || !served || !answer.citation) {
       stream.markdown('The reviewed help topic could not be served by this build. Reinstall Singularity Flow and try again.');
+      zeroModelFooter(stream, participantStartedAt);
       return { metadata: { intent: answer.helpIntent, topicId: null, followups: [] } satisfies SflowChatMetadata };
     }
     stream.markdown(`### ${topic.title}\n\n`);
@@ -636,7 +1049,7 @@ export function registerSflowChat(
     if (answer.handoff) {
       const guidance = commandGuidance(answer.handoff);
       if (guidance) {
-        stream.markdown(`\n**Shell:** \`${guidance.command}\`\n\n**Copilot:** \`${guidance.copilotCommand}\`\n`);
+        stream.markdown(`\n**Shell:** ${inlineCode(guidance.command)}\n\n**Copilot:** ${inlineCode(guidance.copilotCommand)}\n`);
         if (guidance.copyable) {
           stream.button({
             command: 'singularityFlow.copyHelpCommand',
@@ -663,6 +1076,7 @@ export function registerSflowChat(
       label: relatedTopic.title,
       command: 'help'
     }));
+    zeroModelFooter(stream, participantStartedAt);
     return {
       metadata: {
         intent: answer.helpIntent,

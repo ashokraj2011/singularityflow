@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'explain']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'explain', 'workflow', 'documents']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -215,6 +215,12 @@ const TELEMETRY_SUBCOMMANDS = Object.freeze([...TELEMETRY_READ_SUBCOMMANDS, ...T
 const HELP_METRICS_READ_SUBCOMMANDS = Object.freeze(['status']);
 const HELP_METRICS_MUTATION_SUBCOMMANDS = Object.freeze(['on', 'off', 'clear']);
 const HELP_METRICS_SUBCOMMANDS = Object.freeze([...HELP_METRICS_READ_SUBCOMMANDS, ...HELP_METRICS_MUTATION_SUBCOMMANDS]);
+const WORKFLOW_READ_SUBCOMMANDS = Object.freeze(['list', 'proposals', 'proposal', 'simulate', 'validate', 'diff']);
+const WORKFLOW_MUTATION_SUBCOMMANDS = Object.freeze(['activate', 'create', 'edit', 'phase', 'install', 'add', 'upgrade']);
+const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS]);
+const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse']);
+const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'upload', 'add', 'fetch']);
+const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
 const REVISION_ATTACHMENT_ACTIONS = Object.freeze([
   'capabilities', 'preview', 'register', 'list', 'status', 'remove-preview', 'remove'
 ]);
@@ -494,6 +500,32 @@ function resolveInputsOperation(definition, options) {
   return optionBoolean(options, 'dry-run')
     ? never('inputs.dry-run', definition, 'read')
     : never('inputs.prepare', definition, 'mutation');
+}
+
+function resolveWorkflowCommandOperation(definition, positionals, options) {
+  const subcommand = positionals[1] ?? 'list';
+  if (WORKFLOW_READ_SUBCOMMANDS.includes(subcommand)) {
+    return never(`workflow.${subcommand}`, definition, 'read');
+  }
+  if (['install', 'add', 'upgrade'].includes(subcommand) && optionBoolean(options, 'dry-run')) {
+    return never('workflow.install.preview', definition, 'read');
+  }
+  if (WORKFLOW_MUTATION_SUBCOMMANDS.includes(subcommand)) {
+    const operationId = ['add', 'upgrade'].includes(subcommand) ? 'install' : subcommand;
+    return never(`workflow.${operationId}`, definition, 'mutation');
+  }
+  return unknownSubcommand('workflow', subcommand, WORKFLOW_SUBCOMMANDS);
+}
+
+function resolveDocumentsOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'list';
+  if (DOCUMENTS_READ_SUBCOMMANDS.includes(subcommand)) {
+    return never(`documents.${subcommand}`, definition, 'read');
+  }
+  if (DOCUMENTS_MUTATION_SUBCOMMANDS.includes(subcommand)) {
+    return never(`documents.${subcommand}`, definition, 'mutation');
+  }
+  return unknownSubcommand('documents', subcommand, DOCUMENTS_SUBCOMMANDS);
 }
 
 function resolveSpecOperation(definition, positionals, options) {
@@ -1186,6 +1218,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'help-metrics') return resolveHelpMetricsOperation(definition, positionals);
   if (definition.name === 'doctor') return resolveDoctorOperation(definition, options);
   if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
+  if (definition.name === 'workflow') return resolveWorkflowCommandOperation(definition, positionals, options);
+  if (definition.name === 'documents') return resolveDocumentsOperation(definition, positionals);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
   if (definition.name === 'explain') return resolveExplainOperation(definition, positionals, options);
   if (definition.name === 'comprehension') return resolveComprehensionOperation(definition, positionals);
@@ -1293,6 +1327,8 @@ export function operationCatalog() {
   const reportDefinition = commandDefinition('report');
   const reviewDefinition = commandDefinition('review');
   const inputsDefinition = commandDefinition('inputs');
+  const workflowDefinition = commandDefinition('workflow');
+  const documentsDefinition = commandDefinition('documents');
   const specDefinition = commandDefinition('spec');
   const comprehensionDefinition = commandDefinition('comprehension');
   const explainDefinition = commandDefinition('explain');
@@ -1403,6 +1439,13 @@ export function operationCatalog() {
     never('review.write', reviewDefinition, 'mutation'),
     never('inputs.dry-run', inputsDefinition, 'read'),
     never('inputs.prepare', inputsDefinition, 'mutation'),
+    ...WORKFLOW_READ_SUBCOMMANDS.map((name) => never(`workflow.${name}`, workflowDefinition, 'read')),
+    ...['activate', 'create', 'edit', 'phase', 'install'].map((name) => never(
+      `workflow.${name}`, workflowDefinition, 'mutation'
+    )),
+    never('workflow.install.preview', workflowDefinition, 'read'),
+    ...DOCUMENTS_READ_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'read')),
+    ...DOCUMENTS_MUTATION_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'mutation')),
     never('spec.analyze', specDefinition, 'read'),
     optional('spec.analyze.assisted', 'spec.analyze', specDefinition),
     never('spec.index', specDefinition, 'mutation'),

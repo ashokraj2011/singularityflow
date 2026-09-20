@@ -225,6 +225,7 @@ skills:
   sflow-submit: { class: review }
   sflow-telemetry: { class: echo, executionBoundary: repository }
   sflow-upload: { class: mutation, executionBoundary: repository }
+  sflow-validate: { class: echo, executionBoundary: repository }
   sflow-verify: { class: generative }
   sflow-visual: { class: mutation }
   sflow-watch: { class: echo, executionBoundary: repository }

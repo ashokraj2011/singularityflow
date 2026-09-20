@@ -2186,6 +2186,27 @@ Center use the same deterministic packaged-topic resolver as `singularity-flow e
 model is invoked. Suggested actions are inserted as partial `/sf-*` queries and are never submitted
 or executed automatically.
 
+The participant also exposes declared zero-model command adapters:
+
+| Command | Current safe route |
+|---|---|
+| `@sflow /next` | Read `singularity-flow nextsteps --json`; never execute `next` or the returned action. |
+| `@sflow /status` | Read `singularity-flow status --json`. |
+| `@sflow /checks` | Run the read-only `singularity-flow precheck --quick --json` projection. |
+| `@sflow /explain <subject>` | Resolve reviewed packaged help locally; the participant does not expose repository-bound `explain code` or model narration in this increment. |
+| `@sflow /converge` | Read the deterministic convergence result; never adjudicate it. |
+| `@sflow /docs` | List active governed documents. |
+| `@sflow /inputs` | Preview the verified active phase with `inputs <phase> --dry-run --json`; never prepare the managed record. |
+| `@sflow /workflows` | List workflow profiles. |
+| `@sflow /approve` | Bind to and review the verified active phase/hash context, then hand off to the existing guarded approval UI; never accept a phase from chat prose, approve, or prefill confirmation. |
+| `@sflow /validate` | Run the existing deterministic validation read. |
+
+Type `@sflow` explicitly. Free text is matched locally only to exact declared keywords; an unknown
+request shows the command list and never asks a model to route it. The current participant has no
+`/code`, `/specify`, `/plan`, `/revise`, or `/narrate` drafting route. See
+[the full Chat Participant boundary](docs/CPT-CHAT-PARTICIPANT.md), including the resident-CLI,
+packet/freeze, REV, VS Code 1.90 model-API, and telemetry work that remains deferred.
+
 The optional content-free quality log is controlled with:
 
 ```bash
@@ -2195,7 +2216,9 @@ singularity-flow help-metrics off
 singularity-flow help-metrics clear
 ```
 
-It stores no raw question, answer, path, Work ID, identity, or file content.
+It stores no raw question, answer, path, Work ID, identity, or file content. When enabled, it also
+records content-free participant command/class, duration, outcome, and zero-model/token fields.
+Those local events are not phase telemetry or provider billing evidence.
 
 ### Legacy-v3 lifecycle materialization and reuse
 

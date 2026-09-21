@@ -6,15 +6,17 @@
  * changes nothing.
  */
 import * as vscode from 'vscode';
+import path from 'node:path';
 import {
   contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT,
-  referenceRepositoryEntries, SHAPES, storyPreflightCommand, storyWorkflowSelection,
+  MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
+  storyPreflightCommand, storyWorkflowSelection,
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice,
-  type ReferenceRepositoryDraft, type Shape, type Tracker
+  type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
 import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
@@ -144,6 +146,8 @@ export class IntakePanel {
   private preflightVersion = 0;
   private preflightController: AbortController | null = null;
   private referenceCheckRevision = 0;
+  private enhancementRevision = 0;
+  private enhancementController: AbortController | null = null;
   private trackerChosen = false;
   private disposed = false;
 
@@ -236,6 +240,24 @@ export class IntakePanel {
   private cancelBasePreflight(): void {
     this.preflightController?.abort();
     this.preflightController = null;
+  }
+
+  /** Cancel an advisory rewrite whenever any input it was based on changes. */
+  private invalidateEnhancement(): void {
+    this.enhancementRevision += 1;
+    this.form.enhanceError = null;
+    this.form.enhanceProposal = null;
+    const active = this.enhancementController;
+    if (active && !active.signal.aborted) active.abort();
+  }
+
+  private enhancementIsCurrent(controller: AbortController, revision: number): boolean {
+    return !this.disposed
+      && this.enhancementController === controller
+      && !controller.signal.aborted
+      && revision === this.enhancementRevision
+      && this.form.shape === 'story'
+      && this.form.tracker === 'none';
   }
 
   /**
@@ -343,6 +365,7 @@ export class IntakePanel {
         : this.defaults.source === 'manual' ? 'none'
           : tracker.configured ? 'jira' : 'none';
     }
+    if (selection !== this.form.tracker) this.invalidateEnhancement();
     this.update({
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
@@ -379,6 +402,7 @@ export class IntakePanel {
     shape: (message) => {
       const shape = SHAPES.find((entry) => entry.id === stringField(message, 'value'));
       if (shape) {
+        this.invalidateEnhancement();
         this.cancelBasePreflight();
         this.preflightVersion += 1;
         this.update({
@@ -391,6 +415,7 @@ export class IntakePanel {
       const value = stringField(message, 'value');
       const tracker = value === 'jira' ? 'jira' : value === 'github' ? 'github' : 'none';
       this.trackerChosen = true;
+      this.invalidateEnhancement();
       this.preflightVersion += 1;
       this.update({
         tracker: tracker as Tracker, error: null,
@@ -449,25 +474,59 @@ export class IntakePanel {
     referenceDraft: (message) => this.updateReferenceDraft(message, false),
     referenceField: (message) => this.updateReferenceDraft(message, true),
     referenceCheck: (message) => this.checkReference(message),
+    attachmentPick: (message) => {
+      const index = this.attachmentIndex(message);
+      if (index !== null) return this.pickStoryAttachments(index);
+    },
+    attachmentsPick: () => this.pickStoryAttachments(null),
+    attachmentClear: (message) => {
+      const index = this.attachmentIndex(message);
+      if (index === null) return;
+      this.invalidateEnhancement();
+      this.update({
+        storyAttachments: this.form.storyAttachments.map((entry, slot) => slot === index ? null : entry),
+        enhanceError: null, error: null
+      });
+    },
     draft: (message) => {
       const field = this.writableField(message);
-      const value = stringField(message, 'value');
-      if (field && value !== null) (this.form as unknown as Record<string, string>)[field] = value;
+      const value = typeof message.value === 'string' ? message.value : null;
+      if (field && value !== null) {
+        if (['title', 'description', 'acceptanceCriteria'].includes(field)) {
+          this.invalidateEnhancement();
+        }
+        (this.form as unknown as Record<string, string>)[field] = value;
+      }
     },
     field: (message) => {
       const field = this.writableField(message);
-      const value = stringField(message, 'value');
+      const value = typeof message.value === 'string' ? message.value : null;
       if (field && value !== null) {
+        const invalidatesEnhancement = ['title', 'description', 'acceptanceCriteria'].includes(field);
+        if (invalidatesEnhancement) this.invalidateEnhancement();
         const invalidatesPreflight = field === 'id' || field === 'key';
         if (invalidatesPreflight) this.preflightVersion += 1;
         this.update({
           [field]: value,
+          ...(invalidatesEnhancement ? { enhanceError: null } : {}),
           ...(invalidatesPreflight ? {
             ...emptyStoryPreflight()
           } : {})
         } as Partial<IntakeForm>);
         if (invalidatesPreflight) return this.preflightBaseBranch();
       }
+    },
+    enhanceDescription: () => this.enhanceStoryDescription(),
+    enhanceApply: () => {
+      const proposal = this.form.enhanceProposal;
+      if (!proposal || this.form.enhancing || this.form.busy) return;
+      this.enhancementRevision += 1;
+      this.update({ description: proposal, enhanceProposal: null, enhanceError: null });
+    },
+    enhanceDiscard: () => {
+      if (!this.form.enhanceProposal || this.form.enhancing || this.form.busy) return;
+      this.enhancementRevision += 1;
+      this.update({ enhanceProposal: null, enhanceError: null });
     },
     start: () => this.start(),
     'recover-start': () => this.recoverStartedStory()
@@ -510,6 +569,91 @@ export class IntakePanel {
   private referenceIndex(message: InboundMessage): number | null {
     const index = integerField(message, 'index');
     return index !== null && index < this.form.referenceRepositories.length ? index : null;
+  }
+
+  private attachmentIndex(message: InboundMessage): number | null {
+    const index = integerField(message, 'index');
+    return index !== null && index < MAX_STORY_ATTACHMENT_SLOTS
+      && index < this.form.storyAttachments.length ? index : null;
+  }
+
+  /** Ask for a proposal without putting Story content or local paths on the process command line. */
+  private async enhanceStoryDescription(): Promise<void> {
+    if (this.form.shape !== 'story' || this.form.tracker !== 'none' || this.form.busy
+        || this.form.enhancing || !this.form.description.trim()) return;
+    const controller = new AbortController();
+    const revision = this.enhancementRevision;
+    this.enhancementController = controller;
+    this.update({ enhancing: true, enhanceProposal: null, enhanceError: null });
+    try {
+      const result = await this.client.runWithInput<{
+        status?: string;
+        proposal?: { description?: string };
+      }>(['story', 'enhance-description', '--draft-stdin', '--json'], JSON.stringify({
+        schemaVersion: 1,
+        title: this.form.title,
+        description: this.form.description,
+        acceptanceCriteria: this.form.acceptanceCriteria,
+        attachments: this.form.storyAttachments.flatMap((entry) => entry ? [entry.sourcePath] : [])
+      }), controller.signal);
+      if (!this.enhancementIsCurrent(controller, revision)) return;
+      const proposed = result.status === 'proposed' && typeof result.proposal?.description === 'string'
+        ? result.proposal.description.trim() : '';
+      if (!proposed) throw new Error('Copilot did not return a proposed Story description.');
+      this.enhancementRevision += 1;
+      this.update({ enhanceProposal: proposed, enhancing: false, enhanceError: null });
+    } catch (error) {
+      if (!this.enhancementIsCurrent(controller, revision)) return;
+      this.update({
+        enhancing: false,
+        enhanceError: `Copilot could not enhance this description: ${(error as Error).message}`
+      });
+    } finally {
+      if (this.enhancementController === controller) {
+        this.enhancementController = null;
+        if (!this.disposed && this.form.enhancing) {
+          this.update({ enhancing: false, enhanceError: null });
+        }
+      }
+    }
+  }
+
+  /**
+   * Resolve attachment paths through VS Code's native picker rather than accepting paths posted by
+   * the webview. A numbered slot replaces one item; the collection action fills empty slots first
+   * and then grows the bounded list.
+   */
+  private async pickStoryAttachments(replaceIndex: number | null): Promise<void> {
+    if (this.form.shape !== 'story' || this.form.busy) return;
+    this.invalidateEnhancement();
+    const selected = await vscode.window.showOpenDialog({
+      title: replaceIndex === null ? 'Choose supporting Story documents' : `Choose document ${replaceIndex + 1}`,
+      openLabel: replaceIndex === null ? 'Attach documents' : 'Attach document',
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: replaceIndex === null,
+      ...(this.form.targetRepository ? { defaultUri: vscode.Uri.file(this.form.targetRepository) } : {}),
+      filters: {
+        Documents: ['md', 'markdown', 'txt', 'pdf', 'doc', 'docx', 'rtf', 'csv', 'json', 'yaml', 'yml'],
+        Images: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
+      }
+    });
+    if (!selected?.length || this.disposed) return;
+    const drafts: StoryAttachmentDraft[] = selected.map((uri) => ({
+      sourcePath: uri.fsPath,
+      displayName: path.basename(uri.fsPath)
+    })).filter((entry) => Boolean(entry.sourcePath && entry.displayName));
+    if (!drafts.length) return;
+
+    const merged = mergeStoryAttachments(this.form.storyAttachments, drafts, replaceIndex);
+    if (merged.duplicates || merged.overflow) {
+      const messages = [
+        ...(merged.duplicates ? [`${merged.duplicates} duplicate document selection${merged.duplicates === 1 ? ' was' : 's were'} ignored.`] : []),
+        ...(merged.overflow ? [`Only four Story documents can be attached; ${merged.overflow} selection${merged.overflow === 1 ? ' was' : 's were'} not added.`] : [])
+      ];
+      void vscode.window.showWarningMessage(messages.join(' '));
+    }
+    this.update({ storyAttachments: merged.attachments, enhanceError: null, error: null });
   }
 
   private replaceReference(index: number, entry: ReferenceRepositoryDraft, render = true): void {
@@ -657,7 +801,7 @@ export class IntakePanel {
 
   private async start(): Promise<void> {
     // Re-checked here rather than trusted from the page: the disabled button is a courtesy.
-    if (intakeProblems(this.form).length || this.form.busy) return;
+    if (intakeProblems(this.form).length || this.form.busy || this.form.enhancing) return;
     if (this.client.repository !== this.form.targetRepository) {
       this.update({
         error: `The active repository changed to ${this.client.repository}. Close this form and start again so the target is explicit.`
@@ -712,6 +856,7 @@ export class IntakePanel {
 
   dispose(): void {
     if (this.disposed) return;
+    this.invalidateEnhancement();
     this.disposed = true;
     this.cancelBasePreflight();
     if (IntakePanel.current === this) IntakePanel.current = null;

@@ -13,11 +13,33 @@ related:
   - epics-and-planning
   - pins
   - work-intervals
-version: 6
+version: 7
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
 VS Code starts every Story in a dedicated linked Git worktree and opens that folder after the governed start commit lands. The checkout used to launch Start Work is never switched or cleaned, so a cancelled or unfinished Story can keep its uncommitted files while another Work ID starts independently. The CLI automatically uses the same isolation whenever its launch checkout is dirty; pass `--isolated-worktree` to request it from a clean checkout too. A failure before a durable Story exists removes only the disposable worktree and temporary branch. If a governed commit already exists, recovery retains the worktree and reports its exact path instead of deleting evidence.
+
+For manual intake, the VS Code User Story form provides four optional local-document slots. Each
+selected file is captured before mutation, copied under
+`singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`, and recorded with its SHA-256 and metadata in
+`documents.json`. Those exact bytes, the manifest, `source.json`, `USER-STORY.md`, and the workflow
+state land in the single opening governed commit and are pushed together. Intake and later phase
+prompts consume the active hash-verified document evidence; they do not rely on the original laptop
+path. Embedded instructions remain untrusted evidence, and normal configured size, MIME, and
+resource limits still apply.
+
+The larger manual-description editor also offers **Enhance description**. It sends a bounded JSON
+draft and the selected file references through private standard input to
+`singularity-flow story enhance-description --draft-stdin --json`. The configured model receives a
+single tool-free prompt and returns an advisory proposed description. The proposal replaces only the
+editable text after the user explicitly chooses **Apply proposal**; until then the authored draft
+and proposal are shown separately, and **Discard** leaves the draft unchanged. Enhancement never saves the draft, starts a Story, chooses a
+workflow, writes to Git, or changes lifecycle state. Binary files contribute verified metadata but
+are not interpreted during enhancement. The equivalent shell form is:
+
+```sh
+singularity-flow story enhance-description --draft-stdin --json < story-draft.json
+```
 
 ## Built-in Story-start readiness
 
@@ -48,7 +70,7 @@ Use this topic when the current goal matches **starting work**. Start in a gover
 
 ## Use it from each surface
 
-- **Shell:** `sflow start`, `sflow story`. Run `singularity-flow start --help` for the exact forms supported by this build.
+- **Shell:** `sflow start`, `sflow story`. Run `singularity-flow start --help` or `singularity-flow story --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-start`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **My Work and Workspaces**. The extension renders engine results; it does not independently decide lifecycle state.
 

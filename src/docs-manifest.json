@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6e9f323586fa0f4837701309623ffff08f5eac4e",
+  "sourceCommit": "de20d4f0b43c4bddb9ce4e034cf18c57eefada75",
   "topicCount": 67,
-  "contentSha256": "c0587d356fd3faa704220f066d3e4f4f358edd132e20d2985fc41732ea2d25db",
+  "contentSha256": "f1a3d8fefcfe463d28c43d8c32872c2114aa8c519ed6b0a043bd1455ceb1aa15",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -464,8 +464,8 @@
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 6,
-      "sha256": "17d16588241c63d04cf96a759c5fa369d760efdb181b0a5302e537b6d8c75fe8",
+      "version": 7,
+      "sha256": "89b270c240dcb51e993533ffb2849afe2fe7484f84960cdfacdb0c66f786c5c1",
       "routingSha256": "0a25dd7e16419886423f1b0b153555c1815ea66b67a025cb1a279f96f3511c59",
       "file": "starting-work.md"
     },

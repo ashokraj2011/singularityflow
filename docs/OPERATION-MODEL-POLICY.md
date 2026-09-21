@@ -515,6 +515,7 @@ Every public operation is classified before its implementation module is importe
 | story.checks | mutation | never | — | — |
 | story.converge | mutation | never | — | — |
 | story.converge.assisted | mutation | optional | story.converge | copilot-cli |
+| story.enhance-description | read | required | — | copilot-cli |
 | story.fetch | mutation | never | — | — |
 | story.finalize | mutation | never | — | — |
 | story.inbox | read | never | — | — |

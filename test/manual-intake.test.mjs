@@ -6,6 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { loadDefinition } from '../src/config.mjs';
+import { renderActiveStoryEvidence } from '../src/evidence-context.mjs';
+import { loadStoryAggregate } from '../src/state-stores.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -49,6 +52,7 @@ test('manual story intake commits complete details and every supplied document w
   const intake = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-input-'));
   await writeFile(path.join(intake, 'brief.md'), '# Brief\nCustomer research and workflow evidence.\n');
   await writeFile(path.join(intake, 'extra.txt'), 'Additional stakeholder notes.\n');
+  await writeFile(path.join(intake, 'constraints.markdown'), '# Constraints\nPreserve the approved invoice fields.\n');
   await writeFile(path.join(intake, 'story.yml'), YAML.stringify({
     title: 'Add invoice export',
     user: 'Finance analyst',
@@ -72,6 +76,7 @@ test('manual story intake commits complete details and every supplied document w
     'start', 'WORK-123', '--story-file', path.join(intake, 'story.yml'),
     '--from-branch', 'main',
     '--document', path.join(intake, 'extra.txt'),
+    '--document', path.join(intake, 'constraints.markdown'),
     '--document-url', 'https://example.com/context'
   ]);
 
@@ -90,13 +95,38 @@ test('manual story intake commits complete details and every supplied document w
   assert.match(story, /Unauthorized users are denied/);
 
   const catalog = JSON.parse(await readFile(path.join(workRoot, 'documents.json'), 'utf8'));
-  assert.equal(catalog.documents.length, 4);
+  assert.equal(catalog.documents.length, 5);
   assert.equal(catalog.documents[0].label, 'Research brief');
   assert.equal(catalog.documents[0].sha256.length, 64);
   assert.equal(catalog.documents[1].kind, 'figma');
   assert.equal(catalog.documents[1].url, 'https://www.figma.com/design/invoice-export');
   assert.equal(catalog.documents[2].sourceName, 'extra.txt');
-  assert.equal(catalog.documents[3].url, 'https://example.com/context');
+  assert.equal(catalog.documents[3].sourceName, 'constraints.markdown');
+  assert.equal(catalog.documents[3].mimeType, 'text/markdown');
+  assert.equal(catalog.documents[4].url, 'https://example.com/context');
+
+  // Repeated --document operands are not presentation-only filenames. Each exact byte sequence is
+  // copied into the canonical Story input tree and included in the same opening Git commit.
+  const committedFiles = catalog.documents.filter((record) => record.type === 'file');
+  for (const record of committedFiles) {
+    assert.equal(
+      run('git', ['show', `HEAD:${record.path}`], root).stdout,
+      await readFile(path.join(root, record.path), 'utf8')
+    );
+  }
+
+  // Intake and later phase prompts use the same catalog-backed evidence renderer. It reads the
+  // committed copies, verifies their recorded hashes, and exposes the bytes as untrusted evidence
+  // rather than asking a model to infer content from attachment names.
+  const definition = await loadDefinition(root);
+  const aggregate = await loadStoryAggregate(root, definition, 'WORK-123');
+  const evidence = await renderActiveStoryEvidence(root, definition, aggregate);
+  assert.match(evidence.markdown, /Additional stakeholder notes\./);
+  assert.match(evidence.markdown, /Preserve the approved invoice fields\./);
+  assert.deepEqual(
+    evidence.entries.filter((entry) => entry.type === 'file').map((entry) => entry.sha256),
+    committedFiles.map((record) => record.sha256)
+  );
 
   const log = run('git', ['log', '--format=%s'], root).stdout;
   assert.match(log, /\[WORK-123\]\[init\] start feature workflow/);
@@ -104,7 +134,8 @@ test('manual story intake commits complete details and every supplied document w
     'Story intake includes every initial document in the opening publication');
   const workflow = JSON.parse(await readFile(path.join(workRoot, 'workflow.json'), 'utf8'));
   const opening = workflow.publicationProjections.find((entry) => entry.event?.type === 'binding');
-  assert.deepEqual(opening.event.payload.documentIds, ['DOC-001', 'DOC-002', 'DOC-003', 'DOC-004']);
+  assert.deepEqual(opening.event.payload.documentIds,
+    ['DOC-001', 'DOC-002', 'DOC-003', 'DOC-004', 'DOC-005']);
 
   const guide = flow(root, ['guide']).stdout;
   assert.match(guide, /WORK-123 — Feature \(feature\)/);

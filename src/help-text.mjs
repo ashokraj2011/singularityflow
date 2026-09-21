@@ -725,6 +725,7 @@ Usage:
   singularity-flow epic drift observe|adopt|restore-plan [--epic EPIC-KEY]
   singularity-flow story branch create <BRANCH> --parent <STORY-KEY>
   singularity-flow story branch attach|status|promote --parent <STORY-KEY> [--mode pr|direct]
+  singularity-flow story enhance-description --draft-stdin [--json]
   singularity-flow story start <STORY-KEY> --from-branch BRANCH [--target-url AUTHORIZED-URL] [--selection-receipt TOKEN] [--fetch]
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
   singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH [--json]

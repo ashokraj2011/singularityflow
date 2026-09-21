@@ -2782,6 +2782,11 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   await intakePanel.post({ type: 'field', field: 'title', value: 'Area operator' });
   await intakePanel.post({ type: 'field', field: 'description', value: 'Add an operator called area' });
   await intakePanel.post({ type: 'field', field: 'acceptanceCriteria', value: 'Testing proves the result' });
+  const supportingDocument = path.join(base, 'story-brief.markdown');
+  await writeFile(supportingDocument, '# Story brief\nThe area operator accepts two dimensions.\n');
+  registered.pickedFile = supportingDocument;
+  await intakePanel.post({ type: 'attachmentsPick' });
+  assert.match(intakePanel.webview.html, /story-brief\.markdown/);
   await intakePanel.post({ type: 'start' });
 
   const openFolder = await until(() => registered.executedCommands.find(
@@ -2798,6 +2803,16 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   assert.equal(run('git', ['branch', '--show-current'], { cwd: storyRoot }).stdout.trim(), 'STORY-UI');
   assert.equal(run('git', ['log', '-1', '--pretty=%s'], { cwd: storyRoot }).stdout.trim(),
     '[STORY-UI][init] start feature workflow');
+  const documentCatalog = JSON.parse(await readFile(
+    path.join(storyRoot, 'singularity/work-items/STORY-UI/documents.json'), 'utf8'
+  ));
+  assert.equal(documentCatalog.documents.length, 1);
+  assert.equal(documentCatalog.documents[0].sourceName, 'story-brief.markdown');
+  assert.equal(documentCatalog.documents[0].mimeType, 'text/markdown');
+  assert.match(
+    run('git', ['show', `HEAD:${documentCatalog.documents[0].path}`], { cwd: storyRoot }).stdout,
+    /area operator accepts two dimensions/
+  );
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
   assert.equal(
     run('git', ['ls-remote', 'origin', 'refs/heads/STORY-UI'], { cwd: root }).stdout.split(/\s+/)[0],

@@ -27,6 +27,7 @@ const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 const {
   invokeCli, CliError, CliTimeoutError, terminalCommand,
   FACTORY_RESET_TRANSACTION_TIMEOUT_MS,
+  STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory, localGit, remoteGit,
   nonInteractiveGitEnvironment, resolveWindowsGitExecutable, resolvePosixGitExecutable,
@@ -456,6 +457,26 @@ test('a timed-out invocation never exposes or advertises replay of ephemeral aut
       assert.match(error.message, /cannot be safely replayed/);
       assert.doesNotMatch(error.message, new RegExp(secret));
       assert.doesNotMatch(error.message, /Run this exact command/);
+      return true;
+    }
+  );
+});
+
+test('Story document paths are redacted and suppress timeout replay', async () => {
+  const privatePath = '/Users/example/Private Briefs/strategy.md';
+  assert.deepEqual(formatCliArgsForDisplay([
+    'start', 'WRK-17', '--document', privatePath
+  ]), 'start WRK-17 --document [redacted-path]');
+  await assert.rejects(
+    invoke({
+      args: ['start', 'WRK-17', '--document', privatePath],
+      timeoutMs: 20,
+      spawnImpl: fakeSpawn({ stdout: '{}', delayMs: 5_000 })
+    }),
+    (error) => {
+      assert.ok(error instanceof CliTimeoutError);
+      assert.equal(error.terminalCommand, null);
+      assert.doesNotMatch(error.message, /Private Briefs|strategy\.md/);
       return true;
     }
   );
@@ -1504,6 +1525,18 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[13], 120_000);
   assert.equal(timeouts.length, 14,
     'cancellable machine-wide reinitialization and destructive reset apply have no host kill timer');
+});
+
+test('Story description enhancement leaves cleanup headroom beyond its model deadline', () => {
+  const client = new SingularityFlowClient({
+    location: { executable: 'node', cli: '/cli.mjs', source: 'setting' },
+    repository: '/repo'
+  });
+  assert.equal(
+    client.timeoutFor(['story', 'enhance-description', '--draft-stdin', '--json']),
+    STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS
+  );
+  assert.ok(STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS > 120_000);
 });
 
 test('phases are read in declared order with the state each is in', () => {

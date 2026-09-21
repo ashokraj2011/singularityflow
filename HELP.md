@@ -1243,7 +1243,12 @@ singularity-flow story start MOB-123 --from-branch main
 ### Story without Jira
 
 Choose **Lifecycle → Start work → Story → Manual**. Supply a Work ID, title,
-description, acceptance criteria, and any files or URLs. The same immutable
+description, acceptance criteria, and up to four optional local supporting
+documents. The larger description editor includes **Enhance description**. That
+button sends a bounded JSON draft through private standard input to the configured
+model with tools disabled, then places the advisory proposed wording back into the
+editor for review. It never saves the draft, starts a Story, writes to Git, or
+changes lifecycle state. The same immutable
 workflow selection, branch state, agents, artifacts, approvals, and final
 spec-to-code comparison apply; only the tracker snapshot is absent.
 
@@ -1254,6 +1259,18 @@ singularity-flow start WORK-123 --title "Add customer search" \
   --acceptance-criteria "Exact email returns the matching customer"
 # Copilot asks the same questions
 /sf-start WORK-123
+```
+
+When the Story is created, selected files are copied under
+`singularity/work-items/<WORK-ID>/inputs/DOC-nnn/` and recorded with their SHA-256
+and metadata in `documents.json`. The exact document bytes and manifest are part
+of the opening governed commit and push. Intake and later phase prompts consume
+the active hash-verified evidence, so they do not depend on the original machine
+path. The model-assisted wording command can also be called directly; it returns
+a proposal only:
+
+```bash
+singularity-flow story enhance-description --draft-stdin --json < story-draft.json
 ```
 
 ### New repository built from existing repositories
@@ -3461,6 +3478,7 @@ singularity-flow secrets protect [--force]
 singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--no-push]
 singularity-flow story branch create|attach|status|promote
 singularity-flow story interval status|checkpoint|reconcile|escalate
+singularity-flow story enhance-description --draft-stdin [--json]
 singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH [--json]
 singularity-flow story references list|verify|materialize [--work-id WORK-ID] [--json]
 singularity-flow story start|inbox|fetch|checks|finalize

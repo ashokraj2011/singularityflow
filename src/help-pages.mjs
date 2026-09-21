@@ -1860,6 +1860,12 @@ const PAGES = Object.freeze({
   story: {
     summary: 'Story-level operations: branches, intervals, convergence, intent amendments, checks, and finalisation.',
     description: [
+      'Before Story creation, enhance-description accepts one bounded JSON draft only on standard',
+      'input and asks the configured model for an advisory description proposal with tools disabled.',
+      'The result is shown separately from the unchanged draft until the user applies or discards it.',
+      'It never saves a draft, starts a Story, selects a workflow,',
+      'writes a repository file, commits, pushes, or changes lifecycle state.',
+      '',
       'New Stories carry an immutable workflow snapshot containing the exact effective policy,',
       'phase templates, and selected governed-agent bytes. The workflow show, verify, and drift',
       'actions inspect that closure without fetching a remote or changing lifecycle state.',
@@ -1868,7 +1874,12 @@ const PAGES = Object.freeze({
       'resolved at intake, the exact commit is pinned, and each laptop materializes a detached,',
       'ignored checkout. SFlow never creates branches, commits, or pushes in those repositories.'
     ],
+    options: [
+      ['--draft-stdin', 'For enhance-description, read the bounded schemaVersion 1 JSON draft privately from standard input.'],
+      ['--json', 'Emit the advisory proposal, source digests, attachment metadata, and model usage as structured JSON.']
+    ],
     examples: [
+      ['singularity-flow story enhance-description --draft-stdin --json < story-draft.json', 'Propose better wording without saving or starting the Story.'],
       ['singularity-flow story workflow show --work-id PAY-1', 'Show the accepted snapshot reference and closure summary.'],
       ['singularity-flow story workflow verify --work-id PAY-1 --json', 'Verify every content-addressed blob and the effective-policy fold.'],
       ['singularity-flow story workflow drift --work-id PAY-1', 'Compare pinned provenance with the locally approved configuration observation.'],

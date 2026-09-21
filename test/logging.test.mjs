@@ -317,6 +317,21 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
   }
 });
 
+test('CLI argv redaction keeps local Story document paths out of durable logging', () => {
+  const split = redactCommandArgv([
+    'start', 'WRK-1', '--document', '/Users/example/Private Briefs/strategy.md', '--json'
+  ]);
+  assert.deepEqual(split, [
+    'start', 'WRK-1', '--document', '[redacted-path]', '--json'
+  ]);
+  const equals = redactCommandArgv([
+    'start', 'WRK-1', '--document=C:\\Users\\example\\Private Briefs\\strategy.md'
+  ]);
+  assert.deepEqual(equals, [
+    'start', 'WRK-1', '--document=[redacted-path]'
+  ]);
+});
+
 test('revision attachment argv never logs feedback prose or local file paths', () => {
   const redacted = redactCommandArgv([
     'revision', 'attachments', 'preview', '--file', '/private/design-review.md',

@@ -343,6 +343,14 @@ export function redactCommandArgv(argv) {
   let secretIntervened = false;
   for (const [index, raw] of source.entries()) {
     const token = String(raw);
+    if (String(source[index - 1] ?? '').toLowerCase() === '--document') {
+      projected.push('[redacted-path]');
+      continue;
+    }
+    if (/^--document=/i.test(token)) {
+      projected.push(`${token.slice(0, token.indexOf('=') + 1)}[redacted-path]`);
+      continue;
+    }
     // Feedback prose and local attachment paths are private evidence, never activity-log inputs.
     // This projection runs even when parsing or registration later refuses the invocation.
     if (revisionAttachment && ['--file', '--feedback'].includes(String(source[index - 1]))) {

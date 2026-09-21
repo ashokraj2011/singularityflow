@@ -311,7 +311,7 @@ const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'propose', 'deci
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
 const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 'inspect']);
 const STORY_SUBCOMMANDS = Object.freeze([
-  'converge', 'interval', 'branch', 'intent-amendment', 'workflow', 'references',
+  'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'workflow', 'references',
   ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
@@ -695,6 +695,12 @@ function resolveMcpOperation(definition, positionals, options) {
  */
 function resolveStoryOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'enhance-description') {
+    return operation('story.enhance-description', 'required', {
+      classification: 'read', output: definition.output,
+      externalDependencies: ['copilot-cli']
+    });
+  }
   if (subcommand === 'converge') {
     return optionBoolean(options, 'assisted')
       ? optional('story.converge.assisted', 'story.converge', definition)
@@ -1596,6 +1602,10 @@ export function operationCatalog() {
     // the catalog that `doctor`, the tripwires and the model-policy audit all read.
     ...STORY_READ_SUBCOMMANDS.map((name) => never(`story.${name}`, storyDefinition, 'read')),
     ...['converge', ...STORY_MUTATION_SUBCOMMANDS].map((name) => never(`story.${name}`, storyDefinition, 'mutation')),
+    operation('story.enhance-description', 'required', {
+      classification: 'read', output: storyDefinition.output,
+      externalDependencies: ['copilot-cli']
+    }),
     optional('story.converge.assisted', 'story.converge', storyDefinition),
     ...STORY_INTERVAL_ACTIONS
       .map((name) => never(`story.interval.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),

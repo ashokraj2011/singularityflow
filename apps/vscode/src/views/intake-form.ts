@@ -13,6 +13,7 @@
  * The fields then follow from those two answers. A form that shows all six sets at once is a form
  * nobody reads.
  */
+import path from 'node:path';
 import { escape, icon } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
@@ -47,6 +48,76 @@ export interface ReferenceRepositoryDraft {
   message?: string | null;
 }
 
+/** One local document selected as supporting context for a new Story. */
+export interface StoryAttachmentDraft {
+  /** Host-resolved path. The webview can display it, but can never supply or edit it. */
+  sourcePath: string;
+  displayName: string;
+}
+
+/** Four visible slots make the expected 3–4 document intake possible without extra setup. */
+export const MIN_STORY_ATTACHMENT_SLOTS = 4;
+/** Intake accepts the expected set of up to four primary supporting documents. */
+export const MAX_STORY_ATTACHMENT_SLOTS = 4;
+
+export function emptyStoryAttachmentSlots(): Array<StoryAttachmentDraft | null> {
+  return Array.from({ length: MIN_STORY_ATTACHMENT_SLOTS }, () => null);
+}
+
+export interface StoryAttachmentMerge {
+  attachments: Array<StoryAttachmentDraft | null>;
+  duplicates: number;
+  overflow: number;
+}
+
+function storyAttachmentPathKey(sourcePath: string, platform: NodeJS.Platform): string {
+  const normalized = platform === 'win32'
+    ? path.win32.normalize(sourcePath) : path.normalize(sourcePath);
+  return platform === 'win32' ? normalized.toLocaleLowerCase('en-US') : normalized;
+}
+
+/** Merge host-picked files into four slots without silently dropping or duplicating a selection. */
+export function mergeStoryAttachments(
+  current: Array<StoryAttachmentDraft | null>,
+  selected: StoryAttachmentDraft[],
+  replaceIndex: number | null = null,
+  platform: NodeJS.Platform = process.platform
+): StoryAttachmentMerge {
+  const attachments = current.slice(0, MAX_STORY_ATTACHMENT_SLOTS);
+  while (attachments.length < MIN_STORY_ATTACHMENT_SLOTS) attachments.push(null);
+  let duplicates = 0;
+  let overflow = 0;
+
+  if (replaceIndex !== null) {
+    const candidate = selected[0];
+    if (!candidate) return { attachments, duplicates, overflow };
+    const occupied = new Set(attachments.flatMap((entry, index) =>
+      entry && index !== replaceIndex ? [storyAttachmentPathKey(entry.sourcePath, platform)] : []));
+    if (occupied.has(storyAttachmentPathKey(candidate.sourcePath, platform))) duplicates += 1;
+    else attachments[replaceIndex] = candidate;
+    overflow += Math.max(0, selected.length - 1);
+    return { attachments, duplicates, overflow };
+  }
+
+  const occupied = new Set(attachments.flatMap((entry) =>
+    entry ? [storyAttachmentPathKey(entry.sourcePath, platform)] : []));
+  for (const candidate of selected) {
+    const key = storyAttachmentPathKey(candidate.sourcePath, platform);
+    if (occupied.has(key)) {
+      duplicates += 1;
+      continue;
+    }
+    const empty = attachments.indexOf(null);
+    if (empty < 0) {
+      overflow += 1;
+      continue;
+    }
+    attachments[empty] = candidate;
+    occupied.add(key);
+  }
+  return { attachments, duplicates, overflow };
+}
+
 /** Something already started, so nobody starts it twice. */
 export interface InFlight {
   shape: Shape;
@@ -76,6 +147,8 @@ export interface IntakeForm {
   acceptanceCriteria: string;
   /** Structured read-only source repositories. The engine revalidates every claim at start. */
   referenceRepositories: ReferenceRepositoryDraft[];
+  /** Local documents staged in the UI for the governed Story-start attachment flow. */
+  storyAttachments: Array<StoryAttachmentDraft | null>;
   /** Exact browser origin pinned for the POC workflow. */
   targetUrl: string;
   profile: string | null;
@@ -118,6 +191,12 @@ export interface IntakeForm {
   basePreflightRefreshRecommended: boolean;
   inFlight: InFlight[];
   busy: boolean;
+  /** A user-requested Copilot description proposal is in flight. */
+  enhancing: boolean;
+  /** Advisory Copilot text awaiting an explicit Apply or Discard decision. */
+  enhanceProposal: string | null;
+  /** Enhancement failures stay beside the control that caused them. */
+  enhanceError: string | null;
   error: string | null;
   /** Exact, safely quoted terminal recovery for a CLI timeout. */
   recoveryCommand: string | null;
@@ -140,12 +219,14 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   acceptanceCriteria: '', targetUrl: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
   availableStoryWorkflows: [],
   referenceRepositories: [],
+  storyAttachments: emptyStoryAttachmentSlots(),
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], basePreflightRefreshRecommended: false,
   workflowReason: null, workflowCatalogReason: null,
   jiraConfigured: false, jiraReason: null,
-  githubConfigured: true, githubReason: null, inFlight: [], busy: false, error: null,
+  githubConfigured: true, githubReason: null, inFlight: [], busy: false,
+  enhancing: false, enhanceProposal: null, enhanceError: null, error: null,
   recoveryCommand: null, recoveryRouteCommand: null
 };
 
@@ -321,15 +402,18 @@ export function intakeCommand(form: IntakeForm): string[] {
     .flatMap((entry) => ['--reference-repository', `${entry.id}=${entry.repository}`,
       '--reference-branch', `${entry.id}=${entry.branch}`]);
   const target = form.workType === 'poc-workflow' ? ['--target-url', form.targetUrl.trim()] : [];
+  const attachments = form.storyAttachments.flatMap((entry) =>
+    entry ? ['--document', entry.sourcePath] : []);
   const isolated = ['--isolated-worktree'];
-  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references];
+  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
+    ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
   if (form.tracker === 'github') {
     return ['start', identifier, '--json', '--fetch', '--github', form.key.trim(),
-      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references];
+      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
   }
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
-    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references];
+    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
   if (form.acceptanceCriteria.trim()) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
@@ -477,10 +561,30 @@ function fieldsHtml(form: IntakeForm): string {
       <label>Title <input type="text" value="${escape(form.title)}" data-field="title"
         placeholder="What this is called" size="42"></label>
     </p>
-    <p>
+    ${form.shape === 'story' ? `<div class="story-description-editor">
+      <label class="field full"><span>What is being asked for</span>
+        <textarea data-field="description" rows="8" cols="64" class="story-description">${escape(form.description)}</textarea></label>
+      <p class="card-foot">
+        <button type="button" class="secondary" data-enhance-description${form.enhancing || form.busy || !form.description.trim() ? ' disabled' : ''}${form.enhancing ? ' aria-busy="true"' : ''}>
+          ${form.enhancing ? 'Enhancing…' : 'Enhance with Copilot'}
+        </button>
+        <span class="muted">Returns a separate proposal for review. Your draft stays unchanged until you apply it.</span>
+      </p>
+      ${form.enhancing ? '<p class="meta" role="status" aria-live="polite">Copilot is preparing a clearer Story description…</p>' : ''}
+      ${form.enhanceProposal ? `<div class="notice" data-enhancement-proposal>
+        <strong>Copilot proposal</strong>
+        <textarea rows="8" class="story-description" readonly>${escape(form.enhanceProposal)}</textarea>
+        <p class="card-foot">
+          <button type="button" data-enhance-apply>Apply proposal</button>
+          <button type="button" class="secondary" data-enhance-discard>Discard</button>
+          <span class="muted">Applying replaces the draft above; discarding leaves it unchanged.</span>
+        </p>
+      </div>` : ''}
+      ${form.enhanceError ? `<div class="notice error" role="alert">${escape(form.enhanceError)}</div>` : ''}
+    </div>` : `<p>
       <label>What is being asked for<br>
         <textarea data-field="description" rows="3" cols="64">${escape(form.description)}</textarea></label>
-    </p>
+    </p>`}
     ${form.shape === 'epic' ? `
     <p>
       <label>What would make this a success<br>
@@ -709,6 +813,45 @@ function referenceRepositoriesHtml(form: IntakeForm): string {
   </section>`;
 }
 
+/** Supporting Story documents are chosen by the extension host; the page never supplies a path. */
+function storyAttachmentsHtml(form: IntakeForm): string {
+  if (form.shape !== 'story') return '';
+  const visible = form.storyAttachments.slice(0, MAX_STORY_ATTACHMENT_SLOTS);
+  const slots = visible.length >= MIN_STORY_ATTACHMENT_SLOTS
+    ? visible
+    : [...visible, ...Array.from(
+      { length: MIN_STORY_ATTACHMENT_SLOTS - visible.length }, () => null
+    )];
+  const selectedCount = slots.filter((entry) => entry !== null).length;
+  return `<section>
+    <h2>${icon('document')}Supporting documents <span class="muted">(optional)</span></h2>
+    <p class="question">Choose the requirements, designs, examples, or other source documents that
+      should travel with this Story and be available as grounded Copilot context. Choosing a file
+      only stages it locally. <strong>Enhance with Copilot</strong> may use bounded text from selected
+      text documents; Story start copies the exact files and their SHA-256 manifest into the opening
+      governed Git commit and push.</p>
+    <div class="attachment-slots" aria-label="Story supporting document slots">
+      ${slots.map((entry, index) => `<div class="card attachment-slot" data-attachment-slot="${index}">
+        <div class="card-head">
+          <strong>Document ${index + 1}</strong>
+          ${entry ? '<span class="pill ok">Selected</span>' : '<span class="pill">Empty</span>'}
+        </div>
+        ${entry ? `<p><strong>${escape(entry.displayName)}</strong></p>`
+    : '<p class="muted">No document selected.</p>'}
+        <p class="card-foot">
+          <button type="button" class="secondary" data-attachment-pick="${index}">${entry ? 'Replace file' : 'Choose file'}</button>
+          ${entry ? `<button type="button" class="secondary" data-attachment-clear="${index}">Clear</button>` : ''}
+        </p>
+      </div>`).join('')}
+    </div>
+    <p class="card-foot">
+      <button type="button" class="secondary" data-attachments-pick${selectedCount >= MAX_STORY_ATTACHMENT_SLOTS ? ' disabled' : ''}>Choose documents…</button>
+    </p>
+    <p class="muted">Four slots are available. File paths come from VS Code's native picker and
+      cannot be typed or posted by webview content.</p>
+  </section>`;
+}
+
 /** A workflow reads left-to-right, while wrapping whole steps together on narrow editor columns. */
 function phaseRailHtml(phases: string[]): string {
   const label = `Ordered phases: ${phases.join(', ')}`;
@@ -782,6 +925,7 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
   ${profileHtml(form)}
   ${storyWorkflowHtml(form)}
   ${pocReadinessHtml(form)}
+  ${storyAttachmentsHtml(form)}
   ${referenceRepositoriesHtml(form)}
   ${baseBranchHtml(form)}
   ${inFlightHtml(form)}
@@ -802,7 +946,7 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
       ${recoveryRoute.copyable ? '' : '<p>Replace the shown placeholders before running this command.</p>'}
       ${form.shape === 'story' ? '<button type="button" class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
     <p>
-      <button type="button" data-submit="start" ${problems.length || form.busy ? 'disabled' : ''}>
+      <button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
         ${form.busy ? 'Starting…' : `Start this ${escape(noun.toLowerCase())}`}
       </button>
     </p>
@@ -821,6 +965,18 @@ export const INTAKE_SCRIPT = `
     if (removeReference) return vscode.postMessage({ type: 'referenceRemove', index: Number(removeReference.dataset.referenceRemove) });
     const checkReference = event.target.closest('[data-reference-check]');
     if (checkReference) return vscode.postMessage({ type: 'referenceCheck', index: Number(checkReference.dataset.referenceCheck) });
+    const pickAttachment = event.target.closest('[data-attachment-pick]');
+    if (pickAttachment) return vscode.postMessage({ type: 'attachmentPick', index: Number(pickAttachment.dataset.attachmentPick) });
+    const clearAttachment = event.target.closest('[data-attachment-clear]');
+    if (clearAttachment) return vscode.postMessage({ type: 'attachmentClear', index: Number(clearAttachment.dataset.attachmentClear) });
+    const pickAttachments = event.target.closest('[data-attachments-pick]');
+    if (pickAttachments) return vscode.postMessage({ type: 'attachmentsPick' });
+    const enhanceDescription = event.target.closest('[data-enhance-description]');
+    if (enhanceDescription) return vscode.postMessage({ type: 'enhanceDescription' });
+    const applyEnhancement = event.target.closest('[data-enhance-apply]');
+    if (applyEnhancement) return vscode.postMessage({ type: 'enhanceApply' });
+    const discardEnhancement = event.target.closest('[data-enhance-discard]');
+    if (discardEnhancement) return vscode.postMessage({ type: 'enhanceDiscard' });
     const workflowRefresh = event.target.closest('[data-workflow-refresh]');
     if (workflowRefresh) return vscode.postMessage({ type: 'workflowRefresh' });
     const target = event.target.closest('[data-submit]');
@@ -847,6 +1003,13 @@ export const INTAKE_SCRIPT = `
       index: Number(event.target.dataset.referenceIndex), field: event.target.dataset.referenceField,
       value: event.target.value });
     const field = event.target.dataset?.field;
+    if (['title', 'description', 'acceptanceCriteria'].includes(field)) {
+      document.querySelector('[data-enhancement-proposal]')?.remove();
+    }
+    if (field === 'description') {
+      const enhance = document.querySelector('[data-enhance-description]');
+      if (enhance && !enhance.hasAttribute('aria-busy')) enhance.disabled = !event.target.value.trim();
+    }
     if (field) vscode.postMessage({ type: 'draft', field, value: event.target.value });
   });
 `;

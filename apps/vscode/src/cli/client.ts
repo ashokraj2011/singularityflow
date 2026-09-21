@@ -12,7 +12,7 @@ import path from 'node:path';
 import {
   CAPABILITY_AUTHORITY_TIMEOUT_MS, CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, VALIDATION_TIMEOUT_MS,
   FACTORY_RESET_TRANSACTION_TIMEOUT_MS, WORKSPACE_MUTATION_TIMEOUT_MS, WORK_START_TIMEOUT_MS,
-  WORLD_MODEL_TIMEOUT_MS,
+  STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
   invokeCli, type OutputStream
 } from './runner.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
@@ -184,6 +184,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'return') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
   if (args[0] === 'recover') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
   if (args[0] === 'story' && args[1] === 'return') return 'read';
+  if (args[0] === 'story' && args[1] === 'enhance-description') return 'read';
   if (args[0] === 'story' && args[1] === 'references') {
     return (args[2] ?? 'list') === 'materialize' ? 'mutation' : 'read';
   }
@@ -534,6 +535,9 @@ export class SingularityFlowClient {
     }
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
     if (args[0] === 'repair' && args[1] === 'attempt') return VALIDATION_TIMEOUT_MS;
+    if (args[0] === 'story' && args[1] === 'enhance-description') {
+      return STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS;
+    }
     if (args[0] === 'start'
         || (['story', 'epic', 'initiative'].includes(args[0] ?? '') && args[1] === 'start')
         || (args[0] === 'workspace' && args[1] === 'branches' && hasOption(args, 'preflight-story'))) {

@@ -313,6 +313,12 @@ export const STYLE = `
     border: 1px solid var(--vscode-input-border, rgba(128,128,128,.35));
     min-width: 0; max-width: 100%; resize: vertical;
   }
+  .story-description-editor { width: min(100%, 52rem); }
+  textarea.story-description { width: 100%; min-height: 11rem; box-sizing: border-box; }
+  .attachment-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  .attachment-slots .attachment-slot { min-width: 0; margin: 0; }
+  .attachment-slot strong { overflow-wrap: anywhere; }
+  @media(max-width:640px) { .attachment-slots { grid-template-columns: 1fr; } }
   /* A choice between a few things, each of which needs a sentence to be choosable at all. A radio in
      a row of radios shows only names, and the names are never the difference. */
   .choices { display: grid; gap: .5rem; }

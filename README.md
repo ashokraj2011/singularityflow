@@ -1707,9 +1707,14 @@ Initiative-planning Jira writes are never immediate UI mutations. `initiative ji
 Manual intake has the same durable state-transfer behavior as Jira intake. Put the supplied story details in YAML or JSON; Markdown and plain-text briefs are also accepted. The structured format can capture the user, problem, desired outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, notes, and supporting documents. See `examples/manual-story.yml` for a complete example.
 
 In VS Code, choose **Lifecycle → Start intake** and leave **Create without
-Jira** selected. Enter a Work ID and title, optionally add Story context,
-source files, an exported folder, or reference URLs, then choose the workflow
-template and session governed agent. **Create Story branch** creates and publishes the
+Jira** selected. Enter a Work ID and title, use the larger description editor,
+and optionally choose as many as four local supporting documents. **Enhance
+description** sends the bounded draft through private standard input to the
+configured model with tools disabled and puts its advisory proposal back into
+the editor beside the unchanged draft for review. **Apply proposal** replaces the
+draft only after an explicit click; **Discard** preserves it. Enhancement never
+saves, starts, commits, or pushes anything.
+Then choose the workflow template and session governed agent. **Create Story branch** creates and publishes the
 same durable state as the CLI command below. If that Work-ID branch already
 exists, VS Code fetches and resumes it instead of creating a duplicate.
 
@@ -1721,7 +1726,15 @@ singularity-flow start WORK-123 \
   --document-url https://www.figma.com/design/example
 ```
 
-`--document` and `--document-url` may be repeated. A story file may also declare a `documents` list containing paths, URLs, optional labels, and kinds. Relative document paths are resolved from the story file's directory. The command creates and pushes `source.json`, a readable `USER-STORY.md`, the workflow state, and each copied document with a stable `DOC-nnn` identifier. It still asks the contributor to choose the workflow template; the phase agent is automatic interactively.
+`--document` and `--document-url` may be repeated. A story file may also declare a `documents` list containing paths, URLs, optional labels, and kinds. Relative document paths are resolved from the story file's directory. The command copies each file to `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`, records its SHA-256 and metadata in `documents.json`, and creates and pushes those exact bytes together with `source.json`, a readable `USER-STORY.md`, and the workflow state in the opening governed commit. Intake and later phase prompts receive this active hash-verified evidence, so another laptop does not need the original local path. It still asks the contributor to choose the workflow template; the phase agent is automatic interactively.
+
+The model-assisted wording operation is also available directly. Its schema-versioned JSON draft
+contains `title`, `description`, `acceptanceCriteria`, and an `attachments` path array; the result is
+only an advisory proposal and does not mutate a Story:
+
+```bash
+singularity-flow story enhance-description --draft-stdin --json < story-draft.json
+```
 
 When existing code is reference-only, attach its repository and branch without making it a writable
 Capability member:

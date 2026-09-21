@@ -89,6 +89,9 @@ import {
   materializeReferenceRepositories, parseReferenceRepositoryOptions, resolveReferenceRepositoryPins,
   storyReferenceRepositories, verifyReferenceRepositories
 } from '../reference-repositories.mjs';
+import {
+  enhanceStoryDescription, readStoryEnhancementStdin
+} from '../story-description-enhancement.mjs';
 
 function repositoryRemoteName(root, expectedUrl) {
   return remoteNames(root).find((name) => {
@@ -487,6 +490,20 @@ async function storyReturnCommand(positionals, options, root) {
 export async function storyCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
+  if (subcommand === 'enhance-description') {
+    if (!optionBoolean(options, 'draft-stdin')) {
+      throw new SingularityFlowError(
+        'Story description enhancement accepts the private draft only through --draft-stdin.',
+        { code: 'STORY_DESCRIPTION_ENHANCEMENT_STDIN_REQUIRED' }
+      );
+    }
+    const result = await enhanceStoryDescription(root, await readStoryEnhancementStdin());
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log('Enhanced Story description proposed for review. The proposal was not saved and no Story was started.');
+    console.log('');
+    console.log(result.proposal.description);
+    return;
+  }
   if (subcommand === 'return') return storyReturnCommand(positionals, options, root);
   if (subcommand === 'start') {
     const storyKey = requirePositional(positionals, 2, 'Jira Story key');

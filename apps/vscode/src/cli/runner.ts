@@ -31,6 +31,8 @@ export const CAPABILITY_AUTHORITY_TIMEOUT_MS = 15 * 60_000;
 export const WORKSPACE_MUTATION_TIMEOUT_MS = 30 * 60_000;
 /** Starting governed work may fetch, materialize, commit, and publish several repositories. */
 export const WORK_START_TIMEOUT_MS = 15 * 60_000;
+/** Story enhancement may perform authority reads before its separately bounded model invocation. */
+export const STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS = 5 * 60_000;
 /** Submission may run repository-native compile and browser suites; keep it above the seeded POC budget. */
 export const VALIDATION_TIMEOUT_MS = 30 * 60_000;
 /**
@@ -83,7 +85,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'accept-bundled-conflicts', 'accept-partial', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence',
-  'diagnose-only', 'disclose-provider-results', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
+  'diagnose-only', 'disclose-provider-results', 'draft-stdin', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
   'include-existing', 'independent', 'isolated-worktree',
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'preview', 'probe', 'propose', 'publish', 'push',
@@ -99,6 +101,8 @@ function displayIsSecretOptionKey(value: string): boolean {
   return DISPLAY_SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization)/i.test(key);
 }
 const DISPLAY_REMOTE_OPTION = /^--(?:repository|repository-url|reference-repository|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
+/** Local evidence paths are executable inputs but must not enter output, logs, or timeout replay. */
+const DISPLAY_PRIVATE_PATH_OPTION = /^--document$/i;
 const DISPLAY_CAPABILITY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DISPLAYABLE_REMOTE_PROTOCOLS = new Set([
   'http:', 'https:', 'ssh:', 'git+ssh:', 'ssh+git:', 'git:', 'file:', 'ftp:', 'ftps:'
@@ -290,6 +294,14 @@ export function redactCliArgsForDisplay(argv: readonly string[]): string[] {
   let secretIntervened = false;
   for (const [index, raw] of argv.entries()) {
     const token = String(raw);
+    if (DISPLAY_PRIVATE_PATH_OPTION.test(String(argv[index - 1] ?? ''))) {
+      safe.push('[redacted-path]');
+      continue;
+    }
+    if (/^--document=/i.test(token)) {
+      safe.push(`${token.slice(0, token.indexOf('=') + 1)}[redacted-path]`);
+      continue;
+    }
     if (token.length > MAX_DISPLAY_ARG_CHARS || DISPLAY_UNSAFE_CONTROLS.test(token)) {
       if (pending.length > 0) {
         safe.push(pending.pop() === 'remote' ? '[redacted-remote]' : '[redacted]');

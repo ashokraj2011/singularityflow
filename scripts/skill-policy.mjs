@@ -30,6 +30,7 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'process.run.model': /\bsingularity-flow\s+process\s+run\b[^\n`]*--allow-model\b/,
   'process.step.model': /\bsingularity-flow\s+process\s+step\b[^\n`]*--allow-model\b/,
   'spec.analyze.assisted': /\banalyze\s+--assisted\b/,
+  'story.enhance-description': /\bsingularity-flow\s+story\s+enhance-description\b/,
   'story.converge.assisted': /\bstory\s+converge\b[^\n`]*--assisted\b/,
   'wm.build': /\bwm\s+build\b/,
   'wm.ensure': /\bwm\s+ensure\b/,

@@ -10,6 +10,10 @@ import { stdin as input, stdout as output } from 'node:process';
 import { chmodSync, constants as fsConstants, existsSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
 import {
+  applyWorkflowImport, copyWorkflow as copyWorkflowDefinition, exportWorkflowBundle,
+  planWorkflowCopy, planWorkflowImport, readWorkflowBundle
+} from './workflow-transfer.mjs';
+import {
   activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
   configurationProposalCommitStatus,
   inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals,
@@ -8298,6 +8302,99 @@ async function workflowCommand(positionals, options) {
     printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
     return true;
   };
+
+  if (subcommand === 'export') {
+    const requested = [...positionals.slice(2), ...optionStrings(options, 'workflow')]
+      .flatMap((value) => String(value).split(','))
+      .map((value) => value.trim()).filter(Boolean);
+    const workflowIds = [...new Set(requested)];
+    if (!workflowIds.length) {
+      throw new SingularityFlowError(
+        'Choose at least one workflow with --workflow <ID>. Repeat --workflow to export several workflows.'
+      );
+    }
+    const outputPath = optionString(options, 'out');
+    if (!outputPath) throw new SingularityFlowError('Workflow export requires --out <FILE>.');
+    const absolute = path.resolve(root, outputPath);
+    const result = await withApprovedConfigurationRead(root, () =>
+      exportWorkflowBundle(root, workflowIds, absolute), { preferAuthority: true });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} to ${absolute}.`);
+    console.log(`  Bundle: ${result.bundleSha256 ?? result.sha256}`);
+    if (result.summary) {
+      console.log(`  Dependencies: ${result.summary.phases ?? 0} phases, `
+        + `${result.summary.artifactSets ?? 0} artifact sets, ${result.summary.templates ?? 0} templates, `
+        + `${result.summary.agents ?? 0} governed agents.`);
+    }
+    return;
+  }
+
+  if (subcommand === 'import') {
+    const inputPath = path.resolve(root, requirePositional(positionals, 2, 'workflow bundle file'));
+    const bundle = await readWorkflowBundle(inputPath);
+    if (optionBoolean(options, 'dry-run')) {
+      const plan = await withApprovedConfigurationRead(root, () =>
+        planWorkflowImport(root, bundle), { preferAuthority: true });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+      console.log(`Workflow import preview: ${plan.status}.`);
+      console.log(`  Add: ${plan.added?.length ?? 0} · Reuse exact: ${plan.reused?.length ?? 0} · Conflicts: ${plan.conflicts?.length ?? 0}`);
+      if (plan.changedPaths?.length) console.log(`  Changed paths: ${plan.changedPaths.join(', ')}`);
+      console.log(`  Confirm plan: ${plan.planSha256}`);
+      return;
+    }
+    const expectedPlanSha256 = optionString(options, 'confirm');
+    if (!expectedPlanSha256) {
+      throw new SingularityFlowError(
+        `Preview this bundle first with singularity-flow workflow import ${inputPath} --dry-run --json, then pass its --confirm plan SHA-256.`
+      );
+    }
+    const ids = bundle.workflows?.map((entry) => entry.id).filter(Boolean) ?? [];
+    const imported = await author({
+      operation: 'import-workflows',
+      subject: ids.length === 1 ? ids[0] : `bundle-${String(bundle.bundleSha256 ?? expectedPlanSha256).replace(/^sha256:/, '').slice(0, 12)}`,
+      message: `[configuration] import workflows ${ids.join(', ') || 'bundle'}`,
+      mutate: (target) => applyWorkflowImport(target, bundle, { expectedPlanSha256 })
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(imported, null, 2));
+    if (printProposal(imported)) return;
+    console.log(`Imported ${ids.length} workflow${ids.length === 1 ? '' : 's'} from ${inputPath}.`);
+    console.log(`  Added: ${imported.added?.length ?? 0} · Reused exact: ${imported.reused?.length ?? 0}`);
+    return;
+  }
+
+  if (subcommand === 'copy' || subcommand === 'duplicate') {
+    const sourceId = requirePositional(positionals, 2, 'source workflow ID');
+    const targetId = requirePositional(positionals, 3, 'target workflow ID');
+    const label = optionString(options, 'label');
+    if (!label?.trim()) throw new SingularityFlowError('Workflow copy requires --label <TEXT>.');
+    const input = { sourceId, targetId, label };
+    if (optionBoolean(options, 'dry-run')) {
+      const plan = await withApprovedConfigurationRead(root, () =>
+        planWorkflowCopy(root, input), { preferAuthority: true });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+      console.log(`Workflow copy preview: ${sourceId} → ${targetId}.`);
+      console.log('  The complete workflow record is copied; phase, template, artifact, agent, and authority contracts remain shared.');
+      if (plan.changedPaths?.length) console.log(`  Changed paths: ${plan.changedPaths.join(', ')}`);
+      console.log(`  Confirm plan: ${plan.planSha256}`);
+      return;
+    }
+    const expectedPlanSha256 = optionString(options, 'confirm');
+    if (!expectedPlanSha256) {
+      throw new SingularityFlowError(
+        `Preview the copy first with singularity-flow workflow copy ${sourceId} ${targetId} --dry-run --json, then pass its --confirm plan SHA-256.`
+      );
+    }
+    const copied = await author({
+      operation: 'copy-workflow', subject: targetId,
+      message: `[configuration] copy workflow ${sourceId} to ${targetId}`,
+      mutate: (target) => copyWorkflowDefinition(target, { ...input, expectedPlanSha256 })
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(copied, null, 2));
+    if (printProposal(copied)) return;
+    console.log(`Copied workflow ${sourceId} to ${targetId} in ${copied.path}.`);
+    console.log('  Shared phase, template, artifact, agent, and authority contracts were not duplicated.');
+    return;
+  }
 
   // Authoring, folded in rather than given a noun of its own. `add` already means "install a
   // packaged workflow", so creating one from phases you choose is `create`.

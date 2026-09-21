@@ -4,12 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "2577c98303f3dfab85e1360eabd7138d3a8eca61",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-21-EVIDENCE.md",
+    "reviewedAtCommit": "dca87c409b4901199c92703d42737270300d4a72",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-22-WORKFLOW-BUNDLE.md",
     "companionIds": [
-      "code-assurance-bridge",
-      "witnessed-engineering-delivery-status",
-      "world-model-v4"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -101,7 +99,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:37b9b4b2d9c9527fbd384dd46f8bd9f8b284ca559f675cca3ae595d6faaee338"
+      "sha256": "sha256:f5bc636a3191eb67bf786cf5260ded5b0d664cb6dc9b1eeddcd0e2a8bc8b8652"
     },
     {
       "id": "smart-initialization-v1",

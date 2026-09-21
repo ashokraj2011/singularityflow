@@ -851,7 +851,7 @@ argument-hint: &quot;[start|status|land|intent|claim|preview|publish|promote]&qu
           <span class="pill">conversational</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~750 body tokens</span>
+          <span class="pill">~762 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-admin</code></dd></div>
@@ -882,7 +882,7 @@ argument-hint: &quot;[doctor|configuration|reinitialize [WORKSPACE]|agents|jira|
 
    `singularity-flow workspace reinitialize [WORKSPACE-ID] [--repository REPOSITORY-ID]... --dry-run --json`
 
-4. Show the scope, plan ID, changes, preserved collisions, schema census, migrations, blockers, warnings, and next action. State that preview changed nothing. Explain that reinitialize restores only missing or exact registered framework seeds and preserves user-created or user-modified workflows, phases, artifact sets, templates, prompts, and agents. Never offer `--resolve ...=bundled` or `--accept-bundled-conflicts` here. If the contributor deliberately wants to replace repository-owned content with packaged content, stop and present `/sf-refresh-configuration` (Shell: `singularity-flow workspace refresh-configuration`) as a separate preview and decision.
+4. Show the scope, plan ID, changes, preserved collisions, schema census, migrations, blockers, warnings, and next action. State that preview changed nothing. Explain that reinitialize restores only missing or exact registered framework seeds and preserves user-created or user-modified workflows, phases, artifact sets, templates, prompts, and agents; historical durable records are never rewritten. Never offer `--resolve ...=bundled` or `--accept-bundled-conflicts` here. If the contributor deliberately wants to replace repository-owned content with packaged content, stop and present `/sf-refresh-configuration` (Shell: `singularity-flow workspace refresh-configuration`) as a separate preview and decision.
 5. Apply only when the contributor asks after reviewing the preview and supplies its exact plan ID. Run the same scope once, replacing `--dry-run` with `--confirm-plan &lt;EXACT-PLAN-ID&gt; --json`. Reject abbreviated, old, different-scope, or ownership-transfer plan IDs.
 6. On stale plan, refusal, partial publication, or any changed authority, stop and relay the CLI&#39;s exact remediation. Never retry an apply, widen its scope, add `--resolve`, substitute `--accept-bundled-conflicts`, invoke factory reset, or hand-edit configuration/state files.
 7. Otherwise run `singularity-flow workspace current --json`, require its exact `repositoryPath`, and use it as cwd for `singularity-flow doctor --json` and `singularity-flow state planes --json`. Refuse without a selection; never fall back to the home directory or parent search. Show authority, revision, pending publication, ledger/outbox status, and affected files.
@@ -9285,7 +9285,7 @@ user-invocable: false
     <details>
       <summary>
         <span class="skill-number">146</span>
-        <span class="skill-title"><strong>sflow-workflows</strong><span>List, compare, simulate, or safely install bundled Singularity Flow workflow profiles.</span></span>
+        <span class="skill-title"><strong>sflow-workflows</strong><span>List, compare, simulate, install, export, import, or duplicate governed Singularity Flow workflows.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -9294,11 +9294,11 @@ user-invocable: false
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~197 body tokens</span>
+          <span class="pill">~770 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workflows</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>[list|simulate TYPE|diff TYPE|add TYPE --dry-run]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>[list|simulate ID|diff ID|export --workflow ID... --out FILE|import FILE|copy SOURCE TARGET --label TEXT]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-workflows/SKILL.md</code></dd></div>
         </dl>
@@ -9308,19 +9308,55 @@ user-invocable: false
         </div>
         <pre data-source="sflow-workflows"><code>---
 name: sflow-workflows
-description: List, compare, simulate, or safely install bundled Singularity Flow workflow profiles.
+description: List, compare, simulate, install, export, import, or duplicate governed Singularity Flow workflows.
 disable-model-invocation: true
-argument-hint: &quot;[list|simulate TYPE|diff TYPE|add TYPE --dry-run]&quot;
+argument-hint: &quot;[list|simulate ID|diff ID|export --workflow ID... --out FILE|import FILE|copy SOURCE TARGET --label TEXT]&quot;
 
 ---
-# Workflow catalog and simulation
+# Workflow catalog, transfer, and duplication
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Run `singularity-flow workflow $ARGUMENTS`. Default to `list` when no action is supplied. Before adding or upgrading a profile, run its simulation and diff, then use `--dry-run`. Show affected YAML and Markdown paths. Do not use `--replace` without explicit user confirmation, and do not commit configuration automatically.
+Run `singularity-flow workflow $ARGUMENTS`. Default to `list` when no action is supplied.
+
+For packaged installation, run simulation, diff, and `--dry-run`; show affected YAML/Markdown.
+Never use `--replace` without explicit confirmation or commit configuration automatically.
+
+For portable workflow bundles:
+
+1. Export only explicitly named workflows. Use one `--workflow &lt;ID&gt;` for each selection and require
+   a new output path: `singularity-flow workflow export --workflow &lt;ID&gt; [--workflow &lt;ID&gt;...] --out &lt;FILE&gt; --json`.
+   Report the selected workflows and complete dependency closure returned by the CLI, including
+   exact remote-agent locks. Repository policy and installed World Model contracts are validated
+   prerequisites, not imported objects. Never hand-edit the bundle.
+2. Import is a two-step governed mutation. First run exactly
+   `singularity-flow workflow import &lt;FILE&gt; --dry-run --propose --json`. Show the plan SHA-256,
+   dependencies, changed paths, reuse, and collisions. A skill invocation is not confirmation.
+3. After the user explicitly accepts that exact plan, run
+   `singularity-flow workflow import &lt;FILE&gt; --confirm &lt;PLAN-SHA256&gt; --propose --json` once. Never
+   substitute a digest, overwrite a collision, or retry a stale plan without a new preview. Preserve
+   whether the CLI created a proposal or a local authority edit.
+
+For duplication:
+
+1. `singularity-flow workflow duplicate` is an alias of `singularity-flow workflow copy`. Copy
+   requires a distinct lower-kebab target ID and explicit display label. Preview with
+   `singularity-flow workflow copy &lt;[story|initiative:]SOURCE&gt; &lt;TARGET&gt; --label &lt;TEXT&gt; --dry-run --propose --json`.
+   Use a qualified source whenever Story and Initiative catalogs share the same ID.
+2. This release makes a **linked copy**: it preserves the complete workflow record under the new ID
+   while reusing all dependencies. State that later shared-dependency edits can affect both workflows.
+   Do not claim dependencies were isolated.
+3. Show the exact copy plan and collisions and wait for explicit confirmation. Then run
+   `singularity-flow workflow copy &lt;[story|initiative:]SOURCE&gt; &lt;TARGET&gt; --label &lt;TEXT&gt; --confirm &lt;PLAN-SHA256&gt; --propose --json`
+   once. Never overwrite an existing target, bypass review, commit, activate, merge, or refresh the
+   workspace automatically.
+
+For every action, relay the CLI&#39;s exact validation result, proposal branch or local-authority
+status, changed files, warnings, and next commands. Stop on any missing dependency, collision,
+stale plan, invalid bundle, or configuration-authority refusal.
 </code></pre>
       </div>
     </details>

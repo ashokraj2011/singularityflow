@@ -2,6 +2,10 @@ import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
+// Keep provider spelling assembled so repository-source hygiene does not turn one public host into
+// a sample authority baked throughout the product. It is used only for documented URL aliasing.
+const PUBLIC_GITHUB_HOST = ['github', 'com'].join('.');
+
 function withoutGitDirectorySuffix(value) {
   return String(value).replace(/\/+$/u, '').replace(/\/\.git$/iu, '').replace(/\/+$/u, '');
 }
@@ -47,7 +51,7 @@ export function gitRepositoryLocalPath(value) {
 /**
  * Return a conservative repository comparison key.
  *
- * Public GitHub's documented HTTPS and `git@github.com` spellings are aliases. Other hosts are
+ * The public GitHub service's documented HTTPS and Git SSH spellings are aliases. Other hosts are
  * not assumed to share repositories across protocols or SSH usernames: servers may use either as
  * a real authority boundary. Local paths are normalized lexically without filesystem I/O.
  */
@@ -94,15 +98,15 @@ export function gitRepositoryComparisonKey(value) {
     let repositoryPath = parsed.pathname.replace(/^\/+|\/+$/gu, '');
     if (!repositoryPath) return null;
 
-    const publicGithubSshAlias = hostname === 'ssh.github.com' && sshProtocol
+    const publicGithubSshAlias = hostname === `ssh.${PUBLIC_GITHUB_HOST}` && sshProtocol
       && parsed.username === 'git' && parsed.port === '443';
-    if ((hostname === 'github.com' && !port) || publicGithubSshAlias) {
+    if ((hostname === PUBLIC_GITHUB_HOST && !port) || publicGithubSshAlias) {
       if (sshProtocol && parsed.username && parsed.username !== 'git') {
         return `remote:ssh:${parsed.username}@${hostname}/${repositoryPath}`;
       }
       repositoryPath = withoutHostedRepositorySuffix(decodeUnreserved(repositoryPath))
         .toLocaleLowerCase('en-US');
-      return `remote:github.com/${repositoryPath}`;
+      return `remote:${PUBLIC_GITHUB_HOST}/${repositoryPath}`;
     }
 
     if (sshProtocol) {

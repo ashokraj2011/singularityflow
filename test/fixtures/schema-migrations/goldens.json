@@ -74,6 +74,7 @@
   "policy-snapshot": [{ "schemaVersion": 1 }],
   "learning-workspace": [{ "schemaVersion": 1 }],
   "learning-offline-bundle": [{ "schemaVersion": 1 }],
+  "workflow-bundle": [{ "schemaVersion": 1 }],
   "learning-progress": [
     {
       "schemaVersion": 1,

@@ -5,6 +5,12 @@ aliases:
   - workflow
   - profiles
   - configuration-center
+  - workflow-export
+  - workflow-import
+  - workflow-copy
+questions:
+  - How do I export or import several workflows with their dependencies?
+  - How do I duplicate a workflow without duplicating its shared phase contracts?
 commands:
   - workflow
   - configuration
@@ -12,7 +18,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 12
+version: 14
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -22,9 +28,17 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 
 ## Use it from each surface
 
-- **Shell:** `sflow workflow`, `sflow configuration`. Add `--propose` when authoring from an application or active Story checkout. Run `singularity-flow workflow --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. The Designer previews phase contracts and exposes planned claims, code task, and approval groups. Lead-governed saves create review proposals; self-governed saves leave an uncommitted edit on local `sflow/config`. The selected Story snapshot is never edited.
+- **Shell:** `sflow workflow`, `sflow configuration`. Use `workflow export`, `workflow import`, or
+  `workflow copy` for portable workflow operations. Add `--propose` when authoring from an
+  application or active Story checkout. Run `singularity-flow workflow --help` for the exact forms
+  supported by this build.
+- **Copilot:** `/sf-workflows`. Ask it to export, import, or copy the selected workflows; it must show
+  the exact deterministic preview and stop for confirmation before an import or copy mutation.
+- **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. The Designer
+  toolbar exposes **Export**, **Import**, and **Duplicate** alongside workflow editing. It previews
+  phase contracts and exposes planned claims, code task, and approval groups. Lead-governed saves
+  create review proposals; self-governed saves leave an uncommitted edit on local `sflow/config`.
+  The selected Story snapshot is never edited.
 
 After `singularity-flow onboard --bootstrap`, run `singularity-flow init` before authoring. Bootstrap pins the repository authority; init materializes `singularity/workflow.yml` and `singularity/portfolio.yml`. When initialization is needed, the bootstrap receipt now gives that exact next command.
 
@@ -60,6 +74,60 @@ singularity-flow workflow create customer-onboarding \
   --governs story \
   --propose
 ```
+
+## Move or duplicate workflows
+
+Export one portable bundle for one or more Story or Initiative workflows. The deterministic bundle
+includes the selected workflow rows and the configuration objects they require: phases, artifact
+sets and templates, approval authorities, governed Agent Markdown, MCP assignments, applicability
+policies, exact remote-agent dependency locks, and declared World Model requirements. Locked remote
+dependencies are hash-verified when the destination fetches them; the bundle never embeds a token
+or credential. Repository-wide policy and installed World Model view contracts are prerequisites:
+import validates them on the destination but never overwrites them. It does not include local caches,
+runtime ledgers, work-item artifacts, or application source.
+
+```bash
+singularity-flow workflow export \
+  --workflow feature \
+  --workflow initiative:enterprise-delivery \
+  --out ./workflow-bundle.json \
+  --json
+```
+
+Import is preview-first. Review the exact `add`, `reuse`, `conflicts`, and shared-dependency sets,
+then apply the unchanged bundle with the returned plan SHA. `--propose` keeps the change inside the
+normal governed configuration-review path.
+
+```bash
+singularity-flow workflow import ./workflow-bundle.json --dry-run --json
+singularity-flow workflow import ./workflow-bundle.json \
+  --confirm sha256:<previewed-plan-sha256> \
+  --propose \
+  --json
+```
+
+Copy creates a linked duplicate: the new workflow gets its own complete workflow row and label while
+continuing to reference the same reviewed phase, artifact, agent, approval, MCP, and template
+contracts. Later edits to those shared contracts therefore affect both workflows; use export/import
+when the destination repository needs a portable dependency closure.
+
+```bash
+singularity-flow workflow copy story:feature feature-team \
+  --label "Feature — Team" \
+  --dry-run \
+  --json
+singularity-flow workflow copy story:feature feature-team \
+  --label "Feature — Team" \
+  --confirm sha256:<previewed-plan-sha256> \
+  --propose \
+  --json
+```
+
+`workflow duplicate` is a compatibility alias for `workflow copy`. Neither form overwrites an
+existing workflow ID. Imports are idempotent when the exact dependency closure already exists and
+fail before mutation on any conflicting ID or changed bundle digest.
+Use the qualified `story:<id>` or `initiative:<id>` source whenever both catalogs contain the same
+workflow ID. The Workflow Designer supplies this qualification automatically.
 
 New Story workflows infer a required planned-claims contract when a qualifying clause phase and code-phase owner exist. The CLI prints the resolved phase simulation after a successful non-JSON create or edit; inspect it again with `singularity-flow workflow simulate customer-onboarding`. Validation and simulation read the same custom definition. A custom workflow has no packaged baseline for `workflow diff`; use simulate instead.
 

@@ -207,7 +207,7 @@ test('the editor can list the branches, because it cannot answer a prompt', asyn
   const panel = await source('apps/vscode/src/views/intake-panel.ts');
   assert.match(panel, /\['workspace', 'branches', '--json', '--intake'\]/,
     'the intake panel never asks for the aggregate choices');
-  const load = panel.slice(panel.indexOf('private async load()'), panel.indexOf('private async loadTracker()'));
+  const load = panel.slice(panel.indexOf('private async load('), panel.indexOf('private async loadTracker()'));
   assert.equal((load.match(/this\.client\.run/g) ?? []).length, 1,
     'the intake critical path starts more than one engine process');
   assert.doesNotMatch(load, /\['snapshot'|\['initiative'|\['workflow'|\['jira'/,

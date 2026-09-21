@@ -155,6 +155,16 @@ test('Intent and Program help expose exact authoring and configuration-review ce
   assert.match(program, /does not change the selected application branch/);
 });
 
+test('workflow help exposes multi-export, confirmation-bound import, and linked duplication', () => {
+  const page = renderCommandHelp('workflow');
+  assert.match(page, /workflow export --workflow ID \[--workflow ID\.\.\.\] --out FILE/);
+  assert.match(page, /workflow import <FILE> \[--dry-run\] \[--confirm PLAN-SHA256\] \[--propose\]/);
+  assert.match(page, /workflow copy <\[story\|initiative:\]SOURCE> <TARGET> --label TEXT/);
+  assert.match(page, /linked copy: preserve the complete workflow record and reuse dependencies/);
+  assert.match(page, /workflow duplicate <\[story\|initiative:\]SOURCE> <TARGET> --label TEXT/);
+  assert.match(page, /alias of workflow copy/);
+});
+
 test('policy help exposes read-only planning and exact confirmation-bound apply', () => {
   const page = renderCommandHelp('policy');
   assert.match(page, /policy plan --invalidate-process/);

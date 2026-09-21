@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "77887df19d7bf116fefad74aaa15988bbc5d9f08",
+  "sourceCommit": "dca87c409b4901199c92703d42737270300d4a72",
   "topicCount": 67,
-  "contentSha256": "5a6fa1beb361523f533631cd8684b30eaffeecd26d49a52c50aeb4ce3f785cc1",
+  "contentSha256": "e991b8c77b949294d0099f51f96f6a4114848227587e34e4242ad70ad0073fca",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -400,8 +400,8 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 7,
-      "sha256": "098d0b3e9dfe3d9fe4baf73bcf5e28cdd21057f3074b6a49d0b7045508b2cb9e",
+      "version": 8,
+      "sha256": "5650b57cc96ac08bf99cab5063722cd9bc5c795c8181425dc2363f0a5edb894b",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },
@@ -520,9 +520,9 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 12,
-      "sha256": "8fe72885dd7fd528d81fd7b2d03feb16dae6d269a7a00f75c3ff2d414625fccf",
-      "routingSha256": "eeebcb23e63ef32a4067d72ac7d20cfff07d987defa8c563962ffc8f279b3efc",
+      "version": 14,
+      "sha256": "6bedeed626a27f73ffe190359b03c4cf85c034a070d439b155f81c770ae9fe30",
+      "routingSha256": "3fded39d24948cb3e726417d40c44cf3fefe2d4d9fffebd5827aa8b1421ef8db",
       "file": "workflow-authoring.md"
     },
     {

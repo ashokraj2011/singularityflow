@@ -283,6 +283,16 @@ Usage:
   singularity-flow workflow proposal <BRANCH> [--json]     exact commits, files and diff to review
   singularity-flow workflow activate <BRANCH> --confirm <COMMIT> [--acknowledge-unprotected]
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT] [--propose]
+  singularity-flow workflow export --workflow ID [--workflow ID...] --out FILE [--json]
+                                                        export selected workflows and their complete dependency closure
+  singularity-flow workflow import <FILE> [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
+                                                        preview, then import an exact workflow bundle through configuration review
+  singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label TEXT
+    [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
+                                                        linked copy: preserve the complete workflow record and reuse dependencies
+  singularity-flow workflow duplicate <[story|initiative:]SOURCE> <TARGET> --label TEXT
+    [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
+                                                        alias of workflow copy
   singularity-flow workflow phase add <ID> [--label TEXT] [--views a,b] [--lanes a,b]
     [--agents a,b] [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N]
     [--governs story|initiative] [--propose]    defaults to Story; a new Story phase needs a default governed agent

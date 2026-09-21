@@ -168,6 +168,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'safe-command-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'phase-preparation-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'gal-async-read.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'workflow-transfer.mjs'), '// fixture\n'),
     writeFile(path.join(
       repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
     ), '// fixture\n'),
@@ -202,6 +203,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs',
     'src/safe-command-guidance.mjs', 'src/phase-preparation-guidance.mjs',
     'src/gal-async-read.mjs',
+    'src/workflow-transfer.mjs',
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
     'plugin/skills/sflow-sgos/SKILL.md', 'package.json',

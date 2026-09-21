@@ -219,7 +219,10 @@ const HELP_METRICS_SUBCOMMANDS = Object.freeze([...HELP_METRICS_READ_SUBCOMMANDS
 const WORKFLOW_READ_SUBCOMMANDS = Object.freeze([
   'list', 'proposals', 'proposal', 'proposal-status', 'simulate', 'validate', 'diff'
 ]);
-const WORKFLOW_MUTATION_SUBCOMMANDS = Object.freeze(['activate', 'create', 'edit', 'phase', 'install', 'add', 'upgrade']);
+const WORKFLOW_MUTATION_SUBCOMMANDS = Object.freeze([
+  'activate', 'create', 'edit', 'phase', 'install', 'add', 'upgrade',
+  'export', 'import', 'copy', 'duplicate'
+]);
 const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS]);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'upload', 'add', 'fetch']);
@@ -527,11 +530,15 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
   if (WORKFLOW_READ_SUBCOMMANDS.includes(subcommand)) {
     return never(`workflow.${subcommand}`, definition, 'read');
   }
+  if (['import', 'copy', 'duplicate'].includes(subcommand) && optionBoolean(options, 'dry-run')) {
+    return never(`workflow.${subcommand === 'duplicate' ? 'copy' : subcommand}.preview`, definition, 'read');
+  }
   if (['install', 'add', 'upgrade'].includes(subcommand) && optionBoolean(options, 'dry-run')) {
     return never('workflow.install.preview', definition, 'read');
   }
   if (WORKFLOW_MUTATION_SUBCOMMANDS.includes(subcommand)) {
-    const operationId = ['add', 'upgrade'].includes(subcommand) ? 'install' : subcommand;
+    const operationId = ['add', 'upgrade'].includes(subcommand) ? 'install'
+      : subcommand === 'duplicate' ? 'copy' : subcommand;
     return never(`workflow.${operationId}`, definition, 'mutation');
   }
   return unknownSubcommand('workflow', subcommand, WORKFLOW_SUBCOMMANDS);
@@ -1504,9 +1511,11 @@ export function operationCatalog() {
     never('inputs.dry-run', inputsDefinition, 'read'),
     never('inputs.prepare', inputsDefinition, 'mutation'),
     ...WORKFLOW_READ_SUBCOMMANDS.map((name) => never(`workflow.${name}`, workflowDefinition, 'read')),
-    ...['activate', 'create', 'edit', 'phase', 'install'].map((name) => never(
+    ...['activate', 'create', 'edit', 'phase', 'install', 'export', 'import', 'copy'].map((name) => never(
       `workflow.${name}`, workflowDefinition, 'mutation'
     )),
+    never('workflow.import.preview', workflowDefinition, 'read'),
+    never('workflow.copy.preview', workflowDefinition, 'read'),
     never('workflow.install.preview', workflowDefinition, 'read'),
     ...DOCUMENTS_READ_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'read')),
     ...DOCUMENTS_MUTATION_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'mutation')),

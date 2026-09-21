@@ -5,7 +5,8 @@ import { renderWorkflowGraph } from './workflow-graph-svg.ts';
 import path from 'node:path';
 import {
   designerHtml, DESIGNER_SCRIPT, type DesignerTab, type PhaseChoice,
-  type PhaseDraftView, type WorkflowDraftView, type WorkflowProposalSummary
+  type PhaseDraftView, type WorkflowDraftView, type WorkflowPortabilityView,
+  type WorkflowProposalSummary
 } from './designer-page.ts';
 import { buildProfiles, buildTemplateUsage, standingOn, type Profile } from './designer-model.ts';
 import { workflowLoopIssues } from './workflow-loop-draft.ts';
@@ -23,6 +24,9 @@ export type DesignerMessage =
   | { type: 'open'; path: string }
   | { type: 'save'; path: string; content: string }
   | { type: 'review-proposal'; branch: string }
+  | { type: 'export-workflows'; workflowIds: string[] }
+  | { type: 'import-workflows' }
+  | { type: 'copy-workflow'; sourceId: string; targetId: string; label: string }
   | { type: 'run'; command: string[]; title: string };
 
 const GOVERNANCE = new Set(['story', 'initiative']);
@@ -33,6 +37,9 @@ function governs(value: unknown, fallback: 'story' | 'initiative' = 'story'): 's
   return typeof value === 'string' && GOVERNANCE.has(value) ? value as 'story' | 'initiative' : fallback;
 }
 function csv(value: string): string[] { return value.split(',').map((entry) => entry.trim()).filter(Boolean); }
+function profileKey(profile: Pick<Profile, 'governs' | 'id'>): string {
+  return `${profile.governs}:${profile.id}`;
+}
 function swap<T>(items: T[], left: number, right: number): void {
   const first = items[left]; const second = items[right];
   if (first === undefined || second === undefined) return;
@@ -60,6 +67,9 @@ export class DesignerPanel {
   private workflowProposals: WorkflowProposalSummary[] = [];
   private proposalsLoaded = false;
   private proposalsError: string | null = null;
+  private workflowPortability: WorkflowPortabilityView = {
+    mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+  };
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -149,7 +159,8 @@ export class DesignerPanel {
 
   private currentProfile(snapshot: RepositorySnapshot | null): Profile | null {
     const profiles = this.profiles(snapshot);
-    return profiles.find((entry) => entry.id === this.profile) ?? profiles[0] ?? null;
+    return profiles.find((entry) => profileKey(entry) === this.profile)
+      ?? profiles.find((entry) => entry.id === this.profile) ?? profiles[0] ?? null;
   }
 
   /** Every phase available to either kind of workflow, including phases no workflow uses yet. */
@@ -187,6 +198,9 @@ export class DesignerPanel {
   private beginWorkflow(isNew: boolean): void {
     const profile = this.currentProfile(this.store.current.snapshot);
     this.phaseDraft = null;
+    this.workflowPortability = {
+      mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+    };
     this.workflowDraft = isNew || !profile ? {
       isNew: true, id: '', label: '', description: '', governs: profile?.governs ?? 'story', phases: [],
       reworkLoops: [],
@@ -274,7 +288,11 @@ export class DesignerPanel {
       this.tab = message.tab; this.error = null; return this.render();
     }
     if (message.type === 'profile' && typeof message.id === 'string') {
-      this.profile = message.id; this.workflowDraft = null; this.phaseDraft = null; return this.render();
+      this.profile = message.id; this.workflowDraft = null; this.phaseDraft = null;
+      this.workflowPortability = {
+        mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+      };
+      return this.render();
     }
     if (message.type === 'filter' && typeof message.value === 'string') {
       this.filter = message.value; return this.render();
@@ -295,6 +313,91 @@ export class DesignerPanel {
       const resolved = this.resolveTemplate(message.template);
       if (resolved) await this.onMessage({ type: 'open', path: resolved });
       else this.error = `No file in this repository matches the template '${message.template}'.`;
+      return this.render();
+    }
+
+    if (message.type === 'open-workflow-export') {
+      const profile = this.currentProfile(snapshot);
+      this.workflowDraft = null;
+      this.phaseDraft = null;
+      this.error = null;
+      this.workflowPortability = {
+        mode: 'export', selectedWorkflowIds: profile ? [`${profile.governs}:${profile.id}`] : [],
+        copySourceId: null, copyTargetId: '', copyLabel: ''
+      };
+      return this.render();
+    }
+    if (message.type === 'open-workflow-copy') {
+      const profile = this.currentProfile(snapshot);
+      if (!profile) return;
+      this.workflowDraft = null;
+      this.phaseDraft = null;
+      this.error = null;
+      this.workflowPortability = {
+        mode: 'copy', selectedWorkflowIds: [], copySourceId: profileKey(profile),
+        copyTargetId: `${profile.id}-copy`, copyLabel: `${profile.label} copy`
+      };
+      return this.render();
+    }
+    if (message.type === 'cancel-workflow-portability') {
+      this.workflowPortability = {
+        mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+      };
+      this.error = null;
+      return this.render();
+    }
+    if (message.type === 'export-workflows') {
+      const available = new Set(this.profiles(snapshot).map((profile) => `${profile.governs}:${profile.id}`));
+      const workflowIds = Array.isArray(message.workflowIds)
+        ? [...new Set(message.workflowIds.map(text).filter((id) => available.has(id)))] : [];
+      this.workflowPortability = { ...this.workflowPortability, selectedWorkflowIds: workflowIds };
+      if (!workflowIds.length) {
+        this.error = 'Choose at least one workflow to export.';
+        return this.render();
+      }
+      this.error = await this.onMessage({ type: 'export-workflows', workflowIds });
+      if (!this.error) {
+        this.workflowPortability = {
+          mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+        };
+      }
+      return this.render();
+    }
+    if (message.type === 'import-workflows') {
+      this.error = await this.onMessage({ type: 'import-workflows' });
+      if (!this.error) {
+        this.workflowPortability = {
+          mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+        };
+        await this.refreshProposals();
+      }
+      return this.render();
+    }
+    if (message.type === 'copy-workflow') {
+      const sourceId = text(message.sourceId);
+      const targetId = text(message.targetId);
+      const label = text(message.label);
+      const profiles = this.profiles(snapshot);
+      this.workflowPortability = { ...this.workflowPortability, copyTargetId: targetId, copyLabel: label };
+      if (sourceId !== this.workflowPortability.copySourceId
+          || !profiles.some((profile) => profileKey(profile) === sourceId)) {
+        this.error = 'Choose an existing source workflow before duplicating it.';
+      } else if (!ID.test(targetId)) {
+        this.error = 'New workflow ID must be lower-case kebab-case.';
+      } else if (profiles.some((profile) => profile.id === targetId)) {
+        this.error = `Workflow '${targetId}' already exists.`;
+      } else if (!label) {
+        this.error = 'Give the duplicated workflow a display name.';
+      } else {
+        this.error = await this.onMessage({ type: 'copy-workflow', sourceId, targetId, label });
+        if (!this.error) {
+          this.workflowPortability = {
+            mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+          };
+          await this.refreshProposals();
+          return;
+        }
+      }
       return this.render();
     }
 
@@ -406,11 +509,18 @@ export class DesignerPanel {
 
     if (message.type === 'new-phase') {
       this.workflowDraft = null;
+      this.workflowPortability = {
+        mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+      };
       this.phaseDraft = { isNew: true, id: '', label: '', governs: this.currentProfile(snapshot)?.governs ?? 'story', views: '', agents: '', lanes: '', task: 'none', approvalAuthorities: '', approvalMinimum: 1 };
       return this.render();
     }
     if (message.type === 'edit-phase' && typeof message.phase === 'string') {
-      this.workflowDraft = null; this.phaseDraft = this.phaseDefinition(message.phase); return this.render();
+      this.workflowDraft = null;
+      this.workflowPortability = {
+        mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+      };
+      this.phaseDraft = this.phaseDefinition(message.phase); return this.render();
     }
     if (message.type === 'cancel-phase') { this.phaseDraft = null; return this.render(); }
     if (message.type === 'save-phase' && this.phaseDraft) {
@@ -541,13 +651,17 @@ export class DesignerPanel {
     const snapshot = this.store.current.snapshot;
     const token = nonce();
     const portfolioPath = snapshot?.portfolioPath ?? 'singularity/portfolio.yml';
+    const currentProfile = this.currentProfile(snapshot);
+    const currentProfileKey = currentProfile ? profileKey(currentProfile) : null;
     this.panel.webview.html = page('Workflows & artifacts', designerHtml(
-      this.tab, this.profiles(snapshot), snapshot ? buildTemplateUsage(snapshot) : [], this.profile,
+      this.tab, this.profiles(snapshot), snapshot ? buildTemplateUsage(snapshot) : [], currentProfileKey,
       this.filter, snapshot ? standingOn(snapshot, portfolioPath) : [], portfolioPath, this.error,
       this.workflowDraft, this.phaseDraft, this.artifactDraft, this.artifactErrors, this.phaseChoices(snapshot),
       // The graph the rail cannot draw. Built from the same snapshot the rest of the page renders,
       // so the diagram and the phase list can never describe different workflows.
-      renderWorkflowGraph(buildWorkflowGraph(snapshot, this.profile ?? this.profiles(snapshot)[0]?.id ?? ''), { compact: true }),
+      renderWorkflowGraph(buildWorkflowGraph(
+        snapshot, currentProfile?.governs === 'story' ? currentProfile.id : ''
+      ), { compact: true }),
       /**
        * The vocabularies the phase editor offers instead of asking blind.
        *
@@ -562,7 +676,8 @@ export class DesignerPanel {
       [...new Set([
         ...Object.keys((snapshot?.definition as { approvalAuthorities?: Record<string, unknown> } | undefined)?.approvalAuthorities ?? {}),
         ...Object.keys((snapshot?.portfolio as { approvalAuthorities?: Record<string, unknown> } | undefined)?.approvalAuthorities ?? {})
-      ])].sort()
+      ])].sort(),
+      this.workflowPortability
     ), contentSecurityPolicy(this.panel.webview, token), token, DESIGNER_SCRIPT);
   }
 

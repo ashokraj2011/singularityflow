@@ -21,6 +21,7 @@ export const VSIX_CLI_PAYLOAD = Object.freeze([
  */
 export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/gal-async-read.mjs',
+  'src/workflow-transfer.mjs',
   'src/safe-command-guidance.mjs',
   'src/phase-preparation-guidance.mjs',
   'src/world-model/history/story-grounding-activation.mjs',

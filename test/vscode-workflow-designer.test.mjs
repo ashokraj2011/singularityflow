@@ -4,11 +4,16 @@ import { readFile } from 'node:fs/promises';
 
 const page = new URL('../apps/vscode/src/views/designer-page.ts', import.meta.url);
 const host = new URL('../apps/vscode/src/views/designer.ts', import.meta.url);
+const extensionHost = new URL('../apps/vscode/src/extension.ts', import.meta.url);
 const model = new URL('../apps/vscode/src/views/designer-model.ts', import.meta.url);
 const loopModel = new URL('../apps/vscode/src/views/workflow-loop-draft.ts', import.meta.url);
+const workflowTransferPresentation = new URL(
+  '../apps/vscode/src/views/workflow-transfer-presentation.ts', import.meta.url
+);
 const { designerHtml, DESIGNER_SCRIPT } = await import(page);
 const { buildProfiles } = await import(model);
 const { workflowLoopIssues } = await import(loopModel);
+const { workflowMutationPlanDetail, workflowMutationPlanMarkdown } = await import(workflowTransferPresentation);
 
 test('Workflow Designer browser script remains valid JavaScript', () => {
   assert.doesNotThrow(() => new Function(DESIGNER_SCRIPT));
@@ -74,6 +79,39 @@ test('Workflow Designer uses the engine code-generation projection for saved wor
   assert.match(html, /Legacy cached · story · Code behavior unavailable/);
   assert.match(html, /title="[^"]*Selecting or starting this workflow does not generate code automatically/);
   assert.match(html, /aria-label="[^"]*code is authored only when a code phase is run/);
+});
+
+test('Workflow Designer exposes multi-export, host import, and linked workflow copy', () => {
+  const profiles = [
+    { id: 'feature', label: 'Feature', description: 'Build a feature.', governs: 'story', phases: [] },
+    { id: 'bugfix', label: 'Bug fix', description: 'Repair a defect.', governs: 'story', phases: [] }
+  ];
+  const exportHtml = designerHtml(
+    'phases', profiles, [], 'feature', '', [], 'singularity/portfolio.yml', null,
+    null, null, undefined, [], [], '', [], [], [], true, null, [],
+    { mode: 'export', selectedWorkflowIds: ['story:feature', 'story:bugfix'], copySourceId: null, copyTargetId: '', copyLabel: '' }
+  );
+  assert.match(exportHtml, /data-open-workflow-export/);
+  assert.match(exportHtml, /data-import-workflows/);
+  assert.match(exportHtml, /data-open-workflow-copy/);
+  assert.equal((exportHtml.match(/data-workflow-export-id=/g) ?? []).length, 2);
+  assert.equal((exportHtml.match(/data-workflow-export-id="[^"]+" checked/g) ?? []).length, 2);
+  assert.match(exportHtml, /resolves and deduplicates their phase contracts/);
+  assert.match(exportHtml, /Story data, generated work-item artifacts, credentials, local caches, and ledger history are never exported/);
+
+  const copyHtml = designerHtml(
+    'phases', profiles, [], 'feature', '', [], 'singularity/portfolio.yml', null,
+    null, null, undefined, [], [], '', [], [], [], true, null, [],
+    { mode: 'copy', selectedWorkflowIds: [], copySourceId: 'feature', copyTargetId: 'feature-copy', copyLabel: 'Feature copy' }
+  );
+  assert.match(copyHtml, /Linked workflow copy/);
+  assert.match(copyHtml, /data-workflow-copy-id[^>]+value="feature-copy"/);
+  assert.match(copyHtml, /reuses the existing shared phase, artifact, template, and agent contracts/);
+  assert.match(copyHtml, /Review copy plan…/);
+  assert.match(copyHtml, /governed authority creates a review proposal; local authority records a local edit/);
+  assert.match(DESIGNER_SCRIPT, /type: 'export-workflows'/);
+  assert.match(DESIGNER_SCRIPT, /type: 'import-workflows'/);
+  assert.match(DESIGNER_SCRIPT, /type: 'copy-workflow'/);
 });
 
 test('Workflow draft omits a provisional code badge when a phase task contract is unavailable', () => {
@@ -167,6 +205,7 @@ test('loop validation preserves a draft but rejects removed or reordered phases'
 
 test('Designer host sends explicit governed CLI policy flags and checks eligibility before mutation', async () => {
   const code = await readFile(host, 'utf8');
+  const extensionCode = await readFile(extensionHost, 'utf8');
   assert.match(code, /command\.push\('--planned-claims', draft\.plannedClaimsMode/);
   assert.match(code, /command\.push\('--clause-phases'/);
   assert.match(code, /command\.push\('--claim-owners'/);
@@ -178,4 +217,47 @@ test('Designer host sends explicit governed CLI policy flags and checks eligibil
   assert.match(code, /workflowLoopIssues\(draft\.phases\.map/);
   assert.match(code, /command\.push\('--loop'/);
   assert.match(code, /command\.push\('--clear-loops'\)/);
+  assert.match(extensionCode, /\['workflow', 'export'\]/);
+  assert.match(extensionCode, /command\.push\('--workflow', workflowId\)/);
+  assert.match(extensionCode, /showSaveDialog/);
+  assert.match(extensionCode, /showOpenDialog/);
+  assert.match(extensionCode, /\['workflow', 'import', source\.fsPath\]/);
+  assert.match(extensionCode, /\['workflow', 'copy', message\.sourceId, message\.targetId, '--label', message\.label\]/);
+  assert.match(extensionCode, /baseCommand, '--dry-run', '--json'/);
+  assert.match(extensionCode, /'--confirm', preview\.confirmation/);
+  assert.match(extensionCode, /workflowMutationPlanDetail\(plan\)/);
+  assert.match(extensionCode, /workflowMutationPlanMarkdown\(plan, title\)/);
+  assert.match(extensionCode, /showTextDocument\(previewDocument, \{ preview: true \}\)/);
+  assert.match(extensionCode, /Apply reviewed plan/);
+  assert.match(extensionCode, /authority will decide whether this creates a review proposal or a local edit/);
+});
+
+test('workflow import confirmation renders every operation beyond eight without truncation', () => {
+  const add = Array.from({ length: 12 }, (_, index) => ({
+    kind: 'story.phase', id: `phase-${String(index + 1).padStart(2, '0')}`, sha256: `sha256:${index}`
+  }));
+  const reuse = Array.from({ length: 10 }, (_, index) => ({
+    kind: 'agent', id: `agent-${String(index + 1).padStart(2, '0')}`
+  }));
+  const conflicts = Array.from({ length: 9 }, (_, index) => ({
+    kind: 'template', id: `template-${String(index + 1).padStart(2, '0')}`, reason: 'different content'
+  }));
+  const plan = {
+    status: 'blocked', planSha256: `sha256:${'a'.repeat(64)}`,
+    operations: { add, reuse, conflicts }, sharedDependencies: { phases: 12, agents: 10 },
+    changedPaths: ['singularity/workflow.yml', '.github/agents/developer.agent.md']
+  };
+  const detail = workflowMutationPlanDetail(plan);
+  const markdown = workflowMutationPlanMarkdown(plan, 'Import complete bundle');
+  for (const item of [...add, ...reuse, ...conflicts]) {
+    assert.match(detail, new RegExp(`${item.kind}:${item.id}`));
+    assert.match(markdown, new RegExp(`${item.kind}:${item.id}`));
+  }
+  assert.match(detail, /Add \(12\):/);
+  assert.match(detail, /Reuse exact \(10\):/);
+  assert.match(detail, /Conflicts \(9\):/);
+  assert.doesNotMatch(detail, /\+\d+ more/);
+  assert.match(detail, /Predicted changed paths: singularity\/workflow\.yml, \.github\/agents\/developer\.agent\.md/);
+  assert.match(markdown, /## Predicted changed paths \(2\)/);
+  assert.match(detail, /governed authority creates a review proposal; local authority records a local edit/);
 });

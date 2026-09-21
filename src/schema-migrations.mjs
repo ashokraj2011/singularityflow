@@ -2288,6 +2288,12 @@ const families = [
     paths: [/^\$git\/sgos\/learning\/[a-f0-9]{64}\/workspace\.json$/]
   }),
   family({ id: 'learning-offline-bundle', currentVersion: 1, immutable: true }),
+  // Portable workflow bundles are immutable, digest-bound configuration transfer records. They
+  // deliberately have no repository path because contributors choose an external export path.
+  family({
+    id: 'workflow-bundle', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity'
+  }),
   family({
     id: 'learning-progress', currentVersion: 2, immutable: false,
     steps: [migration(1, 2, learningProgressV1ToV2)],

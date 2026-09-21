@@ -324,7 +324,9 @@ test('the designer creates workflows, phases, and artifacts through the engine',
   // selected Story worktree and the UI must not silently execute or publish a Story commit.
   assert.match(panel, /\| \{ type: 'run'; command: string\[\]; title: string \}/);
   assert.match(extension, /if \(message\.type === 'run'\) \{/);
-  assert.match(extension, /const command = \[\.\.\.message\.command, '--propose', '--json'\]/);
+  assert.match(extension, /return createWorkflowProposal\(message\.command, message\.title\)/);
+  assert.match(extension, /if \(!command\.includes\('--propose'\)\) command\.push\('--propose'\)/);
+  assert.match(extension, /if \(!command\.includes\('--json'\)\) command\.push\('--json'\)/);
   assert.match(extension, /client\.run<\{/);
   assert.match(extension, /The active Story was not changed/);
   assert.doesNotMatch(extension, /runGovernedAction\(client, \{ command: message\.command/);

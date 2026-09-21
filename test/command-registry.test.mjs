@@ -190,6 +190,20 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'reinitialize'], options: { 'dry-run': true } }).id, 'workspace.reinitialize.preview');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'reinitialize'], options: { 'confirm-plan': 'cfgp-1' } }).id, 'workspace.reinitialize');
   assert.equal(resolveOperation({ requestedCommand: 'copilot', positionals: ['copilot'], options: { 'dry-run': true } }).id, 'copilot.preview');
+  for (const [subcommand, options, id, classification] of [
+    ['export', {}, 'workflow.export', 'mutation'],
+    ['import', { 'dry-run': true }, 'workflow.import.preview', 'read'],
+    ['import', {}, 'workflow.import', 'mutation'],
+    ['copy', { 'dry-run': true }, 'workflow.copy.preview', 'read'],
+    ['copy', {}, 'workflow.copy', 'mutation'],
+    ['duplicate', { 'dry-run': true }, 'workflow.copy.preview', 'read'],
+    ['duplicate', {}, 'workflow.copy', 'mutation']
+  ]) {
+    const operation = resolveOperation({ requestedCommand: 'workflow', positionals: ['workflow', subcommand], options });
+    assert.equal(operation.id, id);
+    assert.equal(operation.classification, classification);
+    assert.equal(operation.modelPolicy, 'never');
+  }
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'light' } }).id, 'wm.light');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: { depth: 'light' } }).id, 'wm.light');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'standard' } }).modelPolicy, 'required');

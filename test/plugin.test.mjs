@@ -35,6 +35,19 @@ test('SGOS creation is an explicit proposal-only Copilot journey', async () => {
   assert.match(content, /Never claim[\s\S]*granted authority/);
 });
 
+test('workflow skill governs dependency-complete transfer and linked duplication', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-workflows', 'SKILL.md'), 'utf8');
+  assert.match(content, /workflow export --workflow <ID> \[--workflow <ID>\.\.\.\] --out <FILE> --json/);
+  assert.match(content, /complete dependency closure/);
+  assert.match(content, /workflow import <FILE> --dry-run --propose --json/);
+  assert.match(content, /workflow import <FILE> --confirm <PLAN-SHA256> --propose --json/);
+  assert.match(content, /A skill invocation is not confirmation/);
+  assert.match(content, /singularity-flow workflow duplicate` is an alias of `singularity-flow workflow copy/);
+  assert.match(content, /linked copy/);
+  assert.match(content, /later shared-dependency edits[\s\S]*both workflows/);
+  assert.match(content, /Never overwrite an existing target, bypass review, commit, activate, merge, or refresh/);
+});
+
 test('session and progress skills ground every follow-up command in the resolved repository', async () => {
   const session = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   const progress = await readFile(path.join(pluginRoot, 'skills', 'sflow-progress', 'SKILL.md'), 'utf8');
@@ -483,7 +496,8 @@ test('admin skill performs workspace reinitialization through an exact reviewed 
   assert.match(admin, /--dry-run --json/);
   assert.match(admin, /--confirm-plan <EXACT-PLAN-ID> --json/);
   assert.match(admin, /Never infer the scope from the current directory/);
-  assert.match(admin, /create a fresh preview with those `--resolve` values and discard the earlier plan ID/);
+  assert.match(admin, /Never offer `--resolve \.\.\.=bundled` or `--accept-bundled-conflicts`/);
+  assert.match(admin, /preserves user-created or user-modified workflows/);
   assert.match(admin, /Never retry an apply/);
   assert.match(admin, /historical durable records are never rewritten/i);
   assert.match(admin, /require its exact `repositoryPath`/);

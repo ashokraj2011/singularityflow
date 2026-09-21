@@ -177,7 +177,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), chatParticipants: [], clipboard: [], statusBars: [], terminals: [], errors: [], warnings: [], warningDetails: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), diagnosticEvents: [], saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), chatParticipants: [], clipboard: [], statusBars: [], terminals: [], errors: [], warnings: [], warningDetails: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], saveDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), diagnosticEvents: [], saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedSaveFile: null, pickedFavorites: undefined };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -328,6 +328,10 @@ function stubVscode() {
     registered.openDialogs.push(options);
     const picked = options?.canSelectFolders ? registered.pickedFolder : registered.pickedFile;
     return picked ? [{ fsPath: picked }] : undefined;
+  };
+  api.window.showSaveDialog = async (options) => {
+    registered.saveDialogs.push(options);
+    return registered.pickedSaveFile ? { fsPath: registered.pickedSaveFile } : undefined;
   };
   api.window.showQuickPick = async (items, options) => {
     registered.quickPicks.push({ items, options });
@@ -4810,6 +4814,21 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   assert.match(panel.webview.html, /Workflow designer/);
   assert.match(panel.webview.html, /data-profile-pick/);
   assert.match(panel.webview.html, /Intake|Discover/);
+  assert.match(panel.webview.html, /data-open-workflow-export/);
+  assert.match(panel.webview.html, /data-import-workflows/);
+  assert.match(panel.webview.html, /data-open-workflow-copy/);
+
+  await panel.post({ type: 'open-workflow-export' });
+  const portableWorkflow = panel.webview.html.match(/data-workflow-export-id="([^"]+)"/)?.[1];
+  assert.ok(portableWorkflow, 'the export chooser lists approved workflows');
+  await panel.post({ type: 'export-workflows', workflowIds: [portableWorkflow] });
+  assert.equal(registered.saveDialogs.at(-1)?.title, 'Export portable workflow bundle');
+  assert.deepEqual(registered.saveDialogs.at(-1)?.filters, { 'Workflow bundle': ['json'] });
+
+  await panel.post({ type: 'import-workflows' });
+  assert.equal(registered.openDialogs.at(-1)?.title, 'Import portable workflow bundle');
+  assert.equal(registered.openDialogs.at(-1)?.canSelectFiles, true);
+  assert.equal(registered.openDialogs.at(-1)?.canSelectMany, false);
 
   await panel.post({ type: 'tab', tab: 'templates' });
   assert.match(panel.webview.html, /Artifact template designer/);

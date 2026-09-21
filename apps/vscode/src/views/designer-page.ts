@@ -64,6 +64,15 @@ export interface WorkflowProposalSummary {
   failure?: { message?: string };
 }
 
+/** Temporary, presentation-only state for portable workflow actions. */
+export interface WorkflowPortabilityView {
+  mode: 'export' | 'copy' | null;
+  selectedWorkflowIds: string[];
+  copySourceId: string | null;
+  copyTargetId: string;
+  copyLabel: string;
+}
+
 function approvalSummary(approval: Phase['bundleApproval']): string {
   if (!approval) return '<span class="muted">No approval configured</span>';
   if (approval.chain?.length) {
@@ -275,9 +284,14 @@ function phasesHtml(
   profiles: Profile[], selected: string | null, standing: Standing[], portfolioPath: string,
   draft: WorkflowDraftView | null, phaseDraft: PhaseDraftView | null, choices: PhaseChoice[],
   graphSvg = '', templates: TemplateUsage[] = [], views: string[] = [], agents: string[] = [], authorities: string[] = [],
-  proposals: WorkflowProposalSummary[] = [], proposalsLoaded = true, proposalsError: string | null = null
+  proposals: WorkflowProposalSummary[] = [], proposalsLoaded = true, proposalsError: string | null = null,
+  portability: WorkflowPortabilityView = {
+    mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+  }
 ): string {
-  const profile = profiles.find((entry) => entry.id === selected) ?? profiles[0];
+  const selector = (entry: Profile): string => `${entry.governs}:${entry.id}`;
+  const profile = profiles.find((entry) => selector(entry) === selected)
+    ?? profiles.find((entry) => entry.id === selected) ?? profiles[0];
   /**
    * The empty state must not swallow an open editor.
    *
@@ -286,7 +300,7 @@ function phasesHtml(
    * sentence matters most, clicking New phase replaced the form with an invitation to create a
    * workflow instead.
    */
-  if (!profile && !draft && !phaseDraft) return '<section class="empty-state"><h3>No workflow exists yet</h3><p>Create the first workflow from the phase catalog, or define a phase to use in one.</p><button data-new-workflow="1">Create workflow</button><button class="secondary" data-new-phase="1">New phase</button></section>';
+  if (!profile && !draft && !phaseDraft) return '<section class="empty-state"><h3>No workflow exists yet</h3><p>Create the first workflow from the phase catalog, import a portable workflow bundle, or define a phase to use in one.</p><button data-new-workflow="1">Create workflow</button><button class="secondary" data-import-workflows="1">Import workflows…</button><button class="secondary" data-new-phase="1">New phase</button></section>';
   return `
   <section class="plain proposal-inventory" aria-labelledby="pending-configuration-proposals">
     <div class="toolbar-row"><div><p class="eyebrow">Configuration review</p><h2 id="pending-configuration-proposals">Pending configuration proposals${proposalsLoaded ? ` (${proposals.length})` : ''}</h2></div><span class="grow"></span><button class="secondary" data-refresh-proposals="1">Refresh</button></div>
@@ -303,12 +317,16 @@ function phasesHtml(
       : '<p class="muted">No configuration proposals are waiting for review.</p>'}
   </section>
   <section class="plain toolbar-row">
-    ${profile ? `<label class="field compact"><span>Workflow</span><select data-profile-pick>${profiles.map((entry) => `<option value="${escape(entry.id)}"${entry.id === profile.id ? ' selected' : ''}>${escape(workflowOptionLabel(entry))}</option>`).join('')}</select></label>` : ''}
+    ${profile ? `<label class="field compact"><span>Workflow</span><select data-profile-pick>${profiles.map((entry) => `<option value="${escape(selector(entry))}"${selector(entry) === selector(profile) ? ' selected' : ''}>${escape(workflowOptionLabel(entry))}</option>`).join('')}</select></label>` : ''}
     <span class="grow"></span>
     ${profile ? '<button class="secondary" data-edit-workflow="1">Edit workflow</button>' : ''}
+    ${profile ? '<button class="secondary" data-open-workflow-copy="1">Duplicate…</button>' : ''}
     <button data-new-workflow="1">New workflow</button>
+    <button class="secondary" data-open-workflow-export="1"${profiles.length ? '' : ' disabled'}>Export…</button>
+    <button class="secondary" data-import-workflows="1">Import…</button>
     <button class="secondary" data-new-phase="1">New phase</button>
   </section>
+  ${workflowPortabilityEditor(profiles, profile ?? null, portability)}
   ${draft ? workflowEditor(draft, choices) : ''}
   ${phaseDraft ? phaseEditor(phaseDraft, templates, views, agents, authorities) : ''}
   ${profile && !draft && !phaseDraft ? `
@@ -321,6 +339,39 @@ function phasesHtml(
     </section>
     ${profile.phases.map((phase) => phaseHtml(phase, profile.id)).join('')}` : ''}
   <section class="plain raw-escape"><button class="link" data-open-file="${escape(profile?.governs === 'story' ? 'singularity/workflow.yml' : portfolioPath)}">Open governed YAML</button><span class="muted"> for advanced policies, conditional checks, and approval chains.</span></section>`;
+}
+
+function workflowPortabilityEditor(
+  profiles: Profile[], selected: Profile | null, portability: WorkflowPortabilityView
+): string {
+  if (portability.mode === 'export') {
+    const chosen = new Set(portability.selectedWorkflowIds);
+    return `<section class="editor-card workflow-portability" aria-labelledby="workflow-export-title">
+      <div class="editor-title"><p class="eyebrow">Portable workflow bundle</p><h3 id="workflow-export-title">Export workflows and their dependencies</h3>
+        <p class="muted">Choose one or more workflows. Flow resolves and deduplicates their phase contracts, artifact sets and templates, governed agents and exact remote-dependency locks, approval groups, and other required configuration. Repository-wide policy and installed World Model view contracts are validated prerequisites, not replaced. Story data, generated work-item artifacts, credentials, local caches, and ledger history are never exported.</p></div>
+      <div class="toolbar-row"><strong>${profiles.length} available workflow${profiles.length === 1 ? '' : 's'}</strong><span class="grow"></span><button class="secondary" type="button" data-select-all-workflows="1">Select all</button><button class="link" type="button" data-clear-workflow-selection="1">Clear</button></div>
+      <div class="template-grid workflow-export-grid">${profiles.map((entry) => {
+        const selector = `${entry.governs}:${entry.id}`;
+        return `<label class="choice workflow-export-choice"><input type="checkbox" data-workflow-export-id="${escape(selector)}"${chosen.has(selector) ? ' checked' : ''}><span><strong>${escape(entry.label)}</strong><small><code>${escape(entry.id)}</code> · ${escape(entry.governs)} · ${entry.phases.length} phase${entry.phases.length === 1 ? '' : 's'}</small></span></label>`;
+      }).join('')}</div>
+      <p class="muted">The saved JSON bundle is portable and hash-bound. Export only reads approved configuration; it does not create a proposal or change this repository.</p>
+      <div class="form-actions"><button type="button" data-save-workflow-export="1">Save bundle…</button><button class="secondary" type="button" data-cancel-workflow-portability="1">Cancel</button></div>
+    </section>`;
+  }
+  if (portability.mode === 'copy' && selected) {
+    return `<section class="editor-card workflow-portability" aria-labelledby="workflow-copy-title">
+      <div class="editor-title"><p class="eyebrow">Linked workflow copy</p><h3 id="workflow-copy-title">Duplicate ${escape(selected.label)}</h3>
+        <p class="muted">The new workflow receives its own label, phase order, overrides, claims, and rework-loop settings. It intentionally reuses the existing shared phase, artifact, template, and agent contracts; changing one of those shared contracts later affects every workflow that uses it.</p></div>
+      <div class="form-grid">
+        <label class="field"><span>Source workflow</span><input value="${escape(`${selected.governs}:${selected.id}`)}" disabled><small>${escape(selected.governs)} workflow · ${selected.phases.length} phases</small></label>
+        <label class="field"><span>New workflow ID</span><input data-workflow-copy-id value="${escape(portability.copyTargetId)}" placeholder="${escape(`${selected.id}-copy`)}"><small>Permanent lower-case kebab-case identifier.</small></label>
+        <label class="field full"><span>Display name</span><input data-workflow-copy-label value="${escape(portability.copyLabel)}" placeholder="${escape(`${selected.label} copy`)}"></label>
+      </div>
+      <p class="muted">After you review the exact copy plan, applying it follows this repository's configuration authority: governed authority creates a review proposal; local authority records a local edit.</p>
+      <div class="form-actions"><button type="button" data-save-workflow-copy="1" data-source-workflow="${escape(`${selected.governs}:${selected.id}`)}">Review copy plan…</button><button class="secondary" type="button" data-cancel-workflow-portability="1">Cancel</button></div>
+    </section>`;
+  }
+  return '';
 }
 
 function templateInventory(templates: TemplateUsage[], filter: string): string {
@@ -386,14 +437,17 @@ export function designerHtml(
   /** The repository's own vocabularies, so the phase editor offers them instead of asking blind. */
   worldModelViews: string[] = [], governedAgents: string[] = [],
   workflowProposals: WorkflowProposalSummary[] = [], proposalsLoaded = true,
-  proposalsError: string | null = null, approvalAuthorities: string[] = []
+  proposalsError: string | null = null, approvalAuthorities: string[] = [],
+  workflowPortability: WorkflowPortabilityView = {
+    mode: null, selectedWorkflowIds: [], copySourceId: null, copyTargetId: '', copyLabel: ''
+  }
 ): string {
   return `
   <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated. Lead-governed edits become review proposals; self-governed edits remain uncommitted until you commit them. The selected Story is never edited.</p></header>
   ${error ? `<section class="plain"><div class="blockers">${escape(error)}</div></section>` : ''}
   <nav class="designer-tabs" aria-label="Configuration designers"><button class="tab${tab === 'phases' ? ' active' : ''}" aria-current="${tab === 'phases' ? 'page' : 'false'}" data-tab="phases">${icon('workflow')}Workflow builder</button><button class="tab${tab === 'templates' ? ' active' : ''}" aria-current="${tab === 'templates' ? 'page' : 'false'}" data-tab="templates">${icon('artifact')}Artifact designer</button></nav>
   ${tab === 'phases'
-    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg, templates, worldModelViews, governedAgents, approvalAuthorities, workflowProposals, proposalsLoaded, proposalsError)
+    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg, templates, worldModelViews, governedAgents, approvalAuthorities, workflowProposals, proposalsLoaded, proposalsError, workflowPortability)
     : `${artifactBuilder(artifactDraft, artifactErrors)}${templateInventory(templates, filter)}`}`;
 }
 
@@ -432,7 +486,7 @@ export const DESIGNER_SCRIPT = `
     sections: sections()
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('button[data-tab],button[data-open-file],button[data-open-template],button[data-edit-phase],button[data-edit-workflow],button[data-new-workflow],button[data-new-phase],button[data-cancel-workflow],button[data-save-workflow],button[data-workflow-phase-action],button[data-add-workflow-phase],button[data-add-workflow-loop],button[data-remove-workflow-loop],button[data-save-phase],button[data-cancel-phase],button[data-add-section],button[data-section-action],button[data-save-artifact],button[data-reset-artifact],button[data-attach-artifact],button[data-review-proposal],button[data-refresh-proposals]');
+    const target = event.target.closest('button[data-tab],button[data-open-file],button[data-open-template],button[data-edit-phase],button[data-edit-workflow],button[data-new-workflow],button[data-new-phase],button[data-cancel-workflow],button[data-save-workflow],button[data-workflow-phase-action],button[data-add-workflow-phase],button[data-add-workflow-loop],button[data-remove-workflow-loop],button[data-save-phase],button[data-cancel-phase],button[data-add-section],button[data-section-action],button[data-save-artifact],button[data-reset-artifact],button[data-attach-artifact],button[data-review-proposal],button[data-refresh-proposals],button[data-open-workflow-copy],button[data-open-workflow-export],button[data-import-workflows],button[data-select-all-workflows],button[data-clear-workflow-selection],button[data-save-workflow-export],button[data-save-workflow-copy],button[data-cancel-workflow-portability]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -443,6 +497,14 @@ export const DESIGNER_SCRIPT = `
     else if (data.refreshProposals !== undefined) vscode.postMessage({ type: 'refresh-proposals' });
     else if (data.editPhase) vscode.postMessage({ type: 'edit-phase', phase: data.editPhase });
     else if (data.editWorkflow !== undefined) vscode.postMessage({ type: 'begin-workflow' });
+    else if (data.openWorkflowCopy !== undefined) vscode.postMessage({ type: 'open-workflow-copy' });
+    else if (data.openWorkflowExport !== undefined) vscode.postMessage({ type: 'open-workflow-export' });
+    else if (data.importWorkflows !== undefined) vscode.postMessage({ type: 'import-workflows' });
+    else if (data.selectAllWorkflows !== undefined) document.querySelectorAll('[data-workflow-export-id]').forEach((input) => { input.checked = true; });
+    else if (data.clearWorkflowSelection !== undefined) document.querySelectorAll('[data-workflow-export-id]').forEach((input) => { input.checked = false; });
+    else if (data.saveWorkflowExport !== undefined) vscode.postMessage({ type: 'export-workflows', workflowIds: [...document.querySelectorAll('[data-workflow-export-id]:checked')].map((input) => input.dataset.workflowExportId) });
+    else if (data.saveWorkflowCopy !== undefined) vscode.postMessage({ type: 'copy-workflow', sourceId: data.sourceWorkflow, targetId: value('[data-workflow-copy-id]'), label: value('[data-workflow-copy-label]') });
+    else if (data.cancelWorkflowPortability !== undefined) vscode.postMessage({ type: 'cancel-workflow-portability' });
     else if (data.newWorkflow !== undefined) vscode.postMessage({ type: 'new-workflow' });
     else if (data.newPhase !== undefined) vscode.postMessage({ type: 'new-phase' });
     else if (data.cancelWorkflow !== undefined) vscode.postMessage({ type: 'cancel-workflow' });

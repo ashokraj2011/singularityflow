@@ -22,6 +22,11 @@ import {
   replayInteractiveAbandonConfirmation,
   resumeInteractiveRevision, showInteractiveInterval
 } from '../revision/interactive-service.mjs';
+import {
+  confirmPublicRevisionBrowserCheckRun, inspectPublicRevisionBrowserCheckResult,
+  inspectPublicRevisionBrowserCheckStatus, planPublicRevisionBrowserChecks,
+  revisionBrowserCheckCapabilities
+} from '../revision/browser-check-service.mjs';
 
 function refuse(code, message) { throw new SingularityFlowError(message, { code }); }
 
@@ -472,6 +477,90 @@ async function runInteractive(positionals, options) {
   return null;
 }
 
+function assertBrowserCheckOptions(action, options, permitted = []) {
+  const allowed = new Set(['json', ...permitted]);
+  const unknown = Object.keys(options ?? {}).filter((name) => !allowed.has(name));
+  if (unknown.length) {
+    refuse('REV_BROWSER_CHECK_OPTION_INVALID',
+      `revision checks ${action} does not accept --${unknown[0]}. Commands, Candidates, URLs, adapters, and environments are resolved only from approved current state.`);
+  }
+}
+
+async function runBrowserChecks(positionals, options = {}) {
+  const action = positionals[2];
+  if (action === 'capabilities') {
+    assertBrowserCheckOptions(action, options);
+    if (positionals.length !== 3) {
+      refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision checks capabilities --json.');
+    }
+    return emit(
+      { id: 'revision.checks.capabilities', classification: 'read' }, null,
+      succeeded('revision.checks-capabilities-reported', {
+        profile: revisionBrowserCheckCapabilities.activationProfile,
+        executor: revisionBrowserCheckCapabilities.unavailable.executor
+      }), noEffects(), revisionBrowserCheckCapabilities, options, { restState: 'informational' }
+    );
+  }
+  const root = repoRoot();
+  if (action === 'plan') {
+    assertBrowserCheckOptions(action, options);
+    if (positionals.length !== 3) {
+      refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision checks plan --json.');
+    }
+    const plan = await planPublicRevisionBrowserChecks(root);
+    return emit(
+      { id: 'revision.checks.plan', classification: 'read' },
+      { kind: 'story', id: plan.subject.workId },
+      succeeded('revision.checks-plan-reported', {
+        status: plan.status, planSha256: plan.planSha256, reasonCode: plan.reasonCode
+      }), noEffects(), plan, options, { restState: 'informational' }
+    );
+  }
+  if (action === 'status') {
+    assertBrowserCheckOptions(action, options);
+    if (positionals.length > 4) {
+      refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision checks status [RUN-ID] --json.');
+    }
+    const status = await inspectPublicRevisionBrowserCheckStatus(root, positionals[3] ?? null);
+    return emit(
+      { id: 'revision.checks.status', classification: 'read' },
+      { kind: 'story', id: status.subject.workId },
+      succeeded('revision.checks-status-reported', {
+        state: status.state, runId: status.runId ?? 'none', reasonCode: status.reasonCode
+      }), noEffects(), status, options, { restState: 'informational' }
+    );
+  }
+  if (action === 'result') {
+    assertBrowserCheckOptions(action, options);
+    if (positionals.length !== 4) {
+      refuse('REV_BROWSER_RUN_ID_REQUIRED',
+        'Use: singularity-flow revision checks result <RUN-ID> --json.');
+    }
+    const result = await inspectPublicRevisionBrowserCheckResult(root, positionals[3]);
+    return emit(
+      { id: 'revision.checks.result', classification: 'read' },
+      { kind: 'story', id: result.subject.workId },
+      succeeded('revision.checks-result-reported', {
+        status: result.status, runId: result.runId, reasonCode: result.reasonCode
+      }), noEffects(), result, options, { restState: 'informational' }
+    );
+  }
+  if (action === 'run') {
+    assertBrowserCheckOptions(action, options, ['plan', 'confirm']);
+    if (positionals.length !== 3) {
+      refuse('UNKNOWN_SUBCOMMAND',
+        'Use: singularity-flow revision checks run --plan <SHA256> --confirm <SHA256> --json.');
+    }
+    await confirmPublicRevisionBrowserCheckRun(root, {
+      plan: optionString(options, 'plan'), confirmation: optionString(options, 'confirm')
+    });
+    refuse('REV_CODE_CHECK_EXECUTOR_UNAVAILABLE',
+      'No approved browser-check runner completed; no run or authority was created.');
+  }
+  refuse('UNKNOWN_SUBCOMMAND',
+    'Use: singularity-flow revision checks capabilities|plan|status|result|run. Cancel, retry, and recovery are not public in this slice.');
+}
+
 export async function run(_argv, { positionals, options } = {}) {
   if (positionals?.[1] === 'activation') {
     const report = await inspectRevisionPilotActivation({ repositoryRoot: repoRoot() });
@@ -495,8 +584,11 @@ export async function run(_argv, { positionals, options } = {}) {
   if (['status', 'card', 'show', 'resume', 'capture', 'abandon'].includes(positionals?.[1])) {
     return runInteractive(positionals, options ?? {});
   }
+  if (positionals?.[1] === 'checks') {
+    return runBrowserChecks(positionals, options ?? {});
+  }
   if (positionals?.[1] !== 'attachments') {
-    refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision activation|capabilities|status|card|show|resume|capture|abandon, or revision attachments capabilities|preview|register|list|status|remove-preview|remove.');
+    refuse('UNKNOWN_SUBCOMMAND', 'Use: singularity-flow revision activation|capabilities|status|card|show|resume|capture|abandon, revision checks capabilities|plan|status|result|run, or revision attachments capabilities|preview|register|list|status|remove-preview|remove.');
   }
   const action = positionals[2];
   if (action === 'capabilities') {

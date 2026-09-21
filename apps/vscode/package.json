@@ -44,6 +44,7 @@
           { "name": "how", "description": "Show a reviewed procedure" },
           { "name": "recover", "description": "Find the reviewed recovery route" },
           { "name": "attachments", "description": "Preview or inspect private feedback attachment sets" },
+          { "name": "revision-checks", "description": "Inspect guarded browser revision-check capabilities without starting a run" },
           { "name": "revise", "description": "Inspect REV status/cards or prepare a separately confirmed Candidate revision" },
           { "name": "topics", "description": "List reviewed offline help topics" }
         ]

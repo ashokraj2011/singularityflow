@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-browser-run-receipt.schema.json",
+  "title": "Singularity Flow candidate-bound browser run receipt v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "runKey", "startedAt", "endedAt", "durationMs", "status", "reasonCode",
+    "exitCode", "tests", "testCases", "logSha256", "artifacts", "visualComparisons",
+    "bridgeReceiptSha256", "attemptId", "candidateUnderTestAttestation",
+    "executionAssurance", "assertionWitnessStatus",
+    "testingVerificationStatus", "publicationEligibilityEstablished", "receiptSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-browser-run-receipt" },
+    "runKey": { "$ref": "#/$defs/runKey" },
+    "startedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "endedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "durationMs": { "type": "integer", "minimum": 0, "maximum": 7200000 },
+    "status": { "enum": ["passed", "failed", "skipped", "unavailable"] },
+    "reasonCode": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{1,127}$" },
+    "exitCode": { "type": ["integer", "null"], "minimum": 0, "maximum": 255 },
+    "tests": { "$ref": "#/$defs/counts" },
+    "testCases": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/testCase" } },
+    "logSha256": { "oneOf": [{ "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }, { "type": "null" }] },
+    "artifacts": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/artifact" } },
+    "visualComparisons": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/visual" } },
+    "bridgeReceiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "attemptId": { "type": "string", "pattern": "^REVBR-[0-9a-f-]{36}$" },
+    "candidateUnderTestAttestation": { "type": "null" },
+    "executionAssurance": { "const": "bounded-effects-only" },
+    "assertionWitnessStatus": { "const": "not-established" },
+    "testingVerificationStatus": { "const": "not-established-by-browser-run" },
+    "publicationEligibilityEstablished": { "const": false },
+    "receiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "$defs": {
+    "nullableHash": { "oneOf": [{ "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }, { "type": "null" }] },
+    "runKey": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "candidateId", "candidateSha256", "candidateRefSha256", "candidateTree", "materializationSha256", "workId", "phaseId", "phaseGeneration", "loopId", "intervalId", "runId", "configSha256", "workflowSha256", "proofProfileSha256", "testManifestSha256", "checkId", "checkDefinitionSha256", "argvSha256", "timeoutMs", "environmentName", "environmentSha256", "baselineManifestSha256", "adapterSha256", "runKeySha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 }, "kind": { "const": "revision-browser-run-key" },
+        "candidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+        "candidateSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateRefSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateTree": { "$ref": "revision-contract-definitions.schema.json#/$defs/gitObject" },
+        "materializationSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "workId": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" },
+        "phaseId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "phaseGeneration": { "type": "integer", "minimum": 1 },
+        "loopId": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" },
+        "intervalId": { "$ref": "revision-contract-definitions.schema.json#/$defs/identifier" },
+        "runId": { "type": "string", "pattern": "^BRL-[a-f0-9]{12}$" },
+        "configSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "workflowSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "proofProfileSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "testManifestSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "checkId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "checkDefinitionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "argvSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 },
+        "environmentName": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "environmentSha256": { "$ref": "#/$defs/nullableHash" },
+        "baselineManifestSha256": { "$ref": "#/$defs/nullableHash" },
+        "adapterSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "runKeySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      }, "additionalProperties": false
+    },
+    "counts": {
+      "type": "object", "required": ["discovered", "passed", "failed", "skipped", "flaky"],
+      "properties": {
+        "discovered": { "type": "integer", "minimum": 0 }, "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 }, "skipped": { "type": "integer", "minimum": 0 },
+        "flaky": { "type": "integer", "minimum": 0 }
+      }, "additionalProperties": false
+    },
+    "testCase": {
+      "type": "object", "required": ["id", "titleSha256", "bodySha256", "status", "attempts"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "titleSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "bodySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "status": { "enum": ["passed", "failed", "skipped", "flaky"] },
+        "attempts": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }, "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object", "required": ["path", "kind", "mediaType", "sha256", "bytes", "captureProvenanceSha256", "accessClass", "retentionClass", "previewable"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "kind": { "enum": ["playwright-report", "playwright-trace", "playwright-screenshot", "playwright-video", "visual-diff", "structured-result", "bounded-log"] },
+        "mediaType": { "enum": ["application/json", "application/zip", "text/plain", "text/html", "image/png", "image/jpeg", "image/webp", "video/webm"] },
+        "sha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 8388608 },
+        "captureProvenanceSha256": { "type": "null" },
+        "accessClass": { "enum": ["private", "story"] },
+        "retentionClass": { "enum": ["ephemeral", "review", "proof"] },
+        "previewable": { "const": false }
+      }, "additionalProperties": false
+    },
+    "visual": {
+      "type": "object", "required": ["testId", "baselineManifestSha256", "baselineSha256", "actualSha256", "diffSha256", "differentPixels", "totalPixels", "diffRatio", "tolerance", "verdict"],
+      "properties": {
+        "testId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "baselineManifestSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "baselineSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "actualSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "diffSha256": { "$ref": "#/$defs/nullableHash" },
+        "differentPixels": { "type": "integer", "minimum": 0 },
+        "totalPixels": { "type": "integer", "minimum": 1 },
+        "diffRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tolerance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "verdict": { "enum": ["within-tolerance", "over-tolerance"] }
+      }, "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

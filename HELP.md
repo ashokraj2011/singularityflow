@@ -1471,6 +1471,8 @@ Classic Delivery reviewers can record optional local feedback through `/sf-revis
 
 Routing-required REV feedback creates no durable Human Request; use `/sf-recommend` or `singularity-flow recommend --json` for the deterministic next route. After manually saving the bounded implementation edits, preview capture with `singularity-flow revision capture --preview --note <NOTE> --saved-buffers-confirmed`, then repeat the same note with `--plan sha256:<PLAN> --confirm sha256:<PLAN>` only after reviewing that digest. Abandonment uses the same separate preview/confirmation discipline: it closes the local loop and preserves its selected Candidate head rather than restoring or replacing it. A registered attachment set may be selected only by its exact active digest and is revalidated against the same feedback, Story phase, repository, and context.
 
+Candidate-bound browser checks use `singularity-flow revision checks`. `capabilities` is a machine-local read; `plan` selects only the current retained Candidate and approved browser checks from the active phase; `status` and `result` inspect durable run records. `run` accepts only an exact plan whose complete digest is repeated in both `--plan` and `--confirm`, and it fails closed when the installed fixed broker cannot prove an approved runner receipt. There is no public cancel or retry mutation in this slice. Planning or observing a browser run never establishes a repository-test pass, Testing/Verification, publication, approval, merge, deployment, or release authority.
+
 `benchmarking-a` and `benchmarking-b` are deliberately paired. Both run the same templates, agents,
 artifacts, approvals, and rejection routes. A pins `worldModel: required`, `ast: optional-context`,
 and `agentBriefs: required`; B pins all three off and uses full approved phase inputs. A records a
@@ -3349,6 +3351,11 @@ singularity-flow revision capabilities [--json]
 singularity-flow revision status [--json]
 singularity-flow revision card [INTERVAL-ID] [--json]
 singularity-flow revision show <INTERVAL-ID> [--json]
+singularity-flow revision checks capabilities [--json]
+singularity-flow revision checks plan [--json]
+singularity-flow revision checks status [RUN-ID] [--json]
+singularity-flow revision checks result <RUN-ID> [--json]
+singularity-flow revision checks run --plan SHA256 --confirm SHA256 [--json]
 singularity-flow revise --dry-run --feedback-stdin --saved-buffers-confirmed [--criteria CLAUSE-ID] [--disposition RESULT] [--attachment-set SHA256] [--json]
 singularity-flow revise --feedback-stdin --saved-buffers-confirmed [--criteria CLAUSE-ID] [--disposition RESULT] [--attachment-set SHA256] --confirm SHA256 [--json]
 singularity-flow revision resume [INTERVAL-ID] [--json]

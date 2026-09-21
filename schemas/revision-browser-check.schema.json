@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-browser-check.schema.json",
+  "title": "Singularity Flow registered browser check v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "id", "argv", "argvSha256", "workingDirectory",
+    "environment", "outputRoots", "artifacts", "visualBaseline", "timeoutMs", "limits",
+    "result", "accessClass", "retentionClass", "definitionSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-browser-check" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "argv": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "minLength": 1, "maxLength": 2048 } },
+    "argvSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "workingDirectory": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "environment": {
+      "type": "object", "required": ["name", "fingerprintSha256"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "fingerprintSha256": { "oneOf": [{ "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }, { "type": "null" }] }
+      }, "additionalProperties": false
+    },
+    "outputRoots": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true },
+    "artifacts": {
+      "type": "object", "required": ["screenshots", "traces", "video"],
+      "properties": {
+        "screenshots": { "enum": ["always", "on-failure", "never"] },
+        "traces": { "enum": ["always", "on-failure", "never"] },
+        "video": { "enum": ["always", "on-failure", "never"] }
+      }, "additionalProperties": false
+    },
+    "visualBaseline": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object", "required": ["path", "manifestSha256", "tolerance", "approvalSha256", "updatePolicy"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+            "manifestSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+            "tolerance": { "type": "number", "minimum": 0, "maximum": 1 },
+            "approvalSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+            "updatePolicy": { "const": "governed" }
+          }, "additionalProperties": false
+        }
+      ]
+    },
+    "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 },
+    "limits": {
+      "type": "object", "required": ["maximumArtifacts", "maximumArtifactBytes", "maximumOutputBytes", "maximumTests", "maximumLogBytes"],
+      "properties": {
+        "maximumArtifacts": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "maximumArtifactBytes": { "type": "integer", "minimum": 1, "maximum": 8388608 },
+        "maximumOutputBytes": { "type": "integer", "minimum": 1, "maximum": 33554432 },
+        "maximumTests": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "maximumLogBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+      }, "additionalProperties": false
+    },
+    "result": {
+      "type": "object", "required": ["adapter", "path", "adapterSha256"],
+      "properties": {
+        "adapter": { "const": "sflow-browser-result-v1" },
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "adapterSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      }, "additionalProperties": false
+    },
+    "accessClass": { "enum": ["private", "story"] },
+    "retentionClass": { "enum": ["ephemeral", "review", "proof"] },
+    "definitionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "additionalProperties": false
+}

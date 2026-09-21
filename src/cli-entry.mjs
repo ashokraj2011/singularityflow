@@ -59,7 +59,14 @@ export const MACHINE_LOCAL_TELEMETRY_SUBCOMMANDS = new Set([
   'status', 'probe', 'enable', 'disable'
 ]);
 
-export function excludesActiveWorkspaceRouting(command, subcommand = null, options = {}) {
+// Browser-check capability discovery reports only which foundations and authorities are installed
+// on this machine. It must work before a repository or workspace is selected. Every other browser-
+// check action remains Story/repository-bound, so the exclusion is deliberately action-specific.
+export const REPOSITORY_INDEPENDENT_REVISION_CHECK_ACTIONS = new Set(['capabilities']);
+
+export function excludesActiveWorkspaceRouting(
+  command, subcommand = null, options = {}, action = null
+) {
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
     // Documentation topics remain machine-local and repository-independent. Code explanation is
     // deliberately repository-bound and may use the repository selected by `workspace use` when
@@ -72,6 +79,8 @@ export function excludesActiveWorkspaceRouting(command, subcommand = null, optio
     || (command === 'telemetry'
       && MACHINE_LOCAL_TELEMETRY_SUBCOMMANDS.has(subcommand ?? 'status'))
     || (command === 'capability' && REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS.has(subcommand))
+    || (command === 'revision' && subcommand === 'checks'
+      && REPOSITORY_INDEPENDENT_REVISION_CHECK_ACTIONS.has(action))
     // Portable Process Evidence verification consumes only the named bundle bytes. It must work
     // in a fresh directory and must never be redirected to the last selected workspace.
     || (command === 'evidence' && subcommand === 'verify');
@@ -205,9 +214,10 @@ export async function activeWorkspaceRepositoryRoot(command, {
   env = process.env,
   home = undefined,
   subcommand = null,
+  action = null,
   options = {}
 } = {}) {
-  if (excludesActiveWorkspaceRouting(command, subcommand, options)) return null;
+  if (excludesActiveWorkspaceRouting(command, subcommand, options, action)) return null;
   const {
     activeWorkspaceFile,
     readActiveWorkspaceContext,
@@ -459,10 +469,15 @@ export async function main(argv) {
   // --timings and durable events no longer omit dispatch work performed ahead of module loading.
   root = localOnlyRequest ? null : withCommandTiming(timer, () => rootIfAvailable());
   const subcommand = positionals[1] ?? null;
-  const routingExcluded = excludesActiveWorkspaceRouting(definition.name, subcommand, options);
+  const action = positionals[2] ?? null;
+  const routingExcluded = excludesActiveWorkspaceRouting(
+    definition.name, subcommand, options, action
+  );
   await withCommandTiming(timer, async () => {
     if (!routingExcluded && (!root || !hasLocalGovernanceAuthority(root))) {
-      const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, { subcommand, options });
+      const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, {
+        subcommand, action, options
+      });
       const selectedDiffers = selectedRoot && (!root || path.resolve(selectedRoot) !== path.resolve(root));
       const currentClaimsAuthority = selectedDiffers && root
         ? await hasRemoteGovernanceAuthority(root) : false;

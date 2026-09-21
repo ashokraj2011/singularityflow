@@ -123,7 +123,7 @@ const entries = {
   gate: ['sf-gate'],
   wm: ['sf-worldmodel', 'sf-show-prompt'],
   architecture: ['sf-architecture'],
-  revision: ['sf-revision', 'sf-revise', 'sf-revision-attachments'],
+  revision: ['sf-revision', 'sf-revise', 'sf-revision-attachments', 'sf-revision-checks'],
   revise: ['sf-revise'],
   jira: [
     'sf-jira-work', 'sf-jira-status', 'sf-jira-doctor', 'sf-jira-assigned', 'sf-jira-story',
@@ -220,7 +220,12 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     'attachments list': 'sf-revision-attachments',
     'attachments status': 'sf-revision-attachments',
     'attachments remove-preview': 'sf-revision-attachments',
-    'attachments remove': 'sf-revision-attachments'
+    'attachments remove': 'sf-revision-attachments',
+    'checks capabilities': 'sf-revision-checks',
+    'checks plan': 'sf-revision-checks',
+    'checks status': 'sf-revision-checks',
+    'checks result': 'sf-revision-checks',
+    'checks run': 'sf-revision-checks'
   }),
   revise: route('sf-revise'),
   capability: route('sf-capability-map', {

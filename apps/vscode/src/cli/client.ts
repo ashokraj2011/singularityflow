@@ -144,6 +144,12 @@ function cacheableRead(args: string[]): boolean {
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
+  if (args[0] === 'revision' && args[1] === 'checks') {
+    const action = args[2] ?? '';
+    if (['capabilities', 'plan', 'status', 'result'].includes(action)) return 'read';
+    if (action === 'run') return 'mutation';
+    return 'unknown';
+  }
   // Preview writes an expiring private plan cache. It is not a cacheable read even though it does
   // not alter Story/Git state; register appends a durable private receipt.
   if (args[0] === 'revision' && args[1] === 'attachments') {

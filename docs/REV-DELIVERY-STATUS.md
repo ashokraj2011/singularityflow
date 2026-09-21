@@ -23,11 +23,53 @@ It is deliberately **not** an autonomous model executor and does not imply relea
 - VS Code `@sflow /attachments` previews genuine local file URIs and offers a one-use registration confirmation. It cannot recover opaque Copilot-upload bytes. Binary PDF/DOCX/image intake remains disabled without an installed, approved scanner/extractor.
 - Attachment registration never starts a revision. A later `/sf-revise` preview must name and revalidate the exact active attachment-set digest.
 
+## Browser-revision check foundation
+
+The BRL foundation exposes an honest deterministic boundary without activating an autonomous
+browser executor:
+
+- Shell `singularity-flow revision checks capabilities --json` and Copilot
+  `/sf-revision-checks capabilities` inspect installed planner, runner, evidence, and authority
+  boundaries without selecting a Story or Candidate.
+- With a ready Story session, `revision checks plan --json` may bind only the current retained REV
+  Candidate and browser check already registered by the approved active phase. The caller cannot
+  inject argv, a URL, environment, phase, Candidate, adapter, or check definition.
+- `revision checks status [<RUN-ID>] --json` and `revision checks result <RUN-ID> --json` are bounded
+  reads. Use `/sf-revision-checks` from Copilot and the dedicated `@sflow /revision-checks` chat
+  participant route; `@sflow /checks` remains repository/phase readiness and is not BRL.
+- The exact `revision checks run --plan sha256:<PLAN> --confirm sha256:<PLAN> --json` form is a
+  separately reviewed Shell mutation. `/sf-revision-checks` deliberately does not execute it. An
+  unavailable runner refuses before effects; no shell, package script, Playwright MCP, or model
+  fallback is permitted.
+- A stored browser receipt is bounded candidate observation only. Its run key binds Story/work
+  item, phase generation, loop, interval, run, workflow/configuration/proof inputs, exact Candidate,
+  check, and approved test-manifest digest; the receipt binds one bridge attempt and explicitly
+  records that candidate-under-test attestation is absent. Exactly one receipt may be stored per
+  run ID. Current comparison records keep
+  assertion witnesses, criterion satisfaction, Testing/Verification status, green status, and
+  publication eligibility false. Candidate, phase, configuration, proof, test, command,
+  environment, baseline, or adapter drift is rendered as an exact stale binding.
+
+Visual comparison is not an installed capability. Non-null visual baselines and adapter-supplied
+visual claims are refused until a registered pixel comparator and governed baseline-membership
+lifecycle exist.
+
+The dedicated VS Code result-card model displays candidate and run identity, observed status,
+test totals, stale bindings, an empty reserved visual section, and an escaped opaque artifact
+inventory. Artifact provenance is explicitly unverified and artifacts remain non-previewable until
+secure admission exists. It does not render report HTML, artifact bytes, command controls, or
+authority claims. Wiring that card into a mutating panel remains gated on a stable result envelope
+and approved runner lifecycle.
+
 ## Evidence and safety boundary
 
 The machine-local append-only journal uses compare-and-swap for the selected head. Candidate references, route/packet plans, context, and precheck are content-addressed and rechecked at mutation time. Each successful start confirmation has an immutable result receipt keyed by its exact plan digest, so the same feedback and selectors replay the original result even after a later interval replaces the current pointer. Other historical mutations are not replayable. Changed bytes or authority require a new preview. This profile neither claims automatic restoration nor creates an ordinary phase-publication selection.
 
-The built-in attempt bridge is intentionally narrow. It can apply only explicitly admitted bounded operations and return exact non-promoting bytes after cleanup. It is not authority to:
+The built-in attempt bridge is intentionally narrow. It can apply only explicitly admitted bounded
+operations and return exact non-promoting bytes after cleanup. Its same-process receipt seals the
+exact configured timeout and a ceiling-rounded monotonic worker duration; BRL refuses caller timing
+that differs from that authenticated measurement. This measures only the fixed bridge, not an
+approved browser runner or candidate-under-test deployment. It is not authority to:
 
 - invoke an autonomous Copilot/model coding agent;
 - launch arbitrary shell, Git, project-build, or project-test commands;
@@ -47,6 +89,9 @@ Code-phase tests, screenshots, or Playwright observations may be attached to the
 - Approved isolated model/code executor with process-tree quiescence and external-effect resolution.
 - Trusted editor-buffer adapter where the host cannot prove saved/captured buffers.
 - Organization-approved quality-command adapters and authenticated durable test receipts.
+- Candidate-under-test build/launch or deployment attestation proving that the browser exercised
+  the exact retained Candidate, plus governed baseline/finding lifecycle and secure artifact
+  admission, before a browser result can become a qualifying witness.
 - Exact selected-head integration with ordinary Story phase publication.
 - Binary attachment scanning/extraction and timed quarantine expiry.
 - Full macOS/Linux/Windows fault witness matrix and a release-owned profile attestation.

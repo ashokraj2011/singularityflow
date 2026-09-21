@@ -185,7 +185,8 @@ test('REV pilot activation requires a real repository-local opt-in and refuses f
     attempt: 'declarative-probe-only-unverified',
     receipt: 'projection-only-no-authenticated-durable-receipt',
     recovery: 'private-local-foundation-only',
-    compareRestore: 'kernel-only-no-public-ux'
+    compareRestore: 'kernel-only-no-public-ux',
+    browserLoop: 'candidate-bound-contract-store-and-comparison-only-no-trusted-executor'
   });
   assert.deepEqual(dormant.foundations.map(({ id, status }) => ({ id, status })), [
     { id: 'candidate-head-cas', status: 'guarded-local' },

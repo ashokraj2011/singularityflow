@@ -195,6 +195,12 @@ test('repository commands can route through the explicitly selected workspace', 
   assert.equal(await activeWorkspaceRepositoryRoot('doctor', {
     env, options: { performance: true }
   }), null, 'doctor --performance deliberately measures the invoking checkout');
+  assert.equal(await activeWorkspaceRepositoryRoot('revision', {
+    env, subcommand: 'checks', action: 'capabilities'
+  }), null, 'browser-check capability discovery is machine-local');
+  assert.equal(await activeWorkspaceRepositoryRoot('revision', {
+    env, subcommand: 'checks', action: 'plan'
+  }), await realpath(repository), 'browser-check planning remains Story/repository-bound');
   assert.ok(ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has('factory-reset'),
     'destructive repository reset must always require an explicit working directory');
 

@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
 import { recordSha256 } from '../records.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { isPortableRepositoryPathComponent, SingularityFlowError } from '../util.mjs';
 
 const MAX_FILES = 2_000;
 const MAX_TREE_BYTES = 32 * 1024 * 1024;
@@ -34,9 +34,9 @@ function bytesHash(bytes) { return `sha256:${createHash('sha256').update(bytes).
 
 function safePath(value) {
   if (typeof value !== 'string' || !value || value.length > 1024 || value !== value.normalize('NFC')
-      || value.startsWith('/') || value.includes('\\') || value.includes('\0')
-      || value.split('/').some((part) => !part || part === '.' || part === '..' || part.length > 255
-        || part.toLowerCase() === '.git' || /[\x00-\x1f\x7f:]/u.test(part))) {
+      || value.startsWith('/')
+      || value.split('/').some((part) => part.length > 255
+        || !isPortableRepositoryPathComponent(part))) {
     fail('REV_ATTEMPT_PATH_INVALID', 'Execution path is not a safe relative path.');
   }
   return value;
@@ -151,6 +151,18 @@ function validateParentFiles(files) {
   return result;
 }
 
+/**
+ * Project the exact parent-materialization digest used by broker receipts. This is intentionally
+ * pure: higher-level candidate-bound runners can independently read a retained Git tree, compare
+ * this digest with the receipt, and refuse a broker result produced from different bytes.
+ */
+export function revisionBrokeredParentSha256(files) {
+  const normalized = validateParentFiles(files);
+  return hash(normalized.map((file) => ({
+    path: file.path, sha256: bytesHash(file.bytes), executable: file.executable
+  })));
+}
+
 async function materialize(workspace, files) {
   const before = new Map();
   for (const file of files) {
@@ -241,7 +253,18 @@ function waitForExit(child) {
 
 async function superviseWorker(workspace, plan, timeoutMs, signal) {
   if (signal?.aborted) return { reason: 'cancelled-before-start', started: false,
-    quiescenceStatus: 'confirmed', stopOutcome: 'not-started' };
+    quiescenceStatus: 'confirmed', stopOutcome: 'not-started',
+    timing: { startedAt: null, endedAt: null, durationMs: null, timeoutMs } };
+  const startedAt = new Date().toISOString();
+  const startedMonotonic = process.hrtime.bigint();
+  const timing = () => {
+    const elapsedNanoseconds = process.hrtime.bigint() - startedMonotonic;
+    return {
+      startedAt, endedAt: new Date().toISOString(),
+      // Round up so the receipt never understates elapsed execution time.
+      durationMs: Number((elapsedNanoseconds + 999_999n) / 1_000_000n), timeoutMs
+    };
+  };
   const child = spawn(process.execPath, ['-e', WORKER_SOURCE], {
     cwd: workspace, shell: false, windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'],
     env: { PATH: '', TMPDIR: workspace, TMP: workspace, TEMP: workspace, LANG: 'C' }
@@ -282,12 +305,17 @@ async function superviseWorker(workspace, plan, timeoutMs, signal) {
   if (outcome.unobserved) {
     try { child.kill('SIGKILL'); } catch { /* Recovery still required. */ }
     return { reason: reason ?? 'process-not-quiesced', started: true, pid,
-      quiescenceStatus: 'unknown', stopOutcome: 'unobserved', child, exit };
+      quiescenceStatus: 'unknown', stopOutcome: 'unobserved', child, exit,
+      timing: timing() };
   }
+  const observedTiming = timing();
+  // Timer callbacks may themselves be delayed by a busy event loop. The monotonic measurement is
+  // authoritative even when the deadline callback did not run before process exit observation.
+  if (reason === null && observedTiming.durationMs > timeoutMs) reason = 'timed-out';
   return { reason, started: pid !== null, pid,
     quiescenceStatus: 'confirmed', stopOutcome: outcome.error ? 'not-started'
       : outcome.signal ? 'signalled' : 'exited', exitCode: outcome.code ?? null,
-    signal: outcome.signal ?? null };
+    signal: outcome.signal ?? null, timing: observedTiming };
 }
 
 function changesBetween(before, after, allowed, context) {
@@ -332,6 +360,9 @@ function receipt({ attemptId, status, code, process, changes, cleanupVerified,
   const core = {
     schemaVersion: 1, kind: 'revision-effect-receipt', attemptId, status,
     ...(code ? { code } : {}), parentSha256, planSha256, allowedEffects,
+    processTiming: process?.timing ?? {
+      startedAt: null, endedAt: null, durationMs: null, timeoutMs: null
+    },
     effects, unknownEffects, changes, cleanup: { verified: cleanupVerified },
     retryAllowed: ['refused', 'failed', 'timed-out', 'cancelled'].includes(status) && effectsResolved,
     candidateAdmitted: false, loopHeadAdvanced: false
@@ -367,8 +398,7 @@ export async function executeRevisionBrokeredPlan({
     }
   }
   const files = validateParentFiles(parentFiles);
-  const parentSha256 = hash(files.map((file) => ({ path: file.path,
-    sha256: bytesHash(file.bytes), executable: file.executable })));
+  const parentSha256 = revisionBrokeredParentSha256(files);
   const planSha256 = hash(workerOperations(operations));
   const attemptId = `REVBR-${randomUUID()}`;
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-rev-bridge-'));

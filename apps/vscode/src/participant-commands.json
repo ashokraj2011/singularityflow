@@ -225,6 +225,21 @@
     "confirmation": "separate-guarded-flow"
   },
   {
+    "id": "revision-checks",
+    "class": "deterministic",
+    "transport": "local",
+    "effect": "human-decision",
+    "runtime": null,
+    "template": "revision-checks",
+    "skill": "/sf-revision-checks",
+    "description": "Inspect guarded browser revision-check capabilities without starting a run",
+    "keywords": ["revision checks", "browser revision checks"],
+    "acceptsArguments": true,
+    "requiresRepository": false,
+    "requiresSession": false,
+    "confirmation": "separate-guarded-flow"
+  },
+  {
     "id": "revise",
     "class": "deterministic",
     "transport": "local",

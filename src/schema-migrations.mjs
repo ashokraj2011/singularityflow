@@ -3597,6 +3597,21 @@ const families = [
   }),
   family({ id: 'revision-precheck', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity', paths: revisionRecordPaths('revision-precheck') }),
+  family({ id: 'revision-browser-check', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-browser-run-key', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-browser-run-state', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
+  family({
+    id: 'revision-browser-run-receipt', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity',
+    paths: [
+      /^\$git\/revision-browser-runs\/BRL-[a-f0-9]{12}\/receipt\.json$/
+    ]
+  }),
+  family({ id: 'revision-browser-comparison', currentVersion: 1, immutable: true,
+    migrationPolicy: 'frozen-identity' }),
   family({ id: 'revision-code-check-receipt', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity' }),
   family({ id: 'revision-publication-selection', currentVersion: 1, immutable: true,

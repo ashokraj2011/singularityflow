@@ -469,6 +469,11 @@ Every public operation is classified before its implementation module is importe
 | revision.capture | mutation | never | — | — |
 | revision.capture.preview | read | never | — | — |
 | revision.card | read | never | — | — |
+| revision.checks.capabilities | read | never | — | — |
+| revision.checks.plan | read | never | — | — |
+| revision.checks.result | read | never | — | — |
+| revision.checks.run | mutation | never | — | — |
+| revision.checks.status | read | never | — | — |
 | revision.resume | mutation | never | — | — |
 | revision.show | read | never | — | — |
 | revision.status | read | never | — | — |

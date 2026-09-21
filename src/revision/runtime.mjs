@@ -110,13 +110,29 @@ export const revisionRuntimeCapabilities = Object.freeze({
   codeResultAvailable: false,
   publicationBridgeAvailable: false,
   releaseWitnessExecutionAvailable: false,
+  brlContractsAvailable: true,
+  brlReceiptStoreAvailable: true,
+  // Assertion/result-card projection is deterministic, but visual comparison is deliberately
+  // unavailable until an independently registered pixel comparator and governed baseline store
+  // are installed. Do not advertise the broader BRL comparison capability yet.
+  brlDeterministicComparisonAvailable: false,
+  brlTrustedBrowserExecutorAvailable: false,
+  brlCandidateUnderTestAttestationAvailable: false,
+  brlPublicationBridgeAvailable: false,
+  brlBoundaryReasons: Object.freeze({
+    deterministicVisualComparison: 'BRL_VISUAL_COMPARATOR_UNAVAILABLE',
+    trustedBrowserExecutor: 'BRL_TRUSTED_BROWSER_EXECUTOR_UNAVAILABLE',
+    candidateUnderTestAttestation: 'BRL_CANDIDATE_UNDER_TEST_ATTESTATION_UNAVAILABLE',
+    publicationBridge: 'BRL_PUBLICATION_BRIDGE_UNAVAILABLE'
+  }),
   evidenceBoundary: Object.freeze({
     candidate: 'retained-reference-foundation-only',
     program: 'approved-program-binding-unavailable',
     attempt: 'declarative-probe-only-unverified',
     receipt: 'projection-only-no-authenticated-durable-receipt',
     recovery: 'private-local-foundation-only',
-    compareRestore: 'kernel-only-no-public-ux'
+    compareRestore: 'kernel-only-no-public-ux',
+    browserLoop: 'candidate-bound-contract-store-and-comparison-only-no-trusted-executor'
   }),
   reasonCode: 'REV_EXECUTION_UNAVAILABLE'
 });

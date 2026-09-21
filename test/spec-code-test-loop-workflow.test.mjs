@@ -39,6 +39,9 @@ test('spec-code-test-loop pins a distinct spec, Code, Playwright review, and con
     'Specification', 'Code', 'Playwright testing review', 'Spec, code and test checking'
   ]);
   assert.equal(profile.spec.mode, 'enforce');
+  assert.match(profile.description, /BRL foundation/i);
+  assert.match(profile.description, /fail closed without its approved runner/i);
+  assert.match(profile.description, /never replace structured test receipts, Testing, publication, or approval/i);
   assert.deepEqual(profile.plannedClaims, {
     mode: 'required', clausePhases: ['specification'], owners: { implementation: 'specification' }
   });

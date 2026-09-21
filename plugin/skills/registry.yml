@@ -142,6 +142,7 @@ skills:
   sflow-reinstall: { class: mutation, executionBoundary: machine }
   sflow-revision: { class: echo, executionBoundary: machine }
   sflow-revision-attachments: { class: mutation }
+  sflow-revision-checks: { class: interactive, executionBoundary: machine }
   sflow-revise: { class: mutation }
   sflow-ready: { class: interactive, executionBoundary: repository }
   sflow-finalize: { class: mutation }

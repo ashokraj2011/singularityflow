@@ -4,23 +4,18 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "974296732c6e1b98b35253b51d60e65d66ce5180",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-19-CLOSEOUT.md",
+    "reviewedAtCommit": "499b2656353c8741f92a770410660750a6f356a3",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-21-BRL.md",
     "companionIds": [
-      "code-assurance-bridge",
       "migration-registry",
-      "sgos-contract",
-      "sgos-delivery-status",
-      "witnessed-engineering-delivery-status",
-      "workflow-configuration",
-      "world-model-v4"
+      "workflow-configuration"
     ]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:54bd7a46e35299e0a51170ad4ef89c24253d55422fe6ecfa84385a297ca95635"
+      "sha256": "sha256:4a6c7e3362b3be744162998a0b2b3ea2c28bc84c1bc3fa0cdadf9adfda4a844c"
     },
     {
       "id": "sgos-portable-schema",
@@ -105,7 +100,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:82fb9e535737ef32753c296f84c7f796a0c367f19ec2566c10ff863ebaa230f4"
+      "sha256": "sha256:37b9b4b2d9c9527fbd384dd46f8bd9f8b284ca559f675cca3ae595d6faaee338"
     },
     {
       "id": "smart-initialization-v1",

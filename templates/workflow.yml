@@ -649,7 +649,7 @@ workTypes:
 
   spec-code-test-loop:
     label: Spec → code → Playwright review
-    description: A specification-first Story with Code publication, governed Playwright browser observations, and bounded human-directed rework; MCP observations never replace structured test receipts or approval.
+    description: A specification-first Story with Code publication, governed Playwright browser observations, and bounded human-directed rework. The optional BRL foundation can inspect or plan the exact retained Code Candidate, but runs fail closed without its approved runner; MCP or BRL observations never replace structured test receipts, Testing, publication, or approval.
     phases: [specification, implementation, testing, conformance]
     reworkLoops:
       - { from: testing, to: implementation, maxAttempts: 3, resetOnPhase: specification }
@@ -668,6 +668,9 @@ workTypes:
       implementation:
         label: Code
         inputs: [specification]
+        # `/sf-revision-checks` may inspect the installed BRL boundary and plan only from the
+        # current retained REV Candidate. The workflow grants no browser runner, green verdict,
+        # publication bridge, or standing authority merely by selecting this work type.
         approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [specification, implementation] }
       testing:
         label: Playwright testing review

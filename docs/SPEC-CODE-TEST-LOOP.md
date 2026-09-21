@@ -32,6 +32,62 @@ singularity-flow start DEMO-101 --from-branch main --work-type spec-code-test-lo
 
 Copilot equivalent: `/sf-start`, then choose **Spec → code → Playwright review**.
 
+## Inspect the optional browser-revision foundation
+
+The workflow can use the BRL foundation while Code is still unpublished, but selecting this work
+type does not install or authorize a browser runner. Inspect the compiled boundary before relying
+on it:
+
+The current foundation can project registered assertion outcomes only. It refuses visual-baseline
+activation and visual comparison claims until a registered pixel comparator and governed baseline
+store are installed; screenshots remain review artifacts, not deterministic visual proof.
+
+```bash
+singularity-flow revision checks capabilities --json
+```
+
+Copilot: `/sf-revision-checks capabilities`
+
+Chat participant read: `@sflow /revision-checks`
+
+With a ready Story session and a current retained REV Candidate, planning is read-only and selects
+that Candidate from governed state; callers cannot supply a command, URL, environment, phase, or
+Candidate:
+
+```bash
+singularity-flow revision checks plan --json
+```
+
+Copilot: `/sf-revision-checks plan`
+
+Inspect an existing run without changing it:
+
+```bash
+singularity-flow revision checks status [<RUN-ID>] --json
+singularity-flow revision checks result <RUN-ID> --json
+```
+
+Copilot: `/sf-revision-checks status [<RUN-ID>]` or
+`/sf-revision-checks result <RUN-ID>`.
+
+The skill never starts a check. If the user separately authorizes one exact current plan, the
+Shell-only mutation is:
+
+```bash
+singularity-flow revision checks run \
+  --plan sha256:<PLAN> \
+  --confirm sha256:<PLAN> \
+  --json
+```
+
+Both digests must be identical and complete. The command must refuse before execution when the
+installed build cannot prove its fixed same-process runner and bounded cleanup. Do not replace it
+with Playwright MCP, `npm test`, an arbitrary shell command, a model tool, or a handwritten result.
+Even a completed bounded browser observation establishes neither a passing repository test nor
+criterion satisfaction, Testing/Verification, publication, approval, merge, deployment, or
+release eligibility. The normal Code structured-test receipt and later Playwright review remain
+mandatory.
+
 ## Make one governed pass
 
 1. Author and approve Specification. Its stable, work-ID-qualified clauses must each have a row
@@ -39,7 +95,10 @@ Copilot equivalent: `/sf-start`, then choose **Spec → code → Playwright revi
    are the Code and Testing input; an in-place change to an approved document is not an amendment.
 2. In Code, implement the approved clauses, add repository-native executable tests, and publish
    through `/sf-code`. The kernel records a passing structured test receipt bound to that Code
-   generation. If tests fail, repair Code before publication; a prose claim cannot override them.
+   generation. Optional `/sf-revision-checks` evidence may be shown alongside the retained
+   Candidate with its exact stale bindings and artifact provenance, but it grants no green or
+   publication authority. If tests fail, repair Code before publication; a prose claim cannot
+   override them.
 3. In Playwright testing review, use the approved browser origin. Record this generation's
    host-observed navigation and snapshot with Playwright MCP, compare the observed behavior with
    each Specification clause, and cite the existing Code test receipt separately. Use `/sf-mcp`

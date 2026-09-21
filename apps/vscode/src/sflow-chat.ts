@@ -667,6 +667,177 @@ async function handleChatRevision(
   }
 }
 
+type RevisionChecksChatAction =
+  | { kind: 'capabilities' }
+  | { kind: 'plan' }
+  | { kind: 'status'; runId: string | null }
+  | { kind: 'result'; runId: string }
+  | { kind: 'run'; planSha256: string }
+  | { kind: 'unavailable'; reason: string; shell: string };
+
+const REVISION_CHECK_RUN_ID = /^BRL-[a-f0-9]{12}$/;
+const REVISION_CHECK_PLAN_SHA256 = /^sha256:[a-f0-9]{64}$/;
+
+function revisionChecksChatAction(prompt: string): RevisionChecksChatAction {
+  const value = prompt.trim();
+  if (!value || value.toLowerCase() === 'capabilities') return { kind: 'capabilities' };
+  if (value.toLowerCase() === 'plan') return { kind: 'plan' };
+  if (value.toLowerCase() === 'status') return { kind: 'status', runId: null };
+  const status = /^status\s+(\S+)$/i.exec(value);
+  if (status) {
+    return REVISION_CHECK_RUN_ID.test(status[1]!)
+      ? { kind: 'status', runId: status[1]! }
+      : { kind: 'unavailable', reason: 'Run IDs use `BRL-` followed by 12 lowercase hexadecimal characters.', shell: 'singularity-flow revision checks status [RUN-ID] --json' };
+  }
+  const result = /^result\s+(\S+)$/i.exec(value);
+  if (result) {
+    return REVISION_CHECK_RUN_ID.test(result[1]!)
+      ? { kind: 'result', runId: result[1]! }
+      : { kind: 'unavailable', reason: '`result` requires one exact `BRL-<12hex>` run ID.', shell: 'singularity-flow revision checks result <RUN-ID> --json' };
+  }
+  const run = /^run\s+(\S+)$/i.exec(value);
+  if (run) {
+    return REVISION_CHECK_PLAN_SHA256.test(run[1]!)
+      ? { kind: 'run', planSha256: run[1]! }
+      : { kind: 'unavailable', reason: '`run` requires the full SHA-256 plan digest returned by the current plan read.', shell: 'singularity-flow revision checks run --plan sha256:<PLAN> --confirm sha256:<PLAN> --json' };
+  }
+  if (/^(?:cancel|retry|recover)(?:\s|$)/i.test(value)) {
+    return { kind: 'unavailable', reason: 'Cancel, retry, and recovery mutations are not public in this slice. Read status or result; never rerun an uncertain check.', shell: 'singularity-flow revision checks status [RUN-ID] --json' };
+  }
+  return { kind: 'unavailable', reason: 'Use capabilities, plan, status [RUN-ID], result <RUN-ID>, or run <PLAN-SHA256>.', shell: 'singularity-flow revision checks capabilities --json' };
+}
+
+function revisionChecksRoutes(action: Exclude<RevisionChecksChatAction, { kind: 'unavailable' }>): {
+  argv: string[]; shell: string; copilot: string;
+} {
+  if (action.kind === 'run') {
+    const argv = ['revision', 'checks', 'run', '--plan', action.planSha256,
+      '--confirm', action.planSha256, '--json'];
+    return {
+      argv, shell: `singularity-flow ${argv.join(' ')}`,
+      copilot: `/sf-revision-checks run ${action.planSha256}`
+    };
+  }
+  const argv = ['revision', 'checks', action.kind];
+  if ((action.kind === 'status' || action.kind === 'result') && action.runId) argv.push(action.runId);
+  argv.push('--json');
+  return {
+    argv, shell: `singularity-flow ${argv.join(' ')}`,
+    copilot: `/sf-revision-checks ${action.kind}${(action.kind === 'status' || action.kind === 'result') && action.runId ? ` ${action.runId}` : ''}`
+  };
+}
+
+function revisionChecksClient(context: vscode.ExtensionContext): SingularityFlowClient {
+  const active = activeRepositoryContext();
+  const settings = vscode.workspace.getConfiguration('singularityFlow');
+  return new SingularityFlowClient({
+    location: resolveCli({
+      configuredCli: settings.get<string>('cliPath'),
+      configuredNode: settings.get<string>('nodePath'),
+      extensionPath: context.extensionPath
+    }),
+    // Capability discovery is the one BRL action the CLI explicitly treats as installation-local.
+    // A neutral existing directory is enough when no repository is selected. Story-bound actions
+    // use activeAttachmentSession instead and can never receive this fallback.
+    repository: active?.root ?? context.extensionPath
+  });
+}
+
+function renderRevisionChecksRead(value: unknown, action: 'capabilities' | 'plan' | 'status' | 'result'): string {
+  const envelope = jsonObject(value) ?? {};
+  const data = jsonObject(envelope.data) ?? {};
+  if (action === 'capabilities') {
+    const foundations = jsonObject(data.foundations) ?? {};
+    const unavailable = jsonObject(data.unavailable) ?? {};
+    let markdown = '### Browser revision-check capabilities\n\n**Available foundations**\n\n';
+    for (const [name, status] of Object.entries(foundations).slice(0, 12)) {
+      markdown += `- ${safeMarkdown(name)}: **${markdownValue(status, 160)}**\n`;
+    }
+    markdown += '\n**Unavailable authority**\n\n';
+    for (const [name, reason] of Object.entries(unavailable).slice(0, 16)) {
+      markdown += `- ${safeMarkdown(name)}: **${markdownValue(reason, 160)}**\n`;
+    }
+    markdown += '\nThe contract, local immutable store, and deterministic comparison foundations do not activate an executor, prove candidate-under-test provenance, complete Testing, or grant publication authority.\n';
+    return markdown;
+  }
+  const subject = jsonObject(data.subject) ?? {};
+  const candidate = jsonObject(data.candidate) ?? {};
+  let markdown = `### Browser revision-check ${action}\n\n`;
+  const rows: Array<[string, unknown]> = [
+    ['Story', subject.workId], ['Phase', subject.phaseId], ['Candidate', candidate.id],
+    ['Plan', data.planSha256], ['Run', data.runId], ['State', data.state],
+    ['Status', data.status], ['Reason', data.reasonCode], ['Cleanup', data.cleanupStatus],
+    ['Process quiescence', data.processQuiescence]
+  ];
+  for (const [label, item] of rows) {
+    if (item !== undefined && item !== null && item !== '') {
+      markdown += `- ${label}: **${markdownValue(item, 300)}**\n`;
+    }
+  }
+  markdown += '\nThis read is Candidate-bound review evidence only. It does not establish a repository-test pass, Testing/Verification, or publication authority.\n';
+  return markdown;
+}
+
+function renderRevisionChecksRoutes(
+  stream: vscode.ChatResponseStream,
+  routes: { shell: string; copilot: string },
+  { copy = true }: { copy?: boolean } = {}
+): void {
+  stream.markdown(`\n**Shell:** ${inlineCode(routes.shell)}\n\n**Copilot:** ${inlineCode(routes.copilot)}\n`);
+  if (copy) stream.button({
+    command: 'singularityFlow.copyParticipantCommand', title: 'Copy Shell',
+    arguments: [routes.shell, 'revision-checks']
+  });
+  stream.button({
+    command: 'workbench.action.chat.open', title: 'Prepare /sf-revision-checks',
+    arguments: [{ query: `${routes.copilot} `, isPartialQuery: true }]
+  });
+}
+
+async function handleChatRevisionChecks(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  context: vscode.ExtensionContext,
+  getCurrentWork: () => CurrentWork
+): Promise<'resolved' | 'unavailable'> {
+  const action = revisionChecksChatAction(prompt);
+  if (action.kind === 'unavailable') {
+    stream.markdown(`### Browser revision-check action unavailable\n\n${action.reason}\n\nNothing was executed and no run was created.\n`);
+    renderRevisionChecksRoutes(stream, {
+      shell: action.shell, copilot: '/sf-revision-checks '
+    }, { copy: false });
+    return 'unavailable';
+  }
+  const routes = revisionChecksRoutes(action);
+  if (action.kind === 'run') {
+    stream.markdown('### Exact browser-check run confirmation\n\nThe participant never submits this mutation. Review the exact current plan and use the Shell command separately. This build is expected to fail closed unless an approved runner can prove its fixed broker receipt; no Playwright MCP, package script, shell, model callback, or prose success may substitute.\n');
+    renderRevisionChecksRoutes(stream, routes);
+    return 'resolved';
+  }
+  const cancellation = chatAbortSignal(token);
+  try {
+    let client: SingularityFlowClient;
+    if (action.kind === 'capabilities') client = revisionChecksClient(context);
+    else client = (await activeAttachmentSession(context, getCurrentWork, cancellation.signal)).client;
+    if (commandClass(routes.argv) !== 'read') {
+      throw new Error('Browser revision-check participant reads must remain read-only.');
+    }
+    stream.progress(`Reading model-free browser revision-check ${action.kind}…`);
+    const value = await client.run(routes.argv, cancellation.signal);
+    if (token.isCancellationRequested) return 'resolved';
+    stream.markdown(renderRevisionChecksRead(value, action.kind));
+    renderRevisionChecksRoutes(stream, routes);
+    return 'resolved';
+  } catch {
+    stream.markdown('### Browser revision-check read unavailable\n\nThe exact capability, Story, retained Candidate, run, or receipt could not be verified. No browser command was run and no lifecycle authority was created.\n');
+    renderRevisionChecksRoutes(stream, routes);
+    return 'unavailable';
+  } finally {
+    cancellation.dispose();
+  }
+}
+
 function examples(stream: vscode.ChatResponseStream): SflowChatMetadata {
   stream.markdown('Ask about Singularity Flow or choose a declared command. Deterministic commands are local/CLI reads and never call a model. Human decisions open a separate guarded flow.\n\n');
   for (const command of PARTICIPANT_COMMANDS) {
@@ -1161,6 +1332,18 @@ export function registerSflowChat(
         effectivePrompt, request.references?.length ?? 0, stream, token, context, getCurrentWork
       );
       await recordLocalParticipantMetric('revise', participantStartedAt, outcome);
+      zeroModelFooter(stream, participantStartedAt, 'human-decision');
+      return {
+        metadata: {
+          intent: 'procedure', topicId: 'revision-loop', followups: []
+        } satisfies SflowChatMetadata
+      };
+    }
+    if (declared.id === 'revision-checks') {
+      const outcome = await handleChatRevisionChecks(
+        effectivePrompt, stream, token, context, getCurrentWork
+      );
+      await recordLocalParticipantMetric('revision-checks', participantStartedAt, outcome);
       zeroModelFooter(stream, participantStartedAt, 'human-decision');
       return {
         metadata: {

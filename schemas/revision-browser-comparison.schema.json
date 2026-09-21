@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-browser-comparison.schema.json",
+  "title": "Singularity Flow deterministic browser comparison v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "runKeySha256", "expectedRunKeySha256", "receiptSha256", "status", "staleBindings", "assertions", "visuals", "humanObservation", "criterionSatisfactionEstablished", "modelInvocations", "comparisonSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "revision-browser-comparison" },
+    "runKeySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "expectedRunKeySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "receiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "status": { "enum": ["stale", "observed-passed", "failed", "skipped", "unavailable"] },
+    "staleBindings": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 64 }, "uniqueItems": true },
+    "assertions": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/assertion" } },
+    "visuals": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/visual" } },
+    "humanObservation": { "const": "finding-required" },
+    "criterionSatisfactionEstablished": { "const": false },
+    "modelInvocations": { "const": 0 },
+    "comparisonSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "$defs": {
+    "nullableHash": { "oneOf": [{ "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }, { "type": "null" }] },
+    "assertion": {
+      "type": "object", "required": ["testId", "status", "verdict", "witnessEligible"],
+      "properties": {
+        "testId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "status": { "enum": ["passed", "failed", "skipped", "flaky"] },
+        "verdict": { "enum": ["observed-pass", "observed-fail", "skipped", "flaky"] },
+        "witnessEligible": { "const": false }
+      }, "additionalProperties": false
+    },
+    "visual": {
+      "type": "object", "required": ["testId", "baselineManifestSha256", "baselineSha256", "actualSha256", "diffSha256", "differentPixels", "totalPixels", "diffRatio", "tolerance", "verdict", "witnessEligible"],
+      "properties": {
+        "testId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "baselineManifestSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "baselineSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "actualSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "diffSha256": { "$ref": "#/$defs/nullableHash" },
+        "differentPixels": { "type": "integer", "minimum": 0 },
+        "totalPixels": { "type": "integer", "minimum": 1 },
+        "diffRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tolerance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "verdict": { "enum": ["within-tolerance", "over-tolerance"] },
+        "witnessEligible": { "const": false }
+      }, "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

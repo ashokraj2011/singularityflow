@@ -227,6 +227,13 @@ const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...D
 const REVISION_ATTACHMENT_ACTIONS = Object.freeze([
   'capabilities', 'preview', 'register', 'list', 'status', 'remove-preview', 'remove'
 ]);
+const REVISION_CHECK_READ_ACTIONS = Object.freeze([
+  'capabilities', 'plan', 'status', 'result'
+]);
+const REVISION_CHECK_MUTATION_ACTIONS = Object.freeze(['run']);
+const REVISION_CHECK_ACTIONS = Object.freeze([
+  ...REVISION_CHECK_READ_ACTIONS, ...REVISION_CHECK_MUTATION_ACTIONS
+]);
 const REVISION_READ_SUBCOMMANDS = Object.freeze([
   'activation', 'capabilities', 'status', 'card', 'show'
 ]);
@@ -234,7 +241,7 @@ const REVISION_MUTATION_SUBCOMMANDS = Object.freeze([
   'abandon', 'capture', 'resume'
 ]);
 const REVISION_SUBCOMMANDS = Object.freeze([
-  ...REVISION_READ_SUBCOMMANDS, ...REVISION_MUTATION_SUBCOMMANDS, 'attachments'
+  ...REVISION_READ_SUBCOMMANDS, ...REVISION_MUTATION_SUBCOMMANDS, 'attachments', 'checks'
 ]);
 const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
 const MCP_SUBCOMMANDS = Object.freeze([
@@ -1199,6 +1206,14 @@ function resolveRevisionOperation(definition, positionals, options) {
     }
     return never(`revision.${subcommand}`, definition, 'mutation');
   }
+  if (subcommand === 'checks') {
+    const action = positionals[2];
+    if (!REVISION_CHECK_ACTIONS.includes(action)) {
+      return unknownSubcommand('revision checks', action, REVISION_CHECK_ACTIONS, 'action');
+    }
+    return never(`revision.checks.${action}`, definition,
+      REVISION_CHECK_MUTATION_ACTIONS.includes(action) ? 'mutation' : 'read');
+  }
   if (subcommand !== 'attachments') {
     return unknownSubcommand('revision', subcommand, REVISION_SUBCOMMANDS);
   }
@@ -1435,6 +1450,12 @@ export function operationCatalog() {
     ...REVISION_ATTACHMENT_ACTIONS.map((action) => never(
       'revision.attachments.' + action, revisionDefinition,
       ['preview', 'register', 'remove-preview', 'remove'].includes(action) ? 'mutation' : 'read'
+    )),
+    ...REVISION_CHECK_READ_ACTIONS.map((action) => never(
+      'revision.checks.' + action, revisionDefinition, 'read'
+    )),
+    ...REVISION_CHECK_MUTATION_ACTIONS.map((action) => never(
+      'revision.checks.' + action, revisionDefinition, 'mutation'
     )),
     never('init.legacy', initDefinition, 'mutation'),
     never('init.smart-detect.preview', initDefinition, 'read'),

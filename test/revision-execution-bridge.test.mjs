@@ -28,6 +28,12 @@ test('fixed brokered worker collects bounded exact bytes and a non-promoting eff
   assert.equal(result.candidateAdmitted, false);
   assert.equal(result.loopHeadAdvanced, false);
   assert.equal(result.retryAllowed, false);
+  assert.equal(result.processTiming.timeoutMs, 60_000);
+  assert.match(result.processTiming.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.match(result.processTiming.endedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.ok(Number.isSafeInteger(result.processTiming.durationMs));
+  assert.ok(result.processTiming.durationMs >= 0
+    && result.processTiming.durationMs <= result.processTiming.timeoutMs);
   assert.deepEqual(result.unknownEffects, []);
   assert.equal(result.effects.find((effect) => effect.class === 'local-process').quiescenceStatus,
     'confirmed');
@@ -107,6 +113,8 @@ test('timeout stops the fixed worker, confirms quiescence, disposes effects, and
   assert.equal(result.retryAllowed, true);
   assert.equal(result.effects[0].quiescenceStatus, 'confirmed');
   assert.equal(result.effects[1].observed, true);
+  assert.equal(result.processTiming.timeoutMs, 20);
+  assert.ok(result.processTiming.durationMs >= 20);
   assert.deepEqual(result.unknownEffects, []);
   assert.throws(() => readRevisionBrokeredResultBytes(result),
     { code: 'REV_ATTEMPT_RESULT_UNVERIFIED' });
@@ -151,6 +159,9 @@ test('forged result bytes and recovery handles cannot be used', async () => {
     plan, parentFiles, allowedPaths: ['src/app.js'], allowedEffects, ...boundary
   });
   assert.throws(() => readRevisionBrokeredResultBytes({ ...result }),
+    { code: 'REV_ATTEMPT_RESULT_UNVERIFIED' });
+  result.processTiming.durationMs = 0;
+  assert.throws(() => readRevisionBrokeredResultBytes(result),
     { code: 'REV_ATTEMPT_RESULT_UNVERIFIED' });
   result.changes[0].path = 'src/forged.js';
   assert.throws(() => readRevisionBrokeredResultBytes(result),

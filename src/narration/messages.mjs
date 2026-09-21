@@ -206,6 +206,22 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `REV interval ${slot(s.intervalId)} is recorded in loop state ${slot(s.state)}.`,
     preserves: true
   },
+  'revision.checks-capabilities-reported': {
+    headline: (s) => `Browser revision checks are ${slot(s.profile)}; executor: ${slot(s.executor)}.`,
+    preserves: true
+  },
+  'revision.checks-plan-reported': {
+    headline: (s) => `Browser-check plan ${slot(s.planSha256)} is ${slot(s.status)} (${slot(s.reasonCode)}).`,
+    preserves: true
+  },
+  'revision.checks-status-reported': {
+    headline: (s) => `Browser-check run ${slot(s.runId, 'none')} is ${slot(s.state)} (${slot(s.reasonCode)}).`,
+    preserves: true
+  },
+  'revision.checks-result-reported': {
+    headline: (s) => `Browser-check result ${slot(s.runId)} is ${slot(s.status)} (${slot(s.reasonCode)}).`,
+    preserves: true
+  },
   'revision.resume-completed': {
     headline: (s) => `Recovered the exact durable state for REV interval ${slot(s.intervalId)}; state is ${slot(s.state)}.`,
     preserves: false

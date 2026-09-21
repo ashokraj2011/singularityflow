@@ -1331,6 +1331,22 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   assert.ok(revisionGuide.buttons.some((button) =>
     button.arguments?.[0]?.query === '@sflow /revise card' && button.arguments[0].isPartialQuery === true));
 
+  const browserCapabilities = { markdown: [], buttons: [], references: [], progress: [] };
+  await participant.handler({
+    command: 'revision-checks', prompt: 'capabilities', references: [],
+    get model() { throw new Error('browser capability discovery must never read request.model'); }
+  }, {}, {
+    markdown: (value) => browserCapabilities.markdown.push(String(value)),
+    button: (value) => browserCapabilities.buttons.push(value),
+    reference: (value) => browserCapabilities.references.push(value),
+    progress: (value) => browserCapabilities.progress.push(String(value))
+  }, { isCancellationRequested: false });
+  assert.match(browserCapabilities.markdown.join(''), /Available foundations/,
+    'browser capability discovery works without an open repository or Story');
+  assert.match(browserCapabilities.markdown.join(''), /Unavailable authority/);
+  assert.equal(registered.terminals.length, 0,
+    'machine-local browser capability discovery never opens a terminal');
+
   await registered.commands.get('singularityFlow.openHelp')({ id: 'help:all' });
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
   assert.ok(panel, 'the natural-language Help Center opened');
@@ -1397,6 +1413,94 @@ test('@sflow deterministic commands use bounded CLI reads and unmatched text nev
   assert.match(unmatched.markdown.join(''), /Free text routes only on an exact declared keyword/);
   assert.match(unmatched.markdown.join(''), /@sflow \/next/);
   assert.equal(modelRead, false);
+});
+
+test('@sflow /revision-checks keeps BRL reads local and only hands off exact run confirmation', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const participant = registered.chatParticipants.find((entry) => entry.id === 'singularity-flow.sflow');
+  assert.ok(participant);
+
+  let modelRead = false;
+  const invoke = async (prompt) => {
+    const response = { markdown: [], buttons: [], references: [], progress: [] };
+    await participant.handler({
+      command: 'revision-checks', prompt, references: [],
+      get model() {
+        modelRead = true;
+        throw new Error('/revision-checks must never read request.model');
+      }
+    }, {}, {
+      markdown: (value) => response.markdown.push(String(value)),
+      button: (value) => response.buttons.push(value),
+      reference: (value) => response.references.push(value),
+      progress: (value) => response.progress.push(String(value))
+    }, { isCancellationRequested: false });
+    return response;
+  };
+
+  const capabilities = await invoke('capabilities');
+  const capabilityText = capabilities.markdown.join('');
+  assert.match(capabilityText, /Available foundations/);
+  assert.match(capabilityText, /closedCheckContract: \*\*available\*\*/);
+  assert.match(capabilityText, /immutableReceiptStore: \*\*available\\-local\\-private\*\*/);
+  assert.match(capabilityText, /assertionProjection: \*\*available\\-observation\\-only\*\*/);
+  assert.match(capabilityText, /deterministicVisualComparison: \*\*unavailable\*\*/);
+  assert.match(capabilityText, /Unavailable authority/);
+  assert.match(capabilityText, /executor: \*\*REV\\_CODE\\_CHECK\\_EXECUTOR\\_UNAVAILABLE\*\*/);
+  assert.match(capabilityText, /candidateUnderTestProvenance/);
+  assert.match(capabilityText, /publication: \*\*BRL\\_PUBLICATION\\_AUTHORITY\\_UNAVAILABLE\*\*/);
+  assert.match(capabilityText, /singularity-flow revision checks capabilities --json/);
+  assert.match(capabilityText, /\/sf-revision-checks capabilities/);
+
+  const reads = [
+    ['plan', 'singularity-flow revision checks plan --json', '/sf-revision-checks plan'],
+    ['status BRL-aaaaaaaaaaaa', 'singularity-flow revision checks status BRL-aaaaaaaaaaaa --json',
+      '/sf-revision-checks status BRL-aaaaaaaaaaaa'],
+    ['result BRL-bbbbbbbbbbbb', 'singularity-flow revision checks result BRL-bbbbbbbbbbbb --json',
+      '/sf-revision-checks result BRL-bbbbbbbbbbbb']
+  ];
+  for (const [prompt, shell, copilot] of reads) {
+    const response = await invoke(prompt);
+    const output = response.markdown.join('');
+    assert.doesNotMatch(output, /does not accept free-text arguments|Command unavailable/,
+      `${prompt} reaches the dedicated BRL renderer`);
+    assert.match(output, /Browser revision-check (?:plan|status|result|read unavailable)/);
+    assert.ok(response.buttons.some((button) =>
+      button.title === 'Copy Shell' && button.arguments?.[0] === shell));
+    assert.ok(response.buttons.some((button) =>
+      button.title === 'Prepare /sf-revision-checks'
+      && button.arguments?.[0]?.query === `${copilot} `
+      && button.arguments[0].isPartialQuery === true));
+  }
+
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout;
+  const beforeStatus = run('git', ['status', '--porcelain=v2', '-z'], {
+    cwd: root, encoding: 'buffer'
+  }).stdout;
+  const planSha256 = `sha256:${'c'.repeat(64)}`;
+  const runHandoff = await invoke(`run ${planSha256}`);
+  const runText = runHandoff.markdown.join('');
+  const exactShell = `singularity-flow revision checks run --plan ${planSha256} --confirm ${planSha256} --json`;
+  assert.match(runText, /participant never submits this mutation/i);
+  assert.match(runText, /expected to fail closed unless an approved runner/i);
+  assert.ok(runHandoff.buttons.some((button) =>
+    button.title === 'Copy Shell' && button.arguments?.[0] === exactShell));
+  assert.ok(runHandoff.buttons.some((button) =>
+    button.title === 'Prepare /sf-revision-checks'
+    && button.arguments?.[0]?.query === `/sf-revision-checks run ${planSha256} `
+    && button.arguments[0].isPartialQuery === true));
+  assert.deepEqual(runHandoff.progress, [], 'run handoff never invokes the CLI client');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout, beforeHead);
+  assert.deepEqual(run('git', ['status', '--porcelain=v2', '-z'], {
+    cwd: root, encoding: 'buffer'
+  }).stdout, beforeStatus);
+  assert.equal(registered.terminals.length, 0, 'BRL surfaces never open a terminal');
+  assert.equal(modelRead, false, 'BRL surfaces are zero-model');
 });
 
 test('@sflow previews only a verified local file in the exact selected Story checkout', async (t) => {

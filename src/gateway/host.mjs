@@ -25,13 +25,64 @@
  * gateway without any path through it being able to change anything, which is what makes wiring it
  * first — before the cards, before the home — a safe order to build in.
  */
+import { createHash } from 'node:crypto';
+
 import { createGatewayKernel } from './kernel.mjs';
 import { createHandleAuthority } from './handles.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from './policy.mjs';
 import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mjs';
+import { operationContext, withOperationContext } from '../operation-context.mjs';
 import { worktreeFingerprint } from '../worktree-fingerprint.mjs';
 import { withReadScope } from '../read-scope.mjs';
+
+/**
+ * Run one host handler inside the exact registered gateway operation.
+ *
+ * CLI commands establish this boundary in `cli-entry`. Native hosts do not pass through that
+ * dispatcher, so the host adapter is the corresponding trust boundary for VS Code and any future
+ * in-process transport. Keeping the wrapper here leaves the transport-neutral kernel pure while
+ * ensuring a handler can never reach the model runner as an anonymous ambient callback.
+ */
+function runHostOperation(root, policy, request, callback, { modelCapable = false } = {}) {
+  const operation = request?.operation;
+  if (!operation?.id || !['never', 'optional', 'required'].includes(operation.modelPolicy)) {
+    throw new TypeError('A host gateway handler requires its compiled registered operation.');
+  }
+  const registered = operation.command
+    ? operation
+    : Object.freeze({ ...operation, command: operation.id });
+  const parent = operationContext();
+  const gatewayAllowsModel = policy.modelRouting !== 'disabled';
+  const operationDigest = createHash('sha256').update(JSON.stringify([
+    registered.id, request?.arguments ?? {}
+  ])).digest('hex');
+  return withOperationContext({
+    operation: registered,
+    modelMode: Object.freeze({
+      enabled: modelCapable && gatewayAllowsModel && (parent?.modelMode?.enabled ?? true),
+      source: !modelCapable
+        ? 'gateway-pre-execution'
+        : gatewayAllowsModel ? (parent?.modelMode?.source ?? 'gateway-policy') : 'gateway-policy'
+    }),
+    // Repository selection belongs to this gateway session. An ambient CLI operation can restrict
+    // model policy through the inherited stack, but it cannot redirect audit records to its root.
+    root,
+    argvSha256: operationDigest,
+    argvHash: `sha256:${operationDigest}`,
+    command: registered.command,
+    startedAt: new Date().toISOString()
+  }, callback);
+}
+
+function contextualHandlers(handlers, root, policy, options = {}) {
+  return new Map([...handlers].map(([name, handler]) => [
+    name,
+    typeof handler === 'function'
+      ? (request) => runHostOperation(root, policy, request, () => handler(request), options)
+      : handler
+  ]));
+}
 
 /**
  * The world a handle is bound to, read once per session. `[INT:REQ-034]` `[DHR:REQ-081]`
@@ -117,6 +168,14 @@ export function createHostGateway({
   }
   const registry = gatewayRegistry();
   const policy = resolveGatewayPolicy(policyLayers, { registry });
+  const contextualPlanners = contextualHandlers(planners, root, policy);
+  const contextualPlanBuilders = contextualHandlers(planBuilders, root, policy);
+  // Only execution occurs after the exact confirmation receipt has redeemed. Planning stages get
+  // the registered identity for provenance, but remain model-disabled even under a permissive
+  // ambient CLI context.
+  const contextualMutationExecutors = contextualHandlers(
+    mutationExecutors, root, policy, { modelCapable: true }
+  );
 
   /**
    * A thunk, not a snapshot. `[INT:REQ-036]`
@@ -159,14 +218,14 @@ export function createHostGateway({
   const kernel = createGatewayKernel({
     registry,
     policyLayers,
-    planners,
+    planners: contextualPlanners,
     binding,
     root,
     plannerContext: context,
     handles: createHandleAuthority({ now }),
     readOnly,
-    planBuilders,
-    mutationExecutors,
+    planBuilders: contextualPlanBuilders,
+    mutationExecutors: contextualMutationExecutors,
     now
   });
   const scopedKernel = Object.freeze({

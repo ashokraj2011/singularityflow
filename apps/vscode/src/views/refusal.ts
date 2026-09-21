@@ -268,6 +268,11 @@ function messageOnlyRecovery(error: unknown, text: string,
     : '';
   const authorityFailure = /Story configuration authority|configuration authority/i.test(text);
   const remoteFailure = authorityFailure || /^REMOTE_/.test(code);
+  const registeredV4Failure = /^(?:WMB|WMC)_/.test(code) || /registered-v4/i.test(text)
+    || (/^MODEL_/.test(code) && /World-model view/i.test(text));
+  const worldModelDoctor = registeredV4Failure
+    ? 'singularity-flow wm doctor --format registered-v4 --json'
+    : 'singularity-flow wm doctor --json';
   const worldModelFailure = /^(?:WMB|WMC|WORLD_MODEL)_/.test(code)
     || /World[ -]Model/i.test(text);
   if (remoteFailure) {
@@ -290,7 +295,7 @@ function messageOnlyRecovery(error: unknown, text: string,
       {
         id: 'diagnose-world-model',
         label: 'Inspect World Model configuration, contracts, and stored artifacts.',
-        command: 'singularity-flow wm doctor --json'
+        command: worldModelDoctor
       }
     ], repositoryRoot);
   }
@@ -299,7 +304,10 @@ function messageOnlyRecovery(error: unknown, text: string,
       {
         id: 'diagnose-world-model',
         label: 'Inspect World Model configuration, contracts, and stored artifacts.',
-        command: 'singularity-flow wm doctor --json'
+        // Typed WMB/WMC failures belong to registered-v4. Keep their diagnostic on that format
+        // boundary instead of letting a legacy checkout reinterpret v4 view IDs and report an
+        // unrelated WMB_VIEW_UNKNOWN refusal. Untyped/legacy failures retain ordinary diagnosis.
+        command: worldModelDoctor
       },
       {
         id: 'recommended-next',

@@ -10,6 +10,7 @@ import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { worldModelGatewayCapabilities } from '../src/gateway/planners/world-model-run.mjs';
 import { SFLOW_TOOLS } from '../src/gateway/tools.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
+import { listModelInvocations } from '../src/model-runner.mjs';
 import { run } from '../src/util.mjs';
 import { sha256 } from '../src/world-model/canonicalize.mjs';
 import {
@@ -210,6 +211,73 @@ test('an exact reviewed WMB Plan requires an out-of-band one-time confirmation a
   assert.equal(approval.kind, 'ceremony');
   assert.equal(approval.operation.classification, 'authorization');
   assert.match(approval.next[0].handle, /^ceremony:/);
+});
+
+test('a native host model-backed WMB Plan runs with its registered operation context', async (t) => {
+  const root = await repository(t);
+  const prepared = await buildAndPublishWorldModelV4(root, buildOptions({
+    views: ['arch.contracts'], cachePolicy: 'rebuild', generatedAt: '2026-09-01T00:01:00.000Z'
+  }));
+  assert.equal(prepared.status, 'completed');
+  const candidate = JSON.stringify(prepared.runtime.availableViews[0].candidate);
+  const fixture = path.join(path.dirname(root), 'fake-native-host-wmb-acp.mjs');
+  await writeFile(fixture, `
+import readline from 'node:readline';
+const candidate = ${JSON.stringify(candidate)};
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+for await (const line of lines) {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') send({ jsonrpc: '2.0', id: message.id, result: {
+    protocolVersion: message.params.protocolVersion, agentCapabilities: {}
+  }});
+  else if (message.method === 'session/new') send({ jsonrpc: '2.0', id: message.id, result: {
+    sessionId: 'native-host-wmb', configOptions: []
+  }});
+  else if (message.method === 'session/prompt') {
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: 'native-host-wmb', update: { sessionUpdate: 'agent_message_chunk',
+        messageId: 'candidate', content: { type: 'text', text: candidate } }
+    }});
+    send({ jsonrpc: '2.0', id: message.id, result: { stopReason: 'end_turn',
+      usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18 } }});
+  }
+}
+`);
+  const wired = capabilities(root, {
+    provider: 'copilot-cli', model: 'fixture-model',
+    providerConfig: {
+      type: 'copilot-cli', executable: process.execPath,
+      arguments: [fixture], promptTransport: 'acp-stdio'
+    }
+  });
+  const { kernel } = createHostGateway({
+    root, hostSessionId: 'native-model-wmb', planners: gatewayPlanners(),
+    readOnly: false, ...wired
+  });
+  const planned = await kernel.resolve({
+    utterance: 'build and publish registered world model',
+    arguments: {
+      views: ['arch.contracts'], depth: 'standard', consumer: 'architect',
+      composer: 'model', cachePolicy: 'rebuild'
+    }
+  });
+  assert.equal(planned.kind, 'plan', JSON.stringify(planned, null, 2));
+  const receipt = kernel.confirmPlan({
+    planId: planned.data.plan.handle,
+    requestSha256: planned.data.plan.review.requestSha256,
+    planSha256: planned.data.plan.review.planSha256
+  });
+  const completed = await kernel.run(
+    { planId: planned.data.plan.handle },
+    { confirmationReceiptId: receipt.receiptId, confirmationValue: receipt.value }
+  );
+  assert.equal(completed.outcome.status, 'succeeded', JSON.stringify(completed, null, 2));
+  const invocations = await listModelInvocations(root);
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].operationId, 'world-model.build');
+  assert.equal(invocations[0].rootOperationId, 'world-model.build');
+  assert.equal(invocations[0].promptTransport, 'acp-stdio');
 });
 
 test('the reviewed gateway Plan and result preserve optional CALM policy and refusal evidence', async (t) => {

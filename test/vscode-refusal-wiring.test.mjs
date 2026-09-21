@@ -220,12 +220,23 @@ test('a local registered-v4 validation error leads with local diagnosis and boun
   });
   const { view: card } = refusalFor(error);
   assert.deepEqual(card.actions.map(({ command }) => command), [
-    'singularity-flow wm doctor --json',
+    'singularity-flow wm doctor --format registered-v4 --json',
     'singularity-flow recommend --json'
   ]);
   assert.equal(card.details.code, 'WMB_VIEW_UNKNOWN');
   assert.equal(card.details.classification, undefined);
   assert.doesNotMatch(JSON.stringify(card), /office-secret-class/);
+});
+
+test('a registered-view model-boundary refusal retains registered-v4 diagnosis', () => {
+  const error = Object.assign(new Error(
+    "World-model view 'arch.contracts' was refused: Model execution requires a registered Singularity Flow operation context."
+  ), { code: 'MODEL_CONTEXT_MISSING' });
+  const { view: card } = refusalFor(error, { headline: 'Could not build the World Model' });
+  assert.deepEqual(card.actions.map(({ command }) => command), [
+    'singularity-flow wm doctor --format registered-v4 --json',
+    'singularity-flow recommend --json'
+  ]);
 });
 
 test('a deterministic refusal plan becomes safe reviewable VS Code actions', () => {

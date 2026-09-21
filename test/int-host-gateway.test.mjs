@@ -16,6 +16,10 @@ import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { createHostGateway, hostBinding } from '../src/gateway/host.mjs';
 import { createActionExecutor } from '../src/gateway/executor.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
+import { noEffects, sflowResult } from '../src/gateway/result.mjs';
+import {
+  assertModelInvocationAllowed, operationContext, withOperationContext
+} from '../src/operation-context.mjs';
 import { run } from '../src/util.mjs';
 
 async function repository() {
@@ -27,6 +31,41 @@ async function repository() {
   run('git', ['add', '-A'], { cwd: root });
   run('git', ['commit', '-q', '-m', 'first'], { cwd: root });
   return root;
+}
+
+function worldModelPlan(seed = '1') {
+  const nextSeed = ((Number.parseInt(seed, 16) + 1) % 16).toString(16);
+  return {
+    effects: noEffects(), externalTargets: [], idempotencyKey: `test:host-operation-context:${seed}`,
+    review: {
+      requestSha256: `sha256:${seed.repeat(64)}`,
+      planSha256: `sha256:${nextSeed.repeat(64)}`
+    }
+  };
+}
+
+function completedWorldModelResult({ operation, subject }) {
+  return sflowResult({
+    kind: 'read', operation: { id: operation.id, classification: operation.classification },
+    subject, outcome: { status: 'succeeded', messageId: 'gateway.completed', slots: {} },
+    effects: noEffects(), restState: 'complete'
+  });
+}
+
+async function reviewedWorldModelExecution(kernel) {
+  const planned = await kernel.resolve({
+    utterance: 'build and publish registered world model',
+    arguments: { views: ['arch.contracts'], composer: 'model' }
+  });
+  const receipt = kernel.confirmPlan({
+    planId: planned.data.plan.handle,
+    requestSha256: planned.data.plan.review.requestSha256,
+    planSha256: planned.data.plan.review.planSha256
+  });
+  return () => kernel.run(
+    { planId: planned.data.plan.handle },
+    { confirmationReceiptId: receipt.receiptId, confirmationValue: receipt.value }
+  );
 }
 
 test('the resolved policy is content-addressed so a handle can bind to it', () => {
@@ -81,6 +120,153 @@ test('a host session requires the session it is issuing handles for', () => {
   // A default would be a shared session ID, under which a handle issued in one window verifies in
   // another — the confusion binding exists to prevent.
   assert.throws(() => createHostGateway({ root: '/tmp', hostSessionId: null, planners: gatewayPlanners() }), /requires the host session/);
+});
+
+test('native planning is model-disabled and only the confirmed executor is model-capable', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const observed = [];
+  const planners = gatewayPlanners();
+  const home = planners.get('home-overview');
+  planners.set('home-overview', (request) => {
+    observed.push({ stage: 'planner', context: operationContext() });
+    return home(request);
+  });
+  const planBuilders = new Map([['world-model-build', (request) => {
+    observed.push({ stage: 'plan', context: operationContext() });
+    assert.throws(() => assertModelInvocationAllowed(), (error) => error.code === 'MODEL_UNAVAILABLE');
+    return worldModelPlan('1');
+  }]]);
+  const mutationExecutors = new Map([['world-model-build', ({ operation, subject }) => {
+    observed.push({ stage: 'executor', context: assertModelInvocationAllowed() });
+    return completedWorldModelResult({ operation, subject });
+  }]]);
+  const { kernel } = createHostGateway({
+    root, hostSessionId: 'host-operation-context', planners, planBuilders,
+    mutationExecutors, readOnly: false
+  });
+
+  const homePlan = await kernel.resolve({ utterance: 'home' });
+  await kernel.read({ resolutionId: homePlan.next[0].handle });
+  const execute = await reviewedWorldModelExecution(kernel);
+  const completed = await execute();
+
+  assert.equal(completed.outcome.status, 'succeeded');
+  assert.deepEqual(observed.map((entry) => entry.stage), ['planner', 'plan', 'executor']);
+  for (const entry of observed) {
+    assert.ok(entry.context, `${entry.stage} has no operation context`);
+    assert.equal(entry.context.root, root);
+  }
+  assert.equal(observed[0].context.modelMode.enabled, false);
+  assert.equal(observed[1].context.modelMode.enabled, false);
+  assert.equal(observed[2].context.modelMode.enabled, true);
+  assert.equal(observed[0].context.operation.id, 'home.overview');
+  assert.equal(observed[1].context.operation.id, 'world-model.build');
+  assert.equal(observed[2].context.operation.id, 'world-model.build');
+  assert.equal(observed[2].context.rootOperationId, 'world-model.build');
+});
+
+test('a native host child operation cannot weaken a model-free parent context', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let reachedExecutor = false;
+  const { kernel } = createHostGateway({
+    root, hostSessionId: 'host-parent-context', planners: gatewayPlanners(), readOnly: false,
+    planBuilders: new Map([['world-model-build', () => worldModelPlan('3')]]),
+    mutationExecutors: new Map([['world-model-build', () => {
+      reachedExecutor = true;
+      assertModelInvocationAllowed();
+      throw new Error('a model-free parent must refuse before this line');
+    }]])
+  });
+  const execute = await reviewedWorldModelExecution(kernel);
+
+  await assert.rejects(() => withOperationContext({
+    operation: { id: 'parent.read', command: 'read', modelPolicy: 'never' },
+    modelMode: { enabled: true }, root, command: 'read'
+  }, execute), (error) => error.code === 'MODEL_FORBIDDEN');
+  assert.equal(reachedExecutor, true);
+});
+
+test('a nested gateway executor keeps its selected repository root and parent policy stack', async (t) => {
+  const parentRoot = await repository();
+  const selectedRoot = await repository();
+  t.after(() => rm(parentRoot, { recursive: true, force: true }));
+  t.after(() => rm(selectedRoot, { recursive: true, force: true }));
+  let observed = null;
+  const { kernel } = createHostGateway({
+    root: selectedRoot, hostSessionId: 'host-selected-root', planners: gatewayPlanners(), readOnly: false,
+    planBuilders: new Map([['world-model-build', () => worldModelPlan('5')]]),
+    mutationExecutors: new Map([['world-model-build', (request) => {
+      observed = assertModelInvocationAllowed();
+      return completedWorldModelResult(request);
+    }]])
+  });
+  const execute = await reviewedWorldModelExecution(kernel);
+
+  const completed = await withOperationContext({
+    operation: { id: 'parent.generate', command: 'generate', modelPolicy: 'optional' },
+    modelMode: { enabled: true, source: 'test-parent' }, root: parentRoot, command: 'generate'
+  }, execute);
+
+  assert.equal(completed.outcome.status, 'succeeded');
+  assert.equal(observed.root, selectedRoot);
+  assert.equal(observed.rootOperationId, 'parent.generate');
+  assert.deepEqual(observed.operationStack, ['parent.generate', 'world-model.build']);
+  assert.equal(observed.effectivePolicy, 'optional');
+});
+
+test('a rootless nested gateway stays rootless instead of inheriting an ambient audit root', async (t) => {
+  const parentRoot = await repository();
+  t.after(() => rm(parentRoot, { recursive: true, force: true }));
+  let observed = null;
+  const { kernel } = createHostGateway({
+    root: null, hostSessionId: 'host-rootless', planners: gatewayPlanners(), readOnly: false,
+    planBuilders: new Map([['world-model-build', () => worldModelPlan('7')]]),
+    mutationExecutors: new Map([['world-model-build', (request) => {
+      observed = operationContext();
+      return completedWorldModelResult(request);
+    }]])
+  });
+  const execute = await reviewedWorldModelExecution(kernel);
+
+  const completed = await withOperationContext({
+    operation: { id: 'parent.generate', command: 'generate', modelPolicy: 'optional' },
+    modelMode: { enabled: true, source: 'test-parent' }, root: parentRoot, command: 'generate'
+  }, execute);
+
+  assert.equal(completed.outcome.status, 'succeeded');
+  assert.equal(observed.root, null);
+  assert.deepEqual(observed.operationStack, ['parent.generate', 'world-model.build']);
+});
+
+test('disabled gateway model routing refuses at the confirmed executor with or without a parent', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const disabledPolicy = { ...DEFAULT_GATEWAY_POLICY, modelRouting: 'disabled' };
+
+  for (const nested of [false, true]) {
+    let reachedExecutor = false;
+    const { kernel } = createHostGateway({
+      root, hostSessionId: `host-model-disabled-${nested}`, planners: gatewayPlanners(),
+      policyLayers: [disabledPolicy], readOnly: false,
+      planBuilders: new Map([['world-model-build', () => worldModelPlan(nested ? '9' : '7')]]),
+      mutationExecutors: new Map([['world-model-build', () => {
+        reachedExecutor = true;
+        assertModelInvocationAllowed();
+      }]])
+    });
+    const execute = await reviewedWorldModelExecution(kernel);
+    const runExecution = nested
+      ? () => withOperationContext({
+          operation: { id: 'parent.generate', command: 'generate', modelPolicy: 'optional' },
+          modelMode: { enabled: true, source: 'test-parent' }, root, command: 'generate'
+        }, execute)
+      : execute;
+
+    await assert.rejects(runExecution, (error) => error.code === 'MODEL_UNAVAILABLE');
+    assert.equal(reachedExecutor, true);
+  }
 });
 
 test('resolve issues a handle and read revalidates it against the world', async (t) => {

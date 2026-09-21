@@ -13,6 +13,8 @@ import {
 } from '../src/git-execution.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { signalProcessTree } from '../src/util.mjs';
+import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
+import { frozenRemoteTransport } from '../src/git-remote-diagnostics.mjs';
 
 test('one remote session reuses an exact observation and parses the advertised authority', () => {
   const calls = [];
@@ -433,6 +435,24 @@ test('a synchronous observation supersedes an older asynchronous request', async
   assert.equal(session.observe(remote), newest);
 });
 
+test('cached enterprise Git policy does not freeze operation-local process environment', (t) => {
+  const key = 'SINGULARITY_FLOW_CAPABILITY_PUSH_RECOVERY';
+  const previous = process.env[key];
+  t.after(() => {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  });
+
+  const before = enterpriseGitEnvironment();
+  const recoveryDirectory = path.join(os.tmpdir(), `sflow-recovery-${process.pid}`);
+  process.env[key] = recoveryDirectory;
+  const after = enterpriseGitEnvironment();
+
+  assert.notEqual(after, before, 'the attested environment itself must not be process-cached');
+  assert.equal(after[key], recoveryDirectory,
+    'a later operation retains its current recovery context while reusing reviewed Git policy');
+});
+
 test('remote execution is bounded, non-interactive, and classifies failures once', () => {
   let invocation;
   const result = runRemoteGit(['fetch', 'origin'], {
@@ -452,6 +472,89 @@ test('remote execution is bounded, non-interactive, and classifies failures once
   assert.equal(invocation.options.env.GIT_TERMINAL_PROMPT, '0');
   assert.equal(result.failure.classification, 'authentication-required');
   assert.equal(result.failure.retryable, true);
+});
+
+test('remote execution strips mixed-case repository selectors and hostile counted config', () => {
+  let invocation;
+  const result = runRemoteGit(['ls-remote', 'origin'], {
+    cwd: '/tmp/example',
+    env: {
+      ...process.env,
+      HTTPS_PROXY: 'http://proxy.example.test',
+      git_dir: 'C:\\hostile\\repository.git',
+      Git_Work_Tree: 'C:\\hostile\\worktree',
+      gIt_InDeX_fIlE: 'C:\\hostile\\index',
+      git_terminal_prompt: '1',
+      Gcm_Interactive: 'Always',
+      Git_Config_Count: '1',
+      git_config_key_0: 'url.https://attacker.invalid/.insteadOf',
+      GIT_CONFIG_VALUE_0: 'https://approved.example.test/'
+    },
+    runCommand(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stdout: '', stderr: '', timedOut: false };
+    }
+  });
+
+  assert.equal(result.status, 0);
+  const keys = Object.keys(invocation.options.env).map((key) => key.toUpperCase());
+  assert.equal(keys.includes('GIT_DIR'), false);
+  assert.equal(keys.includes('GIT_WORK_TREE'), false);
+  assert.equal(keys.includes('GIT_INDEX_FILE'), false);
+  assert.equal(keys.filter((key) => key === 'GIT_TERMINAL_PROMPT').length, 1);
+  assert.equal(keys.filter((key) => key === 'GCM_INTERACTIVE').length, 1);
+  assert.equal(invocation.options.env.GIT_TERMINAL_PROMPT, '0');
+  assert.equal(invocation.options.env.GCM_INTERACTIVE, 'Never');
+  const count = Number(invocation.options.env.GIT_CONFIG_COUNT);
+  for (let index = 0; index < count; index += 1) {
+    assert.notEqual(
+      invocation.options.env[`GIT_CONFIG_KEY_${index}`],
+      'url.https://attacker.invalid/.insteadOf'
+    );
+  }
+  assert.equal(invocation.options.env.HTTPS_PROXY, 'http://proxy.example.test');
+});
+
+test('remote execution preserves only marked enterprise entries and its SFlow frozen alias', () => {
+  const query = (_command, args) => {
+    if (args.includes('--system')) {
+      return {
+        status: 0, stdout: 'credential.helper\nsflow-enterprise-helper\0', stderr: '',
+        error: undefined, timedOut: false, outputOverflow: false, blocked: false, aborted: false,
+        signal: null
+      };
+    }
+    return {
+      status: 1, stdout: '', stderr: '', error: undefined, timedOut: false,
+      outputOverflow: false, blocked: false, aborted: false, signal: null
+    };
+  };
+  const approved = enterpriseGitEnvironment({ ...process.env }, { runCommand: query });
+  const transport = frozenRemoteTransport('https://git.example.test/team/repository.git', {
+    push: true, env: approved
+  });
+  let invocation;
+  const result = runRemoteGit(['ls-remote', transport.remote], {
+    // Transport intents add the no-prompt policy before handing the environment to the shared
+    // executor. That derived object must retain the private alias attestation.
+    env: nonInteractiveGitEnvironment(transport.env),
+    runCommand(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stdout: '', stderr: '', timedOut: false };
+    }
+  });
+
+  assert.equal(result.status, 0);
+  const entries = Array.from({ length: Number(invocation.options.env.GIT_CONFIG_COUNT) }, (_, index) => [
+    invocation.options.env[`GIT_CONFIG_KEY_${index}`],
+    invocation.options.env[`GIT_CONFIG_VALUE_${index}`]
+  ]);
+  assert.ok(entries.some(([key, value]) => key === 'credential.helper'
+    && value === 'sflow-enterprise-helper'));
+  assert.ok(entries.some(([key, value]) => key === 'url.https://git.example.test/team/repository.git.insteadOf'
+    && value === transport.remote));
+  assert.ok(entries.some(([key, value]) => key === 'url.https://git.example.test/team/repository.git.pushInsteadOf'
+    && value === transport.remote));
 });
 
 test('remote execution honors the offline contract without spawning Git', () => {

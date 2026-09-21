@@ -9,6 +9,7 @@
  * governed state writing into one tree is not a conflict to resolve later; it is corruption. The
  * engine refuses it, and this reports it before the engine has to.
  */
+import path from 'node:path';
 
 /** One entry of `workspace list --json`. */
 export const WORKSPACE_ACTION_CANCELLED = '__sflow_workspace_action_cancelled__';
@@ -355,6 +356,17 @@ export interface WorkspaceRow extends WorkspaceEntry {
   sharesId: boolean;
 }
 
+function pathImplementation(value: string): typeof path.posix | typeof path.win32 {
+  return /^(?:[A-Za-z]:[\\/]|\\\\|\/\/)/u.test(value) ? path.win32 : path.posix;
+}
+
+/** Stable presentation key only; the engine still proves filesystem identity before mutation. */
+function workspaceDirectoryKey(value: string): string {
+  const implementation = pathImplementation(value);
+  const normalized = implementation.normalize(value);
+  return implementation === path.win32 ? normalized.toLocaleLowerCase('en-US') : normalized;
+}
+
 /**
  * The rows to draw, newest first, with directory collisions marked.
  *
@@ -366,7 +378,7 @@ export function workspaceRows(entries: WorkspaceEntry[]): WorkspaceRow[] {
   const counts = new Map<string, number>();
   const ids = new Map<string, number>();
   for (const entry of entries) {
-    const key = entry.path.toLowerCase();
+    const key = workspaceDirectoryKey(entry.path);
     counts.set(key, (counts.get(key) ?? 0) + 1);
     const id = (entry.id ?? '').toLowerCase();
     if (id) ids.set(id, (ids.get(id) ?? 0) + 1);
@@ -375,17 +387,25 @@ export function workspaceRows(entries: WorkspaceEntry[]): WorkspaceRow[] {
     ...entry,
     directory: entry.path,
     // `repos/<id>` is the layout every workspace uses, so the lead's identifier is its last segment.
-    lead: (entry.leadRepositoryPath ?? '').split('/').filter(Boolean).at(-1) ?? '',
+    lead: entry.leadRepositoryPath
+      ? pathImplementation(entry.leadRepositoryPath).basename(entry.leadRepositoryPath)
+      : '',
     archived: Boolean(entry.archivedAt),
-    collides: (counts.get(entry.path.toLowerCase()) ?? 0) > 1,
+    collides: (counts.get(workspaceDirectoryKey(entry.path)) ?? 0) > 1,
     sharesId: (ids.get((entry.id ?? '').toLowerCase()) ?? 0) > 1
   }));
 }
 
 /** Where a copy of this workspace would go, so the form can say before the engine does. */
+export function duplicateBaseDirectory(row: WorkspaceRow): string {
+  return pathImplementation(row.directory).dirname(row.directory);
+}
+
 export function duplicateDirectory(row: WorkspaceRow, id: string, base: string | null): string {
-  const parent = base?.trim() || row.directory.split('/').slice(0, -1).join('/');
-  return `${parent}/${id.trim()}`;
+  const requestedBase = base?.trim();
+  const implementation = pathImplementation(requestedBase || row.directory);
+  const parent = requestedBase || duplicateBaseDirectory(row);
+  return implementation.join(parent, id.trim());
 }
 
 /**
@@ -407,7 +427,8 @@ export function duplicateProblems(
     problems.push('The identifier may contain letters, numbers, dots, underscores and hyphens.');
   } else {
     const target = duplicateDirectory(row, id, base);
-    const taken = rows.find((entry) => entry.directory.toLowerCase() === target.toLowerCase());
+    const taken = rows.find((entry) => workspaceDirectoryKey(entry.directory)
+      === workspaceDirectoryKey(target));
     if (taken) {
       problems.push(`${target} is already workspace '${taken.name}'. No two workspaces may share a working directory.`);
     }

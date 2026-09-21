@@ -6,7 +6,7 @@
  * directly against the rows the registry produces.
  */
 import {
-  duplicateDirectory, duplicateProblems, type WorkspaceRow, type WorkspaceStatus,
+  duplicateBaseDirectory, duplicateDirectory, duplicateProblems, type WorkspaceRow, type WorkspaceStatus,
   type WorkspaceRepositoryStatus, type WorkspaceCapabilityChoice,
   type WorkspaceConfigurationConflict, type WorkspaceConfigurationRefreshResult,
   type WorkspaceConfigurationResolution, type WorkspaceCapabilityAttachScope,
@@ -281,7 +281,7 @@ function detailHtml(
   </p>
   <p>
     <label>Into <input type="text" value="${escape(draft.base)}" data-field="copy-base" size="42"
-      placeholder="${escape(row.directory.split('/').slice(0, -1).join('/'))}"></label>
+      placeholder="${escape(duplicateBaseDirectory(row))}"></label>
   </p>
   <p class="muted">Leave the directory empty to copy alongside the original.
     <span data-preview="target">${draft.id.trim() ? `The copy would be created at ${escape(target)}.` : ''}</span></p>

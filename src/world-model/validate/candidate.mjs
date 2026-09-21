@@ -1,7 +1,9 @@
 import { canonicalJson, recordSha256 } from '../../records.mjs';
 import { currentSchemaVersion, readRecord } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { candidateFactReferences, parseCompositionCandidate } from '../compose/candidate.mjs';
+import {
+  candidateFactReferences, parseCompositionCandidate, renderDeterministicCandidate
+} from '../compose/candidate.mjs';
 import {
   VIEW_ID_PATTERN, assertExactKeys, assertInteger, assertPlainRecord, assertSchemaKind,
   assertSha256, assertString
@@ -29,7 +31,7 @@ export const WMB_V4_VALIDATION_CHECK_IDS = Object.freeze([
   'required-sections', 'section-order', 'unregistered-sections', 'narrative-budgets',
   'factual-unit-references', 'fact-reference-integrity', 'used-fact-set',
   'required-facts', 'required-unavailable', 'contradictions', 'assurance', 'scope',
-  'body-access', 'cross-view', 'kernel-metadata', 'total-output'
+  'body-access', 'cross-view', 'kernel-metadata', 'execution-route-contract', 'total-output'
 ]);
 
 function sha(value) { return `sha256:${recordSha256(value)}`; }
@@ -272,6 +274,8 @@ function assertNarrativeAssurance(unit, references, factsById) {
 /** Run the model-never WMB v4 validation pipeline and return a sealed receipt. */
 export function validateCompositionCandidate(rawCandidate, {
   contract, viewFactLedger, evidenceCatalog, scopeManifest, outputBudget = null,
+  executionRoute = 'deterministic',
+  admittedFactIds = null,
   candidateSchemaSha256 = WMB_V4_CANDIDATE_SCHEMA_SHA256,
   validatorSha256 = WMB_V4_VALIDATOR_SHA256
 }) {
@@ -321,7 +325,42 @@ export function validateCompositionCandidate(rawCandidate, {
     fail('WMB_OUTPUT_BUDGET_EXCEEDED', 'Candidate exceeds its estimated output-token ceiling.');
   }
 
-  const factsById = new Map(viewFactLedger.facts.map((fact) => [fact.id, fact]));
+  if (!['deterministic', 'model'].includes(executionRoute)
+      || (executionRoute === 'model') !== (admittedFactIds !== null)) {
+    fail(
+      'WMB_EXECUTION_ROUTE_MISMATCH',
+      'Composition execution route and admitted Fact boundary disagree.'
+    );
+  }
+
+  const registeredFactsById = new Map(viewFactLedger.facts.map((fact) => [fact.id, fact]));
+  let admitted = null;
+  if (admittedFactIds !== null) {
+    if (!Array.isArray(admittedFactIds)
+        || admittedFactIds.some((id) => typeof id !== 'string' || !registeredFactsById.has(id))
+        || new Set(admittedFactIds).size !== admittedFactIds.length) {
+      fail('WMB_FACT_REFERENCE_UNKNOWN', 'Composition input admits an invalid registered Fact set.');
+    }
+    admitted = new Set(admittedFactIds);
+    for (const id of [
+      ...(viewFactLedger.requiredFactIds ?? []),
+      ...(viewFactLedger.requiredUnavailableFactIds ?? []),
+      ...(viewFactLedger.materialContradictionFactIds ?? [])
+    ]) {
+      if (!admitted.has(id)) {
+        fail(
+          'WMB_FACT_REFERENCE_UNKNOWN',
+          `Composition input omitted mandatory fact '${id}'.`,
+          { id }
+        );
+      }
+    }
+  }
+  const factsById = admitted === null
+    ? registeredFactsById
+    : new Map(viewFactLedger.facts
+      .filter((fact) => admitted.has(fact.id))
+      .map((fact) => [fact.id, fact]));
   const allUnits = [
     ...factualUnits(candidate.tldrMarkdown),
     ...candidate.sections.flatMap((section) => factualUnits(section.markdown))
@@ -338,7 +377,17 @@ export function validateCompositionCandidate(rawCandidate, {
   if (!contract.crossViewReferences.allowed && /\[(?:view|world-model):[^\]]+\]/i.test(allNarrative)) {
     fail('WMB_CROSS_VIEW_REFERENCE_FORBIDDEN', 'Candidate cross-references an unrequested view.');
   }
-  assertNoInventedSourceToken(allNarrative, viewFactLedger, evidenceCatalog);
+  const admittedEvidenceIds = new Set(
+    [...factsById.values()].flatMap((fact) => fact.evidenceIds ?? [])
+  );
+  assertNoInventedSourceToken(
+    allNarrative,
+    { ...viewFactLedger, facts: [...factsById.values()] },
+    {
+      ...evidenceCatalog,
+      items: evidenceCatalog.items.filter((item) => admittedEvidenceIds.has(item.id))
+    }
+  );
   for (const unit of allUnits) {
     const references = referencesForUnit(unit);
     if (!references.length) fail('WMB_FACT_REFERENCE_UNKNOWN', 'A factual unit has no trailing registered Fact reference.', { unitSha256: sha(unit) });
@@ -380,6 +429,15 @@ export function validateCompositionCandidate(rawCandidate, {
     ));
     if (!tldrReferences.includes(id) || !appearsInRelevantSection) {
       fail('WMB_CONTRADICTION_SUPPRESSED', `Material contradiction '${id}' must appear in the TL;DR and a registered section.`, { id });
+    }
+  }
+  if (executionRoute === 'deterministic') {
+    const expected = renderDeterministicCandidate(contract, viewFactLedger, { outputBudget });
+    if (canonicalJson(candidate) !== canonicalJson(expected)) {
+      fail(
+        'WMB_DETERMINISTIC_CANDIDATE_MISMATCH',
+        'Deterministic composition candidate does not reproduce the registered renderer.'
+      );
     }
   }
   if (!HASH.test(contract.contractSha256) || !HASH.test(viewFactLedger.ledgerSha256)

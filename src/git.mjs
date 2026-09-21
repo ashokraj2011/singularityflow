@@ -720,6 +720,20 @@ export function hasRemote(root, remote = 'origin', { env = process.env } = {}) {
   return git(['remote', 'get-url', remote], { cwd: root, env, allowFailure: true }).status === 0;
 }
 
+/** Enumerate configured remote names through the shared Git execution boundary. */
+export function remoteNames(root, { env = process.env } = {}) {
+  return git(['remote'], { cwd: root, env, allowFailure: true }).stdout
+    .split(/\r?\n/u).map((value) => value.trim()).filter(Boolean);
+}
+
+/** Read one configured remote URL without exposing a raw Git subprocess at the caller. */
+export function remoteUrl(root, remote = 'origin', { env = process.env } = {}) {
+  const observed = git(['remote', 'get-url', remote], {
+    cwd: root, env, allowFailure: true
+  });
+  return observed.status === 0 ? observed.stdout.trim() : null;
+}
+
 export function changes(root) {
   return git(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout;
 }
@@ -1246,7 +1260,10 @@ export async function commitIsolated(root, message, paths, {
   await mkdir(temporaryRoot, { recursive: true });
   const scratch = await mkdtemp(path.join(temporaryRoot, 'publication-'));
   const indexPath = path.join(scratch, 'index');
-  const env = { ...process.env, GIT_INDEX_FILE: indexPath };
+  // The temporary index is the only process-level Git selector this transaction owns. Strip any
+  // inherited repository, worktree, index, object, replacement-ref, command-config, SSH and hook
+  // authority before adding it so an IDE/parent shell cannot redirect the governed commit.
+  const env = { ...withoutGitProcessOverrides(process.env), GIT_INDEX_FILE: indexPath };
   let refAdvanced = false;
   let sourceCommit = null;
   try {

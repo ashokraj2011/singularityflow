@@ -57,6 +57,12 @@ function normalized(value) {
   return String(value ?? '').trim().toLocaleLowerCase('en-US');
 }
 
+function portableWindowsPathKey(value) {
+  const candidate = String(value ?? '').trim();
+  if (!path.win32.isAbsolute(candidate)) return null;
+  return path.win32.normalize(candidate).toLocaleLowerCase('en-US');
+}
+
 function portableStoryId(value) {
   const storyId = String(value ?? '').trim();
   if (!storyId) return null;
@@ -99,6 +105,7 @@ function withWorkspaceSnapshot(context, workspace) {
 
 async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
   const expected = String(member.repository?.url ?? '').trim();
+  const canonicalRoot = await canonical(root);
   // Only load the typed Git query graph when a selected repository actually needs identity
   // validation. Empty workspace/current/prompt reads keep their small startup dependency graph.
   const { executeGitQuery } = await import('./git-query.mjs');
@@ -116,7 +123,7 @@ async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
     // Credential-bearing or otherwise unsafe remotes are identity drift. They are never copied
     // into an error object or durable diagnostic.
   }
-  const valid = actualTop === root && actualOrigin && actualOrigin === expected;
+  const valid = actualTop === canonicalRoot && actualOrigin && actualOrigin === expected;
   if (valid) return true;
   if (strict) {
     throw new SingularityFlowError(
@@ -212,14 +219,28 @@ export async function resolveWorkspaceReference(registryFile, reference) {
     throw new SingularityFlowError('Choose a workspace by ID, name, Jira anchor, or directory.');
   }
 
-  const requestedPath = requested.includes(path.sep) || path.isAbsolute(requested)
+  const pathShaped = requested.includes('/') || requested.includes('\\')
+    || path.isAbsolute(requested) || path.win32.isAbsolute(requested);
+  const requestedPath = pathShaped
     ? await canonical(requested)
     : null;
+  const requestedWindowsPath = portableWindowsPathKey(requested);
   const key = normalized(requested);
-  const matches = entries.filter((entry) => {
-    if (requestedPath && entry.path === requestedPath) return true;
-    return [entry.id, entry.name, entry.anchorKey].some((value) => normalized(value) === key);
-  });
+  const matches = [];
+  for (const entry of entries) {
+    // `realpath` is the identity boundary, especially on Windows where a registry can retain a
+    // different drive-letter case, separator spelling, junction path, or 8.3 alias than the CLI
+    // argument. Never approximate that equivalence by lower-casing arbitrary POSIX paths.
+    if (requestedPath && (await canonical(entry.path) === requestedPath
+      || (requestedWindowsPath
+        && portableWindowsPathKey(entry.path) === requestedWindowsPath))) {
+      matches.push(entry);
+      continue;
+    }
+    if ([entry.id, entry.name, entry.anchorKey].some((value) => normalized(value) === key)) {
+      matches.push(entry);
+    }
+  }
   if (!matches.length) {
     throw new SingularityFlowError(`Workspace '${requested}' is not saved. Run 'singularity-flow workspace list'.`);
   }

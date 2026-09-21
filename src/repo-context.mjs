@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { incrementCommandCounter } from './dx-timing-context.mjs';
@@ -29,6 +30,62 @@ function healthValues(value) {
 
 function localId(prefix, value) {
   return `${prefix}-${createHash('sha256').update(value).digest('hex').slice(0, 24)}`;
+}
+
+function legacyFilesystemSpellings(value) {
+  const raw = String(value);
+  if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/\/)/u.test(raw)) return [raw];
+  const normalized = path.win32.normalize(raw);
+  const slash = normalized.replaceAll('\\', '/');
+  const variants = [raw, normalized, slash];
+  for (const candidate of [...variants]) {
+    if (/^[A-Za-z]:/u.test(candidate)) {
+      variants.push(`${candidate[0].toLocaleLowerCase('en-US')}${candidate.slice(1)}`);
+      variants.push(`${candidate[0].toLocaleUpperCase('en-US')}${candidate.slice(1)}`);
+    }
+  }
+  return [...new Set(variants)];
+}
+
+function normalizedFilesystemIdentity(value, platform) {
+  if (platform !== 'win32') return path.resolve(value);
+  let normalized = path.win32.normalize(value);
+  if (normalized.startsWith('\\\\?\\UNC\\')) normalized = `\\\\${normalized.slice(8)}`;
+  else if (normalized.startsWith('\\\\?\\')) normalized = normalized.slice(4);
+  if (/^[A-Za-z]:\\/u.test(normalized)) {
+    normalized = `${normalized[0].toLocaleLowerCase('en-US')}${normalized.slice(1)}`;
+  }
+  return normalized;
+}
+
+/**
+ * Turn an existing Git administrative directory into filesystem identity rather than path
+ * spelling. Git for Windows may return another drive-letter case or separator form in a linked
+ * worktree, while junctions and short names can also name the same directory. `realpath` proves
+ * those aliases; the lexical fallback exists only for injected/nonexistent test observations.
+ */
+export async function canonicalFilesystemIdentityPath(value, {
+  platform = process.platform,
+  canonicalize = realpath
+} = {}) {
+  const resolved = normalizedFilesystemIdentity(value, platform);
+  const canonical = await canonicalize(resolved).catch(() => resolved);
+  return normalizedFilesystemIdentity(canonical, platform);
+}
+
+/** Legacy lexical IDs remain readable until an explicit attachment refresh rewrites its pin. */
+export function compatibleRepositoryInstanceIds(identity) {
+  return [...new Set([
+    identity.repositoryInstanceId,
+    ...legacyFilesystemSpellings(identity.commonDir).map((value) => localId('repo', value))
+  ])];
+}
+
+export function compatibleWorktreeInstanceIds(identity) {
+  return [...new Set([
+    identity.worktreeInstanceId,
+    ...legacyFilesystemSpellings(identity.gitDir).map((value) => localId('worktree', value))
+  ])];
 }
 
 // A context only joins a shared repository group after Git has identified its common directory.
@@ -85,11 +142,20 @@ export class RepoContext {
   #siblingBarriers = new Map();
   #commonDir = null;
   #cacheEnabled;
+  #canonicalize;
+  #platform;
 
-  constructor(root, { execute = executeGitQuery, cache = true } = {}) {
+  constructor(root, {
+    execute = executeGitQuery,
+    cache = true,
+    canonicalize = realpath,
+    platform = process.platform
+  } = {}) {
     this.#root = path.resolve(root);
     this.#execute = execute;
     this.#cacheEnabled = cache !== false;
+    this.#canonicalize = canonicalize;
+    this.#platform = platform;
   }
 
   get root() { return this.#root; }
@@ -101,9 +167,11 @@ export class RepoContext {
     return `${JSON.stringify(generations)}:${id}:${suffix}`;
   }
 
-  #registerPaths(value) {
+  async #registerPaths(value) {
     if (!value?.commonDir || typeof value.commonDir !== 'string') return;
-    const commonDir = path.resolve(value.commonDir);
+    const commonDir = await canonicalFilesystemIdentityPath(value.commonDir, {
+      platform: this.#platform, canonicalize: this.#canonicalize
+    });
     if (this.#commonDir === commonDir) return;
     this.#siblingBarriers.clear();
     this.#commonDir = commonDir;
@@ -206,8 +274,10 @@ export class RepoContext {
     try {
       const value = cloneFrozen(await pending);
       if (key === this.#key(id, params, queryDependencies)) {
-        if (id === 'repository.paths') this.#registerPaths(value);
-        if (this.#cacheEnabled) this.#cache.set(key, { dependencies: queryDependencies, value });
+        if (id === 'repository.paths') await this.#registerPaths(value);
+        if (this.#cacheEnabled && key === this.#key(id, params, queryDependencies)) {
+          this.#cache.set(key, { dependencies: queryDependencies, value });
+        }
       }
       return cloneFrozen(value);
     } finally {
@@ -238,7 +308,15 @@ export class RepoContext {
         details: { queryId: id, observedEpoch, currentEpoch: this.#epoch }
       }
     );
-    if (id === 'repository.paths') this.#registerPaths(value);
+    if (id === 'repository.paths') {
+      await this.#registerPaths(value);
+      if (observedKey !== this.#key(id, params, queryDependencies)) throw new SingularityFlowError(
+        'Repository state changed while a fresh observation was being collected.', {
+          code: 'REPO_CONTEXT_EPOCH_CHANGED',
+          details: { queryId: id, observedEpoch, currentEpoch: this.#epoch }
+        }
+      );
+    }
     return cloneFrozen(value);
   }
 
@@ -326,6 +404,14 @@ export class RepoContext {
       this.observe('repository.object-format'), this.observe('repository.bare'),
       this.observe('repository.head'), this.observe('repository.branch')
     ]);
+    const [commonFilesystemIdentity, worktreeFilesystemIdentity] = await Promise.all([
+      canonicalFilesystemIdentityPath(paths.commonDir, {
+        platform: this.#platform, canonicalize: this.#canonicalize
+      }),
+      canonicalFilesystemIdentityPath(paths.gitDir, {
+        platform: this.#platform, canonicalize: this.#canonicalize
+      })
+    ]);
     return cloneFrozen({
       root,
       gitDir: paths.gitDir,
@@ -336,8 +422,8 @@ export class RepoContext {
       detached: head != null && branch == null,
       head,
       branch,
-      repositoryInstanceId: localId('repo', paths.commonDir),
-      worktreeInstanceId: localId('worktree', paths.gitDir)
+      repositoryInstanceId: localId('repo', commonFilesystemIdentity),
+      worktreeInstanceId: localId('worktree', worktreeFilesystemIdentity)
     });
   }
 }

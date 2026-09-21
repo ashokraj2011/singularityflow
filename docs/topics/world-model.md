@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 26
+version: 27
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -127,6 +127,10 @@ Registered v4 always uses its repository-local exact cache. Set
 automatically warm and reuse validated L2 bundles across checkouts. Shared bytes still pass the full
 local validator and corrupt entries never publish. Completed builds also retain a rebuildable local
 Fact/Evidence query index without source bodies; losing that index does not lose governing evidence.
+Deterministic views retain their fixed renderer identity. A model-routed view instead binds its
+durable execution digest to the exact installed provider and requested-model selector; its kernel
+stamp carries that canonical request profile, the provider-observed model, and invocation ID.
+Cache reuse reconstructs and verifies that same route/profile before accepting the bytes.
 Freshness compares the current approved scope, policy, view contracts/selection, extractor
 registry, consumer profile, and output budget as well as source bytes. `wm regenerate --stale`
 therefore rebuilds the complete current configured view set instead of preserving views removed by

@@ -6,7 +6,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
-import { rollbackStoryWorktree } from '../src/story-worktree.mjs';
+import {
+  prepareStoryWorktree, rollbackStoryWorktree, samePlatformPath
+} from '../src/story-worktree.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { preflightFetchedStoryCapability } from '../src/commands/story.mjs';
 import { onboardRepository } from '../src/onboard.mjs';
@@ -105,6 +107,83 @@ test('a dirty prior checkout cannot block a new Story and is never mutated', asy
     worktree, 'singularity/work-items/ISO-STORY-1/workflow.json'
   ), 'utf8')).workItem.id, 'ISO-STORY-1');
   assert.equal(result.data.worktree.isolated, true);
+});
+
+test('resume reuses the managed Story worktree without switching or cleaning the launch clone', async (t) => {
+  const { root } = await repository(t);
+  const id = 'ISO-RESUME-1';
+  const started = JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Resume in place',
+    '--description', 'The launch clone must remain independent of its managed Story checkout.'
+  ], root).stdout);
+  const worktree = started.data.repositoryPath;
+  await writeFile(path.join(root, 'unrelated-launch-work.txt'), 'preserve me\n');
+  const launchHead = git(root, ['rev-parse', 'HEAD']);
+
+  const resumed = JSON.parse(run(process.execPath, [cli,
+    'resume', id, '--fetch', '--json'
+  ], root).stdout);
+
+  assert.equal(resumed.outcome.status, 'succeeded');
+  assert.equal(resumed.data.repositoryPath, worktree);
+  assert.equal(resumed.data.materialization, 'reused-managed-story-worktree');
+  assert.equal(git(worktree, ['branch', '--show-current']), id);
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
+  assert.equal(git(root, ['rev-parse', 'HEAD']), launchHead);
+  assert.match(git(root, ['status', '--porcelain']), /unrelated-launch-work\.txt/u);
+  assert.equal(await readFile(path.join(root, 'unrelated-launch-work.txt'), 'utf8'), 'preserve me\n');
+});
+
+test('Story worktree path identity follows Windows drive and casing rules', () => {
+  assert.equal(
+    samePlatformPath('C:\\Work\\Repo\\.singularity-flow\\story-worktrees\\ABC',
+      'c:/work/repo/.singularity-flow/story-worktrees/abc', 'win32'),
+    true
+  );
+  assert.equal(
+    samePlatformPath('C:\\Work\\Repo\\one', 'C:\\Work\\Repo\\two', 'win32'),
+    false
+  );
+});
+
+test('isolated Story start fetches the configured remote before pinning its base', async (t) => {
+  const { base, root } = await repository(t);
+  run('git', ['remote', 'rename', 'origin', 'company'], root);
+  const definitionFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
+  definition.git.remote = 'company';
+  await writeFile(definitionFile, YAML.stringify(definition));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-qm', 'use the configured company remote'], root);
+  run('git', ['push', '-q', '-u', 'company', 'main'], root);
+
+  const writer = path.join(base, 'writer');
+  run('git', ['clone', '-q', path.join(base, 'remote.git'), writer], base);
+  run('git', ['config', 'user.name', 'Remote Writer'], writer);
+  run('git', ['config', 'user.email', 'remote-writer@example.com'], writer);
+  await writeFile(path.join(writer, 'remote-base-change.txt'), 'new base bytes\n');
+  run('git', ['add', 'remote-base-change.txt'], writer);
+  run('git', ['commit', '-qm', 'advance remote base'], writer);
+  run('git', ['push', '-q', 'origin', 'main'], writer);
+  const remoteBase = git(writer, ['rev-parse', 'HEAD']);
+  assert.notEqual(git(root, ['rev-parse', 'refs/remotes/company/main']), remoteBase,
+    'the launch clone deliberately begins with a stale tracking ref');
+
+  const started = JSON.parse(run(process.execPath, [cli,
+    'start', 'ISO-CUSTOM-REMOTE-1', '--isolated-worktree', '--json',
+    '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'Use the exact company base',
+    '--description', 'Fetch the configured remote before readiness and Story creation.'
+  ], root).stdout);
+  const workflow = JSON.parse(await readFile(path.join(
+    started.data.repositoryPath,
+    'singularity/work-items/ISO-CUSTOM-REMOTE-1/workflow.json'
+  ), 'utf8'));
+
+  assert.equal(workflow.workItem.baseCommit, remoteBase);
+  assert.equal(git(root, ['rev-parse', 'refs/remotes/company/main']), remoteBase);
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
 });
 
 test('required repository readiness refuses before an isolated Story worktree is created', async (t) => {
@@ -1109,4 +1188,17 @@ test('isolated-start recovery retains a durable Story under a custom configured 
   });
   assert.equal(recovery.retained, true);
   assert.equal(git(worktree, ['branch', '--show-current']), 'ISO-CUSTOM-1');
+});
+
+test('isolated-start recovery recognizes a published Story on a non-origin remote', async (t) => {
+  const { root } = await repository(t);
+  run('git', ['remote', 'rename', 'origin', 'company'], root);
+  const prepared = await prepareStoryWorktree(root, 'REMOTE-RETAIN-1', { base: 'main' });
+  run('git', ['push', '-q', 'company', 'HEAD:refs/heads/REMOTE-RETAIN-1'], root);
+  run('git', ['fetch', '-q', 'company', 'REMOTE-RETAIN-1'], root);
+
+  const recovery = rollbackStoryWorktree(prepared);
+
+  assert.equal(recovery.retained, true);
+  assert.equal(recovery.repositoryPath, prepared.repositoryPath);
 });

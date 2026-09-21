@@ -503,12 +503,6 @@
       },
       "digest": "d2496c3e771e6d00bdbb08b51add5f941e1f86ebd5f832a18bbfbf8997c88bed"
     },
-    "src/commands/story.mjs": {
-      "counts": {
-        "command-run": 2
-      },
-      "digest": "c3dbbcd37587f291888f9d297baa3368c1d6124188071819270d5517dd42c5c8"
-    },
     "src/comprehension/diff-preview.mjs": {
       "counts": {
         "command-run": 1
@@ -1145,9 +1139,9 @@
     },
     "src/story-worktree.mjs": {
       "counts": {
-        "command-run": 9
+        "command-run": 8
       },
-      "digest": "c3e623eaaf27735f1713df1f4c3620a0874bbc15957360231cbf31503f52c072"
+      "digest": "c24c0b87c58568657d10710a37056d4126c2ff8e0cf3a3942a1a2851cd720c7b"
     },
     "src/transport-intents.mjs": {
       "counts": {

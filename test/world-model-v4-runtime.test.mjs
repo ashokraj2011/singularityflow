@@ -22,6 +22,7 @@ import { runDeterministicRegistration } from '../src/world-model/extract/index.m
 import {
   materializeWorldModelView, usageObservation
 } from '../src/world-model/materialize/view.mjs';
+import { assembleWmbV4Prompt } from '../src/world-model/compose/pinned-core.mjs';
 import { createWorldModelMigrationReceipt } from '../src/world-model/migration/v3-to-v4.mjs';
 import { readLegacyWorldModelView } from '../src/world-model/migration/v3-reader.mjs';
 import { createWorldModelViewOutputBudget } from '../src/world-model/plan.mjs';
@@ -38,6 +39,9 @@ import {
 } from '../src/world-model/publish/transaction.mjs';
 import { buildWorldModelV4 } from '../src/world-model/runtime.mjs';
 import {
+  worldModelExecutionUnitManifestSha256
+} from '../src/world-model/execution-profile.mjs';
+import {
   buildAndPublishWorldModelV4, retryFailedWorldModelV4View
 } from '../src/world-model/service.mjs';
 import { validateWorldModelViewRetryReceipt } from '../src/world-model/retry.mjs';
@@ -47,6 +51,7 @@ import {
 import {
   resolvePublishedWorldModelV4, worldModelV4StoreSummary
 } from '../src/world-model/store.mjs';
+import { WMB_V4_VALIDATION_CHECK_IDS } from '../src/world-model/validate/candidate.mjs';
 
 const LEDGER = Object.freeze({
   enabled: true,
@@ -455,7 +460,10 @@ test('deterministic views publish atomically, reuse exact cache, and survive sel
   assert.equal(first.views[0].viewId, 'dev.impact');
   assert.equal(first.views[0].cache, 'miss');
   assert.equal(first.runtime.availableViews[0].route, 'deterministic');
-  assert.equal(first.runtime.availableViews[0].validationReceipt.checks.length, 20);
+  assert.equal(
+    first.runtime.availableViews[0].validationReceipt.checks.length,
+    WMB_V4_VALIDATION_CHECK_IDS.length
+  );
   assert.ok(first.runtime.availableViews[0].validationReceipt.checks.every((check) => check.status === 'pass'));
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'status', '--porcelain').stdout.trim(), '');
@@ -887,14 +895,13 @@ test('publication revalidates an exact complete projection before invoking its s
   assert.equal(calls.length, 1, 'no invalid projection or deletion reached the state writer');
 });
 
-test('publication reruns semantic validation instead of trusting a coherently rehashed receipt', async (t) => {
+test('publication refuses a coherently rehashed non-deterministic candidate on the deterministic route', async (t) => {
   const { root } = await repository(t);
   const built = await buildAndPublishWorldModelV4(root, buildOptions({ publish: false }));
   const original = built.runtime.availableViews[0];
-  const factId = original.candidate.usedFactIds[0];
   const candidate = {
     ...structuredClone(original.candidate),
-    tldrMarkdown: `The moon is made of cheese. [F:${factId}]`
+    tldrMarkdown: `${original.candidate.tldrMarkdown}\n`
   };
   const receiptCore = {
     ...structuredClone(original.validationReceipt),
@@ -981,9 +988,9 @@ test('publication reruns semantic validation instead of trusting a coherently re
         return {};
       }
     }),
-    (error) => error.code === 'WMB_FACT_ASSURANCE_UPGRADED'
+    (error) => error.code === 'WMB_DETERMINISTIC_CANDIDATE_MISMATCH'
   );
-  assert.equal(publisherCalls, 0, 'semantic-invalid view bytes must not reach the state writer');
+  assert.equal(publisherCalls, 0, 'route-invalid view bytes must not reach the state writer');
 });
 
 test('publication reproduces the deterministic Fact graph before invoking its state writer', async (t) => {
@@ -2160,7 +2167,9 @@ for await (const line of lines) {
   assert.equal(view.route, 'model');
   assert.deepEqual(view.candidate, deterministic.availableViews[0].candidate);
   assert.equal(view.execution.status, 'completed');
-  assert.match(view.execution.executionUnitManifestSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(view.execution.executionUnitManifestSha256, worldModelExecutionUnitManifestSha256({
+    route: 'model', provider: 'copilot-cli', requestedModel: 'fixture-model'
+  }));
   assert.equal(view.usageObservation.providerInputTokens, 101);
   assert.equal(view.usageObservation.providerOutputTokens, 47);
   assert.equal(view.usageObservation.assurance.providerTokens, 'provider-reported');
@@ -2169,4 +2178,167 @@ for await (const line of lines) {
   assert.equal(audits.count, 1);
   assert.deepEqual(audits.records[0].executionContext, executionContext);
   assert.equal(audits.records[0].workId, null);
+});
+
+test('a large model-routed architecture view omits optional facts, publishes, and replays from state', async (t) => {
+  const { root } = await repository(t);
+  const contracts = Array.from({ length: 96 }, (_, index) => (
+    `export function publicContract${index.toString().padStart(3, '0')}(request) {
+  return { id: request.id, name: 'contract-${index}', enabled: request.enabled === true };
+}
+`
+  )).join('\n');
+  await writeFile(path.join(root, 'src', 'public-contracts.mjs'), contracts);
+  git(root, 'add', 'src/public-contracts.mjs');
+  git(root, 'commit', '-m', 'Add a broad public contract surface');
+
+  const prepared = await buildWorldModelV4(root, buildOptions({
+    views: ['arch.contracts'], cachePolicy: 'rebuild', generatedAt: '2026-09-01T03:31:00.000Z'
+  }));
+  const [preparedView] = prepared.availableViews;
+  const preparedPacket = await assembleWmbV4Prompt({
+    viewContract: preparedView.contract,
+    scopeManifest: prepared.planned.scopeManifest,
+    viewFactLedger: preparedView.viewFactLedger,
+    evidenceCatalog: prepared.registration.evidenceCatalog,
+    consumerProfile: prepared.planned.consumerProfile,
+    outputBudget: createWorldModelViewOutputBudget(prepared.planned.outputBudget, preparedView.contract)
+  });
+  const requiredIds = [...new Set([
+    ...preparedView.viewFactLedger.requiredFactIds,
+    ...preparedView.viewFactLedger.requiredUnavailableFactIds,
+    ...preparedView.viewFactLedger.materialContradictionFactIds
+  ])].sort();
+  const admittedFacts = new Map(preparedView.viewFactLedger.facts.map((fact) => [fact.id, fact]));
+  const requiredFacts = requiredIds.map((id) => admittedFacts.get(id));
+  assert.ok(requiredFacts.every((fact) => preparedPacket.admittedFactIds.includes(fact.id)));
+  const factText = (fact) => (fact.status === 'unavailable' ? fact.reason.detail : fact.claim)
+    .replace(/[.\s]+$/, '');
+  const unit = (facts, list = false) => {
+    const sorted = [...facts].sort((left, right) => left.id.localeCompare(right.id));
+    return `${list ? '- ' : ''}${sorted.map(factText).join('. ')}. [F:${sorted.map((fact) => fact.id).join(',')}]`;
+  };
+  const material = new Set(preparedView.viewFactLedger.materialContradictionFactIds);
+  const unavailable = new Set(preparedView.viewFactLedger.requiredUnavailableFactIds);
+  const sections = [
+    'public-contracts', 'implementations', 'consumers', 'contract-contradictions',
+    'unavailable-runtime-guarantees'
+  ].map((sectionId) => ({ sectionId, markdown: '' }));
+  let ordinary = 0;
+  for (const fact of requiredFacts) {
+    const section = material.has(fact.id) ? 3 : unavailable.has(fact.id) ? 4 : ordinary++ % 3;
+    sections[section].markdown += `${sections[section].markdown ? '\n' : ''}${unit([fact], true)}`;
+  }
+  const summary = material.size
+    ? requiredFacts.filter((fact) => material.has(fact.id)) : requiredFacts.slice(0, 1);
+  const admittedOnlyCandidate = {
+    schemaVersion: 1,
+    kind: 'world-model-composition-candidate',
+    view: preparedView.viewId,
+    viewVersion: preparedView.contract.version,
+    title: preparedView.contract.title,
+    tldrMarkdown: unit(summary),
+    sections,
+    usedFactIds: requiredIds
+  };
+  await setPromptAudit(root, true);
+
+  const fixture = path.join(root, 'admitted-facts-only-composer.mjs');
+  await writeFile(fixture, `
+import readline from 'node:readline';
+
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+const candidate = ${JSON.stringify(admittedOnlyCandidate)};
+for await (const line of lines) {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      protocolVersion: message.params.protocolVersion, agentCapabilities: {}
+    }});
+  } else if (message.method === 'session/new') {
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      sessionId: 'admitted-facts-only', configOptions: []
+    }});
+  } else if (message.method === 'session/prompt') {
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: 'admitted-facts-only', update: {
+        sessionUpdate: 'agent_message_chunk', messageId: 'candidate',
+        content: { type: 'text', text: JSON.stringify(candidate) }
+      }
+    }});
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      stopReason: 'end_turn', usage: { inputTokens: 777, outputTokens: 222, totalTokens: 999 }
+    }});
+  }
+}
+`);
+
+  const published = await withOperationContext({
+    operation: { id: 'world-model.build', modelPolicy: 'required' },
+    modelMode: { enabled: true }, root, command: 'wm build'
+  }, () => buildAndPublishWorldModelV4(root, buildOptions({
+    views: ['arch.contracts'], composer: 'model', provider: 'copilot-cli',
+    model: 'fixture-model', cachePolicy: 'rebuild', generatedAt: '2026-09-01T03:32:00.000Z',
+    providerConfig: {
+      type: 'copilot-cli', executable: process.execPath,
+      arguments: [fixture], promptTransport: 'acp-stdio'
+    }
+  })));
+
+  assert.equal(published.status, 'completed', JSON.stringify(published.refusals));
+  const [view] = published.runtime.availableViews;
+  assert.equal(view.viewId, 'arch.contracts');
+  assert.equal(view.route, 'model');
+  assert.equal(view.execution.status, 'completed');
+  assert.equal(view.usageObservation.providerInputTokens, 777);
+  assert.equal(view.usageObservation.providerOutputTokens, 222);
+  assert.ok(view.viewFactLedger.facts.length >= 40, 'fixture must exercise a broad contract ledger');
+
+  const assembled = await assembleWmbV4Prompt({
+    viewContract: view.contract,
+    scopeManifest: published.runtime.planned.scopeManifest,
+    viewFactLedger: view.viewFactLedger,
+    evidenceCatalog: published.runtime.registration.evidenceCatalog,
+    consumerProfile: published.runtime.planned.consumerProfile,
+    outputBudget: createWorldModelViewOutputBudget(
+      published.runtime.planned.outputBudget, view.contract
+    )
+  });
+  assert.ok(assembled.omittedFactIds.length > 0,
+    'the large view must omit non-mandatory facts from the model packet');
+  assert.equal(
+    assembled.admittedFactIds.length + assembled.omittedFactIds.length,
+    view.viewFactLedger.facts.length
+  );
+  const admitted = new Set(assembled.admittedFactIds);
+  assert.ok(view.candidate.usedFactIds.every((id) => admitted.has(id)),
+    'the model candidate may only cite fact IDs admitted to its packet');
+  assert.ok(view.candidate.usedFactIds.every((id) => !assembled.omittedFactIds.includes(id)));
+
+  const audits = await listPromptAudits(root, { includePrompt: true });
+  assert.equal(audits.count, 1);
+  const prompt = audits.records[0].prompt;
+  const packetStart = prompt.indexOf('## Composition Fact Packet\n');
+  const packetEnd = prompt.indexOf('\n## Evidence Catalog', packetStart);
+  const packet = JSON.parse(prompt.slice(packetStart + '## Composition Fact Packet\n'.length, packetEnd));
+  assert.deepEqual(packet.facts.map((fact) => fact.id).sort(), assembled.admittedFactIds);
+  assert.deepEqual(packet.requiredFactIds, view.viewFactLedger.requiredFactIds);
+  assert.ok(assembled.omittedFactIds.every((id) => !packet.facts.some((fact) => fact.id === id)));
+
+  const stateCommit = git(root, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  assert.equal(published.publication.commit, stateCommit);
+  assert.equal(git(root, 'show', `${stateCommit}:singularity/world-model/manifest.json`).status, 0);
+  const stored = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+  });
+  assert.equal(stored.freshness.fresh, true);
+  const storedView = stored.views.find((entry) => entry.viewId === 'arch.contracts');
+  assert.equal(storedView.markdown, view.markdown);
+  assert.deepEqual(storedView.candidate, view.candidate);
+  assert.equal(storedView.execution.executionUnitManifestSha256,
+    worldModelExecutionUnitManifestSha256({
+      route: 'model', provider: 'copilot-cli', requestedModel: 'fixture-model'
+    })
+  );
 });

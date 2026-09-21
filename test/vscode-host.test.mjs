@@ -5673,6 +5673,42 @@ test('a new laptop can find an already-onboarded repository through an explicit 
   assert.match(lastInspection, new RegExp(`--lead ${org.api.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
 });
 
+test('reopening a retained capability mapper refreshes leads and revokes stale discovery', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  t.after(() => rm(org.base, { recursive: true, force: true }));
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  await panel.post({ type: 'field', field: 'repositoryUrl', value: org.api });
+  await panel.post({ type: 'inspectRepository' });
+  await until(() => panel.webview.html.includes('Search 1 known authority')
+    ? panel.webview.html : null);
+  assert.match(panel.webview.html, /Use this repository as the first capability map/);
+
+  const secondLead = path.join(org.base, 'second-platform.git');
+  run('git', ['init', '--quiet', '--bare', secondLead], { cwd: org.base });
+  const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
+  await rememberLeadRepository(secondLead);
+  await registered.commands.get('singularityFlow.mapCapability')();
+
+  assert.equal(registered.panels.filter((entry) =>
+    entry.id === 'singularityFlow.mapCapability').length, 1,
+    'the retained mapper is reused');
+  assert.doesNotMatch(panel.webview.html, /Use this repository as the first capability map/,
+    'a discovery made against the old lead set is revoked on reopen');
+  assert.match(panel.webview.html, /Check repository/);
+
+  await panel.post({ type: 'inspectRepository' });
+  const refreshed = await until(() => panel.webview.html.includes('Search 2 known authorities')
+    ? panel.webview.html : null);
+  assert.match(refreshed, /Search 2 known authorities/);
+});
+
 test('capability mapping refuses credential-bearing URLs before command logging', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-map-url-safety-'));

@@ -9,7 +9,9 @@ import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { readWorldModelViewCache, writeWorldModelViewCache } from './cache.mjs';
 import { canonicalJson, sealRecord, sha256 } from './canonicalize.mjs';
-import { assembleWmbV4Prompt } from './compose/pinned-core.mjs';
+import {
+  assembleWmbV4Prompt, assertWmbV4PromptInputBudget
+} from './compose/pinned-core.mjs';
 import { renderDeterministicCandidate } from './compose/candidate.mjs';
 import { assertSelfHash } from './contracts.mjs';
 import { validateDerivationCatalog } from './extract/derivation-catalog.mjs';
@@ -19,6 +21,11 @@ import {
   createViewProjectionRegistration, runDeterministicRegistration
 } from './extract/index.mjs';
 import { validateViewFactLedger } from './extract/selection.mjs';
+import {
+  createWorldModelExecutionStamp, verifiedWorldModelExecutionRoute,
+  WMB_V4_DETERMINISTIC_EXECUTION_SHA256, worldModelExecutionProfileSha256,
+  worldModelExecutionUnitManifestSha256
+} from './execution-profile.mjs';
 import { materializeWorldModelView, usageObservation } from './materialize/view.mjs';
 import { augmentRegistrationForLegacyMigration } from './migration/v3-to-v4.mjs';
 import { parseWorldModelViewKernelStamp } from './materialize/stamp.mjs';
@@ -45,40 +52,37 @@ import {
 } from './validate/candidate.mjs';
 
 export { WMB_V4_CANDIDATE_SCHEMA_SHA256, WMB_V4_VALIDATOR_SHA256 };
-export const WMB_V4_DETERMINISTIC_EXECUTION_SHA256 = sha256({
-  kind: 'world-model-composer-execution-profile',
-  id: 'deterministic-renderer',
-  version: 1,
-  model: 'never'
-});
+export {
+  WMB_V4_DETERMINISTIC_EXECUTION_SHA256
+} from './execution-profile.mjs';
 
 const MAXIMUM_DERIVED_OBJECT_BYTES = 64 * 1024 * 1024;
 
 function executionProfileSha256({ route, provider = null, model = null }) {
-  return route === 'deterministic'
-    ? null
-    : sha256({
-        kind: 'world-model-composer-execution-profile',
-        id: 'governed-model-composer',
-        version: 1,
-        provider,
-        model: model ?? 'provider-auto',
-        tools: 'none'
-      });
+  // A missing provider is a retryable configuration refusal, not an executable profile. Preserve
+  // a sealed refusal identity so retry lineage can prove that the configuration stayed missing;
+  // the shared execution-profile verifier never accepts this identity for a materialized view.
+  if (route === 'model' && provider === null) {
+    return sha256({
+      kind: 'world-model-composer-execution-profile',
+      id: 'governed-model-composer', version: 1, provider: null,
+      model: model ?? 'provider-auto', tools: 'none'
+    });
+  }
+  return worldModelExecutionProfileSha256({
+    route, provider, requestedModel: model
+  });
 }
 
-function executionUnitManifestSha256({ route, provider = null, model = null }) {
-  return route === 'deterministic'
-    ? WMB_V4_DETERMINISTIC_EXECUTION_SHA256
-    : sha256({
-        kind: 'world-model-execution-unit-manifest',
-        id: 'wmb-v4-composer',
-        version: '1.0.0',
-        route,
-        provider,
-        requestedModel: model ?? 'provider-auto',
-        toolPolicy: { mode: 'none' }
-      });
+function executionUnitManifestSha256({ route, provider = null, requestedModel = null }) {
+  if (route === 'model' && provider === null) {
+    return sha256({
+      kind: 'world-model-execution-unit-manifest',
+      id: 'wmb-v4-composer', version: '1.0.0', route, provider: null,
+      requestedModel: requestedModel ?? 'provider-auto', toolPolicy: { mode: 'none' }
+    });
+  }
+  return worldModelExecutionUnitManifestSha256({ route, provider, requestedModel });
 }
 
 function createViewExecution({
@@ -86,7 +90,7 @@ function createViewExecution({
   contract,
   route,
   provider,
-  model,
+  requestedModel,
   contextManifest,
   viewFactLedger,
   status,
@@ -101,7 +105,9 @@ function createViewExecution({
     requestSha256,
     viewId: contract.id,
     viewVersion: contract.version,
-    executionUnitManifestSha256: executionUnitManifestSha256({ route, provider, model }),
+    executionUnitManifestSha256: executionUnitManifestSha256({
+      route, provider, requestedModel
+    }),
     contextManifestSha256: contextManifest.manifestSha256,
     viewFactLedgerSha256: viewFactLedger.ledgerSha256,
     status,
@@ -175,16 +181,7 @@ async function composeWithModel(root, prompt, contract, viewOutputBudget, {
       { code: 'WMB_EXECUTION_UNIT_UNAVAILABLE' }
     );
   }
-  const estimatedInputTokens = Math.ceil(Buffer.byteLength(prompt, 'utf8') / 4);
-  if (estimatedInputTokens > contract.budgets.maximumInputTokens) {
-    throw new SingularityFlowError(
-      `View '${contract.id}' requires an estimated ${estimatedInputTokens} input tokens, above its registered ${contract.budgets.maximumInputTokens}-token ceiling.`,
-      {
-        code: 'WMB_OUTPUT_BUDGET_EXCEEDED',
-        details: { estimatedInputTokens, maximumInputTokens: contract.budgets.maximumInputTokens }
-      }
-    );
-  }
+  assertWmbV4PromptInputBudget(prompt, contract);
   const maximumOutputTokens = viewOutputBudget.viewBudgets[contract.id].maximumOutputTokens;
   return invokeModel({
     provider,
@@ -266,16 +263,19 @@ function cachedViewStamp(markdown) {
  */
 function revalidateCachedArtifact(cached, {
   contract, viewFactLedger, evidenceCatalog, derivationCatalog, scopeManifest, sourceSnapshot,
-  outputBudget, contextManifest, route
+  outputBudget, contextManifest, route, provider = null, requestedModel = null,
+  admittedFactIds = null
 }) {
   try {
     const markdown = Buffer.isBuffer(cached.viewBytes)
       ? cached.viewBytes.toString('utf8') : String(cached.markdown ?? '');
     const stamp = cachedViewStamp(markdown);
-    if ((route === 'deterministic'
-          && (stamp.executionUnit !== 'deterministic-renderer@1' || stamp.model !== 'unavailable'))
-        || (route === 'model'
-          && !stamp.executionUnit.startsWith('governed-model-composer@1:'))) {
+    const verifiedRoute = verifiedWorldModelExecutionRoute({
+      executionUnitManifestSha256: executionUnitManifestSha256({
+        route, provider, requestedModel
+      })
+    }, stamp, { route, provider, requestedModel });
+    if (verifiedRoute !== route) {
       throw new SingularityFlowError(
         'Cached world-model view execution stamp does not match the current composition route.',
         { code: 'WMB_CACHE_REVALIDATION_FAILED' }
@@ -287,6 +287,8 @@ function revalidateCachedArtifact(cached, {
       evidenceCatalog,
       scopeManifest,
       outputBudget,
+      executionRoute: verifiedRoute,
+      admittedFactIds,
       candidateSchemaSha256: WMB_V4_CANDIDATE_SCHEMA_SHA256,
       validatorSha256: WMB_V4_VALIDATOR_SHA256
     });
@@ -352,7 +354,7 @@ function cachedExecutionResult({
     contract,
     route,
     provider: route === 'model' ? options.provider : null,
-    model: route === 'model' ? options.model : null,
+    requestedModel: route === 'model' ? options.model ?? 'provider-auto' : null,
     contextManifest: assembled.contextManifest,
     viewFactLedger,
     status: 'cached',
@@ -465,8 +467,10 @@ async function executeOneView(root, context, requested, options) {
     outputBudget: viewOutputBudget
   });
   const route = routeForContract(contract, options.composer);
+  const executionProvider = route === 'model' ? options.provider : null;
+  const requestedModel = route === 'model' ? options.model ?? 'provider-auto' : null;
   const profileSha256 = executionProfileSha256({
-    route, provider: options.provider, model: options.model
+    route, provider: executionProvider, model: requestedModel
   });
   const cacheKey = {
     sourceManifestSha256: context.planned.sourceSnapshot.sourceManifestSha256,
@@ -491,18 +495,25 @@ async function executeOneView(root, context, requested, options) {
     contextManifestSha256: assembled.contextManifest.manifestSha256,
     cacheKey,
     route,
-    provider: options.provider,
-    model: options.model,
+    provider: executionProvider,
+    model: requestedModel,
     providerConfig: options.providerConfig,
     executionProfileSha256: profileSha256,
     executionUnitManifestSha256: executionUnitManifestSha256({
-      route, provider: options.provider, model: options.model
+      route, provider: executionProvider, requestedModel
     }),
     timeoutMs: options.timeoutMs ?? 10 * 60 * 1000
   });
   if (options.expectedRetryBinding) {
     assertWorldModelViewRetryBinding(options.expectedRetryBinding, retryBinding);
   }
+  if (route === 'model' && !executionProvider) {
+    throw new SingularityFlowError(
+      `View '${contract.id}' requires model composition, but no governed provider is configured.`,
+      { code: 'WMB_EXECUTION_UNIT_UNAVAILABLE' }
+    );
+  }
+  if (route === 'model') assertWmbV4PromptInputBudget(assembled.prompt, contract);
 
   const forceRebuild = options.rebuildViewIds.has(contract.id);
   const cacheOnly = options.cacheOnlyViewIds.has(contract.id);
@@ -528,7 +539,10 @@ async function executeOneView(root, context, requested, options) {
       sourceSnapshot: context.planned.sourceSnapshot,
       outputBudget: viewOutputBudget,
       contextManifest: assembled.contextManifest,
-      route
+      route,
+      provider: executionProvider,
+      requestedModel,
+      admittedFactIds: route === 'model' ? assembled.admittedFactIds : null
     };
     if (cached.status === 'corrupt') {
       cacheDiagnostics.push(localCacheDiagnostic(contract.id, 'read', 'corrupt', {
@@ -652,8 +666,17 @@ async function executeOneView(root, context, requested, options) {
     evidenceCatalog: context.registration.evidenceCatalog,
     scopeManifest: context.planned.scopeManifest,
     outputBudget: viewOutputBudget,
+    executionRoute: route,
+    admittedFactIds: route === 'model' ? assembled.admittedFactIds : null,
     candidateSchemaSha256: WMB_V4_CANDIDATE_SCHEMA_SHA256,
     validatorSha256: WMB_V4_VALIDATOR_SHA256
+  });
+  const executionStamp = createWorldModelExecutionStamp({
+    route,
+    provider: executionProvider,
+    requestedModel,
+    observedModel,
+    invocationId: route === 'model' ? providerResult?.invocationId ?? null : null
   });
   const materialized = materializeWorldModelView({
     candidate,
@@ -665,10 +688,8 @@ async function executeOneView(root, context, requested, options) {
     derivationCatalog: context.registration.derivationCatalog,
     validationReceipt: receipt,
     contextManifest: assembled.contextManifest,
-    executionUnit: route === 'model'
-      ? `governed-model-composer@1:${providerResult?.invocationId ?? 'unavailable'}`
-      : 'deterministic-renderer@1',
-    model: observedModel,
+    executionUnit: executionStamp.executionUnit,
+    model: executionStamp.model,
     generatedAt: options.generatedAt
   });
   const cached = await writeWorldModelViewCache(root, cacheKey, {
@@ -693,7 +714,10 @@ async function executeOneView(root, context, requested, options) {
       sourceSnapshot: context.planned.sourceSnapshot,
       outputBudget: viewOutputBudget,
       contextManifest: assembled.contextManifest,
-      route
+      route,
+      provider: executionProvider,
+      requestedModel,
+      admittedFactIds: route === 'model' ? assembled.admittedFactIds : null
     });
     cacheDiagnostics.push(...await tryWarmSharedCache(
       root, options.sharedCacheDirectory, cacheKey, contract.id
@@ -720,8 +744,8 @@ async function executeOneView(root, context, requested, options) {
     requestSha256: context.planned.request.requestSha256,
     contract,
     route,
-    provider: options.provider,
-    model: observedModel ?? options.model,
+    provider: executionProvider,
+    requestedModel,
     contextManifest: assembled.contextManifest,
     viewFactLedger,
     status: 'completed',

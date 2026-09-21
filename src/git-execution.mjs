@@ -16,6 +16,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import {
+  inheritEnterpriseGitEnvironment, remoteGitEnvironment
+} from './git-enterprise-environment.mjs';
+import {
   networkDisabled, recordSubprocessTiming, run, signalProcessTree, SingularityFlowError
 } from './util.mjs';
 
@@ -58,11 +61,15 @@ export function gitRemoteProbeTimeout(remote, env = process.env) {
  * actionable result. The caller's proxy and CA environment is otherwise preserved byte-for-byte.
  */
 export function nonInteractiveGitEnvironment(env = process.env) {
-  return {
+  const nonInteractive = {
     ...env,
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'Never'
   };
+  // This helper is routinely applied before the final executor. Preserve the private attestation
+  // carried by a frozen transport; otherwise that executor correctly treats the cloned object as
+  // ambient input, removes its counted configuration, and loses SFlow's exact URL alias.
+  return inheritEnterpriseGitEnvironment(env, nonInteractive);
 }
 
 const timeoutFor = (operation, env) => {
@@ -162,7 +169,10 @@ export function runRemoteGit(args, {
   try {
     result = runCommand('git', args, {
       cwd,
-      env: nonInteractiveGitEnvironment(env),
+      // The runner is the final authority boundary. Callers should normally pass the marked
+      // environment returned by enterpriseGitEnvironment/frozenRemoteTransport, but a legacy or
+      // direct caller cannot bypass isolation merely by passing process.env itself.
+      env: nonInteractiveGitEnvironment(remoteGitEnvironment(env)),
       timeoutMs,
       allowFailure: true,
       // This adapter owns the logical-request, physical-spawn and service-time counters. The shared
@@ -208,6 +218,13 @@ export async function runRemoteGitAsync(args, {
   recordRemoteGitInvocation(args, operation);
   const serviceStarted = performance.now();
   const probeStarted = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? serviceStarted : 0;
+  // Environment admission is a preflight boundary, not a child-process failure. Let its structured
+  // GIT_ENTERPRISE_CONFIG_UNAVAILABLE refusal propagate intact instead of catching it below and
+  // misclassifying it as an opaque spawn/remote error. A pre-aborted request still performs no
+  // configuration read or process launch.
+  const executionEnvironment = signal?.aborted
+    ? null
+    : nonInteractiveGitEnvironment(remoteGitEnvironment(env));
   const result = signal?.aborted
     // Abort reasons are caller-owned values and may contain credentials, URLs, or UI text. The
     // closed-vocabulary cancellation classification below is the complete public diagnosis; never
@@ -216,7 +233,6 @@ export async function runRemoteGitAsync(args, {
     : await new Promise((resolve) => {
     let child;
     try {
-      const executionEnvironment = nonInteractiveGitEnvironment(env);
       // Match the synchronous `run` boundary exactly. In particular, CreateProcess must never
       // resolve a repository-local `git.exe` before PATH on Windows: resolve the reviewed logical
       // command to a hardened absolute executable (or the safely escaped batch adapter) first.

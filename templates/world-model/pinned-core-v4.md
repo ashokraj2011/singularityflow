@@ -4,7 +4,9 @@
 Kernel contract, model-never:
 
 1. Resolve the requested view through the closed View Registry.
-2. Use only the registered facts and evidence descriptors supplied below.
+2. Use only the registered facts and evidence descriptors supplied in the
+   bounded Composition Fact Packet below. The authoritative View Fact Ledger
+   remains complete even when optional facts are omitted from this invocation.
 3. The model may select, organize, and narrate facts. It may not mint facts,
    evidence IDs, derivation IDs, paths, symbols, relationships, availability,
    assurance, source identity, or provenance.
@@ -18,19 +20,21 @@ Nothing volatile appears above REQUEST INPUTS.
 
 ## Principle
 
-Compose one structural repository view using only the supplied View Fact Ledger.
+Compose one structural repository view using only the supplied bounded
+Composition Fact Packet derived from the authoritative View Fact Ledger.
 Never invent a fact, evidence identifier, symbol, path, relationship, or
 availability result.
 
 ## Universal rules
 
 1. The pinned source and Scope Manifest are authoritative.
-2. Use only supplied Fact Ledger entries and Evidence Catalog IDs.
+2. Use only Facts and evidence descriptors present in the supplied Composition
+   Fact Packet.
 3. Structure precedes source bodies; bodies are unavailable unless the View
    Contract explicitly permits a bounded expansion.
 4. Begin with a TL;DR within the registered budget.
 5. Every factual prose unit ends with one or more `[F:<fact-id>]` references.
-6. Every referenced fact exists in the supplied View Fact Ledger.
+6. Every referenced fact exists in the supplied Composition Fact Packet.
 7. Never alter fact status, assurance, evidence, derivation, contradiction, or
    canonical claim.
    Every factual unit uses the exact canonical claim (or exact unavailable

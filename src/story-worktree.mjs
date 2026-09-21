@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
-import { gitCommonDir } from './git.mjs';
+import { gitCommonDir, refExists, remoteNames } from './git.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
@@ -34,6 +34,23 @@ function portableId(value) {
   return id;
 }
 
+/**
+ * Compare filesystem path spellings using the host platform's identity rules.
+ *
+ * Git for Windows may report drive-letter and component casing differently from Node even when
+ * both names identify the same directory. Worktree ownership is a security boundary, so callers
+ * must not use raw string equality for this comparison.
+ */
+export function samePlatformPath(left, right, platform = process.platform) {
+  if (left == null || right == null) return false;
+  const api = platform === 'win32' ? path.win32 : path;
+  const normalize = (value) => {
+    const resolved = api.resolve(String(value));
+    return platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved;
+  };
+  return normalize(left) === normalize(right);
+}
+
 function worktreeInventory(root) {
   const output = run('git', ['worktree', 'list', '--porcelain'], { cwd: root }).stdout;
   const records = [];
@@ -50,7 +67,8 @@ function worktreeInventory(root) {
 
 async function safeNewPath(root, candidate) {
   const absolute = path.resolve(candidate);
-  if (absolute === path.parse(absolute).root || absolute === path.resolve(root)) {
+  if (samePlatformPath(absolute, path.parse(absolute).root)
+      || samePlatformPath(absolute, root)) {
     throw new SingularityFlowError(`Unsafe Story worktree target: ${absolute}`, {
       code: 'STORY_WORKTREE_CREATION_FAILED'
     });
@@ -99,7 +117,7 @@ export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {})
   const id = portableId(workId);
   const target = path.resolve(await storyWorktreePath(root, id));
   const stagingBranch = `sflow-start-${digest(`${gitCommonDir(root)}\0${id}`).slice(0, 16)}`;
-  const registered = worktreeInventory(root).find((entry) => entry.path === target);
+  const registered = worktreeInventory(root).find((entry) => samePlatformPath(entry.path, target));
   if (registered) {
     if (![id, stagingBranch].includes(registered.branch)) {
       throw new SingularityFlowError(
@@ -179,9 +197,9 @@ export function rollbackStoryWorktree(prepared) {
   const root = prepared.sourceRepository;
   const id = prepared.workId;
   const workflowAtBranch = durableStoryWorkflowOnBranch(root, id);
-  const published = run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${id}`], {
-    cwd: root, allowFailure: true
-  }).status === 0;
+  const published = remoteNames(root).some((remote) => (
+    refExists(root, `refs/remotes/${remote}/${id}`)
+  ));
   if (workflowAtBranch || published) {
     return { removed: false, retained: true, repositoryPath: prepared.repositoryPath };
   }

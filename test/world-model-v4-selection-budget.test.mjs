@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { canonicalJson, sealRecord } from '../src/world-model/canonicalize.mjs';
+import { assembleWmbV4Prompt } from '../src/world-model/compose/pinned-core.mjs';
 import {
   candidateFactReferences, renderDeterministicCandidate
 } from '../src/world-model/compose/candidate.mjs';
@@ -20,6 +21,10 @@ import {
   selectViewFacts,
   validateViewFactLedger
 } from '../src/world-model/extract/selection.mjs';
+import {
+  createWorldModelConsumerProfile, createWorldModelOutputBudget,
+  createWorldModelViewOutputBudget
+} from '../src/world-model/plan.mjs';
 import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
 import { resolveBuiltInViewContract } from '../src/world-model/registry/views.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
@@ -76,20 +81,22 @@ async function largeFixture(t, count = 96) {
   };
 }
 
-function addMaterialContradiction(context) {
+function addMaterialContradictions(context, count = 1) {
   const eligible = context.registration.factLedger.facts.filter((fact) => (
     fact.status === 'available'
     && context.contract.factPolicy.requiredFactTypes.includes(fact.factType)
   ));
-  const subject = eligible[0];
-  const conflicting = eligible.find((fact) => fact.id !== subject.id);
-  assert.ok(subject && conflicting, 'fixture must expose two eligible facts');
-  const contradictionDraft = {
-    ...factIdentityFromRecord(subject),
-    claim: `${subject.subject.id} has conflicting registered structural observations.`,
-    status: 'contradicted',
-    conflictsWith: [conflicting.id]
-  };
+  assert.ok(eligible.length > 1, 'fixture must expose two eligible facts');
+  const contradictionDrafts = Array.from({ length: count }, (_, index) => {
+    const subject = eligible[index % eligible.length];
+    const conflicting = eligible[(index + 1) % eligible.length];
+    return {
+      ...factIdentityFromRecord(subject),
+      claim: `${subject.subject.id} has conflicting registered structural observation ${index}.`,
+      status: 'contradicted',
+      conflictsWith: [conflicting.id]
+    };
+  });
   return createFactLedger({
     sourceSnapshot: context.registration.sourceSnapshot,
     scopeManifest: context.scopeManifest,
@@ -100,19 +107,20 @@ function addMaterialContradiction(context) {
     ),
     factDrafts: [
       ...context.registration.factLedger.facts.map(factIdentityFromRecord),
-      contradictionDraft
+      ...contradictionDrafts
     ]
   });
 }
 
 test('large registered-v4 views preserve coverage and contradictions within exact budgets', async (t) => {
   const context = await largeFixture(t);
-  const factLedger = addMaterialContradiction(context);
+  const factLedger = addMaterialContradictions(context);
   const first = selectViewFacts({ factLedger, viewContract: context.contract });
   const second = selectViewFacts({ factLedger, viewContract: context.contract });
 
   assert.equal(first.selectionPolicySha256, REGISTERED_SELECTION_POLICY_SHA256);
   assert.equal(first.ledgerSha256, second.ledgerSha256);
+  assert.equal(context.contract.budgets.maximumInputTokens, 8000);
   assert.ok(first.facts.length <= context.contract.facts.maximumSelectedFacts);
   assert.ok(factLedger.facts.length > context.contract.facts.maximumSelectedFacts);
 
@@ -125,12 +133,54 @@ test('large registered-v4 views preserve coverage and contradictions within exac
   );
   assert.ok(first.materialContradictionFactIds.length > 0);
   assert.ok(first.materialContradictionFactIds.every((id) => selectedById.has(id)));
+  const mandatoryIds = [...new Set([
+    ...first.requiredFactIds,
+    ...first.requiredUnavailableFactIds,
+    ...first.materialContradictionFactIds
+  ])];
+
+  const promptInputs = {
+    viewContract: context.contract,
+    scopeManifest: context.scopeManifest,
+    viewFactLedger: first,
+    evidenceCatalog: context.registration.evidenceCatalog,
+    consumerProfile: createWorldModelConsumerProfile(),
+    outputBudget: createWorldModelViewOutputBudget(
+      createWorldModelOutputBudget([context.contract]), context.contract
+    )
+  };
+  const prompt = await assembleWmbV4Prompt(promptInputs);
+  const repeatedPrompt = await assembleWmbV4Prompt(promptInputs);
+  assert.deepEqual(prompt, repeatedPrompt);
+  const factPacket = JSON.parse(
+    prompt.regions.find((region) => region.id === 'composition-fact-packet').text
+  );
+  assert.equal(factPacket.sourceViewFactLedgerSha256, first.ledgerSha256);
+  assert.equal(factPacket.availableFactCount, first.facts.length);
+  assert.equal(factPacket.admittedFactCount, prompt.admittedFactIds.length);
+  assert.deepEqual(factPacket.facts.map((fact) => fact.id).sort(), prompt.admittedFactIds);
+  const admittedPromptIds = new Set(prompt.admittedFactIds);
+  assert.ok(mandatoryIds.every((id) => admittedPromptIds.has(id)),
+    'the prompt must admit every coverage, unavailable, and contradiction Fact');
+  assert.ok(prompt.omittedFactIds.length > 0,
+    'the fixture must exercise deterministic optional-Fact omission');
+  assert.deepEqual(
+    [...prompt.admittedFactIds, ...prompt.omittedFactIds].sort(),
+    first.facts.map((fact) => fact.id).sort(),
+    'prompt admission must account for every selected Fact exactly once'
+  );
+  const estimatedInputTokens = Math.ceil(Buffer.byteLength(prompt.prompt, 'utf8') / 4);
+  assert.ok(
+    estimatedInputTokens <= context.contract.budgets.maximumInputTokens,
+    `the exact assembled prompt requires ${estimatedInputTokens} estimated input tokens, above `
+      + `the registered ${context.contract.budgets.maximumInputTokens}-token ceiling`
+  );
 
   const candidate = renderDeterministicCandidate(context.contract, first);
   assert.deepEqual(candidate, renderDeterministicCandidate(context.contract, second));
-  assert.ok(first.materialContradictionFactIds.every(
-    (id) => candidateFactReferences(candidate).includes(id)
-  ));
+  const candidateReferences = new Set(candidateFactReferences(candidate));
+  assert.ok(mandatoryIds.every((id) => candidateReferences.has(id)),
+    'the candidate must admit every coverage, unavailable, and contradiction Fact');
   assert.ok(
     Math.ceil(Buffer.byteLength(canonicalJson(candidate), 'utf8') / 4)
       <= context.contract.budgets.maximumOutputTokens,
@@ -142,6 +192,51 @@ test('large registered-v4 views preserve coverage and contradictions within exac
     evidenceCatalog: context.registration.evidenceCatalog,
     scopeManifest: context.scopeManifest
   }).receipt.status, 'passed');
+
+  // A model sees only the bounded composition Fact Packet, never the complete durable ledger.
+  // Prove that a candidate composed solely from that packet is valid for the model route before
+  // trying to smuggle in one of the deliberately omitted optional Facts below.
+  const admittedFactIds = new Set(prompt.admittedFactIds);
+  const admittedFactLedger = {
+    ...first,
+    facts: first.facts.filter((fact) => admittedFactIds.has(fact.id))
+  };
+  const modelCandidate = renderDeterministicCandidate(
+    context.contract, admittedFactLedger, { outputBudget: promptInputs.outputBudget }
+  );
+  assert.equal(validateCompositionCandidate(modelCandidate, {
+    contract: context.contract,
+    viewFactLedger: first,
+    evidenceCatalog: context.registration.evidenceCatalog,
+    scopeManifest: context.scopeManifest,
+    outputBudget: promptInputs.outputBudget,
+    executionRoute: 'model',
+    admittedFactIds: prompt.admittedFactIds
+  }).receipt.status, 'passed');
+
+  const omittedFactId = prompt.omittedFactIds[0];
+  assert.ok(!mandatoryIds.includes(omittedFactId));
+  const omittedFactCandidate = renderDeterministicCandidate(context.contract, {
+    ...first,
+    facts: first.facts.filter((fact) => (
+      admittedFactIds.has(fact.id) || fact.id === omittedFactId
+    ))
+  }, { outputBudget: promptInputs.outputBudget });
+  assert.ok(candidateFactReferences(omittedFactCandidate).includes(omittedFactId),
+    'the fixture candidate must cite a Fact omitted from the bounded model prompt');
+  assert.throws(
+    () => validateCompositionCandidate(omittedFactCandidate, {
+      contract: context.contract,
+      viewFactLedger: first,
+      evidenceCatalog: context.registration.evidenceCatalog,
+      scopeManifest: context.scopeManifest,
+      outputBudget: promptInputs.outputBudget,
+      executionRoute: 'model',
+      admittedFactIds: prompt.admittedFactIds
+    }),
+    (error) => error.code === 'WMB_FACT_REFERENCE_UNKNOWN'
+      && error.details.id === omittedFactId
+  );
 });
 
 test('historical v1 registered selection ledgers remain accepted', async (t) => {

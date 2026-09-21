@@ -6,10 +6,13 @@ import { loadDefinition } from '../../config.mjs';
 import { readRecord } from '../../schema-migrations.mjs';
 import { secureRepositoryPath, SingularityFlowError } from '../../util.mjs';
 import { canonicalJson, isPlainRecord, sha256 } from '../canonicalize.mjs';
-import { assembleWmbV4PromptSync } from '../compose/pinned-core.mjs';
+import {
+  assembleWmbV4PromptSync, assertWmbV4PromptInputBudget
+} from '../compose/pinned-core.mjs';
 import { assertSelfHash } from '../contracts.mjs';
 import { runDeterministicRegistration } from '../extract/index.mjs';
 import { validateViewFactLedger } from '../extract/selection.mjs';
+import { verifiedWorldModelExecutionRoute } from '../execution-profile.mjs';
 import { materializeWorldModelView } from '../materialize/view.mjs';
 import {
   augmentRegistrationForMigrationReceipt, validateWorldModelMigrationReceipt
@@ -415,7 +418,7 @@ function materializationStamp(markdown, viewId) {
  */
 function validateStagedAvailableView({
   files, outputDir, entry, markdown, candidate, validationReceipt, context,
-  records, viewRegistry, build
+  execution, records, viewRegistry, build
 }) {
   const contract = resolveViewContract(viewRegistry, `${entry.viewId}@${entry.viewVersion}`);
   const viewFactLedger = validateViewFactLedger(
@@ -436,19 +439,29 @@ function validateStagedAvailableView({
       viewId: entry.viewId
     });
   }
+  const stamp = materializationStamp(markdown, entry.viewId);
+  const route = verifiedWorldModelExecutionRoute(execution, stamp);
+  if (!route) {
+    incomplete(
+      `World-model publication execution receipt and kernel stamp disagree for '${entry.viewId}'.`,
+      { viewId: entry.viewId }
+    );
+  }
+  if (route === 'model') assertWmbV4PromptInputBudget(assembled.prompt, contract);
   const revalidated = validateCompositionCandidate(candidate, {
     contract,
     viewFactLedger,
     evidenceCatalog: records.evidenceCatalog,
     scopeManifest: records.scopeManifest,
-    outputBudget: viewBudget
+    outputBudget: viewBudget,
+    executionRoute: route,
+    admittedFactIds: route === 'model' ? assembled.admittedFactIds : null
   });
   if (canonicalJson(revalidated.receipt) !== canonicalJson(validationReceipt)) {
     incomplete(`World-model publication candidate '${entry.viewId}' does not reproduce its validation receipt.`, {
       viewId: entry.viewId
     });
   }
-  const stamp = materializationStamp(markdown, entry.viewId);
   const rebuilt = materializeWorldModelView({
     candidate: revalidated.candidate,
     contract,
@@ -570,6 +583,7 @@ function validateStagedWorldModelPublicationWithLimit(publication, maximumRecove
       candidate,
       validationReceipt,
       context,
+      execution,
       records,
       viewRegistry,
       build

@@ -4945,7 +4945,8 @@ test('a refused start is reported on the form that caused it', () => {
 });
 
 const {
-  archiveCommand, capabilityChangeCommand, duplicateCommand, duplicateDirectory, duplicateProblems,
+  archiveCommand, capabilityChangeCommand, duplicateBaseDirectory, duplicateCommand,
+  duplicateDirectory, duplicateProblems,
   renameCommand, restoreCommand, updateCommand, WorkspaceConfigurationRequestLeases,
   workspaceReinitializeCommand, workspaceRows
 } =
@@ -5004,6 +5005,24 @@ test('a copy is refused before it runs when its directory is taken', () => {
   assert.deepEqual(duplicateProblems(commerce, 'commerce', '/elsewhere', rows), []);
   assert.deepEqual(duplicateProblems(commerce, '', null, rows), ['Give the copy an identifier.']);
   assert.match(duplicateProblems(commerce, 'has spaces', null, rows).join(' '), /letters, numbers/);
+});
+
+test('workspace copy presentation preserves native Windows drive and UNC paths', () => {
+  const rows = workspaceRows([
+    { id: 'win', path: 'C:\\Work\\Commerce', name: 'Windows commerce', anchorKey: 'WIN',
+      leadRepositoryPath: 'C:\\Work\\Commerce\\repos\\platform' },
+    { id: 'taken', path: 'c:\\work\\payments', name: 'Windows payments', anchorKey: 'PAY',
+      leadRepositoryPath: '\\\\server\\share\\payments\\repos\\api' }
+  ]);
+  assert.deepEqual(rows.map((row) => row.lead), ['platform', 'api']);
+  assert.equal(duplicateBaseDirectory(rows[0]), 'C:\\Work');
+  assert.equal(duplicateDirectory(rows[0], 'payments', null), 'C:\\Work\\payments');
+  assert.match(duplicateProblems(rows[0], 'payments', null, rows).join(' '),
+    /already workspace 'Windows payments'/);
+  assert.equal(
+    duplicateDirectory(rows[0], 'copy', '\\\\server\\share\\workspaces'),
+    '\\\\server\\share\\workspaces\\copy'
+  );
 });
 
 test('the copy and rename commands are what the engine expects', () => {

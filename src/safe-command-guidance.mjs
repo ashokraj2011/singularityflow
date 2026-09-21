@@ -181,6 +181,17 @@ export function renderPlatformCommand(argv, platform = process.platform) {
   return platform === 'win32' ? `& ${command}` : command;
 }
 
+/** Render a literal directory change for the current shell without treating a path as syntax. */
+export function renderChangeDirectoryCommand(directory, platform = process.platform) {
+  const value = String(directory ?? '');
+  if (!value || /[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new TypeError('Directory must be non-empty and contain no control characters.');
+  }
+  return platform === 'win32'
+    ? renderPlatformCommand(['Set-Location', '-LiteralPath', value], platform)
+    : renderPlatformCommand(['cd', '--', value], platform);
+}
+
 /**
  * Render exact argv for cmd.exe without relying on cmd's unsafe quoting and expansion rules.
  *

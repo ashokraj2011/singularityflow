@@ -41,7 +41,7 @@ import {
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import {
   admitGovernedPublication, assertClean, branch, changedFiles, changes, checkout, commit, head,
-  identity, refHead, repoRoot
+  identity, refHead, remoteNames, remoteUrl, repoRoot
 } from '../git.mjs';
 import { runAndRecordStoryChecks } from '../github-evidence.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
@@ -71,7 +71,7 @@ import { runRemoteGitAsync } from '../git-execution.mjs';
 import { acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval } from '../work-intervals.mjs';
 import { existsSync } from 'node:fs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { extractInputsBlock } from '../inputs.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
@@ -89,6 +89,13 @@ import {
   materializeReferenceRepositories, parseReferenceRepositoryOptions, resolveReferenceRepositoryPins,
   storyReferenceRepositories, verifyReferenceRepositories
 } from '../reference-repositories.mjs';
+
+function repositoryRemoteName(root, expectedUrl) {
+  return remoteNames(root).find((name) => {
+    const observed = remoteUrl(root, name);
+    return observed ? sameRepositoryRemote(observed, expectedUrl) : false;
+  }) ?? null;
+}
 
 function printCommandRoutes(command, { skill = null, indent = '', label = null } = {}) {
   if (label) console.log(`${indent}${label}:`);
@@ -276,8 +283,8 @@ export async function storyFetchCommand(positionals, options) {
     );
   }
 
-  const currentRemote = run('git', ['remote', 'get-url', 'origin'], { cwd: leadRoot, allowFailure: true });
-  const currentIsDelivery = currentRemote.status === 0 && sameRepositoryRemote(currentRemote.stdout, repository.url);
+  const currentDeliveryRemote = repositoryRemoteName(leadRoot, repository.url);
+  const currentIsDelivery = Boolean(currentDeliveryRemote);
   const explicitDirectory = optionString(options, 'directory');
   if (!currentIsDelivery && !explicitDirectory) {
     throw new SingularityFlowError(
@@ -294,10 +301,17 @@ export async function storyFetchCommand(positionals, options) {
     if (cloned.status !== 0) throw new SingularityFlowError(`Unable to clone configured repository '${repositoryId}': ${(cloned.stderr || cloned.stdout).trim()}`);
   }
   const targetRoot = repoRoot(target);
-  if (targetRoot !== target) throw new SingularityFlowError(`Story target must be the repository root: ${targetRoot}.`);
-  const targetRemote = run('git', ['remote', 'get-url', 'origin'], { cwd: target, allowFailure: true });
-  if (targetRemote.status !== 0 || !sameRepositoryRemote(targetRemote.stdout, repository.url)) {
-    throw new SingularityFlowError(`Target repository origin does not match configured URL ${repository.url}.`);
+  const [canonicalTarget, canonicalTargetRoot] = await Promise.all([
+    realpath(target), realpath(targetRoot)
+  ]);
+  if (canonicalTargetRoot !== canonicalTarget) {
+    throw new SingularityFlowError(`Story target must be the repository root: ${targetRoot}.`);
+  }
+  const targetRemote = repositoryRemoteName(target, repository.url);
+  if (!targetRemote) {
+    throw new SingularityFlowError(
+      `Target repository has no Git remote matching configured URL ${repository.url}.`
+    );
   }
   assertClean(target);
 
@@ -320,12 +334,13 @@ export async function storyFetchCommand(positionals, options) {
   await checkout(target, storyKey, {
     base: capabilityBase?.localBase ?? repository.defaultBranch,
     fetch: true,
-    existingOnly: true
+    existingOnly: true,
+    remote: targetRemote
   });
-  const expectedStoryCommit = refHead(target, `refs/remotes/origin/${storyKey}`);
+  const expectedStoryCommit = refHead(target, `refs/remotes/${targetRemote}/${storyKey}`);
   if (!expectedStoryCommit) {
     throw new SingularityFlowError(
-      `Published Story branch 'origin/${storyKey}' disappeared after checkout. Refresh Jira Story intake and retry; nothing was published.`,
+      `Published Story branch '${targetRemote}/${storyKey}' disappeared after checkout. Refresh Jira Story intake and retry; nothing was published.`,
       { code: 'STORY_BRANCH_STALE' }
     );
   }

@@ -2977,6 +2977,20 @@ test('workspace registry discards explicit non-v2 workflows without deleting wor
   assert.equal((await readWorkspaceRegistry(registry)).length, 1);
   assert.equal(JSON.parse(await readFile(selection, 'utf8')).workspaceId, created.workspace.id);
 
+  const listed = spawnSync(process.execPath, [cli, 'workspace', 'list', '--json'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection
+    }
+  });
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.equal(JSON.parse(listed.stdout).length, 1,
+    'hot list/activation reads must keep an old-format workspace visible for reinitialization');
+  assert.equal((await readWorkspaceRegistry(registry)).length, 1);
+
   const result = await discardUnsupportedWorkflowWorkspaces(registry, selection);
   assert.equal(result.removed.length, 1);
   assert.equal(result.removed[0].version, 1);
@@ -3028,6 +3042,10 @@ test('active workspace context resolves friendly references and adds governed St
 
   const byKey = await resolveWorkspaceReference(registry, 'pay-100');
   assert.equal(byKey.id, created.workspace.id);
+  const workspaceAlias = path.join(root, 'workspace-context-alias');
+  await symlink(created.workspace.path, workspaceAlias, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal((await resolveWorkspaceReference(registry, workspaceAlias)).id, created.workspace.id,
+    'workspace directory selection compares filesystem identity, not path spelling');
   const preview = await buildWorkspaceContext(registry, created.workspace.name);
   assert.equal(preview.repositoryId, 'platform');
   assert.equal(preview.storyId, 'MOB-123');

@@ -6,6 +6,7 @@ import {
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from '../workspace-context.mjs';
 import { optionBoolean, optionString, table } from '../util.mjs';
+import { renderChangeDirectoryCommand } from '../safe-command-guidance.mjs';
 
 const HOT_ACTIONS = new Set(['list', 'current', 'prompt', 'use', 'switch']);
 let legacy = null;
@@ -32,7 +33,13 @@ export async function run(argv, context = {}) {
   const { options = {} } = context;
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
-  await discardUnsupportedWorkflowWorkspaces(registry, selectionFile);
+  // List/current/prompt are also the first surfaces an older checkout reaches after installing a
+  // newer SFlow build. Keep an obsolete-but-readable registration visible so Configuration can
+  // offer the explicit refresh/reinitialize path; a read-only hot command must never turn an
+  // upgrade candidate into an apparently missing workspace.
+  await discardUnsupportedWorkflowWorkspaces(registry, selectionFile, {
+    preserveForRecovery: true
+  });
 
   if (action === 'use' || action === 'switch') {
     const activeContext = await activateWorkspaceContext(registry, selectionFile, context.positionals?.[2], {
@@ -48,7 +55,7 @@ export async function run(argv, context = {}) {
     for (const line of actionCommandLines(copilotAction({
       command: 'singularity-flow workspace copilot'
     }), 'Start Copilot here')) console.log(line);
-    console.log(`Shell directory: cd ${JSON.stringify(activeContext.repositoryPath)}`);
+    console.log(`Shell directory: ${renderChangeDirectoryCommand(activeContext.repositoryPath)}`);
     return;
   }
 

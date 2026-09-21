@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -91,20 +93,41 @@ test('Git URL maintenance resolves only exact repositories in readable registere
   ), []);
 });
 
-test('a local handoff must still belong to the exact registered workspace snapshot', () => {
+test('a local handoff must still belong to the exact registered workspace snapshot', async () => {
   const observations = [{ workspace, status, error: null }];
   assert.equal(
-    repositoryRefreshTargetForPath('/clones/ui', '/work/elsewhere', observations),
+    await repositoryRefreshTargetForPath('/clones/ui', '/work/elsewhere', observations),
     null
   );
   assert.deepEqual(
-    repositoryRefreshTargetForPath('/clones/ui', '/work/payments', observations),
+    await repositoryRefreshTargetForPath('/clones/ui', '/work/payments', observations),
     {
       workspaceId: 'payments', workspaceName: 'Payments', workspacePath: '/work/payments',
       repositoryId: 'ui', repositoryPath: '/clones/ui',
       repositoryUrl: 'https://git.example.invalid/acme/RuleEngineUI.git', repositoryState: 'ready'
     }
   );
+});
+
+test('a local refresh handoff compares filesystem identity instead of symlink spelling', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-identity-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const actualWorkspace = path.join(root, 'actual-workspace');
+  const actualRepository = path.join(actualWorkspace, 'repos', 'ui');
+  const workspaceAlias = path.join(root, 'workspace-alias');
+  const repositoryAlias = path.join(root, 'repository-alias');
+  await mkdir(actualRepository, { recursive: true });
+  await symlink(actualWorkspace, workspaceAlias, process.platform === 'win32' ? 'junction' : 'dir');
+  await symlink(actualRepository, repositoryAlias, process.platform === 'win32' ? 'junction' : 'dir');
+  const aliasedStatus = {
+    ...status,
+    workspace: { ...status.workspace, path: workspaceAlias },
+    repositories: [{ ...status.repositories[0], absolutePath: repositoryAlias }]
+  };
+  const result = await repositoryRefreshTargetForPath(
+    actualRepository, actualWorkspace, [{ workspace: { ...workspace, path: workspaceAlias }, status: aliasedStatus }]
+  );
+  assert.equal(result?.repositoryPath, repositoryAlias);
 });
 
 test('each reviewed maintenance choice has one bounded existing command route', () => {

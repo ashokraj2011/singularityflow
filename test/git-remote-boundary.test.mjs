@@ -43,6 +43,8 @@ test('remote Git cannot bypass the bounded non-interactive execution boundary', 
   const boundary = await readFile(path.join(root, 'src/git-execution.mjs'), 'utf8');
   assert.match(boundary, /GIT_TERMINAL_PROMPT:\s*'0'/);
   assert.match(boundary, /GCM_INTERACTIVE:\s*'Never'/);
+  assert.match(boundary, /remoteGitEnvironment\(env\)/,
+    'the final remote executor must isolate even legacy callers that pass an ambient environment');
   assert.match(boundary, /SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS/);
   assert.match(boundary, /SINGULARITY_FLOW_GIT_CONFIGURATION_TIMEOUT_MS/);
   assert.match(boundary, /SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS/);

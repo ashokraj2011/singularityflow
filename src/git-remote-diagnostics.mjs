@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import {
-  inheritEnterpriseGitEnvironment, withoutGitProcessOverrides
+  inheritEnterpriseGitEnvironment, remoteGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
 import { networkDisabled, run, SingularityFlowError } from './util.mjs';
 
@@ -553,20 +553,26 @@ export function frozenRemoteTransport(remote, { push = false, env = process.env 
   // wrapping the alias again would yield another unresolved alias. Resolve only SFlow's exact
   // random alias from the same bounded command environment, then freeze the underlying authority
   // afresh. Missing, ambiguous, cyclic, or caller-forged aliases fail closed.
-  const url = resolveSflowFrozenRemote(remote, env, push);
+  // A frozen alias is SFlow-owned command configuration. Build it only on top of the reviewed
+  // enterprise environment so ambient repository selectors and caller-supplied counted config can
+  // never ride along with the alias. The in-memory attestation is inherited by the derived object,
+  // allowing the execution boundary to retain these exact entries while still rejecting unmarked
+  // GIT_CONFIG_* input.
+  const enterpriseEnv = remoteGitEnvironment(env);
+  const url = resolveSflowFrozenRemote(remote, enterpriseEnv, push);
   const alias = `sflow-frozen-${randomUUID()}:`;
-  const inheritedCount = Number(env.GIT_CONFIG_COUNT ?? 0);
+  const inheritedCount = Number(enterpriseEnv.GIT_CONFIG_COUNT ?? 0);
   const start = Number.isInteger(inheritedCount) && inheritedCount >= 0 ? inheritedCount : 0;
   const entries = [
     [`url.${url}.insteadOf`, alias],
     ...(push ? [[`url.${url}.pushInsteadOf`, alias]] : [])
   ];
-  const transportEnv = { ...env, GIT_CONFIG_COUNT: String(start + entries.length) };
+  const transportEnv = { ...enterpriseEnv, GIT_CONFIG_COUNT: String(start + entries.length) };
   for (let index = 0; index < entries.length; index += 1) {
     transportEnv[`GIT_CONFIG_KEY_${start + index}`] = entries[index][0];
     transportEnv[`GIT_CONFIG_VALUE_${start + index}`] = entries[index][1];
   }
-  inheritEnterpriseGitEnvironment(env, transportEnv);
+  inheritEnterpriseGitEnvironment(enterpriseEnv, transportEnv);
   return Object.freeze({
     url,
     remote: alias,

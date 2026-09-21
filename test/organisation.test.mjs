@@ -1207,6 +1207,72 @@ test('repository inspection without known authorities is explicitly inconclusive
   assert.deepEqual(result.candidateLeads, [org.candidate]);
 });
 
+test('an unreadable portable authority link can never become no-authorities permission', async () => {
+  const org = await remotes('candidate');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const failure = {
+    code: 'REMOTE_AUTHENTICATION', classification: 'authentication', retryable: false,
+    advice: 'Sign in through the organisation-approved Git credential helper, then retry.',
+    evidence: {
+      exitCode: 128, signal: null, timedOut: false, blocked: false,
+      diagnosticSha256: 'c'.repeat(64), diagnosticBytes: 41
+    }
+  };
+  const authorityRemoteSession = {
+    env: { ...process.env, SINGULARITY_FLOW_AUTHORITY_CACHE: 'off' },
+    async observeAsync() {
+      return {
+        ok: true,
+        refs: new Map([['refs/heads/state', 'a'.repeat(40)]])
+      };
+    }
+  };
+  const result = await inspectCapabilityRepository(org.candidate, {
+    authorityRemoteSession,
+    authorityRemoteCommand: async () => ({
+      status: 128, stdout: '', stderr: '', signal: null,
+      timedOut: false, blocked: false, failure
+    })
+  });
+
+  assert.equal(result.status, 'inconclusive');
+  assert.equal(result.completeness, 'none');
+  assert.notEqual(result.completeness, 'no-authorities');
+  assert.equal(result.authorityDiscovery.status, 'unavailable');
+  const unavailable = result.failures.find((entry) =>
+    entry.classification === 'authentication');
+  assert.ok(unavailable, 'the state-link transport failure remains visible');
+  assert.equal(unavailable.retryable, false);
+  assert.equal(unavailable.evidence.diagnosticSha256, 'c'.repeat(64));
+  assert.match(unavailable.diagnosticAction.command,
+    /workspace doctor --network --repository/);
+  assert.equal(result.authorityDiscovery.recoveryAction,
+    unavailable.diagnosticAction);
+});
+
+test('authority environment-admission refusal remains unavailable rather than invalid', async () => {
+  const org = await remotes('candidate');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const admission = new Error('The approved Git configuration could not be read.');
+  admission.code = 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE';
+
+  const result = await inspectCapabilityRepository(org.candidate, {
+    searchKnown: false,
+    authorityRemoteSession: {
+      env: process.env,
+      async observeAsync() { throw admission; }
+    }
+  });
+
+  assert.equal(result.status, 'inconclusive');
+  assert.equal(result.authorityDiscovery.status, 'unavailable');
+  assert.equal(result.completeness, 'none');
+  assert.equal(result.failures[0].code, 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE');
+  assert.equal(result.failures[0].classification, 'configuration');
+  assert.match(result.failures[0].diagnosticAction.command,
+    /workspace doctor --network --repository/u);
+});
+
 test('repository inspection discovers a self-hosted approved map on a new laptop', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -4355,6 +4421,65 @@ test('proposal clone and fetch failures retain structured remote diagnosis and a
   assert.match(transportFailure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
   assert.match(transportFailure.diagnosticAction.command,
     /workspace doctor --network --repository/);
+});
+
+test('map and review checkout failures preserve classified Git evidence and doctor recovery', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const proposal = await mapCapability(org.platform, {
+    capabilityId: 'review-me', kind: 'collection'
+  });
+  const failed = (classification, marker) => ({
+    status: 128, stdout: '', stderr: '', signal: null, timedOut: false, blocked: false,
+    failure: {
+      code: `REMOTE_${classification.toUpperCase().replaceAll('-', '_')}`,
+      classification, retryable: false,
+      advice: `Correct ${classification} through approved Git configuration, then retry.`,
+      evidence: {
+        exitCode: 128, signal: null, timedOut: false, blocked: false,
+        diagnosticSha256: marker.repeat(64), diagnosticBytes: 29
+      }
+    }
+  });
+
+  await assert.rejects(mapCapability(org.platform, {
+    capabilityId: 'clone-failure', kind: 'collection',
+    runRemoteCommand: async (args, options) => args[0] === 'clone'
+      ? failed('authentication', 'd') : runRemoteGitAsync(args, options)
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_AUTHORITY_UNAVAILABLE');
+    assert.equal(error.details.remoteFailure.classification, 'authentication');
+    assert.equal(error.details.remoteFailure.evidence.diagnosticSha256, 'd'.repeat(64));
+    assert.match(error.details.diagnosticAction.command,
+      /workspace doctor --network --repository/);
+    assert.equal(error.details.diagnosticAction.skill, '/sf-workspace-bootstrap');
+    return true;
+  });
+
+  await assert.rejects(inspectCapabilityProposal(org.platform, proposal.branch, {
+    runRemoteCommand: async (args, options) => args[0] === 'clone'
+      ? failed('certificate', 'e') : runRemoteGitAsync(args, options)
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_AUTHORITY_UNAVAILABLE');
+    assert.equal(error.details.remoteFailure.classification, 'certificate');
+    assert.equal(error.details.remoteFailure.evidence.diagnosticSha256, 'e'.repeat(64));
+    assert.match(error.details.diagnosticAction.command,
+      /workspace doctor --network --repository/);
+    return true;
+  });
+
+  await assert.rejects(inspectCapabilityProposal(org.platform, proposal.branch, {
+    runRemoteCommand: async (args, options) => args[0] === 'fetch'
+      ? failed('branch-not-found', 'f') : runRemoteGitAsync(args, options)
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_NOT_FOUND');
+    assert.equal(error.details.remoteFailure.classification, 'branch-not-found');
+    assert.equal(error.details.remoteFailure.evidence.diagnosticSha256, 'f'.repeat(64));
+    assert.match(error.details.diagnosticAction.command,
+      /workspace doctor --network --repository/);
+    return true;
+  });
 });
 
 test('one unreadable proposal remains visible without hiding healthy proposals', async () => {

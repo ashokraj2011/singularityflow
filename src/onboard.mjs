@@ -12,7 +12,9 @@ import { createGitRuntime } from './git-access.mjs';
 import { GitRemoteSession } from './git-execution.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { recordSha256 } from './records.mjs';
-import { createRepoContext } from './repo-context.mjs';
+import {
+  compatibleRepositoryInstanceIds, compatibleWorktreeInstanceIds, createRepoContext
+} from './repo-context.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import {
@@ -26,6 +28,19 @@ function sha256(value) {
 function stateFile(identity) {
   return path.join(identity.commonDir, 'singularity-flow', 'fos', 'attachments',
     identity.repositoryInstanceId, 'current.json');
+}
+
+function stateFileCandidates(identity) {
+  return compatibleRepositoryInstanceIds(identity).map((repositoryInstanceId) => path.join(
+    identity.commonDir, 'singularity-flow', 'fos', 'attachments', repositoryInstanceId, 'current.json'
+  ));
+}
+
+function identityAcceptsDescriptor(identity, descriptor) {
+  return compatibleRepositoryInstanceIds(identity)
+    .includes(descriptor?.repository?.repositoryInstanceId)
+    && compatibleWorktreeInstanceIds(identity)
+      .includes(descriptor?.worktree?.worktreeInstanceId);
 }
 
 function journalFile(identity, operationId) {
@@ -145,12 +160,13 @@ async function recoverableJournalState(identity) {
     try {
       const journal = readRecord('fos-operation-journal', await readFile(path.join(directory, file.name), 'utf8')).record;
       if (journal.kind !== 'fos-operation-journal'
-          || journal.request?.repositoryInstanceId !== identity.repositoryInstanceId
+          || !compatibleRepositoryInstanceIds(identity)
+            .includes(journal.request?.repositoryInstanceId)
           || !['validated', 'completed', 'recovery-required'].includes(journal.phase)
           || !journal.candidate) continue;
       const candidate = validatedState(readRecord('fos-attachment-state', journal.candidate).record);
       if (candidate.descriptor.operationId !== journal.operationId
-          || candidate.descriptor.worktree.worktreeInstanceId !== identity.worktreeInstanceId
+          || !identityAcceptsDescriptor(identity, candidate.descriptor)
           || candidate.descriptor.descriptorSha256 !== journal.candidateDigest) continue;
       candidates.push({ journal, candidate });
     } catch {
@@ -171,9 +187,22 @@ async function recoverableJournalState(identity) {
 }
 
 async function readState(identity) {
+  let readError = null;
+  for (const candidate of stateFileCandidates(identity)) {
+    try {
+      const parsed = readRecord('fos-attachment-state', await readFile(candidate, 'utf8')).record;
+      return validatedState(parsed);
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      readError = error;
+      break;
+    }
+  }
   try {
-    const parsed = readRecord('fos-attachment-state', await readFile(stateFile(identity), 'utf8')).record;
-    return validatedState(parsed);
+    if (readError) throw readError;
+    const recovered = await recoverableJournalState(identity);
+    if (recovered) return recovered;
+    return null;
   } catch (error) {
     if (error?.code === 'SCHEMA_VERSION_FUTURE' || error?.code === 'SCHEMA_VERSION_ARCHIVED') throw error;
     const truncatedOrMissing = error?.code === 'ENOENT' || error?.code === 'SCHEMA_RECORD_INVALID'
@@ -578,8 +607,7 @@ export async function fosStoryConfigurationAuthority(root) {
   const identity = await context.identity();
   const state = await readState(identity);
   if (!state) return null;
-  if (state.descriptor.repository.repositoryInstanceId !== identity.repositoryInstanceId
-      || state.descriptor.worktree.worktreeInstanceId !== identity.worktreeInstanceId) {
+  if (!identityAcceptsDescriptor(identity, state.descriptor)) {
     throw new SingularityFlowError('The FOS authority pin belongs to a different repository or worktree.', {
       code: 'AUTHORITY_PIN_INVALID'
     });
@@ -926,6 +954,28 @@ export async function onboardRepository(root, {
       });
     }
     if (currentBinding?.recovery?.required) {
+      await stateWriter(stateFile(identity), `${JSON.stringify({
+        schemaVersion: currentBinding.schemaVersion,
+        kind: currentBinding.kind,
+        revision: currentBinding.revision,
+        descriptor: currentBinding.descriptor,
+        receipt: currentBinding.receipt,
+        offlineSnapshot: currentBinding.offlineSnapshot
+      }, null, 2)}\n`, { mode: 0o600 });
+    }
+    if (currentBinding && !identityAcceptsDescriptor(identity, currentBinding.descriptor)) {
+      throw new SingularityFlowError(
+        'The retained FOS authority pin does not belong to this repository and worktree.', {
+          code: 'AUTHORITY_PIN_INVALID'
+        }
+      );
+    }
+    // Older Windows builds hashed Git's lexical path spelling. An explicit onboarding operation
+    // upgrades the storage lookup to the canonical filesystem ID without rewriting the sealed
+    // descriptor or receipt; read-only Story resolution remains compatible before that upgrade.
+    if (currentBinding && (currentBinding.descriptor.repository.repositoryInstanceId
+        !== identity.repositoryInstanceId
+      || currentBinding.descriptor.worktree.worktreeInstanceId !== identity.worktreeInstanceId)) {
       await stateWriter(stateFile(identity), `${JSON.stringify({
         schemaVersion: currentBinding.schemaVersion,
         kind: currentBinding.kind,

@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  assembleWmbV4Prompt, WMB_V4_REQUEST_BOUNDARY
+  assembleWmbV4Prompt, assertWmbV4PromptInputBudget, WMB_V4_REQUEST_BOUNDARY
 } from '../src/world-model/compose/pinned-core.mjs';
 import { renderDeterministicCandidate } from '../src/world-model/compose/candidate.mjs';
 import {
@@ -22,6 +22,10 @@ import { resolveBuiltInViewContract } from '../src/world-model/registry/views.mj
 import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { validateCompositionCandidate } from '../src/world-model/validate/candidate.mjs';
+import {
+  createWorldModelExecutionStamp, verifiedWorldModelExecutionRoute,
+  WMB_V4_DETERMINISTIC_EXECUTION_SHA256, worldModelExecutionUnitManifestSha256
+} from '../src/world-model/execution-profile.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -67,6 +71,19 @@ test('composition validation accepts the registered candidate and refuses minted
   const context = await fixture(t);
   const candidate = renderDeterministicCandidate(context.contract, context.viewFactLedger);
   assert.equal(validate(candidate, context).receipt.status, 'passed');
+
+  const semanticallyValidModelVariant = {
+    ...structuredClone(candidate), tldrMarkdown: `${candidate.tldrMarkdown}\n`
+  };
+  assert.equal(validate(semanticallyValidModelVariant, {
+    ...context,
+    executionRoute: 'model',
+    admittedFactIds: context.viewFactLedger.facts.map((fact) => fact.id)
+  }).receipt.status, 'passed');
+  assert.throws(
+    () => validate(semanticallyValidModelVariant, context),
+    (error) => error.code === 'WMB_DETERMINISTIC_CANDIDATE_MISMATCH'
+  );
 
   const duplicate = structuredClone(candidate);
   duplicate.usedFactIds.push(duplicate.usedFactIds[0]);
@@ -235,7 +252,7 @@ test('material contradictions render and validate only in the registered contrad
   );
 });
 
-test('each prompt contains only its view budget and referenced evidence descriptors', async (t) => {
+test('each prompt contains only its view budget, admitted Facts, and evidence descriptors', async (t) => {
   const context = await fixture(t);
   const architecture = resolveBuiltInViewContract('arch.contracts@4');
   const aggregateBudget = createWorldModelOutputBudget([context.contract, architecture]);
@@ -261,16 +278,126 @@ test('each prompt contains only its view budget and referenced evidence descript
   }
   for (const heading of [
     '## Consumer Profile', '## Output Budget', '## Scope Manifest',
-    '## View Fact Ledger', '## Evidence Catalog'
+    '## Composition Fact Packet', '## Evidence Catalog'
   ]) assert.ok(assembled.prompt.indexOf(heading) > boundary, `${heading} must remain in the volatile tail`);
   assert.match(assembled.prompt, /world-model-composition-candidate/);
+  assert.match(assembled.prompt, /world-model-composition-fact-packet/);
+  assert.doesNotMatch(assembled.prompt, /"kind":"world-model-view-fact-ledger"/);
   assert.match(assembled.prompt, /Every factual unit ends with exactly one trailing reference group/);
   assert.doesNotMatch(assembled.prompt, /\{\{[a-z_]+\}\}/);
+  const admittedFactIds = new Set(assembled.admittedFactIds);
   const selectedEvidenceIds = new Set(
-    context.viewFactLedger.facts.flatMap((fact) => fact.evidenceIds)
+    context.viewFactLedger.facts
+      .filter((fact) => admittedFactIds.has(fact.id))
+      .flatMap((fact) => fact.evidenceIds)
   );
   assert.ok(selectedEvidenceIds.size > 0);
   for (const item of context.evidenceCatalog.items) {
     assert.equal(assembled.prompt.includes(item.id), selectedEvidenceIds.has(item.id), item.id);
   }
+});
+
+test('mandatory-only prompt overflow is a typed input-budget refusal', async (t) => {
+  const base = await fixture(t);
+  const contract = resolveBuiltInViewContract('arch.contracts@4');
+  const registration = runDeterministicRegistration({
+    root: base.root,
+    scopeManifest: base.scopeManifest,
+    requestedViews: ['arch.contracts@4']
+  });
+  const viewFactLedger = structuredClone(registration.viewFactLedgers[0]);
+  const mandatoryId = viewFactLedger.requiredFactIds[0];
+  const mandatoryFact = viewFactLedger.facts.find((fact) => fact.id === mandatoryId);
+  assert.ok(mandatoryFact, 'fixture must expose a required architecture Fact');
+  mandatoryFact.claim = `Mandatory architecture contract ${'x'.repeat(40_000)}`;
+
+  const aggregateBudget = createWorldModelOutputBudget([contract]);
+  const assembled = await assembleWmbV4Prompt({
+    viewContract: contract,
+    scopeManifest: base.scopeManifest,
+    viewFactLedger,
+    evidenceCatalog: registration.evidenceCatalog,
+    consumerProfile: createWorldModelConsumerProfile(),
+    outputBudget: createWorldModelViewOutputBudget(aggregateBudget, contract)
+  });
+
+  const mandatoryIds = [...new Set([
+    ...viewFactLedger.requiredFactIds,
+    ...viewFactLedger.requiredUnavailableFactIds,
+    ...viewFactLedger.materialContradictionFactIds
+  ])].sort();
+  assert.deepEqual(assembled.admittedFactIds, mandatoryIds);
+  assert.throws(
+    () => assertWmbV4PromptInputBudget(assembled.prompt, contract),
+    (error) => error.code === 'WMB_INPUT_BUDGET_EXCEEDED'
+      && error.details.estimatedInputTokens > error.details.maximumInputTokens
+  );
+});
+
+test('sealed execution identity and materialized route stamp must agree', () => {
+  const deterministicExecution = {
+    executionUnitManifestSha256: WMB_V4_DETERMINISTIC_EXECUTION_SHA256
+  };
+  const modelExecution = {
+    executionUnitManifestSha256: worldModelExecutionUnitManifestSha256({
+      route: 'model', provider: 'copilot-cli', requestedModel: 'provider-model'
+    })
+  };
+  assert.notEqual(modelExecution.executionUnitManifestSha256,
+    worldModelExecutionUnitManifestSha256({
+      route: 'model', provider: 'copilot-cli', requestedModel: 'other-model'
+    }));
+  const unknownExecution = {
+    executionUnitManifestSha256: `sha256:${'a'.repeat(64)}`
+  };
+  const deterministicStamp = {
+    executionUnit: 'deterministic-renderer@1', model: 'unavailable'
+  };
+  const modelStamp = createWorldModelExecutionStamp({
+    route: 'model', provider: 'copilot-cli', requestedModel: 'provider-model',
+    observedModel: 'provider-model', invocationId: 'invocation-1'
+  });
+
+  assert.equal(verifiedWorldModelExecutionRoute(
+    deterministicExecution, deterministicStamp
+  ), 'deterministic');
+  assert.equal(verifiedWorldModelExecutionRoute(modelExecution, modelStamp), 'model');
+  assert.equal(verifiedWorldModelExecutionRoute(modelExecution, modelStamp, {
+    route: 'model', provider: 'copilot-cli', requestedModel: 'provider-model',
+    observedModel: 'provider-model'
+  }), 'model');
+  assert.equal(verifiedWorldModelExecutionRoute(modelExecution, modelStamp, {
+    route: 'model', provider: 'copilot-cli', requestedModel: 'other-model'
+  }), null);
+  assert.equal(verifiedWorldModelExecutionRoute(unknownExecution, modelStamp), null);
+  assert.equal(verifiedWorldModelExecutionRoute(deterministicExecution, modelStamp), null);
+  assert.equal(verifiedWorldModelExecutionRoute(modelExecution, deterministicStamp), null);
+});
+
+test('model execution stamps reject non-canonical, oversized, and unknown-provider profiles', () => {
+  const execution = {
+    executionUnitManifestSha256: worldModelExecutionUnitManifestSha256({
+      route: 'model', provider: 'copilot-cli', requestedModel: 'fixture-model'
+    })
+  };
+  const stamp = createWorldModelExecutionStamp({
+    route: 'model', provider: 'copilot-cli', requestedModel: 'fixture-model',
+    observedModel: 'fixture-model', invocationId: 'invoke-1'
+  });
+  const [, encoded, invocationId] = stamp.executionUnit.split(':');
+  const unknownProvider = Buffer.from(JSON.stringify({
+    provider: 'not-installed', requestedModel: 'fixture-model'
+  })).toString('base64url');
+  assert.equal(verifiedWorldModelExecutionRoute(execution, {
+    ...stamp, executionUnit: `governed-model-composer@1:${unknownProvider}:${invocationId}`
+  }), null);
+  assert.equal(verifiedWorldModelExecutionRoute(execution, {
+    ...stamp, executionUnit: `governed-model-composer@1:${encoded}${'A'.repeat(800)}:${invocationId}`
+  }), null);
+  assert.equal(verifiedWorldModelExecutionRoute(execution, {
+    ...stamp, model: 'x'.repeat(257)
+  }), null);
+  assert.throws(() => createWorldModelExecutionStamp({
+    route: 'deterministic', provider: 'copilot-cli'
+  }));
 });

@@ -6,7 +6,9 @@ import { SingularityFlowError, run } from '../util.mjs';
 import { isWorldModelAvailabilityError } from '../world-model-availability.mjs';
 import { canonicalJson, compareText, sha256 } from './canonicalize.mjs';
 import { createConservativeWorldModelStalenessReceipt } from './cache.mjs';
-import { assembleWmbV4PromptSync } from './compose/pinned-core.mjs';
+import {
+  assembleWmbV4PromptSync, assertWmbV4PromptInputBudget
+} from './compose/pinned-core.mjs';
 import {
   VIEW_ID_PATTERN, assertExactKeys, assertInteger, assertPlainRecord, assertSchemaKind,
   assertSelfHash, assertSha256, assertString
@@ -19,6 +21,7 @@ import { validateWorldModelMigrationReceipt } from './migration/v3-to-v4.mjs';
 import { validateDerivationCatalog } from './extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from './extract/evidence-catalog.mjs';
 import { validateFactLedger, validateViewFactLedger } from './extract/index.mjs';
+import { verifiedWorldModelExecutionRoute } from './execution-profile.mjs';
 import { assertInstalledExtractorRegistry } from './registry/extractors.mjs';
 import { assertInstalledViewRegistry, resolveViewContract } from './registry/views.mjs';
 import { validateProjectionRegistry } from './registry/projections.mjs';
@@ -722,18 +725,28 @@ function assertOptionalRecords(records, manifest, {
       recordFailure(`Published Context Manifest '${entry.viewId}' does not reconstruct exactly.`,
         'WMB_CONTEXT_MANIFEST_MISMATCH', { viewId: entry.viewId });
     }
+    const stamp = publishedViewStamp(view.markdown, entry.viewId);
+    const route = verifiedWorldModelExecutionRoute(view.execution, stamp);
+    if (!route) {
+      recordFailure(
+        `Published view '${entry.viewId}' execution receipt and kernel stamp disagree.`,
+        'WMB_VIEW_EXECUTION_MISMATCH', { viewId: entry.viewId }
+      );
+    }
+    if (route === 'model') assertWmbV4PromptInputBudget(assembled.prompt, contract);
     const revalidated = validateCompositionCandidate(view.candidate, {
       contract,
       viewFactLedger: ledger,
       evidenceCatalog,
       scopeManifest,
-      outputBudget: viewBudget
+      outputBudget: viewBudget,
+      executionRoute: route,
+      admittedFactIds: route === 'model' ? assembled.admittedFactIds : null
     });
     if (canonicalJson(revalidated.receipt) !== canonicalJson(view.validationReceipt)) {
       recordFailure(`Published candidate '${entry.viewId}' does not reproduce its validation receipt.`,
         'WMB_VIEW_VALIDATION_MISMATCH', { viewId: entry.viewId });
     }
-    const stamp = publishedViewStamp(view.markdown, entry.viewId);
     const rebuilt = materializeWorldModelView({
       candidate: revalidated.candidate,
       contract,

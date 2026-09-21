@@ -254,7 +254,8 @@ export class InstructionDesignerPanel {
     }
     if (message.type === 'agent-action' && typeof message.agentId === 'string'
       && ['trust', 'update', 'sync', 'refresh'].includes(String(message.action))) {
-      const error = await this.onMessage({ type: 'agent-action', action: message.action as 'trust' | 'update' | 'sync' | 'refresh', agentId: message.agentId });
+      const reply = await this.onMessage({ type: 'agent-action', action: message.action as 'trust' | 'update' | 'sync' | 'refresh', agentId: message.agentId });
+      const error = typeof reply === 'string' ? reply : reply?.error ?? null;
       this.errors = error ? [error] : [];
       if (!error && message.action === 'refresh') {
         const refreshed = this.catalog();

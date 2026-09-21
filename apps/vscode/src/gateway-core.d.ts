@@ -301,6 +301,7 @@ declare module '*/world-model/registry/views.mjs' {
 }
 
 declare module '*/world-model-views.mjs' {
+  export const LEGACY_WORLD_MODEL_VIEW_IDS: readonly string[];
   export function worldModelViewIdentity(definition: any, value: string): Readonly<{
     id: string; reference: string; version: number | null;
   }> | null;

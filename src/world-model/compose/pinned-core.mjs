@@ -6,6 +6,7 @@ import { PACKAGE_ROOT } from '../../package-root.mjs';
 import { canonicalJson, recordSha256 } from '../../records.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
+import { compareText } from '../canonicalize.mjs';
 
 export const WMB_V4_REQUEST_BOUNDARY = '<!-- ===== REQUEST INPUTS: volatile tail ===== -->';
 export const WMB_V4_FACT_REFERENCE_GRAMMAR = Object.freeze({
@@ -27,6 +28,21 @@ const candidateSchemaPath = path.join(
 );
 
 function hash(value) { return `sha256:${recordSha256(value)}`; }
+
+export function assertWmbV4PromptInputBudget(prompt, viewContract) {
+  const estimatedInputTokens = Math.ceil(Buffer.byteLength(prompt, 'utf8') / 4);
+  const maximumInputTokens = viewContract.budgets.maximumInputTokens;
+  if (estimatedInputTokens > maximumInputTokens) {
+    throw new SingularityFlowError(
+      `View '${viewContract.id}' requires an estimated ${estimatedInputTokens} input tokens, above its registered ${maximumInputTokens}-token ceiling.`,
+      {
+        code: 'WMB_INPUT_BUDGET_EXCEEDED',
+        details: { estimatedInputTokens, maximumInputTokens }
+      }
+    );
+  }
+  return estimatedInputTokens;
+}
 
 function normalizedPinnedCore(text) {
   text = text.replaceAll('\r\n', '\n');
@@ -97,6 +113,59 @@ function instantiateStablePrefix(core, viewContract) {
   return text;
 }
 
+function typeBalancedFacts(facts) {
+  const queues = new Map();
+  for (const fact of [...facts].sort((left, right) => (
+    compareText(String(left.factType), String(right.factType))
+      || compareText(String(left.id), String(right.id))
+  ))) {
+    if (!queues.has(fact.factType)) queues.set(fact.factType, []);
+    queues.get(fact.factType).push(fact);
+  }
+  const ordered = [];
+  const types = [...queues.keys()].sort(compareText);
+  let offset = 0;
+  while (true) {
+    let added = false;
+    for (const type of types) {
+      const fact = queues.get(type)[offset];
+      if (!fact) continue;
+      ordered.push(fact);
+      added = true;
+    }
+    if (!added) return ordered;
+    offset += 1;
+  }
+}
+
+function compositionFactPacket(viewFactLedger, facts) {
+  return Object.freeze({
+    schemaVersion: 1, // schema-transient: bounded model input, never persisted as authority
+    kind: 'world-model-composition-fact-packet',
+    viewId: viewFactLedger.viewId,
+    viewVersion: viewFactLedger.viewVersion,
+    sourceViewFactLedgerSha256: viewFactLedger.ledgerSha256,
+    facts: Object.freeze(facts.map((fact) => structuredClone(fact))),
+    requiredFactIds: Object.freeze([...(viewFactLedger.requiredFactIds ?? [])]),
+    requiredUnavailableFactIds: Object.freeze([
+      ...(viewFactLedger.requiredUnavailableFactIds ?? [])
+    ]),
+    materialContradictionFactIds: Object.freeze([
+      ...(viewFactLedger.materialContradictionFactIds ?? [])
+    ]),
+    availableFactCount: viewFactLedger.facts.length,
+    admittedFactCount: facts.length
+  });
+}
+
+function mandatoryFactIds(viewFactLedger) {
+  return new Set([
+    ...(viewFactLedger.requiredFactIds ?? []),
+    ...(viewFactLedger.requiredUnavailableFactIds ?? []),
+    ...(viewFactLedger.materialContradictionFactIds ?? [])
+  ]);
+}
+
 function assembleWithCore(core, {
   viewContract,
   scopeManifest,
@@ -105,23 +174,65 @@ function assembleWithCore(core, {
   consumerProfile,
   outputBudget
 }) {
-  const selectedEvidenceIds = new Set(
-    viewFactLedger.facts.flatMap((fact) => fact.evidenceIds ?? [])
-  );
-  const minimalEvidence = {
-    schemaVersion: evidenceCatalog.schemaVersion,
-    kind: 'world-model-evidence-descriptors',
-    items: evidenceCatalog.items
-      .filter((item) => selectedEvidenceIds.has(item.id))
-      .map((item) => ({
-        id: item.id,
-        kind: item.kind,
-        label: item.locator?.symbol ?? item.locator?.path ?? item.id,
-        ...(item.locator?.path ? { path: item.locator.path } : {})
-      }))
-  };
   const candidateSchema = compositionCandidateSchema();
   const stablePrefix = instantiateStablePrefix(core, viewContract);
+  const factsById = new Map(viewFactLedger.facts.map((fact) => [fact.id, fact]));
+  const mandatoryIds = mandatoryFactIds(viewFactLedger);
+  const missingMandatoryIds = [...mandatoryIds].filter((id) => !factsById.has(id)).sort();
+  if (missingMandatoryIds.length) {
+    throw new SingularityFlowError(
+      `View '${viewContract.id}' composition input is missing mandatory registered Facts.`,
+      { code: 'WMB_FACT_NOT_REGISTERED', details: { factIds: missingMandatoryIds } }
+    );
+  }
+  const admitted = viewFactLedger.facts
+    .filter((fact) => mandatoryIds.has(fact.id))
+    .sort((left, right) => compareText(left.id, right.id));
+  const optional = typeBalancedFacts(
+    viewFactLedger.facts.filter((fact) => !mandatoryIds.has(fact.id))
+  );
+
+  const materialize = (facts) => {
+    const selectedEvidenceIds = new Set(
+      facts.flatMap((fact) => fact.evidenceIds ?? [])
+    );
+    const minimalEvidence = {
+      schemaVersion: evidenceCatalog.schemaVersion,
+      kind: 'world-model-evidence-descriptors',
+      items: evidenceCatalog.items
+        .filter((item) => selectedEvidenceIds.has(item.id))
+        .map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          label: item.locator?.symbol ?? item.locator?.path ?? item.id,
+          ...(item.locator?.path ? { path: item.locator.path } : {})
+        }))
+    };
+    const factPacket = compositionFactPacket(viewFactLedger, facts);
+    const prompt = [
+      stablePrefix.trimEnd(),
+      '',
+      '## Consumer Profile', canonicalJson(consumerProfile).trimEnd(),
+      '## Output Budget', canonicalJson(outputBudget).trimEnd(),
+      '## Scope Manifest', canonicalJson(scopeManifest).trimEnd(),
+      '## Composition Fact Packet', canonicalJson(factPacket).trimEnd(),
+      '## Evidence Catalog', canonicalJson(minimalEvidence).trimEnd(),
+      ''
+    ].join('\n');
+    return { factPacket, minimalEvidence, prompt };
+  };
+
+  const maximumInputTokens = viewContract.budgets.maximumInputTokens;
+  let assembled = materialize(admitted);
+  for (const fact of optional) {
+    const attempted = materialize([...admitted, fact]);
+    if (Math.ceil(Buffer.byteLength(attempted.prompt, 'utf8') / 4) > maximumInputTokens) {
+      continue;
+    }
+    admitted.push(fact);
+    assembled = attempted;
+  }
+  const { factPacket, minimalEvidence, prompt } = assembled;
   const regions = [
     region('stable-core', core.text, 'stable-prefix'),
     region('fact-reference-grammar', WMB_V4_FACT_REFERENCE_GRAMMAR, 'stable-prefix'),
@@ -130,19 +241,9 @@ function assembleWithCore(core, {
     region('consumer-profile', consumerProfile, 'task'),
     region('output-budget', outputBudget, 'task'),
     region('scope-manifest', scopeManifest, 'dynamic'),
-    region('fact-ledger', viewFactLedger, 'dynamic'),
+    region('composition-fact-packet', factPacket, 'dynamic'),
     region('evidence-catalog', minimalEvidence, 'dynamic')
   ];
-  const prompt = [
-    stablePrefix.trimEnd(),
-    '',
-    '## Consumer Profile', canonicalJson(consumerProfile).trimEnd(),
-    '## Output Budget', canonicalJson(outputBudget).trimEnd(),
-    '## Scope Manifest', canonicalJson(scopeManifest).trimEnd(),
-    '## View Fact Ledger', canonicalJson(viewFactLedger).trimEnd(),
-    '## Evidence Catalog', canonicalJson(minimalEvidence).trimEnd(),
-    ''
-  ].join('\n');
   const contextBase = {
     schemaVersion: currentSchemaVersion('world-model-context-manifest'),
     kind: 'world-model-context-manifest',
@@ -154,7 +255,18 @@ function assembleWithCore(core, {
     ...contextBase,
     manifestSha256: hash(contextBase)
   };
-  return Object.freeze({ prompt, contextManifest, coreSha256: core.sha256, regions });
+  const admittedIds = new Set(admitted.map((entry) => entry.id));
+  return Object.freeze({
+    prompt,
+    contextManifest,
+    coreSha256: core.sha256,
+    regions,
+    admittedFactIds: Object.freeze(admitted.map((fact) => fact.id).sort(compareText)),
+    omittedFactIds: Object.freeze(viewFactLedger.facts
+      .filter((fact) => !admittedIds.has(fact.id))
+      .map((fact) => fact.id)
+      .sort(compareText))
+  });
 }
 
 /** Assemble stable, task, and dynamic regions without allowing volatile data above the boundary. */

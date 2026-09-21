@@ -299,6 +299,59 @@ The accepted identities were computed after reviewing the complete changed WMB s
 running the large-view, contradiction-preservation, candidate-budget, historical-policy,
 persisted-overview replay, extractor, registry, runtime, cache, and live RuleEngineUI validations.
 
+## Bounded composition-input acceptance
+
+The follow-up registered-v4 repair on 2026-09-21 closes the remaining difference between a
+count-bounded View Fact Ledger and its serialized model input. A valid `arch.contracts` selection
+could contain 60 Facts yet serialize to about 15,634 estimated input tokens, exceeding the
+contract's 8,000-token ceiling before the provider was started.
+
+The complete View Fact Ledger remains immutable, content-addressed publication authority. Model
+composition now receives a transient deterministic Composition Fact Packet that is bound to that
+ledger's SHA-256. The packet always retains every required coverage anchor, required-unavailable
+anchor, and material contradiction, then admits optional Facts in deterministic type-balanced
+order only while the exact complete prompt remains within the registered input ceiling. Evidence
+descriptors are reduced to the admitted Facts. Model candidates are validated against that exact
+admitted set at execution, cache replay, publication, and persisted-store read boundaries; an
+omitted Fact cannot be cited later. A mandatory-only overflow remains a typed
+`WMB_INPUT_BUDGET_EXCEEDED` refusal before provider invocation.
+
+The deterministic renderer continues to use the complete View Fact Ledger and makes zero model
+calls. Its execution identity is exact. A model-routed execution identity is recomputed from the
+closed installed provider and requested-model profile encoded canonically in the kernel stamp;
+unknown providers, malformed profiles, and mismatched digests are refused. The stamp separately
+preserves the provider-observed model and invocation ID. The sealed execution receipt is checked
+against that stamp, and a deterministic candidate must reproduce the registered renderer
+byte-for-byte. Re-labeling or coherently rehashing Markdown therefore cannot bypass the
+admitted-Fact boundary.
+
+Reviewed kernel changes are limited to:
+
+- `compose/pinned-core.mjs` and `templates/world-model/pinned-core-v4.md`: deterministic bounded
+  packet construction, exact prompt admission, and explicit packet semantics;
+- `validate/candidate.mjs`: mandatory-set and admitted-reference enforcement;
+- `runtime.mjs`: typed input-budget admission and admitted-set propagation;
+- `execution-profile.mjs`, `publish/transaction.mjs`, and `store.mjs`: sealed execution-route
+  agreement and admitted-set replay at authority boundaries.
+
+No extractor algorithm, declared Fact type, parser grammar, permission, View Contract, selection
+ceiling, deterministic rendering rule, or Git publication authority changed. Because extractor
+identities intentionally bind the complete packaged World-Model kernel, the reviewed changes
+produce this mechanical transition:
+
+| Identity | Prior accepted | Accepted after bounded composition input |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:55fe41694090b06cf190fac97047108f7ed689a25f72ce84731a169d78ac97fe` | `sha256:fcb6379667299b0f6aadadd7d38881d1734059243b81daca28703e45531e2db5` |
+| Coverage implementation | `sha256:c95eacbbcfdc84fca5431e77449e0260fb13ccd51a311c59b9d257e9dbc43382` | `sha256:00d8df6af3fb38e83ab2bec6cf9617c576da513d7fe8921430d437f4c00ce9c1` |
+| Coverage conformance receipt | `sha256:cc4df68578217f5c232ade54a0fd0551e451b3b18a25b18d6fd46a7d5bc9fae9` | `sha256:3e494753ecf4352cce00ccb62e115561efa917269d5f525d4aee43f09bc4a109` |
+| Coverage manifest | `sha256:37da766120e488459457e061b4f1e6e1a35e6f93bd4a83e5c8646a4b3ebfdf6b` | `sha256:a8c4eeac47f27e0a2305a99a7e6dc2ea300801ea585e13534efd34ab0062ae72` |
+| Built-in Extractor Registry | `sha256:3a4e1e9a031721eddfb101ff154884fe8de36956b0b64996cdbece12266cee55` | `sha256:83aaacb514ad8af54819d2aa16b7fd9f3d3b79ddc744c1ab6ae53333ebda0531` |
+
+The large-view regression records 781 complete Facts, 60 selected Facts, 27 model-admitted Facts,
+33 omitted optional Facts, and a complete prompt of 7,989 estimated tokens. The composition,
+mandatory-overflow, omitted-reference, execution-route, cache, publication, persisted-store,
+registry, extractor-conformance, and complete World-Model suites own this transition.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

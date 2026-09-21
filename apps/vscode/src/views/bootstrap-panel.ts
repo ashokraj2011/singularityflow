@@ -452,6 +452,7 @@ export class BootstrapPanel {
       // capability editor (or vice versa). Completion returns to the surface that most recently
       // asked for it, not the callback captured when the singleton was first created.
       BootstrapPanel.current.onMapped = onMapped;
+      BootstrapPanel.current.refreshKnownLeads(leads);
       BootstrapPanel.current.prefill(initial);
       BootstrapPanel.current.panel.reveal(vscode.ViewColumn.Active);
       if (initial.chooseRepository) void BootstrapPanel.current.chooseRepository();
@@ -466,6 +467,44 @@ export class BootstrapPanel {
     BootstrapPanel.current = new BootstrapPanel(context, panel, leads, run, onMapped, initial);
     if (initial.chooseRepository) void BootstrapPanel.current.chooseRepository();
     return BootstrapPanel.current;
+  }
+
+  /**
+   * Reconcile a retained panel with the current machine registry every time the command opens it.
+   *
+   * The webview is deliberately retained while hidden, but the lead registry is not frozen with
+   * it: another window can activate or retire an authority. A discovery result that depended on
+   * the old registry must not keep enabling first-authority creation or workspace attachment after
+   * that change.
+   */
+  private refreshKnownLeads(leads: string[]): void {
+    const next = [...new Set(leads
+      .map((lead) => lead.trim())
+      .filter((lead) => lead && !gitRemoteProblem(lead, 'Capability-map repository')))];
+    const previous = this.form.leads;
+    if (JSON.stringify(previous) === JSON.stringify(next)) return;
+    const previousSet = new Set(previous);
+    const nextSet = new Set(next);
+    const boundLead = this.form.inspectionBoundLeadUrl?.trim() ?? '';
+    const registryBoundInspection = this.form.inspectionAuthorityScope === 'registered'
+      || this.form.inspectionCompleteness === 'no-authorities';
+    const removedBoundLead = Boolean(boundLead)
+      && previousSet.has(boundLead) && !nextSet.has(boundLead);
+    const selectedRegistryLeadRemoved = Boolean(this.form.lead)
+      && previousSet.has(this.form.lead) && !nextSet.has(this.form.lead);
+    this.form.leads = next;
+    if (registryBoundInspection || removedBoundLead) {
+      this.mapLoadRevision++;
+      this.invalidateInspection();
+    }
+    if (selectedRegistryLeadRemoved) {
+      if (!registryBoundInspection && !removedBoundLead) this.mapLoadRevision++;
+      this.form.lead = '';
+      this.form.loaded = false;
+      this.form.parents = [];
+      this.form.parent = '';
+      this.form.notice = null;
+    }
   }
 
   private prefill(initial: MapCapabilityLaunch): void {

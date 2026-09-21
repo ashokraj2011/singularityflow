@@ -214,6 +214,30 @@ test('published store cross-binds a sealed usage observation to its exact view e
   );
 });
 
+test('published store rejects an unregistered execution identity even when coherently rehashed', async (t) => {
+  const { parent, root } = await repository(t);
+  await rewriteState(root, parent, async (worktree) => {
+    const modelRoot = path.join(worktree, 'singularity', 'world-model');
+    const executionPath = path.join(modelRoot, 'receipts', 'execution', 'dev.impact.json');
+    const execution = JSON.parse(await readFile(executionPath, 'utf8'));
+    execution.executionUnitManifestSha256 = sha256({ id: 'unregistered-execution-route' });
+    delete execution.executionSha256;
+    const resealedExecution = sealRecord(execution, 'executionSha256');
+    await writeFile(executionPath, canonicalJson(resealedExecution));
+
+    const manifestPath = path.join(modelRoot, 'manifest.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    manifest.views.find((entry) => entry.viewId === 'dev.impact').executionSha256
+      = resealedExecution.executionSha256;
+    delete manifest.manifestSha256;
+    await writeFile(manifestPath, canonicalJson(sealRecord(manifest, 'manifestSha256')));
+  });
+  assert.throws(
+    () => resolve(root),
+    (error) => error.code === 'WMB_VIEW_EXECUTION_MISMATCH'
+  );
+});
+
 test('published store validates usage byte, token, cost, and assurance semantics', () => {
   const base = {
     schemaVersion: 1,

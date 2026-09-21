@@ -1177,7 +1177,8 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
 }
 
 async function withCapabilityProposalCheckout(url, branch, operation, {
-  expectedCommit = null, cleanupTemporaryTree = removeTemporaryTree
+  expectedCommit = null, cleanupTemporaryTree = removeTemporaryTree,
+  runRemoteCommand = runRemoteGitAsync
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -1201,7 +1202,33 @@ async function withCapabilityProposalCheckout(url, branch, operation, {
   const configurationHead = await configurationBranchHead(remote, {
     session, observation: configurationObservation
   });
-  if (!configurationHead.reachable || !configurationHead.exists) {
+  if (!configurationHead.reachable) {
+    const remoteFailure = publicRemoteFailure(configurationHead.observation?.failure);
+    throw new SingularityFlowError(
+      `Cannot read '${sanitizeRemote(remote)}'. ${remoteFailure?.advice ?? 'Correct Git access, then retry the same capability review.'}`, {
+        code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+        details: {
+          ...capabilityRecovery({
+            stage: 'review', state: 'authority-unavailable', remote,
+            branch: capabilityProposalBranch(branch),
+            nextAction: {
+              command: capabilityCommand('proposal', {
+                remote, branch: capabilityProposalBranch(branch)
+              }),
+              skill: '/sf-capability-map'
+            },
+            preserved: ['remote-configuration', 'proposal-branch']
+          }),
+          ...(remoteFailure ? { remoteFailure } : {}),
+          diagnosticAction: {
+            command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+            skill: '/sf-workspace-bootstrap'
+          }
+        }
+      }
+    );
+  }
+  if (!configurationHead.exists) {
     throw new SingularityFlowError(`'${sanitizeRemote(remote)}' has no '${CONFIGURATION_BRANCH}' branch. Map the first capability to initialize its configuration authority.`, {
       code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING',
       details: capabilityRecovery({
@@ -1219,22 +1246,30 @@ async function withCapabilityProposalCheckout(url, branch, operation, {
     // `--branch` alone still negotiates every remote branch. On a monorepo that made a capability
     // approval transfer application history it never reads. The authority branch is orphaned, so
     // this branch plus the exact proposal ref fetched below is the complete review input.
-    const cloned = await runRemoteGitAsync([
+    const cloned = await runRemoteCommand([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
     if (cloned.status !== 0) {
+      const remoteFailure = publicRemoteFailure(cloned.failure);
       throw new SingularityFlowError(
-        `Cannot read '${sanitizeRemote(remote)}'. Correct Git access, then retry the same capability review.`, {
+        `Cannot read '${sanitizeRemote(remote)}'. ${remoteFailure?.advice ?? 'Correct Git access, then retry the same capability review.'}`, {
           code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
-          details: capabilityRecovery({
-            stage: 'review', state: 'authority-unavailable', remote, branch: proposalBranch,
-            nextAction: { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' },
-            preserved: ['remote-configuration', 'proposal-branch']
-          })
+          details: {
+            ...capabilityRecovery({
+              stage: 'review', state: 'authority-unavailable', remote, branch: proposalBranch,
+              nextAction: { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' },
+              preserved: ['remote-configuration', 'proposal-branch']
+            }),
+            ...(remoteFailure ? { remoteFailure } : {}),
+            diagnosticAction: {
+              command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+              skill: '/sf-workspace-bootstrap'
+            }
+          }
         });
     }
-    const fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', 'origin',
+    const fetched = await runRemoteCommand(['fetch', '--quiet', '--no-tags', 'origin',
       `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
       cwd: scratch, operation: 'remote-configuration', env: transport.env
     });
@@ -1244,14 +1279,22 @@ async function withCapabilityProposalCheckout(url, branch, operation, {
           env: transport.env
         });
     if (!proposalRef) {
+      const remoteFailure = publicRemoteFailure(fetched.failure);
       throw new SingularityFlowError(
-        `Capability proposal '${proposalBranch}' does not exist on '${sanitizeRemote(remote)}'. Refresh the proposal list before retrying.`, {
+        `Capability proposal '${proposalBranch}' could not be read from '${sanitizeRemote(remote)}'. ${remoteFailure?.advice ?? 'Refresh the proposal list before retrying.'}`, {
           code: 'CAPABILITY_PROPOSAL_NOT_FOUND',
-          details: capabilityRecovery({
-            stage: 'review', state: 'proposal-not-found', remote, branch: proposalBranch,
-            nextAction: { command: capabilityCommand('proposals', { remote }), skill: '/sf-capability-map' },
-            preserved: ['approved-configuration', 'application-branches']
-          })
+          details: {
+            ...capabilityRecovery({
+              stage: 'review', state: 'proposal-not-found', remote, branch: proposalBranch,
+              nextAction: { command: capabilityCommand('proposals', { remote }), skill: '/sf-capability-map' },
+              preserved: ['approved-configuration', 'application-branches']
+            }),
+            ...(remoteFailure ? { remoteFailure } : {}),
+            diagnosticAction: {
+              command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+              skill: '/sf-workspace-bootstrap'
+            }
+          }
         });
     }
     completedOutcome = await operation(scratch, remote, proposalBranch, proposalRef, {
@@ -1355,7 +1398,8 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
 async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   remoteSession = null, authorityObservation = null, fullHistory = false,
   bindProposalToBase = false, authorIdentity = null,
-  cleanupTemporaryTree = removeTemporaryTree
+  cleanupTemporaryTree = removeTemporaryTree,
+  runRemoteCommand = runRemoteGitAsync
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -1388,6 +1432,29 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   const approvedHead = await configurationBranchHead(remote, {
     session: operationSession, observation: observedAuthority
   });
+  if (!approvedHead.reachable) {
+    const remoteFailure = publicRemoteFailure(approvedHead.observation?.failure);
+    throw new SingularityFlowError(
+      `Cannot read '${sanitizeRemote(remote)}'. ${remoteFailure?.advice ?? 'Correct Git access, then retry the same capability proposal.'}`, {
+        code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+        details: {
+          ...capabilityRecovery({
+            stage: 'proposal', state: 'authority-unavailable', remote,
+            nextAction: {
+              command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`,
+              skill: '/sf-capability-map'
+            },
+            preserved: ['approved-configuration', 'application-branches']
+          }),
+          ...(remoteFailure ? { remoteFailure } : {}),
+          diagnosticAction: {
+            command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+            skill: '/sf-workspace-bootstrap'
+          }
+        }
+      }
+    );
+  }
   let configurationBootstrap = { created: false, commit: approvedHead.sha ?? null };
   if (!approvedHead.exists) {
     configurationBootstrap = await ensureConfigurationBranch(remote, {
@@ -1404,21 +1471,29 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const transport = frozenRemoteTransport(remote, {
       push: true, env: operationSession.env
     });
-    const cloned = await runRemoteGitAsync([
+    const cloned = await runRemoteCommand([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       ...(fullHistory ? [] : ['--depth', '1']),
       '--branch', baseBranch,
       transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
     if (cloned.status !== 0) {
+      const remoteFailure = publicRemoteFailure(cloned.failure);
       throw new SingularityFlowError(
-        `Cannot read '${sanitizeRemote(remote)}'. Correct Git access, then retry the same capability proposal.`, {
+        `Cannot read '${sanitizeRemote(remote)}'. ${remoteFailure?.advice ?? 'Correct Git access, then retry the same capability proposal.'}`, {
           code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
-          details: capabilityRecovery({
-            stage: 'proposal', state: 'authority-unavailable', remote,
-            nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
-            preserved: ['approved-configuration', 'application-branches']
-          })
+          details: {
+            ...capabilityRecovery({
+              stage: 'proposal', state: 'authority-unavailable', remote,
+              nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+              preserved: ['approved-configuration', 'application-branches']
+            }),
+            ...(remoteFailure ? { remoteFailure } : {}),
+            diagnosticAction: {
+              command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+              skill: '/sf-workspace-bootstrap'
+            }
+          }
         });
     }
 
@@ -1494,7 +1569,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     // new review branch. The approved configuration and orphan state branches remain unchanged.
     const reviewRef = `refs/heads/${reviewBranch}`;
     const baseRef = `refs/heads/${baseBranch}`;
-    const pushed = await runRemoteGitAsync([
+    const pushed = await runRemoteCommand([
       'push', '--porcelain',
       ...(bindProposalToBase ? [
         '--atomic', `--force-with-lease=${baseRef}:${baseCommit}`
@@ -2234,6 +2309,8 @@ function classifyRepositoryAuthorityConflicts(matches) {
 export async function inspectCapabilityRepository(repositoryUrl, {
   leadUrl = null, leadUrls = [], refresh = false,
   proposalRemoteCommand = runRemoteGitAsync,
+  authorityRemoteCommand = runRemoteGitAsync,
+  authorityRemoteSession = null,
   proposalScanLimit = CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT,
   searchKnown = true,
   includeProposals = true,
@@ -2243,13 +2320,28 @@ export async function inspectCapabilityRepository(repositoryUrl, {
   const suppliedLeads = [...(leadUrl == null ? [] : [leadUrl]), ...leadUrls]
     .map((url) => assertCredentialFreeRemote(url));
   const authorityLink = await readCapabilityAuthorityLink(repository, {
-    stateBranch
-  }).catch((error) => ({
-    status: 'invalid', repository: sanitizeRemote(repository), stateBranch,
-    stateCommit: null, link: null,
-    failure: { code: error?.code ?? 'CAPABILITY_AUTHORITY_LINK_INVALID',
-      message: redactDiagnosticText(error?.message ?? String(error)) }
-  }));
+    stateBranch,
+    remoteSession: authorityRemoteSession,
+    runRemoteCommand: authorityRemoteCommand
+  }).catch((error) => {
+    const transportUnavailable = error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'
+      || /^REMOTE_/u.test(String(error?.code ?? ''));
+    return {
+      status: transportUnavailable ? 'unavailable' : 'invalid',
+      repository: sanitizeRemote(repository), stateBranch,
+      stateCommit: null, link: null,
+      failure: transportUnavailable ? {
+        code: error?.code ?? 'CAPABILITY_AUTHORITY_LINK_UNAVAILABLE',
+        classification: 'configuration',
+        retryable: true,
+        advice: redactDiagnosticText(error?.message ?? String(error)),
+        evidence: null
+      } : {
+        code: error?.code ?? 'CAPABILITY_AUTHORITY_LINK_INVALID',
+        message: redactDiagnosticText(error?.message ?? String(error))
+      }
+    };
+  });
   const registeredLeads = [];
   const registeredLeadFailures = [];
   if (!suppliedLeads.length && authorityLink.status !== 'current' && searchKnown) {
@@ -2407,21 +2499,40 @@ export async function inspectCapabilityRepository(repositoryUrl, {
   const matches = inspected.flatMap((entry) => entry.matches);
   const conflicts = classifyRepositoryAuthorityConflicts(matches);
   const pendingMatches = inspected.flatMap((entry) => entry.pendingMatches ?? []);
+  const authorityLinkRemoteFailure = authorityLink.status === 'unavailable'
+    ? publicRemoteFailure(authorityLink.failure) : null;
+  const authorityLinkFailure = authorityLink.status === 'unavailable' ? {
+    lead: registeredLeadDiagnosticReference(repository),
+    code: authorityLinkRemoteFailure?.code ?? 'CAPABILITY_AUTHORITY_LINK_UNAVAILABLE',
+    classification: authorityLinkRemoteFailure?.classification ?? 'unknown',
+    retryable: authorityLinkRemoteFailure?.retryable ?? false,
+    evidence: authorityLinkRemoteFailure?.evidence ?? null,
+    message: authorityLinkRemoteFailure?.advice
+      ?? 'The repository state branch could not be inspected for its capability authority link.',
+    diagnosticAction: {
+      command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(repository)} --json`,
+      skill: '/sf-workspace-bootstrap'
+    }
+  } : ['invalid', 'stale'].includes(authorityLink.status) ? {
+    lead: registeredLeadDiagnosticReference(repository),
+    code: authorityLink.failure?.code ?? (authorityLink.status === 'stale'
+      ? 'CAPABILITY_AUTHORITY_LINK_STALE' : 'CAPABILITY_AUTHORITY_LINK_INVALID'),
+    message: redactDiagnosticText(authorityLink.failure?.message
+      ?? `The repository capability authority link is ${authorityLink.status}.`),
+    diagnosticAction: {
+      command: `singularity-flow capability fsck --lead ${quoted(commandRemote(repository))} --json`,
+      skill: '/sf-capability-doctor'
+    }
+  } : null;
   const failures = [
     ...registeredLeadFailures,
-    ...(['invalid', 'stale'].includes(authorityLink.status) ? [{
-      lead: registeredLeadDiagnosticReference(repository),
-      code: authorityLink.failure?.code ?? (authorityLink.status === 'stale'
-        ? 'CAPABILITY_AUTHORITY_LINK_STALE' : 'CAPABILITY_AUTHORITY_LINK_INVALID'),
-      message: redactDiagnosticText(authorityLink.failure?.message
-        ?? `The repository capability authority link is ${authorityLink.status}.`),
-      diagnosticAction: {
-        command: `singularity-flow capability fsck --lead ${quoted(commandRemote(repository))} --json`,
-        skill: '/sf-capability-doctor'
-      }
-    }] : []),
+    ...(authorityLinkFailure ? [authorityLinkFailure] : []),
     ...inspected.flatMap((entry) => [
-      entry.failure, entry.proposalFailure, ...(entry.proposalTransportFailures ?? [])
+      // Reading an ungoverned repository candidate and reading its portable authority link use
+      // the same remote. When that remote is unavailable, surface the authority-link failure once:
+      // it is the stronger ownership diagnosis and still blocks first-authority permission.
+      authorityLinkFailure && entry.candidate ? null : entry.failure,
+      entry.proposalFailure, ...(entry.proposalTransportFailures ?? [])
     ]).filter(Boolean)
   ];
   const checkedLeads = inspected
@@ -2442,7 +2553,11 @@ export async function inspectCapabilityRepository(repositoryUrl, {
     inspected: summary.inspected + (entry.proposalInspection?.inspected ?? 0)
   }), { total: 0, inspected: 0 });
   const proposalInspectionIncomplete = proposalCoverage !== 'complete';
-  const noAuthoritiesConfirmed = ungovernedCandidate && registeredLeadFailures.length === 0;
+  // Only an exact, successful observation proving that the state ref is absent can establish a
+  // first authority. A transport failure is unresolved ownership, even when the target itself is
+  // reachable and ungoverned through a separate read.
+  const noAuthoritiesConfirmed = authorityLink.status === 'missing'
+    && ungovernedCandidate && registeredLeadFailures.length === 0;
   const linkedMatch = linkedLead
     ? matches.find((match) => match.lead === linkedLead && match.repositoryUrl === repository)
     : null;
@@ -2542,7 +2657,7 @@ export async function inspectCapabilityRepository(repositoryUrl, {
       recoveryAction: authorityLinkMismatch
         ? failures.find((failure) => failure.code === 'CAPABILITY_AUTHORITY_LINK_STALE')
           ?.diagnosticAction ?? null
-        : null
+        : authorityLinkFailure?.diagnosticAction ?? null
     }
   };
 }
@@ -2945,7 +3060,8 @@ export async function mapCapability(leadUrl, {
   teams = [],
   initiatingRoot = process.cwd(),
   initiatingEnv = process.env,
-  cleanupTemporaryTree = removeTemporaryTree
+  cleanupTemporaryTree = removeTemporaryTree,
+  runRemoteCommand = runRemoteGitAsync
 } = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required. Use a lower-case kebab-case ID; nothing was changed.', {
     code: 'CAPABILITY_ID_REQUIRED',
@@ -3307,7 +3423,8 @@ export async function mapCapability(leadUrl, {
     fullHistory: matchingProposalRefs.length > 0,
     bindProposalToBase: true,
     authorIdentity,
-    cleanupTemporaryTree
+    cleanupTemporaryTree,
+    runRemoteCommand
   });
 }
 
@@ -4188,7 +4305,9 @@ async function validateInspectedCapabilityProposal(root, inspected, ref, {
 }
 
 /** Exact commits, file set, and diff a reviewer is being asked to activate. */
-export async function inspectCapabilityProposal(url, branch) {
+export async function inspectCapabilityProposal(url, branch, {
+  runRemoteCommand = runRemoteGitAsync
+} = {}) {
   return withCapabilityProposalCheckout(url, branch, async (
     root, remote, proposalBranch, ref, { env }
   ) => {
@@ -4196,7 +4315,7 @@ export async function inspectCapabilityProposal(url, branch) {
       root, remote, proposalBranch, ref, { env }
     );
     return validateInspectedCapabilityProposal(root, inspected, ref, { env });
-  });
+  }, { runRemoteCommand });
 }
 
 function capabilityFsckCheck(id, status, summary, {

@@ -28,7 +28,7 @@ import {
 } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { renderChangeDirectoryCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import {
@@ -1604,11 +1604,31 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   const launchDefinition = sealedConfiguration?.snapshot?.definition
     ?? await loadConfig(sourceRoot).catch(() => null);
   const requestedBase = optionString(options, 'from-branch');
-  const requestedRemote = optionString(options, 'remote', 'origin');
-  const requestedBaseRef = requestedBase
-    ? [`refs/remotes/${requestedRemote}/${requestedBase}`, `refs/heads/${requestedBase}`]
-      .find((candidate) => refExists(sourceRoot, candidate))
-    : null;
+  const requestedRemote = optionString(options, 'remote')
+    ?? launchDefinition?.git?.remote
+    ?? 'origin';
+  let requestedBaseRef = null;
+  if (requestedBase && !durableLocalStory) {
+    const fetchAuthority = configuredRemoteAuthority(sourceRoot, requestedRemote, {
+      direction: 'fetch'
+    });
+    if (!fetchAuthority.url) {
+      throw new SingularityFlowError(
+        `Story remote '${requestedRemote}' has no credential-free fetch authority. Nothing was changed.`,
+        { code: 'STORY_REMOTE_UNREACHABLE' }
+      );
+    }
+    // Readiness, dependency hydration, and Story creation must all observe the same freshly
+    // fetched base commit. Never prefer an old local tracking branch at this boundary.
+    await fetchRemote(sourceRoot, requestedRemote, { transportRemote: fetchAuthority.url });
+    requestedBaseRef = `refs/remotes/${requestedRemote}/${requestedBase}`;
+    if (!refExists(sourceRoot, requestedBaseRef)) {
+      throw new SingularityFlowError(
+        `Selected base branch '${requestedBase}' is not published by remote '${requestedRemote}'. Nothing was changed.`,
+        { code: 'STORY_BASE_INVALID' }
+      );
+    }
+  }
   const launchBaseCommit = requestedBaseRef ? refHead(sourceRoot, requestedBaseRef) : head(sourceRoot);
   if (!durableLocalStory) {
     await assertLaunchCheckoutRepositoryReady(sourceRoot, launchDefinition, launchBaseCommit);
@@ -1637,6 +1657,11 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       'managed-story-worktree': prepared.repositoryPath,
       'story-launch-repository': sourceRoot
     };
+    if (requestedBaseRef) {
+      childOptions['story-launch-remote'] = requestedRemote;
+      childOptions['story-launch-base-branch'] = requestedBase;
+      childOptions['story-launch-base-commit'] = launchBaseCommit;
+    }
     if (configurationHandoff) {
       childOptions[ISOLATED_STORY_CONFIGURATION_HANDOFF] = configurationHandoff;
     }
@@ -1866,6 +1891,16 @@ export async function startCommand(positionals, options) {
   }
   validateId(config, id);
   remote = config.git?.remote ?? 'origin';
+  const launchRemote = optionString(options, 'story-launch-remote');
+  if (launchRemote && launchRemote !== remote) {
+    throw new SingularityFlowError(
+      `Story remote changed from '${launchRemote}' to '${remote}' after the isolated launch was verified. Refresh Story intake and retry; nothing was changed.`,
+      {
+        code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+        details: { expectedRemote: launchRemote, observedRemote: remote }
+      }
+    );
+  }
   const destination = await observeStoryDestination(remote);
   const applicationDefault = destination.defaultBranch;
   let remoteStoryRef = `refs/remotes/${remote}/${canonicalBranch}`;
@@ -2099,6 +2134,16 @@ export async function startCommand(positionals, options) {
     );
   }
   const baseAtStart = storyBase.localBase;
+  const launchBaseBranch = optionString(options, 'story-launch-base-branch');
+  if (launchBaseBranch && launchBaseBranch !== baseAtStart) {
+    throw new SingularityFlowError(
+      `Selected Story base changed from '${launchBaseBranch}' to '${baseAtStart}' after the isolated launch was verified. Refresh Story intake and retry; nothing was changed.`,
+      {
+        code: 'STORY_BASE_INVALID',
+        details: { expectedBranch: launchBaseBranch, observedBranch: baseAtStart }
+      }
+    );
+  }
   const workflowCapabilityId = optionString(options, 'capability') ?? storyBase.capability ?? null;
   // With no shared authority, the selected remote base itself owns policy. Refresh and fully load
   // its bounded configuration before document policy, publication policy, capability preflight or
@@ -2307,6 +2352,20 @@ export async function startCommand(positionals, options) {
     );
   }
   const baseCommitAtStart = materializedSeed?.baseCommit ?? refHead(root, remoteBaseRef);
+  const launchBaseCommit = optionString(options, 'story-launch-base-commit');
+  if (launchBaseCommit && baseCommitAtStart !== launchBaseCommit) {
+    throw new SingularityFlowError(
+      `Selected base '${baseAtStart}' moved after repository readiness was checked. Refresh Story intake and retry; nothing was changed.`,
+      {
+        code: 'STORY_BASE_INVALID',
+        details: {
+          baseBranch: baseAtStart,
+          readinessCommit: launchBaseCommit,
+          observedCommit: baseCommitAtStart
+        }
+      }
+    );
+  }
   if (legacyBaseConfigurationCommit && baseCommitAtStart !== legacyBaseConfigurationCommit) {
     throw new SingularityFlowError(
       `Selected base '${baseAtStart}' moved while its workflow policy was being checked. Refresh Story intake and retry; nothing was changed.`,
@@ -2944,9 +3003,8 @@ export async function startCommand(positionals, options) {
       console.log(`Approval enrollment: current Git identity added to configured authorities on ${CONFIGURATION_BRANCH}@${automaticEnrollment.commit.slice(0, 12)} (published).`);
     }
     if (managedStoryWorktree) {
-      const shellPath = root.replaceAll("'", "'\\''");
       console.log(`Isolated Story checkout: ${root}`);
-      console.log(`Continue there: cd '${shellPath}'`);
+      console.log(`Continue there: ${renderChangeDirectoryCommand(root)}`);
     }
     if (workflow.measurement?.plan?.variantId) {
       console.log(`Prompt study assignment: ${workflow.measurement.plan.variantId} · ${workflow.measurement.plan.studyRunId}.`);
@@ -3060,20 +3118,38 @@ async function resumeCommand(positionals, options) {
     ? { workId: refSubject.id, branch: refSubject.canonicalBranch, selectedBranch: refSubject.selectedBranch, workflow: refSubject.state, source: refSubject.source }
     : await resolveWorkItem(root, initialConfig, reference, { mutation: true });
   const targetBranch = resolved.selectedBranch ?? resolved.branch;
-  if (branch(root) !== targetBranch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
+  // An isolated Story branch is already checked out in its managed worktree. Git correctly
+  // refuses to check the same branch out in the launch clone, so resume must enter the checkout
+  // that owns the branch instead of mutating (or requiring a clean) unrelated launch work.
+  const { storyWorktreeForBranch } = await import('./story-worktree.mjs');
+  const managedWorktree = storyWorktreeForBranch(root, targetBranch);
+  const executionRoot = managedWorktree?.repositoryPath ?? root;
+  if (branch(executionRoot) !== targetBranch && !optionBoolean(options, 'allow-dirty')) {
+    assertClean(executionRoot);
+  }
   // Discovery has already fetched every remote ref. Reuse that exact observation for the local
   // fast-forward; asking `checkout` to fetch again used to add a second fetch and then a pull.
-  await checkout(root, targetBranch, {
+  await checkout(executionRoot, targetBranch, {
     base: initialConfig.defaultBaseBranch, fetch: false, fetched: fetch, existingOnly: true, remote
   });
-  const accepted = await loadAcceptedStoryExecution(root, resolved.workId);
+  const accepted = await loadAcceptedStoryExecution(executionRoot, resolved.workId);
   const config = accepted.definition;
   const workflow = accepted.workflow;
   validateId(config, resolved.workId);
   const session = await activatePhaseAgent(
-    root, config, resolved.workId, currentPhase(workflow), optionString(options, 'agent') ?? null,
+    executionRoot, config, resolved.workId, currentPhase(workflow), optionString(options, 'agent') ?? null,
     workflow
   );
+  try {
+    await activateWorkspaceStoryContext(
+      activeWorkspaceFile(), workspaceRegistryFile(), executionRoot,
+      { storyId: resolved.workId, selectionSource: 'story-resume' }
+    );
+  } catch (error) {
+    // The durable Story and phase session are already selected. A stale optional workspace
+    // navigation record must not turn that success into a second lifecycle attempt.
+    console.warn(`Warning: Story '${resolved.workId}' resumed, but its active-workspace selection was not updated: ${error.message}`);
+  }
   if (!json) {
     summary(workflow);
     console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
@@ -3085,9 +3161,16 @@ async function resumeCommand(positionals, options) {
   emitCommandResult(commandResult({
     operation: { id: 'resume', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded('resume.succeeded', { workId: workflow.workItem.id, branch: branch(root) }),
+    outcome: succeeded('resume.succeeded', {
+      workId: workflow.workItem.id, branch: branch(executionRoot)
+    }),
     // Resume may check out a different branch and records the local governed-agent selection.
-    effects: effects({ filesChanged: true })
+    effects: effects({ filesChanged: true }),
+    data: {
+      repositoryPath: executionRoot,
+      materialization: managedWorktree ? 'reused-managed-story-worktree' : 'current-checkout',
+      ...(managedWorktree ? { sourceRepositoryPath: root } : {})
+    }
   }), { json, postState: workflow });
 }
 
@@ -9510,7 +9593,7 @@ async function sessionCommand(positionals, options) {
     if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);
     if (managedWorktree && path.resolve(process.cwd()) !== path.resolve(attachmentRoot)) {
-      console.log(`Continue in the isolated Story checkout: cd ${JSON.stringify(attachmentRoot)}`);
+      console.log(`Continue in the isolated Story checkout: ${renderChangeDirectoryCommand(attachmentRoot)}`);
     }
     console.log(`Bounded Copilot context: ${result.context.command}`);
     return;
@@ -12575,7 +12658,9 @@ async function workspaceCommand(positionals, options) {
   // registration based on a stale application-checkout workflow before either command can inspect
   // approved sflow/config turns repair into a misleading zero-target success.
   await discardUnsupportedWorkflowWorkspaces(registry, selectionFile, {
-    preserveForRecovery: ['refresh-configuration', 'reinitialize'].includes(subcommand)
+    preserveForRecovery: [
+      'list', 'current', 'prompt', 'use', 'switch', 'refresh-configuration', 'reinitialize'
+    ].includes(subcommand)
   });
   if (subcommand === 'prepare') {
     const source = requirePositional(positionals, 2, 'repository URL or workspace manifest');
@@ -13076,7 +13161,7 @@ async function workspaceCommand(positionals, options) {
       printCommandRoutes('singularity-flow workspace repair <WORKSPACE>', { label: 'Repair' });
     }
     printCommandRoutes('singularity-flow workspace copilot', { label: 'Start Copilot here' });
-    console.log(`Shell directory: cd ${JSON.stringify(context.repositoryPath)}`);
+    console.log(`Shell directory: ${renderChangeDirectoryCommand(context.repositoryPath)}`);
     return;
   }
   if (subcommand === 'copilot') {

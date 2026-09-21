@@ -7,7 +7,9 @@ import test from 'node:test';
 
 import { executeGitQuery, gitQueryDescriptor } from '../src/git-query.mjs';
 import { compareFosSemanticProjections } from '../src/fos-semantic-projection.mjs';
-import { RepoContext } from '../src/repo-context.mjs';
+import {
+  compatibleRepositoryInstanceIds, compatibleWorktreeInstanceIds, RepoContext
+} from '../src/repo-context.mjs';
 
 function git(args, cwd) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -36,6 +38,41 @@ test('FOS:AC-019 typed repository identity uses Git paths and distinguishes work
   assert.notEqual(primary.worktreeInstanceId, secondary.worktreeInstanceId);
   assert.equal(primary.objectFormat, 'sha1');
   assert.equal(primary.bare, false);
+});
+
+test('FOS identity hashes canonical Windows filesystem paths while retaining bounded legacy IDs', async () => {
+  const values = (commonDir, gitDir) => async (_root, id) => ({
+    'repository.paths': { commonDir, gitDir },
+    'repository.root': 'C:\\Work\\App',
+    'repository.object-format': 'sha1',
+    'repository.bare': false,
+    'repository.head': 'a'.repeat(40),
+    'repository.branch': 'main'
+  })[id] ?? null;
+  const canonicalize = async (candidate) => {
+    const normalized = String(candidate).replaceAll('/', '\\').toLocaleLowerCase('en-US');
+    if (normalized.endsWith('\\.git\\worktrees\\story')) return 'C:\\Work\\App\\.git\\worktrees\\Story';
+    return 'C:\\Work\\App\\.git';
+  };
+  const primary = await new RepoContext('C:\\Work\\App', {
+    platform: 'win32', canonicalize,
+    execute: values('C:/Work/App/.git', 'C:/Work/App/.git')
+  }).identity();
+  const samePrimary = await new RepoContext('c:\\work\\app', {
+    platform: 'win32', canonicalize,
+    execute: values('c:\\work\\app\\.git', 'c:\\work\\app\\.git')
+  }).identity();
+  const linked = await new RepoContext('C:\\Work\\App-Story', {
+    platform: 'win32', canonicalize,
+    execute: values('c:\\work\\app\\.git', 'c:\\work\\app\\.git\\worktrees\\story')
+  }).identity();
+  assert.equal(primary.repositoryInstanceId, samePrimary.repositoryInstanceId);
+  assert.equal(primary.worktreeInstanceId, samePrimary.worktreeInstanceId);
+  assert.equal(primary.repositoryInstanceId, linked.repositoryInstanceId);
+  assert.notEqual(primary.worktreeInstanceId, linked.worktreeInstanceId);
+  assert.ok(compatibleRepositoryInstanceIds(primary).length > 1,
+    'older drive/separator spellings remain bounded read aliases');
+  assert.ok(compatibleWorktreeInstanceIds(primary).length > 1);
 });
 
 test('FOS:AC-020 lazy observations coalesce and are defensively immutable', async () => {

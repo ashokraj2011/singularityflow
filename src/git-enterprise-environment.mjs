@@ -21,6 +21,10 @@ const ENTERPRISE_GIT_CONFIG_PATTERN = [
 const MAX_ENTRIES = 256;
 const MAX_BYTES = 256 * 1024;
 const ENTERPRISE_ENVIRONMENTS = new WeakSet();
+// Cache only the reviewed system/global policy, never the ambient process environment around it.
+// PATH, recovery directories, proxy variables and test/host launch context can legitimately change
+// during one long-lived extension or test process and must be sampled for every operation.
+let processEnterpriseConfiguration = null;
 const ENTERPRISE_GIT_CONFIG_KEY = new RegExp(`^(${ENTERPRISE_GIT_CONFIG_PATTERN})$`, 'u');
 const GIT_PROCESS_OVERRIDE_KEYS = new Set([
   'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
@@ -30,6 +34,7 @@ const GIT_PROCESS_OVERRIDE_KEYS = new Set([
   'GIT_SSL_NO_VERIFY',
   'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_SSH_VARIANT',
   'GIT_ASKPASS', 'GIT_ASKPASS_REQUIRE', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE',
+  'GIT_TERMINAL_PROMPT', 'GCM_INTERACTIVE',
   'GIT_PROXY_COMMAND',
   'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', 'GIT_PAGER', 'GIT_EXTERNAL_DIFF',
   'GIT_CONFIG_NOSYSTEM'
@@ -175,7 +180,22 @@ export function enterpriseGitEnvironment(sourceEnv = process.env, { runCommand =
     return sourceEnv;
   }
   const env = withoutGitProcessOverrides(sourceEnv);
-  const enterpriseConfiguration = allowedEnterpriseGitConfiguration(sourceEnv, runCommand);
+  // A CLI invocation can address the same authority many times (inventory, preflight, publish,
+  // reconciliation). Reuse only the reviewed Git configuration entries. Reconstruct the isolated
+  // object from the current process environment so operation-local PATH/recovery/proxy changes are
+  // never frozen by whichever remote operation happened to run first.
+  let enterpriseConfiguration;
+  if (sourceEnv === process.env && runCommand === run
+      && processEnterpriseConfiguration !== null) {
+    enterpriseConfiguration = processEnterpriseConfiguration;
+  } else {
+    enterpriseConfiguration = allowedEnterpriseGitConfiguration(sourceEnv, runCommand);
+    if (sourceEnv === process.env && runCommand === run) {
+      processEnterpriseConfiguration = Object.freeze(enterpriseConfiguration
+        .map(([key, value]) => Object.freeze([key, value])));
+      enterpriseConfiguration = processEnterpriseConfiguration;
+    }
+  }
   delete env.GIT_CONFIG_SYSTEM;
   delete env.GIT_CONFIG_NOSYSTEM;
   const isolated = {
@@ -191,6 +211,40 @@ export function enterpriseGitEnvironment(sourceEnv = process.env, { runCommand =
     isolated[`GIT_CONFIG_KEY_${index}`] = key;
     isolated[`GIT_CONFIG_VALUE_${index}`] = value;
   });
+  ENTERPRISE_ENVIRONMENTS.add(isolated);
+  return isolated;
+}
+
+/**
+ * Admit an environment at the remote-Git execution boundary.
+ *
+ * Product callers sometimes add operation-local values (timeouts, proxy variables, test probes)
+ * to an ordinary environment instead of threading the already-attested object through every
+ * layer. Preserve those non-authority values, but always source system/global Git policy from the
+ * process's reviewed snapshot. Only an object carrying the private in-memory attestation may retain
+ * its command-scoped Git entries; this is what lets frozenRemoteTransport keep its random alias
+ * without admitting caller-forged counted configuration.
+ */
+export function remoteGitEnvironment(sourceEnv = process.env) {
+  if (sourceEnv && typeof sourceEnv === 'object' && ENTERPRISE_ENVIRONMENTS.has(sourceEnv)) {
+    return sourceEnv;
+  }
+  const authority = enterpriseGitEnvironment(process.env);
+  const admitted = withoutGitProcessOverrides(sourceEnv);
+  // Unlike a local plumbing command, a remote operation must not select arbitrary system/global
+  // configuration files supplied by its caller. Their reviewed allowlist is already represented by
+  // the command-scoped entries copied from `authority` below.
+  for (const key of Object.keys(admitted)) {
+    if (['GIT_CONFIG_SYSTEM', 'GIT_CONFIG_GLOBAL'].includes(key.toUpperCase())) delete admitted[key];
+  }
+  const isolated = { ...authority, ...admitted };
+  for (const [key, value] of Object.entries(authority)) {
+    const upper = key.toUpperCase();
+    if (upper === 'GIT_NO_REPLACE_OBJECTS' || upper === 'GIT_CONFIG_NOSYSTEM'
+      || upper === 'GIT_CONFIG_SYSTEM' || upper === 'GIT_CONFIG_GLOBAL'
+      || upper === 'GIT_ATTR_NOSYSTEM' || upper === 'GIT_CONFIG_COUNT'
+      || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(upper)) isolated[key] = value;
+  }
   ENTERPRISE_ENVIRONMENTS.add(isolated);
   return isolated;
 }

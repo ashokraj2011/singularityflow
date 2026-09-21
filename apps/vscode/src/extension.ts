@@ -2613,7 +2613,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       let targets: RepositoryRefreshTarget[];
       if (suppliedRepositoryPath) {
-        const target = repositoryRefreshTargetForPath(
+        const target = await repositoryRefreshTargetForPath(
           suppliedRepositoryPath, suppliedWorkspacePath || null, observations
         );
         targets = target ? [target] : [];

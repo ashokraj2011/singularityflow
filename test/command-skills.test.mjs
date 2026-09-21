@@ -12,7 +12,8 @@ import {
 } from '../src/command-skills.mjs';
 import { loadHelpDocument } from '../src/help.mjs';
 import {
-  renderCommandPromptCommand, renderPlatformCommand, safeCommandGuidance
+  renderChangeDirectoryCommand, renderCommandPromptCommand, renderPlatformCommand,
+  safeCommandGuidance
 } from '../src/safe-command-guidance.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -216,6 +217,15 @@ test('platform command rendering keeps substitutions, quotes, and spaces inside 
   assert.equal(Buffer.from(encoded, 'base64').toString('utf16le'), windows);
   assert.throws(() => renderPlatformCommand(['sf-install', 'line\nbreak']), /control characters/u);
   assert.throws(() => renderCommandPromptCommand(['sf-install', 'line\nbreak']), /control characters/u);
+  assert.equal(
+    renderChangeDirectoryCommand('/tmp/a path/$(not-run)', 'linux'),
+    "'cd' '--' '/tmp/a path/$(not-run)'"
+  );
+  assert.equal(
+    renderChangeDirectoryCommand('C:\\Work Folder\\Story', 'win32'),
+    "& 'Set-Location' '-LiteralPath' 'C:\\Work Folder\\Story'"
+  );
+  assert.throws(() => renderChangeDirectoryCommand('line\nbreak'), /control characters/u);
 });
 
 test('a policy-selected custom code phase keeps the generic code-authoring Copilot route', () => {

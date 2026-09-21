@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import type { WorkspaceEntry, WorkspaceStatus } from './views/workspaces-model.ts';
 
 /** One repository which a registered workspace can safely hand to a maintenance command. */
@@ -138,19 +139,31 @@ export function repositoryRefreshTargets(
 }
 
 /** Resolve an already-selected local repository without trusting an arbitrary command argument. */
-export function repositoryRefreshTargetForPath(
+async function canonicalFilesystemPath(value: string): Promise<string> {
+  const resolved = path.resolve(value);
+  const canonical = await realpath(resolved).catch(() => resolved);
+  // A missing checkout is exactly when reinitialization is needed. On Windows, keep that recovery
+  // selectable across drive-letter/path casing even though `realpath` cannot prove the absent path.
+  return process.platform === 'win32'
+    ? path.win32.normalize(canonical).toLocaleLowerCase('en-US')
+    : canonical;
+}
+
+export async function repositoryRefreshTargetForPath(
   repositoryPath: string,
   workspacePath: string | null,
   observations: readonly WorkspaceRefreshObservation[]
-): RepositoryRefreshTarget | null {
-  const requestedRepository = path.resolve(repositoryPath);
-  const requestedWorkspace = workspacePath ? path.resolve(workspacePath) : null;
+): Promise<RepositoryRefreshTarget | null> {
+  const requestedRepository = await canonicalFilesystemPath(repositoryPath);
+  const requestedWorkspace = workspacePath ? await canonicalFilesystemPath(workspacePath) : null;
   for (const observation of observations) {
     if (!observation.status) continue;
-    if (requestedWorkspace && path.resolve(observation.status.workspace.path) !== requestedWorkspace) continue;
+    if (requestedWorkspace
+      && await canonicalFilesystemPath(observation.status.workspace.path) !== requestedWorkspace) continue;
     for (const repository of observation.status.repositories ?? []) {
       const candidatePath = (repository.absolutePath ?? repository.path ?? '').trim();
-      if (!candidatePath || path.resolve(candidatePath) !== requestedRepository) continue;
+      if (!candidatePath
+        || await canonicalFilesystemPath(candidatePath) !== requestedRepository) continue;
       return {
         workspaceId: observation.status.workspace.id || observation.workspace.id,
         workspaceName: observation.status.workspace.name || observation.workspace.name,

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "2577c98303f3dfab85e1360eabd7138d3a8eca61",
+  "sourceCommit": "77887df19d7bf116fefad74aaa15988bbc5d9f08",
   "topicCount": 67,
-  "contentSha256": "8fba04bb8e629031e96ab13e35a87171db3aad56adacd5910a634df63f37541d",
+  "contentSha256": "5a6fa1beb361523f533631cd8684b30eaffeecd26d49a52c50aeb4ce3f785cc1",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -80,8 +80,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 12,
-      "sha256": "e1e36fabacb68167f8ec29003e7637713df5f18d63e7f56796170f6a25e468ec",
+      "version": 13,
+      "sha256": "35d9249e08f452fac1c99b99d209663cc1af094a405254950d05ec4a4993280d",
       "routingSha256": "34335f7f4930297cb596fd5e42a87bb80b3b74eb7842f8a5bb3801bdf0fa144b",
       "file": "capability-management.md"
     },
@@ -256,8 +256,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 15,
-      "sha256": "8a787caba23f7c18eb0e9ffdf5cc41b874f61659b34cf66ac8b24f9a826ddcfa",
+      "version": 17,
+      "sha256": "ebbbc09cdccf8bacd6b5d6dbf1984f82b10cfdc8aebc5fe51935d6c0b36851c1",
       "routingSha256": "9282900d02a0dc95200075b3b65d398903af09edd17350009d3f3379eee4b584",
       "file": "installation-and-upgrades.md"
     },
@@ -400,8 +400,8 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 6,
-      "sha256": "4622d7dbdd706894551dc6bc243dfc7cd0d607e8835a89ae28b515e8df5ad798",
+      "version": 7,
+      "sha256": "098d0b3e9dfe3d9fe4baf73bcf5e28cdd21057f3074b6a49d0b7045508b2cb9e",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },

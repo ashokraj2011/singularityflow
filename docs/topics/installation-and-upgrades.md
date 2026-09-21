@@ -22,7 +22,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 15
+version: 17
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -130,10 +130,11 @@ re-run the command to complete its state mirror. Reruns are idempotent and retry
 repositories while current repositories become no-ops.
 
 For the complete safe upgrade/recovery path, use `workspace reinitialize --dry-run`, review its
-configuration, schema, and capability-portability report, then apply the returned plan with
-`workspace reinitialize --confirm-plan <PLAN-ID>`. The apply is bound to the lead authority selected
-by the plan; a filtered delivery-only plan cannot publish capability links from an unreviewed lead
-revision and instead returns the exact lead-scoped preview command. This command never rewrites
+seeded configuration and schema report, then apply the returned plan with
+`workspace reinitialize --confirm-plan <PLAN-ID>`. Capability-specific publication and portable
+locator repair are outside this command; user-owned capability definitions remain unchanged when
+the approved configuration is mirrored. Use the explicit capability publication journey when
+those links must change. This command never rewrites
 immutable historical records. Registered older records are migrated in memory by their readers;
 future or unreadable schema versions remain explicit blockers with upgrade guidance. Compatibility
 roots and registered-v4 state requirements come from the exact isolated approved configuration
@@ -141,6 +142,17 @@ candidate, not a potentially stale application checkout. Old local workflow form
 registered long enough for this recovery command to inspect and upgrade them. A corrupt workspace
 registry is an explicit `WORKSPACE_REGISTRY_INVALID` refusal rather than a misleading successful
 zero-target refresh; only a registry that does not exist means there are no registered workspaces.
+Reinitialize uses a durable ownership receipt for workflow IDs, phase/artifact/MCP dependencies,
+templates, prompts, and agents. Missing seeds and exact current or registered historical package
+bytes can establish framework ownership. User-created and user-modified workflows, phases,
+artifact sets, templates, prompts, and agents stay repository-owned and unchanged—even if a receipt
+previously described the path as framework-owned. Same-name and modified-seed collisions are
+reported for review. Repository-only IDs and files, organisation policy YAML, and all work-item
+artifacts remain untouched. Reinitialize refuses `--resolve ...=bundled` and
+`--accept-bundled-conflicts`; use ordinary `refresh-configuration` for a separate, explicit
+three-way decision when packaged content should deliberately replace repository-owned content.
+Reinitialize never falls through to factory reset; destructive recovery remains a separate,
+explicitly named operation.
 Recognized v3 World Model manifests use the older `schema_version` field and are reported as
 migration advisories, not corrupt v4 records; an unversioned artifact that claims `wmb-v4` still
 fails closed.
@@ -157,19 +169,19 @@ Code have no safe interactive terminal for them. A credential failure therefore 
 classified repair message instead of appearing to hang. Ledger compare-and-swap checks, exact
 transport-intent verification, and protected-branch recovery are not skipped or cached.
 
-In VS Code, run **Singularity Flow: Safely Reinitialize Capabilities & Workspaces** from the Command Palette.
-It opens Workspaces and previews every registered repository. The same page can review only the
-selected workspace, exposes each conflict as a dropdown, and applies only a plan bound to that
-preview. When a preserved older agent leaves a phase without its required default, **Repair missing
-or outdated agents** selects the engine-reported packaged agent paths and previews again; it never
-publishes on the first click. The broader convenience action selects packaged templates, prompts,
-and agents only and does not silently replace unrelated workflow policy.
+In VS Code, run **Singularity Flow: Reinitialize Framework Assets (Preserves User Content)** from
+the Command Palette. It opens Workspaces and previews every registered repository. The same page can
+review only the selected workspace and applies only a plan bound to that preview. An open Story
+Intake reloads the approved workflow catalog after a successful apply without clearing its authored
+draft. **Factory Reset Local SFlow Data (Destructive)** remains a separately named operation and is
+never selected by the normal Reinitialize action.
 
-`spec-driven-standard` is part of the standard product contract rather than an optional catalog
-sample. Refresh restores it when an older approved configuration does not contain it, together with
-any missing phase and approval-authority definitions it requires. Existing customizations inside an
-installed profile still use the reviewed three-way merge, and choosing a different workflow for a
-Story remains unrestricted.
+`spec-driven-standard` and `reference-driven-build` remain standard product contracts rather than
+optional catalog samples during ordinary refresh. Safe reinitialize restores them only when they
+are missing or exactly match a registered framework revision, together with framework-owned
+dependencies. A customized standard workflow, phase, artifact set, template, prompt, or agent is
+repository-owned and remains untouched, and choosing a different workflow for a Story remains
+unrestricted.
 
 Use `--no-workspace-configuration-refresh` to skip this normal-install refresh. The legacy
 `--no-workspace-workflow-sync` spelling remains accepted. The separate

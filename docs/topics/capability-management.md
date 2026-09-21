@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 12
+version: 13
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -122,11 +122,21 @@ machine-local shadow file from silently becoming organisation policy.
 After upgrading SFlow, use `singularity-flow workspace reinitialize --dry-run` to preview a safe
 configuration reconciliation. Apply only the returned exact plan with
 `singularity-flow workspace reinitialize --confirm-plan <PLAN-ID>`. It refreshes packaged workflow,
-templates, prompts, and agents through the existing three-way merge, verifies schema readability,
-republishes the state projection and delivery routing links, and rebuilds only derived caches.
-Repository overrides are preserved unless the reviewed plan explicitly resolves a conflict to the
-bundled value. Immutable evidence is never rewritten; registered older schemas are migrated in
-memory when read, while an unsupported future schema requires a newer SFlow build. Factory reset
+templates, prompts, and agents through the existing reviewed plan, verifies schema readability,
+and refreshes the approved configuration state projection. It does
+not run capability-specific publication or repair delivery routing links; user-owned capability
+definitions remain unchanged in the approved configuration mirror. Use the explicit
+`singularity-flow capability publish --lead <URL> --json` journey when capability publication is
+actually intended.
+Missing or exact registered framework workflow IDs are restored with their framework-owned
+dependencies. User-created and user-modified workflows, phases, artifact sets, templates, prompts,
+and agents remain repository-owned and are never removed or replaced by reinitialize. A same-name
+or modified-seed collision is preserved and shown for review. Reinitialize refuses
+`--resolve ...=bundled` and `--accept-bundled-conflicts`; use ordinary
+`workspace refresh-configuration` for a deliberate, separately previewed adoption of packaged
+content. Work-item artifacts are outside the reinitialize boundary. The reviewed candidate may
+upgrade a registered legacy workflow schema; immutable evidence is never rewritten. Other readable
+older records migrate in memory when read, while an unsupported future schema requires a newer SFlow build. Factory reset
 remains a separate destructive recovery and is not the normal upgrade path. In Copilot, use
 `/sf-admin reinitialize` for the same plan-first flow.
 

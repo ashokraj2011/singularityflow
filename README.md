@@ -327,19 +327,29 @@ also runs the read-only initialization inventory before its wider repository
 diagnostics.
 
 For an existing workspace, the normal repeatable upgrade is a safe reinitialization—not a reset.
-It reviews every selected repository, updates packaged workflow/templates/prompts/agents through
-the configuration three-way merge, refreshes exact state projections and capability locators, and
-checks durable schema readability. Preview first and apply only its exact plan:
+It reviews every selected repository and restores only missing seeds or exact current/historical
+registered framework seeds, together with their framework-owned dependencies. User-created and
+user-modified workflows, phases, artifact sets, templates, prompts, and agents remain
+repository-owned and unchanged. It also refreshes exact configuration state projections and checks
+durable schema readability. Capability-specific
+publication and locator repair remain separate; user-owned capability definitions are preserved
+unchanged in the approved configuration mirror. Same-name and modified-seed collisions are
+preserved and reported instead of being guessed to be framework content.
+Story artifacts under `singularity/work-items/` are never part of this refresh. Preview first and
+apply only its exact plan:
 
 ```bash
 singularity-flow workspace reinitialize --dry-run
 singularity-flow workspace reinitialize --confirm-plan wrip-...
 ```
 
-Repository customizations are preserved unless the reviewed plan explicitly resolves a conflict.
-Readable older records migrate in memory when loaded; immutable evidence and Git history are never
-rewritten. In Copilot use `/sf-admin reinitialize`; in VS Code run **Singularity Flow: Safely
-Reinitialize Capabilities & Workspaces**.
+Safe reinitialize refuses `--resolve ...=bundled` and `--accept-bundled-conflicts`; it cannot be
+used to transfer ownership of repository content to the framework. Use ordinary
+`workspace refresh-configuration` and its separately reviewed three-way conflict choices when
+deliberate adoption of packaged content is intended. The reviewed reinitialize candidate can
+upgrade a registered legacy workflow schema; immutable
+evidence and Git history are never rewritten. In Copilot use `/sf-admin reinitialize`; in VS Code run
+**Singularity Flow: Reinitialize Framework Assets (Preserves User Content)**.
 
 For a deliberate clean restart, factory reset replaces the complete
 `singularity/` tree from the templates bundled in the **currently installed npm
@@ -375,12 +385,12 @@ validation reason. The replacement and any recovered agent are left uncommitted
 for review. In Copilot, `/sf-factory-reset` enforces the same preview and
 contributor-entered confirmation sequence.
 
-In VS Code, open **Workspaces → Fast onboarding & Git → Destructive recovery**,
-or run **Singularity Flow: Factory Reset / Reinitialize Any Git Repository
-(Destructive)** from the Command Palette. Choose any canonical Git root; it does
+In VS Code, open **Workspaces → Fast onboarding & Git → Factory reset**,
+or run **Singularity Flow: Factory Reset Local SFlow Data (Destructive)** from
+the Command Palette. Choose any canonical Git root; it does
 not need to load as a current SFlow repository first. The editor shows the
 engine-generated remove/replace/preserve boundary and dirty SFlow paths. If data
-would be lost, it requires the explicit **Discard SFlow data and reinitialize**
+would be lost, it requires the explicit **Discard all local SFlow data**
 choice, then the exact repository-bound confirmation. Application source, Git
 history, and remote `sflow/config` and `state` branches remain untouched. The
 replacement is local and uncommitted for Source Control review.

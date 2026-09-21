@@ -200,7 +200,6 @@ export interface WorkspaceConfigurationRequestContext {
   scope: 'selected' | 'all';
   /** Optional exact repository selected by a Git-URL recovery handoff. */
   repositoryId?: string | null;
-  resolutions: Record<string, WorkspaceConfigurationResolution>;
 }
 
 /** Opaque, panel-owned authority for one asynchronous configuration request. */
@@ -213,8 +212,7 @@ function configurationRequestContextKey(context: WorkspaceConfigurationRequestCo
   return JSON.stringify([
     context.selectedPath,
     context.scope,
-    context.repositoryId ?? null,
-    Object.entries(context.resolutions).sort(([left], [right]) => left.localeCompare(right))
+    context.repositoryId ?? null
   ]);
 }
 
@@ -222,9 +220,9 @@ function configurationRequestContextKey(context: WorkspaceConfigurationRequestCo
  * Monotonic authority for retained-panel configuration requests.
  *
  * Comparing only the selected path is insufficient: while a request is in flight the reader can
- * travel A → B → A, change from one/all, or replace a conflict decision and arrive at values
+ * travel A → B → A, change from one/all, or select a different repository and arrive at values
  * that look identical to an older request. The revision makes every such older response stale;
- * the context key additionally proves that callers passed the exact path, scope, and decisions
+ * the context key additionally proves that callers passed the exact path, scope, and repository
  * which the lease was issued for.
  */
 export class WorkspaceConfigurationRequestLeases {
@@ -293,6 +291,9 @@ export interface WorkspaceConfigurationRefreshResult {
   resultType?: 'workspace-reinitialization';
   capabilityPortability?: {
     status: string;
+    /** Always false for safe reinitialization; capability publication is a separate command. */
+    changed?: boolean;
+    statement?: string;
     plannedLeads: Array<{
       lead: string;
       workspaceIds: string[];
@@ -338,6 +339,43 @@ export interface WorkspaceConfigurationRefreshResult {
     nextAction?: WorkspaceRecoveryAction | null;
   }>;
   nextAction?: WorkspaceRecoveryAction | null;
+}
+
+const SAFE_REINITIALIZATION_CONFLICT_RESOLUTIONS = new Set([
+  'preserved-local', 'preserved-local-deletion'
+]);
+
+/**
+ * Prove that a CLI result is the exact, read-only preview contract which may authorize safe
+ * workspace reinitialization.
+ *
+ * The webview is not an authority boundary: a retained page, a direct host message, or an older
+ * configured CLI can all supply a shape which the current UI would never enable. Keep this runtime
+ * check shared by rendering and the native message handler, and call it again after confirmation so
+ * mutating the reviewed object while the input box is open cannot turn a safe plan into an ownership
+ * transfer.
+ */
+export function isSafeWorkspaceReinitializationPreview(
+  result: WorkspaceConfigurationRefreshResult | null | undefined
+): result is WorkspaceConfigurationRefreshResult & {
+  resultType: 'workspace-reinitialization';
+  planId: string;
+  capabilityPortability: NonNullable<WorkspaceConfigurationRefreshResult['capabilityPortability']> & {
+    changed: false;
+  };
+} {
+  if (!result || result.resultType !== 'workspace-reinitialization'
+    || result.status !== 'preview' || result.dryRun !== true
+    || typeof result.planId !== 'string' || !result.planId.trim()
+    || result.capabilityPortability?.changed !== false
+    || !Array.isArray(result.results)) return false;
+  return result.results.every((repository) => {
+    if (!repository || typeof repository !== 'object') return false;
+    if (repository.conflicts === undefined) return true;
+    return Array.isArray(repository.conflicts) && repository.conflicts.every((conflict) =>
+      Boolean(conflict && typeof conflict === 'object'
+        && SAFE_REINITIALIZATION_CONFLICT_RESOLUTIONS.has(conflict.resolution)));
+  });
 }
 
 export interface WorkspaceRow extends WorkspaceEntry {
@@ -462,18 +500,24 @@ export function restoreCommand(row: WorkspaceRow): string[] {
 /** Preview or apply one exact, non-destructive workspace reinitialization plan. */
 export function workspaceReinitializeCommand(
   row: Pick<WorkspaceRow, 'directory'> | null,
-  {
-    dryRun,
-    planId = null,
-    repositoryIds = [],
-    resolutions = {}
-  }: {
+  request: {
     dryRun: boolean;
     planId?: string | null;
     repositoryIds?: readonly string[];
-    resolutions?: Record<string, WorkspaceConfigurationResolution>;
   }
 ): string[] {
+  const { dryRun, planId = null, repositoryIds = [] } = request;
+  // Upgraded retained panels can outlive the extension code which created them. Fail closed if an
+  // older caller attempts to carry conflict choices into safe reinitialization: this route restores
+  // only ownership-proven framework seeds and can never adopt packaged bytes over repository work.
+  const legacyResolutions = (request as typeof request & {
+    resolutions?: Record<string, WorkspaceConfigurationResolution>;
+  }).resolutions;
+  if (legacyResolutions && Object.keys(legacyResolutions).length) {
+    throw new Error(
+      'Safe reinitialization does not accept ownership resolutions. Use the separately reviewed configuration refresh journey.'
+    );
+  }
   const args = ['workspace', 'reinitialize'];
   if (row) args.push(row.directory);
   for (const repositoryId of [...new Set(repositoryIds)].sort()) {
@@ -484,10 +528,6 @@ export function workspaceReinitializeCommand(
   }
   if (dryRun) args.push('--dry-run');
   if (!dryRun && planId) args.push('--confirm-plan', planId);
-  for (const [conflictPath, resolution] of Object.entries(resolutions)
-    .sort(([left], [right]) => left.localeCompare(right))) {
-    args.push('--resolve', `${conflictPath}=${resolution}`);
-  }
   args.push('--json');
   return args;
 }
@@ -495,10 +535,16 @@ export function workspaceReinitializeCommand(
 /** Preserve the narrower configuration-only command for callers that deliberately request it. */
 export function configurationRefreshCommand(
   row: Pick<WorkspaceRow, 'directory'> | null,
-  request: Parameters<typeof workspaceReinitializeCommand>[1]
+  request: Parameters<typeof workspaceReinitializeCommand>[1] & {
+    resolutions?: Record<string, WorkspaceConfigurationResolution>;
+  }
 ): string[] {
-  const args = workspaceReinitializeCommand(row, request);
+  const { resolutions = {}, ...safeRequest } = request;
+  const args = workspaceReinitializeCommand(row, safeRequest);
   args[1] = 'refresh-configuration';
+  args.splice(-1, 0, ...Object.entries(resolutions)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([conflictPath, resolution]) => ['--resolve', `${conflictPath}=${resolution}`]));
   return args;
 }
 

@@ -19,7 +19,7 @@ related:
   - installation-and-upgrades
   - recovery
   - secrets
-version: 6
+version: 7
 ---
 Reset commands have deliberately different scopes. Preview the exact scope and use the confirmation printed by that same mode.
 
@@ -31,8 +31,18 @@ Use this topic when the current goal matches **resets and cleanup**. Start in a 
 
 - **Shell:** `sflow factory-reset`, `sflow reset-all`, `sflow local-reset --forget-only`, or destructive `sflow local-reset`. To remove installed product surfaces while preserving all governed data, run the promoted distribution's `./uninstall.sh`, `.\uninstall.ps1`, or `uninstall.cmd`. Run `singularity-flow local-reset --help` for the exact reset forms supported by this build.
 - **Copilot:** `/sf-factory-reset`, `/sf-local-reset`. There is deliberately no Copilot command for machine-level product uninstall: uninstall removes the Copilot integration itself and must remain an explicit operating-system shell action.
-- **VS Code:** open **Workspaces → Fast onboarding & Git → Destructive recovery**, or run
-  **Singularity Flow: Factory Reset / Reinitialize Any Git Repository (Destructive)**. Choose the
+- **VS Code reinitialize:** run **Singularity Flow: Reinitialize Framework Assets (Preserves User
+  Content)**. This opens the plan-first workspace review and restores only missing or exact
+  registered framework seeds and their framework-owned dependencies. User-created and
+  user-modified workflows, phases, artifact sets, templates, prompts, and agents are preserved.
+  Same-name and modified-seed collisions are reported rather than overwritten, and work-item
+  artifacts are excluded. Safe reinitialize refuses `--resolve ...=bundled` and
+  `--accept-bundled-conflicts`; use ordinary `workspace refresh-configuration` for a separately
+  reviewed, deliberate adoption of packaged content.
+  Capability-specific publication and portable locator repair are outside this action; user-owned
+  capability definitions remain unchanged in the approved configuration mirror.
+- **VS Code factory reset:** open **Workspaces → Fast onboarding & Git → Factory reset**, or run
+  **Singularity Flow: Factory Reset Local SFlow Data (Destructive)**. Choose the
   Git root, review what is removed and preserved, explicitly accept dirty SFlow data loss when
   present, and type the exact repository-bound confirmation. The apply is also bound to the
   preview's `resetScopeSha256`; any later branch, revision, path, or byte change forces a new
@@ -40,6 +50,11 @@ Use this topic when the current goal matches **resets and cleanup**. Start in a 
   Valid custom agents remain active. Invalid custom agents are preserved byte-for-byte under
   `.github/singularity-flow-recovered-agents/<sha256>/`, removed from active discovery, and shown
   with their exact source, destination, digest, size, and validation reason.
+
+Reinitialize and factory reset are deliberately different operations. A normal reinitialize never
+silently escalates to factory reset. If the repository is too damaged for seeded-only refresh, the
+refusal names the separately reviewed factory-reset route; it does not delete user-created SFlow
+content on the caller's behalf.
 
 ## Guided workflow
 

@@ -530,9 +530,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 19
+        "command-run": 24
       },
-      "digest": "17dc15bb28cffeaec3a0eb6e4a4255e4dd1c77ecbd15fa8d722bbda0f97acc54"
+      "digest": "33cc998ba471e32baa045cac2e80e2dae545975a1b5bd655fc7a60171be31518"
     },
     "src/configuration-people.mjs": {
       "counts": {
@@ -1206,9 +1206,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 28
+        "command-run": 37
       },
-      "digest": "029bf663843c4593e2ad7dd21aed7e109d50b094ffa33aad1ee988fb9100d583"
+      "digest": "61614c402201123d6aa55da48f158b947722d3de8717906c942e19f057fb65f1"
     },
     "src/workspace-impact.mjs": {
       "counts": {

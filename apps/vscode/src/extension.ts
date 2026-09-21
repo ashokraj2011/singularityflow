@@ -2398,7 +2398,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     };
 
-    const { WorkspacesPanel } = lazyPanels();
+    const { WorkspacesPanel, IntakePanel } = lazyPanels();
     if (!requestIsCurrent()) return;
     const refreshConfiguration = async (
       workspacePath: string | null,
@@ -2412,7 +2412,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
       try {
-        return await vscode.window.withProgress(
+        const result = await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
             title: request.dryRun
@@ -2432,13 +2432,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
           }
         );
+        if (!request.dryRun && (result.status === 'complete' || result.updated > 0)) {
+          await IntakePanel.configurationChanged();
+        }
+        return result;
       } catch (error) {
         // This command deliberately exits non-zero for a blocked or partial multi-repository result.
         // Keep that structured result so the page can name the failed repository, review branch,
         // and recovery state instead of displaying a serialized JSON object as an exception.
         const result = (error as { result?: unknown }).result;
         if (result && typeof result === 'object' && Array.isArray((result as { results?: unknown }).results)) {
-          return result as WorkspaceConfigurationRefreshResult;
+          const structured = result as WorkspaceConfigurationRefreshResult;
+          if (!request.dryRun && structured.updated > 0) {
+            await IntakePanel.configurationChanged();
+          }
+          return structured;
         }
         throw error;
       }
@@ -2456,7 +2464,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'local-authority': 'singularityFlow.bootstrapLocalAuthority',
         doctor: 'singularityFlow.workspaceDoctor',
         'resume-bootstrap': 'singularityFlow.resumeWorkspaceBootstrap',
-        'factory-reset': 'singularityFlow.reinitialize'
+        'factory-reset': 'singularityFlow.factoryReset'
       };
       return await vscode.commands.executeCommand<WorkspaceFosOutcome | null>(
         commands[action], repositoryPath ?? undefined
@@ -2490,18 +2498,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   /**
+   * Compatibility route for clients which used the old ambiguous command ID.
+   *
+   * Reinitialize now always means the seeded-only, plan-first workspace refresh. The destructive
+   * repository operation has its own explicit `singularityFlow.factoryReset` command below and is
+   * never selected merely because an older button or tree node asked to reinitialize.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.reinitialize',
+    (requestedRepository?: string) => requestedRepository?.trim()
+      ? vscode.commands.executeCommand('singularityFlow.refreshRepositorySetup', {
+        repositoryPath: requestedRepository.trim(), action: 'reinitialize'
+      })
+      : vscode.commands.executeCommand('singularityFlow.reinitializeWorkspaces')
+  ));
+
+  /**
    * Recover an old or incomplete setup from the one identity a person normally knows: its Git URL.
    *
    * This is deliberately an orchestrator over existing guarded CLI contracts. It performs no
-   * configuration mutation itself: the safe workspace path opens the exact-plan preview already
-   * used by Workspaces, authority refresh reuses the pinned-route command, and repository
-   * reinitialization reuses the factory-reset preview with its repository-bound confirmation.
+   * configuration mutation itself: safe reinitialize opens the exact-plan preview already used by
+   * Workspaces, authority refresh reuses the pinned-route command, and factory reset remains one
+   * separately named choice with its own repository-bound confirmation.
    */
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.refreshRepositorySetup', async (request?: {
       repositoryUrl?: string;
       repositoryPath?: string;
       workspacePath?: string;
+      /** Internal compatibility route: resolve the exact target, then open only safe reinitialize. */
+      action?: 'reinitialize';
     }) => {
       let location: CliLocation;
       try {
@@ -2835,12 +2861,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ))?.target;
       if (!chosen) return;
 
+      // The retired `singularityFlow.reinitialize` command ID must stay safe for old buttons and
+      // extensions which supplied a repository path. Resolve that path against the registry as
+      // above, then go directly to seeded-only review; never expose factory reset as an accidental
+      // interpretation of the old command.
+      if (request?.action === 'reinitialize') {
+        const route = repositoryRefreshCommand('reinitialize', chosen);
+        if (!route) return showRefusal(
+          'Safe reinitialize requires this repository to belong to one registered workspace.',
+          { headline: 'Could not open safe reinitialize' }
+        );
+        return vscode.commands.executeCommand(route.command, ...route.args);
+      }
+
       const actions = [
-        ...(repositoryRefreshCommand('refresh', chosen) ? [{
-          label: '$(sync) Refresh configuration and workflows',
+        ...(repositoryRefreshCommand('reinitialize', chosen) ? [{
+          label: '$(sync) Reinitialize framework-seeded SFlow assets',
           description: 'Recommended',
-          detail: 'Preview packaged workflow/schema changes and state projections, then apply only the exact reviewed plan.',
-          action: 'refresh' as const
+          detail: 'Preview only missing or exact registered framework workflow, phase, artifact-set, template, prompt, and agent updates. User-created and user-modified content is preserved.',
+          action: 'reinitialize' as const
         }] : []),
         {
           label: '$(refresh) Refresh authority pin',
@@ -2849,10 +2888,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           action: 'authority' as const
         },
         {
-          label: '$(debug-restart) Reinitialize local SFlow files',
-          description: 'Old or damaged format',
-          detail: 'Preview the exact SFlow-only reset boundary. Application code, .git, branches, remotes, and Git history are preserved.',
-          action: 'reinitialize' as const
+          label: '$(warning) Factory reset all local SFlow data',
+          description: 'Destructive recovery only',
+          detail: 'Discard local SFlow configuration and runtime after an exact preview. This is not reinitialize and does not preserve user-created SFlow files.',
+          action: 'factory-reset' as const
         }
       ];
       const selectedAction = await vscode.window.showQuickPick(actions, {
@@ -3542,7 +3581,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // confirmation to the person. Registered before repository activation succeeds so the action is
   // still available in the incompatible-workflow state it exists to repair.
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.reinitialize', async (requestedRepository?: string) => {
+    'singularityFlow.factoryReset', async (requestedRepository?: string) => {
     try {
       // Recovery cannot start by loading governed configuration: an old, incomplete, or damaged
       // configuration is the thing this command exists to remove. Require an explicit repository
@@ -3552,7 +3591,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? requestedRepository.trim() : '';
       if (!selectedRepository) {
         const choice = await vscode.window.showOpenDialog({
-          title: 'Choose the Git repository to reinitialize',
+          title: 'Choose the Git repository to factory reset',
           canSelectFiles: false,
           canSelectFolders: true,
           canSelectMany: false,
@@ -3581,17 +3620,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => client.run<FactoryResetPlan>(['factory-reset', '--dry-run', '--json'])
       );
       if (!plan.resetScopeSha256) {
-        throw new Error('The selected Singularity Flow CLI is too old for guarded VS Code reinitialization. Install the current build and try again.');
+        throw new Error('The selected Singularity Flow CLI is too old for guarded VS Code factory reset. Install the current build and try again.');
       }
       const reviewedScopeSha256 = plan.resetScopeSha256;
       const discarded = plan.uncommittedDiscardPaths ?? plan.uncommittedResetPaths.filter((entry) =>
         /^.. (?:singularity|\.singularity|\.sdlc)(?:\/|$)/.test(entry));
       const preservedDirty = plan.uncommittedResetPaths.filter((entry) => !discarded.includes(entry));
       const action = discarded.length
-        ? 'Discard SFlow data and reinitialize'
-        : 'Reinitialize repository';
+        ? 'Discard all local SFlow data'
+        : 'Factory reset local SFlow data';
       const review = await vscode.window.showWarningMessage(
-        'Reinitialize this repository with the current Singularity Flow format?',
+        'Factory reset all local Singularity Flow data in this repository?',
         {
           modal: true,
           detail: `Repository: ${plan.repository}\nBranch: ${plan.branch ?? 'detached'}\n\n`
@@ -3645,12 +3684,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       if (reviewedIdentity(currentPlan) !== reviewedIdentity(plan)) {
         return void vscode.window.showWarningMessage(
-          'The repository changed after the reset preview. Nothing was removed. Run Reinitialize again to review the current boundary.'
+          'The repository changed after the reset preview. Nothing was removed. Run Factory Reset again to review the current boundary.'
         );
       }
 
       const resetResult = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Reinitializing with the current Singularity Flow format' },
+        { location: vscode.ProgressLocation.Notification, title: 'Factory resetting local Singularity Flow data' },
         () => client.run<FactoryResetPlan>([
           'factory-reset', '--confirm', confirmation,
           '--expect-scope-sha256', reviewedScopeSha256,
@@ -3672,10 +3711,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         verificationWarning = [verificationWarning, checkWarning].filter(Boolean).join(' ');
         output.appendLine(`Post-reset configuration check needs attention: ${checkWarning}`);
       }
+      // A retained Story Intake panel owns no configuration authority of its own. Its draft stays
+      // intact, but installed and available workflows must now come from the replacement bytes.
+      await lazyPanels().IntakePanel.configurationChanged(repository);
       const completedMessage = 'The current Singularity Flow format is installed locally. Application source and Git history were preserved; remote sflow/config and state branches were not changed. Review all generated SFlow changes in Source Control—including singularity/, packaged .github/agents files, and any recovered custom-agent files—then commit and publish through your normal review path.';
       const next = verificationWarning
         ? await vscode.window.showWarningMessage(
-          'The repository was reinitialized, but cleanup or the post-reset check needs attention.',
+          'The repository was factory reset, but cleanup or the post-reset check needs attention.',
           { modal: true, detail: `${completedMessage}\n\n${verificationWarning}` },
           'Open Output', 'Open Source Control', 'Reload Window'
         )
@@ -3689,8 +3731,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         action: 'factory-reset' as const,
         status: verificationWarning ? 'attention' as const : 'completed' as const,
         headline: verificationWarning
-          ? 'Repository reinitialized; configuration check needs attention'
-          : 'Repository reinitialized',
+          ? 'Repository factory reset; configuration check needs attention'
+          : 'Repository factory reset',
         summary: verificationWarning
           ? 'The reset completed and application source was preserved. Review the post-reset check before publishing configuration.'
           : 'The current SFlow format is installed locally. Review and commit the generated configuration when it is correct.',
@@ -3703,7 +3745,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         recordedAt: new Date().toISOString()
       } satisfies WorkspaceFosOutcome;
     } catch (error) {
-      showRefusal(error, { headline: 'Could not reinitialize the repository' });
+      showRefusal(error, { headline: 'Could not factory reset the repository' });
     }
   }));
 
@@ -5491,6 +5533,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           output.appendLine(`  configuration refresh refused: ${store.current.error.message}`);
           return store.current.error.message;
         }
+        await lazyPanels().IntakePanel.configurationChanged(repository);
         return null;
       } catch (error) {
         output.appendLine(`  configuration refresh refused: ${(error as Error).message}`);

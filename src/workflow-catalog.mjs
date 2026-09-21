@@ -26,8 +26,7 @@ function stable(value) { return JSON.stringify(canonical(value), null, 2); }
  * — `workflow create quick-fix` reported success and `workflow list` then did not mention it. A
  * catalog that omits what you just made is not a catalog of what you have.
  */
-export async function workflowCatalog(root) {
-  const [installed, starter] = await Promise.all([loadDefinition(root), starterDefinition()]);
+function catalogFromDefinitions(installed, starter) {
   const packaged = Object.entries(starter.workTypes).map(([id, profile]) => {
     const current = installed.workTypes[id];
     const effectiveDefinition = current ? installed : starter;
@@ -49,6 +48,23 @@ export async function workflowCatalog(root) {
       ...workflowCodeGeneration(resolveWorkType(installed, id))
     }));
   return [...packaged, ...local];
+}
+
+/**
+ * Compare one already-validated repository definition with this build's packaged catalog.
+ *
+ * Exact-base Story preflight can intentionally replace the launch checkout's definition with the
+ * definition read from the selected remote base. Reusing the launch catalog in that case made a
+ * packaged workflow disappear when it was installed in one definition but absent from the other.
+ * This entry point keeps installed and available projections tied to the same exact definition.
+ */
+export async function workflowCatalogForDefinition(installed) {
+  return catalogFromDefinitions(installed, await starterDefinition());
+}
+
+export async function workflowCatalog(root) {
+  const installed = await loadDefinition(root);
+  return workflowCatalogForDefinition(installed);
 }
 
 /**

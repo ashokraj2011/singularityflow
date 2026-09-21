@@ -892,11 +892,16 @@ Usage:
      and capability show; intended for migration evidence, not ordinary use)
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
-  singularity-flow workspace reinitialize [WORKSPACE] [--repository ID] [--dry-run]
-    [--resolve PATH=local|bundled|merge] [--confirm-plan PLAN-ID] [--json]
-    (safe, repeatable upgrade path: preview first; apply refreshes approved workflow/configuration,
-     state projections and capability locators, then validates durable schema readability;
-     readable legacy records migrate in memory and immutable history is never rewritten)
+    [--resolve PATH=local|bundled|merge] [--accept-bundled-conflicts]
+    [--confirm-plan PLAN-ID] [--json]
+  singularity-flow workspace reinitialize [WORKSPACE] [--repository ID]
+    [--dry-run | --confirm-plan PLAN-ID] [--json]
+    (safe, repeatable upgrade path: restores only missing or exact registered framework seeds and
+     their framework-owned dependencies; user-created and user-modified workflows, phases,
+     artifact sets, templates, prompts, and agents remain repository-owned and unchanged;
+     --resolve bundled and --accept-bundled-conflicts are refused here—use the separately reviewed
+     refresh-configuration flow for a deliberate ownership transfer; work-item artifacts,
+     capability publication, immutable history, and delivery locators remain outside this action)
   singularity-flow workspace copilot [ID|NAME|JIRA|DIRECTORY]
     [--repository ID] [--story ID] [--mode interactive|plan] [--dry-run]
   singularity-flow workspace prompt [--json]

@@ -1,0 +1,79 @@
+workTypes:
+  classic-delivery:
+    label: Classic delivery
+    description: Intake, code, testing, and code checking with committed test receipts and explicit reviewer feedback/rework to Code; REV feedback attachments are evidence only.
+    phases: [intake, implementation, testing, conformance]
+    plannedClaims:
+      mode: required
+      clausePhases: [intake]
+      owners: { implementation: intake }
+    templateOverrides:
+      intake: classic-delivery/intake.md
+      testing: classic-delivery/testing.md
+      conformance: classic-delivery/code-checking.md
+    phaseOverrides:
+      intake:
+        artifact: { kind: requirements }
+        clarification:
+          mode: required
+          maxQuestions: 5
+          topics: [problem, outcome, scope, acceptance criteria, tests]
+      implementation:
+        label: Code
+        inputs: [intake]
+        approval:
+          authorities: [engineering-reviewers]
+          minimum: 1
+          rejectTo: [intake, implementation]
+      testing:
+        label: Testing
+        inputs: [intake, implementation]
+        writeScope: artifact-only
+        testEvidenceFrom: implementation
+        approval:
+          authorities: [quality-reviewers]
+          minimum: 1
+          rejectTo: [implementation, testing]
+      conformance:
+        label: Code checking
+        inputs: [intake, implementation, testing]
+        testEvidenceFrom: implementation
+        approval:
+          authorities: [quality-reviewers, engineering-reviewers]
+          minimum: 1
+          rejectTo: [intake, implementation, testing, conformance]
+phases:
+  planning:
+    label: Planning
+    defaultTemplate: spec-driven/plan.md
+    artifact:
+      path: artifacts/planning/plan.md
+      kind: design
+      minimumBytes: 300
+    artifactSet: spec-driven-planning
+    worldModel:
+      views: [architecture]
+      depth: standard
+    writeScope: artifact-only
+    approval:
+      authorities: [architecture-reviewers]
+      minimum: 1
+      rejectTo: [specification, planning]
+artifactSets:
+  spec-driven-specification:
+    primary: spec.md
+    members:
+      - { path: spec.md, role: specification, required: true }
+      - { path: checklists/requirements.md, role: specification-quality, required: true }
+mcpServers:
+  playwright:
+    label: Playwright browser automation
+    hostReference: playwright
+    agents: [qa, product-designer, poc-automation, poc-explorer, poc-validator]
+    phases: [design-intake, design-inventory, verification, visual-verification, conformance, poc-ui-exploration, poc-validation]
+    tools: [browser_navigate, browser_snapshot, browser_click, browser_fill_form, browser_hover, browser_press_key, browser_resize, browser_take_screenshot, browser_console_messages, browser_network_requests]
+    required: false
+    approval: confirm
+    evidence:
+      captureToolCalls: true
+      captureResults: true

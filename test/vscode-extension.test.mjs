@@ -4485,7 +4485,7 @@ test('a failure shows the sentence, not the log line that carries it', () => {
 const {
   EMPTY_INTAKE_FORM, SHAPES, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems,
   mintsIdentifier, needsProfile, referenceRepositoryEntries, storyPreflightCommand,
-  storyWorkflowSelection
+  storyWorkflowSelection, storyWorkflowSelectionForReload
 } = await import(source('views/intake-form.ts'));
 
 const INTAKE_CHOICES = {
@@ -4677,7 +4677,45 @@ test('Story preflight drops a launch-checkout workflow absent from the exact sel
   const panel = await readFile(source('views/intake-panel.ts'), 'utf8');
   assert.match(panel, /result\.intake\?\.storyWorkflows/);
   assert.match(panel, /storyWorkflows: exactBaseWorkflows/);
+  assert.match(panel, /availableStoryWorkflows: exactCatalog\.available/,
+    'the exact-base response must replace both halves of the workflow catalog');
   assert.match(panel, /Choose a Story workflow available on the selected base branch/);
+});
+
+test('retained Story Intake keeps a base-only workflow until exact-base preflight revalidates it', () => {
+  const launchCatalog = INTAKE_CHOICES.storyWorkflows;
+  assert.equal(storyWorkflowSelectionForReload('release-only', launchCatalog, true),
+    'release-only', 'launch-catalog refresh must not substitute feature before base preflight');
+  assert.equal(storyWorkflowSelectionForReload('release-only', launchCatalog, false), null,
+    'without a preserved base, only launch-installed workflows are valid');
+  assert.equal(storyWorkflowSelection('release-only', [{
+    id: 'release-only', label: 'Release only', description: '', phases: ['intake']
+  }]), 'release-only', 'the subsequent exact-base catalog confirms the preserved selection');
+  assert.equal(storyWorkflowSelection('release-only', launchCatalog), null,
+    'the subsequent exact-base catalog still clears a workflow that is genuinely absent');
+});
+
+test('Story Intake refreshes retained catalogs after configuration changes without erasing drafts', async () => {
+  const [panel, extension] = await Promise.all([
+    readFile(source('views/intake-panel.ts'), 'utf8'),
+    readFile(source('extension.ts'), 'utf8')
+  ]);
+  assert.match(panel, /static async configurationChanged\(/);
+  assert.match(panel, /void IntakePanel\.current\.reloadCatalog\(\)/,
+    'reopening a retained Intake panel must not reveal a stale catalog');
+  assert.match(panel,
+    /private async reloadCatalog\(\)[\s\S]*?emptyStoryPreflight\(\)[\s\S]*?basePreflightChecking: true[\s\S]*?await this\.load\(\{ preserveSelections: true \}\)/,
+    'catalog reload must invalidate the prior ready state before awaiting fresh authority');
+  assert.match(panel, /load\(\{ preserveSelections: true \}\)/);
+  assert.match(panel, /Could not refresh Story workflows/,
+    'a failed reload must retain the prior draft and make its stale state visible');
+  assert.match(extension,
+    /!request\.dryRun[\s\S]*?await IntakePanel\.configurationChanged\(\)/,
+    'successful workspace configuration apply must invalidate an open Intake catalog');
+  assert.equal((extension.match(
+    /await lazyPanels\(\)\.IntakePanel\.configurationChanged\(repository\)/g
+  ) ?? []).length, 2,
+    'repository reinitialization and Configuration Center refresh invalidate matching Intake');
 });
 
 test('Story-start readiness distinguishes blocking findings from non-blocking advisories', () => {
@@ -4980,7 +5018,9 @@ test('a refused start is reported on the form that caused it', () => {
 const {
   archiveCommand, capabilityChangeCommand, duplicateBaseDirectory, duplicateCommand,
   duplicateDirectory, duplicateProblems,
-  renameCommand, restoreCommand, updateCommand, WorkspaceConfigurationRequestLeases,
+  configurationRefreshCommand, renameCommand, restoreCommand, updateCommand,
+  isSafeWorkspaceReinitializationPreview,
+  WorkspaceConfigurationRequestLeases,
   workspaceReinitializeCommand, workspaceRows
 } =
   await import(source('views/workspaces-model.ts'));
@@ -5084,47 +5124,50 @@ test('the copy and rename commands are what the engine expects', () => {
       '--confirm', 'commerce', '--json']);
 });
 
-test('workspace reinitialization commands bind apply to the preview and carry only reviewed choices', () => {
+test('workspace reinitialization commands bind apply without accepting ownership overrides', () => {
   const [commerce] = workspaceRows(REGISTRY);
   assert.deepEqual(workspaceReinitializeCommand(commerce, {
-    dryRun: true, resolutions: { 'workflow.ledger.enabled': 'local' }
+    dryRun: true
   }), [
-    'workspace', 'reinitialize', '/work/commerce', '--dry-run',
-    '--resolve', 'workflow.ledger.enabled=local', '--json'
+    'workspace', 'reinitialize', '/work/commerce', '--dry-run', '--json'
   ]);
   assert.deepEqual(workspaceReinitializeCommand(commerce, {
-    dryRun: true, repositoryIds: ['web'], resolutions: {}
+    dryRun: true, repositoryIds: ['web']
   }), [
     'workspace', 'reinitialize', '/work/commerce', '--repository', 'web', '--dry-run', '--json'
   ], 'a Git-URL handoff refreshes only the exact repository it resolved');
   assert.throws(() => workspaceReinitializeCommand(commerce, {
-    dryRun: true, repositoryIds: ['web --repository api'], resolutions: {}
+    dryRun: true, repositoryIds: ['web --repository api']
   }), /Invalid repository identifier/,
   'an invalid repository selector is refused instead of widening to the whole workspace');
-  assert.deepEqual(workspaceReinitializeCommand(null, {
-    dryRun: false,
-    planId: 'cfgp-123',
+  assert.throws(() => workspaceReinitializeCommand(null, {
+    dryRun: false, planId: 'cfgp-123',
     resolutions: {
-      'workflow.ledger.enabled': 'local',
       '.github/agents/developer.agent.md': 'bundled'
     }
+  }), /does not accept ownership resolutions/,
+  'a stale retained panel cannot smuggle a packaged-content override into safe reinitialize');
+  assert.deepEqual(workspaceReinitializeCommand(null, {
+    dryRun: false, planId: 'cfgp-123'
+  }), ['workspace', 'reinitialize', '--confirm-plan', 'cfgp-123', '--json']);
+  assert.deepEqual(configurationRefreshCommand(commerce, {
+    dryRun: true, resolutions: { 'workflow.ledger.enabled': 'bundled' }
   }), [
-    'workspace', 'reinitialize', '--confirm-plan', 'cfgp-123',
-    '--resolve', '.github/agents/developer.agent.md=bundled',
-    '--resolve', 'workflow.ledger.enabled=local', '--json'
-  ]);
+    'workspace', 'refresh-configuration', '/work/commerce', '--dry-run',
+    '--resolve', 'workflow.ledger.enabled=bundled', '--json'
+  ], 'deliberate ownership transfer remains confined to ordinary configuration refresh');
 });
 
-test('workspace reinitialization leases reject late previews after path, scope, or choices change', () => {
+test('workspace reinitialization leases reject late previews after path, scope, or repository changes', () => {
   const requests = new WorkspaceConfigurationRequestLeases();
   const selectedA = {
-    selectedPath: '/work/a', scope: 'selected', repositoryId: 'api', resolutions: {}
+    selectedPath: '/work/a', scope: 'selected', repositoryId: 'api'
   };
   const first = requests.issue(selectedA);
   assert.equal(requests.isCurrent(first, selectedA), true);
 
   const selectedB = {
-    selectedPath: '/work/b', scope: 'selected', repositoryId: 'api', resolutions: {}
+    selectedPath: '/work/b', scope: 'selected', repositoryId: 'api'
   };
   const second = requests.issue(selectedB);
   assert.equal(requests.isCurrent(first, selectedA), false, 'A preview cannot attach to B');
@@ -5140,36 +5183,60 @@ test('workspace reinitialization leases reject late previews after path, scope, 
   const all = { ...selectedA, scope: 'all' };
   const allLease = requests.issue(all);
   assert.equal(requests.isCurrent(backToA, selectedA), false, 'scope changes invalidate a preview');
-
-  const packaged = {
-    ...all,
-    resolutions: { '.github/agents/developer.agent.md': 'bundled' }
-  };
-  const packagedLease = requests.issue(packaged);
-  assert.equal(requests.isCurrent(allLease, all), false, 'resolution changes invalidate a preview');
-  assert.equal(requests.isCurrent(packagedLease, packaged), true);
+  assert.equal(requests.isCurrent(allLease, all), true);
   requests.invalidate();
-  assert.equal(requests.isCurrent(packagedLease, packaged), false,
+  assert.equal(requests.isCurrent(allLease, all), false,
     'an explicit selection refresh invalidates even byte-identical context');
+});
+
+test('only the exact seeded-only workspace reinitialization preview can authorize apply', () => {
+  const safe = {
+    status: 'preview', dryRun: true, planId: 'cfgp-safe', total: 1, updated: 0,
+    resultType: 'workspace-reinitialization',
+    capabilityPortability: {
+      status: 'outside-scope-unchanged', changed: false, plannedLeads: [], results: []
+    },
+    results: [{
+      status: 'would-update', repository: 'platform', remote: '/git/platform.git',
+      conflicts: [{ path: 'custom.md', resolution: 'preserved-local' }]
+    }]
+  };
+  assert.equal(isSafeWorkspaceReinitializationPreview(safe), true);
+  assert.equal(isSafeWorkspaceReinitializationPreview({ ...safe, resultType: undefined }), false,
+    'legacy configuration-refresh output is not an apply authority');
+  assert.equal(isSafeWorkspaceReinitializationPreview({ ...safe, dryRun: false }), false,
+    'a mutation-shaped result is not a preview authority');
+  assert.equal(isSafeWorkspaceReinitializationPreview({
+    ...safe,
+    capabilityPortability: { ...safe.capabilityPortability, changed: true }
+  }), false, 'capability mutation is outside safe reinitialization');
+  assert.equal(isSafeWorkspaceReinitializationPreview({
+    ...safe,
+    results: [{
+      ...safe.results[0],
+      conflicts: [{ path: 'custom.md', resolution: 'accepted-bundled' }]
+    }]
+  }), false, 'an ownership-transfer conflict is refused');
 });
 
 test('the command palette separates safe workspace reinitialization from destructive factory reset', async () => {
   const manifest = JSON.parse(await readFile(
     path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
   const commands = new Map(manifest.contributes.commands.map((entry) => [entry.command, entry.title]));
-  assert.match(commands.get('singularityFlow.reinitializeWorkspaces'), /Safely Reinitialize/);
+  assert.match(commands.get('singularityFlow.reinitializeWorkspaces'), /Upgrade Framework Seeds/);
   assert.match(commands.get('singularityFlow.upgradeWorkspaces'), /Safe Preview/);
   assert.match(commands.get('singularityFlow.refreshRepositorySetup'), /Git URL/);
-  assert.match(commands.get('singularityFlow.reinitialize'), /Factory Reset.*Destructive/);
+  assert.equal(commands.has('singularityFlow.reinitialize'), false,
+    'the ambiguous legacy ID remains a runtime alias, not a discoverable destructive command');
+  assert.match(commands.get('singularityFlow.factoryReset'), /Factory Reset.*Destructive/);
 });
 
-test('workspace reinitialization renders configuration, schemas and capability portability', () => {
+test('workspace reinitialization renders seeded configuration and keeps capability state outside scope', () => {
   const rows = workspaceRows(REGISTRY);
   const html = workspacesHtml(
     rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
     {
       scope: 'selected', loading: false, applying: false, error: null,
-      resolutions: { '.github/agents/developer.agent.md': 'bundled' },
       result: {
         status: 'preview', dryRun: true, planId: 'cfgp-123', total: 1, updated: 0,
         resultType: 'workspace-reinitialization',
@@ -5200,15 +5267,14 @@ test('workspace reinitialization renders configuration, schemas and capability p
           }
         ],
         capabilityPortability: {
-          status: 'not-run-during-preview',
-          plannedLeads: [{
-            lead: '/git/platform.git', workspaceIds: ['commerce'], triggeredByRepositories: ['platform']
-          }],
+          status: 'outside-scope-unchanged', changed: false,
+          statement: 'Capability-specific publication and portable locator repair are outside safe reinitialization. User-owned capability definitions remain unchanged in the approved configuration mirror.',
+          plannedLeads: [],
           results: []
         },
         topologyIssues: [{
-          lead: 'https://example.test/platform.git', status: 'unavailable',
-          reason: 'The lead authority could not be observed.',
+          workspaceId: 'commerce', repositoryId: 'platform', status: 'unavailable',
+          reason: 'The registered repository path could not be resolved.',
           nextAction: {
             command: 'singularity-flow workspace doctor --network --repository https://example.test/platform.git --json',
             shell: 'posix'
@@ -5218,10 +5284,11 @@ test('workspace reinitialization renders configuration, schemas and capability p
           status: 'would-update', repository: 'platform', remote: '/git/platform.git',
           configurationChanged: true, stateChanged: true, stateStatus: 'would-follow-configuration',
           files: ['singularity/workflow.yml'],
+          removedStatePaths: ['configuration/files/retired.yml'],
           conflicts: [
             { path: 'workflow.ledger.enabled', resolution: 'preserved-local', local: true, bundled: false },
             {
-              path: '.github/agents/developer.agent.md', resolution: 'accepted-bundled',
+              path: '.github/agents/developer.agent.md', resolution: 'preserved-local',
               localSha256: 'a', bundledSha256: 'b'
             }
           ]
@@ -5229,14 +5296,19 @@ test('workspace reinitialization renders configuration, schemas and capability p
       }
     }
   );
-  assert.match(html, /Safely reinitialize capabilities &amp; workspaces/);
-  assert.match(html, /immutable history, world models/);
+  assert.match(html, /Reinitialize framework-seeded assets/);
+  assert.match(html, /User-created or user-modified assets\s+remain repository-owned and unchanged/);
+  assert.match(html, /immutable history, world\s+models/);
   assert.match(html, /data-config-preview="selected"/);
   assert.match(html, /data-config-preview="all"/);
-  assert.match(html, /data-configuration-resolution="workflow\.ledger\.enabled"/);
-  assert.match(html, /data-configuration-resolution="\.github\/agents\/developer\.agent\.md"/);
-  assert.match(html, /<option value="bundled" selected>Use packaged<\/option>/);
-  assert.match(html, /data-config-bundled="assets"/);
+  assert.match(html, /Preserved repository-owned collisions/);
+  assert.match(html, /Exact reviewed paths/);
+  assert.match(html, /platform:singularity\/workflow\.yml/);
+  assert.match(html, /platform:configuration\/files\/retired\.yml/);
+  assert.match(html, /Safe reinitialization never replaces or adopts these paths/);
+  assert.match(html, /Keep repository/);
+  assert.doesNotMatch(html, /data-configuration-resolution=/);
+  assert.doesNotMatch(html, /data-config-bundled=/);
   assert.match(html, /data-config-apply="selected"/);
   assert.doesNotMatch(html, /data-config-apply="selected"\s+disabled/);
   assert.match(html, /Stored schema compatibility/);
@@ -5251,26 +5323,26 @@ test('workspace reinitialization renders configuration, schemas and capability p
   assert.ok(html.includes(
     'data-copy-command="Set-Location &#39;C:\\Work\\team&#39;&#39;s api&#39;; singularity-flow doctor --json"'
   ));
-  assert.match(html, /Capability-map portability/);
-  assert.match(html, /will verify after confirmation/);
-  assert.match(html, /no capability YAML is\s+copied onto an application branch/);
-  assert.match(html, /https:\/\/example\.test\/platform\.git/);
-  assert.match(html, /The lead authority could not be observed/);
+  assert.match(html, /Capability state/);
+  assert.match(html, /outside-scope-unchanged/);
+  assert.match(html, /User-owned capability definitions remain unchanged/);
+  assert.doesNotMatch(html, /will verify after confirmation/);
+  assert.match(html, /The registered repository path could not be resolved/);
   assert.match(html, /data-copy-command="singularity-flow workspace doctor --network/);
   assert.doesNotMatch(html, />undefined</);
-  assert.match(html, /Confirm &amp; reinitialize/);
+  assert.match(html, /Confirm seeded-asset reinitialize/);
   assert.match(html, /type the exact plan ID/);
   assert.match(html, /cfgp-123/);
   assert.match(WORKSPACES_SCRIPT, /\[data-copy-command\]/);
   assert.match(WORKSPACES_SCRIPT, /navigator\.clipboard\.writeText\(data\.copyCommand\)/);
 });
 
-test('a blocked workspace upgrade offers a reviewed packaged-agent repair in the UI', () => {
+test('a blocked workspace upgrade preserves repository-owned agents in the UI', () => {
   const rows = workspaceRows(REGISTRY);
   const html = workspacesHtml(
     rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
     {
-      scope: 'all', loading: false, applying: false, error: null, resolutions: {},
+      scope: 'all', loading: false, applying: false, error: null,
       result: {
         status: 'blocked', dryRun: true, total: 1, updated: 0,
         results: [{
@@ -5289,10 +5361,11 @@ test('a blocked workspace upgrade offers a reviewed packaged-agent repair in the
       }
     }
   );
-  assert.match(html, /Safely reinitialize capabilities &amp; workspaces/);
-  assert.match(html, /Governed agents from an older build are blocking this upgrade/);
-  assert.match(html, /data-config-agents="packaged"/);
-  assert.match(html, /Repair missing or outdated agents/);
+  assert.match(html, /Reinitialize framework-seeded assets/);
+  assert.match(html, /Repository-owned agents need a separate decision/);
+  assert.match(html, /Safe reinitialization will not overwrite these agent files/);
+  assert.doesNotMatch(html, /data-config-agents=/);
+  assert.doesNotMatch(html, /Repair missing or outdated agents/);
   assert.doesNotMatch(html, /data-config-apply="all"\s*>/,
     'a blocked preview has no plan that can be applied');
 });
@@ -5302,7 +5375,7 @@ test('workspace reinitialization never offers apply for a mutation-shaped result
   const html = workspacesHtml(
     rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
     {
-      scope: 'selected', loading: false, applying: false, error: null, resolutions: {},
+      scope: 'selected', loading: false, applying: false, error: null,
       result: {
         status: 'preview', dryRun: false, planId: 'cfgp-not-a-preview', total: 1, updated: 1,
         results: []
@@ -5310,6 +5383,46 @@ test('workspace reinitialization never offers apply for a mutation-shaped result
     }
   );
   assert.match(html, /data-config-apply="selected"\s+disabled/);
+});
+
+test('workspace reinitialization refuses legacy or ownership-transferring previews', () => {
+  const rows = workspaceRows(REGISTRY);
+  const legacy = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
+    {
+      scope: 'selected', loading: false, applying: false, error: null,
+      result: {
+        status: 'preview', dryRun: true, planId: 'cfgp-legacy', total: 1, updated: 0,
+        results: []
+      }
+    }
+  );
+  assert.match(legacy, /did not return the seeded-only\s+reinitialization contract/);
+  assert.match(legacy, /data-config-apply="selected"\s+disabled/);
+
+  const ownershipTransfer = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
+    {
+      scope: 'selected', loading: false, applying: false, error: null,
+      result: {
+        status: 'preview', dryRun: true, planId: 'cfgp-unsafe', total: 1, updated: 0,
+        resultType: 'workspace-reinitialization',
+        capabilityPortability: {
+          status: 'outside-scope-unchanged', changed: false, plannedLeads: [], results: []
+        },
+        results: [{
+          status: 'would-update', repository: 'platform', remote: '/git/platform.git',
+          conflicts: [{
+            path: 'singularity/templates/feature/requirements.md',
+            resolution: 'accepted-bundled', localSha256: 'local', bundledSha256: 'package'
+          }]
+        }]
+      }
+    }
+  );
+  assert.match(ownershipTransfer, /attempted an ownership\s+transfer/);
+  assert.match(ownershipTransfer, /never\s+accepts packaged-content overrides/);
+  assert.match(ownershipTransfer, /data-config-apply="selected"\s+disabled/);
 });
 
 test('the selected workspace offers edit, copy and forget, and says what each costs', () => {
@@ -5365,6 +5478,10 @@ test('workspace details show its directory, capabilities, repositories and Jira 
   };
   const html = workspacesHtml(rows, '/work/commerce', EMPTY_COPY, null, status, false, null);
   assert.match(html, /Workspace details/);
+  assert.match(html, /safe framework-asset reinitialize, authority-pin repair, or an explicitly reviewed factory\s+reset/,
+    'repository recovery distinguishes safe reinitialize from destructive factory reset');
+  assert.doesNotMatch(html, /SFlow-only\s+reinitialization/,
+    'the mixed recovery entry point must not describe factory reset as ordinary reinitialize');
   assert.match(html, /\/work\/commerce\/repos\/platform/);
   assert.match(html, /checkout/);
   assert.match(html, /payments/);
@@ -5386,8 +5503,9 @@ test('workspace details show its directory, capabilities, repositories and Jira 
   assert.match(html, /data-fos-action="local-authority"/);
   assert.match(html, /data-fos-action="doctor"/);
   assert.match(html, /data-fos-action="resume-bootstrap"/);
-  assert.match(html, /Destructive recovery for an old or broken repository/);
+  assert.match(html, /Factory reset for an unrecoverable old or broken repository/);
   assert.match(html, /data-fos-action="factory-reset"/);
+  assert.match(html, /Unlike normal reinitialize, this destructive recovery can remove user-created SFlow/);
   assert.match(html, /repository-shared SFlow runtime data \(including runtime shared\s+by linked worktrees\)/,
     'the destructive preview entry discloses that linked worktrees share repository runtime');
   assert.match(html, /remote\s+<code>sflow\/config<\/code>\/<code>state<\/code> branches are preserved/);

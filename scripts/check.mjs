@@ -21,8 +21,13 @@ import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-m
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import { releaseDependencyLockProblems } from '../src/release-dependency-lock.mjs';
 import {
+  CURRENT_PACKAGED_ASSET_SHA256,
   isCurrentPackagedAssetHash, isKnownPackagedAssetHash, packagedAssetSha256
 } from '../src/packaged-asset-history.mjs';
+import {
+  CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256,
+  isKnownPackagedWorkflowValue, packagedWorkflowValueSha256
+} from '../src/packaged-workflow-history.mjs';
 import {
   ASSURANCE_LEVELS, DERIVATION_STATUSES, EVIDENCE_KINDS, FACT_STATUSES, FACT_TYPES,
   MODEL_MODES, SECTION_KINDS, SUBJECT_KINDS, SCOPE_SUBJECT_KINDS,
@@ -1022,7 +1027,10 @@ if (!releaseEvidenceTemplateText.includes('REPLACE_WITH_')) {
 }
 checked.push(releaseEvidenceTemplatePath);
 
-const workflowTemplateSource = YAML.parse(await readFile(path.join(root, 'templates', 'workflow.yml'), 'utf8'));
+const packagedWorkflowSource = YAML.parse(await readFile(
+  path.join(root, 'templates', 'workflow.yml'), 'utf8'
+));
+const workflowTemplateSource = structuredClone(packagedWorkflowSource);
 const governedAgents = await discoverAgents(root);
 // Validate the same joined contract a repository will load. Validating workflow.yml before adding
 // its Agent Markdown catalog skips MCP-to-agent tool authorization and allowed a mixed release to
@@ -1037,29 +1045,55 @@ validateAgentCatalog(governedAgents, workflowTemplate);
 for (const id of ['product-owner', 'architect', 'developer', 'qa']) {
   if (!governedAgents.some((agent) => agent.id === id)) fail(`governed Agent Markdown catalog must include '${id}'`);
 }
-// Enumerate the installed files directly rather than the ID-deduplicated agent catalog. Plugin
-// agents are discovered before bundled agents, so a future accidental ID collision could otherwise
-// hide one templates/agents file from this provenance check and strand its previous release bytes.
-const packagedAgentDirectory = path.join(root, 'templates', 'agents');
-const packagedAgentFiles = (await readdir(packagedAgentDirectory, { withFileTypes: true }))
-  .filter((entry) => entry.isFile() && /\.agent\.md$/i.test(entry.name))
-  .map((entry) => entry.name)
-  .sort();
-for (const name of packagedAgentFiles) {
-  const relative = `.github/agents/${name}`;
-  const sha256 = packagedAssetSha256(await readFile(path.join(packagedAgentDirectory, name)));
+// Safe reinitialization uses exact package provenance, so every package-managed file and every
+// node in workflow.yml must be registered before a release can ship. Enumerate sources directly:
+// an ID-deduplicated agent catalog or a workflow dependency walk could hide a newly packaged seed.
+const packagedAssetSources = new Map([
+  ['templates/agent-mappings.yml', 'singularity/agent-mappings.yml'],
+  ['templates/impact.yml', 'singularity/impact.yml'],
+  ['templates/modelTiers.yml', 'singularity/modelTiers.yml'],
+  ['templates/worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
+  ['templates/copilot-planning.md', 'singularity/prompts/copilot-planning.md']
+]);
+for (const absolute of allFiles) {
+  const relative = path.relative(root, absolute).replaceAll('\\', '/');
+  if (relative.startsWith('templates/artifacts/')) {
+    packagedAssetSources.set(relative,
+      `singularity/templates/${relative.slice('templates/artifacts/'.length)}`);
+  } else if (relative.startsWith('templates/agents/')) {
+    packagedAssetSources.set(relative, `.github/agents/${relative.slice('templates/agents/'.length)}`);
+  }
+}
+const currentAssetPaths = [...packagedAssetSources.values()].sort();
+const registeredAssetPaths = Object.keys(CURRENT_PACKAGED_ASSET_SHA256).sort();
+if (JSON.stringify(currentAssetPaths) !== JSON.stringify(registeredAssetPaths)) {
+  fail('Current packaged configuration asset paths must exactly match the provenance registry.');
+}
+for (const [source, relative] of packagedAssetSources) {
+  const sha256 = packagedAssetSha256(await readFile(path.join(root, source)));
   if (!isKnownPackagedAssetHash(relative, sha256)
       || !isCurrentPackagedAssetHash(relative, sha256)) {
     fail(`${relative}: current packaged digest must be registered for deterministic future upgrades`);
   }
 }
-const modelTierBytes = await readFile(path.join(root, 'templates', 'modelTiers.yml'));
-const modelTierSha256 = packagedAssetSha256(modelTierBytes);
-if (!isKnownPackagedAssetHash('singularity/modelTiers.yml', modelTierSha256)
-    || !isCurrentPackagedAssetHash('singularity/modelTiers.yml', modelTierSha256)) {
-  fail('singularity/modelTiers.yml: current packaged digest must be registered for deterministic future upgrades');
+for (const section of ['workTypes', 'phases', 'artifactSets', 'mcpServers']) {
+  const currentIds = Object.keys(packagedWorkflowSource[section] ?? {}).sort();
+  const registeredIds = Object.keys(CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}).sort();
+  if (JSON.stringify(currentIds) !== JSON.stringify(registeredIds)) {
+    fail(`Current packaged workflow ${section} IDs must exactly match the provenance registry.`);
+  }
+  for (const [id, value] of Object.entries(packagedWorkflowSource[section] ?? {})) {
+    const sha256 = packagedWorkflowValueSha256(value);
+    if (CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section]?.[id] !== sha256
+        || !isKnownPackagedWorkflowValue(section, id, value)) {
+      fail(`workflow.${section}.${id}: current canonical digest must be registered for deterministic future upgrades`);
+    }
+  }
 }
-checked.push('templates/agents');
+checked.push(`package seed provenance (${packagedAssetSources.size} assets, ${
+  ['workTypes', 'phases', 'artifactSets', 'mcpServers']
+    .reduce((total, section) => total + Object.keys(packagedWorkflowSource[section] ?? {}).length, 0)
+} workflow nodes)`);
 if (workflowTemplate.ledger?.enabled !== false || workflowTemplate.ledger?.branch !== 'state') fail('workflow template must ship the opt-in orphan capability-ledger configuration.');
 if (workflowTemplate.ledger?.publication !== 'warn') fail('workflow template must ship warning-only state publication by default.');
 if (workflowTemplate.tokenEconomy?.enabled !== true || workflowTemplate.tokenEconomy?.mode !== 'observe') {

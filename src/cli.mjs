@@ -149,7 +149,7 @@ import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
+import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
@@ -12815,18 +12815,15 @@ async function workspaceCommand(positionals, options) {
         console.log(`  ${census.repository}: schema ${census.status}${records}${migrations}`);
         if (census.reason) console.log(`    ${census.reason}`);
       }
-      for (const item of result.capabilityPortability.results) {
-        console.log(`  Capability portability ${item.lead}: ${item.status}`);
-        if (item.reason) console.log(`    ${item.reason}`);
-        if (item.nextAction) printCommandRoutes(item.nextAction.command, {
-          skill: item.nextAction.skill ?? null, indent: '    ', label: 'Recover'
-        });
+      console.log(`Capability portability: ${result.capabilityPortability.status}`);
+      if (result.capabilityPortability.statement) {
+        console.log(`  ${result.capabilityPortability.statement}`);
       }
       if (result.nextAction) printCommandRoutes(result.nextAction.command, {
         skill: result.nextAction.skill ?? null, label: 'Apply reviewed plan'
       });
       else if (result.status === 'complete') {
-        console.log('Configuration, workflow assets, state projections, capability locators, and readable schema versions are current.');
+        console.log('Framework-seeded configuration assets, configuration state projections, and readable schema versions are current. Capability state was unchanged.');
       }
     }
     if (['blocked', 'partial'].includes(result.status)) process.exitCode = 2;
@@ -12872,8 +12869,8 @@ async function workspaceCommand(positionals, options) {
           .then((portfolio) => ({ profiles: initiativeProfileChoices(portfolio), profileReason: null }))
           .catch(() => localIntakeProfiles)
         : localIntakeProfiles;
-      const packagedCatalog = intakeRequested
-        ? await optionalWorkflowCatalog(() => workflowCatalog(root))
+      let packagedCatalog = intakeRequested
+        ? await optionalWorkflowCatalog(() => workflowCatalogForDefinition(definition))
         : { workflows: [], reason: null };
       const packagedStoryWorkflows = packagedCatalog.workflows
         .filter((workflow) => workflow.installed === false);
@@ -12968,6 +12965,9 @@ async function workspaceCommand(positionals, options) {
           // readiness result so non-interactive surfaces can replace their choices and let the
           // user select one valid for this base without mutating anything.
           if (intake) {
+            packagedCatalog = await optionalWorkflowCatalog(
+              () => workflowCatalogForDefinition(definition)
+            );
             intake = {
               ...intake,
               storyWorkflows: Object.entries(definition.workTypes).map(([id, workflow]) => ({
@@ -12975,7 +12975,17 @@ async function workspaceCommand(positionals, options) {
                 phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
                 governs: 'story', installed: true,
                 ...workflowCodeGeneration(resolveWorkType(definition, id))
-              }))
+              })),
+              availableStoryWorkflows: packagedCatalog.workflows
+                .filter((workflow) => workflow.installed === false)
+                .map((workflow) => ({
+                  id: workflow.id, label: workflow.label ?? workflow.id,
+                  description: workflow.description ?? '', phases: workflow.phases ?? [],
+                  references: workflow.references?.mode ?? 'optional', governs: 'story',
+                  installed: false, status: workflow.status,
+                  generatesCode: workflow.generatesCode, codePhases: workflow.codePhases
+                })),
+              workflowCatalogReason: packagedCatalog.reason
             };
           }
         }

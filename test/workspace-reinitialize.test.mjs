@@ -79,13 +79,9 @@ function refreshResult(status, { dryRun, itemStatus }) {
 }
 
 const authorityBefore = 'c'.repeat(40);
-const authorityAfter = 'a'.repeat(40);
 
 function services(overrides = {}) {
-  return {
-    observeLeadConfiguration: async () => ({ status: 'current', commit: authorityBefore }),
-    ...overrides
-  };
+  return { ...overrides };
 }
 
 async function installMovableLifecycleRef(repositoryRoot, branch = 'lifecycle-plan') {
@@ -188,6 +184,29 @@ test('workspace reinitialize is plan-first with structured shell-safe recovery',
   );
 });
 
+test('workspace reinitialize refuses every packaged ownership-transfer shortcut before preview', async (t) => {
+  const { registryFile } = await fixture(t);
+  let refreshCalls = 0;
+  const refreshWorkspaceConfigurations = async () => {
+    refreshCalls += 1;
+    throw new Error('refresh must not run');
+  };
+
+  for (const input of [
+    { acceptBundledConflicts: true },
+    { resolutions: { '.github/agents/developer.agent.md': 'bundled' } },
+    { resolutions: { 'workflow.workTypes.feature': 'merge' } }
+  ]) {
+    await assert.rejects(
+      reinitializeWorkspaces({ registryFile, dryRun: true, ...input }, {
+        refreshWorkspaceConfigurations
+      }),
+      (error) => error?.code === 'WORKSPACE_REINITIALIZE_OWNERSHIP_TRANSFER_UNSUPPORTED'
+    );
+  }
+  assert.equal(refreshCalls, 0, 'ownership transfer must be rejected before any authority preview');
+});
+
 test('workspace reinitialize refuses a corrupt registry instead of issuing a zero-target plan', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-reinitialize-invalid-registry-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -207,6 +226,8 @@ test('preview binds a compound plan, stays read-only, and reports read-time migr
   const result = await reinitializeWorkspaces({ registryFile, dryRun: true }, services({
     refreshWorkspaceConfigurations: async (options) => {
       assert.equal(options.dryRun, true);
+      assert.equal(options.restorePackagedSeeds, true,
+        'workspace reinitialize explicitly restores framework seeds');
       return refreshResult('preview', { dryRun: true, itemStatus: 'would-update' });
     },
     publishOrganisationCapabilityMap: async () => { capabilityPublications += 1; }
@@ -214,11 +235,12 @@ test('preview binds a compound plan, stays read-only, and reports read-time migr
   assert.equal(result.status, 'preview');
   assert.match(result.planId, /^wrip-1234567890abcdef12345678-[a-f0-9]{64}$/);
   assert.equal(result.configurationPlanId, 'cfgp-1234567890abcdef12345678');
-  assert.equal(capabilityPublications, 0, 'preview cannot publish configuration or capability locators');
-  assert.equal(result.capabilityPortability.status, 'not-run-during-preview');
-  assert.deepEqual(result.capabilityPortability.plannedLeads.map((entry) => entry.lead),
-    ['https://example.test/application.git']);
-  assert.equal(result.capabilityPortability.plannedLeads[0].authority.commit, authorityBefore);
+  assert.equal(capabilityPublications, 0, 'preview cannot publish capability maps or locators');
+  assert.equal(result.capabilityPortability.status, 'outside-scope-unchanged');
+  assert.equal(result.capabilityPortability.changed, false);
+  assert.match(result.capabilityPortability.statement, /User-owned capability definitions remain unchanged/);
+  assert.deepEqual(result.capabilityPortability.plannedLeads, []);
+  assert.deepEqual(result.capabilityPortability.results, []);
   assert.equal(result.schemaCensuses[0].status, 'read-time-compatible');
   assert.equal(result.schemaCensuses[0].readTimeMigrationRecords, 1);
   assert.equal(result.schemaCensuses[0].readTimeMigrationSteps, 1);
@@ -414,10 +436,9 @@ test('lifecycle refs are rechecked in the final candidate preflight before publi
     'candidate inspection must finish before configuration publication can start');
 });
 
-test('confirmed compound plan applies exact cfgp and repairs capability portability', async (t) => {
+test('confirmed compound plan applies exact cfgp without reading or publishing capability state', async (t) => {
   const { registryFile } = await fixture(t);
   const calls = [];
-  let applied = false;
   const service = services({
     refreshWorkspaceConfigurations: async (options) => {
       if (options.dryRun) {
@@ -425,20 +446,11 @@ test('confirmed compound plan applies exact cfgp and repairs capability portabil
         return refreshResult('preview', { dryRun: true, itemStatus: 'would-update' });
       }
       assert.equal(options.confirmPlan, 'cfgp-1234567890abcdef12345678');
-      applied = true;
       return refreshResult('complete', { dryRun: false, itemStatus: 'updated' });
     },
-    observeLeadConfiguration: async () => ({
-      status: 'current', commit: applied ? authorityAfter : authorityBefore
-    }),
-    publishOrganisationCapabilityMap: async (remote, options) => {
+    observeLeadConfiguration: async () => { throw new Error('must not read capability authority'); },
+    publishOrganisationCapabilityMap: async (remote) => {
       calls.push(remote);
-      assert.equal(options.expectedConfigurationCommit, authorityAfter);
-      return {
-        status: 'current', published: false,
-        reason: 'it is already current there',
-        portability: { status: 'current', portable: true, outcomes: [], failures: [] }
-      };
     }
   });
   const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
@@ -446,67 +458,59 @@ test('confirmed compound plan applies exact cfgp and repairs capability portabil
     registryFile, confirmPlan: preview.planId
   }, service);
   assert.equal(result.status, 'complete');
-  assert.deepEqual(calls, ['https://example.test/application.git']);
-  assert.equal(result.capabilityPortability.results[0].status, 'current');
+  assert.deepEqual(calls, []);
+  assert.equal(result.capabilityPortability.status, 'outside-scope-unchanged');
+  assert.equal(result.capabilityPortability.changed, false);
+  assert.deepEqual(result.capabilityPortability.results, []);
   assert.equal(result.nextAction, null);
 });
 
-test('policy-disabled capability publication with portable locators completes', async (t) => {
+test('capability publication policy cannot affect safe reinitialization', async (t) => {
   const { registryFile } = await fixture(t);
-  let applied = false;
+  let capabilityCalls = 0;
   const service = services({
     refreshWorkspaceConfigurations: async (options) => {
       if (options.dryRun) {
         return refreshResult('preview', { dryRun: true, itemStatus: 'would-update' });
       }
-      applied = true;
       return refreshResult('complete', { dryRun: false, itemStatus: 'updated' });
     },
-    observeLeadConfiguration: async () => ({
-      status: 'current', commit: applied ? authorityAfter : authorityBefore
-    }),
-    publishOrganisationCapabilityMap: async () => ({
-      status: 'policy-disabled', published: false,
-      portability: { status: 'current', portable: true, outcomes: [], failures: [] }
-    })
+    observeLeadConfiguration: async () => { capabilityCalls += 1; },
+    publishOrganisationCapabilityMap: async () => { capabilityCalls += 1; }
   });
   const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
   const result = await reinitializeWorkspaces({ registryFile, confirmPlan: preview.planId }, service);
   assert.equal(result.status, 'complete');
-  assert.equal(result.capabilityPortability.status, 'complete');
-  assert.equal(result.capabilityPortability.results[0].status, 'current');
-  assert.equal(result.capabilityPortability.results[0].stateStatus, 'policy-disabled');
+  assert.equal(capabilityCalls, 0);
+  assert.equal(result.capabilityPortability.status, 'outside-scope-unchanged');
+  assert.equal(result.capabilityPortability.changed, false);
 });
 
-test('partial configuration refresh never publishes capability portability', async (t) => {
+test('partial configuration refresh never invokes capability publication', async (t) => {
   const { registryFile } = await fixture(t);
-  let applied = false;
   let publications = 0;
   const service = services({
     refreshWorkspaceConfigurations: async (options) => {
       if (options.dryRun) {
         return refreshResult('preview', { dryRun: true, itemStatus: 'would-update' });
       }
-      applied = true;
       return {
         ...refreshResult('partial', { dryRun: false, itemStatus: 'updated' }),
         failed: 1
       };
     },
-    observeLeadConfiguration: async () => ({
-      status: 'current', commit: applied ? authorityAfter : authorityBefore
-    }),
+    observeLeadConfiguration: async () => { throw new Error('must not read capability authority'); },
     publishOrganisationCapabilityMap: async () => { publications += 1; }
   });
   const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
   const result = await reinitializeWorkspaces({ registryFile, confirmPlan: preview.planId }, service);
   assert.equal(result.status, 'partial');
-  assert.equal(result.capabilityPortability.status, 'not-run-configuration-partial');
-  assert.equal(publications, 0, 'partial configuration rollout must not publish capability locators');
+  assert.equal(result.capabilityPortability.status, 'outside-scope-unchanged');
+  assert.equal(publications, 0, 'safe reinitialize must never publish capability locators');
   assert.deepEqual(result.nextAction.argv.slice(-2), ['--dry-run', '--json']);
 });
 
-test('filtered delivery cannot publish from an unbound lead', async (t) => {
+test('filtered delivery reinitializes without binding or publishing its capability lead', async (t) => {
   const { registryFile } = await fixture(t);
   let applied = false;
   let publications = 0;
@@ -519,7 +523,7 @@ test('filtered delivery cannot publish from an unbound lead', async (t) => {
       return deliveryRefreshResult('complete', { dryRun: false, itemStatus: 'updated' });
     },
     readWorkspace: async (workspaceRoot) => deliveryWorkspace(workspaceRoot),
-    observeLeadConfiguration: async () => ({ status: 'current', commit: authorityBefore }),
+    observeLeadConfiguration: async () => { throw new Error('must not read capability authority'); },
     publishOrganisationCapabilityMap: async () => { publications += 1; }
   });
   const input = { registryFile, repositories: ['delivery'] };
@@ -527,18 +531,14 @@ test('filtered delivery cannot publish from an unbound lead', async (t) => {
   const result = await reinitializeWorkspaces({ ...input, confirmPlan: preview.planId }, service);
   assert.equal(applied, true);
   assert.equal(publications, 0);
-  assert.equal(result.status, 'partial');
-  assert.equal(result.capabilityPortability.results[0].code,
-    'CAPABILITY_REINITIALIZE_LEAD_NOT_BOUND');
-  assert.deepEqual(result.capabilityPortability.results[0].nextAction.argv, [
-    'singularity-flow', 'workspace', 'reinitialize', 'demo-workspace',
-    '--repository', 'application', '--dry-run', '--json'
-  ]);
+  assert.equal(result.status, 'complete');
+  assert.equal(result.capabilityPortability.status, 'outside-scope-unchanged');
+  assert.deepEqual(result.capabilityPortability.results, []);
 });
 
-test('filtered delivery plan becomes stale if its unselected lead advances', async (t) => {
+test('an unrelated capability lead advance cannot stale a safe reinitialize plan', async (t) => {
   const { registryFile } = await fixture(t);
-  let leadCommit = authorityBefore;
+  let authorityReads = 0;
   let refreshMutations = 0;
   let publications = 0;
   const service = services({
@@ -550,19 +550,18 @@ test('filtered delivery plan becomes stale if its unselected lead advances', asy
       });
     },
     readWorkspace: async (workspaceRoot) => deliveryWorkspace(workspaceRoot),
-    observeLeadConfiguration: async () => ({ status: 'current', commit: leadCommit }),
+    observeLeadConfiguration: async () => { authorityReads += 1; },
     publishOrganisationCapabilityMap: async () => { publications += 1; }
   });
   const input = { registryFile, repositories: ['delivery'] };
   const preview = await reinitializeWorkspaces({ ...input, dryRun: true }, service);
-  leadCommit = 'd'.repeat(40);
   const result = await reinitializeWorkspaces({ ...input, confirmPlan: preview.planId }, service);
-  assert.equal(result.status, 'blocked');
-  assert.equal(result.topologyStatus, 'stale-plan');
-  assert.equal(refreshMutations, 0, 'stale topology must be refused before configuration mutation');
-  assert.equal(publications, 0, 'stale topology must never publish capability locators');
-  assert.equal(result.capabilityPortability.status, 'not-run-stale-plan');
-  assert.deepEqual(result.nextAction.argv.slice(-2), ['--dry-run', '--json']);
+  assert.equal(result.status, 'complete');
+  assert.equal(result.topologyStatus, 'current');
+  assert.equal(refreshMutations, 1);
+  assert.equal(authorityReads, 0);
+  assert.equal(publications, 0);
+  assert.equal(result.capabilityPortability.status, 'outside-scope-unchanged');
 });
 
 test('schema census blocker prevents plan issuance and confirmed mutation', async (t) => {
@@ -638,7 +637,7 @@ test('corrupt in-range legacy records are blockers and never reported as success
   assert.equal(refreshMutations, 0);
 });
 
-test('post-refresh lead revalidation prevents locator mutation on a concurrent advance', async (t) => {
+test('post-refresh does not inspect or mutate capability authority', async (t) => {
   const { registryFile } = await fixture(t);
   let applied = false;
   let publications = 0;
@@ -650,51 +649,39 @@ test('post-refresh lead revalidation prevents locator mutation on a concurrent a
       applied = true;
       return refreshResult('complete', { dryRun: false, itemStatus: 'updated' });
     },
-    observeLeadConfiguration: async () => ({
-      status: 'current',
-      // The expected post-refresh commit is `authorityAfter`; this different exact SHA models a
-      // remote update in the gap between configuration publication and locator publication.
-      commit: applied ? 'e'.repeat(40) : authorityBefore
-    }),
+    observeLeadConfiguration: async () => { publications += 100; },
     publishOrganisationCapabilityMap: async () => { publications += 1; }
   });
   const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
   const result = await reinitializeWorkspaces({ registryFile, confirmPlan: preview.planId }, service);
-  assert.equal(result.status, 'partial');
-  assert.equal(result.topologyStatus, 'stale-plan');
-  assert.equal(result.capabilityPortability.status, 'not-run-stale-plan');
+  assert.equal(applied, true);
+  assert.equal(result.status, 'complete');
+  assert.equal(result.topologyStatus, 'current');
+  assert.equal(result.capabilityPortability.status, 'outside-scope-unchanged');
   assert.equal(publications, 0);
-  assert.deepEqual(result.nextAction.argv.slice(-2), ['--dry-run', '--json']);
+  assert.equal(result.nextAction, null);
 });
 
-test('pending portability has an exact structured resumable action', async (t) => {
+test('capability publication failures are outside safe reinitialize', async (t) => {
   const { registryFile } = await fixture(t);
-  let applied = false;
+  let capabilityCalls = 0;
   const service = services({
     refreshWorkspaceConfigurations: async (options) => {
       if (options.dryRun) {
         return refreshResult('preview', { dryRun: true, itemStatus: 'would-update' });
       }
-      applied = true;
       return refreshResult('complete', { dryRun: false, itemStatus: 'updated' });
     },
-    observeLeadConfiguration: async () => ({
-      status: 'current', commit: applied ? authorityAfter : authorityBefore
-    }),
-    publishOrganisationCapabilityMap: async () => ({
-      status: 'pending', published: false,
-      reason: 'capability state branch was rejected by remote policy',
-      portability: { status: 'pending', portable: false, outcomes: [], failures: [{}] }
-    })
+    observeLeadConfiguration: async () => { capabilityCalls += 1; },
+    publishOrganisationCapabilityMap: async () => {
+      capabilityCalls += 1;
+      throw new Error('capability state branch was rejected by remote policy');
+    }
   });
   const preview = await reinitializeWorkspaces({ registryFile, dryRun: true }, service);
   const result = await reinitializeWorkspaces({ registryFile, confirmPlan: preview.planId }, service);
-  assert.equal(result.status, 'partial');
-  const nextAction = result.capabilityPortability.results[0].nextAction;
-  assert.deepEqual(nextAction.argv, [
-    'singularity-flow', 'capability', 'publish', '--lead',
-    'https://example.test/application.git', '--json'
-  ]);
-  assert.equal(nextAction.command,
-    'singularity-flow capability publish --lead https://example.test/application.git --json');
+  assert.equal(result.status, 'complete');
+  assert.equal(capabilityCalls, 0);
+  assert.equal(result.capabilityPortability.status, 'outside-scope-unchanged');
+  assert.deepEqual(result.capabilityPortability.results, []);
 });

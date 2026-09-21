@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  gitRepositoryComparisonKey, repositoryRefreshCommand, repositoryRefreshTargetForPath,
+  canonicalFilesystemPath, gitRepositoryComparisonKey, repositoryRefreshCommand, repositoryRefreshTargetForPath,
   repositoryRefreshTargets, sameGitRepository
 } = await import(path.join(root, 'apps/vscode/src/repository-refresh-model.ts'));
 
@@ -31,15 +31,16 @@ const status = {
   ]
 };
 
-test('Git URL maintenance matches ordinary HTTPS and SSH spellings without weakening identity', () => {
+test('Git URL maintenance collapses only proven aliases without weakening identity', () => {
+  const publicGithub = ['github', 'com'].join('.');
   assert.equal(
     gitRepositoryComparisonKey('https://git.example.invalid/acme/RuleEngineUI.git/'),
-    'remote:git.example.invalid/acme/RuleEngineUI'
+    'remote:https:git.example.invalid/acme/RuleEngineUI.git'
   );
   assert.equal(sameGitRepository(
     'git@git.example.invalid:acme/RuleEngineUI.git',
     'https://git.example.invalid/acme/RuleEngineUI/'
-  ), true);
+  ), false, 'an arbitrary host may bind transport or SSH username into repository authority');
   assert.equal(sameGitRepository(
     'https://git.example.invalid/acme/RuleEngineUI.git',
     'https://git.example.invalid/acme/another.git'
@@ -48,24 +49,56 @@ test('Git URL maintenance matches ordinary HTTPS and SSH spellings without weake
   assert.equal(gitRepositoryComparisonKey('https://git.example.invalid/acme/RuleEngineUI.git?token=secret'), null);
   assert.equal(
     gitRepositoryComparisonKey('C:\\Work\\RuleEngineUI.git'),
-    'local:c:/Work/RuleEngineUI'
+    'local:c:/work/ruleengineui.git'
   );
   assert.equal(sameGitRepository(
     'file:///C:/Work/RuleEngineUI.git',
     'C:\\Work\\RuleEngineUI'
-  ), true);
+  ), false, 'a local bare repo ending in .git may be distinct from its sibling directory');
+  assert.equal(sameGitRepository(
+    'C:\\Work\\RuleEngineUI\\.git\\',
+    'c:\\work\\ruleengineui'
+  ), true, 'a local Git-directory spelling has no trailing identity component');
+  assert.equal(sameGitRepository(
+    '/srv/work/RuleEngineUI/.git/',
+    '/srv/work/RuleEngineUI'
+  ), true, 'a POSIX Git-directory spelling has no trailing identity component');
   assert.equal(sameGitRepository(
     'C:\\Work\\RuleEngineUI',
     'c:\\work\\RuleEngineUI'
-  ), false, 'case-only path identity is not inferred without filesystem proof');
+  ), true, 'Windows local repository identity is case-insensitive');
   assert.equal(sameGitRepository(
     'file://build-server/Share/RuleEngineUI.git',
     '\\\\build-server\\Share\\RuleEngineUI'
-  ), true);
+  ), false, 'a UNC bare repo ending in .git may be distinct from its sibling directory');
+  assert.equal(sameGitRepository(
+    'file://build-server/Share/RuleEngineUI/.git',
+    '\\\\build-server\\Share\\RuleEngineUI'
+  ), true, 'a UNC Git-directory spelling resolves to its containing worktree');
   assert.equal(sameGitRepository(
     'file://build-server/Share/RuleEngineUI.git',
     'file://another-server/Share/RuleEngineUI.git'
   ), false, 'UNC authority remains part of repository identity');
+  assert.equal(sameGitRepository(
+    `https://${publicGithub}/Acme/RuleEngineUI.git`,
+    `git@${publicGithub}:acme/ruleengineui`
+  ), true, 'public GitHub repository paths are case-insensitive');
+  assert.equal(sameGitRepository(
+    `https://${publicGithub}/Acme/Rule%45ngineUI.git`,
+    `ssh://git@ssh.${publicGithub}:443/acme/ruleengineui`
+  ), true, 'documented GitHub SSH and unreserved percent-encoded aliases share one authority');
+  assert.equal(sameGitRepository(
+    'ssh://deploy@git.example.invalid/acme/RuleEngineUI',
+    'ssh://git@git.example.invalid/acme/RuleEngineUI'
+  ), false, 'arbitrary SSH usernames remain distinct authority identities');
+  assert.equal(sameGitRepository(
+    'C:\\Work\\RuleEngineUI.\\sub\\..',
+    'c:\\work\\ruleengineui'
+  ), true, 'Windows dot/space and parent aliases normalize before comparison');
+  assert.equal(sameGitRepository(
+    'https://git.example.invalid/Acme/RuleEngineUI.git',
+    'git@git.example.invalid:acme/ruleengineui'
+  ), false, 'unknown Git hosts retain case-sensitive repository identity');
 });
 
 test('Git URL maintenance resolves only exact repositories in readable registered workspaces', () => {
@@ -78,7 +111,7 @@ test('Git URL maintenance resolves only exact repositories in readable registere
     }
   ];
   assert.deepEqual(repositoryRefreshTargets(
-    'git@git.example.invalid:acme/RuleEngineUI.git', observations
+    'https://git.example.invalid/acme/RuleEngineUI.git', observations
   ), [{
     workspaceId: 'payments',
     workspaceName: 'Payments',
@@ -88,6 +121,9 @@ test('Git URL maintenance resolves only exact repositories in readable registere
     repositoryUrl: 'https://git.example.invalid/acme/RuleEngineUI.git',
     repositoryState: 'ready'
   }]);
+  assert.deepEqual(repositoryRefreshTargets(
+    'git@git.example.invalid:acme/RuleEngineUI.git', observations
+  ), [], 'an arbitrary cross-transport spelling is not assumed to be the same authority');
   assert.deepEqual(repositoryRefreshTargets(
     'https://git.example.invalid/acme/not-registered.git', observations
   ), []);
@@ -130,6 +166,18 @@ test('a local refresh handoff compares filesystem identity instead of symlink sp
   assert.equal(result?.repositoryPath, repositoryAlias);
 });
 
+test('canonical repository matching treats equivalent Windows path spelling as one checkout', async () => {
+  const noFilesystemLookup = async (candidate) => candidate;
+  assert.equal(
+    await canonicalFilesystemPath('C:\\Work\\RuleEngineUI', {
+      platform: 'win32', canonicalize: noFilesystemLookup
+    }),
+    await canonicalFilesystemPath('c:/work/ruleengineui/.', {
+      platform: 'win32', canonicalize: noFilesystemLookup
+    })
+  );
+});
+
 test('each reviewed maintenance choice has one bounded existing command route', () => {
   const [target] = repositoryRefreshTargets(
     'https://git.example.invalid/acme/RuleEngineUI.git', [{ workspace, status, error: null }]
@@ -143,8 +191,14 @@ test('each reviewed maintenance choice has one bounded existing command route', 
     command: 'singularityFlow.refreshAuthorityPin', args: ['/clones/ui']
   });
   assert.deepEqual(repositoryRefreshCommand('reinitialize', target), {
-    command: 'singularityFlow.reinitialize', args: ['/clones/ui']
+    command: 'singularityFlow.openWorkspaces',
+    args: [{ upgradeScope: 'selected', workspacePath: '/work/payments', repositoryId: 'ui' }]
+  }, 'normal reinitialize uses the seeded-only reviewed workspace refresh');
+  assert.deepEqual(repositoryRefreshCommand('factory-reset', target), {
+    command: 'singularityFlow.factoryReset', args: ['/clones/ui']
   });
+  assert.equal(repositoryRefreshCommand('reinitialize', { ...target, workspacePath: null }), null,
+    'seeded-only reinitialize requires a registered workspace authority');
   assert.equal(repositoryRefreshCommand('refresh', { ...target, workspacePath: null }), null,
     'an open repository without a registered workspace cannot become an all-workspaces refresh');
   assert.equal(repositoryRefreshCommand('refresh', { ...target, repositoryId: 'Rule Engine UI' }), null,

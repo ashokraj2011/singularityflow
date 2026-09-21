@@ -1,6 +1,9 @@
 import path from 'node:path';
 
 const DEFAULT_RUNTIME_ROOTS = Object.freeze([
+  '.sdlc',
+  '.sflow',
+  '.singularity',
   'singularity/initiatives',
   'singularity/work-items',
   'singularity/seeds',
@@ -12,6 +15,20 @@ const DEFAULT_RUNTIME_ROOTS = Object.freeze([
   'singularity/telemetry',
   'singularity/.product'
 ]);
+const WINDOWS_RESERVED_COMPONENT = /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|com[1-9]|lpt[1-9])(?:\.|$)/i;
+
+function hasUnsafePortableComponent(candidate) {
+  return candidate.split('/').some((component) => {
+    const folded = component.toLowerCase();
+    return folded === '.git'
+      || component.endsWith('.') || component.endsWith(' ')
+      || component.includes(':')
+      || /[*?"<>|]/u.test(component)
+      || /~[0-9]/u.test(component)
+      || /[\u0000-\u001f]/u.test(component)
+      || WINDOWS_RESERVED_COMPONENT.test(component);
+  });
+}
 
 function invalidRoot(label, value) {
   const error = new Error(`${label} must be a canonical repository-relative portable path: ${value}`);
@@ -25,9 +42,11 @@ function portablePath(value, label) {
   if (!candidate || candidate.includes('\0') || candidate.includes('\\')
       || path.posix.isAbsolute(candidate) || path.win32.isAbsolute(candidate)
       || path.posix.normalize(candidate) !== candidate
+      || candidate.normalize('NFC') !== candidate
+      || /[^\x20-\x7e]/u.test(candidate)
       || candidate === '.' || candidate.endsWith('/')
       || candidate.split('/').includes('..')
-      || candidate === '.git' || candidate.startsWith('.git/')) {
+      || hasUnsafePortableComponent(candidate)) {
     throw invalidRoot(label, value);
   }
   return candidate;
@@ -52,6 +71,10 @@ export function configurationAssetPolicy(workflow = {}, portfolio = {}) {
   );
   const roots = unique([
     portablePath(workflow.templatesRoot ?? 'singularity/templates', 'templatesRoot'),
+    // Governed Agent Markdown is discovered from this canonical repository location by every
+    // runtime. `agentPromptsRoot` may add an organisation/editor transport root, but it cannot
+    // remove the framework-agent authority that refresh/reinitialize must mirror and validate.
+    '.github/agents',
     portablePath(workflow.agentPromptsRoot ?? '.github/agents', 'agentPromptsRoot'),
     portablePath(portfolio.templatesRoot ?? workflow.templatesRoot ?? 'singularity/templates',
       'portfolio.templatesRoot')
@@ -92,12 +115,35 @@ function within(relative, root) {
   return relative === root || relative.startsWith(`${root}/`);
 }
 
+export function portableFilesystemPathIdentity(value) {
+  // Approximate the case/compatibility identity used by default Windows and macOS filesystems.
+  // Configured authority roots themselves are printable ASCII, but candidate/baseline paths may
+  // still be repository-controlled Unicode input and must compare fail-closed.
+  return String(value).split('/').map((component) => component
+    // Win32 strips trailing dots and spaces from ordinary path components.
+    .replace(/[. ]+$/u, '')
+    .normalize('NFKC')
+    .toLocaleUpperCase('en-US').toLocaleLowerCase('en-US').normalize('NFC'))
+    .join('/');
+}
+
+function withinFilesystemIdentity(relative, root) {
+  // Configuration paths are portable Git spellings, but the checkout may live on a
+  // case-insensitive Windows or macOS filesystem. Runtime exclusion is a safety boundary, so use
+  // the most restrictive portable identity here without collapsing legitimate configured search
+  // roots on a case-sensitive filesystem.
+  const candidate = portableFilesystemPathIdentity(relative);
+  const boundary = portableFilesystemPathIdentity(root);
+  return candidate === boundary || candidate.startsWith(`${boundary}/`);
+}
+
 export function portableConfigurationPath(value) {
   const relative = String(value ?? '').replace(/^\.\//, '');
   if (!relative || relative.includes('\0') || relative.includes('\\')
       || path.posix.isAbsolute(relative) || path.win32.isAbsolute(relative)
-      || path.posix.normalize(relative) !== relative || relative.split('/').includes('..')
-      || relative === '.git' || relative.startsWith('.git/')) return null;
+      || path.posix.normalize(relative) !== relative || relative.normalize('NFC') !== relative
+      || relative.split('/').includes('..')
+      || hasUnsafePortableComponent(relative)) return null;
   return relative;
 }
 
@@ -106,7 +152,7 @@ export function isConfigurationAssetPath(value, policy = DEFAULT_CONFIGURATION_A
   if (!relative || relative === 'singularity/configuration-source.json') return false;
   // Runtime ownership is the stronger boundary. In particular, a custom world-model output must
   // never become configuration merely because it is nested under a configured template/agent root.
-  if (policy.runtimeRoots.some((root) => within(relative, root))) return false;
+  if (policy.runtimeRoots.some((root) => withinFilesystemIdentity(relative, root))) return false;
   if (policy.files.includes(relative) || policy.roots.some((root) => within(relative, root))) return true;
   if (!within(relative, 'singularity')) return false;
   return true;

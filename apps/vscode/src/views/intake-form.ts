@@ -443,6 +443,24 @@ export function storyWorkflowSelection(
   return workflows.some((workflow) => workflow.id === current) ? current : null;
 }
 
+/**
+ * Keep an exact-base selection while a retained form reloads its launch-checkout catalog.
+ *
+ * The selected base owns the authoritative workflow list. Replacing a base-only workflow with the
+ * launch checkout's `feature` before preflight meant the exact-base request validated the wrong
+ * workflow and permanently lost the person's selection. The subsequent exact-base preflight still
+ * calls `storyWorkflowSelection`, so a workflow actually removed from that base is cleared there.
+ */
+export function storyWorkflowSelectionForReload(
+  current: string | null,
+  launchWorkflows: readonly ProfileChoice[],
+  exactBaseWillBeRevalidated: boolean
+): string | null {
+  return exactBaseWillBeRevalidated && current
+    ? current
+    : storyWorkflowSelection(current, launchWorkflows);
+}
+
 interface ReferenceRepositoryEntry { id: string; repository: string; branch: string }
 
 /** Parse the intentionally visible UI tuple; the engine repeats every trust check before mutation. */

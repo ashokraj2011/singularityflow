@@ -2,21 +2,19 @@
  * Reviewed, repeatable workspace reinitialization.
  *
  * Reinitialization deliberately composes existing authorities instead of inventing a second
- * upgrade path: configuration refresh owns the reviewed three-way merge and state projection,
- * capability publication owns portable authority links, and the schema census owns durable-record
- * compatibility. Historical records are never rewritten by this command.
+ * upgrade path: configuration refresh owns the reviewed framework-seed merge and configuration
+ * state projection, while the schema census owns durable-record compatibility. Capability-specific
+ * publication and portable locator repair are deliberately outside this command's boundary;
+ * user-owned capability definitions remain unchanged when the approved configuration is mirrored.
+ * Historical records are never rewritten by this command.
  */
 import { createHash } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { publishOrganisationCapabilityMap } from './organisation.mjs';
-import { CONFIGURATION_BRANCH } from './configuration-branch.mjs';
-import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
-import { GitRemoteSession } from './git-execution.mjs';
 import { assertCredentialFreeRemote, redactDiagnosticText, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { schemaCensus } from './schema-census.mjs';
-import { mapLimit, SingularityFlowError } from './util.mjs';
+import { SingularityFlowError } from './util.mjs';
 import {
   readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath
 } from './workspace.mjs';
@@ -30,9 +28,6 @@ export const REINITIALIZATION_SCHEMA_POLICY = Object.freeze({
   statement: 'Readable legacy durable records are migrated in memory by their registered readers. Reinitialization validates their stored schema versions but never rewrites immutable historical bytes.'
 });
 
-const successfulRefreshStatuses = new Set([
-  'current', 'updated', 'would-update', 'would-initialize', 'initialization-created'
-]);
 const CONFIGURATION_PLAN = /^cfgp-([a-f0-9]{24})$/;
 const REINITIALIZATION_PLAN = /^wrip-([a-f0-9]{24})-([a-f0-9]{64})$/;
 
@@ -98,29 +93,6 @@ function reinitializeAction(commandInput, tail) {
   return commandAction(reinitializeArgv(commandInput, tail), { skill: '/sf-admin' });
 }
 
-function capabilityPublishAction(remote) {
-  const exact = assertCredentialFreeRemote(remote);
-  return commandAction([
-    'singularity-flow', 'capability', 'publish', '--lead',
-    commandArgument(exact, '<LEAD-URL>'), '--json'
-  ], { skill: '/sf-capability-map' });
-}
-
-async function observeLeadConfiguration(remote) {
-  const exact = assertCredentialFreeRemote(remote);
-  const observation = await new GitRemoteSession({ env: enterpriseGitEnvironment() }).observeAsync(exact, {
-    includeHead: false,
-    refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
-  });
-  if (!observation.ok) throw new SingularityFlowError(
-    `Cannot bind the capability authority on '${sanitizeRemote(exact)}' into the reinitialization plan. ${observation.failure?.advice ?? 'Git remote access failed.'}`, {
-      code: observation.failure?.code ?? 'WORKSPACE_REINITIALIZE_AUTHORITY_UNAVAILABLE'
-    }
-  );
-  const commit = observation.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
-  return Object.freeze({ status: commit ? 'current' : 'missing', commit });
-}
-
 function routingTopologyIdentity(topology) {
   return {
     workspaces: topology.workspaces.map((entry) => ({
@@ -132,14 +104,7 @@ function routingTopologyIdentity(topology) {
       workspacePath: entry.workspacePath,
       repositoryId: entry.repositoryId,
       repositoryRemote: entry.repositoryRemote,
-      repositoryPath: entry.repositoryPath,
-      leadRepositoryId: entry.leadRepositoryId,
-      leadRemote: entry.leadRemote,
-      leadPath: entry.leadPath
-    })),
-    plannedLeads: topology.leads.map((lead) => ({
-      remote: lead.remote,
-      leadBindings: lead.leadBindings
+      repositoryPath: entry.repositoryPath
     }))
   };
 }
@@ -168,11 +133,6 @@ function reinitializationPlanId(configurationPlanId, topology, schemaCensuses = 
   const identity = {
     configurationPlanId,
     topology: routingTopologyIdentity(topology),
-    leadAuthorities: topology.leads.map((lead) => ({
-      remote: lead.remote,
-      status: lead.authorityObservation?.status ?? 'unavailable',
-      configurationCommit: lead.authorityObservation?.commit ?? null
-    })),
     schemaAuthorities: schemaAuthorityIdentity(schemaCensuses)
   };
   return `wrip-${match[1]}-${sha256(identity)}`;
@@ -181,7 +141,7 @@ function reinitializationPlanId(configurationPlanId, topology, schemaCensuses = 
 function parseReinitializationPlan(planId) {
   const match = String(planId ?? '').match(REINITIALIZATION_PLAN);
   if (!match) throw new SingularityFlowError(
-    'Workspace reinitialization requires the compound plan ID returned by workspace reinitialize --dry-run. A configuration-only cfgp plan does not authorize capability locator changes.', {
+    'Workspace reinitialization requires the compound plan ID returned by workspace reinitialize --dry-run. A configuration-only cfgp plan does not authorize the reviewed workspace and schema boundary.', {
       code: 'WORKSPACE_REINITIALIZE_PLAN_INVALID'
     }
   );
@@ -243,7 +203,7 @@ function migrationSummary(census) {
   };
 }
 
-async function selectedTopology(registryFile, results, services, { observeLeads = true } = {}) {
+async function selectedTopology(registryFile, results, services) {
   const requestedWorkspaceIds = new Set((results ?? []).flatMap((result) =>
     (result.memberships ?? []).map((membership) => membership.workspaceId)));
   const entries = (await services.readWorkspaceRegistry(registryFile))
@@ -274,17 +234,7 @@ async function selectedTopology(registryFile, results, services, { observeLeads 
     }
   }
 
-  const refreshByMembership = new Map();
-  for (const result of results ?? []) {
-    for (const membership of result.memberships ?? []) {
-      refreshByMembership.set(
-        JSON.stringify([membership.workspaceId, membership.repositoryId]), result
-      );
-    }
-  }
-
   const checkouts = new Map();
-  const leads = new Map();
   const bindings = new Map();
   for (const result of results ?? []) {
     for (const membership of result.memberships ?? []) {
@@ -300,20 +250,9 @@ async function selectedTopology(registryFile, results, services, { observeLeads 
         });
         continue;
       }
-      const lead = manifest.repositories?.[manifest.leadRepository];
-      if (!lead?.url) {
-        issues.push({
-          workspaceId: manifest.id,
-          status: 'unavailable',
-          reason: `Workspace '${manifest.id}' has no readable lead repository for capability portability.`
-        });
-        continue;
-      }
       let repositoryRemote;
-      let leadRemote;
       try {
         repositoryRemote = assertCredentialFreeRemote(repository.url);
-        leadRemote = assertCredentialFreeRemote(lead.url);
       } catch (error) {
         issues.push({
           workspaceId: manifest.id,
@@ -324,16 +263,12 @@ async function selectedTopology(registryFile, results, services, { observeLeads 
         continue;
       }
       const checkout = path.resolve(workspaceRepositoryPath(manifest, repository));
-      const leadPath = path.resolve(workspaceRepositoryPath(manifest, lead));
       bindings.set(JSON.stringify([manifest.id, repository.id]), {
         workspaceId: manifest.id,
         workspacePath: path.resolve(loaded.entry.path),
         repositoryId: repository.id,
         repositoryRemote,
-        repositoryPath: checkout,
-        leadRepositoryId: manifest.leadRepository,
-        leadRemote,
-        leadPath
+        repositoryPath: checkout
       });
       const checkoutEntry = checkouts.get(checkout) ?? {
         repository: result.repository,
@@ -343,62 +278,7 @@ async function selectedTopology(registryFile, results, services, { observeLeads 
       };
       checkoutEntry.memberships.push(membership);
       checkouts.set(checkout, checkoutEntry);
-
-      if (!successfulRefreshStatuses.has(result.status)) continue;
-      const remote = leadRemote;
-      const existing = leads.get(remote) ?? {
-        remote,
-        displayRemote: sanitizeRemote(remote),
-        workspaceIds: new Set(),
-        triggeredByRepositories: new Set(),
-        leadBindings: new Map(),
-        expectedConfigurationCommits: new Set()
-      };
-      existing.workspaceIds.add(manifest.id);
-      existing.triggeredByRepositories.add(result.repository);
-      const leadRefresh = refreshByMembership.get(JSON.stringify([
-        manifest.id, manifest.leadRepository
-      ])) ?? null;
-      existing.leadBindings.set(JSON.stringify([manifest.id, manifest.leadRepository]), {
-        workspaceId: manifest.id,
-        repositoryId: manifest.leadRepository,
-        selected: Boolean(leadRefresh && successfulRefreshStatuses.has(leadRefresh.status))
-      });
-      if (leadRefresh && successfulRefreshStatuses.has(leadRefresh.status)
-          && /^[0-9a-f]{40,64}$/i.test(String(leadRefresh.configurationCommit ?? ''))) {
-        existing.expectedConfigurationCommits.add(leadRefresh.configurationCommit);
-      }
-      leads.set(remote, existing);
     }
-  }
-  const finalizedLeads = [...leads.values()].map((entry) => ({
-    ...entry,
-    workspaceIds: [...entry.workspaceIds].sort(),
-    triggeredByRepositories: [...entry.triggeredByRepositories].sort(),
-    leadBindings: [...entry.leadBindings.values()].sort((left, right) =>
-      left.workspaceId.localeCompare(right.workspaceId)
-        || left.repositoryId.localeCompare(right.repositoryId)),
-    expectedConfigurationCommit: entry.expectedConfigurationCommits.size === 1
-      ? [...entry.expectedConfigurationCommits][0] : null,
-    authorityCommitConflict: entry.expectedConfigurationCommits.size > 1,
-    authorityObservation: null
-  })).sort((left, right) => left.remote.localeCompare(right.remote));
-  if (observeLeads) {
-    await mapLimit(finalizedLeads, Math.min(4, finalizedLeads.length || 1), async (lead) => {
-      try { lead.authorityObservation = await services.observeLeadConfiguration(lead.remote); }
-      catch (error) {
-        lead.authorityObservation = { status: 'unavailable', commit: null };
-        issues.push({
-          lead: lead.displayRemote,
-          status: 'unavailable',
-          reason: redactDiagnosticText(error?.message ?? String(error)),
-          nextAction: commandAction([
-            'singularity-flow', 'workspace', 'doctor', '--network', '--repository',
-            commandArgument(lead.remote, '<LEAD-URL>'), '--json'
-          ], { skill: '/sf-workspace-bootstrap' })
-        });
-      }
-    });
   }
   return {
     checkouts: [...checkouts.values()],
@@ -410,7 +290,6 @@ async function selectedTopology(registryFile, results, services, { observeLeads 
     bindings: [...bindings.values()].sort((left, right) =>
       left.workspaceId.localeCompare(right.workspaceId)
         || left.repositoryId.localeCompare(right.repositoryId)),
-    leads: finalizedLeads,
     issues
   };
 }
@@ -525,80 +404,14 @@ function blockingSchemaCensuses(censuses) {
     || entry.truncated === true);
 }
 
-function capabilityPublicationResult(lead, publication) {
-  const stateCurrent = ['current', 'updated', 'policy-disabled'].includes(publication?.status)
-    || publication?.published === true
-    || publication?.reason === 'it is already current there';
-  const portable = publication?.portability?.portable !== false;
-  const current = stateCurrent && portable;
-  const reason = !stateCurrent
-    ? publication?.reason ?? 'The capability state projection did not verify as current.'
-    : !portable
-      ? (publication?.portability?.failures ?? []).map((entry) => entry.reason).filter(Boolean).join('; ')
-        || 'One or more delivery repositories still need a portable capability-authority locator.'
-      : null;
+function unchangedCapabilityPortability() {
   return {
-    lead: lead.displayRemote,
-    workspaceIds: lead.workspaceIds,
-    triggeredByRepositories: lead.triggeredByRepositories,
-    status: current ? 'current' : 'pending',
-    stateStatus: publication?.status ?? (stateCurrent ? 'current' : 'unknown'),
-    state: publication,
-    ...(!current ? {
-      reason,
-      nextAction: capabilityPublishAction(lead.remote)
-    } : {})
+    status: 'outside-scope-unchanged',
+    changed: false,
+    statement: 'Capability-specific publication and portable locator repair are outside safe reinitialization. User-owned capability definitions remain unchanged in the approved configuration mirror.',
+    plannedLeads: [],
+    results: []
   };
-}
-
-async function publishCapabilityPortability(leads, services, commandInput) {
-  const results = [];
-  for (const lead of leads) {
-    if (!lead.expectedConfigurationCommit || lead.authorityCommitConflict) {
-      const binding = lead.leadBindings.find((entry) => entry.selected)
-        ?? lead.leadBindings[0] ?? null;
-      results.push({
-        lead: lead.displayRemote,
-        workspaceIds: lead.workspaceIds,
-        triggeredByRepositories: lead.triggeredByRepositories,
-        status: 'pending',
-        code: lead.authorityCommitConflict
-          ? 'CAPABILITY_REINITIALIZE_AUTHORITY_CONFLICT'
-          : 'CAPABILITY_REINITIALIZE_LEAD_NOT_BOUND',
-        reason: lead.authorityCommitConflict
-          ? 'The selected workspaces disagree on the lead configuration commit; no capability locator was changed.'
-          : 'The lead capability authority was not part of the confirmed refresh plan; no capability locator was changed.',
-        ...(binding ? {
-          nextAction: reinitializeAction({
-              workspace: binding.workspaceId,
-              repositories: [binding.repositoryId],
-              acceptBundledConflicts: false,
-              resolutions: {}
-            }, ['--dry-run'])
-        } : {})
-      });
-      continue;
-    }
-    try {
-      const publication = await services.publishOrganisationCapabilityMap(lead.remote, {
-        expectedConfigurationCommit: lead.expectedConfigurationCommit
-      });
-      results.push(capabilityPublicationResult(lead, publication));
-    } catch (error) {
-      results.push({
-        lead: lead.displayRemote,
-        workspaceIds: lead.workspaceIds,
-        triggeredByRepositories: lead.triggeredByRepositories,
-        status: 'pending',
-        code: error?.code ?? 'CAPABILITY_PORTABILITY_REFRESH_FAILED',
-        reason: redactDiagnosticText(error?.message ?? String(error)),
-        nextAction: error?.code === 'CAPABILITY_CONFIGURATION_PLAN_STALE'
-          ? reinitializeAction(commandInput, ['--dry-run'])
-          : capabilityPublishAction(lead.remote)
-      });
-    }
-  }
-  return results;
 }
 
 /**
@@ -617,6 +430,18 @@ export async function reinitializeWorkspaces({
   confirmPlan = null
 } = {}, serviceOverrides = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace reinitialization requires the workspace registry path.');
+  const ownershipTransfers = Object.entries(resolutions ?? {})
+    .filter(([, resolution]) => resolution !== 'local');
+  if (acceptBundledConflicts || ownershipTransfers.length) {
+    throw new SingularityFlowError(
+      'Safe reinitialization cannot replace repository-owned configuration with packaged content. '
+        + 'It restores only missing or exact registered framework seeds; use the separately reviewed '
+        + 'workspace refresh-configuration journey for a deliberate ownership transfer.', {
+        code: 'WORKSPACE_REINITIALIZE_OWNERSHIP_TRANSFER_UNSUPPORTED',
+        details: { paths: ownershipTransfers.map(([conflictPath]) => conflictPath) }
+      }
+    );
+  }
   if (dryRun && confirmPlan) throw new SingularityFlowError(
     'Workspace reinitialization preview cannot also apply a confirmed plan. Use --dry-run first, then rerun without it using --confirm-plan <PLAN-ID>.',
     { code: 'WORKSPACE_REINITIALIZE_MODE_CONFLICT' }
@@ -633,30 +458,30 @@ export async function reinitializeWorkspaces({
 
   const services = {
     refreshWorkspaceConfigurations,
-    publishOrganisationCapabilityMap,
-    observeLeadConfiguration,
     schemaCensus,
     readWorkspaceRegistry,
     readWorkspace,
     ...serviceOverrides
   };
   const refreshInput = {
-    registryFile, workspace, repositories, acceptBundledConflicts, resolutions
+    registryFile, workspace, repositories, acceptBundledConflicts, resolutions,
+    // Reinitialize is the explicit product-seed refresh. Ordinary `refresh-configuration` keeps
+    // its conservative three-way behavior, while this plan restores only framework-owned workflow
+    // contracts and keeps every repository-only workflow, template and agent intact.
+    restorePackagedSeeds: true
   };
   let confirmed = null;
   if (!dryRun) confirmed = parseReinitializationPlan(confirmPlan);
 
   // Applying a compound plan begins with the same read-only configuration preview used to create
-  // it. This verifies both the embedded cfgp identity and the local workspace/lead topology before
+  // it. This verifies both the embedded cfgp identity and the local workspace/repository topology before
   // `refreshWorkspaceConfigurations` receives any authority to mutate a remote ref.
   const previewCensusCollector = authorityCensusCollector(services);
   const preview = await services.refreshWorkspaceConfigurations({
     ...refreshInput, dryRun: true, confirmPlan: null,
     inspectCandidate: previewCensusCollector.inspect
   });
-  const previewTopology = await selectedTopology(registryFile, preview.results, services, {
-    observeLeads: true
-  });
+  const previewTopology = await selectedTopology(registryFile, preview.results, services);
   if (!Array.isArray(preview.results) || preview.results.length !== preview.total) {
     previewTopology.issues.push({
       status: 'unavailable',
@@ -696,17 +521,7 @@ export async function reinitializeWorkspaces({
         + previewTopology.issues.length,
       results: preview.results,
       configurationRefresh: preview,
-      capabilityPortability: {
-        status: 'not-run-during-preview',
-        plannedLeads: previewTopology.leads.map((lead) => ({
-          lead: lead.displayRemote,
-          workspaceIds: lead.workspaceIds,
-          triggeredByRepositories: lead.triggeredByRepositories,
-          leadBindings: lead.leadBindings,
-          authority: lead.authorityObservation
-        })),
-        results: []
-      },
+      capabilityPortability: unchangedCapabilityPortability(),
       schemaMigrationPolicy: REINITIALIZATION_SCHEMA_POLICY,
       schemaCensuses: previewSchemaCensuses,
       topologyIssues: previewTopology.issues,
@@ -723,8 +538,8 @@ export async function reinitializeWorkspaces({
     const reason = previewSchemaBlockers.length
       ? 'One or more selected checkouts could not complete the bounded schema compatibility census.'
       : previewTopology.issues.length
-      ? 'Workspace membership, repository routing, or lead authority could not be rebound exactly.'
-      : 'Configuration authority or workspace capability topology changed after preview.';
+      ? 'Workspace membership or repository routing could not be rebound exactly.'
+      : 'Configuration authority or workspace repository topology changed after preview.';
     return Object.freeze({
       schemaVersion: 1, // schema-transient: rejected compound reinitialization confirmation
       resultType: 'workspace-reinitialization',
@@ -746,9 +561,7 @@ export async function reinitializeWorkspaces({
         error: reason
       })),
       configurationRefresh: preview,
-      capabilityPortability: {
-        status: 'not-run-stale-plan', plannedLeads: [], results: []
-      },
+      capabilityPortability: unchangedCapabilityPortability(),
       schemaMigrationPolicy: REINITIALIZATION_SCHEMA_POLICY,
       schemaCensuses: previewSchemaCensuses,
       topologyIssues: previewTopology.issues,
@@ -763,16 +576,14 @@ export async function reinitializeWorkspaces({
     ...refreshInput, dryRun: false, confirmPlan: confirmed.configurationPlanId,
     inspectCandidate: applyCensusCollector.inspect
   });
-  // Configuration publication may legitimately change sflow/config. Rebind only the local routing
-  // fields after it completes; lead commit movement is instead constrained by the cfgp apply and
-  // the exact expectedConfigurationCommit handed to capability publication below.
-  const topology = await selectedTopology(registryFile, refresh.results, services, {
-    observeLeads: true
-  });
+  // Configuration publication may legitimately change sflow/config. Rebind the local workspace
+  // and repository paths after it completes. Capability authorities and locators are intentionally
+  // not observed or separately published because they are outside safe reinitialization.
+  const topology = await selectedTopology(registryFile, refresh.results, services);
   if (!Array.isArray(refresh.results) || refresh.results.length !== refresh.total) {
     topology.issues.push({
       status: 'unavailable',
-      reason: 'Configuration apply did not return one result for every selected repository; capability locators were not changed.'
+      reason: 'Configuration apply did not return one result for every selected repository.'
     });
   }
   const schemaCensuses = await censusCheckouts(
@@ -781,43 +592,12 @@ export async function reinitializeWorkspaces({
   const schemaBlockers = blockingSchemaCensuses(schemaCensuses);
   const topologyChanged = sha256(routingTopologyIdentity(previewTopology))
     !== sha256(routingTopologyIdentity(topology));
-  const authorityChanged = topology.leads.some((lead) =>
-    lead.expectedConfigurationCommit
-      && lead.authorityObservation?.commit !== lead.expectedConfigurationCommit);
-  let capabilityPortability;
-  if (topologyChanged || topology.issues.length || authorityChanged) {
-    capabilityPortability = {
-      status: 'not-run-stale-plan',
-      plannedLeads: [],
-      results: []
-    };
-  } else if (schemaBlockers.length) {
-    capabilityPortability = {
-      status: 'not-run-schema-blocked',
-      plannedLeads: [],
-      results: []
-    };
-  } else if (refresh.status !== 'complete') {
-    capabilityPortability = {
-      status: refresh.status === 'partial'
-        ? 'not-run-configuration-partial' : 'not-run-configuration-blocked',
-      plannedLeads: [],
-      results: []
-    };
-  } else {
-    const results = await publishCapabilityPortability(topology.leads, services, commandInput);
-    capabilityPortability = {
-      status: results.some((entry) => entry.status !== 'current') ? 'partial' : 'complete',
-      plannedLeads: [],
-      results
-    };
-  }
+  const capabilityPortability = unchangedCapabilityPortability();
 
   const schemaBlocked = schemaBlockers.length > 0;
-  const portabilityBlocked = capabilityPortability.status === 'partial';
-  const topologyBlocked = topologyChanged || topology.issues.length > 0 || authorityChanged;
+  const topologyBlocked = topologyChanged || topology.issues.length > 0;
   const status = refresh.status === 'blocked' ? 'blocked'
-      : refresh.status === 'partial' || schemaBlocked || portabilityBlocked || topologyBlocked ? 'partial'
+      : refresh.status === 'partial' || schemaBlocked || topologyBlocked ? 'partial'
         : 'complete';
   const nextAction = topologyBlocked || schemaBlocked || refresh.status !== 'complete'
     ? reinitializeAction(commandInput, ['--dry-run']) : null;
@@ -831,9 +611,7 @@ export async function reinitializeWorkspaces({
     configurationPlanId: confirmed.configurationPlanId,
     total: refresh.total,
     updated: refresh.updated,
-    failed: (refresh.failed ?? 0)
-      + capabilityPortability.results.filter((entry) => entry.status !== 'current').length
-      + schemaBlockers.length
+    failed: (refresh.failed ?? 0) + schemaBlockers.length
       + topology.issues.length,
     results: refresh.results,
     configurationRefresh: refresh,

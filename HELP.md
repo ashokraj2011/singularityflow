@@ -1115,6 +1115,15 @@ configuration commit, installed product revision, and per-file SHA-256 values. E
 snapshots remain unchanged. Re-run the command after a partial failure or after merging a reported
 `sflow/config-refresh/*` review branch; completed repositories become no-ops.
 
+`workspace reinitialize` is the safe plan-first repair for installed framework content. It restores
+only missing seeds or exact current/historical registered framework seeds, plus their
+framework-owned dependencies. User-created and user-modified workflows, phases, artifact sets,
+templates, prompts, and agents remain repository-owned and unchanged; same-name and modified-seed
+collisions are preserved and reported. Reinitialize refuses `--resolve ...=bundled` and
+`--accept-bundled-conflicts` because those choices transfer ownership. Use the separate
+`workspace refresh-configuration` preview when packaged content should deliberately replace
+repository-owned content. Neither path changes existing Story snapshots or immutable evidence.
+
 `workspace use` records a machine-local active workspace and repository. The
 context label is `<workspace> >`, or `<workspace> / <story> >` on a governed
 Story branch or when `--story` is supplied. `workspace copilot` starts GitHub
@@ -2885,12 +2894,12 @@ to inspect that cleanup. Use
 `/sf-factory-reset` in Copilot for the same guarded flow.
 
 VS Code provides the same no-migration operation. Open **Workspaces → Fast
-onboarding & Git → Destructive recovery**, or run **Singularity Flow: Factory
-Reset / Reinitialize Any Git Repository (Destructive)** from the Command Palette.
+onboarding & Git → Factory reset**, or run **Singularity Flow: Factory Reset Local
+SFlow Data (Destructive)** from the Command Palette.
 Choose a canonical Git root; old, incomplete, and not-yet-initialized repositories
 do not have to pass normal SFlow configuration loading. Review the exact remove,
 replace, preserve, and dirty-path scope. When local SFlow bytes will be lost,
-select **Discard SFlow data and reinitialize**, then type the exact confirmation.
+select **Discard all local SFlow data**, then type the exact confirmation.
 The extension rechecks the preview immediately before applying it. A successful
 reset installs and validates the current format but deliberately leaves the new
 files uncommitted. Application source, Git history, and remote `sflow/config` and

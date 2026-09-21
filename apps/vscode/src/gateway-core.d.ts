@@ -199,6 +199,11 @@ declare module '*/safe-command-guidance.mjs' {
   } | null;
 }
 
+declare module '*/git-repository-identity.mjs' {
+  export function gitRepositoryComparisonKey(value: string): string | null;
+  export function sameGitRepository(left: string, right: string): boolean;
+}
+
 interface HelpTopicContract {
   readonly id: string;
   readonly title: string;

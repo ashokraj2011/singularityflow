@@ -273,10 +273,10 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
   }] : []), ...(workflowVersionUnsupported ? [{
     kind: 'action' as const,
     id: `${view}:error:reinitialize`,
-    label: 'Reinitialize with the current SFlow format',
-    description: 'destructive SFlow reset',
-    tooltip: 'Destructively replace this repository’s incompatible SFlow configuration after an exact reset preview. Application source and Git history are preserved.',
-    icon: 'debug-restart',
+    label: 'Reinitialize framework assets',
+    description: 'preserves user content',
+    tooltip: 'Open the reviewed seed upgrade. Only missing or exact registered framework workflows, phases, artifact sets, templates, prompts and agents may refresh; user-created and user-modified content is preserved.',
+    icon: 'sync',
     runCommand: 'singularityFlow.reinitialize'
   }] : []), {
     kind: 'action',

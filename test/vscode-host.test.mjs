@@ -654,8 +654,9 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   assert.match(lifecycleProvider.getChildren()[0].label, /version must be 2/);
   const lifecycleReset = lifecycleProvider.getChildren()
     .find((node) => node.id === 'lifecycle:error:reinitialize');
-  assert.equal(lifecycleReset.label, 'Reinitialize with the current SFlow format');
-  assert.match(lifecycleReset.tooltip, /Destructively replace/);
+  assert.equal(lifecycleReset.label, 'Reinitialize framework assets');
+  assert.match(lifecycleReset.tooltip,
+    /user-created and user-modified content is preserved/);
   assert.equal(lifecycleProvider.getTreeItem(lifecycleReset).command.command, 'singularityFlow.reinitialize');
 
   const configurationProvider = section(registered, 'configuration');
@@ -679,13 +680,16 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   // contains another's.
   await registered.commands.get('singularityFlow.openConfigurationCenter')();
   assert.match(centerPanel.webview.html, /data-action="open-designer"/, 'workflow and phase design remains reachable');
-  assert.ok(registered.commands.has('singularityFlow.reinitialize'), 'the no-migration recovery command is registered');
+  assert.ok(registered.commands.has('singularityFlow.reinitialize'),
+    'the compatibility command routes to safe seeded reinitialize');
+  assert.ok(registered.commands.has('singularityFlow.factoryReset'),
+    'destructive recovery has its own explicit command');
 
   registered.pickedFolder = root;
-  registered.selfApprovalAnswer = 'Reinitialize repository';
+  registered.selfApprovalAnswer = 'Factory reset local SFlow data';
   registered.typed = `RESET ${path.basename(root)} ${run('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root }).stdout.trim()}`;
-  await registered.commands.get('singularityFlow.reinitialize')();
-  assert.equal(registered.openDialogs.at(-1)?.title, 'Choose the Git repository to reinitialize');
+  await registered.commands.get('singularityFlow.factoryReset')();
+  assert.equal(registered.openDialogs.at(-1)?.title, 'Choose the Git repository to factory reset');
   assert.equal(YAML.parse(await readFile(workflowFile, 'utf8')).version, 2,
     'the guarded editor action installs workflow v2 from the bundled CLI');
   assert.equal(registered.errors.length, 0, registered.errors.join('\n'));
@@ -752,12 +756,12 @@ Preserve this custom repository agent during reinitialization.
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
   const extension = loadExtension(api);
   await extension.activate(context());
-  assert.ok(registered.commands.has('singularityFlow.reinitialize'));
+  assert.ok(registered.commands.has('singularityFlow.factoryReset'));
 
   registered.pickedFolder = root;
-  registered.selfApprovalAnswer = 'Discard SFlow data and reinitialize';
+  registered.selfApprovalAnswer = 'Discard all local SFlow data';
   registered.typed = `RESET ${path.basename(root)} ${beforeHead.slice(0, 7)}`;
-  await registered.commands.get('singularityFlow.reinitialize')();
+  await registered.commands.get('singularityFlow.factoryReset')();
 
   assert.match(registered.warningDetails[0], /Will be permanently discarded:[\s\S]*\.sdlc\/config\.json/);
   assert.match(registered.warningDetails[0], /custom-agent bytes that will be preserved:[\s\S]*company-specialist\.agent\.md/);
@@ -788,7 +792,7 @@ Preserve this custom repository agent during reinitialization.
   assert.equal(YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8')).version, 2);
   assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'application remains\n');
   assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
-  assert.ok(registered.warnings.some((message) => /Reinitialize this repository/.test(message)));
+  assert.ok(registered.warnings.some((message) => /Factory reset all local Singularity Flow data/.test(message)));
   assert.equal(registered.errors.length, 0, registered.errors.join('\n'));
 });
 
@@ -817,23 +821,26 @@ test('VS Code refuses a destructive reset when HEAD changes while its review mod
   api.window.showWarningMessage = async (message, ...rest) => {
     registered.warnings.push(message);
     registered.warningDetails.push(rest.find((item) => item && typeof item === 'object')?.detail ?? null);
-    if (/^Reinitialize this repository/.test(message)) {
+    if (/^Factory reset all local Singularity Flow data/.test(message)) {
       reviewDialogs += 1;
       // Model the real race: another editor/process advances the branch while the modal is open.
       // The already-reviewed confirmation and reset-scope digest must become unusable.
       await writeFile(path.join(root, 'late-change.txt'), 'arrived during reset review\n');
       run('git', ['add', 'late-change.txt'], { cwd: root });
       run('git', ['commit', '-m', 'advance while reset is being reviewed'], { cwd: root });
-      return 'Discard SFlow data and reinitialize';
+      return 'Discard all local SFlow data';
     }
     return undefined;
   };
 
-  await registered.commands.get('singularityFlow.reinitialize')();
+  await registered.commands.get('singularityFlow.factoryReset')();
 
   assert.equal(reviewDialogs, 1);
   assert.ok(registered.warnings.some((message) =>
     /repository changed after the reset preview/i.test(message)));
+  assert.ok(registered.warnings.some((message) =>
+    /Run Factory Reset again to review the current boundary\./.test(message)),
+    'stale destructive previews name the explicit Factory Reset route, not safe reinitialize');
   assert.equal(await readFile(legacyFile, 'utf8'), '{"version":1,"mustRemain":true}\n',
     'the old-format bytes remain because the reviewed HEAD became stale');
   assert.equal(existsSync(path.join(root, 'singularity')), false,
@@ -3236,9 +3243,76 @@ test('creating a workspace is possible before any repository is open', async (t)
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  for (const id of ['singularityFlow.startWizard', 'singularityFlow.createWorkspace', 'singularityFlow.init', 'singularityFlow.reinitialize', 'singularityFlow.doctor']) {
+  for (const id of ['singularityFlow.startWizard', 'singularityFlow.createWorkspace', 'singularityFlow.init', 'singularityFlow.reinitialize', 'singularityFlow.factoryReset', 'singularityFlow.doctor']) {
     assert.ok(registered.commands.has(id), `${id} is reachable with no repository open`);
   }
+});
+
+test('the legacy reinitialize command is a safe seeded-refresh alias, never a factory reset', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.reinitialize')();
+
+  assert.ok(registered.executedCommands.some((entry) =>
+    entry.id === 'singularityFlow.reinitializeWorkspaces'));
+  assert.ok(registered.executedCommands.some((entry) =>
+    entry.id === 'singularityFlow.openWorkspaces'));
+  assert.equal(registered.executedCommands.some((entry) =>
+    entry.id === 'singularityFlow.factoryReset'), false,
+  'an old Reinitialize invocation cannot cross into the destructive recovery route');
+  assert.equal(registered.openDialogs.length, 0,
+    'safe reinitialize does not ask for a repository factory-reset target');
+});
+
+test('the legacy repository-scoped reinitialize command routes directly to seeded workspace review', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'legacy-reinitialize-registry.json');
+  const workspaces = path.join(org.base, 'legacy-reinitialize-workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'legacy-safe-reinitialize',
+    '--base', workspaces, '--organisation', org.lead, '--capability', 'payments-api',
+    '--lead-capability', 'payments-api', '--confirm', 'legacy-safe-reinitialize', '--no-clone'],
+  { encoding: 'utf8', env: process.env });
+  assert.equal(created.status, 0, created.stderr);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const workspaceRoot = path.join(await realpath(workspaces), 'legacy-safe-reinitialize');
+  const repositoryPath = path.join(workspaceRoot, 'repos', 'api');
+  const dispatch = api.commands.executeCommand;
+  let routed = null;
+  api.commands.executeCommand = async (command, ...args) => {
+    if (command === 'singularityFlow.openWorkspaces') {
+      routed = { command, args };
+      return;
+    }
+    return dispatch(command, ...args);
+  };
+
+  await registered.commands.get('singularityFlow.reinitialize')(repositoryPath);
+
+  assert.deepEqual(routed, {
+    command: 'singularityFlow.openWorkspaces',
+    args: [{ upgradeScope: 'selected', workspacePath: workspaceRoot, repositoryId: 'api' }]
+  });
+  assert.equal(registered.quickPicks.length, 0,
+    'the exact legacy route does not show a menu containing factory reset');
+  assert.equal(registered.executedCommands.some((entry) =>
+    entry.id === 'singularityFlow.factoryReset'), false);
+  assert.equal(registered.openDialogs.length, 0);
 });
 
 test('the workspace form opens as a panel and is driven by messages, not prompts', async (t) => {
@@ -3838,6 +3912,94 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
   await until(() => (panel.webview.html.includes('Commerce platform') ? true : null));
   assert.match(readFileSync(path.join(workspaceRoot, 'workspace.json'), 'utf8'), /Commerce platform/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+});
+
+test('Workspaces host rejects direct apply messages without an exact seeded-only preview', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  // Install the VS Code module interceptor and clear every retained lazy-panel singleton without
+  // activating repository services; this test supplies the panel's CLI boundary directly.
+  loadExtension(api);
+  const lazyBundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs');
+  const { WorkspacesPanel } = hostRequire(lazyBundle);
+  const workspacePath = '/work/safe-host-boundary';
+  const entries = [{
+    id: 'local--safe-host-boundary', path: workspacePath, name: 'safe-host-boundary',
+    anchorKey: 'safe-host-boundary', active: 'yes'
+  }];
+  const requests = [];
+  let nextPreview = null;
+  const panelController = WorkspacesPanel.show(
+    context(), entries, async () => entries, async () => null,
+    async () => ({
+      workspace: {
+        id: 'local--safe-host-boundary', name: 'safe-host-boundary', path: workspacePath,
+        leadRepository: 'platform', capabilities: []
+      },
+      healthy: true,
+      leadRepositoryPath: `${workspacePath}/repos/platform`,
+      repositories: [],
+      availableCapabilities: []
+    }),
+    async (_path, request) => {
+      requests.push(request);
+      if (!request.dryRun) throw new Error('unsafe apply crossed the native host boundary');
+      return nextPreview;
+    },
+    async () => null,
+    workspacePath
+  );
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  assert.ok(panel && panelController);
+  t.after(() => panel.dispose());
+  await settle();
+
+  const safe = () => ({
+    status: 'preview', dryRun: true, planId: 'cfgp-host-safe', total: 1, updated: 0,
+    resultType: 'workspace-reinitialization',
+    capabilityPortability: {
+      status: 'outside-scope-unchanged', changed: false, plannedLeads: [], results: []
+    },
+    results: [{ status: 'would-update', repository: 'platform', remote: '/git/platform.git' }]
+  });
+  const unsafePreviews = [
+    { ...safe(), resultType: undefined, planId: 'cfgp-host-legacy' },
+    { ...safe(), dryRun: false, planId: 'cfgp-host-mutation' },
+    {
+      ...safe(), planId: 'cfgp-host-ownership',
+      results: [{
+        status: 'would-update', repository: 'platform', remote: '/git/platform.git',
+        conflicts: [{ path: 'custom.md', resolution: 'accepted-bundled' }]
+      }]
+    }
+  ];
+  for (const preview of unsafePreviews) {
+    nextPreview = preview;
+    const promptsBefore = registered.inputBoxes.length;
+    await panel.post({ type: 'configuration-preview', scope: 'selected' });
+    // Send the native message directly. A disabled webview button is presentation, not authority.
+    await panel.post({ type: 'configuration-apply' });
+    assert.equal(registered.inputBoxes.length, promptsBefore,
+      `unsafe preview ${preview.planId} was rejected before confirmation`);
+  }
+  assert.equal(requests.some((request) => request.dryRun === false), false,
+    'legacy, mutation-shaped, and ownership-transfer previews never invoke apply');
+  assert.match(panel.webview.html, /Apply refused:[\s\S]*exact seeded-only workspace reinitialization contract/);
+
+  // Reference equality is insufficient: a retained result can be mutated while the asynchronous
+  // native confirmation box is open. The host must re-prove the contract immediately afterward.
+  const mutable = safe();
+  nextPreview = mutable;
+  await panel.post({ type: 'configuration-preview', scope: 'selected' });
+  api.window.showInputBox = async (options) => {
+    registered.inputBoxes.push(options);
+    mutable.capabilityPortability.changed = true;
+    return mutable.planId;
+  };
+  await panel.post({ type: 'configuration-apply' });
+  assert.equal(requests.some((request) => request.dryRun === false), false,
+    'a preview mutated during confirmation is rejected before the apply callback');
+  assert.match(panel.webview.html, /Apply refused:[\s\S]*exact seeded-only workspace reinitialization contract/);
 });
 
 test('Attach existing offers only workspaces from the inspected capability authority', async (t) => {

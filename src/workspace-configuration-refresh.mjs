@@ -10,16 +10,20 @@ import { BUILD_INFO } from './build-info.mjs';
 import {
   canonicalConfigurationAssets, configurationAssetPaths, CONFIGURATION_BRANCH,
   configurationAssetPolicyFromDirectory, configurationAssetPolicyFromRef,
-  ensureConfigurationBranch, isConfigurationAsset, retainStateConfigurationHistory,
+  ensureConfigurationBranch, isConfigurationAsset, prepareConfigurationBootstrapWorktree,
+  retainStateConfigurationHistory,
   stateConfigurationHistoryBranch
 } from './configuration-branch.mjs';
 import {
-  configurationAssetSearchRoots, mergeConfigurationAssetPolicies
+  configurationAssetPolicy, configurationAssetSearchRoots, mergeConfigurationAssetPolicies,
+  portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
-import { initializeDefinition, loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { setDefaultBaseBranch } from './bootstrap.mjs';
+import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { gitCommitIdentity } from './git.mjs';
-import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import {
+  enterpriseGitEnvironment, withoutGitProcessOverrides
+} from './git-enterprise-environment.mjs';
+import { resolvedGitRepositoryComparisonKey } from './git-repository-identity.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
@@ -32,12 +36,20 @@ import {
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { VERSION } from './version.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace.mjs';
-import { isRetiredPackagedAssetHash } from './packaged-asset-history.mjs';
+import {
+  isKnownPackagedAssetHash, isRetiredPackagedAssetHash
+} from './packaged-asset-history.mjs';
+import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
 
 export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
 export const STATE_CONFIGURATION_ROOT = 'configuration';
 export const STATE_CONFIGURATION_MANIFEST = `${STATE_CONFIGURATION_ROOT}/manifest.json`;
 const BASELINE_FORMAT = 'singularity-flow-configuration-baseline/v1';
+const PACKAGE_OWNERSHIP_FRAMEWORK = 'framework';
+const PACKAGE_OWNERSHIP_REPOSITORY = 'repository';
+const PACKAGE_OWNERSHIP_VALUES = new Set([
+  PACKAGE_OWNERSHIP_FRAMEWORK, PACKAGE_OWNERSHIP_REPOSITORY
+]);
 const MIRROR_FORMAT = 'singularity-flow-configuration-mirror/v2';
 const REFRESH_CACHE_FORMAT = 'singularity-flow-configuration-refresh-cache/v1';
 const REFRESH_CACHE_OWNER_FORMAT = 'singularity-flow-configuration-refresh-cache-owner/v1';
@@ -57,11 +69,10 @@ const REFRESH_CACHE_PROCESS_STARTED_AT = new Date(
   Date.now() - Math.max(0, Math.round(process.uptime() * 1000))
 ).toISOString();
 const REFRESH_CACHE_PROCESS_TOKEN = randomUUID();
-// These profiles are part of the executable product contract, not optional catalog samples. They
-// may remain unused, but an upgraded approved configuration must keep them available so the CLI,
-// Copilot skills and VS Code all expose the same standard product surface.
+// Ordinary configuration refresh retains its established three-way behavior. These two standard
+// profiles are the only historical exception: the product has always restored them when absent.
+// The broader seeded-only replacement contract is opt-in and used by workspace reinitialize.
 const REQUIRED_PACKAGED_WORK_TYPES = Object.freeze(['spec-driven-standard', 'reference-driven-build']);
-
 const FIXED_PACKAGE_ASSETS = Object.freeze([
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
   ['impact.yml', 'singularity/impact.yml'],
@@ -69,6 +80,44 @@ const FIXED_PACKAGE_ASSETS = Object.freeze([
   ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
   ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
 ]);
+// These files have package-provided starting bytes, but their documented contract explicitly
+// invites organisation-owned entries. A filename match therefore cannot prove that the whole file
+// is a replaceable seed. Reinitialize must retain the ordinary baseline/hash conflict boundary for
+// them; otherwise adding one agent mapping or changing model policy is silently destructive.
+const USER_CONFIGURABLE_PACKAGE_ASSETS = new Set([
+  'singularity/agent-mappings.yml',
+  'singularity/impact.yml',
+  'singularity/modelTiers.yml'
+]);
+
+function packageAssetAllowsExactSeedRestore(relative) {
+  return !USER_CONFIGURABLE_PACKAGE_ASSETS.has(relative);
+}
+
+function packagedAssetOwner(baseline, relative, {
+  exists, currentHash, bundledHash, priorHash, retiredPackagedAsset, strictProvenance = false,
+  templatesRoot = 'singularity/templates'
+}) {
+  const recorded = baseline?.ownership?.assets?.[relative] ?? null;
+  if (!strictProvenance) {
+    if (recorded === PACKAGE_OWNERSHIP_FRAMEWORK
+        || recorded === PACKAGE_OWNERSHIP_REPOSITORY) return recorded;
+    return !exists || currentHash === bundledHash
+      || (priorHash != null && currentHash === priorHash) || retiredPackagedAsset
+      ? PACKAGE_OWNERSHIP_FRAMEWORK
+      : PACKAGE_OWNERSHIP_REPOSITORY;
+  }
+  // A repository-owned receipt is a durable opt-out. A framework label or baseline hash is not
+  // independent provenance: either can be copied or edited in the same Git change as a custom
+  // file. Safe reinitialization therefore requires the observed bytes to match the current package
+  // or the path-scoped historical package registry. Unknown/customized bytes remain repository
+  // owned even when an older receipt called them framework-owned.
+  if (recorded === PACKAGE_OWNERSHIP_REPOSITORY) return PACKAGE_OWNERSHIP_REPOSITORY;
+  return !exists || currentHash === bundledHash
+    || isKnownPackagedAssetHash(relative, currentHash, { templatesRoot }) || retiredPackagedAsset
+    ? PACKAGE_OWNERSHIP_FRAMEWORK
+    : PACKAGE_OWNERSHIP_REPOSITORY;
+}
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -234,19 +283,32 @@ function plainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Apply semantic changes without reserializing untouched repository-owned YAML nodes. */
+function patchWorkflowDocument(currentText, before, after) {
+  const document = YAML.parseDocument(currentText);
+  if (document.errors.length) throw document.errors[0];
+  const visit = (pathParts, previous, next) => {
+    if (equal(previous, next)) return;
+    if (plainObject(previous) && plainObject(next)) {
+      for (const key of Object.keys(previous)) {
+        if (!Object.hasOwn(next, key)) document.deleteIn([...pathParts, key]);
+      }
+      for (const [key, value] of Object.entries(next)) {
+        if (!Object.hasOwn(previous, key)) document.setIn([...pathParts, key], clone(value));
+        else visit([...pathParts, key], previous[key], value);
+      }
+      return;
+    }
+    document.setIn(pathParts, clone(next));
+  };
+  visit([], before, after);
+  return String(document);
+}
+
 function displayPath(parts) {
   return ['workflow', ...parts].join('.');
 }
 
-/**
- * Paths needed to restore a missing standard workflow as one valid contract.
- *
- * A prior package baseline normally lets the three-way merge recognize a new work type as an
- * additive product change. If a repository later lacks that profile, however, ordinary merge
- * semantics interpret the absence as an intentional local deletion. Standard product workflows
- * are not optional in that sense: people may choose another workflow, but refresh must keep the
- * standard profile and any missing phase/authority dependencies installed.
- */
 function requiredPackagedWorkflowPaths(current, incoming) {
   const paths = new Set();
   for (const workTypeId of REQUIRED_PACKAGED_WORK_TYPES) {
@@ -263,6 +325,501 @@ function requiredPackagedWorkflowPaths(current, incoming) {
     }
   }
   return paths;
+}
+
+/**
+ * Resolve the configuration nodes owned by the currently installed package catalog.
+ *
+ * Reinitialization is an ownership operation, not a whole-file replacement. Exact current or
+ * registered historical package nodes can move with the package; modified and repository-only
+ * nodes remain repository-owned. Approval authorities are wholly organisation-owned once present,
+ * although a missing authority dependency still has to be restored for a seeded workflow to remain
+ * valid.
+ */
+function packagedWorkflowOwnership(current, incoming, baseline) {
+  const candidates = {
+    workTypes: new Set(Object.keys(incoming.workTypes ?? {})),
+    phases: new Set(),
+    artifactSets: new Set(),
+    mcpServers: new Set()
+  };
+  const requiredAuthorities = new Set();
+
+  const collectContractDependencies = (contract) => {
+    if (!plainObject(contract)) return;
+    if (typeof contract.artifactSet === 'string') candidates.artifactSets.add(contract.artifactSet);
+    for (const authorityId of [
+      ...(contract.approval?.authorities ?? []),
+      ...(contract.approval?.requiredAuthorities ?? [])
+    ]) {
+      if (typeof authorityId === 'string') requiredAuthorities.add(authorityId);
+    }
+    for (const serverId of contract.mcp?.requiredServers ?? []) {
+      if (typeof serverId === 'string') candidates.mcpServers.add(serverId);
+    }
+  };
+
+  for (const profile of Object.values(incoming.workTypes ?? {})) {
+    for (const phaseId of profile?.phases ?? []) {
+      if (typeof phaseId !== 'string') continue;
+      candidates.phases.add(phaseId);
+      collectContractDependencies(incoming.phases?.[phaseId]);
+      collectContractDependencies(profile?.phaseOverrides?.[phaseId]);
+    }
+  }
+
+  // A packaged MCP contract may be selected indirectly by the phase allowlist rather than a
+  // requiredServers entry. Keep it with the seed when any packaged phase can invoke it.
+  for (const [serverId, server] of Object.entries(incoming.mcpServers ?? {})) {
+    if ((server?.phases ?? []).some((phaseId) => candidates.phases.has(phaseId))) {
+      candidates.mcpServers.add(serverId);
+    }
+  }
+
+  const framework = {};
+  const repository = {};
+  const receipt = {};
+  const priorReceipt = baseline?.ownership?.workflow ?? {};
+  for (const [section, ids] of Object.entries(candidates)) {
+    framework[section] = new Set();
+    repository[section] = new Set();
+    receipt[section] = {};
+    for (const id of ids) {
+      const recorded = priorReceipt?.[section]?.[id] ?? null;
+      const currentPresent = Object.hasOwn(current?.[section] ?? {}, id);
+      const currentValue = current?.[section]?.[id];
+      const inferredFramework = !currentPresent
+        || equal(currentValue, incoming?.[section]?.[id])
+        || isKnownPackagedWorkflowValue(section, id, currentValue);
+      const owner = recorded === PACKAGE_OWNERSHIP_REPOSITORY
+        ? PACKAGE_OWNERSHIP_REPOSITORY
+        : inferredFramework
+          ? PACKAGE_OWNERSHIP_FRAMEWORK
+          : PACKAGE_OWNERSHIP_REPOSITORY;
+      receipt[section][id] = owner;
+      (owner === PACKAGE_OWNERSHIP_FRAMEWORK ? framework : repository)[section].add(id);
+    }
+
+    // A repository-created ID is outside the package catalog and therefore repository-owned even
+    // if a forged baseline claims the package once contained it. Conversely, an exact registered
+    // historical node that the current package retired may be removed as a framework seed.
+    for (const [id, currentValue] of Object.entries(current?.[section] ?? {})) {
+      if (ids.has(id)) continue;
+      const owner = isKnownPackagedWorkflowValue(section, id, currentValue)
+        ? PACKAGE_OWNERSHIP_FRAMEWORK : PACKAGE_OWNERSHIP_REPOSITORY;
+      receipt[section][id] = owner;
+      (owner === PACKAGE_OWNERSHIP_FRAMEWORK ? framework : repository)[section].add(id);
+    }
+
+    // Keep an explicit repository-owned namespace reservation when a package later retires a
+    // colliding ID. Otherwise one collision-free refresh would erase the receipt and a later
+    // package could reintroduce that ID as though the repository had never owned it.
+    for (const [id, owner] of Object.entries(priorReceipt?.[section] ?? {})) {
+      if (owner !== PACKAGE_OWNERSHIP_REPOSITORY || ids.has(id)
+          || !Object.hasOwn(current?.[section] ?? {}, id)) continue;
+      receipt[section][id] = PACKAGE_OWNERSHIP_REPOSITORY;
+      repository[section].add(id);
+    }
+  }
+
+  return { framework, repository, receipt, requiredAuthorities };
+}
+
+function applyPackagedWorkflowOwnership(value, current, incoming, ownership) {
+  const exactRoots = new Set();
+  const collisionRoots = new Set();
+  const conflicts = [];
+  for (const [section, ids] of Object.entries(ownership.framework)) {
+    if (!plainObject(value[section])) value[section] = {};
+    for (const id of ids) {
+      if (Object.hasOwn(incoming[section] ?? {}, id)) {
+        value[section][id] = clone(incoming[section][id]);
+      } else delete value[section][id];
+      exactRoots.add(`workflow.${section}.${id}`);
+    }
+  }
+  for (const [section, ids] of Object.entries(ownership.repository)) {
+    if (!plainObject(value[section])) value[section] = {};
+    for (const id of ids) {
+      const root = `workflow.${section}.${id}`;
+      const currentPresent = Object.hasOwn(current?.[section] ?? {}, id);
+      const incomingPresent = Object.hasOwn(incoming?.[section] ?? {}, id);
+      if (currentPresent) value[section][id] = clone(current[section][id]);
+      else delete value[section][id];
+      collisionRoots.add(root);
+      if (!incomingPresent || !currentPresent
+          || !equal(current[section][id], incoming[section][id])) {
+        conflicts.push({
+          path: root,
+          local: currentPresent ? clone(current[section][id]) : undefined,
+          bundled: incomingPresent ? clone(incoming[section][id]) : undefined,
+          resolution: currentPresent ? 'preserved-local' : 'preserved-local-deletion'
+        });
+      }
+    }
+  }
+  if (!plainObject(value.approvalAuthorities)) value.approvalAuthorities = {};
+  // Authority IDs, labels, membership, and local policy are organisation contracts. A package ID
+  // collision cannot transfer ownership merely because an older repository has no node receipt.
+  for (const [authorityId, authority] of Object.entries(current.approvalAuthorities ?? {})) {
+    value.approvalAuthorities[authorityId] = clone(authority);
+  }
+  for (const authorityId of ownership.requiredAuthorities) {
+    if (Object.hasOwn(value.approvalAuthorities, authorityId)) continue;
+    if (!Object.hasOwn(incoming.approvalAuthorities ?? {}, authorityId)) continue;
+    value.approvalAuthorities[authorityId] = clone(incoming.approvalAuthorities[authorityId]);
+    exactRoots.add(`workflow.approvalAuthorities.${authorityId}`);
+  }
+  // The baseline receipt lives in the repository and is not independent ownership evidence.
+  // Outside the path-scoped seed catalogs above, retain the migrated current value exactly. This
+  // prevents a forged baseline from resetting organisation policy such as auto, logging, Git,
+  // world-model, or session settings while still permitting the explicit v1 migration to supply
+  // its validated replacement shape.
+  const nodeSections = new Set([
+    'workTypes', 'phases', 'artifactSets', 'mcpServers', 'approvalAuthorities'
+  ]);
+  for (const key of new Set([...Object.keys(value), ...Object.keys(current)])) {
+    if (nodeSections.has(key)) continue;
+    if (Object.hasOwn(current, key)) value[key] = clone(current[key]);
+    else if (Object.hasOwn(incoming, key)) value[key] = clone(incoming[key]);
+    else delete value[key];
+  }
+  return { exactRoots, collisionRoots, conflicts };
+}
+
+function isWithinOwnedConfigurationPath(candidate, roots) {
+  return [...roots].some((root) => candidate === root || candidate.startsWith(`${root}.`));
+}
+
+// Registered workflow v1 used role-prompt personas. Keep the exact historical package catalog
+// here so migration can distinguish framework metadata from repository-created role semantics.
+// An ID match alone is not ownership evidence: repositories could customize a packaged persona
+// in place, and silently deleting that definition would be just as destructive as deleting a new
+// persona ID.
+const LEGACY_FRAMEWORK_PERSONAS = Object.freeze({
+  developer: Object.freeze({
+    label: 'Developer',
+    description: 'Implement scoped changes and tests.',
+    prompt: 'developer.md',
+    suggestedPhases: Object.freeze(['implementation']),
+    worldModelViews: Object.freeze(['development', 'testing'])
+  }),
+  architect: Object.freeze({
+    label: 'Architect',
+    description: 'Define boundaries, contracts, risks, and implementation specifications.',
+    prompt: 'architect.md',
+    suggestedPhases: Object.freeze(['design', 'implementation-spec', 'fix-design', 'fix-spec']),
+    worldModelViews: Object.freeze(['architecture', 'security'])
+  }),
+  'product-owner': Object.freeze({
+    label: 'Product owner',
+    description: 'Define the problem, scope, and measurable acceptance criteria.',
+    prompt: 'product-owner.md',
+    suggestedPhases: Object.freeze(['intake', 'requirements']),
+    worldModelViews: Object.freeze(['business'])
+  }),
+  qa: Object.freeze({
+    label: 'QA',
+    description: 'Verify acceptance criteria and collect reproducible evidence.',
+    prompt: 'qa.md',
+    suggestedPhases: Object.freeze([
+      'reproduction', 'verification', 'visual-verification', 'conformance'
+    ]),
+    worldModelViews: Object.freeze(['testing', 'development', 'security'])
+  }),
+  'product-designer': Object.freeze({
+    label: 'Product designer',
+    description: 'Turn exported design evidence into explicit screens, states, interactions, tokens, and review decisions.',
+    prompt: 'product-designer.md',
+    suggestedPhases: Object.freeze(['design-intake', 'design-inventory', 'visual-verification']),
+    worldModelViews: Object.freeze(['business', 'architecture', 'testing'])
+  }),
+  'mobile-architect': Object.freeze({
+    label: 'Mobile architect',
+    description: 'Map approved designs to a maintainable mobile design system, navigation model, implementation contract, and test strategy.',
+    prompt: 'mobile-architect.md',
+    suggestedPhases: Object.freeze(['component-mapping', 'mobile-spec']),
+    worldModelViews: Object.freeze(['architecture', 'development', 'testing', 'security'])
+  })
+});
+
+const LEGACY_FRAMEWORK_PHASE_PERSONAS = Object.freeze({
+  intake: Object.freeze(['product-owner']),
+  requirements: Object.freeze(['product-owner']),
+  design: Object.freeze(['architect']),
+  'implementation-spec': Object.freeze(['architect', 'developer']),
+  reproduction: Object.freeze(['qa', 'developer']),
+  'fix-design': Object.freeze(['architect', 'developer']),
+  'fix-spec': Object.freeze(['architect', 'developer']),
+  'design-intake': Object.freeze(['product-designer']),
+  'design-inventory': Object.freeze(['product-designer']),
+  'component-mapping': Object.freeze(['mobile-architect', 'product-designer']),
+  'mobile-spec': Object.freeze(['mobile-architect', 'developer']),
+  implementation: Object.freeze(['developer']),
+  verification: Object.freeze(['qa']),
+  'visual-verification': Object.freeze(['product-designer', 'qa']),
+  conformance: Object.freeze(['qa', 'architect'])
+});
+
+function unsafeLegacyPersonaMigration(message, details = {}) {
+  return new SingularityFlowError(
+    `Legacy role-prompt configuration cannot be migrated safely: ${message} `
+      + 'Convert the repository-owned role to governed Agent Markdown and review its phase routing before reinitializing.',
+    { code: 'LEGACY_PERSONA_MIGRATION_UNSAFE', details }
+  );
+}
+
+function assertFrameworkPersonaReferences(value, { label, expected = null }) {
+  if (!Array.isArray(value)) {
+    throw unsafeLegacyPersonaMigration(`${label} must be an array.`, { label });
+  }
+  const custom = value.filter((personaId) =>
+    typeof personaId !== 'string' || !Object.hasOwn(LEGACY_FRAMEWORK_PERSONAS, personaId));
+  if (custom.length) {
+    throw unsafeLegacyPersonaMigration(
+      `${label} contains custom or unknown persona reference(s): ${custom.join(', ')}.`,
+      { label, personas: custom }
+    );
+  }
+  if (expected && !equal(value, expected)) {
+    throw unsafeLegacyPersonaMigration(
+      `${label} was customized from the packaged v1 routing (${value.join(', ') || 'none'}).`,
+      { label, personas: value, expected }
+    );
+  }
+}
+
+async function assertLegacyPersonaMigrationSafe(root, current) {
+  if (current.personaPromptsRoot != null
+      && current.personaPromptsRoot !== 'singularity/personas') {
+    throw unsafeLegacyPersonaMigration(
+      `personaPromptsRoot '${current.personaPromptsRoot}' is repository-defined.`,
+      { path: 'personaPromptsRoot', value: current.personaPromptsRoot }
+    );
+  }
+  if (current.personas != null && !plainObject(current.personas)) {
+    throw unsafeLegacyPersonaMigration('personas must be an object.', { path: 'personas' });
+  }
+  for (const [personaId, persona] of Object.entries(current.personas ?? {})) {
+    const packaged = LEGACY_FRAMEWORK_PERSONAS[personaId];
+    if (!packaged) {
+      throw unsafeLegacyPersonaMigration(
+        `persona '${personaId}' is repository-created.`,
+        { path: `personas.${personaId}`, persona: personaId }
+      );
+    }
+    if (!equal(persona, packaged)) {
+      throw unsafeLegacyPersonaMigration(
+        `persona '${personaId}' differs from the packaged v1 definition.`,
+        { path: `personas.${personaId}`, persona: personaId }
+      );
+    }
+    const relativePrompt = `singularity/personas/${persona.prompt}`;
+    const promptPath = await assertSafeTarget(root, relativePrompt);
+    const promptInfo = await lstat(promptPath).catch((error) =>
+      error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if (!promptInfo) continue;
+    if (!promptInfo.isFile() || promptInfo.isSymbolicLink()) {
+      throw unsafeLegacyPersonaMigration(
+        `persona '${personaId}' prompt is not a regular framework file.`,
+        { path: relativePrompt, persona: personaId }
+      );
+    }
+    const promptHash = sha256(await readFile(promptPath));
+    if (!isKnownPackagedAssetHash(relativePrompt, promptHash)) {
+      throw unsafeLegacyPersonaMigration(
+        `persona '${personaId}' prompt differs from every packaged v1 revision.`,
+        { path: relativePrompt, persona: personaId, sha256: promptHash }
+      );
+    }
+  }
+
+  const sessionDefaults = {
+    personaSelection: 'prompt', promptOnNewSession: true, promptOnResume: false
+  };
+  for (const [field, packaged] of Object.entries(sessionDefaults)) {
+    if (!Object.hasOwn(current.session ?? {}, field)) continue;
+    if (!equal(current.session[field], packaged)) {
+      throw unsafeLegacyPersonaMigration(
+        `session.${field} differs from the packaged v1 policy.`,
+        { path: `session.${field}`, value: current.session[field] }
+      );
+    }
+  }
+
+  for (const [phaseId, phase] of Object.entries(current.phases ?? {})) {
+    if (!plainObject(phase) || !Object.hasOwn(phase, 'suggestedPersonas')) continue;
+    const expected = LEGACY_FRAMEWORK_PHASE_PERSONAS[phaseId] ?? null;
+    if (!expected && Array.isArray(phase.suggestedPersonas)
+        && phase.suggestedPersonas.length === 0) continue;
+    if (!expected) {
+      throw unsafeLegacyPersonaMigration(
+        `repository phase '${phaseId}' defines suggestedPersonas.`,
+        { path: `phases.${phaseId}.suggestedPersonas`, phase: phaseId }
+      );
+    }
+    assertFrameworkPersonaReferences(phase.suggestedPersonas, {
+      label: `Phase '${phaseId}' suggestedPersonas`, expected
+    });
+  }
+  for (const [workTypeId, workType] of Object.entries(current.workTypes ?? {})) {
+    for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
+      if (!plainObject(override) || !Object.hasOwn(override, 'suggestedPersonas')) continue;
+      if (Array.isArray(override.suggestedPersonas)
+          && override.suggestedPersonas.length === 0) continue;
+      throw unsafeLegacyPersonaMigration(
+        `work type '${workTypeId}' phase override '${phaseId}' defines suggestedPersonas.`,
+        { path: `workTypes.${workTypeId}.phaseOverrides.${phaseId}.suggestedPersonas`,
+          workType: workTypeId, phase: phaseId }
+      );
+    }
+  }
+
+  for (const [index, rule] of (current.worldModel?.injection?.rules ?? []).entries()) {
+    if (!plainObject(rule?.when) || !Object.hasOwn(rule.when, 'persona')) continue;
+    throw unsafeLegacyPersonaMigration(
+      `worldModel.injection.rules[${index}] is repository-authored persona routing.`,
+      { path: `worldModel.injection.rules.${index}.when.persona`, persona: rule.when.persona }
+    );
+  }
+}
+
+// These built-in identities map to the v2 human approval authorities. Repository-created roles
+// are refused above; only framework role references reach this conversion.
+const LEGACY_PERSONA_APPROVAL_AUTHORITIES = Object.freeze({
+  'product-owner': 'product-approvers',
+  architect: 'architecture-reviewers',
+  'mobile-architect': 'architecture-reviewers',
+  developer: 'engineering-reviewers',
+  qa: 'quality-reviewers',
+  'product-designer': 'design-reviewers'
+});
+
+function migrateLegacyApprovalPolicy(value, {
+  label, availableAuthorities
+}) {
+  if (!plainObject(value) || !Object.hasOwn(value, 'personas')) return value;
+  assertFrameworkPersonaReferences(value.personas, { label });
+  const migrated = clone(value);
+  const legacyPersonas = migrated.personas;
+  delete migrated.personas;
+  if (Array.isArray(migrated.authorities) && migrated.authorities.length) return migrated;
+
+  const unresolved = [];
+  const authorities = [];
+  for (const personaId of legacyPersonas) {
+    const candidates = [
+      LEGACY_PERSONA_APPROVAL_AUTHORITIES[personaId],
+      personaId,
+      `${personaId}-approvers`
+    ].filter(Boolean);
+    const authorityId = candidates.find((candidate) => availableAuthorities.has(candidate));
+    if (!authorityId) unresolved.push(personaId);
+    else if (!authorities.includes(authorityId)) authorities.push(authorityId);
+  }
+  if (unresolved.length) {
+    throw new SingularityFlowError(
+      `${label} uses legacy approval persona(s) with no safe human-authority mapping: ${unresolved.join(', ')}. Define an approval authority with the same ID or '<persona>-approvers', then reinitialize again.`
+    );
+  }
+  if (authorities.length) migrated.authorities = authorities;
+  if (Number.isInteger(migrated.minimum) && migrated.minimum > authorities.length) {
+    throw new SingularityFlowError(
+      `${label} requires ${migrated.minimum} approvals but its legacy personas map to only ${authorities.length} distinct human authorit${authorities.length === 1 ? 'y' : 'ies'}. Review that approval policy before reinitializing.`
+    );
+  }
+  return migrated;
+}
+
+function migrateLegacyPhaseRoleFields(phase, options) {
+  if (!plainObject(phase)) return phase;
+  const migrated = clone(phase);
+  delete migrated.suggestedPersonas;
+  if (Object.hasOwn(migrated, 'approval')) {
+    migrated.approval = migrateLegacyApprovalPolicy(migrated.approval, options);
+  }
+  return migrated;
+}
+
+function legacyPhaseRolePaths(contract, prefix) {
+  if (!plainObject(contract)) return [];
+  const paths = [];
+  if (Object.hasOwn(contract, 'suggestedPersonas')) paths.push(`${prefix}.suggestedPersonas`);
+  if (plainObject(contract.approval) && Object.hasOwn(contract.approval, 'personas')) {
+    paths.push(`${prefix}.approval.personas`);
+  }
+  return paths;
+}
+
+function assertRepositoryContractNeedsNoLegacyRoleRewrite(contract, prefix) {
+  const paths = legacyPhaseRolePaths(contract, prefix);
+  if (!paths.length) return;
+  throw unsafeLegacyPersonaMigration(
+    `repository-owned contract '${prefix}' contains legacy role field(s): ${paths.join(', ')}.`,
+    { path: prefix, fields: paths }
+  );
+}
+
+/**
+ * Migrate the registered version-1 role-prompt shape into the governed-agent schema.
+ *
+ * This is intentionally a field migration rather than a replacement with today's package file.
+ * Repository-only work types, phases and policy remain byte-equivalent at the data-model level;
+ * only fields that version 2 removed or renamed are changed. Unknown persona-to-authority mappings
+ * fail closed instead of silently broadening who may approve work.
+ */
+async function migrateLegacyWorkflowForSeedRestore(root, current, incoming, enabled) {
+  if (!enabled || !plainObject(current) || current.version !== 1) return current;
+  // Prove that every role field belongs to the historical package before removing it. This runs
+  // before workflow.yml, package assets, or the ownership receipt can be written.
+  await assertLegacyPersonaMigrationSafe(root, current);
+  const migrated = clone(current);
+  const availableAuthorities = new Set([
+    ...Object.keys(incoming.approvalAuthorities ?? {}),
+    ...Object.keys(migrated.approvalAuthorities ?? {})
+  ]);
+
+  migrated.version = incoming.version;
+  delete migrated.personaPromptsRoot;
+  delete migrated.personas;
+
+  if (plainObject(migrated.session)) {
+    delete migrated.session.personaSelection;
+    delete migrated.session.promptOnNewSession;
+    delete migrated.session.promptOnResume;
+  }
+
+  for (const [phaseId, phase] of Object.entries(migrated.phases ?? {})) {
+    if (!isKnownPackagedWorkflowValue('phases', phaseId, current.phases?.[phaseId])) {
+      assertRepositoryContractNeedsNoLegacyRoleRewrite(
+        phase, `phases.${phaseId}`
+      );
+      continue;
+    }
+    migrated.phases[phaseId] = migrateLegacyPhaseRoleFields(phase, {
+      label: `Phase '${phaseId}' approval`, availableAuthorities
+    });
+  }
+  for (const [workTypeId, workType] of Object.entries(migrated.workTypes ?? {})) {
+    if (!plainObject(workType?.phaseOverrides)) continue;
+    const frameworkOwned = isKnownPackagedWorkflowValue(
+      'workTypes', workTypeId, current.workTypes?.[workTypeId]
+    );
+    for (const [phaseId, override] of Object.entries(workType.phaseOverrides)) {
+      if (!frameworkOwned) {
+        assertRepositoryContractNeedsNoLegacyRoleRewrite(
+          override, `workTypes.${workTypeId}.phaseOverrides.${phaseId}`
+        );
+        continue;
+      }
+      workType.phaseOverrides[phaseId] = migrateLegacyPhaseRoleFields(override, {
+        label: `Work type '${workTypeId}' phase override '${phaseId}' approval`,
+        availableAuthorities
+      });
+    }
+  }
+
+  return migrated;
 }
 
 /**
@@ -443,11 +1000,107 @@ function productIdentity() {
 
 function safeRelative(value) {
   const relative = String(value ?? '').replaceAll('\\', '/');
-  if (!relative || path.posix.isAbsolute(relative) || path.win32.isAbsolute(relative)
-    || path.posix.normalize(relative) !== relative || relative.split('/').includes('..')) {
-    throw new SingularityFlowError(`Packaged configuration target must stay inside the repository: ${value}`);
+  if (portableConfigurationPath(relative) !== relative) {
+    throw new SingularityFlowError(
+      `Packaged configuration target must use a portable path outside Git internals and runtime aliases: ${value}`,
+      { code: 'CONFIGURATION_ASSET_PATH_INVALID' }
+    );
   }
   return relative;
+}
+
+function pathsOverlap(left, right) {
+  // Windows and the default macOS filesystem fold path case even though Git paths retain it.
+  // Compare portable path identities case-insensitively so a case variant cannot move package
+  // writes or retired-asset deletion into runtime evidence.
+  const leftIdentity = portableFilesystemPathIdentity(left);
+  const rightIdentity = portableFilesystemPathIdentity(right);
+  return leftIdentity === rightIdentity
+    || leftIdentity.startsWith(`${rightIdentity}/`)
+    || rightIdentity.startsWith(`${leftIdentity}/`);
+}
+
+async function refreshConfigurationAssetPolicy(root, workflow) {
+  const portfolioFile = await assertSafeTarget(root, 'singularity/portfolio.yml');
+  const info = await lstat(portfolioFile)
+    .catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (info && (!info.isFile() || info.isSymbolicLink())) {
+    throw new SingularityFlowError(
+      'Configuration policy source must be a regular file: singularity/portfolio.yml'
+    );
+  }
+  let portfolio = {};
+  if (info) {
+    try { portfolio = YAML.parse(await readFile(portfolioFile, 'utf8')) ?? {}; }
+    catch (error) {
+      throw new SingularityFlowError(`Configuration policy source is invalid YAML: ${error.message}`);
+    }
+  }
+  return configurationAssetPolicy(workflow, portfolio);
+}
+
+function assertPackagedAssetBoundary(templatesRoot, assets, policy) {
+  const root = safeRelative(templatesRoot ?? 'singularity/templates');
+  // `.sflow/**` is disposable execution/test evidence rather than approved configuration. It is
+  // intentionally outside the general configuration policy because it is not otherwise searched
+  // or mirrored, but a redirected template root must still never turn it into a package target.
+  const runtimeRoots = [...new Set([...policy.runtimeRoots, '.sflow'])];
+  const overlap = runtimeRoots.find((runtimeRoot) => pathsOverlap(root, runtimeRoot));
+  if (overlap) {
+    throw new SingularityFlowError(
+      `Packaged templates root '${root}' overlaps runtime state '${overlap}'.`,
+      { code: 'CONFIGURATION_ASSET_TARGET_RUNTIME_OVERLAP' }
+    );
+  }
+  for (const relative of assets.keys()) {
+    if (!isConfigurationAsset(relative, policy)) {
+      throw new SingularityFlowError(
+        `Packaged configuration target is outside the approved configuration asset policy: ${relative}`,
+        { code: 'CONFIGURATION_ASSET_TARGET_UNMANAGED' }
+      );
+    }
+  }
+}
+
+function assertRetiredPackagedAssetBoundary(priorAssets, assets, policy, {
+  historicalRuntimeRoots = []
+} = {}) {
+  // Baselines are repository-controlled input, including legacy receipts that predate explicit
+  // ownership. Never let a stale or forged baseline turn runtime evidence into a retired package
+  // asset. Validate the complete retired set before workflow.yml or any current package asset is
+  // written so rejection is atomic from the repository's point of view.
+  const runtimeRoots = [...new Set([
+    ...policy.runtimeRoots, ...historicalRuntimeRoots, '.sflow'
+  ])];
+  for (const candidate of Object.keys(priorAssets)) {
+    if (assets.has(candidate)) continue;
+    const relative = safeRelative(candidate);
+    const overlap = runtimeRoots.find((runtimeRoot) => pathsOverlap(relative, runtimeRoot));
+    if (overlap) {
+      throw new SingularityFlowError(
+        `Retired packaged configuration target '${relative}' overlaps runtime state '${overlap}'.`,
+        { code: 'CONFIGURATION_RETIRED_ASSET_RUNTIME_OVERLAP' }
+      );
+    }
+    if (!isConfigurationAsset(relative, policy)) {
+      throw new SingularityFlowError(
+        `Retired packaged configuration target is outside the approved current or historical configuration asset policy: ${relative}`,
+        { code: 'CONFIGURATION_RETIRED_ASSET_TARGET_UNMANAGED' }
+      );
+    }
+  }
+}
+
+function assertResolutionPolicy(resolutions, policy) {
+  for (const conflictPath of Object.keys(resolutions)) {
+    if (conflictPath.startsWith('workflow.')) continue;
+    if (!isConfigurationAsset(conflictPath, policy)) {
+      throw new SingularityFlowError(
+        `Configuration conflict path is not managed by this repository: ${conflictPath}`,
+        { code: 'CONFIGURATION_CONFLICT_PATH_UNMANAGED' }
+      );
+    }
+  }
 }
 
 export function normalizeRefreshResolutions(value = {}) {
@@ -456,7 +1109,12 @@ export function normalizeRefreshResolutions(value = {}) {
   for (const [rawPath, rawResolution] of Object.entries(value)) {
     const conflictPath = String(rawPath).trim();
     const resolution = String(rawResolution).trim();
-    if (!conflictPath || (!conflictPath.startsWith('workflow.') && !isConfigurationAsset(conflictPath))) {
+    // Filesystem conflicts are checked against each candidate repository's effective policy after
+    // its approved workflow and portfolio have been read. Doing that against the static default
+    // here rejected valid exact resolutions below a custom templatesRoot; accepting only a portable
+    // spelling here preserves fail-closed, per-repository validation for multi-repository plans.
+    if (!conflictPath || (!conflictPath.startsWith('workflow.')
+      && portableConfigurationPath(conflictPath) !== conflictPath)) {
       throw new SingularityFlowError(`Configuration conflict path is not managed: ${rawPath}`);
     }
     if (!['local', 'bundled', 'merge'].includes(resolution)) {
@@ -474,14 +1132,85 @@ async function assertSafeTarget(root, relative) {
     current = path.join(current, part);
     const info = await lstat(current).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
     if (info?.isSymbolicLink()) {
-      throw new SingularityFlowError(`Packaged configuration target cannot traverse a symbolic link: ${relative}`);
+      throw new SingularityFlowError(
+        `Packaged configuration target cannot traverse a symbolic link: ${relative}`, {
+          code: 'CONFIGURATION_ASSET_TARGET_SYMBOLIC_LINK'
+        }
+      );
     }
   }
   return path.join(root, ...parts);
 }
 
+async function existingPortablePathIndex(root) {
+  const index = new Map();
+  const visit = async (directory, parent = '') => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const relative = parent ? `${parent}/${entry.name}` : entry.name;
+      if (relative === '.git') continue;
+      const identity = portableFilesystemPathIdentity(relative);
+      const values = index.get(identity) ?? [];
+      values.push(relative);
+      index.set(identity, values);
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        await visit(path.join(directory, entry.name), relative);
+      }
+    }
+  };
+  await visit(root);
+  return index;
+}
+
+async function assertNoPortableConfigurationAliases(root, targets) {
+  const index = await existingPortablePathIndex(root);
+  const targetIdentities = new Map();
+  for (const rawTarget of targets) {
+    const target = safeRelative(rawTarget);
+    const components = target.split('/');
+    for (let length = 1; length <= components.length; length += 1) {
+      const prefix = components.slice(0, length).join('/');
+      const identity = portableFilesystemPathIdentity(prefix);
+      const priorTarget = targetIdentities.get(identity);
+      if (priorTarget && priorTarget !== prefix) {
+        throw new SingularityFlowError(
+          `Packaged configuration paths '${priorTarget}' and '${prefix}' collide on a portable filesystem.`, {
+            code: 'CONFIGURATION_ASSET_PORTABLE_COLLISION',
+            details: { target: prefix, collision: priorTarget }
+          }
+        );
+      }
+      targetIdentities.set(identity, prefix);
+      const collision = (index.get(identity) ?? []).find((candidate) => candidate !== prefix);
+      if (collision) {
+        throw new SingularityFlowError(
+          `Packaged configuration target '${prefix}' aliases existing repository path '${collision}' on a portable filesystem.`, {
+            code: 'CONFIGURATION_ASSET_PORTABLE_COLLISION',
+            details: { target: prefix, collision }
+          }
+        );
+      }
+    }
+  }
+}
+
+async function assertRegularConfigurationTargets(root, targets) {
+  for (const relative of targets) {
+    const target = await assertSafeTarget(root, relative);
+    const info = await lstat(target)
+      .catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if (info && (!info.isFile() || info.isSymbolicLink())) {
+      throw new SingularityFlowError(
+        `Packaged configuration target must be a regular file: ${relative}`, {
+          code: 'CONFIGURATION_ASSET_TARGET_NOT_REGULAR'
+        }
+      );
+    }
+  }
+}
+
 async function readBaseline(root) {
-  const file = path.join(root, PACKAGE_BASELINE_PATH);
+  const file = await assertSafeTarget(root, PACKAGE_BASELINE_PATH);
   const info = await lstat(file).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
   if (!info) return null;
   if (!info.isFile() || info.isSymbolicLink()) {
@@ -493,6 +1222,35 @@ async function readBaseline(root) {
   if (baseline?.format !== BASELINE_FORMAT || !plainObject(baseline.workflow) || !plainObject(baseline.assets)) {
     throw new SingularityFlowError(`Packaged configuration baseline must use ${BASELINE_FORMAT}.`);
   }
+  if (baseline.ownership != null) {
+    const workflowOwnership = baseline.ownership?.workflow;
+    const assetOwnership = baseline.ownership?.assets;
+    if (!plainObject(baseline.ownership) || !plainObject(workflowOwnership)
+        || !plainObject(assetOwnership)) {
+      throw new SingularityFlowError('Packaged configuration baseline ownership receipt is invalid.');
+    }
+    for (const section of ['workTypes', 'phases', 'artifactSets', 'mcpServers']) {
+      if (!plainObject(workflowOwnership[section])) {
+        throw new SingularityFlowError(
+          `Packaged configuration baseline ownership receipt is missing workflow.${section}.`
+        );
+      }
+      for (const owner of Object.values(workflowOwnership[section])) {
+        if (!PACKAGE_OWNERSHIP_VALUES.has(owner)) {
+          throw new SingularityFlowError(
+            `Packaged configuration baseline workflow ownership must be '${PACKAGE_OWNERSHIP_FRAMEWORK}' or '${PACKAGE_OWNERSHIP_REPOSITORY}'.`
+          );
+        }
+      }
+    }
+    for (const owner of Object.values(assetOwnership)) {
+      if (!PACKAGE_OWNERSHIP_VALUES.has(owner)) {
+        throw new SingularityFlowError(
+          `Packaged configuration baseline asset ownership must be '${PACKAGE_OWNERSHIP_FRAMEWORK}' or '${PACKAGE_OWNERSHIP_REPOSITORY}'.`
+        );
+      }
+    }
+  }
   return baseline;
 }
 
@@ -500,14 +1258,46 @@ async function readBaseline(root) {
 export async function refreshPackagedConfiguration(root, {
   dryRun = false,
   acceptBundledConflicts = false,
-  resolutions = {}
+  resolutions = {},
+  restorePackagedSeeds = false
 } = {}) {
-  const workflowFile = path.join(root, WORKFLOW_PATH);
-  const [currentText, incomingText, baseline] = await Promise.all([
-    readFile(workflowFile, 'utf8'),
+  resolutions = normalizeRefreshResolutions(resolutions);
+  const ownershipTransfers = Object.entries(resolutions)
+    .filter(([, resolution]) => resolution !== 'local');
+  if (restorePackagedSeeds && (acceptBundledConflicts || ownershipTransfers.length)) {
+    throw new SingularityFlowError(
+      'Safe reinitialization cannot adopt packaged content over repository-owned configuration. '
+        + 'Keep the repository value, or use the separately reviewed workspace refresh-configuration journey to replace it.',
+      {
+        code: 'WORKSPACE_REINITIALIZE_OWNERSHIP_TRANSFER_UNSUPPORTED',
+        details: { paths: ownershipTransfers.map(([conflictPath]) => conflictPath) }
+      }
+    );
+  }
+  const workflowFile = await assertSafeTarget(root, WORKFLOW_PATH);
+  const workflowInfo = await lstat(workflowFile)
+    .catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (workflowInfo && (!workflowInfo.isFile() || workflowInfo.isSymbolicLink())) {
+    throw new SingularityFlowError(`${WORKFLOW_PATH} must be a regular file.`, {
+      code: 'CONFIGURATION_WORKFLOW_NOT_REGULAR'
+    });
+  }
+  if (!workflowInfo && !restorePackagedSeeds) {
+    throw new SingularityFlowError(`${WORKFLOW_PATH} must be a regular file.`, {
+      code: 'CONFIGURATION_WORKFLOW_NOT_REGULAR'
+    });
+  }
+  const [incomingText, baseline] = await Promise.all([
     readFile(path.join(PACKAGE_ROOT, 'templates', 'workflow.yml'), 'utf8'),
     readBaseline(root)
   ]);
+  // An absent workflow file contains no repository-authored nodes to preserve. Seeded-only
+  // reinitialization may therefore recreate the packaged workflow container, while ordinary
+  // refresh remains fail-closed and every non-regular target is still refused above. Starting the
+  // merge from the incoming definition restores top-level schema/default fields as well as the
+  // node-scoped work type and phase catalog.
+  const workflowMissing = !workflowInfo;
+  const currentText = workflowMissing ? incomingText : await readFile(workflowFile, 'utf8');
   let current;
   let incoming;
   try {
@@ -516,11 +1306,14 @@ export async function refreshPackagedConfiguration(root, {
   } catch (error) {
     throw new SingularityFlowError(`Workflow configuration refresh requires valid YAML: ${error.message}`);
   }
-  validateDefinition(structuredClone(current));
+  if (!restorePackagedSeeds) validateDefinition(structuredClone(current));
   validateDefinition(structuredClone(incoming));
+  const mergeCurrent = await migrateLegacyWorkflowForSeedRestore(
+    root, current, incoming, restorePackagedSeeds
+  );
 
-  const requiredWorkflowPaths = requiredPackagedWorkflowPaths(current, incoming);
-  const merged = mergePackagedConfiguration(baseline?.workflow ?? {}, current, incoming, {
+  const requiredWorkflowPaths = requiredPackagedWorkflowPaths(mergeCurrent, incoming);
+  const merged = mergePackagedConfiguration(baseline?.workflow ?? {}, mergeCurrent, incoming, {
     acceptBundledConflicts,
     // A standard product workflow is always restored as packaged when it is absent. Repository
     // customizations inside an installed profile continue through the normal three-way merge.
@@ -529,21 +1322,75 @@ export async function refreshPackagedConfiguration(root, {
       ...Object.fromEntries([...requiredWorkflowPaths].map((entry) => [entry, 'bundled']))
     }
   });
+  // Record ownership even during ordinary refresh so a later reinitialize can distinguish a
+  // package seed from a same-ID repository contract. Legacy baselines without this receipt are
+  // inferred only from exact current/package or current/prior-package equality.
+  // Ownership is proven against the bytes/data as found. A v1 field migration deliberately
+  // changes that data shape, so hashing the migrated value would lose otherwise exact historical
+  // package provenance and incorrectly preserve stale seeds as repository-owned.
+  const workflowOwnership = packagedWorkflowOwnership(current, incoming, baseline);
+  const seededWorkflowResult = restorePackagedSeeds
+    ? applyPackagedWorkflowOwnership(
+      merged.value, mergeCurrent, incoming, workflowOwnership
+    ) : { exactRoots: new Set(), collisionRoots: new Set(), conflicts: [] };
   // Required restoration is an invariant, not a choice the preview can switch back to local. Keep
   // ordinary repository customizations visible while avoiding a misleading dropdown for these
   // product-owned missing nodes.
-  merged.conflicts = merged.conflicts.filter((entry) => !requiredWorkflowPaths.has(entry.path));
-  validateDefinition(structuredClone(merged.value));
+  merged.conflicts = merged.conflicts.filter((entry) =>
+    !requiredWorkflowPaths.has(entry.path)
+    && !isWithinOwnedConfigurationPath(entry.path, seededWorkflowResult.exactRoots)
+    && !isWithinOwnedConfigurationPath(entry.path, seededWorkflowResult.collisionRoots));
+  merged.conflicts.push(...seededWorkflowResult.conflicts);
+  // Exact framework legacy role fields have been migrated above. Repository-created legacy role
+  // fields are refused rather than rewritten. Defer only the live Agent Markdown reference lookup;
+  // the complete post-write loadDefinition below validates the restored agent catalog and tools.
+  validateDefinition(structuredClone(merged.value), {
+    storyBootstrap: restorePackagedSeeds && current.version === 1
+  });
 
   const assets = await packagedAssets(merged.value.templatesRoot);
+  const assetPolicy = await refreshConfigurationAssetPolicy(root, merged.value);
+  // This check precedes every write, including workflow.yml. A malformed older authority can
+  // therefore be diagnosed/reinitialized without ever materializing package templates inside
+  // Story/runtime evidence or staging those bytes in a later configuration publication.
+  assertPackagedAssetBoundary(merged.value.templatesRoot, assets, assetPolicy);
+  assertResolutionPolicy(resolutions, assetPolicy);
   const priorAssets = baseline?.assets ?? {};
+  // A legitimately retired asset can belong to the currently approved roots or to the package's
+  // trusted default historical roots. The repository-controlled baseline may contribute runtime
+  // exclusions (for example its former workItemRoot), but may not authorize a new writable root:
+  // otherwise a forged templatesRoot plus asset key could delete arbitrary application source.
+  // Runtime exclusions from both generations remain absolute.
+  const retiredAssetPolicy = mergeConfigurationAssetPolicies(
+    assetPolicy, configurationAssetPolicy()
+  );
+  const historicalRuntimePolicy = configurationAssetPolicy(baseline?.workflow ?? {});
+  assertRetiredPackagedAssetBoundary(priorAssets, assets, retiredAssetPolicy, {
+    historicalRuntimeRoots: historicalRuntimePolicy.runtimeRoots
+  });
+  const managedTargets = [...new Set([
+    WORKFLOW_PATH, PACKAGE_BASELINE_PATH, ...assets.keys(), ...Object.keys(priorAssets)
+  ])];
+  // A Git tree can contain two spellings that alias on Windows or default macOS filesystems even
+  // when the Linux build host keeps them distinct. Reject the entire candidate before the first
+  // write so reinitialization never publishes a configuration branch another machine cannot
+  // materialize safely.
+  await assertNoPortableConfigurationAliases(root, managedTargets);
+  await assertRegularConfigurationTargets(root, [
+    ...assets.keys(), ...Object.keys(priorAssets)
+  ]);
   const conflicts = [...merged.conflicts];
   const changedFiles = new Set();
   const removedFiles = new Set();
+  const assetOwnership = {};
 
-  if (!equal(current, merged.value)) {
+  if (workflowMissing || !equal(current, merged.value)) {
     changedFiles.add(WORKFLOW_PATH);
-    if (!dryRun) await writeAtomic(workflowFile, YAML.stringify(merged.value));
+    if (!dryRun) {
+      await writeAtomic(workflowFile, workflowMissing
+        ? YAML.stringify(merged.value)
+        : patchWorkflowDocument(currentText, current, merged.value));
+    }
   }
 
   for (const [relative, bundled] of assets) {
@@ -556,11 +1403,36 @@ export async function refreshPackagedConfiguration(root, {
     const currentHash = currentBytes ? sha256(currentBytes) : null;
     const bundledHash = sha256(bundled);
     const priorHash = priorAssets[relative]?.sha256 ?? null;
-    const retiredPackagedAsset = isRetiredPackagedAssetHash(relative, currentHash);
-    const safeToWrite = !info || currentHash === bundledHash
+    const retiredPackagedAsset = isRetiredPackagedAssetHash(relative, currentHash, {
+      templatesRoot: merged.value.templatesRoot
+    });
+    let owner = packagedAssetOwner(baseline, relative, {
+      exists: Boolean(info), currentHash, bundledHash, priorHash, retiredPackagedAsset,
+      strictProvenance: restorePackagedSeeds,
+      templatesRoot: merged.value.templatesRoot
+    });
+    const explicitResolution = resolutions[relative] ?? null;
+    if (explicitResolution === 'merge') {
+      throw new SingularityFlowError(`Configuration asset conflict '${relative}' cannot be merged; choose local or bundled.`);
+    }
+    if (!restorePackagedSeeds && owner === PACKAGE_OWNERSHIP_REPOSITORY
+        && explicitResolution === 'bundled') {
+      owner = PACKAGE_OWNERSHIP_FRAMEWORK;
+    }
+    assetOwnership[relative] = owner;
+    const ordinarilySafe = !info || currentHash === bundledHash
       || (priorHash && currentHash === priorHash) || retiredPackagedAsset;
+    const exactSeedRestore = restorePackagedSeeds
+      && owner === PACKAGE_OWNERSHIP_FRAMEWORK
+      && packageAssetAllowsExactSeedRestore(relative);
+    const safeToWrite = owner === PACKAGE_OWNERSHIP_FRAMEWORK
+      && (ordinarilySafe || exactSeedRestore);
     if (currentHash === bundledHash) continue;
-    const resolution = resolutions[relative] ?? (acceptBundledConflicts ? 'bundled' : 'local');
+    // A broad "accept bundled" switch may resolve an ordinary package conflict, but it must not
+    // convert a proven repository-owned same-path collision into a framework seed. Only the exact
+    // path resolution reviewed in this plan may transfer that ownership.
+    const resolution = owner === PACKAGE_OWNERSHIP_REPOSITORY
+      ? 'local' : explicitResolution ?? (acceptBundledConflicts ? 'bundled' : 'local');
     if (resolution === 'merge') {
       throw new SingularityFlowError(`Configuration asset conflict '${relative}' cannot be merged; choose local or bundled.`);
     }
@@ -599,12 +1471,41 @@ export async function refreshPackagedConfiguration(root, {
       throw new SingularityFlowError(`Retired packaged configuration asset must be a regular file: ${relative}`);
     }
     const currentHash = sha256(await readFile(target));
-    const resolution = resolutions[relative] ?? (acceptBundledConflicts ? 'bundled' : 'local');
-    if (resolution === 'merge') {
+    // Reinitialize may remove only an exact historical package revision registered by this build.
+    // A repository-controlled baseline receipt (including an exact hash copied from the current
+    // file) is not independent provenance and must never turn an arbitrary configuration file into
+    // a disposable framework seed. Ordinary reviewed refresh retains its existing three-way
+    // retirement behavior; the stronger rule applies to the seeded-only reinitialization mode.
+    if (restorePackagedSeeds && !isRetiredPackagedAssetHash(relative, currentHash, {
+      templatesRoot: baseline?.workflow?.templatesRoot ?? merged.value.templatesRoot
+    })) {
+      conflicts.push({
+        path: relative, localSha256: currentHash, bundledSha256: null,
+        resolution: 'preserved-local'
+      });
+      assetOwnership[relative] = PACKAGE_OWNERSHIP_REPOSITORY;
+      continue;
+    }
+    const recordedOwner = baseline?.ownership?.assets?.[relative] ?? null;
+    const inferredOwner = recordedOwner === PACKAGE_OWNERSHIP_FRAMEWORK
+      || recordedOwner === PACKAGE_OWNERSHIP_REPOSITORY
+      ? recordedOwner
+      : currentHash === prior.sha256
+        ? PACKAGE_OWNERSHIP_FRAMEWORK : PACKAGE_OWNERSHIP_REPOSITORY;
+    const explicitResolution = resolutions[relative] ?? null;
+    if (explicitResolution === 'merge') {
       throw new SingularityFlowError(`Configuration asset conflict '${relative}' cannot be merged; choose local or bundled.`);
     }
+    const repositoryOwned = inferredOwner === PACKAGE_OWNERSHIP_REPOSITORY
+      && (restorePackagedSeeds || explicitResolution !== 'bundled');
+    if (restorePackagedSeeds && repositoryOwned) {
+      assetOwnership[relative] = PACKAGE_OWNERSHIP_REPOSITORY;
+      continue;
+    }
+    const resolution = explicitResolution ?? (acceptBundledConflicts ? 'bundled' : 'local');
     if (currentHash !== prior.sha256 && resolution !== 'bundled') {
       conflicts.push({ path: relative, localSha256: currentHash, bundledSha256: null, resolution: 'preserved-local' });
+      assetOwnership[relative] = PACKAGE_OWNERSHIP_REPOSITORY;
       continue;
     }
     if (currentHash !== prior.sha256) {
@@ -619,8 +1520,22 @@ export async function refreshPackagedConfiguration(root, {
     format: BASELINE_FORMAT,
     product: productIdentity(),
     workflow: incoming,
-    assets: Object.fromEntries([...assets.entries()].map(([relative, contents]) => [relative, { sha256: sha256(contents) }]))
+    assets: Object.fromEntries([...assets.entries()].map(([relative, contents]) => [relative, { sha256: sha256(contents) }])),
+    ownership: {
+      workflow: workflowOwnership.receipt,
+      assets: Object.fromEntries(Object.entries(assetOwnership).sort(([left], [right]) =>
+        left.localeCompare(right)))
+    }
   };
+  // Product revision identifies the build that supplied these seeds, but a developer checkout or
+  // an incorrectly assembled distribution can retain that revision while its packaged bytes move.
+  // Bind refresh confirmation to the complete package payload as well as to the build identity.
+  const packageContentDigest = sha256(JSON.stringify(canonical({
+    workflow: incoming,
+    assets: Object.fromEntries([...assets.entries()].map(([relative, contents]) => [
+      relative, sha256(contents)
+    ]))
+  })));
   const lockText = YAML.stringify(lock);
   const previousLockText = await readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8').catch(() => null);
   if (previousLockText !== lockText) {
@@ -657,6 +1572,7 @@ export async function refreshPackagedConfiguration(root, {
 
   return {
     product: lock.product,
+    packageContentDigest,
     changed: changedFiles.size > 0,
     files: [...changedFiles].sort(),
     removed: [...removedFiles].sort(),
@@ -733,7 +1649,8 @@ async function cloneConfiguration(remote, { env = process.env } = {}) {
  * missing sflow/config branch cannot fall back to stale application-checkout policy during preview.
  */
 async function prepareBootstrapInspectionCandidate(observation, options, {
-  env = process.env
+  env = process.env,
+  identityEnv = withoutGitProcessOverrides(process.env)
 } = {}) {
   const { repository, bootstrapCommit } = observation;
   const transport = frozenRemoteTransport(repository.remote, { push: true, env });
@@ -756,31 +1673,75 @@ async function prepareBootstrapInspectionCandidate(observation, options, {
         code: 'CONFIGURATION_BOOTSTRAP_SOURCE_CHANGED'
       }
     );
-    run('git', ['switch', '-q', '-c', CONFIGURATION_BRANCH], {
-      cwd: scratch, env: transport.env
+    // Derive identity from the registered checkout, not the transport-isolated temporary clone.
+    // The exact value becomes part of both the previewed bytes (approval membership) and the
+    // deterministic parentless commit, so apply must reuse it rather than rediscovering identity.
+    // Remote transport intentionally hides system/global config. Commit identity is local
+    // authoring metadata, so read it through the ordinary Git scopes after stripping inherited
+    // process-level Git selectors. This preserves a user's globally configured identity without
+    // admitting GIT_CONFIG_* overrides into the reviewed candidate.
+    const authorIdentity = gitCommitIdentity(repository.localPath, { env: identityEnv });
+    const frameworkApprovalAuthoritySeeds = {
+      workflow: YAML.parse(await readFile(
+        path.join(PACKAGE_ROOT, 'templates', 'workflow.yml'), 'utf8'
+      )).approvalAuthorities ?? {},
+      portfolio: YAML.parse(await readFile(
+        path.join(PACKAGE_ROOT, 'templates', 'portfolio.yml'), 'utf8'
+      )).approvalAuthorities ?? {}
+    };
+    await prepareConfigurationBootstrapWorktree(scratch, {
+      sourceRef: 'HEAD', remote: repository.remote,
+      defaultBranch: repository.defaultBranch, authorIdentity, env: transport.env,
+      preserveImportedApprovalAuthorities: options.restorePackagedSeeds === true,
+      preserveImportedRepositoryPolicy: options.restorePackagedSeeds === true,
+      preserveImportedLedgerPolicy: options.restorePackagedSeeds === true,
+      frameworkApprovalAuthoritySeeds
     });
-    // Configuration bootstrap first imports any governed assets from the application source, then
-    // fills an absent definition from the packaged catalog and pins that new definition to the
-    // repository's actual integration branch. Reproduce that non-publishing transformation here;
-    // otherwise a repository with no workflow.yml cannot be inspected at all and reinitialize
-    // silently falls back to the stale application checkout.
-    const initialized = await initializeDefinition(scratch);
-    if (initialized.includes(WORKFLOW_PATH)) {
-      await setDefaultBaseBranch(scratch, repository.defaultBranch);
-    }
     const refresh = await refreshPackagedConfiguration(scratch, options);
     const desired = await desiredStateProjection(scratch, { env: transport.env });
+    assertDedicatedStateAuthority(repository, desired);
     const stateCommit = await fetchStateRefAsync(scratch, desired.stateConfig, {
+      env: transport.env
+    });
+    assertExistingStateAuthority(scratch, repository, desired, stateCommit, {
       env: transport.env
     });
     const stateBefore = observeStateProjection(
       scratch, desired, null, refresh.product, { stateCommit, env: transport.env }
     );
+    // Commit locally during preview with source-bound deterministic metadata.  This does not make
+    // a remote mutation, but it gives confirmation one exact Git identity.  Apply reconstructs the
+    // same commit and ensureConfigurationBranch pushes only that reviewed object under an absent-ref
+    // CAS; there is no intermediate unreviewed bootstrap branch.
+    const sourceDate = run('git', ['show', '-s', '--format=%aI', bootstrapCommit], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    const commitEnv = {
+      ...transport.env,
+      GIT_AUTHOR_DATE: sourceDate,
+      GIT_COMMITTER_DATE: sourceDate
+    };
+    run('git', ['add', '-A'], { cwd: scratch, env: commitEnv });
+    run('git', [
+      '-c', `user.name=${authorIdentity.name || 'Singularity Flow'}`,
+      '-c', `user.email=${authorIdentity.email || 'unknown@invalid'}`,
+      '-c', 'commit.gpgSign=false',
+      'commit', '--no-verify', '-m', '[configuration] establish reviewed Singularity configuration authority'
+    ], { cwd: scratch, env: commitEnv });
+    const bootstrapCandidateCommit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    const bootstrapCandidateTree = run('git', ['rev-parse', '--verify', 'HEAD^{tree}'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
     return {
       repository,
       root: scratch,
       sourceCommit: null,
       bootstrapCommit,
+      bootstrapCandidateCommit,
+      bootstrapCandidateTree,
+      bootstrapAuthorIdentity: authorIdentity,
       refresh,
       desired,
       stateBefore,
@@ -1381,6 +2342,79 @@ function stateConfiguration(approved) {
   };
 }
 
+function assertDedicatedStateAuthority(repository, desired) {
+  const branch = String(desired?.stateConfig?.branch ?? '').trim();
+  const reserved = new Set([CONFIGURATION_BRANCH, String(repository.defaultBranch ?? '').trim()]);
+  const configurationNamespace = branch.startsWith('sflow/config-refresh/')
+    || branch.startsWith('sflow/config-history/');
+  if (!branch || reserved.has(branch) || configurationNamespace) {
+    throw new SingularityFlowError(
+      `Configuration state branch '${branch || '(empty)'}' is not a dedicated state authority. It would overlap the application or configuration ref and is refused before preview or publication.`, {
+        code: 'CONFIGURATION_STATE_BRANCH_UNSAFE',
+        details: {
+          branch: branch || null,
+          applicationBranch: repository.defaultBranch,
+          configurationBranch: CONFIGURATION_BRANCH,
+          preserved: ['application-branches', 'configuration-authority', 'state-authority']
+        }
+      }
+    );
+  }
+}
+
+function assertExistingStateAuthority(root, repository, desired, stateCommit, {
+  env = process.env
+} = {}) {
+  if (!stateCommit) return;
+  const fail = (reason) => {
+    throw new SingularityFlowError(
+      `Configured branch '${desired.stateConfig.branch}' is not a proven dedicated Singularity Flow state authority: ${reason}. No branch was changed.`, {
+        code: 'CONFIGURATION_STATE_AUTHORITY_UNPROVEN',
+        details: {
+          branch: desired.stateConfig.branch,
+          commit: stateCommit,
+          applicationBranch: repository.defaultBranch,
+          preserved: ['application-branches', 'configuration-authority', 'state-authority']
+        }
+      }
+    );
+  };
+  const roots = run('git', ['rev-list', '--max-parents=0', stateCommit], {
+    cwd: root, env, allowFailure: true, maxBuffer: 64 * 1024, timeoutMs: 10_000
+  });
+  const rootCommits = roots.status === 0
+    ? roots.stdout.split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean) : [];
+  if (rootCommits.length !== 1) fail('its complete history does not have one orphan root');
+  const merges = run('git', ['rev-list', '--min-parents=2', stateCommit], {
+    cwd: root, env, allowFailure: true, maxBuffer: 1024, timeoutMs: 10_000
+  });
+  if (merges.status !== 0 || merges.stdout.trim()) fail('its history is not linear');
+  const rootCommit = rootCommits[0];
+  const paths = run('git', ['ls-tree', '-r', '--name-only', rootCommit], {
+    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
+  });
+  const rootPaths = paths.status === 0
+    ? paths.stdout.split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean).sort() : [];
+  if (!equal(rootPaths, ['README.md', 'ledger/head.json'])) {
+    fail('its orphan root is not the canonical ledger root');
+  }
+  const readme = run('git', ['show', `${rootCommit}:README.md`], {
+    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
+  });
+  if (readme.status !== 0 || !readme.stdout.startsWith('# Singularity Flow Capability Ledger\n')) {
+    fail('its orphan root has no canonical ledger marker');
+  }
+  const head = run('git', ['show', `${rootCommit}:ledger/head.json`], {
+    cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000
+  });
+  let initialHead = null;
+  try { initialHead = JSON.parse(head.stdout); } catch { /* handled below */ }
+  if (head.status !== 0 || initialHead?.sequence !== 0 || initialHead?.entryHash !== null
+      || initialHead?.previousHeadHash !== null || !Number.isSafeInteger(initialHead?.schemaVersion)) {
+    fail('its orphan root has no valid initial ledger head');
+  }
+}
+
 function stateTree(root, ref, policy, { env = process.env } = {}) {
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
@@ -1572,25 +2606,87 @@ function workspaceMatches(entry, reference) {
 }
 
 async function registeredRepositories(registryFile, { workspace = null, repositories = [] } = {}) {
-  const entries = (await readWorkspaceRegistry(registryFile))
-    .filter((entry) => !entry.archivedAt && workspaceMatches(entry, workspace));
-  if (workspace && !entries.length) throw new SingularityFlowError(`Workspace '${workspace}' is not registered.`);
+  const entries = (await readWorkspaceRegistry(registryFile)).filter((entry) => !entry.archivedAt);
+  const selectedEntries = entries.filter((entry) => workspaceMatches(entry, workspace));
+  if (workspace && !selectedEntries.length) {
+    throw new SingularityFlowError(`Workspace '${workspace}' is not registered.`);
+  }
   const requestedRepositories = new Set((repositories ?? []).map((value) => String(value).trim()).filter(Boolean));
-  const unique = new Map();
-  for (const entry of entries) {
-    const manifest = await readWorkspace(entry.path);
-    for (const repository of Object.values(manifest.repositories).sort((left, right) => left.id.localeCompare(right.id))) {
+  const manifests = await Promise.all(entries.map(async (entry) => ({
+    entry,
+    manifest: await readWorkspace(entry.path)
+  })));
+  const selectedWorkspaceIds = new Set(selectedEntries.map((entry) => entry.id));
+  const selected = [];
+  for (const { entry, manifest } of manifests) {
+    if (!selectedWorkspaceIds.has(entry.id)) continue;
+    for (const repository of Object.values(manifest.repositories)
+      .sort((left, right) => left.id.localeCompare(right.id))) {
       if (requestedRepositories.size && !requestedRepositories.has(repository.id)) continue;
       const operationalRemote = assertCredentialFreeRemote(repository.url);
+      selected.push({ entry, manifest, repository, operationalRemote,
+        identity: await resolvedGitRepositoryComparisonKey(operationalRemote)
+          ?? `literal:${operationalRemote}` });
+    }
+  }
+  if (requestedRepositories.size) {
+    const found = new Set(selected.map(({ repository }) => repository.id));
+    const missing = [...requestedRepositories].filter((id) => !found.has(id));
+    if (missing.length) {
+      throw new SingularityFlowError(`Registered workspaces do not contain repository IDs: ${missing.join(', ')}.`);
+    }
+  }
+
+  // A repository authority is machine-global even when the operator refreshes one workspace.
+  // Scan every active workspace binding for each selected repository identity before any network
+  // access. Otherwise selecting workspace A could ignore workspace B's conflicting default branch
+  // and publish a shared sflow/config authority from the wrong source. Transport spelling (HTTPS,
+  // SSH/SCP, optional .git, or a default port) does not create a separate repository identity.
+  const selectedIdentities = new Set(selected.map(({ identity }) => identity));
+  const authorityBranches = new Map();
+  for (const { manifest } of manifests) {
+    for (const repository of Object.values(manifest.repositories)) {
+      const operationalRemote = assertCredentialFreeRemote(repository.url);
+      const identity = await resolvedGitRepositoryComparisonKey(operationalRemote)
+        ?? `literal:${operationalRemote}`;
+      if (!selectedIdentities.has(identity)) continue;
+      const membership = { workspaceId: manifest.id, workspaceName: manifest.name,
+        repositoryId: repository.id };
+      const existing = authorityBranches.get(identity);
+      if (existing && existing.defaultBranch !== repository.defaultBranch) {
+        throw new SingularityFlowError(
+          `Registered workspaces bind '${sanitizeRemote(existing.remote)}' to conflicting default branches '${existing.defaultBranch}' and '${repository.defaultBranch}'. Reconcile the workspace definitions before refreshing configuration.`, {
+            code: 'WORKSPACE_REPOSITORY_AUTHORITY_CONFLICT',
+            details: {
+              remote: sanitizeRemote(existing.remote),
+              branches: [existing.defaultBranch, repository.defaultBranch],
+              repositoryIds: [...new Set([
+                ...existing.memberships.map((item) => item.repositoryId), repository.id
+              ])]
+            }
+          }
+        );
+      }
+      if (existing) existing.memberships.push(membership);
+      else authorityBranches.set(identity, {
+        remote: operationalRemote,
+        defaultBranch: repository.defaultBranch,
+        memberships: [membership]
+      });
+    }
+  }
+
+  const unique = new Map();
+  for (const { manifest, repository, operationalRemote, identity } of selected) {
       const displayRemote = sanitizeRemote(operationalRemote);
-      const existing = unique.get(operationalRemote);
+      const existing = unique.get(identity);
       const membership = { workspaceId: manifest.id, workspaceName: manifest.name, repositoryId: repository.id };
       if (existing) {
         existing.memberships.push(membership);
         existing.localPaths.push(workspaceRepositoryPath(manifest, repository));
         continue;
       }
-      unique.set(operationalRemote, {
+      unique.set(identity, {
         id: repository.id,
         remote: operationalRemote,
         remoteFingerprint: remoteFingerprint(operationalRemote),
@@ -1600,12 +2696,6 @@ async function registeredRepositories(registryFile, { workspace = null, reposito
         localPaths: [workspaceRepositoryPath(manifest, repository)],
         memberships: [membership]
       });
-    }
-  }
-  if (requestedRepositories.size) {
-    const found = new Set([...unique.values()].map((item) => item.id));
-    const missing = [...requestedRepositories].filter((id) => !found.has(id));
-    if (missing.length) throw new SingularityFlowError(`Registered workspaces do not contain repository IDs: ${missing.join(', ')}.`);
   }
   return [...unique.values()].sort((left, right) =>
     left.displayRemote.localeCompare(right.displayRemote)
@@ -1626,7 +2716,9 @@ async function prepareCandidate(repository, options, { env = process.env } = {})
     const sourceCommit = sourceRef.commit;
     const refresh = await refreshPackagedConfiguration(root, options);
     const desired = await desiredStateProjection(root, { env: gitEnv });
+    assertDedicatedStateAuthority(repository, desired);
     const stateCommit = await fetchStateRefAsync(root, desired.stateConfig, { env: gitEnv });
+    assertExistingStateAuthority(root, repository, desired, stateCommit, { env: gitEnv });
     const stateBefore = observeStateProjection(root, desired, sourceCommit, refresh.product, {
       stateCommit, env: gitEnv
     });
@@ -1688,9 +2780,13 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
     });
     const refresh = await refreshPackagedConfiguration(root, options);
     const desired = await desiredStateProjection(root, { env: transport.env });
+    assertDedicatedStateAuthority(observation.repository, desired);
     if (desired.stateConfig.branch !== entry.stateBranch) {
       throw new Error('cached state branch no longer matches approved configuration');
     }
+    assertExistingStateAuthority(root, observation.repository, desired, entry.stateCommit, {
+      env: transport.env
+    });
     const stateBefore = observeStateProjection(root, desired, sourceCommit, refresh.product, {
       stateCommit: entry.stateCommit, env: transport.env
     });
@@ -1709,30 +2805,67 @@ async function prepareObservedCandidate(observation, options, cache, { env = pro
     ?? await prepareCandidate(observation.repository, options, { env });
 }
 
-function refreshPlanId(candidates, { resolutions, acceptBundledConflicts }) {
+function refreshPlanId(candidates, {
+  resolutions, acceptBundledConflicts, restorePackagedSeeds = false
+}) {
   const identity = {
     repositories: candidates.map((candidate) => ({
       remote: candidate.repository.remote,
       remoteFingerprint: candidate.repository.remoteFingerprint,
       configurationCommit: candidate.sourceCommit,
       bootstrapCommit: candidate.bootstrapCommit ?? null,
+      bootstrapCandidateCommit: candidate.bootstrapCandidateCommit ?? null,
+      bootstrapCandidateTree: candidate.bootstrapCandidateTree ?? null,
       stateCommit: candidate.stateBefore.stateCommit,
       productRevision: candidate.refresh.product.revision,
+      packageContentDigest: candidate.refresh.packageContentDigest ?? null,
       // These are the exact approved-configuration bytes/modes the preview would publish. Binding
       // only source SHAs and explicit per-path resolutions allowed a later apply to toggle the
       // default conflict policy while retaining the same confirmation token.
       configurationAssets: candidate.desired?.assets ?? null,
       changedFiles: [...(candidate.refresh?.files ?? [])].sort(),
+      removedFiles: [...(candidate.refresh?.removed ?? [])].sort(),
       conflictDecisions: (candidate.refresh?.conflicts ?? []).map((entry) => ({
         path: entry.path, resolution: entry.resolution
       })).sort((left, right) => left.path.localeCompare(right.path))
     })).sort((left, right) => left.remote.localeCompare(right.remote)),
     policy: {
       acceptBundledConflicts: acceptBundledConflicts === true,
+      restorePackagedSeeds: restorePackagedSeeds === true,
       resolutions: canonical(resolutions)
     }
   };
   return `cfgp-${sha256(JSON.stringify(identity)).slice(0, 24)}`;
+}
+
+function previewResultForCandidate(candidate, status) {
+  return {
+    status,
+    repository: candidate.repository.id,
+    remote: candidate.repository.displayRemote,
+    memberships: candidate.repository.memberships,
+    configurationCommit: candidate.sourceCommit,
+    bootstrapCommit: candidate.bootstrapCommit ?? null,
+    bootstrapCandidateCommit: candidate.bootstrapCandidateCommit ?? null,
+    bootstrapCandidateTree: candidate.bootstrapCandidateTree ?? null,
+    configurationChanged: status === 'would-initialize' || candidate.refresh.changed,
+    stateChanged: status === 'would-initialize'
+      || candidate.refresh.changed || candidate.stateBefore.changed,
+    stateStatus: status === 'would-initialize'
+      ? 'would-follow-configuration'
+      : candidate.refresh.changed ? 'would-follow-configuration' : candidate.stateBefore.status,
+    stateCommit: candidate.stateBefore.stateCommit,
+    missingStatePaths: candidate.stateBefore.missingPaths,
+    changedStatePaths: candidate.stateBefore.changedPaths,
+    extraStatePaths: candidate.stateBefore.extraPaths,
+    files: candidate.refresh.files,
+    changedFiles: candidate.refresh.files,
+    removed: candidate.refresh.removed,
+    conflicts: candidate.refresh.conflicts,
+    packageContentDigest: candidate.refresh.packageContentDigest,
+    configurationPaths: candidate.desired.paths,
+    configurationAssets: candidate.desired.assets
+  };
 }
 
 /**
@@ -1801,7 +2934,9 @@ async function publishCandidate(candidate) {
   const { root, repository, refresh, sourceCommit, desired } = candidate;
   const env = candidate.gitEnv ?? process.env;
   let approvedCommit = sourceCommit;
-  let configurationChanged = false;
+  // A first-authority candidate was already published as the exact previewed commit.  Report that
+  // durable mutation without authoring a second refresh commit.
+  let configurationChanged = candidate.bootstrapConfigurationCreated === true;
   if (refresh.changed) {
     run('git', ['add', '-A', '--', ...refresh.files], { cwd: root, env });
     const staged = run('git', ['diff', '--cached', '--name-only'], { cwd: root, env }).stdout
@@ -1869,6 +3004,7 @@ async function publishCandidate(candidate) {
 
   try {
   const projection = configurationChanged ? await desiredStateProjection(root, { env }) : desired;
+  assertDedicatedStateAuthority(repository, projection);
   const stateBefore = observeStateProjection(root, projection, approvedCommit, refresh.product, {
     stateCommit: candidate.stateBefore.stateCommit, env
   });
@@ -1996,6 +3132,7 @@ export async function refreshWorkspaceConfigurations({
   dryRun = false,
   acceptBundledConflicts = false,
   resolutions = {},
+  restorePackagedSeeds = false,
   confirmPlan = null,
   inspectCandidate = null
 } = {}) {
@@ -2059,34 +3196,30 @@ export async function refreshWorkspaceConfigurations({
   if (dryRun) {
     const prepared = await mapLimit(observations, workers, async (observation) => {
       if (!observation.commit) {
-        const planCandidate = {
-          repository: observation.repository, sourceCommit: null,
-          bootstrapCommit: observation.bootstrapCommit,
-          stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
-        };
-        if (inspectCandidate) {
-          let inspectionCandidate;
-          try {
-            inspectionCandidate = await prepareBootstrapInspectionCandidate(observation, {
-              dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
-            }, { env: gitEnv });
-            await inspectCandidate(inspectionCandidate);
-          } catch (error) {
-            if (inspectionCandidate?.root) await removeTemporaryTree(inspectionCandidate.root);
-            return { planCandidate: null, result: refreshPreflightFailure(observation, error) };
-          }
-          await removeTemporaryTree(inspectionCandidate.root);
+        let candidate;
+        try {
+          // First-authority preview must describe and bind the exact candidate it would publish.
+          // A sentinel containing only the application SHA/product revision lets package bytes,
+          // conflicts, removals, and the desired state projection change behind one plan ID.
+          candidate = await prepareBootstrapInspectionCandidate(observation, {
+            dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
+            restorePackagedSeeds
+          }, { env: gitEnv });
+          if (inspectCandidate) await inspectCandidate(candidate);
+        } catch (error) {
+          if (candidate?.root) await removeTemporaryTree(candidate.root);
+          return { planCandidate: null, result: refreshPreflightFailure(observation, error) };
         }
-        return { planCandidate, result: {
-          status: 'would-initialize', repository: observation.repository.id,
-          remote: observation.repository.displayRemote, memberships: observation.repository.memberships,
-          configurationChanged: true, stateChanged: true
-        } };
+        return {
+          planCandidate: candidate,
+          result: previewResultForCandidate(candidate, 'would-initialize')
+        };
       }
       let candidate;
       try {
         candidate = await prepareCandidate(observation.repository, {
-          dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
+          dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
+          restorePackagedSeeds
         }, { env: gitEnv });
         if (inspectCandidate) await inspectCandidate(candidate);
       } catch (error) {
@@ -2094,27 +3227,18 @@ export async function refreshWorkspaceConfigurations({
         return { planCandidate: null, result: refreshPreflightFailure(observation, error) };
       }
       const stateChanged = candidate.refresh.changed || candidate.stateBefore.changed;
-      return { planCandidate: candidate, result: {
-        status: candidate.refresh.changed || stateChanged ? 'would-update' : 'current',
-        repository: observation.repository.id,
-        remote: observation.repository.displayRemote,
-        memberships: observation.repository.memberships,
-        configurationChanged: candidate.refresh.changed,
-        stateChanged,
-        stateStatus: candidate.refresh.changed ? 'would-follow-configuration' : candidate.stateBefore.status,
-        stateCommit: candidate.stateBefore.stateCommit,
-        missingStatePaths: candidate.stateBefore.missingPaths,
-        changedStatePaths: candidate.stateBefore.changedPaths,
-        extraStatePaths: candidate.stateBefore.extraPaths,
-        files: candidate.refresh.files,
-        conflicts: candidate.refresh.conflicts
-      } };
+      return {
+        planCandidate: candidate,
+        result: previewResultForCandidate(
+          candidate, candidate.refresh.changed || stateChanged ? 'would-update' : 'current'
+        )
+      };
     });
     const planCandidates = prepared.map((entry) => entry.planCandidate).filter(Boolean);
     const results = prepared.map((entry) => entry.result);
     const blocked = results.some((entry) => entry.status === 'blocked');
     const planId = blocked ? null : refreshPlanId(planCandidates, {
-      resolutions: normalizedResolutions, acceptBundledConflicts
+      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds
     });
     if (planId) {
       await retainRefreshPlanCache(registryFile, planId, planCandidates).catch(() => false);
@@ -2134,36 +3258,47 @@ export async function refreshWorkspaceConfigurations({
   // the same sentinel identity emitted by dry-run. Validate that combined plan before initialization
   // so a stale page cannot create a branch and only then discover that its confirmation was stale.
   let candidates = [];
+  const bootstrapCandidates = new Map();
   let previewBoundPlanId = null;
   if (confirmPlan && observations.some((item) => !item.commit)) {
     const confirmationCandidates = [];
     const confirmationFailures = [];
     const prepared = await mapLimit(observations, workers, async (observation) => {
       if (!observation.commit) {
-        return { observation, candidate: {
-          repository: observation.repository, sourceCommit: null,
-          bootstrapCommit: observation.bootstrapCommit,
-          stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
-        }, retained: false, error: null };
+        try {
+          const candidate = await prepareBootstrapInspectionCandidate(observation, {
+            dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
+            restorePackagedSeeds
+          }, { env: gitEnv });
+          return { observation, candidate, retained: false, bootstrap: true, error: null };
+        } catch (error) {
+          return {
+            observation, candidate: null, retained: false, bootstrap: true, error
+          };
+        }
       }
       try {
         const candidate = await prepareObservedCandidate(observation, {
-          acceptBundledConflicts, resolutions: normalizedResolutions
+          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds
         }, cachedPlan, { env: gitEnv });
-        return { observation, candidate, retained: true, error: null };
+        return { observation, candidate, retained: true, bootstrap: false, error: null };
       } catch (error) {
-        return { observation, candidate: null, retained: false, error };
+        return { observation, candidate: null, retained: false, bootstrap: false, error };
       }
     });
     for (const entry of prepared) {
       if (entry.error) confirmationFailures.push({ observation: entry.observation, error: entry.error });
       else {
         confirmationCandidates.push(entry.candidate);
-        if (entry.retained) candidates.push(entry.candidate);
+        candidates.push(entry.candidate);
+        if (entry.bootstrap) {
+          bootstrapCandidates.set(entry.observation.repository.remote, entry.candidate);
+        }
       }
     }
     if (confirmationFailures.length) {
-      await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+      await Promise.all(prepared.filter((entry) => entry.candidate?.root)
+        .map((entry) => removeTemporaryTree(entry.candidate.root)));
       return {
         status: 'blocked', dryRun: false, total: targets.length, updated: 0,
         results: observations.map((item) => {
@@ -2177,10 +3312,11 @@ export async function refreshWorkspaceConfigurations({
       };
     }
     previewBoundPlanId = refreshPlanId(confirmationCandidates, {
-      resolutions: normalizedResolutions, acceptBundledConflicts
+      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds
     });
     if (previewBoundPlanId !== confirmPlan) {
-      await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+      await Promise.all(prepared.filter((entry) => entry.candidate?.root)
+        .map((entry) => removeTemporaryTree(entry.candidate.root)));
       return {
         status: 'blocked', dryRun: false, planId: previewBoundPlanId,
         total: targets.length, updated: 0, failed: 0,
@@ -2194,6 +3330,46 @@ export async function refreshWorkspaceConfigurations({
     }
   }
 
+  // An unconfirmed terminal invocation still gets the same single-candidate publication path.
+  // Build every missing authority before any remote mutation; confirmed invocations reuse the
+  // exact reconstruction whose commit was compared with the preview plan above.
+  const missingBootstrapCandidates = observations.filter((item) => !item.commit
+    && !bootstrapCandidates.has(item.repository.remote));
+  const bootstrapPreparation = await mapLimit(
+    missingBootstrapCandidates, workers, async (observation) => {
+      try {
+        const candidate = await prepareBootstrapInspectionCandidate(observation, {
+          dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
+          restorePackagedSeeds
+        }, { env: gitEnv });
+        return { observation, candidate, error: null };
+      } catch (error) {
+        return { observation, candidate: null, error };
+      }
+    }
+  );
+  for (const entry of bootstrapPreparation) {
+    if (!entry.candidate) continue;
+    bootstrapCandidates.set(entry.observation.repository.remote, entry.candidate);
+    candidates.push(entry.candidate);
+  }
+  const bootstrapPreparationFailures = bootstrapPreparation.filter((entry) => entry.error);
+  if (bootstrapPreparationFailures.length) {
+    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+    return {
+      status: 'blocked', dryRun: false, total: targets.length, updated: 0,
+      results: observations.map((item) => {
+        const failed = bootstrapPreparationFailures.find((entry) => entry.observation === item);
+        return {
+          status: failed ? 'failed' : 'preflight-passed', repository: item.repository.id,
+          remote: item.repository.displayRemote, memberships: item.repository.memberships,
+          configurationChanged: false, stateChanged: false,
+          error: refreshErrorMessage(failed?.error)
+        };
+      })
+    };
+  }
+
   // Establishing a first sflow/config branch is itself a remote publication. Reinitialization's
   // schema/ref preflight therefore has to run against the disposable bootstrap candidate before
   // ensureConfigurationBranch makes that ref visible. The normal post-initialization inspection
@@ -2202,16 +3378,11 @@ export async function refreshWorkspaceConfigurations({
     const bootstrapInspectionFailures = [];
     await mapLimit(
       observations.filter((item) => !item.commit), workers, async (observation) => {
-        let candidate;
+        const candidate = bootstrapCandidates.get(observation.repository.remote);
         try {
-          candidate = await prepareBootstrapInspectionCandidate(observation, {
-            dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
-          }, { env: gitEnv });
           await inspectCandidate(candidate);
         } catch (error) {
           bootstrapInspectionFailures.push({ observation, error });
-        } finally {
-          if (candidate?.root) await removeTemporaryTree(candidate.root);
         }
       }
     );
@@ -2237,10 +3408,17 @@ export async function refreshWorkspaceConfigurations({
   const initialized = await mapLimit(
     observations.filter((item) => !item.commit), workers, async (observation) => {
     try {
+      const bootstrapCandidate = bootstrapCandidates.get(observation.repository.remote);
       const initialization = await ensureConfigurationBranch(observation.repository.remote, {
         sourceBranch: observation.repository.defaultBranch,
         sourceCommit: observation.bootstrapCommit,
-        env: gitEnv
+        authorIdentity: bootstrapCandidate?.bootstrapAuthorIdentity,
+        preparedCandidate: {
+          root: bootstrapCandidate?.root,
+          commit: bootstrapCandidate?.bootstrapCandidateCommit,
+          tree: bootstrapCandidate?.bootstrapCandidateTree
+        },
+        env: bootstrapCandidate?.gitEnv ?? gitEnv
       });
       return { observation, initialization, error: null };
     } catch (error) {
@@ -2310,11 +3488,24 @@ export async function refreshWorkspaceConfigurations({
     };
   }
 
-  const toPrepare = observations.filter((observation) => !(previewBoundPlanId && observation.commit));
+  // The exact reviewed candidate is now the approved source commit.  Keep its original refresh
+  // report for presentation, but do not author or push a second configuration commit; only the
+  // state projection remains to publish.
+  for (const entry of initialized) {
+    const candidate = bootstrapCandidates.get(entry.observation.repository.remote);
+    if (!candidate || entry.error) continue;
+    candidate.sourceCommit = entry.initialization.commit;
+    candidate.refresh = { ...candidate.refresh, changed: false };
+    candidate.bootstrapConfigurationCreated = entry.initialization.created === true;
+  }
+
+  const toPrepare = observations.filter((observation) =>
+    !bootstrapCandidates.has(observation.repository.remote)
+      && !(previewBoundPlanId && observation.commit));
   const prepared = await mapLimit(toPrepare, workers, async (observation) => {
     try {
       const candidate = await prepareObservedCandidate(observation, {
-        acceptBundledConflicts, resolutions: normalizedResolutions
+        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds
       }, cachedPlan, { env: gitEnv });
       return { observation, candidate, error: null };
     } catch (error) {
@@ -2364,7 +3555,7 @@ export async function refreshWorkspaceConfigurations({
   }
 
   const planId = previewBoundPlanId ?? refreshPlanId(candidates, {
-    resolutions: normalizedResolutions, acceptBundledConflicts
+    resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds
   });
   if (!previewBoundPlanId && confirmPlan && confirmPlan !== planId) {
     await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));

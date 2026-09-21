@@ -1,5 +1,8 @@
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
+import {
+  gitRepositoryComparisonKey, sameGitRepository
+} from '../../../src/git-repository-identity.mjs';
 import type { WorkspaceEntry, WorkspaceStatus } from './views/workspaces-model.ts';
 
 /** One repository which a registered workspace can safely hand to a maintenance command. */
@@ -19,14 +22,14 @@ export interface WorkspaceRefreshObservation {
   error?: string | null;
 }
 
-export type RepositoryRefreshAction = 'refresh' | 'authority' | 'reinitialize';
+export type RepositoryRefreshAction = 'refresh' | 'authority' | 'reinitialize' | 'factory-reset';
 
 /** The only command routes which a reviewed repository-maintenance choice may invoke. */
 export function repositoryRefreshCommand(
   action: RepositoryRefreshAction,
   target: RepositoryRefreshTarget
 ): { command: string; args: unknown[] } | null {
-  if (action === 'refresh') {
+  if (action === 'refresh' || action === 'reinitialize') {
     if (!target.workspacePath || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(target.repositoryId)) return null;
     return {
       command: 'singularityFlow.openWorkspaces',
@@ -40,7 +43,7 @@ export function repositoryRefreshCommand(
   if (action === 'authority') {
     return { command: 'singularityFlow.refreshAuthorityPin', args: [target.repositoryPath] };
   }
-  return { command: 'singularityFlow.reinitialize', args: [target.repositoryPath] };
+  return { command: 'singularityFlow.factoryReset', args: [target.repositoryPath] };
 }
 
 /**
@@ -51,63 +54,7 @@ export function repositoryRefreshCommand(
  * and path remain significant, while a trailing `.git`/slash does not. Local paths are kept in a
  * separate namespace and Windows drive spelling is normalized without resolving or accessing it.
  */
-export function gitRepositoryComparisonKey(value: string): string | null {
-  let remote = value.trim();
-  if (!remote) return null;
-  const windowsPath = /^[A-Za-z]:[\\/]/u.test(remote);
-  if (windowsPath) {
-    let local = path.win32.normalize(remote).replace(/\\/g, '/');
-    local = `${local[0]!.toLowerCase()}${local.slice(1)}`;
-    return `local:${local.replace(/\/+$/u, '').replace(/\.git$/iu, '')}`;
-  }
-  const uncPath = /^(?:\\\\|\/\/)([^\\/]+)[\\/](.+)$/u.exec(remote);
-  if (uncPath) {
-    const repositoryPath = uncPath[2]!.replace(/\\/g, '/')
-      .replace(/\/+$/u, '').replace(/\.git$/iu, '');
-    return repositoryPath ? `local-unc:${uncPath[1]!.toLowerCase()}/${repositoryPath}` : null;
-  }
-  const scp = remote.match(/^[^/@:\s]+@([^:\s]+):(.+)$/u);
-  if (scp) remote = `ssh://${scp[1]}/${scp[2]}`;
-  try {
-    const parsed = new URL(remote);
-    const sshProtocol = ['ssh:', 'git+ssh:', 'ssh+git:'].includes(parsed.protocol);
-    if (parsed.search || parsed.hash || parsed.password || (parsed.username && !sshProtocol)) return null;
-    if (parsed.protocol === 'file:') {
-      let local = decodeURIComponent(parsed.pathname).replace(/\\/g, '/');
-      // WHATWG file URLs spell a Windows drive as `/C:/...`; Git and VS Code also surface the
-      // same checkout as `C:\\...`. Normalize only that syntactic leading slash and drive letter.
-      // The remainder deliberately stays case-sensitive unless filesystem identity was proved.
-      if (/^\/[A-Za-z]:\//u.test(local)) {
-        local = `${local[1]!.toLowerCase()}${local.slice(2)}`;
-      }
-      if (parsed.hostname && parsed.hostname.toLowerCase() !== 'localhost') {
-        const repositoryPath = local.replace(/^\/+|\/+$/gu, '').replace(/\.git$/iu, '');
-        return repositoryPath
-          ? `local-unc:${parsed.hostname.toLowerCase()}/${repositoryPath}` : null;
-      }
-      return `local:${local.replace(/\/+$/u, '').replace(/\.git$/iu, '')}`;
-    }
-    if (!parsed.hostname) return null;
-    const defaultPort = (parsed.protocol === 'https:' && parsed.port === '443')
-      || (parsed.protocol === 'http:' && parsed.port === '80')
-      || (['ssh:', 'git+ssh:', 'ssh+git:'].includes(parsed.protocol) && parsed.port === '22');
-    const port = parsed.port && !defaultPort ? `:${parsed.port}` : '';
-    const repositoryPath = parsed.pathname.replace(/^\/+|\/+$/gu, '').replace(/\.git$/iu, '');
-    if (!repositoryPath) return null;
-    return `remote:${parsed.hostname.toLowerCase()}${port}/${repositoryPath}`;
-  } catch {
-    // Git accepts absolute local paths in addition to URLs. Do not turn relative, option-shaped,
-    // or arbitrary text into an identity which could accidentally match a registered checkout.
-    if (!path.isAbsolute(remote)) return null;
-    const local = path.normalize(remote).replace(/\\/g, '/');
-    return `local:${local.replace(/\/+$/u, '').replace(/\.git$/iu, '')}`;
-  }
-}
-
-export function sameGitRepository(left: string, right: string): boolean {
-  const leftKey = gitRepositoryComparisonKey(left);
-  return Boolean(leftKey && leftKey === gitRepositoryComparisonKey(right));
-}
+export { gitRepositoryComparisonKey, sameGitRepository };
 
 /** Resolve a URL only against explicit, already-registered workspace observations. */
 export function repositoryRefreshTargets(
@@ -139,12 +86,22 @@ export function repositoryRefreshTargets(
 }
 
 /** Resolve an already-selected local repository without trusting an arbitrary command argument. */
-async function canonicalFilesystemPath(value: string): Promise<string> {
-  const resolved = path.resolve(value);
-  const canonical = await realpath(resolved).catch(() => resolved);
+export async function canonicalFilesystemPath(
+  value: string,
+  {
+    platform = process.platform,
+    canonicalize = realpath
+  }: {
+    platform?: NodeJS.Platform;
+    canonicalize?: (candidate: string) => Promise<string>;
+  } = {}
+): Promise<string> {
+  const pathApi = platform === 'win32' ? path.win32 : path;
+  const resolved = pathApi.resolve(value);
+  const canonical = await canonicalize(resolved).catch(() => resolved);
   // A missing checkout is exactly when reinitialization is needed. On Windows, keep that recovery
   // selectable across drive-letter/path casing even though `realpath` cannot prove the absent path.
-  return process.platform === 'win32'
+  return platform === 'win32'
     ? path.win32.normalize(canonical).toLocaleLowerCase('en-US')
     : canonical;
 }

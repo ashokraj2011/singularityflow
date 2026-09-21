@@ -154,6 +154,8 @@ test('activation is scoped to Singularity Flow rather than every generic workspa
     'an unrelated project-level workspace.json must not activate Singularity Flow');
   assert.ok(activation.includes('onView:singularityFlow.navigation'),
     'an SFlow workspace root without a checked-out repository must still activate when its navigation opens');
+  assert.ok(activation.includes('onCommand:singularityFlow.reinitialize'),
+    'the hidden legacy safe-reinitialize alias must wake an upgraded extension before a view opens');
 });
 
 test('every contributed command is registered somewhere in activation', () => {

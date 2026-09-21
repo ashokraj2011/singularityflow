@@ -9,6 +9,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import YAML from 'yaml';
 import {
   chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
@@ -28,7 +29,8 @@ import {
 } from './workspace-context.mjs';
 import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
 import {
-  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
+  assertCredentialFreeRemote, configuredRemoteAuthority, configuredRemoteIdentity,
+  frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
@@ -53,6 +55,11 @@ export const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-authority-snapshot');
+// This receipt is written by configuration refresh after it has compared repository bytes with the
+// installed package.  A copy found on an application branch is not approved authority and must not
+// be imported into a newly-created sflow/config branch.  Importing it let an application commit
+// claim arbitrary files as framework-owned before the first reviewed configuration existed.
+const PACKAGE_CONFIGURATION_BASELINE = 'singularity/.product/configuration-baseline.yml';
 // Remote-only Git reads do not need the host application's ambient cwd. VS Code extension hosts
 // can start at the filesystem root, where the hardened executable resolver must reject every
 // absolute executable as a possible cwd-local binary. Bind those reads to the OS temp directory;
@@ -440,7 +447,7 @@ async function copyConfigurationAssetsFromRef(source, ref, destination, { env = 
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
     ...configurationAssetSearchRoots(policy)
   ], { cwd: source, env });
-  const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
+  const candidates = listed.stdout.split('\0').filter(Boolean).map((line) => {
     const first = line.indexOf(' ');
     const second = line.indexOf(' ', first + 1);
     return {
@@ -448,8 +455,17 @@ async function copyConfigurationAssetsFromRef(source, ref, destination, { env = 
       oid: line.slice(first + 1, second),
       file: line.slice(second + 1)
     };
-  }).filter((entry) => /^100(?:644|755)$/.test(entry.mode)
-    && isConfigurationAsset(entry.file, policy));
+  }).filter((entry) => isConfigurationAsset(entry.file, policy));
+  const nonRegular = candidates.filter((entry) => !/^100(?:644|755)$/.test(entry.mode));
+  if (nonRegular.length) {
+    throw new SingularityFlowError(
+      `Configuration authority contains non-regular framework asset path(s): ${nonRegular.map((entry) => entry.file).sort().join(', ')}. Replace symlinks or submodules with reviewed regular files before reinitializing.`, {
+        code: 'CONFIGURATION_ASSET_NOT_REGULAR',
+        details: { paths: nonRegular.map((entry) => entry.file).sort() }
+      }
+    );
+  }
+  const entries = candidates;
   if (!entries.length) return [];
 
   const batch = run('git', ['cat-file', '--batch'], {
@@ -547,6 +563,190 @@ async function clearScratchWorktree(root) {
   }
 }
 
+/**
+ * Turn one exact application revision into the parentless configuration tree used by bootstrap.
+ *
+ * Preview and publication must call this same transformation.  Keeping a second approximation in
+ * workspace refresh previously omitted repository/ledger mutations, retained application history,
+ * and trusted an application-side package receipt.  The resulting confirmation token described
+ * bytes other than the first authority that was actually pushed.
+ *
+ * This helper deliberately does not commit or publish.  Callers may apply their reviewed package
+ * refresh, validate the complete tree, and create a deterministic candidate commit before any
+ * remote ref becomes visible.
+ */
+export async function prepareConfigurationBootstrapWorktree(root, {
+  sourceRef = 'HEAD', remote, defaultBranch, capability = null, grounding = null,
+  authorIdentity = null, identityRoot = null, env = process.env, identityEnv = env,
+  preserveImportedApprovalAuthorities = false, frameworkApprovalAuthoritySeeds = null,
+  preserveImportedRepositoryPolicy = false, preserveImportedLedgerPolicy = false
+} = {}) {
+  const url = assertCredentialFreeRemote(String(remote ?? '').trim());
+  const branch = String(defaultBranch ?? '').trim();
+  if (!url || !branch) {
+    throw new SingularityFlowError('Configuration bootstrap requires an exact remote and default branch.', {
+      code: 'CONFIGURATION_BOOTSTRAP_INPUT_REQUIRED'
+    });
+  }
+  const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-seed-'));
+  try {
+    const imported = await copyConfigurationAssetsFromRef(root, sourceRef, seed, { env });
+    // The application branch may contain an old or forged refresh receipt.  Only refresh may write
+    // a new receipt after comparing the actual candidate against this installation.
+    await rm(path.join(seed, PACKAGE_CONFIGURATION_BASELINE), { force: true });
+    const importedAssets = imported.filter((relative) => relative !== PACKAGE_CONFIGURATION_BASELINE);
+    const importedCapabilityMap = importedAssets.includes('singularity/capabilities.yml');
+    const importedWorkflow = importedAssets.includes('singularity/workflow.yml');
+    const importedPortfolio = importedAssets.includes('singularity/portfolio.yml');
+    let exactFrameworkApprovalAuthorities = [];
+    let exactFrameworkPortfolioAuthorities = [];
+    if (preserveImportedApprovalAuthorities && importedWorkflow
+        && frameworkApprovalAuthoritySeeds && typeof frameworkApprovalAuthoritySeeds === 'object') {
+      let importedDefinition = null;
+      try {
+        importedDefinition = YAML.parse(await readFile(
+          path.join(seed, 'singularity/workflow.yml'), 'utf8'
+        ));
+      } catch (error) {
+        throw new SingularityFlowError(
+          `Imported workflow approval authority catalog is invalid: ${error.message}`, {
+            code: 'CONFIGURATION_BOOTSTRAP_INVALID'
+          }
+        );
+      }
+      exactFrameworkApprovalAuthorities = Object.entries(
+        frameworkApprovalAuthoritySeeds.workflow ?? {}
+      )
+        .filter(([id, authority]) => isDeepStrictEqual(
+          importedDefinition?.approvalAuthorities?.[id], authority
+        ))
+        .map(([id]) => id);
+      const importedPortfolioFile = path.join(seed, 'singularity/portfolio.yml');
+      const importedPortfolioInfo = await lstat(importedPortfolioFile).catch((error) =>
+        error?.code === 'ENOENT' ? null : Promise.reject(error));
+      const portfolioSeeds = frameworkApprovalAuthoritySeeds.portfolio ?? {};
+      if (importedPortfolioInfo && importedPortfolioInfo.isFile()
+          && !importedPortfolioInfo.isSymbolicLink()) {
+        const importedPortfolio = YAML.parse(await readFile(importedPortfolioFile, 'utf8'));
+        exactFrameworkPortfolioAuthorities = Object.entries(portfolioSeeds)
+          .filter(([id, authority]) => isDeepStrictEqual(
+            importedPortfolio?.approvalAuthorities?.[id], authority
+          ))
+          .map(([id]) => id);
+      } else if (!importedPortfolioInfo) exactFrameworkPortfolioAuthorities = Object.keys(portfolioSeeds);
+    }
+
+    run('git', ['switch', '--quiet', '--orphan', CONFIGURATION_BRANCH], { cwd: root, env });
+    await clearScratchWorktree(root);
+    await copyAssets(seed, root);
+    const wrote = await initializeDefinition(root);
+    if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(root, branch);
+    if (!importedCapabilityMap) {
+      await rm(path.join(root, 'singularity/capabilities.yml'), { force: true });
+    }
+
+    const actor = authorIdentity ?? gitCommitIdentity(identityRoot ?? root, { env: identityEnv });
+    if (authorIdentity && (typeof actor?.name !== 'string' || !actor.name.trim()
+        || typeof actor?.email !== 'string' || !actor.email.trim())) {
+      throw new SingularityFlowError(
+        'Configuration authority creation requires a verified Git author identity.', {
+          code: 'CONFIGURATION_AUTHOR_IDENTITY_REQUIRED'
+        }
+      );
+    }
+    await describeRepository(root, repositoryIdFromUrl(url), url, branch, actor, {
+      // Safe reinitialize may have imported organisation-owned approval groups from the
+      // application branch while reconstructing a missing authority. Recording the Git author in
+      // the commit must not silently grant that person membership in those existing groups.
+      enrollActor: !(preserveImportedApprovalAuthorities && importedWorkflow),
+      // An exact untouched framework seed still needs one usable bootstrap member. Customised,
+      // populated, and repository-created groups are deliberately absent from this allowlist.
+      enrollActorAuthorityIds: exactFrameworkApprovalAuthorities,
+      enrollActorPortfolioAuthorityIds: exactFrameworkPortfolioAuthorities,
+      preserveExistingRepository: preserveImportedRepositoryPolicy && importedPortfolio
+    });
+    if (grounding) await setGroundingMode(root, grounding);
+    if (capability && importedCapabilityMap) {
+      const importedCapabilities = await loadCapabilities(root, { required: true });
+      const requestedCapabilityId = String(capability.capabilityId ?? '').trim();
+      if (!importedCapabilities.capabilities?.[requestedCapabilityId]) {
+        throw new SingularityFlowError(
+          `The imported capability map does not define requested capability '${requestedCapabilityId}'. `
+          + 'Nothing was published; map it through the normal reviewed capability proposal workflow.', {
+            code: 'CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED',
+            details: {
+              requestedCapabilityId,
+              importedCapabilityIds: Object.keys(importedCapabilities.capabilities ?? {}).sort(),
+              nextAction: {
+                command: 'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json',
+                skill: '/sf-capability-map'
+              },
+              preserved: ['imported-capability-map', 'application-branches', 'remote-configuration-refs']
+            }
+          }
+        );
+      }
+    } else if (capability) await describeCapability(root, capability);
+    // A safe reinitialize may be reconstructing a missing sflow/config authority from an older
+    // application branch. Its ledger block is organisation policy, not a framework seed: retain a
+    // valid imported block exactly and let the subsequent full-definition/state-authority checks
+    // refuse it if it cannot be honored safely. Ordinary bootstrap and a missing imported workflow
+    // still receive the standard state authority.
+    if (!(preserveImportedLedgerPolicy && importedWorkflow)) {
+      await enableLedger(root, 'state');
+    }
+    if (preserveImportedLedgerPolicy && importedWorkflow) {
+      let importedLedgerRemote = null;
+      try {
+        const importedDefinition = YAML.parse(await readFile(
+          path.join(root, 'singularity/workflow.yml'), 'utf8'
+        ));
+        importedLedgerRemote = String(importedDefinition?.ledger?.remote ?? 'origin').trim();
+      } catch (error) {
+        throw new SingularityFlowError(
+          `Imported ledger policy is invalid: ${error.message}`, {
+            code: 'CONFIGURATION_BOOTSTRAP_INVALID',
+            cause: error
+          }
+        );
+      }
+      // The first-authority candidate is an isolated clone with one frozen `origin`. Silently
+      // substituting it for a different authored ledger remote would publish state under authority
+      // the repository never selected. Preserve that policy by refusing before either remote ref is
+      // created; an existing sflow/config authority can be restored, or the application-side policy
+      // can be reviewed to use the registered repository origin before retrying.
+      if (importedLedgerRemote !== 'origin') {
+        throw new SingularityFlowError(
+          `Imported ledger policy selects remote '${importedLedgerRemote}', which cannot be proven in the isolated first-authority candidate. Nothing was changed; restore the reviewed sflow/config authority or review the application policy to use origin before reinitializing.`, {
+            code: 'CONFIGURATION_BOOTSTRAP_LEDGER_POLICY_UNAVAILABLE',
+            details: {
+              remote: importedLedgerRemote,
+              preserved: ['application-branches', 'remote-configuration-refs', 'remote-state-refs']
+            }
+          }
+        );
+      }
+    }
+    try {
+      await loadDefinition(root);
+    } catch (error) {
+      throw new SingularityFlowError(
+        `The configuration authority was not created because its final packaged and imported assets are incompatible: ${error.message}`, {
+          code: 'CONFIGURATION_BOOTSTRAP_INVALID',
+          cause: error,
+          details: {
+            underlyingCode: error?.code ?? 'CONFIGURATION_INVALID',
+            preserved: ['application-branches', 'remote-configuration-refs']
+          }
+        }
+      );
+    }
+    return { imported: importedAssets, importedCapabilityMap, actor };
+  } finally {
+    await removeTemporaryTree(seed);
+  }
+}
+
 export async function remoteHasConfigurationBranch(remote, options = {}) {
   const head = await configurationBranchHead(remote, options);
   return head.reachable && head.exists;
@@ -631,6 +831,108 @@ async function inspectApprovedConfiguration(remote, capability = null, options =
   }
 }
 
+async function publishPreparedConfigurationCandidate(remote, {
+  root, commit: expectedCommit, tree: expectedTree, sourceCommit, sourceBranch,
+  session, env
+}) {
+  const candidateRoot = await realpath(path.resolve(root));
+  const candidateRemote = configuredRemoteAuthority(candidateRoot, 'origin', {
+    direction: 'fetch', env
+  });
+  if (!candidateRemote.url || candidateRemote.url !== assertCredentialFreeRemote(remote)) {
+    throw new SingularityFlowError(
+      'The prepared configuration candidate origin does not match the reviewed remote.', {
+        code: 'CONFIGURATION_BOOTSTRAP_CANDIDATE_REMOTE_MISMATCH'
+      }
+    );
+  }
+  const branch = run('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], {
+    cwd: candidateRoot, env, allowFailure: true
+  }).stdout.trim();
+  const commit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
+    cwd: candidateRoot, env, allowFailure: true
+  }).stdout.trim();
+  const tree = run('git', ['rev-parse', '--verify', 'HEAD^{tree}'], {
+    cwd: candidateRoot, env, allowFailure: true
+  }).stdout.trim();
+  const parents = run('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], {
+    cwd: candidateRoot, env, allowFailure: true
+  }).stdout.trim().split(/\s+/u).filter(Boolean);
+  const clean = run('git', ['status', '--porcelain'], { cwd: candidateRoot, env }).stdout;
+  if (branch !== CONFIGURATION_BRANCH || commit !== expectedCommit || tree !== expectedTree
+      || parents.length !== 1 || clean !== '') {
+    throw new SingularityFlowError(
+      'The prepared configuration candidate changed after preview. Preview the refresh again before creating the authority.', {
+        code: 'CONFIGURATION_BOOTSTRAP_CANDIDATE_CHANGED',
+        details: {
+          expectedCommit, actualCommit: commit || null,
+          expectedTree, actualTree: tree || null,
+          branch: branch || null, parentCount: Math.max(0, parents.length - 1)
+        }
+      }
+    );
+  }
+  await loadDefinition(candidateRoot);
+
+  // Re-observe both authorities immediately before the only remote mutation.  The empty expected
+  // object in force-with-lease is the final CAS; this observation supplies an actionable refusal
+  // before the push and binds the candidate to the application revision reviewed in the plan.
+  const observed = await session.observeAsync(remote, {
+    refs: [
+      `refs/heads/${CONFIGURATION_BRANCH}`,
+      `refs/heads/${sourceBranch}`
+    ],
+    includeHead: false,
+    refresh: true
+  });
+  requireRemoteObservation(observed, 'configuration bootstrap authority');
+  const currentAuthority = observed.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
+  const currentSource = observed.refs.get(`refs/heads/${sourceBranch}`) ?? null;
+  if (currentAuthority) {
+    throw new SingularityFlowError(
+      'The configuration authority was created concurrently after preview. Create and review a fresh plan before applying it.', {
+        code: 'CONFIGURATION_BOOTSTRAP_AUTHORITY_CHANGED',
+        details: { observedCommit: currentAuthority }
+      }
+    );
+  }
+  if (currentSource !== sourceCommit) {
+    throw new SingularityFlowError(
+      `The '${sourceBranch}' source branch changed after configuration preview. Preview the refresh again before creating '${CONFIGURATION_BRANCH}'.`, {
+        code: 'CONFIGURATION_BOOTSTRAP_SOURCE_CHANGED',
+        details: { expectedCommit: sourceCommit, actualCommit: currentSource, branch: sourceBranch }
+      }
+    );
+  }
+
+  const pushed = await runRemoteGitAsync([
+    'push', `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:`, 'origin',
+    `${commit}:refs/heads/${CONFIGURATION_BRANCH}`
+  ], { cwd: candidateRoot, operation: 'remote-push', env });
+  if (pushed.status !== 0) {
+    session.invalidate(remote);
+    const raced = await session.observeAsync(remote, {
+      refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false, refresh: true
+    });
+    const winner = raced.ok
+      ? raced.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null : null;
+    throw new SingularityFlowError(
+      winner
+        ? 'The configuration authority changed concurrently after preview. Nothing else was published; review a fresh plan.'
+        : `Cannot create '${CONFIGURATION_BRANCH}' on '${sanitizeRemote(remote)}'. ${pushed.failure?.advice ?? 'Git rejected the exact branch creation.'}`, {
+        code: winner ? 'CONFIGURATION_BOOTSTRAP_AUTHORITY_CHANGED'
+          : pushed.failure?.code ?? 'REMOTE_UNKNOWN',
+        details: { expectedCommit: commit, observedCommit: winner }
+      }
+    );
+  }
+  session.invalidate(remote);
+  return {
+    branch: CONFIGURATION_BRANCH, commit, created: true, importedFrom: sourceBranch,
+    candidateTree: tree, transportIntent: null
+  };
+}
+
 /** Create the configuration authority once, importing only configuration from an approved source. */
 /**
  * Establish the configuration authority on a remote, seeded entirely in a scratch clone.
@@ -643,7 +945,7 @@ async function inspectApprovedConfiguration(remote, capability = null, options =
 export async function ensureConfigurationBranch(remote, {
   sourceBranch = null, capability = null, grounding = null,
   sourceCommit = null, publisherRoot = null, transport = {}, remoteSession = null, observedHead = null,
-  authorIdentity = null, env = process.env
+  authorIdentity = null, preparedCandidate = null, env = process.env
 } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
@@ -710,8 +1012,19 @@ export async function ensureConfigurationBranch(remote, {
       ?? 'main';
   }
   const importBranch = String(sourceBranch ?? defaultBranch).trim() || defaultBranch;
+  if (preparedCandidate) {
+    if (!sourceCommit) {
+      throw new SingularityFlowError(
+        'A prepared configuration candidate requires the exact reviewed application source commit.', {
+          code: 'CONFIGURATION_BOOTSTRAP_SOURCE_REQUIRED'
+        }
+      );
+    }
+    return await publishPreparedConfigurationCandidate(url, {
+      ...preparedCandidate, sourceCommit, sourceBranch: importBranch, session, env: gitEnv
+    });
+  }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-bootstrap-'));
-  const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-seed-'));
   try {
     const clone = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
@@ -732,85 +1045,14 @@ export async function ensureConfigurationBranch(remote, {
         }
       );
     }
-    const imported = await copyConfigurationAssetsFromRef(scratch, 'HEAD', seed, {
+    const { actor } = await prepareConfigurationBootstrapWorktree(scratch, {
+      sourceRef: 'HEAD', remote: url, defaultBranch, capability, grounding,
+      authorIdentity,
+      // Ordinary bootstrap discovers identity outside the transport-isolated scratch clone.
+      identityRoot: canonicalPublisher ?? scratch,
+      identityEnv: env,
       env: frozen.env
     });
-    const importedCapabilityMap = imported.includes('singularity/capabilities.yml');
-    run('git', ['switch', '--quiet', '--orphan', CONFIGURATION_BRANCH], {
-      cwd: scratch, env: frozen.env
-    });
-    await clearScratchWorktree(scratch);
-    await copyAssets(seed, scratch);
-    const wrote = await initializeDefinition(scratch);
-    if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(scratch, defaultBranch);
-    // The packaged map is an instructional placeholder. A new organisation does not have a map
-    // until its first real capability is proposed; otherwise the first capability collides with a
-    // fictional root. An existing map imported from the code branch is real configuration and is
-    // retained.
-    if (!importedCapabilityMap) await rm(path.join(scratch, 'singularity/capabilities.yml'), { force: true });
-    // Remote transport deliberately hides ambient Git configuration so repository/global
-    // rewrites and hooks cannot cross the enterprise boundary. Identity discovery is not a
-    // remote operation, however, and a temporary clone normally has no local user.name/email.
-    // Read the caller's ordinary Git identity here; otherwise a valid globally configured user
-    // is erased by the transport sandbox and every freshly bootstrapped approval group is empty.
-    // The later attainability check remains fail-closed when the caller truly has no email.
-    const actor = authorIdentity ?? gitCommitIdentity(canonicalPublisher ?? scratch, { env });
-    if (authorIdentity && (typeof actor?.name !== 'string' || !actor.name.trim()
-        || typeof actor?.email !== 'string' || !actor.email.trim())) {
-      throw new SingularityFlowError(
-        'Configuration authority creation requires a verified Git author identity.', {
-          code: 'CONFIGURATION_AUTHOR_IDENTITY_REQUIRED'
-        }
-      );
-    }
-    await describeRepository(scratch, repositoryIdFromUrl(url), url, defaultBranch, actor);
-    if (grounding) await setGroundingMode(scratch, grounding);
-    if (capability && importedCapabilityMap) {
-      // A map imported from the application branch is real repository-owned configuration, not
-      // the instructional package placeholder. Replacing it with the one capability supplied by
-      // an onboarding request silently drops every other approved capability. Preserve the map
-      // byte-for-byte here. A missing requested capability belongs on the ordinary reviewed
-      // capability-proposal rail after this authority has been established; it is never authority
-      // for bootstrap to rewrite the imported organisation map.
-      const importedCapabilities = await loadCapabilities(scratch, { required: true });
-      const requestedCapabilityId = String(capability.capabilityId ?? '').trim();
-      if (!importedCapabilities.capabilities?.[requestedCapabilityId]) {
-        throw new SingularityFlowError(
-          `The imported capability map does not define requested capability '${requestedCapabilityId}'. `
-          + 'Nothing was published; map it through the normal reviewed capability proposal workflow.', {
-            code: 'CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED',
-            details: {
-              requestedCapabilityId,
-              importedCapabilityIds: Object.keys(importedCapabilities.capabilities ?? {}).sort(),
-              nextAction: {
-                command: 'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json',
-                skill: '/sf-capability-map'
-              },
-              preserved: ['imported-capability-map', 'application-branches', 'remote-configuration-refs']
-            }
-          }
-        );
-      }
-    } else if (capability) await describeCapability(scratch, capability);
-    await enableLedger(scratch, 'state');
-    // This is the last point before an authority ref can become visible.  Initialization may have
-    // imported repository-owned configuration from the application branch, so validate the final
-    // joined workflow, agents, templates, MCP policy and ledger after every mutation.  A refusal
-    // here leaves both the application branch and the absent sflow/config ref unchanged.
-    try {
-      await loadDefinition(scratch);
-    } catch (error) {
-      throw new SingularityFlowError(
-        `The configuration authority was not created because its final packaged and imported assets are incompatible: ${error.message}`, {
-          code: 'CONFIGURATION_BOOTSTRAP_INVALID',
-          cause: error,
-          details: {
-            underlyingCode: error?.code ?? 'CONFIGURATION_INVALID',
-            preserved: ['application-branches', 'remote-configuration-refs']
-          }
-        }
-      );
-    }
     run('git', ['add', '-A'], { cwd: scratch, env: frozen.env });
     run('git', [
       '-c', `user.name=${actor.name || 'Singularity Flow'}`,
@@ -883,7 +1125,6 @@ export async function ensureConfigurationBranch(remote, {
     };
   } finally {
     await removeTemporaryTree(scratch);
-    await removeTemporaryTree(seed);
   }
 }
 

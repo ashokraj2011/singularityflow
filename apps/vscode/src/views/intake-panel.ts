@@ -15,11 +15,13 @@ import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT,
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection,
+  storyWorkflowSelectionForReload,
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice,
   type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
 import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
+import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 
 /** What was started, so the caller can take the reader straight to it. */
@@ -72,6 +74,13 @@ interface EngineStoryWorkflow {
   codePhases?: string[];
 }
 
+interface EngineStoryWorkflowCatalog {
+  storyWorkflows?: EngineStoryWorkflow[];
+  availableStoryWorkflows?: EngineStoryWorkflow[];
+  workflowCatalogReason?: string | null;
+  workflowReason?: string | null;
+}
+
 /** Keep the launch catalog and exact-base preflight catalog on one validation path. */
 function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoice[] {
   return entries.filter((entry) => entry.id && entry.governs === 'story'
@@ -80,6 +89,22 @@ function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoic
     phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
     generatesCode: entry.generatesCode, codePhases: entry.codePhases
   }));
+}
+
+/** Installed and packaged-available rows are one catalog with two different authorities. */
+function storyWorkflowCatalog(catalog: EngineStoryWorkflowCatalog | undefined): {
+  installed: ProfileChoice[];
+  available: ProfileChoice[];
+} {
+  return {
+    installed: storyWorkflowChoices(catalog?.storyWorkflows),
+    available: (catalog?.availableStoryWorkflows ?? []).filter((entry) =>
+      entry.id && entry.governs === 'story' && entry.installed === false).map((entry) => ({
+      id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
+      phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
+      generatesCode: entry.generatesCode, codePhases: entry.codePhases
+    }))
+  };
 }
 
 function emptyStoryPreflight(): Pick<IntakeForm,
@@ -147,6 +172,7 @@ export class IntakePanel {
   private preflightController: AbortController | null = null;
   private referenceCheckRevision = 0;
   private enhancementRevision = 0;
+  private catalogRevision = 0;
   private enhancementController: AbortController | null = null;
   private trackerChosen = false;
   private disposed = false;
@@ -202,6 +228,10 @@ export class IntakePanel {
           && IntakePanel.current.form.targetBranch === target.branch
           && Boolean(IntakePanel.current.journey) === Boolean(target.journey)) {
         IntakePanel.current.panel.reveal(vscode.ViewColumn.Active);
+        // A retained Intake panel may have outlived a terminal or Configuration Center refresh.
+        // Reopening Start Work is an explicit request for the current authority, not for its cached
+        // launch catalog. Preserve the person's draft while refreshing only governed choices.
+        void IntakePanel.current.reloadCatalog();
         return IntakePanel.current;
       }
       // A workspace or branch switch changes the mutation target. Never reveal a form that names
@@ -216,6 +246,17 @@ export class IntakePanel {
       });
     IntakePanel.current = new IntakePanel(panel, client, output, onStarted, target);
     return IntakePanel.current;
+  }
+
+  /** Refresh an already-open Intake form after approved configuration changes elsewhere. */
+  static async configurationChanged(repository: string | null = null): Promise<boolean> {
+    const current = IntakePanel.current;
+    if (!current || current.disposed) return false;
+    if (repository && current.form.targetRepository
+        && await canonicalFilesystemPath(repository)
+          !== await canonicalFilesystemPath(current.form.targetRepository)) return false;
+    await current.reloadCatalog();
+    return true;
   }
 
   private render(): void {
@@ -267,39 +308,35 @@ export class IntakePanel {
    * Story workflows and remote base branches share this aggregate process; Jira is an optional
    * network integration and is probed only after the local form can render.
    */
-  private async load(): Promise<void> {
+  private async load({ preserveSelections = false }: { preserveSelections?: boolean } = {}): Promise<void> {
+    const revision = ++this.catalogRevision;
     try {
       const listed = await this.client.run<{
         choices?: BaseBranchChoice[];
         remote?: string;
         unreachable?: { repository: string }[];
-        intake?: {
+        intake?: EngineStoryWorkflowCatalog & {
           profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
           profileReason?: string | null;
-          storyWorkflows?: EngineStoryWorkflow[];
-          availableStoryWorkflows?: {
-            id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
-            installed?: boolean; references?: 'off' | 'optional' | 'required';
-            generatesCode?: boolean; codePhases?: string[];
-          }[];
-          workflowCatalogReason?: string | null;
-          workflowReason?: string | null;
         };
       }>(['workspace', 'branches', '--json', '--intake']);
+      if (revision !== this.catalogRevision || this.disposed) return;
       const profiles: ProfileChoice[] = (listed.intake?.profiles ?? []).filter((entry) => entry.id).map((entry) => ({
         id: entry.id!,
         label: entry.label ?? entry.id!,
         description: entry.description ?? '',
         phases: entry.phases ?? []
       }));
-      const storyWorkflows = storyWorkflowChoices(listed.intake?.storyWorkflows);
-      const availableStoryWorkflows: ProfileChoice[] =
-        (listed.intake?.availableStoryWorkflows ?? []).filter((entry) =>
-          entry.id && entry.governs === 'story' && entry.installed === false).map((entry) => ({
-          id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
-          phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
-          generatesCode: entry.generatesCode, codePhases: entry.codePhases
-        }));
+      const workflows = storyWorkflowCatalog(listed.intake);
+      const priorProfile = preserveSelections ? this.form.profile : null;
+      const priorWorkType = (preserveSelections ? this.form.workType : this.defaults.workType) ?? null;
+      const priorBaseBranch = preserveSelections ? this.form.baseBranch : null;
+      const baseBranchChoices = (listed.choices ?? []).filter((choice) => choice.everywhere);
+      const baseBranch = baseBranchChoices.some((choice) => choice.branch === priorBaseBranch)
+        ? priorBaseBranch : null;
+      const retainedWorkType = storyWorkflowSelectionForReload(
+        priorWorkType, workflows.installed, preserveSelections && Boolean(baseBranch)
+      );
       const unreachable = listed.unreachable ?? [];
       if (listed.intake?.profileReason) {
         this.output.appendLine(`No delivery profiles could be read: ${listed.intake.profileReason}`);
@@ -308,20 +345,21 @@ export class IntakePanel {
         profiles,
         // Defaulted so the form is not blocked on a choice with one sensible answer, but still
         // shown, because it decides the phases for the life of the work.
-        profile: profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
-        storyWorkflows,
-        availableStoryWorkflows,
+        profile: profiles.find((entry) => entry.id === priorProfile)?.id
+          ?? profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
+        storyWorkflows: workflows.installed,
+        availableStoryWorkflows: workflows.available,
         workflowCatalogReason: listed.intake?.workflowCatalogReason ?? null,
         // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
         // click; multiple custom workflows remain an explicit, visible choice in the form.
-        workType: storyWorkflows.find((entry) => entry.id === this.defaults.workType)?.id
-          ?? storyWorkflows.find((entry) => entry.id === 'feature')?.id
-          ?? storyWorkflows[0]?.id ?? null,
+        workType: retainedWorkType
+          ?? workflows.installed.find((entry) => entry.id === 'feature')?.id
+          ?? workflows.installed[0]?.id ?? null,
         workflowReason: listed.intake?.workflowReason
           ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null,
-        baseBranchChoices: (listed.choices ?? []).filter((choice) => choice.everywhere),
+        baseBranchChoices,
         // A Story base is an explicit, permanent choice. Even one available branch must be selected.
-        baseBranch: null,
+        baseBranch,
         baseRemote: listed.remote ?? null,
         // Named, because a branch missing from the list because a remote was unreachable looks
         // exactly like a branch that does not exist.
@@ -333,10 +371,18 @@ export class IntakePanel {
         githubReason: null,
         inFlight: this.inFlight
       });
+      if (preserveSelections && baseBranch) await this.preflightBaseBranch();
     } catch (error) {
+      if (revision !== this.catalogRevision || this.disposed) return;
       const reason = (error as Error).message;
       this.output.appendLine(`Intake catalog could not be read: ${reason}`);
-      this.update({
+      this.update(preserveSelections ? {
+        // A failed refresh must not erase a valid draft or its last known choices. Mark the
+        // authority stale and require another successful preflight before Start can be enabled.
+        workflowReason: `Could not refresh Story workflows: ${reason}`,
+        baseBranchReason: reason,
+        ...emptyStoryPreflight()
+      } : {
         profiles: [], profile: null, storyWorkflows: [], availableStoryWorkflows: [], workType: null,
         workflowCatalogReason: null,
         workflowReason: `Could not load Story workflows: ${reason}`,
@@ -347,7 +393,20 @@ export class IntakePanel {
     }
     // Jira is an optional external integration. Do not make its cold process or network probe part
     // of the form's critical path; its result updates only the tracker controls when it arrives.
-    void this.loadTracker();
+    if (!preserveSelections) void this.loadTracker();
+  }
+
+  private async reloadCatalog(): Promise<void> {
+    this.cancelBasePreflight();
+    this.preflightVersion += 1;
+    // The last successful preflight is bound to the catalog revision being replaced. Invalidate it
+    // before the asynchronous authority read starts so a retained webview cannot start work from
+    // stale workflow/configuration bytes while the refresh is in flight.
+    this.update({
+      ...emptyStoryPreflight(),
+      basePreflightChecking: true
+    });
+    await this.load({ preserveSelections: true });
   }
 
   /**
@@ -742,14 +801,15 @@ export class IntakePanel {
     try {
       const result = await this.client.run<{
         preflight?: { passed?: boolean; readiness?: StoryStartReadinessResult };
-        intake?: { storyWorkflows?: EngineStoryWorkflow[] };
+        intake?: EngineStoryWorkflowCatalog;
       }>(command, controller.signal);
       if (version !== this.preflightVersion) return;
       const readiness = result.preflight?.readiness;
       // The selected remote base, not the launch checkout, owns a legacy workflow catalog. Replace
       // the choices with the exact-base response before interpreting readiness. If the previous
       // choice does not exist there, clear it and require a visible user selection.
-      const exactBaseWorkflows = storyWorkflowChoices(result.intake?.storyWorkflows);
+      const exactCatalog = storyWorkflowCatalog(result.intake);
+      const exactBaseWorkflows = exactCatalog.installed;
       const catalogReturned = Array.isArray(result.intake?.storyWorkflows);
       const exactWorkType = catalogReturned
         ? storyWorkflowSelection(this.form.workType, exactBaseWorkflows)
@@ -763,6 +823,8 @@ export class IntakePanel {
         this.update({
           ...(catalogReturned ? {
             storyWorkflows: exactBaseWorkflows,
+            availableStoryWorkflows: exactCatalog.available,
+            workflowCatalogReason: result.intake?.workflowCatalogReason ?? null,
             workType: exactWorkType,
             workflowReason: exactWorkType === null
               ? 'Choose a Story workflow available on the selected base branch.' : null
@@ -781,7 +843,10 @@ export class IntakePanel {
       }
       this.update({
         ...(catalogReturned ? {
-          storyWorkflows: exactBaseWorkflows, workType: exactWorkType, workflowReason: null
+          storyWorkflows: exactBaseWorkflows,
+          availableStoryWorkflows: exactCatalog.available,
+          workflowCatalogReason: result.intake?.workflowCatalogReason ?? null,
+          workType: exactWorkType, workflowReason: null
         } : {}),
         basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null,
         basePreflightWarnings: warnings,

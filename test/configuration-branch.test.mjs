@@ -42,6 +42,20 @@ test('configuration asset paths cannot traverse the repository', () => {
   assert.equal(isConfigurationAsset('singularity/../outside.txt'), false);
   assert.equal(isConfigurationAsset('singularity/../../outside.txt'), false);
   assert.equal(isConfigurationAsset('/singularity/workflow.yml'), false);
+  assert.equal(isConfigurationAsset('Singularity/Work-Items/WRK-1/artifact.md'), false,
+    'case-folded runtime aliases are never configuration assets');
+  assert.equal(isConfigurationAsset('singularity/work-items./WRK-1/artifact.md'), false,
+    'Windows trailing-dot aliases are not portable configuration paths');
+  assert.equal(isConfigurationAsset('.GIT/hooks/pre-commit'), false,
+    'case-folded Git internals are never configuration assets');
+  assert.equal(isConfigurationAsset('singularity/NUL/policy.yml'), false,
+    'Windows device components are never portable configuration paths');
+  assert.equal(isConfigurationAsset('singularity/policy.yml:stream'), false,
+    'Windows alternate data streams are never portable configuration paths');
+  assert.equal(isConfigurationAsset('SINGUL~1/WORK-I~1/WRK-1/artifact.md'), false,
+    'DOS short-name aliases are never portable configuration paths');
+  assert.equal(isConfigurationAsset('singularity/cafe\u0301/policy.yml'), false,
+    'non-NFC filesystem aliases are never portable configuration paths');
   assert.equal(isConfigurationAsset('singularity/world-model/manifest.json'), false,
     'the stock generated world model remains runtime, not approved configuration');
 });

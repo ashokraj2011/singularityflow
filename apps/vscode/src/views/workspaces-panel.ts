@@ -16,8 +16,9 @@ import {
 } from './workspaces-page.ts';
 import {
   duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows,
+  isSafeWorkspaceReinitializationPreview,
   WORKSPACE_ACTION_CANCELLED,
-  type WorkspaceConfigurationRefreshResult, type WorkspaceConfigurationResolution,
+  type WorkspaceConfigurationRefreshResult,
   WorkspaceConfigurationRequestLeases,
   type WorkspaceConfigurationRequestContext, type WorkspaceConfigurationRequestLease,
   type WorkspaceCapabilityAttachScope, type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus,
@@ -56,7 +57,7 @@ function fosActionName(action: WorkspaceFosAction): string {
     'local-authority': 'Local authority creation',
     doctor: 'Workspace diagnosis',
     'resume-bootstrap': 'Workspace setup recovery',
-    'factory-reset': 'Repository reinitialization'
+    'factory-reset': 'Repository factory reset'
   }[action];
 }
 
@@ -73,7 +74,6 @@ export class WorkspacesPanel {
       dryRun: boolean;
       planId?: string | null;
       repositoryIds?: readonly string[];
-      resolutions: Record<string, WorkspaceConfigurationResolution>;
     }
   ) => Promise<WorkspaceConfigurationRefreshResult>;
   private readonly runFosAction: (
@@ -101,9 +101,7 @@ export class WorkspacesPanel {
   private configurationRepositoryWorkspacePath: string | null = null;
   private readonly configurationRequests = new WorkspaceConfigurationRequestLeases();
   private configurationPreviewLease: WorkspaceConfigurationRequestLease | null = null;
-  private configuration: WorkspaceConfigurationRefreshView = {
-    ...EMPTY_CONFIGURATION_REFRESH, resolutions: {}
-  };
+  private configuration: WorkspaceConfigurationRefreshView = { ...EMPTY_CONFIGURATION_REFRESH };
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -243,7 +241,7 @@ export class WorkspacesPanel {
       this.selected = null;
       this.details = null;
       this.fosOutcome = null;
-      this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
+      this.configuration = { ...EMPTY_CONFIGURATION_REFRESH };
       this.render();
     }
   }
@@ -258,7 +256,7 @@ export class WorkspacesPanel {
 
   private setAttachScope(scope: WorkspaceCapabilityAttachScope | null): void {
     this.invalidateConfigurationRequest();
-    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
+    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH };
     this.attachScope = scope;
     this.requestedCapabilityIds = [...new Set(scope?.capabilityIds ?? [])];
     // A retained panel may still be loading details for a workspace which is outside the new
@@ -289,7 +287,7 @@ export class WorkspacesPanel {
     this.invalidateConfigurationRequest();
     this.configurationRepositoryId = repositoryId;
     this.configurationRepositoryWorkspacePath = targetWorkspace;
-    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
+    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH };
   }
 
   private async select(path: string, {
@@ -313,7 +311,7 @@ export class WorkspacesPanel {
     this.detailError = null;
     this.details = null;
     this.detailsLoading = true;
-    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
+    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH };
     if (workspaceChanged) this.fosOutcome = null;
     this.render();
     try {
@@ -454,46 +452,6 @@ export class WorkspacesPanel {
       if (scope !== 'selected' && scope !== 'all') return;
       return this.previewConfiguration(scope);
     },
-    'configuration-resolution': (message) => {
-      if (this.configuration.applying) return;
-      const conflictPath = stringField(message, 'path');
-      const resolution = stringField(message, 'resolution');
-      if (!conflictPath || !['local', 'bundled', 'merge'].includes(resolution ?? '')) return;
-      const known = this.configuration.result?.results.some((repository) =>
-        repository.conflicts?.some((conflict) => conflict.path === conflictPath));
-      if (!known) return;
-      this.invalidateConfigurationRequest();
-      this.configuration.resolutions[conflictPath] = resolution as WorkspaceConfigurationResolution;
-      this.configuration.error = null;
-      return this.previewConfiguration(this.configuration.scope);
-    },
-    'configuration-bundled-assets': () => {
-      if (this.configuration.applying) return;
-      this.invalidateConfigurationRequest();
-      for (const repository of this.configuration.result?.results ?? []) {
-        for (const conflict of repository.conflicts ?? []) {
-          if (conflict.path.startsWith('singularity/templates/')
-            || conflict.path.startsWith('singularity/prompts/')
-            || conflict.path.startsWith('.github/agents/')) {
-            this.configuration.resolutions[conflict.path] = 'bundled';
-          }
-        }
-      }
-      this.configuration.error = null;
-      return this.previewConfiguration(this.configuration.scope);
-    },
-    'configuration-packaged-agents': () => {
-      if (this.configuration.applying) return;
-      const paths = new Set(this.configuration.result?.results.flatMap((repository) =>
-        repository.repair?.kind === 'packaged-agents' ? repository.repair.paths : []) ?? []);
-      // A blocked preview owns this list. The page never supplies a path, and selecting the repair
-      // only asks the engine for another preview; publication still requires the resulting plan.
-      if (!paths.size) return;
-      this.invalidateConfigurationRequest();
-      for (const agentPath of paths) this.configuration.resolutions[agentPath] = 'bundled';
-      this.configuration.error = null;
-      return this.previewConfiguration(this.configuration.scope);
-    },
     'configuration-apply': () => this.applyConfiguration(),
     'fos-action': (message) => {
       const action = stringField(message, 'action');
@@ -620,7 +578,7 @@ export class WorkspacesPanel {
     if (this.configuration.applying || (scope === 'selected' && !this.selected)) return;
     if (scope !== this.configuration.scope) {
       this.invalidateConfigurationRequest();
-      this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, scope, resolutions: {} };
+      this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, scope };
     }
     const context = this.configurationRequestContext(scope);
     const lease = this.configurationRequests.issue(context);
@@ -633,8 +591,7 @@ export class WorkspacesPanel {
         scope === 'selected' ? context.selectedPath : null,
         {
           dryRun: true,
-          repositoryIds: context.repositoryId ? [context.repositoryId] : [],
-          resolutions: { ...context.resolutions }
+          repositoryIds: context.repositoryId ? [context.repositoryId] : []
         }
       );
       if (!this.configurationRequests.isCurrent(lease, this.configurationRequestContext(scope))) return;
@@ -655,12 +612,14 @@ export class WorkspacesPanel {
   private async applyConfiguration(): Promise<void> {
     const reviewedResult = this.configuration.result;
     const reviewedLease = this.configurationPreviewLease;
-    const planId = reviewedResult?.planId;
     const context = this.configurationRequestContext(this.configuration.scope);
-    if (!planId || !reviewedLease || reviewedResult?.dryRun !== true
-      || reviewedResult.status !== 'preview' || this.configuration.loading
-      || this.configuration.applying || !this.selected
-      || !this.configurationRequests.isCurrent(reviewedLease, context)) return;
+    if (this.configuration.loading || this.configuration.applying || !this.selected) return;
+    if (!isSafeWorkspaceReinitializationPreview(reviewedResult)) {
+      if (reviewedResult) this.rejectUnsafeConfigurationApply();
+      return;
+    }
+    const planId = reviewedResult.planId;
+    if (!reviewedLease || !this.configurationRequests.isCurrent(reviewedLease, context)) return;
     const confirmation = await vscode.window.showInputBox({
       title: 'Confirm safe workspace reinitialization',
       prompt: `Type the exact reviewed plan ID: ${planId}`,
@@ -677,6 +636,12 @@ export class WorkspacesPanel {
       || !this.configurationRequests.isCurrent(
         reviewedLease, this.configurationRequestContext(this.configuration.scope)
       )) return;
+    // The result object itself is mutable. Re-prove the complete contract after the asynchronous
+    // confirmation boundary instead of relying only on reference equality and the request lease.
+    if (!isSafeWorkspaceReinitializationPreview(reviewedResult)) {
+      this.rejectUnsafeConfigurationApply();
+      return;
+    }
     const applyLease = this.configurationRequests.issue(context);
     this.configurationPreviewLease = null;
     this.configuration.applying = true;
@@ -688,8 +653,7 @@ export class WorkspacesPanel {
         {
           dryRun: false,
           planId,
-          repositoryIds: context.repositoryId ? [context.repositoryId] : [],
-          resolutions: { ...context.resolutions }
+          repositoryIds: context.repositoryId ? [context.repositoryId] : []
         }
       );
       if (!this.configurationRequests.isCurrent(
@@ -713,6 +677,12 @@ export class WorkspacesPanel {
     }
   }
 
+  private rejectUnsafeConfigurationApply(): void {
+    this.configurationPreviewLease = null;
+    this.configuration.error = 'Apply refused: create a new preview with the current CLI. The reviewed result did not prove the exact seeded-only workspace reinitialization contract.';
+    this.render();
+  }
+
   private configurationRequestContext(
     scope: 'selected' | 'all'
   ): WorkspaceConfigurationRequestContext {
@@ -721,8 +691,7 @@ export class WorkspacesPanel {
       scope,
       repositoryId: scope === 'selected'
         && this.selected === this.configurationRepositoryWorkspacePath
-        ? this.configurationRepositoryId : null,
-      resolutions: { ...this.configuration.resolutions }
+        ? this.configurationRepositoryId : null
     };
   }
 

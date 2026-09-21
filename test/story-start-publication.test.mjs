@@ -534,6 +534,12 @@ test('workspace preflight returns the exact selected-base workflow catalog befor
   assert.deepEqual(exactBaseWorkflow.codePhases, ['implementation']);
   assert.equal(staleChoice.intake.storyWorkflows.some((workflow) => workflow.id === 'feature'),
     false, 'the launch checkout workflow is not offered for the selected base');
+  assert.ok(staleChoice.intake.availableStoryWorkflows.some((workflow) =>
+    workflow.id === 'feature' && workflow.installed === false),
+    'a packaged workflow absent from the exact base remains visible as available');
+  assert.ok(staleChoice.intake.availableStoryWorkflows.every((workflow) =>
+    !staleChoice.intake.storyWorkflows.some((installed) => installed.id === workflow.id)),
+    'the exact-base installed and available projections must remain disjoint');
 
   const selected = JSON.parse(flow(root, [
     'workspace', 'branches', '--json', '--intake',

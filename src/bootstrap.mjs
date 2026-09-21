@@ -35,6 +35,7 @@ import { gitCommitIdentity } from './git.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { frozenRemoteTransport, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import { sameGitRepository } from './git-repository-identity.mjs';
 
 /** The repository identifier a clone URL implies: the last segment, minus `.git`. */
 export function repositoryIdFromUrl(url) {
@@ -70,25 +71,88 @@ export function bootstrapBranchPatterns({ fallback = false } = {}) {
  * explaining each setting, and a YAML round trip would throw all of it away on the very first
  * thing anybody does to the file.
  */
-export async function describeRepository(root, repositoryId, url, defaultBranch, actor) {
+export async function describeRepository(root, repositoryId, url, defaultBranch, actor, {
+  enrollActor = true,
+  enrollActorAuthorityIds = [],
+  enrollActorPortfolioAuthorityIds = enrollActorAuthorityIds,
+  preserveExistingRepository = false
+} = {}) {
+  const exactSeedAuthorities = new Set(enrollActorAuthorityIds);
+  const exactPortfolioSeedAuthorities = new Set(enrollActorPortfolioAuthorityIds);
   const file = path.join(root, 'singularity/portfolio.yml');
   const document = YAML.parseDocument(await readFile(file, 'utf8'));
 
   // Edited as a document rather than as text. A first attempt appended a `repositories:` block when
   // it could not find an empty one, and the starter file declares `repositories: {}` — so the file
   // ended up with the key twice and would not parse at all. setIn knows where the key already is.
-  document.setIn(['repositories', repositoryId], document.createNode({
-    url, defaultBranch, required: true
-  }));
+  const repositoriesNode = document.getIn(['repositories'], true);
+  const repositories = repositoriesNode?.toJSON?.() ?? repositoriesNode ?? {};
+  const existingRepositoryNode = document.getIn(['repositories', repositoryId], true);
+  const existingRepository = existingRepositoryNode?.toJSON?.() ?? existingRepositoryNode;
+  if (preserveExistingRepository) {
+    if (!repositories || typeof repositories !== 'object' || Array.isArray(repositories)) {
+      throw new SingularityFlowError(
+        'Imported repository policy is not a repository map. Nothing was changed; repair the portfolio before reinitializing.', {
+          code: 'CONFIGURATION_BOOTSTRAP_REPOSITORY_POLICY_CONFLICT',
+          details: { repositoryId }
+        }
+      );
+    }
+    const matchingRepositories = Object.entries(repositories)
+      .filter(([, repository]) => repository && typeof repository === 'object'
+        && !Array.isArray(repository) && sameGitRepository(repository.url, url));
+    const selected = existingRepository === undefined
+      ? matchingRepositories
+      : [[repositoryId, existingRepository]];
+    if (matchingRepositories.length > 1) {
+      throw new SingularityFlowError(
+        `Imported repository policy maps the registered repository more than once (${matchingRepositories.map(([id]) => id).sort().join(', ')}). Nothing was changed; retain one authoritative alias before reinitializing.`, {
+          code: 'CONFIGURATION_BOOTSTRAP_REPOSITORY_POLICY_CONFLICT',
+          details: {
+            repositoryId,
+            matchingRepositoryIds: matchingRepositories.map(([id]) => id).sort()
+          }
+        }
+      );
+    }
+    if (selected.length === 1) {
+      const [selectedId, selectedRepository] = selected[0];
+      const compatible = selectedRepository && typeof selectedRepository === 'object'
+        && !Array.isArray(selectedRepository)
+        && sameGitRepository(selectedRepository.url, url)
+        && selectedRepository.defaultBranch === defaultBranch;
+      if (!compatible) {
+        throw new SingularityFlowError(
+          `Imported repository policy for '${selectedId}' conflicts with the registered repository authority. Nothing was changed; reconcile its URL and default branch before reinitializing.`, {
+            code: 'CONFIGURATION_BOOTSTRAP_REPOSITORY_POLICY_CONFLICT',
+            details: { repositoryId, selectedRepositoryId: selectedId }
+          }
+        );
+      }
+      // Safe reinitialization imports organisation policy from the application branch only while a
+      // configuration authority is absent. Keep the complete compatible mapping—including its
+      // stable user alias, required/optional status, and future policy fields—instead of reducing
+      // it to bootstrap defaults. Ordinary first-time bootstrap retains replacement behavior.
+    } else {
+      document.setIn(['repositories', repositoryId], document.createNode({
+        url, defaultBranch, required: true
+      }));
+    }
+  } else {
+    document.setIn(['repositories', repositoryId], document.createNode({
+      url, defaultBranch, required: true
+    }));
+  }
 
   // A freshly generated configuration must not defer its first authorization failure until the
   // first approval ceremony. Name the person establishing the authority in every Initiative group
   // and, below, every Story group. Existing memberships remain intact; bootstrap only appends the
   // current identity when it is absent.
-  if (actor.email) {
+  if ((enrollActor || exactPortfolioSeedAuthorities.size) && actor.email) {
     const authorities = document.getIn(['approvalAuthorities']);
     for (const item of authorities?.items ?? []) {
       const key = String(item.key?.value ?? item.key);
+      if (!enrollActor && !exactPortfolioSeedAuthorities.has(key)) continue;
       const members = document.getIn(['approvalAuthorities', key, 'members']);
       const current = members?.toJSON?.() ?? [];
       if (current.some((member) => member?.email?.toLowerCase() === actor.email.toLowerCase())) continue;
@@ -102,10 +166,11 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
 
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parseDocument(await readFile(workflowFile, 'utf8'));
-  if (actor.email) {
+  if ((enrollActor || exactSeedAuthorities.size) && actor.email) {
     const authorities = workflow.getIn(['approvalAuthorities']);
     for (const item of authorities?.items ?? []) {
       const key = String(item.key?.value ?? item.key);
+      if (!enrollActor && !exactSeedAuthorities.has(key)) continue;
       const members = workflow.getIn(['approvalAuthorities', key, 'members']);
       const current = members?.toJSON?.() ?? [];
       if (current.some((member) => member?.email?.toLowerCase() === actor.email.toLowerCase())) continue;

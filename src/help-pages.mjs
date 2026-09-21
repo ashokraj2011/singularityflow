@@ -1539,10 +1539,18 @@ const PAGES = Object.freeze({
       'and existing Story snapshots never move.',
       '',
       '`workspace reinitialize` is the safe repeatable upgrade front door. It requires a dry-run',
-      'plan and exact `--confirm-plan`, delegates workflow and configuration changes to that same',
-      'three-way refresh, verifies or republishes capability authority locators, and runs a bounded',
-      'schema census over checkouts that exist locally. Readable old records are migrated only by',
-      'their readers in memory; immutable historical evidence is never rewritten.'
+      'plan and exact `--confirm-plan`. It restores only missing seeds or exact current/historical',
+      'registered framework seeds, together with their framework-owned dependencies. User-created',
+      'and user-modified workflows, phases, artifact sets, templates, prompts, and agents remain',
+      'repository-owned and unchanged. Same-name or modified-seed collisions are reported, not',
+      'overwritten. Work-item artifacts are excluded. The plan binds',
+      'this ownership mode, can upgrade a registered legacy workflow schema, and runs a bounded',
+      'schema census over local checkouts. Capability-specific publication and portable locator',
+      'repair remain separate; user capability definitions stay unchanged in the approved mirror.',
+      'Safe reinitialize refuses `--resolve ...=bundled` and `--accept-bundled-conflicts` because',
+      'they transfer ownership. Use ordinary `refresh-configuration` and its reviewed three-way',
+      'conflict choices when deliberate adoption of packaged content is intended. Immutable',
+      'historical evidence is never rewritten.'
     ],
     options: [
       ['--id ID', 'Portable local workspace identifier used by prepare.'],
@@ -1555,9 +1563,9 @@ const PAGES = Object.freeze({
       ['--confirm-dirty SHA256', 'Content-bound acknowledgement required to retain a dirty adopted clone.'],
       ['--dry-run', 'Preview configuration refresh for every selected repository without changing a ref.'],
       ['--repository VALUE', 'Repeatable. For doctor, an exact credential-free URL; for create/update, ID=URL; for configuration refresh, a repository ID.'],
-      ['--resolve PATH=CHOICE', 'Resolve one reported conflict as local, bundled, or merge; repeat for additional paths.'],
+      ['--resolve PATH=CHOICE', 'For refresh-configuration only: deliberately resolve one reported conflict as local, bundled, or merge; repeat for additional paths. Safe reinitialize refuses ownership transfer.'],
       ['--confirm-plan ID', 'Apply only if the reviewed configuration, state, and reinitialization topology authorities still match the preview.'],
-      ['--accept-bundled-conflicts', 'Explicitly select packaged values where both package and repository changed the same field or asset.'],
+      ['--accept-bundled-conflicts', 'For refresh-configuration only: explicitly adopt packaged values where both package and repository changed the same field or asset. Safe reinitialize refuses this option.'],
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
     examples: [
@@ -1573,7 +1581,7 @@ const PAGES = Object.freeze({
       ['singularity-flow workspace refresh-configuration payments --resolve singularity/templates/feature/spec.md=bundled --confirm-plan cfgp-…', 'Apply reviewed choices only while the preview remains current.'],
       ['singularity-flow workspace refresh-configuration payments', 'Refresh one registered workspace and verify each state mirror.'],
       ['singularity-flow workspace reinitialize payments --dry-run', 'Preview a complete, non-destructive workspace upgrade and receive its bound plan ID.'],
-      ['singularity-flow workspace reinitialize payments --confirm-plan wrip-…', 'Apply the compound plan that binds configuration, workspace topology, lead authority, and schema readiness.']
+      ['singularity-flow workspace reinitialize payments --confirm-plan wrip-…', 'Apply the compound plan that binds configuration/state authority, workspace topology, and schema readiness.']
     ],
     seeAlso: ['capability', 'session', 'bootstrap']
   },

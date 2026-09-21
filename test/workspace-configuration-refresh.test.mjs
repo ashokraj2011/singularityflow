@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile
+} from 'node:fs/promises';
 import { PassThrough } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
@@ -101,6 +104,25 @@ async function repositoryFixture(root, id = 'application') {
   git(publisher, ['remote', 'add', 'origin', remote]);
   git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
   return { remote, repository };
+}
+
+async function initializeStatePublisher(root) {
+  run('git', ['init', '--initial-branch=state', root]);
+  git(root, ['config', 'user.name', 'Configuration Test']);
+  git(root, ['config', 'user.email', 'configuration@example.test']);
+  await mkdir(path.join(root, 'ledger'), { recursive: true });
+  await writeFile(path.join(root, 'README.md'),
+    '# Singularity Flow Capability Ledger\n\n'
+    + 'This orphan branch is an append-only workflow ledger. It has no shared ancestry with application branches and must never be merged into them.\n');
+  await writeFile(path.join(root, 'ledger/head.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    sequence: 0,
+    entryHash: null,
+    previousHeadHash: null,
+    updatedAt: '2026-01-01T00:00:00.000Z'
+  })}\n`);
+  git(root, ['add', 'README.md', 'ledger/head.json']);
+  git(root, ['commit', '-m', 'Initialize Singularity Flow capability ledger']);
 }
 
 async function registeredRepositoryFixture(root, id) {
@@ -813,6 +835,799 @@ test('configuration refresh restores the standard spec-driven workflow after a p
     entry.path === 'workflow.workTypes.spec-driven-standard'));
 });
 
+test('seeded reinitialization restores missing framework seeds and preserves every customized value', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-reinitialize-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  await refreshPackagedConfiguration(root);
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const bundled = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+  const local = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const customPhase = structuredClone(local.phases['poc-lite-plan']);
+  customPhase.label = 'Repository-owned customer review';
+  customPhase.defaultTemplate = 'customer/review.md';
+  customPhase.artifact = {
+    path: 'artifacts/customer-review/review.md', kind: 'delivery-plan', minimumBytes: 10
+  };
+  customPhase.artifactSet = 'customer-review-set';
+  local.phases['customer-review'] = customPhase;
+  local.artifactSets['customer-review-set'] = {
+    primary: 'review.md',
+    members: [{ path: 'review.md', role: 'customer-review', required: true }]
+  };
+  local.workTypes['customer-delivery'] = {
+    label: 'Customer delivery',
+    description: 'A repository-owned workflow that package upgrades must preserve exactly.',
+    phases: ['customer-review'],
+    plannedClaims: { mode: 'opt-out', reason: 'Repository-owned review-only workflow.' },
+    intelligence: { worldModel: 'off', ast: 'off', agentBriefs: 'off' },
+    metadata: { owner: 'customer-platform', revision: 7 }
+  };
+  local.logging.level = 'debug';
+  local.approvalAuthorities['product-approvers'].label = 'Repository product approvers';
+  delete local.approvalAuthorities['design-reviewers'];
+
+  const packagedWorkTypeIds = Object.keys(bundled.workTypes);
+  const missingWorkTypeIds = new Set();
+  const customizedWorkTypeIds = new Set();
+  packagedWorkTypeIds.forEach((id, index) => {
+    if (index % 2 === 0) {
+      missingWorkTypeIds.add(id);
+      delete local.workTypes[id];
+    } else {
+      customizedWorkTypeIds.add(id);
+      local.workTypes[id].label = `Repository-customized ${id}`;
+    }
+  });
+  for (const phase of Object.values(local.phases)) {
+    if (phase !== customPhase) phase.label = `Repository-customized ${phase.label}`;
+  }
+  for (const artifactSet of Object.values(local.artifactSets)) {
+    if (artifactSet !== local.artifactSets['customer-review-set']) {
+      artifactSet.members.push({ path: 'repository-note.md', role: 'advisory-note', required: false });
+    }
+  }
+  for (const server of Object.values(local.mcpServers)) {
+    server.label = `Repository-customized ${server.label}`;
+  }
+  const localWorkflowText = YAML.stringify(local).replace(
+    '  customer-delivery:\n',
+    '  # repository-owned workflow comment must survive semantic patching\n  customer-delivery:\n'
+  );
+  await writeFile(workflowFile, localWorkflowText);
+  // A repository-controlled receipt is not ownership evidence. Even when it falsely claims the
+  // current organisation policy is the prior package value, seeded reinitialization preserves it.
+  const baselineFile = path.join(root, PACKAGE_BASELINE_PATH);
+  const forgedBaseline = YAML.parse(await readFile(baselineFile, 'utf8'));
+  forgedBaseline.workflow.logging = structuredClone(local.logging);
+  await writeFile(baselineFile, YAML.stringify(forgedBaseline));
+
+  const customTemplate = path.join(root, 'singularity/templates/customer/review.md');
+  const customTemplateBytes = '# Customer review\n\nRepository-owned template bytes.\n';
+  await mkdir(path.dirname(customTemplate), { recursive: true });
+  await writeFile(customTemplate, customTemplateBytes);
+  const customAgent = path.join(root, '.github/agents/repository-specialist.agent.md');
+  const customAgentBytes = `---
+name: repository-specialist
+description: Repository-owned reviewer that is not supplied by Singularity Flow.
+model: [auto]
+tools: [read, search]
+metadata:
+  sflow-label: "Repository specialist"
+  sflow-phases: "customer-review"
+  sflow-default-for: "customer-review"
+---
+
+# Repository specialist
+
+Review the repository-owned customer delivery evidence without changing files.
+`;
+  await writeFile(customAgent, customAgentBytes);
+
+  const packagedAgent = path.join(root, '.github/agents/developer.agent.md');
+  await writeFile(packagedAgent, `${await readFile(packagedAgent, 'utf8')}\n<!-- stale seeded agent -->\n`);
+  const packagedTemplate = path.join(root, 'singularity/templates/feature/requirements.md');
+  await writeFile(packagedTemplate, `${await readFile(packagedTemplate, 'utf8')}\n<!-- stale seeded template -->\n`);
+
+  const customWorkflowBefore = structuredClone(local.workTypes['customer-delivery']);
+  const customPhaseBefore = structuredClone(local.phases['customer-review']);
+  const customArtifactSetBefore = structuredClone(local.artifactSets['customer-review-set']);
+  const customizedWorkTypesBefore = structuredClone(local.workTypes);
+  const customizedPhasesBefore = structuredClone(local.phases);
+  const customizedArtifactSetsBefore = structuredClone(local.artifactSets);
+  const customizedMcpServersBefore = structuredClone(local.mcpServers);
+  const packagedAgentBefore = await readFile(packagedAgent, 'utf8');
+  const packagedTemplateBefore = await readFile(packagedTemplate, 'utf8');
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
+
+  for (const id of packagedWorkTypeIds) {
+    if (missingWorkTypeIds.has(id)) {
+      assert.deepEqual(refreshed.workTypes[id], bundled.workTypes[id], `${id} was not restored exactly`);
+    } else {
+      assert.deepEqual(refreshed.workTypes[id], customizedWorkTypesBefore[id],
+        `${id} repository customization was overwritten`);
+    }
+  }
+  const packagedPhaseIds = new Set(packagedWorkTypeIds.flatMap((id) => bundled.workTypes[id].phases));
+  for (const id of packagedPhaseIds) {
+    assert.deepEqual(refreshed.phases[id], customizedPhasesBefore[id],
+      `${id} phase customization was overwritten`);
+  }
+  for (const id of Object.keys(bundled.artifactSets)) {
+    assert.deepEqual(refreshed.artifactSets[id], customizedArtifactSetsBefore[id],
+      `${id} artifact-set customization was overwritten`);
+  }
+  for (const id of Object.keys(bundled.mcpServers)) {
+    assert.deepEqual(refreshed.mcpServers[id], customizedMcpServersBefore[id],
+      `${id} MCP customization was overwritten`);
+  }
+  assert.deepEqual(refreshed.workTypes['customer-delivery'], customWorkflowBefore);
+  assert.deepEqual(refreshed.phases['customer-review'], customPhaseBefore);
+  assert.deepEqual(refreshed.artifactSets['customer-review-set'], customArtifactSetBefore);
+  assert.equal(refreshed.logging.level, 'debug',
+    'a baseline receipt cannot reset repository-owned top-level policy');
+  assert.match(await readFile(workflowFile, 'utf8'),
+    /# repository-owned workflow comment must survive semantic patching/u);
+  assert.equal(refreshed.approvalAuthorities['product-approvers'].label,
+    'Repository product approvers', 'organisation-owned authority membership/configuration must survive');
+  assert.deepEqual(refreshed.approvalAuthorities['design-reviewers'],
+    bundled.approvalAuthorities['design-reviewers'], 'a missing seeded authority dependency must return');
+  assert.equal(await readFile(customTemplate, 'utf8'), customTemplateBytes);
+  assert.equal(await readFile(customAgent, 'utf8'), customAgentBytes);
+  assert.equal(await readFile(packagedAgent, 'utf8'), packagedAgentBefore);
+  assert.equal(await readFile(packagedTemplate, 'utf8'), packagedTemplateBefore);
+  assert.ok(result.files.includes('singularity/workflow.yml'));
+  assert.ok(!result.files.includes('.github/agents/developer.agent.md'));
+  assert.ok(!result.files.includes('singularity/templates/feature/requirements.md'));
+  for (const id of customizedWorkTypeIds) {
+    assert.ok(result.conflicts.some((entry) =>
+      entry.path === `workflow.workTypes.${id}` && entry.resolution === 'preserved-local'));
+  }
+  assert.ok(result.conflicts.some((entry) =>
+    entry.path === '.github/agents/developer.agent.md'
+      && entry.resolution === 'preserved-local'));
+  assert.ok(result.conflicts.some((entry) =>
+    entry.path === 'singularity/templates/feature/requirements.md'
+      && entry.resolution === 'preserved-local'));
+
+  const repeated = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  assert.equal(repeated.changed, false);
+  assert.deepEqual(repeated.files, []);
+});
+
+test('ordinary refresh and seeded reinitialization both preserve customized seeded profiles', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-versus-reinitialize-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  await refreshPackagedConfiguration(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.workTypes.feature.label = 'Repository-customized feature';
+  workflow.phases.requirements.label = 'Repository-customized requirements';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+
+  await refreshPackagedConfiguration(root);
+  let observed = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(observed.workTypes.feature.label, 'Repository-customized feature');
+  assert.equal(observed.phases.requirements.label, 'Repository-customized requirements');
+
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  observed = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(observed.workTypes.feature.label, 'Repository-customized feature');
+  assert.equal(observed.phases.requirements.label, 'Repository-customized requirements');
+});
+
+test('seeded reinitialization preserves every existing approval authority and restores only missing dependencies', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-authority-collision-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const repositoryAuthority = {
+    label: 'Repository product council',
+    allowAnyGitIdentity: true,
+    members: [{ name: 'Company reviewer', email: 'company-reviewer@example.test' }]
+  };
+  workflow.approvalAuthorities['product-approvers'] = structuredClone(repositoryAuthority);
+  delete workflow.approvalAuthorities['design-reviewers'];
+  await writeFile(workflowFile, YAML.stringify(workflow));
+
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const observed = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const bundled = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+
+  assert.deepEqual(observed.approvalAuthorities['product-approvers'], repositoryAuthority,
+    'a package authority ID must not absorb fields or membership from the package');
+  assert.deepEqual(observed.approvalAuthorities['design-reviewers'],
+    bundled.approvalAuthorities['design-reviewers'],
+    'a genuinely missing dependency should still be restored');
+});
+
+test('seeded reinitialization migrates authentic v1 role fields and retains repository-only workflow policy', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-legacy-root-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  // Exact registered package bytes immediately before ba513057 replaced work-lens prompts with
+  // governed Agent Markdown. This protects the real historical surface rather than merely changing
+  // today's version number to 1. Repositories could also add their own contracts under that schema.
+  const packagedLegacy = YAML.parse(await readFile(path.join(
+    ROOT, 'test/fixtures/workflow-v1-ba513.yml'
+  ), 'utf8'));
+  const legacy = structuredClone(packagedLegacy);
+
+  legacy.phases['company-intake'] = {
+    ...structuredClone(legacy.phases.intake),
+    label: 'Company intake',
+    artifact: {
+      path: 'artifacts/company-intake/intake.md', kind: 'intake', minimumBytes: 200
+    },
+    approval: {
+      authorities: ['architecture-reviewers', 'quality-reviewers'],
+      minimum: 2, rejectTo: ['company-intake']
+    },
+    metadata: { owner: 'company-platform', retention: 'seven-years' }
+  };
+  // Repository-owned phases must bind a governed Agent Markdown file directly in v2. Keeping a
+  // legacy suggestion here would be ambiguous and is covered by the refusal regression below.
+  delete legacy.phases['company-intake'].suggestedPersonas;
+  legacy.workTypes['company-delivery'] = {
+    label: 'Company delivery',
+    description: 'Repository-owned workflow retained while the root schema is upgraded.',
+    phases: ['company-intake'],
+    phaseOverrides: {
+      'company-intake': {
+        approval: {
+          authorities: ['architecture-reviewers', 'quality-reviewers'],
+          minimum: 2, rejectTo: ['company-intake']
+        }
+      }
+    },
+    plannedClaims: { mode: 'opt-out', reason: 'Repository-owned intake-only workflow.' },
+    intelligence: { worldModel: 'off', ast: 'off', agentBriefs: 'off' },
+    metadata: { owner: 'company-platform', revision: 3 }
+  };
+  legacy.workTypes.chore.label = 'Company-maintained chore';
+  legacy.defaultBaseBranch = 'release/company';
+  await writeFile(workflowFile, YAML.stringify(legacy));
+  const companyAgentFile = path.join(root, '.github/agents/company-architect.agent.md');
+  const companyAgentBytes = `---
+name: company-architect
+description: Repository-owned governed agent for the company intake phase.
+model: [auto]
+tools: [read, search]
+metadata:
+  sflow-label: "Company architect"
+  sflow-phases: "company-intake"
+  sflow-default-for: "company-intake"
+---
+
+# Company architect
+
+Preserve the repository-owned company intake policy and cite governed evidence.
+`;
+  await writeFile(companyAgentFile, companyAgentBytes);
+
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
+
+  assert.equal(refreshed.version, 2,
+    'the reviewed safe route upgrades the registered schema');
+  assert.equal(Object.hasOwn(refreshed, 'personaPromptsRoot'), false);
+  assert.equal(Object.hasOwn(refreshed, 'personas'), false);
+  assert.equal(Object.hasOwn(refreshed.session, 'personaSelection'), false);
+  assert.equal(Object.hasOwn(refreshed.session, 'promptOnNewSession'), false);
+  assert.equal(Object.hasOwn(refreshed.session, 'promptOnResume'), false);
+  assert.deepEqual(refreshed.worldModel.injection.rules, []);
+  for (const phase of Object.values(refreshed.phases)) {
+    assert.equal(Object.hasOwn(phase, 'suggestedPersonas'), false,
+      'no legacy phase role hint may survive into v2');
+  }
+  assert.equal(Object.hasOwn(refreshed.phases['company-intake'], 'suggestedPersonas'), false);
+  assert.deepEqual(refreshed.phases['company-intake'].approval, {
+    authorities: ['architecture-reviewers', 'quality-reviewers'],
+    minimum: 2,
+    rejectTo: ['company-intake']
+  });
+  assert.deepEqual(
+    refreshed.workTypes['company-delivery'].phaseOverrides['company-intake'].approval,
+    {
+      authorities: ['architecture-reviewers', 'quality-reviewers'],
+      minimum: 2,
+      rejectTo: ['company-intake']
+    }
+  );
+  assert.deepEqual(refreshed.workTypes['company-delivery'], legacy.workTypes['company-delivery'],
+    'repository work type policy must remain byte-equivalent at the data-model boundary');
+  assert.equal(refreshed.workTypes['company-delivery'].metadata.owner, 'company-platform');
+  assert.equal(refreshed.workTypes['company-delivery'].metadata.revision, 3);
+  assert.equal(refreshed.phases['company-intake'].metadata.retention, 'seven-years');
+  assert.equal(refreshed.defaultBaseBranch, 'release/company');
+  const bundled = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+  for (const id of Object.keys(packagedLegacy.workTypes).filter((id) => id !== 'chore')) {
+    assert.deepEqual(refreshed.workTypes[id], bundled.workTypes[id],
+      `historical framework work type '${id}' did not refresh to the current package`);
+  }
+  assert.deepEqual(refreshed.workTypes.chore, legacy.workTypes.chore,
+    'a one-field customization of a historical package work type remains repository-owned');
+  for (const id of Object.keys(packagedLegacy.phases)) {
+    assert.deepEqual(refreshed.phases[id], bundled.phases[id],
+      `historical framework phase '${id}' did not refresh to the current package`);
+  }
+  for (const id of Object.keys(bundled.artifactSets)) {
+    assert.deepEqual(refreshed.artifactSets[id], bundled.artifactSets[id]);
+  }
+  for (const id of Object.keys(bundled.mcpServers)) {
+    assert.deepEqual(refreshed.mcpServers[id], bundled.mcpServers[id]);
+  }
+  assert.equal(await readFile(companyAgentFile, 'utf8'), companyAgentBytes,
+    'repository-created Agent Markdown must not be rewritten by schema migration');
+  assert.ok(result.files.includes('singularity/workflow.yml'));
+  assert.equal(result.conflicts.some((entry) => entry.path === 'workflow.version'), false,
+    'the package-owned schema discriminator is not presented as user policy');
+  await assert.doesNotReject(() => loadDefinition(root),
+    'the migrated repository must be loadable, not merely stamped with version 2');
+});
+
+test('seeded reinitialization retires an exact registered v1 prompt with historical baseline proof', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-legacy-prompt-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+
+  const packagedLegacy = YAML.parse(await readFile(path.join(
+    ROOT, 'test/fixtures/workflow-v1-ba513.yml'
+  ), 'utf8'));
+  await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(packagedLegacy));
+  const retiredPromptRelative = 'singularity/personas/developer.md';
+  const retiredPromptFile = path.join(root, retiredPromptRelative);
+  const retiredPromptBytes = await readFile(path.join(
+    ROOT, 'test/fixtures/persona-v1-developer.md'
+  ));
+  await mkdir(path.dirname(retiredPromptFile), { recursive: true });
+  await writeFile(retiredPromptFile, retiredPromptBytes);
+  await mkdir(path.join(root, 'singularity/.product'), { recursive: true });
+  await writeFile(path.join(root, PACKAGE_BASELINE_PATH), YAML.stringify({
+    format: 'singularity-flow-configuration-baseline/v1',
+    product: { version: '0.8.0', revision: 'ba513057' },
+    workflow: packagedLegacy,
+    assets: {
+      [retiredPromptRelative]: {
+        sha256: createHash('sha256').update(retiredPromptBytes).digest('hex')
+      }
+    }
+  }));
+
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+
+  await assert.rejects(readFile(retiredPromptFile), (error) => error?.code === 'ENOENT',
+    'an exact registered historical package prompt should be retired');
+  assert.ok(result.removed.includes(retiredPromptRelative));
+  await assert.doesNotReject(() => loadDefinition(root));
+});
+
+test('seeded reinitialization refuses a repository-created legacy persona without writing', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-legacy-authority-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const legacy = YAML.parse(await readFile(workflowFile, 'utf8'));
+  legacy.version = 1;
+  legacy.personaPromptsRoot = 'singularity/personas';
+  legacy.personas = {
+    'release-captain': { label: 'Release captain', prompt: 'release-captain.md' }
+  };
+  legacy.phases.release.suggestedPersonas = ['release-captain'];
+  legacy.phases.release.approval = {
+    personas: ['release-captain'], minimum: 1, rejectTo: ['release']
+  };
+  const before = YAML.stringify(legacy);
+  await writeFile(workflowFile, before);
+
+  await assert.rejects(
+    () => refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'LEGACY_PERSONA_MIGRATION_UNSAFE'
+      && /persona 'release-captain' is repository-created/.test(error.message)
+  );
+  assert.equal(await readFile(workflowFile, 'utf8'), before,
+    'a repository-created persona must not be deleted or partially rewritten');
+  await assert.rejects(
+    () => readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8'),
+    (error) => error?.code === 'ENOENT',
+    'refusal must happen before an ownership receipt is written'
+  );
+});
+
+test('seeded reinitialization refuses repository-created suggested-persona routing without writing', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-legacy-routing-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const legacy = YAML.parse(await readFile(path.join(
+    ROOT, 'test/fixtures/workflow-v1-ba513.yml'
+  ), 'utf8'));
+  legacy.phases['company-review'] = {
+    ...structuredClone(legacy.phases.design),
+    label: 'Company review',
+    suggestedPersonas: ['architect'],
+    artifact: {
+      path: 'artifacts/company-review/review.md', kind: 'design', minimumBytes: 200
+    },
+    approval: {
+      authorities: ['architecture-reviewers'], minimum: 1, rejectTo: ['company-review']
+    }
+  };
+  legacy.workTypes['company-review'] = {
+    label: 'Company review',
+    phases: ['company-review'],
+    plannedClaims: { mode: 'opt-out', reason: 'Repository-owned review workflow.' },
+    intelligence: { worldModel: 'off', ast: 'off', agentBriefs: 'off' }
+  };
+  const before = YAML.stringify(legacy);
+  await writeFile(workflowFile, before);
+  const agentFile = path.join(root, '.github/agents/architect.agent.md');
+  const beforeAgent = await readFile(agentFile, 'utf8');
+
+  await assert.rejects(
+    () => refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'LEGACY_PERSONA_MIGRATION_UNSAFE'
+      && /repository phase 'company-review' defines suggestedPersonas/.test(error.message)
+  );
+  assert.equal(await readFile(workflowFile, 'utf8'), before,
+    'repository-created phase routing must remain intact on refusal');
+  assert.equal(await readFile(agentFile, 'utf8'), beforeAgent,
+    'refusal must happen before packaged agents are refreshed');
+  await assert.rejects(
+    () => readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8'),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization refuses to rewrite repository-created legacy approvals', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-legacy-custom-approval-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const legacy = YAML.parse(await readFile(path.join(
+    ROOT, 'test/fixtures/workflow-v1-ba513.yml'
+  ), 'utf8'));
+  legacy.phases['company-review'] = {
+    label: 'Company review',
+    defaultTemplate: 'common/intake.md',
+    artifact: {
+      path: 'artifacts/company-review/review.md', kind: 'design', minimumBytes: 200
+    },
+    writeScope: 'artifact-only',
+    approval: {
+      personas: ['architect'], minimum: 1, rejectTo: ['company-review']
+    }
+  };
+  legacy.workTypes['company-review'] = {
+    label: 'Company review',
+    phases: ['company-review'],
+    plannedClaims: { mode: 'opt-out', reason: 'Repository-owned review workflow.' },
+    intelligence: { worldModel: 'off', ast: 'off', agentBriefs: 'off' }
+  };
+  const before = YAML.stringify(legacy);
+  await writeFile(workflowFile, before);
+
+  await assert.rejects(
+    () => refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'LEGACY_PERSONA_MIGRATION_UNSAFE'
+      && /phases\.company-review\.approval\.personas/.test(error.message)
+  );
+  assert.equal(await readFile(workflowFile, 'utf8'), before,
+    'safe reinitialize must not rewrite a repository-created workflow for schema compatibility');
+  await assert.rejects(
+    () => readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8'),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization refuses to rewrite repository-created legacy injection rules', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-legacy-custom-injection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const legacy = YAML.parse(await readFile(path.join(
+    ROOT, 'test/fixtures/workflow-v1-ba513.yml'
+  ), 'utf8'));
+  legacy.worldModel.injection.rules = [{
+    when: { persona: 'architect', phase: 'design' },
+    include: ['company/architecture.md']
+  }];
+  const before = YAML.stringify(legacy);
+  await writeFile(workflowFile, before);
+
+  await assert.rejects(
+    () => refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'LEGACY_PERSONA_MIGRATION_UNSAFE'
+      && /repository-authored persona routing/.test(error.message)
+  );
+  assert.equal(await readFile(workflowFile, 'utf8'), before);
+  await assert.rejects(
+    () => readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8'),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization refuses an in-place customization of a packaged v1 persona', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-legacy-persona-edit-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const legacy = YAML.parse(await readFile(path.join(
+    ROOT, 'test/fixtures/workflow-v1-ba513.yml'
+  ), 'utf8'));
+  legacy.personas.developer.description = 'Repository-specific delivery and release role.';
+  const before = YAML.stringify(legacy);
+  await writeFile(workflowFile, before);
+
+  await assert.rejects(
+    () => refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'LEGACY_PERSONA_MIGRATION_UNSAFE'
+      && /persona 'developer' differs from the packaged v1 definition/.test(error.message)
+  );
+  assert.equal(await readFile(workflowFile, 'utf8'), before,
+    'an edited framework persona is repository-owned and must remain intact on refusal');
+  await assert.rejects(
+    () => readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8'),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization refuses a customized packaged v1 persona prompt before writing', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-legacy-prompt-edit-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const legacy = YAML.parse(await readFile(path.join(
+    ROOT, 'test/fixtures/workflow-v1-ba513.yml'
+  ), 'utf8'));
+  const before = YAML.stringify(legacy);
+  await writeFile(workflowFile, before);
+  const promptFile = path.join(root, 'singularity/personas/developer.md');
+  const customPrompt = '# Company developer\n\nFollow repository-specific release policy.\n';
+  await mkdir(path.dirname(promptFile), { recursive: true });
+  await writeFile(promptFile, customPrompt);
+
+  await assert.rejects(
+    () => refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'LEGACY_PERSONA_MIGRATION_UNSAFE'
+      && /persona 'developer' prompt differs from every packaged v1 revision/.test(error.message)
+  );
+  assert.equal(await readFile(workflowFile, 'utf8'), before);
+  assert.equal(await readFile(promptFile, 'utf8'), customPrompt,
+    'repository-customized prompt semantics must remain byte-for-byte intact');
+  await assert.rejects(
+    () => readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8'),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization preserves user policy inside fixed package-started YAML files', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-configurable-yaml-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  await refreshPackagedConfiguration(root);
+
+  const mappingFile = path.join(root, 'singularity/agent-mappings.yml');
+  const impactFile = path.join(root, 'singularity/impact.yml');
+  const tiersFile = path.join(root, 'singularity/modelTiers.yml');
+  const mappings = YAML.parse(await readFile(mappingFile, 'utf8'));
+  mappings.mappings['Enterprise Architect'] = 'architect';
+  const impact = YAML.parse(await readFile(impactFile, 'utf8'));
+  impact.automaticEnrollment = false;
+  const tiers = YAML.parse(await readFile(tiersFile, 'utf8'));
+  tiers.modelTiers.code = 'relay';
+  await writeFile(mappingFile, YAML.stringify(mappings));
+  await writeFile(impactFile, YAML.stringify(impact));
+  await writeFile(tiersFile, YAML.stringify(tiers));
+  const before = new Map(await Promise.all([mappingFile, impactFile, tiersFile].map(async (file) => [
+    path.relative(root, file).replaceAll(path.sep, '/'), await readFile(file, 'utf8')
+  ])));
+
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+
+  for (const [relative, bytes] of before) {
+    assert.equal(await readFile(path.join(root, relative), 'utf8'), bytes,
+      `${relative} user policy was overwritten`);
+    assert.ok(result.conflicts.some((entry) =>
+      entry.path === relative && entry.resolution === 'preserved-local'),
+    `${relative} must remain a visible reviewed conflict`);
+    assert.equal(result.files.includes(relative), false);
+  }
+});
+
+test('seeded reinitialization preserves same-path repository assets without ownership proof across repeats', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-assets-without-baseline-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const qaFile = path.join(root, '.github/agents/qa.agent.md');
+  const templateFile = path.join(root, 'singularity/templates/common/implementation.md');
+  const promptFile = path.join(root, 'singularity/prompts/worldmodel-builder.md');
+  await writeFile(qaFile, `${await readFile(qaFile, 'utf8')}\n<!-- stale package-era agent -->\n`);
+  await writeFile(templateFile,
+    `${await readFile(templateFile, 'utf8')}\n<!-- stale package-era template -->\n`);
+  await writeFile(promptFile,
+    `${await readFile(promptFile, 'utf8')}\n<!-- repository-owned prompt collision -->\n`);
+
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+
+  const qaBytes = `${await readFile(path.join(ROOT, 'templates/agents/qa.agent.md'), 'utf8')}\n<!-- stale package-era agent -->\n`;
+  const templateBytes = `${await readFile(path.join(ROOT, 'templates/artifacts/common/implementation.md'), 'utf8')}\n<!-- stale package-era template -->\n`;
+  const promptBytes = `${await readFile(path.join(ROOT, 'templates/worldmodel-builder.md'), 'utf8')}\n<!-- repository-owned prompt collision -->\n`;
+  assert.equal(await readFile(qaFile, 'utf8'), qaBytes);
+  assert.equal(await readFile(templateFile, 'utf8'), templateBytes);
+  assert.equal(await readFile(promptFile, 'utf8'), promptBytes);
+  assert.ok(!result.files.includes('.github/agents/qa.agent.md'));
+  assert.ok(!result.files.includes('singularity/templates/common/implementation.md'));
+  assert.ok(!result.files.includes('singularity/prompts/worldmodel-builder.md'));
+  assert.ok(result.conflicts.some((entry) =>
+    entry.path === '.github/agents/qa.agent.md' && entry.resolution === 'preserved-local'));
+  assert.ok(result.conflicts.some((entry) =>
+    entry.path === 'singularity/templates/common/implementation.md'
+      && entry.resolution === 'preserved-local'));
+  assert.ok(result.conflicts.some((entry) =>
+    entry.path === 'singularity/prompts/worldmodel-builder.md'
+      && entry.resolution === 'preserved-local'));
+
+  const receipt = YAML.parse(await readFile(path.join(root,
+    'singularity/.product/configuration-baseline.yml'), 'utf8'));
+  assert.equal(receipt.ownership.assets['.github/agents/qa.agent.md'], 'repository');
+  assert.equal(receipt.ownership.assets['singularity/templates/common/implementation.md'], 'repository');
+  assert.equal(receipt.ownership.assets['singularity/prompts/worldmodel-builder.md'], 'repository');
+
+  const repeated = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  assert.equal(await readFile(qaFile, 'utf8'), qaBytes,
+    'the baseline written after a collision must not claim the custom agent on the second run');
+  assert.equal(await readFile(templateFile, 'utf8'), templateBytes,
+    'the baseline written after a collision must not claim the custom template on the second run');
+  assert.equal(await readFile(promptFile, 'utf8'), promptBytes,
+    'the baseline written after a collision must not claim the custom prompt on the second run');
+  assert.ok(repeated.conflicts.some((entry) => entry.path === '.github/agents/qa.agent.md'));
+  assert.ok(repeated.conflicts.some((entry) =>
+    entry.path === 'singularity/templates/common/implementation.md'));
+  assert.ok(repeated.conflicts.some((entry) =>
+    entry.path === 'singularity/prompts/worldmodel-builder.md'));
+});
+
+test('seeded reinitialization recognizes exact historical templates under a configured templates root', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-custom-template-root-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.templatesRoot = 'company/templates';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  await refreshPackagedConfiguration(root);
+
+  const relative = 'company/templates/common/implementation.md';
+  const target = path.join(root, relative);
+  const historical = await readFile(path.join(
+    ROOT, 'test/fixtures/packaged-assets/prior/common-implementation.md'
+  ));
+  await writeFile(target, historical);
+
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+
+  assert.deepEqual(await readFile(target), await readFile(path.join(
+    ROOT, 'templates/artifacts/common/implementation.md'
+  )), 'an exact framework predecessor keeps its provenance after relocation');
+  assert.ok(result.files.includes(relative));
+  assert.equal(result.conflicts.some((entry) => entry.path === relative), false);
+});
+
+test('seeded reinitialization cannot overwrite custom content through a forged framework receipt', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-forged-ownership-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  await refreshPackagedConfiguration(root);
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const baselineFile = path.join(root, PACKAGE_BASELINE_PATH);
+  const agentRelative = '.github/agents/qa.agent.md';
+  const templateRelative = 'singularity/templates/common/implementation.md';
+  const agentFile = path.join(root, agentRelative);
+  const templateFile = path.join(root, templateRelative);
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.workTypes.feature.label = 'Repository-owned feature contract';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  await writeFile(agentFile, `${await readFile(agentFile, 'utf8')}\n<!-- repository-owned QA -->\n`);
+  await writeFile(templateFile,
+    `${await readFile(templateFile, 'utf8')}\n<!-- repository-owned implementation -->\n`);
+
+  const expectedWorkflow = await readFile(workflowFile);
+  const expectedAgent = await readFile(agentFile);
+  const expectedTemplate = await readFile(templateFile);
+  const baseline = YAML.parse(await readFile(baselineFile, 'utf8'));
+  baseline.workflow.workTypes.feature = structuredClone(workflow.workTypes.feature);
+  baseline.ownership.workflow.workTypes.feature = 'framework';
+  for (const [relative, bytes] of [
+    [agentRelative, expectedAgent], [templateRelative, expectedTemplate]
+  ]) {
+    baseline.assets[relative] = { sha256: createHash('sha256').update(bytes).digest('hex') };
+    baseline.ownership.assets[relative] = 'framework';
+  }
+  await writeFile(baselineFile, YAML.stringify(baseline));
+
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+
+  assert.deepEqual(await readFile(workflowFile), expectedWorkflow);
+  assert.deepEqual(await readFile(agentFile), expectedAgent);
+  assert.deepEqual(await readFile(templateFile), expectedTemplate);
+  for (const conflictPath of [
+    'workflow.workTypes.feature', agentRelative, templateRelative
+  ]) {
+    assert.ok(result.conflicts.some((entry) =>
+      entry.path === conflictPath && entry.resolution === 'preserved-local'),
+    `${conflictPath} was not retained as repository-owned`);
+  }
+  const receipt = YAML.parse(await readFile(baselineFile, 'utf8'));
+  assert.equal(receipt.ownership.workflow.workTypes.feature, 'repository');
+  assert.equal(receipt.ownership.assets[agentRelative], 'repository');
+  assert.equal(receipt.ownership.assets[templateRelative], 'repository');
+});
+
+test('legacy baselines preserve newly colliding workflow IDs and record durable repository ownership', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-id-collision-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  await refreshPackagedConfiguration(root);
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const baselineFile = path.join(root, 'singularity/.product/configuration-baseline.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const baseline = YAML.parse(await readFile(baselineFile, 'utf8'));
+  delete baseline.ownership;
+  delete baseline.workflow.workTypes['poc-lite'];
+  delete baseline.workflow.phases['poc-lite-plan'];
+  delete baseline.workflow.artifactSets['spec-driven-specification'];
+  delete baseline.workflow.mcpServers.playwright;
+  await writeFile(baselineFile, YAML.stringify(baseline));
+
+  workflow.workTypes['poc-lite'].label = 'Repository-owned POC namespace';
+  workflow.phases['poc-lite-plan'].label = 'Repository-owned plan phase';
+  workflow.artifactSets['spec-driven-specification'].members.push({
+    path: 'repository-note.md', role: 'repository-note', required: false
+  });
+  workflow.mcpServers.playwright.label = 'Repository-owned browser contract';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  const expected = {
+    workType: structuredClone(workflow.workTypes['poc-lite']),
+    phase: structuredClone(workflow.phases['poc-lite-plan']),
+    artifactSet: structuredClone(workflow.artifactSets['spec-driven-specification']),
+    mcpServer: structuredClone(workflow.mcpServers.playwright)
+  };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+    const observed = YAML.parse(await readFile(workflowFile, 'utf8'));
+    assert.deepEqual(observed.workTypes['poc-lite'], expected.workType);
+    assert.deepEqual(observed.phases['poc-lite-plan'], expected.phase);
+    assert.deepEqual(observed.artifactSets['spec-driven-specification'], expected.artifactSet);
+    assert.deepEqual(observed.mcpServers.playwright, expected.mcpServer);
+    for (const conflictPath of [
+      'workflow.workTypes.poc-lite',
+      'workflow.phases.poc-lite-plan',
+      'workflow.artifactSets.spec-driven-specification',
+      'workflow.mcpServers.playwright'
+    ]) {
+      assert.ok(result.conflicts.some((entry) =>
+        entry.path === conflictPath && entry.resolution === 'preserved-local'),
+      `${conflictPath} collision was not retained on attempt ${attempt + 1}`);
+    }
+  }
+
+  const receipt = YAML.parse(await readFile(baselineFile, 'utf8')).ownership.workflow;
+  assert.equal(receipt.workTypes['poc-lite'], 'repository');
+  assert.equal(receipt.phases['poc-lite-plan'], 'repository');
+  assert.equal(receipt.artifactSets['spec-driven-specification'], 'repository');
+  assert.equal(receipt.mcpServers.playwright, 'repository');
+});
+
 test('configuration refresh upgrades an exact retired bundled model map without treating it as customization', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-model-map-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -1005,6 +1820,103 @@ test('a confirmed refresh plan binds the default conflict-resolution policy', as
   assert.equal(switchedPolicy.results[0].status, 'stale-plan');
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim(), before,
     'changing conflict policy after preview must not publish different bytes');
+});
+
+test('a confirmed refresh plan binds seeded reinitialization ownership mode', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-seed-policy-plan-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'seed-policy-plan');
+  const before = run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim();
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'preview');
+  const wrongMode = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, restorePackagedSeeds: false
+  });
+
+  assert.equal(wrongMode.status, 'blocked');
+  assert.equal(wrongMode.results[0].status, 'stale-plan');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim(), before,
+    'a seed-restoration preview must not authorize an ordinary refresh apply or vice versa');
+});
+
+test('a seeded plan binds exact ownership resolutions and existing-authority package bytes', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-plan-integrity-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'seeded-plan-integrity');
+  const authority = path.join(root, 'seeded-plan-integrity-authority');
+  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, authority]);
+  git(authority, ['config', 'user.name', 'Configuration Test']);
+  git(authority, ['config', 'user.email', 'configuration@example.test']);
+  const collision = '.github/agents/qa.agent.md';
+  const qaFile = path.join(authority, collision);
+  await mkdir(path.dirname(qaFile), { recursive: true });
+  await writeFile(qaFile,
+    `${await readFile(path.join(ROOT, 'templates/agents/qa.agent.md'), 'utf8')}\n<!-- repository-owned collision -->\n`);
+  git(authority, ['add', '-A']);
+  git(authority, ['commit', '-m', 'Add a repository-owned packaged-path collision']);
+  git(authority, ['push', 'origin', 'HEAD:sflow/config']);
+
+  const configBefore = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
+  const stateBefore = run('git', [
+    '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/state'
+  ], { allowFailure: true });
+  const localPreview = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    dryRun: true,
+    restorePackagedSeeds: true,
+    resolutions: { [collision]: 'local' }
+  });
+  assert.equal(localPreview.status, 'preview');
+  assert.ok(localPreview.results[0].conflicts.some((entry) =>
+    entry.path === collision && entry.resolution === 'preserved-local'));
+
+  const changedResolution = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: localPreview.planId,
+    restorePackagedSeeds: true,
+    resolutions: { [collision]: 'bundled' }
+  });
+  assert.equal(changedResolution.status, 'blocked');
+  assert.equal(changedResolution.results[0].status, 'failed');
+  assert.match(changedResolution.results[0].error,
+    /Safe reinitialization cannot adopt packaged content/);
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), configBefore);
+  const stateAfterResolution = run('git', [
+    '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/state'
+  ], { allowFailure: true });
+  assert.equal(stateAfterResolution.status, stateBefore.status);
+  assert.equal(stateAfterResolution.stdout, stateBefore.stdout,
+    'a changed ownership transfer must not publish configuration or state');
+
+  const packagePreview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  const packagedPrompt = path.join(ROOT, 'templates/worldmodel-builder.md');
+  const packagedPromptBefore = await readFile(packagedPrompt);
+  try {
+    await writeFile(packagedPrompt, Buffer.concat([
+      packagedPromptBefore, Buffer.from('\n<!-- existing-authority-plan-drift -->\n')
+    ]));
+    const stalePackage = await refreshWorkspaceConfigurations({
+      registryFile: registry,
+      confirmPlan: packagePreview.planId,
+      restorePackagedSeeds: true
+    });
+    assert.equal(stalePackage.status, 'blocked');
+    assert.equal(stalePackage.results[0].status, 'stale-plan');
+    assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), configBefore);
+    const stateAfterPackage = run('git', [
+      '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/state'
+    ], { allowFailure: true });
+    assert.equal(stateAfterPackage.status, stateBefore.status);
+    assert.equal(stateAfterPackage.stdout, stateBefore.stdout,
+      'changed package bytes must not publish under an existing-authority preview');
+  } finally {
+    await writeFile(packagedPrompt, packagedPromptBefore);
+  }
 });
 
 test('configuration refresh reconstructs a cached checkout without ignored injected assets', async (t) => {
@@ -1231,17 +2143,31 @@ test('direct refresh ignores ambient URL rewrites for observation and both publi
 test('confirmed first-authority refresh keeps initialization on its previewed exact URL', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-init-rewrite-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const { remote, registry } = await registeredRepositoryFixture(root, 'rewrite-initialize');
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, 'rewrite-initialize');
   run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  // A package receipt on the application branch has never been reviewed as configuration. It must
+  // not be imported into the first authority, even when it claims arbitrary application bytes are
+  // framework-owned.
+  const unreviewedBaseline = 'format: forged-application-baseline\nownership:\n  assets:\n    application.txt: framework\n';
+  await mkdir(path.join(repository, 'singularity/.product'), { recursive: true });
+  await writeFile(path.join(repository, PACKAGE_BASELINE_PATH), unreviewedBaseline);
+  git(repository, ['add', PACKAGE_BASELINE_PATH]);
+  git(repository, ['commit', '-m', 'Plant unreviewed application baseline']);
+  git(repository, ['push', 'origin', 'main']);
   const decoy = path.join(root, 'rewrite-initialize-decoy.git');
   run('git', ['clone', '--quiet', '--bare', remote, decoy]);
 
   const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
   assert.equal(preview.results[0].status, 'would-initialize');
+  assert.match(preview.results[0].bootstrapCandidateCommit, /^[a-f0-9]{40}$/);
+  assert.match(preview.results[0].bootstrapCandidateTree, /^[a-f0-9]{40}$/);
   const applied = await withGitUrlRewrite(remote, decoy, () =>
     refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId }));
   assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(applied.results[0].configurationChanged, true);
+  assert.equal(applied.results[0].configurationCommit,
+    preview.results[0].bootstrapCandidateCommit);
   assert.equal(run('git', [
     '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
   ], { allowFailure: true }).status, 0,
@@ -1250,6 +2176,335 @@ test('confirmed first-authority refresh keeps initialization on its previewed ex
     '--git-dir', decoy, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
   ], { allowFailure: true }).status, 1,
   'a rewrite target cannot receive first-authority creation');
+  const approvedCommit = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
+  assert.equal(approvedCommit, preview.results[0].bootstrapCandidateCommit,
+    'apply publishes the exact parentless commit reviewed by preview');
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config^{tree}']),
+    preview.results[0].bootstrapCandidateTree,
+    'every approved configuration byte and mode matches the previewed candidate tree');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-list', '--parents', '-n', '1', approvedCommit])
+    .stdout.trim().split(/\s+/u).length, 1, 'the authority remains independent of application history');
+  const approvedWorkflow = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
+  ]).stdout);
+  assert.deepEqual({
+    enabled: approvedWorkflow.ledger.enabled,
+    branch: approvedWorkflow.ledger.branch,
+    remote: approvedWorkflow.ledger.remote
+  }, { enabled: true, branch: 'state', remote: 'origin' });
+  const approvedPortfolio = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/portfolio.yml'
+  ]).stdout);
+  assert.deepEqual(approvedPortfolio.repositories['rewrite-initialize'], {
+    url: remote, defaultBranch: 'main', required: true
+  }, 'repository declaration is present in both preview and the exact published tree');
+  assert.notEqual(run('git', [
+    '--git-dir', remote, 'show', `sflow/config:${PACKAGE_BASELINE_PATH}`
+  ]).stdout, unreviewedBaseline, 'the application-side package receipt is never imported');
+});
+
+test('seeded first-authority bootstrap enrolls only exact empty framework groups', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-authority-approvals-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, 'approval-seeds');
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+
+  const workflow = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+  const portfolio = YAML.parse(await readFile(path.join(ROOT, 'templates/portfolio.yml'), 'utf8'));
+  const reviewer = { name: 'Company reviewer', email: 'company-reviewer@example.test' };
+  workflow.approvalAuthorities['product-approvers'].members = [reviewer];
+  portfolio.approvalAuthorities['initiative-owners'].members = [reviewer];
+  await mkdir(path.join(repository, 'singularity'), { recursive: true });
+  await writeFile(path.join(repository, 'singularity/workflow.yml'), YAML.stringify(workflow));
+  await writeFile(path.join(repository, 'singularity/portfolio.yml'), YAML.stringify(portfolio));
+  git(repository, ['add', 'singularity/workflow.yml', 'singularity/portfolio.yml']);
+  git(repository, ['commit', '-m', 'Add exact seeds with organisation approval memberships']);
+  git(repository, ['push', 'origin', 'main']);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, restorePackagedSeeds: true
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  const approvedWorkflow = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
+  ]).stdout);
+  const approvedPortfolio = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/portfolio.yml'
+  ]).stdout);
+  assert.deepEqual(approvedWorkflow.approvalAuthorities['product-approvers'].members, [reviewer],
+    'a populated organisation-owned Story authority must not absorb the bootstrap actor');
+  assert.deepEqual(approvedPortfolio.approvalAuthorities['initiative-owners'].members, [reviewer],
+    'a populated organisation-owned portfolio authority must not absorb the bootstrap actor');
+  assert.deepEqual(approvedWorkflow.approvalAuthorities['design-reviewers'].members, [{
+    name: 'Configuration Test', email: 'configuration@example.test'
+  }], 'an untouched empty framework Story authority receives the bootstrap identity');
+  assert.deepEqual(approvedPortfolio.approvalAuthorities['executive-approvers'].members, [{
+    name: 'Configuration Test', email: 'configuration@example.test'
+  }], 'an untouched empty framework portfolio authority receives the bootstrap identity');
+});
+
+test('seeded first-authority bootstrap preserves compatible repository and ledger policy', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-authority-policy-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const id = 'preserve-first-authority';
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, id);
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  await initializeFixture(repository);
+
+  const workflowFile = path.join(repository, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.ledger = {
+    enabled: true,
+    branch: 'company-state',
+    remote: 'origin',
+    behind: 'block',
+    enforcement: 'required',
+    signing: 'off',
+    trustTier: 'T1',
+    maxRetries: 7,
+    pinTransport: 'branches',
+    publication: 'required',
+    retentionDays: 1000
+  };
+  await writeFile(workflowFile, YAML.stringify(workflow));
+
+  const portfolioFile = path.join(repository, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  portfolio.repositories[id] = {
+    url: remote, defaultBranch: 'main', required: false,
+    metadata: { appId: 'APP-1001', owner: 'Repository team' }
+  };
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  git(repository, ['add', '-A']);
+  git(repository, ['commit', '-m', 'Add repository-owned bootstrap policy']);
+  git(repository, ['push', 'origin', 'main']);
+  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
+  assert.equal(preview.results[0].status, 'would-initialize');
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, restorePackagedSeeds: true
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+
+  const approvedWorkflow = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
+  ]).stdout);
+  const approvedPortfolio = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/portfolio.yml'
+  ]).stdout);
+  assert.deepEqual(approvedWorkflow.ledger, workflow.ledger,
+    'safe reinitialize must retain the complete imported ledger policy');
+  assert.deepEqual(approvedPortfolio.repositories[id], portfolio.repositories[id],
+    'safe reinitialize must retain the complete compatible repository policy');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/company-state'
+  ], { allowFailure: true }).status, 0, 'the preserved state authority receives the projection');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/state'
+  ], { allowFailure: true }).status, 1, 'reinitialize must not silently substitute state/origin policy');
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
+    'safe reinitialize must not move the application branch');
+});
+
+test('seeded first-authority bootstrap preserves a compatible user repository alias', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-authority-alias-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const id = 'derived-repository-id';
+  const userAlias = 'customer-rule-service';
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, id);
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  await initializeFixture(repository);
+
+  const portfolioFile = path.join(repository, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  portfolio.repositories[userAlias] = {
+    url: remote,
+    defaultBranch: 'main',
+    required: false,
+    metadata: { appId: 'APP-1002', owner: 'Customer rules' }
+  };
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  git(repository, ['add', '-A']);
+  git(repository, ['commit', '-m', 'Declare repository under stable user alias']);
+  git(repository, ['push', 'origin', 'main']);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, restorePackagedSeeds: true
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+
+  const approvedPortfolio = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/portfolio.yml'
+  ]).stdout);
+  assert.deepEqual(approvedPortfolio.repositories[userAlias], portfolio.repositories[userAlias]);
+  assert.equal(approvedPortfolio.repositories[id], undefined,
+    'safe reinitialize must not add a derived duplicate beside a stable user alias');
+});
+
+test('seeded first-authority bootstrap refuses conflicting imported repository policy', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-authority-policy-conflict-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const id = 'conflicting-first-authority';
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, id);
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  await initializeFixture(repository);
+  const portfolioFile = path.join(repository, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  portfolio.repositories[id] = {
+    url: path.join(root, 'different-authority.git'), defaultBranch: 'release', required: false
+  };
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  git(repository, ['add', '-A']);
+  git(repository, ['commit', '-m', 'Add conflicting repository policy']);
+  git(repository, ['push', 'origin', 'main']);
+  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'blocked');
+  assert.match(preview.results[0].error, /repository policy.*conflicts/iu);
+  for (const branch of ['sflow/config', 'state']) {
+    assert.equal(run('git', [
+      '--git-dir', remote, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`
+    ], { allowFailure: true }).status, 1, `${branch} must remain absent after refusal`);
+  }
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
+    'refusal must not move the application branch');
+});
+
+test('seeded first-authority bootstrap refuses ambiguous repository aliases', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-authority-ambiguous-alias-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const id = 'ambiguous-first-authority';
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, id);
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  await initializeFixture(repository);
+  const portfolioFile = path.join(repository, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  portfolio.repositories[id] = { url: remote, defaultBranch: 'main', required: true };
+  portfolio.repositories['second-alias'] = {
+    url: remote, defaultBranch: 'main', required: false,
+    metadata: { appId: 'APP-1003' }
+  };
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  git(repository, ['add', '-A']);
+  git(repository, ['commit', '-m', 'Add ambiguous repository aliases']);
+  git(repository, ['push', 'origin', 'main']);
+  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'blocked');
+  assert.match(preview.results[0].error, /maps the registered repository more than once/iu);
+  for (const branch of ['sflow/config', 'state']) {
+    assert.equal(run('git', [
+      '--git-dir', remote, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`
+    ], { allowFailure: true }).status, 1, `${branch} must remain absent after refusal`);
+  }
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
+    'ambiguous aliases must be refused without moving the application branch');
+});
+
+test('seeded first-authority bootstrap refuses a ledger remote it cannot prove', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-authority-ledger-remote-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const id = 'external-ledger-first-authority';
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, id);
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  await initializeFixture(repository);
+  const workflowFile = path.join(repository, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.ledger = {
+    ...workflow.ledger,
+    enabled: true,
+    branch: 'company-state',
+    remote: 'ledger-authority'
+  };
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  git(repository, ['add', '-A']);
+  git(repository, ['commit', '-m', 'Select external ledger authority']);
+  git(repository, ['push', 'origin', 'main']);
+  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'blocked');
+  assert.match(preview.results[0].error, /ledger policy selects remote 'ledger-authority'/iu);
+  for (const branch of ['sflow/config', 'state', 'company-state']) {
+    assert.equal(run('git', [
+      '--git-dir', remote, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`
+    ], { allowFailure: true }).status, 1, `${branch} must remain absent after refusal`);
+  }
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
+    'an unprovable ledger policy must be refused without moving the application branch');
+});
+
+test('seeded first-authority bootstrap refuses configuration symlinks without publishing', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-authority-symlink-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, 'symlink-seed');
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  await mkdir(path.join(repository, '.github/agents'), { recursive: true });
+  await writeFile(path.join(repository, 'outside-agent.md'), '# outside\n');
+  await symlink('../../outside-agent.md', path.join(repository, '.github/agents/developer.agent.md'));
+  git(repository, ['add', '.github/agents/developer.agent.md', 'outside-agent.md']);
+  git(repository, ['commit', '-m', 'Add unsafe configuration symlink']);
+  git(repository, ['push', 'origin', 'main']);
+  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'blocked');
+  assert.match(preview.results[0].error, /non-regular framework asset path/u);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
+  ], { allowFailure: true }).status, 1);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/state'
+  ], { allowFailure: true }).status, 1);
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore);
+});
+
+test('first-authority candidate divergence after confirmation publishes no configuration or state', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-init-candidate-divergence-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'candidate-divergence');
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/state']);
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId,
+    inspectCandidate: async (candidate) => {
+      await writeFile(path.join(candidate.root, 'singularity/preview-divergence.yml'),
+        'unreviewed: true\n');
+    }
+  });
+  assert.equal(applied.status, 'blocked', JSON.stringify(applied, null, 2));
+  assert.match(applied.results[0].error, /candidate changed after preview/i);
+  for (const ref of ['refs/heads/sflow/config', 'refs/heads/state']) {
+    assert.equal(run('git', [
+      '--git-dir', remote, 'show-ref', '--verify', '--quiet', ref
+    ], { allowFailure: true }).status, 1, `${ref} remains absent after candidate divergence`);
+  }
 });
 
 test('multi-repository initialization reports durable partial progress when one authority push fails', async (t) => {
@@ -1568,9 +2823,7 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   // canonical policy file. Runtime world-model bytes share the state branch but are not part of the
   // configuration projection and must survive the migration exactly.
   const statePublisher = path.join(root, 'state-publisher');
-  run('git', ['init', '--initial-branch=state', statePublisher]);
-  git(statePublisher, ['config', 'user.name', 'Configuration Test']);
-  git(statePublisher, ['config', 'user.email', 'configuration@example.test']);
+  await initializeStatePublisher(statePublisher);
   await mkdir(path.join(statePublisher, 'configuration/files/singularity'), { recursive: true });
   await mkdir(path.join(statePublisher, 'singularity/world-model'), { recursive: true });
   await writeFile(path.join(statePublisher, 'configuration/manifest.json'),
@@ -1711,6 +2964,18 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
     }
   });
   assert.equal(initializePreview.results[0].status, 'would-initialize');
+  assert.equal(initializePreview.results[0].configurationCommit, null);
+  assert.equal(initializePreview.results[0].bootstrapCommit,
+    git(remote, ['rev-parse', 'refs/heads/main']));
+  assert.match(initializePreview.results[0].packageContentDigest, /^[a-f0-9]{64}$/);
+  assert.ok(initializePreview.results[0].changedFiles.includes(PACKAGE_BASELINE_PATH));
+  assert.deepEqual(initializePreview.results[0].removed, []);
+  assert.ok(initializePreview.results[0].configurationPaths.includes('singularity/workflow.yml'));
+  assert.match(
+    initializePreview.results[0].configurationAssets['singularity/workflow.yml'].sha256,
+    /^[a-f0-9]{64}$/
+  );
+  assert.ok(Array.isArray(initializePreview.results[0].conflicts));
   assert.deepEqual(bootstrapInspections.map(({ root: _root, ...entry }) => entry), [{
     sourceCommit: null,
     bootstrapCommit: git(remote, ['rev-parse', 'refs/heads/main']),
@@ -1754,6 +3019,29 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   ], { allowFailure: true }).status, 128,
   'bootstrap candidate inspection must finish before the first configuration publication');
 
+  // A source checkout can keep the same stamped product revision while its packaged bytes move
+  // (for example an incorrectly assembled internal distribution). First-authority confirmation
+  // must bind those bytes, not only the build label and application branch SHA.
+  const packagedPrompt = path.join(ROOT, 'templates/worldmodel-builder.md');
+  const packagedPromptBefore = await readFile(packagedPrompt);
+  initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  try {
+    await writeFile(packagedPrompt, Buffer.concat([
+      packagedPromptBefore, Buffer.from('\n<!-- first-authority-plan-drift -->\n')
+    ]));
+    const stalePackageInitialization = await refreshWorkspaceConfigurations({
+      registryFile: registry, confirmPlan: initializePreview.planId
+    });
+    assert.equal(stalePackageInitialization.status, 'blocked');
+    assert.equal(stalePackageInitialization.results[0].status, 'stale-plan');
+    assert.equal(run('git', [
+      '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/sflow/config'
+    ], { allowFailure: true }).status, 128,
+    'changed packaged bytes cannot create first configuration authority under an old plan');
+  } finally {
+    await writeFile(packagedPrompt, packagedPromptBefore);
+  }
+
   initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   const initialized = await refreshWorkspaceConfigurations({
     registryFile: registry, confirmPlan: initializePreview.planId
@@ -1761,6 +3049,379 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   assert.equal(initialized.status, 'complete');
   assert.match(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim(),
     /^[a-f0-9]{40}$/);
+});
+
+test('all-workspace reinitialization refuses one remote bound to conflicting source branches', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-branch-conflict-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = path.join(root, 'application.git');
+  const source = path.join(root, 'source');
+  run('git', ['init', '--bare', '--initial-branch=main', remote]);
+  run('git', ['init', '--initial-branch=main', source]);
+  git(source, ['config', 'user.name', 'Configuration Test']);
+  git(source, ['config', 'user.email', 'configuration@example.test']);
+  await writeFile(path.join(source, 'application.txt'), 'main source\n');
+  git(source, ['add', '-A']);
+  git(source, ['commit', '-m', 'Initialize main']);
+  git(source, ['switch', '-c', 'develop']);
+  await writeFile(path.join(source, 'application.txt'), 'develop source\n');
+  git(source, ['commit', '-am', 'Initialize develop']);
+  git(source, ['remote', 'add', 'origin', remote]);
+  git(source, ['push', 'origin', 'main', 'develop']);
+
+  const registry = path.join(root, 'workspaces.json');
+  for (const [suffix, defaultBranch] of [['main', 'main'], ['develop', 'develop']]) {
+    const workspaceRoot = path.join(root, `workspace-${suffix}`);
+    const manifest = {
+      version: 1,
+      id: `workspace-${suffix}`,
+      name: `Workspace ${suffix}`,
+      path: workspaceRoot,
+      anchor: { provider: 'workspace', key: `workspace-${suffix}`, title: `Workspace ${suffix}` },
+      leadRepository: 'application',
+      repositories: {
+        application: {
+          id: 'application', url: remote, defaultBranch, required: true,
+          path: 'repos/application', role: 'lead', capabilities: []
+        }
+      }
+    };
+    await mkdir(workspaceRoot, { recursive: true });
+    await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    await rememberWorkspace(registry, manifest);
+  }
+
+  await assert.rejects(
+    refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true,
+      restorePackagedSeeds: true }),
+    (error) => error?.code === 'WORKSPACE_REPOSITORY_AUTHORITY_CONFLICT'
+  );
+  assert.equal(run('git', [
+    '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/sflow/config'
+  ], { allowFailure: true }).status, 128,
+  'conflicting workspace authority must be rejected before branch creation');
+});
+
+test('scoped reinitialization refuses an equivalent remote binding from another workspace', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-scoped-authority-conflict-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const registry = path.join(root, 'workspaces.json');
+  const publicGithub = ['github', 'com'].join('.');
+  const definitions = [
+    {
+      id: 'selected',
+      remote: `https://${publicGithub}/Acme/Application.git`,
+      defaultBranch: 'main'
+    },
+    {
+      id: 'other',
+      remote: `git@${publicGithub}:acme/application`,
+      defaultBranch: 'develop'
+    }
+  ];
+  for (const definition of definitions) {
+    const workspaceRoot = path.join(root, definition.id);
+    const manifest = {
+      version: 1,
+      id: definition.id,
+      name: `${definition.id} workspace`,
+      path: workspaceRoot,
+      anchor: { provider: 'workspace', key: definition.id, title: definition.id },
+      leadRepository: 'application',
+      repositories: {
+        application: {
+          id: 'application', url: definition.remote,
+          defaultBranch: definition.defaultBranch, required: true,
+          path: 'repos/application', role: 'lead', capabilities: []
+        }
+      }
+    };
+    await mkdir(workspaceRoot, { recursive: true });
+    await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    await rememberWorkspace(registry, manifest);
+  }
+
+  await assert.rejects(
+    refreshWorkspaceConfigurations({
+      registryFile: registry,
+      workspace: 'selected',
+      dryRun: true,
+      restorePackagedSeeds: true
+    }),
+    (error) => error?.code === 'WORKSPACE_REPOSITORY_AUTHORITY_CONFLICT'
+      && error?.details?.branches?.includes('main')
+      && error?.details?.branches?.includes('develop')
+  );
+});
+
+test('scoped reinitialization refuses case aliases of one Windows repository authority', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-windows-authority-conflict-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const registry = path.join(root, 'workspaces.json');
+  for (const definition of [
+    { id: 'selected-windows', remote: 'C:\\Work\\Application\\.git', defaultBranch: 'main' },
+    { id: 'other-windows', remote: 'c:\\work\\application', defaultBranch: 'develop' }
+  ]) {
+    const workspaceRoot = path.join(root, definition.id);
+    const manifest = {
+      version: 1,
+      id: definition.id,
+      name: `${definition.id} workspace`,
+      path: workspaceRoot,
+      anchor: { provider: 'workspace', key: definition.id, title: definition.id },
+      leadRepository: 'application',
+      repositories: {
+        application: {
+          id: 'application', url: definition.remote,
+          defaultBranch: definition.defaultBranch, required: true,
+          path: 'repos/application', role: 'lead', capabilities: []
+        }
+      }
+    };
+    await mkdir(workspaceRoot, { recursive: true });
+    await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    await rememberWorkspace(registry, manifest);
+  }
+
+  await assert.rejects(
+    refreshWorkspaceConfigurations({
+      registryFile: registry,
+      workspace: 'selected-windows',
+      dryRun: true,
+      restorePackagedSeeds: true
+    }),
+    (error) => error?.code === 'WORKSPACE_REPOSITORY_AUTHORITY_CONFLICT'
+  );
+});
+
+test('seeded reinitialization refuses an unmarked application branch configured as state authority', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-authority-boundary-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'state-boundary');
+
+  const editor = path.join(root, 'state-boundary-editor');
+  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, editor]);
+  git(editor, ['config', 'user.name', 'Configuration Test']);
+  git(editor, ['config', 'user.email', 'configuration@example.test']);
+  const workflowFile = path.join(editor, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.ledger.branch = 'release';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  git(editor, ['add', 'singularity/workflow.yml']);
+  git(editor, ['commit', '-m', 'Point state at an application branch']);
+  git(editor, ['push', 'origin', 'HEAD:sflow/config']);
+  const mainCommit = git(remote, ['rev-parse', 'refs/heads/main']);
+  run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/release', mainCommit]);
+  const before = Object.fromEntries(['main', 'release', 'sflow/config'].map((branch) => [
+    branch, git(remote, ['rev-parse', `refs/heads/${branch}`])
+  ]));
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'blocked', JSON.stringify(preview, null, 2));
+  assert.equal(preview.results[0].status, 'blocked');
+  assert.match(preview.results[0].error, /not a proven dedicated Singularity Flow state authority/u);
+  for (const [branch, commit] of Object.entries(before)) {
+    assert.equal(git(remote, ['rev-parse', `refs/heads/${branch}`]), commit,
+      `${branch} must remain unchanged when state provenance is absent`);
+  }
+});
+
+test('seeded workspace reinitialization restores an absent workflow in an existing authority', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-missing-workflow-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'missing-workflow');
+  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+
+  const editor = path.join(root, 'configuration-editor');
+  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, editor]);
+  git(editor, ['config', 'user.name', 'Configuration Test']);
+  git(editor, ['config', 'user.email', 'configuration@example.test']);
+  await rm(path.join(editor, 'singularity/workflow.yml'));
+  await writeFile(path.join(editor, 'repository-policy.txt'), 'preserve repository configuration\n');
+  git(editor, ['add', '-A']);
+  git(editor, ['commit', '-m', 'Remove damaged workflow authority']);
+  git(editor, ['push', 'origin', 'HEAD:sflow/config']);
+  const damagedCommit = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
+
+  const ordinary = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true
+  });
+  assert.equal(ordinary.status, 'blocked',
+    'ordinary refresh must not infer ownership for a missing workflow container');
+  assert.equal(ordinary.results[0].status, 'blocked');
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), damagedCommit);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
+  assert.equal(preview.results[0].status, 'would-update');
+  assert.ok(preview.results[0].changedFiles.includes('singularity/workflow.yml'));
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), damagedCommit,
+    'seeded preview must remain read-only');
+
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    restorePackagedSeeds: true,
+    confirmPlan: preview.planId
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(applied.results[0].configurationChanged, true);
+  assert.equal(YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
+  ]).stdout).version, 2);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:repository-policy.txt'
+  ]).stdout, 'preserve repository configuration\n');
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
+    'reinitialization must not change the application branch');
+  assert.equal(YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'state:singularity/workflow.yml'
+  ]).stdout).version, 2, 'state projection must receive the restored approved workflow');
+});
+
+test('seeded workspace reinitialization preserves repository contracts through config and state publication', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-publication-preservation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'seeded-preservation');
+  const mainBefore = git(remote, ['rev-parse', 'refs/heads/main']);
+
+  const authority = path.join(root, 'seeded-preservation-authority');
+  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, authority]);
+  git(authority, ['config', 'user.name', 'Configuration Test']);
+  git(authority, ['config', 'user.email', 'configuration@example.test']);
+  await refreshPackagedConfiguration(authority);
+
+  const workflowFile = path.join(authority, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const customPhase = structuredClone(workflow.phases['poc-lite-plan']);
+  customPhase.label = 'Repository customer review';
+  customPhase.defaultTemplate = 'customer/review.md';
+  customPhase.artifact = {
+    path: 'artifacts/customer-review/review.md', kind: 'delivery-plan', minimumBytes: 10
+  };
+  customPhase.artifactSet = 'customer-review-set';
+  workflow.phases['customer-review'] = customPhase;
+  workflow.artifactSets['customer-review-set'] = {
+    primary: 'review.md',
+    members: [{ path: 'review.md', role: 'customer-review', required: true }]
+  };
+  workflow.workTypes['customer-delivery'] = {
+    label: 'Customer delivery',
+    description: 'Repository-owned workflow preserved through seeded publication.',
+    phases: ['customer-review'],
+    plannedClaims: { mode: 'opt-out', reason: 'Repository-owned review-only workflow.' },
+    intelligence: { worldModel: 'off', ast: 'off', agentBriefs: 'off' },
+    metadata: { owner: 'customer-platform', revision: 11 }
+  };
+  workflow.workTypes.feature.label = 'Stale seeded feature';
+  workflow.phases.requirements.label = 'Stale seeded requirements';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+
+  const customAssets = new Map([
+    ['singularity/templates/customer/review.md',
+      '# Customer review\n\nRepository-owned template bytes.\n'],
+    ['singularity/prompts/customer-review.md',
+      '# Customer review prompt\n\nRepository-owned prompt bytes.\n'],
+    ['.github/agents/repository-specialist.agent.md', `---
+name: repository-specialist
+description: Repository-owned customer reviewer.
+model: [auto]
+tools: [read, search]
+metadata:
+  sflow-label: "Repository specialist"
+  sflow-phases: "customer-review"
+  sflow-default-for: "customer-review"
+---
+
+# Repository specialist
+
+Review customer evidence without changing files.
+`]
+  ]);
+  for (const [relative, contents] of customAssets) {
+    const target = path.join(authority, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, contents);
+  }
+  const seededAgent = path.join(authority, '.github/agents/developer.agent.md');
+  await writeFile(seededAgent, `${await readFile(seededAgent, 'utf8')}\n<!-- stale seeded agent -->\n`);
+  const seededTemplate = path.join(authority, 'singularity/templates/feature/requirements.md');
+  await writeFile(seededTemplate,
+    `${await readFile(seededTemplate, 'utf8')}\n<!-- stale seeded template -->\n`);
+  git(authority, ['add', '-A']);
+  git(authority, ['commit', '-m', 'Add repository-owned configuration contracts']);
+  git(authority, ['push', 'origin', 'HEAD:sflow/config']);
+
+  const statePublisher = path.join(root, 'seeded-preservation-state');
+  await initializeStatePublisher(statePublisher);
+  const runtimeMarker = 'runtime evidence must survive seeded projection\n';
+  const workItemMarker = 'published Story evidence must survive seeded projection\n';
+  await writeFile(path.join(statePublisher, 'runtime-marker.txt'), runtimeMarker);
+  await mkdir(path.join(statePublisher, 'singularity/work-items/CUSTOM/evidence'), {
+    recursive: true
+  });
+  await writeFile(
+    path.join(statePublisher, 'singularity/work-items/CUSTOM/evidence/result.txt'),
+    workItemMarker
+  );
+  git(statePublisher, ['add', '-A']);
+  git(statePublisher, ['commit', '-m', 'Seed unrelated state runtime']);
+  git(statePublisher, ['remote', 'add', 'origin', remote]);
+  git(statePublisher, ['push', 'origin', 'HEAD:state']);
+
+  const preview = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(preview.status, 'preview');
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, restorePackagedSeeds: true
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+
+  for (const branch of ['sflow/config', 'state']) {
+    const observed = YAML.parse(run('git', [
+      '--git-dir', remote, 'show', `${branch}:singularity/workflow.yml`
+    ]).stdout);
+    assert.deepEqual(observed.workTypes['customer-delivery'],
+      workflow.workTypes['customer-delivery']);
+    assert.deepEqual(observed.phases['customer-review'], workflow.phases['customer-review']);
+    assert.deepEqual(observed.artifactSets['customer-review-set'],
+      workflow.artifactSets['customer-review-set']);
+    assert.deepEqual(observed.workTypes.feature, workflow.workTypes.feature,
+      `modified framework-started workflow must remain repository-owned on ${branch}`);
+    assert.deepEqual(observed.phases.requirements, workflow.phases.requirements,
+      `modified framework-started phase must remain repository-owned on ${branch}`);
+    for (const [relative, contents] of customAssets) {
+      assert.equal(run('git', ['--git-dir', remote, 'show', `${branch}:${relative}`]).stdout,
+        contents, `${relative} changed on ${branch}`);
+    }
+  }
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:.github/agents/developer.agent.md'
+  ]).stdout, await readFile(seededAgent, 'utf8'),
+  'a modified framework-started agent must remain repository-owned');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'state:singularity/templates/feature/requirements.md'
+  ]).stdout, await readFile(seededTemplate, 'utf8'),
+  'a modified framework-started template must remain repository-owned');
+  assert.equal(run('git', ['--git-dir', remote, 'show', 'state:runtime-marker.txt']).stdout,
+    runtimeMarker);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show',
+    'state:singularity/work-items/CUSTOM/evidence/result.txt'
+  ]).stdout, workItemMarker, 'safe reinitialize must preserve published work-item evidence');
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
+    'seeded reinitialization must not move the application branch');
+
+  const repeated = await refreshWorkspaceConfigurations({
+    registryFile: registry, dryRun: true, restorePackagedSeeds: true
+  });
+  assert.equal(repeated.results[0].status, 'current');
+  assert.equal(repeated.results[0].configurationChanged, false);
+  assert.equal(repeated.results[0].stateChanged, false);
 });
 
 test('workspace refresh mirrors and verifies configured asset roots outside conventional directories', async (t) => {
@@ -1787,9 +3448,7 @@ test('workspace refresh mirrors and verifies configured asset roots outside conv
   git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
 
   const statePublisher = path.join(root, 'custom-state-publisher');
-  run('git', ['init', '--initial-branch=state', statePublisher]);
-  git(statePublisher, ['config', 'user.name', 'Configuration Test']);
-  git(statePublisher, ['config', 'user.email', 'configuration@example.test']);
+  await initializeStatePublisher(statePublisher);
   await mkdir(path.join(statePublisher, 'governed/world-model'), { recursive: true });
   const worldModelBytes = Buffer.from('expensive custom world model: preserve exactly\n');
   await writeFile(path.join(statePublisher, 'governed/world-model/manifest.json'), worldModelBytes);
@@ -1828,6 +3487,10 @@ test('workspace refresh mirrors and verifies configured asset roots outside conv
   assert.equal(run('git', [
     '--git-dir', remote, 'show', 'state:governed/agents/custom.agent.md'
   ]).stdout, 'custom agent\n');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'state:.github/agents/developer.agent.md'
+  ]).stdout, await readFile(path.join(ROOT, 'templates/agents/developer.agent.md'), 'utf8'),
+  'canonical packaged agents remain governed and mirrored beside an additional custom agent root');
   assert.deepEqual(run('git', [
     '--git-dir', remote, 'show', 'state:governed/world-model/manifest.json'
   ], { encoding: 'buffer' }).stdout, worldModelBytes);
@@ -1836,4 +3499,410 @@ test('workspace refresh mirrors and verifies configured asset roots outside conv
   assert.equal(current.results[0].status, 'current');
   assert.equal(current.results[0].configurationChanged, false);
   assert.equal(current.results[0].stateChanged, false);
+});
+
+test('seeded reinitialization refuses a symbolic workflow authority before reading or writing', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-workflow-symlink-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const externalFile = path.join(root, '..', `${path.basename(root)}-external-workflow.yml`);
+  t.after(() => rm(externalFile, { force: true }));
+  const externalBytes = Buffer.concat([
+    await readFile(workflowFile), Buffer.from('\n# private-host-marker: must-not-be-read-or-published\n')
+  ]);
+  await writeFile(externalFile, externalBytes);
+  await rm(workflowFile);
+  await symlink(externalFile, workflowFile);
+
+  run('git', ['init', '--initial-branch=main', root]);
+  git(root, ['config', 'user.name', 'Configuration Test']);
+  git(root, ['config', 'user.email', 'configuration@example.test']);
+  git(root, ['add', '-A']);
+  git(root, ['commit', '-m', 'Seed symbolic workflow authority']);
+  const headBefore = git(root, ['rev-parse', 'HEAD']);
+  const indexBefore = run('git', ['ls-files', '--stage', '-z'], {
+    cwd: root, encoding: 'buffer'
+  }).stdout;
+
+  await assert.rejects(
+    refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'CONFIGURATION_ASSET_TARGET_SYMBOLIC_LINK'
+  );
+
+  assert.deepEqual(await readFile(externalFile), externalBytes);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), headBefore);
+  assert.deepEqual(run('git', ['ls-files', '--stage', '-z'], {
+    cwd: root, encoding: 'buffer'
+  }).stdout, indexBefore);
+  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, '');
+  await assert.rejects(
+    readFile(path.join(root, PACKAGE_BASELINE_PATH)),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization refuses existing portable aliases of packaged targets', async (t) => {
+  for (const [label, targetRelative, aliasRelative] of [
+    ['case', '.github/agents/qa.agent.md', '.github/agents/QA.agent.md'],
+    ['trailing-dot', '.github/agents/qa.agent.md', '.github/agents/qa.agent.md.'],
+    ['unicode-fold', '.github/agents/product-designer.agent.md',
+      '.github/agents/product-deſigner.agent.md']
+  ]) {
+    await t.test(label, async (t) => {
+      const root = await mkdtemp(path.join(os.tmpdir(), `sflow-seeded-portable-alias-${label}-`));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      await initializeFixture(root);
+      const target = path.join(root, targetRelative);
+      const alias = path.join(root, aliasRelative);
+      const bytes = await readFile(target);
+      await rm(target);
+      await writeFile(alias, bytes);
+
+      await assert.rejects(
+        refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+        (error) => error?.code === 'CONFIGURATION_ASSET_PORTABLE_COLLISION'
+      );
+      assert.deepEqual(await readFile(alias), bytes);
+      await assert.rejects(
+        readFile(path.join(root, PACKAGE_BASELINE_PATH)),
+        (error) => error?.code === 'ENOENT'
+      );
+    });
+  }
+});
+
+test('seeded reinitialization refuses portable aliases of packaged target ancestors', async (t) => {
+  for (const [label, aliasComponent] of [
+    ['case', 'Agents'],
+    ['trailing-dot', 'agents.'],
+    ['unicode-fold', 'agentſ']
+  ]) {
+    await t.test(label, async (t) => {
+      const root = await mkdtemp(path.join(os.tmpdir(), `sflow-seeded-portable-parent-${label}-`));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      await initializeFixture(root);
+      const canonical = path.join(root, '.github/agents');
+      const alias = path.join(root, `.github/${aliasComponent}`);
+      await rename(canonical, alias);
+      const before = await readFile(path.join(alias, 'qa.agent.md'));
+
+      await assert.rejects(
+        refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+        (error) => error?.code === 'CONFIGURATION_ASSET_PORTABLE_COLLISION'
+      );
+      assert.deepEqual(await readFile(path.join(alias, 'qa.agent.md')), before);
+      await assert.rejects(
+        readFile(path.join(root, PACKAGE_BASELINE_PATH)),
+        (error) => error?.code === 'ENOENT'
+      );
+    });
+  }
+});
+
+test('seeded reinitialization refuses redirected templates inside runtime evidence before any write or staging', async (t) => {
+  for (const [label, templatesRoot, code = 'CONFIGURATION_ASSET_TARGET_RUNTIME_OVERLAP'] of [
+    ['work-item', 'singularity/work-items/WRK-1/artifacts/templates'],
+    ['case-folded-work-item', 'Singularity/Work-Items/WRK-1/artifacts/templates'],
+    ['case-folded-trailing-dot-work-item', 'singularity/work-items./WRK-1/artifacts/templates',
+      'CONFIGURATION_ASSET_ROOT_INVALID'],
+    ['windows-short-name-work-item', 'SINGUL~1/WORK-I~1/WRK-1/artifacts/templates',
+      'CONFIGURATION_ASSET_ROOT_INVALID'],
+    ['windows-console-input-device', 'CONIN$/templates',
+      'CONFIGURATION_ASSET_ROOT_INVALID'],
+    ['windows-console-output-device', 'CONOUT$/templates',
+      'CONFIGURATION_ASSET_ROOT_INVALID'],
+    ['windows-clock-device', 'CLOCK$/templates',
+      'CONFIGURATION_ASSET_ROOT_INVALID'],
+    ['test-evidence', '.sflow/results/templates'],
+    ['legacy-control', '.singularity/templates'],
+    ['legacy-sdlc-control', '.sdlc/templates']
+  ]) {
+    await t.test(label, async (t) => {
+      const root = await mkdtemp(path.join(os.tmpdir(), `sflow-seeded-runtime-${label}-`));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      await initializeFixture(root);
+      const workflowFile = path.join(root, 'singularity/workflow.yml');
+      const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+      workflow.templatesRoot = templatesRoot;
+      await writeFile(workflowFile, YAML.stringify(workflow));
+      const evidence = path.join(root, templatesRoot, 'existing-evidence.txt');
+      await mkdir(path.dirname(evidence), { recursive: true });
+      await writeFile(evidence, 'retain runtime evidence exactly\n');
+
+      run('git', ['init', '--initial-branch=main', root]);
+      git(root, ['config', 'user.name', 'Configuration Test']);
+      git(root, ['config', 'user.email', 'configuration@example.test']);
+      git(root, ['add', '-A']);
+      git(root, ['commit', '-m', 'Seed invalid redirected runtime authority']);
+      const indexBefore = run('git', ['ls-files', '--stage', '-z'], {
+        cwd: root, encoding: 'buffer'
+      }).stdout;
+      const headBefore = git(root, ['rev-parse', 'HEAD']);
+      const evidenceBefore = await readFile(evidence);
+
+      await assert.rejects(
+        refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+        (error) => error?.code === code
+      );
+
+      assert.deepEqual(await readFile(evidence), evidenceBefore);
+      assert.equal(git(root, ['rev-parse', 'HEAD']), headBefore);
+      assert.deepEqual(run('git', ['ls-files', '--stage', '-z'], {
+        cwd: root, encoding: 'buffer'
+      }).stdout, indexBefore, 'the rejection must not stage runtime or configuration bytes');
+      assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, '');
+      const runtimeEntries = await readdir(path.join(root, templatesRoot));
+      assert.deepEqual(runtimeEntries, ['existing-evidence.txt'],
+        'no packaged template was materialized under the redirected runtime root');
+    });
+  }
+});
+
+test('seeded reinitialization refuses a case-folded Git-internals template root before mutation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-git-internals-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  run('git', ['init', '--initial-branch=main', root]);
+  git(root, ['config', 'user.name', 'Configuration Test']);
+  git(root, ['config', 'user.email', 'configuration@example.test']);
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.templatesRoot = '.GIT/hooks';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  git(root, ['add', '-A']);
+  git(root, ['commit', '-m', 'Seed unsafe case-folded Git path']);
+  const headBefore = git(root, ['rev-parse', 'HEAD']);
+  const indexBefore = run('git', ['ls-files', '--stage', '-z'], {
+    cwd: root, encoding: 'buffer'
+  }).stdout;
+
+  await assert.rejects(
+    refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'CONFIGURATION_ASSET_ROOT_INVALID'
+  );
+
+  assert.equal(git(root, ['rev-parse', 'HEAD']), headBefore);
+  assert.deepEqual(run('git', ['ls-files', '--stage', '-z'], {
+    cwd: root, encoding: 'buffer'
+  }).stdout, indexBefore);
+  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, '');
+});
+
+test('seeded reinitialization refuses a Unicode-normalized runtime alias before mutation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-unicode-alias-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.workItemRoot = 'singularity/caf\u00e9';
+  workflow.templatesRoot = 'singularity/cafe\u0301/WRK-1/artifacts/templates';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  const evidence = path.join(root, 'singularity/caf\u00e9/WRK-1/artifacts/evidence.txt');
+  await mkdir(path.dirname(evidence), { recursive: true });
+  await writeFile(evidence, 'retain normalized runtime evidence exactly\n');
+  const workflowBefore = await readFile(workflowFile);
+  const evidenceBefore = await readFile(evidence);
+
+  await assert.rejects(
+    refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'CONFIGURATION_ASSET_ROOT_INVALID'
+  );
+
+  assert.deepEqual(await readFile(workflowFile), workflowBefore);
+  assert.deepEqual(await readFile(evidence), evidenceBefore);
+  await assert.rejects(
+    readFile(path.join(root, 'singularity/cafe\u0301/WRK-1/artifacts/templates/common/intake.md')),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization refuses Unicode case-fold aliases before mutation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-unicode-casefold-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.workItemRoot = 'singularity/straße';
+  workflow.templatesRoot = 'singularity/strasse/WRK-1/artifacts/templates';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  const workflowBefore = await readFile(workflowFile);
+
+  await assert.rejects(
+    refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'CONFIGURATION_ASSET_ROOT_INVALID'
+  );
+
+  assert.deepEqual(await readFile(workflowFile), workflowBefore);
+  await assert.rejects(
+    readFile(path.join(root, 'singularity/strasse/WRK-1/artifacts/templates/common/intake.md')),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization refuses Windows-forbidden configured path characters', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-windows-path-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.templatesRoot = 'singularity/tem*plates';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  const before = await readFile(workflowFile);
+
+  await assert.rejects(
+    refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'CONFIGURATION_ASSET_ROOT_INVALID'
+  );
+  assert.deepEqual(await readFile(workflowFile), before);
+  await assert.rejects(
+    readFile(path.join(root, PACKAGE_BASELINE_PATH)),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('seeded reinitialization refuses Windows-forbidden retired baseline paths', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-seeded-windows-retired-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  await refreshPackagedConfiguration(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const baselineFile = path.join(root, PACKAGE_BASELINE_PATH);
+  const baseline = YAML.parse(await readFile(baselineFile, 'utf8'));
+  baseline.assets['singularity/tem*plates/retired.md'] = {
+    sha256: 'forged-retired-package-hash'
+  };
+  await writeFile(baselineFile, YAML.stringify(baseline));
+  const workflowBefore = await readFile(workflowFile);
+  const baselineBefore = await readFile(baselineFile);
+
+  await assert.rejects(
+    refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+    (error) => error?.code === 'CONFIGURATION_ASSET_PATH_INVALID'
+  );
+  assert.deepEqual(await readFile(workflowFile), workflowBefore);
+  assert.deepEqual(await readFile(baselineFile), baselineBefore);
+});
+
+test('seeded reinitialization refuses unsafe retired baseline entries before mutation', async (t) => {
+  for (const [label, relative, code, historicalWorkItemRoot, historicalTemplatesRoot] of [
+    ['work-item', 'singularity/work-items/WRK-1/artifacts/legacy-seed.md',
+      'CONFIGURATION_RETIRED_ASSET_RUNTIME_OVERLAP', null],
+    ['case-folded-work-item', 'Singularity/Work-Items/WRK-1/artifacts/legacy-seed.md',
+      'CONFIGURATION_RETIRED_ASSET_RUNTIME_OVERLAP', null],
+    ['historical-work-item', 'governed/old-work-items/WRK-1/artifacts/legacy-seed.md',
+      'CONFIGURATION_RETIRED_ASSET_RUNTIME_OVERLAP', 'governed/old-work-items'],
+    ['test-evidence', '.sflow/results/legacy-seed.json',
+      'CONFIGURATION_RETIRED_ASSET_RUNTIME_OVERLAP', null],
+    ['application-source', 'src/app.js',
+      'CONFIGURATION_RETIRED_ASSET_TARGET_UNMANAGED', null, 'src']
+  ]) {
+    await t.test(label, async (t) => {
+      const root = await mkdtemp(path.join(os.tmpdir(), `sflow-retired-runtime-${label}-`));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      await initializeFixture(root);
+      await refreshPackagedConfiguration(root);
+
+      const baselineFile = path.join(root, PACKAGE_BASELINE_PATH);
+      const baseline = YAML.parse(await readFile(baselineFile, 'utf8'));
+      delete baseline.ownership;
+      if (historicalWorkItemRoot) baseline.workflow.workItemRoot = historicalWorkItemRoot;
+      if (historicalTemplatesRoot) baseline.workflow.templatesRoot = historicalTemplatesRoot;
+      baseline.assets[relative] = { sha256: 'forged-retired-package-hash' };
+      await writeFile(baselineFile, YAML.stringify(baseline));
+
+      const evidence = path.join(root, relative);
+      await mkdir(path.dirname(evidence), { recursive: true });
+      await writeFile(evidence, 'retain runtime evidence exactly\n');
+      const missingSeed = path.join(root, '.github/agents/qa.agent.md');
+      await rm(missingSeed);
+
+      const workflowFile = path.join(root, 'singularity/workflow.yml');
+      const workflowBefore = await readFile(workflowFile);
+      const baselineBefore = await readFile(baselineFile);
+      const evidenceBefore = await readFile(evidence);
+
+      await assert.rejects(
+        refreshPackagedConfiguration(root, { restorePackagedSeeds: true }),
+        (error) => error?.code === code
+      );
+
+      assert.deepEqual(await readFile(workflowFile), workflowBefore);
+      assert.deepEqual(await readFile(baselineFile), baselineBefore,
+        'a rejected retired path must not rewrite its baseline receipt');
+      assert.deepEqual(await readFile(evidence), evidenceBefore);
+      await assert.rejects(readFile(missingSeed), (error) => error?.code === 'ENOENT',
+        'current package assets must not be restored before the retired set is validated');
+    });
+  }
+});
+
+test('seeded reinitialization preserves an unregistered retired configuration asset despite a forged receipt', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-unregistered-retired-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  await refreshPackagedConfiguration(root);
+
+  const relative = 'singularity/custom-policy.yml';
+  const target = path.join(root, relative);
+  const bytes = Buffer.from('repositoryPolicy: retain-exactly\n');
+  await writeFile(target, bytes);
+  const baselineFile = path.join(root, PACKAGE_BASELINE_PATH);
+  const baseline = YAML.parse(await readFile(baselineFile, 'utf8'));
+  baseline.assets[relative] = {
+    sha256: createHash('sha256').update(bytes).digest('hex')
+  };
+  baseline.ownership.assets[relative] = 'framework';
+  await writeFile(baselineFile, YAML.stringify(baseline));
+
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+
+  assert.deepEqual(await readFile(target), bytes);
+  assert.equal(result.removed.includes(relative), false);
+  assert.equal(result.files.includes(relative), false);
+  assert.ok(result.conflicts.some((entry) =>
+    entry.path === relative && entry.resolution === 'preserved-local'));
+  const receipt = YAML.parse(await readFile(baselineFile, 'utf8'));
+  assert.equal(receipt.ownership.assets[relative], 'repository');
+});
+
+test('ordinary refresh conflict resolutions use each repository custom templates policy and fail closed elsewhere', async (t) => {
+  const customRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-custom-template-resolution-'));
+  const defaultRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-default-template-resolution-'));
+  t.after(() => Promise.all([
+    rm(customRoot, { recursive: true, force: true }),
+    rm(defaultRoot, { recursive: true, force: true })
+  ]));
+  await initializeFixture(customRoot);
+  await initializeFixture(defaultRoot);
+
+  const workflowFile = path.join(customRoot, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.templatesRoot = 'governed/templates';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  const relative = 'governed/templates/feature/requirements.md';
+  const target = path.join(customRoot, relative);
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, '# Repository collision at the approved custom root\n');
+
+  const refreshed = await refreshPackagedConfiguration(customRoot, {
+    resolutions: { [relative]: 'bundled' }
+  });
+  assert.equal(await readFile(target, 'utf8'),
+    await readFile(path.join(ROOT, 'templates/artifacts/feature/requirements.md'), 'utf8'));
+  assert.ok(refreshed.files.includes(relative));
+  assert.equal(refreshed.conflicts.some((entry) =>
+    entry.path === relative && entry.resolution === 'preserved-local'), false);
+
+  await assert.rejects(
+    refreshPackagedConfiguration(defaultRoot, {
+      dryRun: true,
+      resolutions: { [relative]: 'bundled' }
+    }),
+    (error) => error?.code === 'CONFIGURATION_CONFLICT_PATH_UNMANAGED',
+    'a resolution approved for one repository custom root cannot cross into another repository'
+  );
 });

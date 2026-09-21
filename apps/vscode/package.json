@@ -18,6 +18,7 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onView:singularityFlow.navigation",
+    "onCommand:singularityFlow.reinitialize",
     "workspaceContains:singularity/workflow.yml"
   ],
   "contributes": {
@@ -193,7 +194,7 @@
       },
       {
         "command": "singularityFlow.reinitializeWorkspaces",
-        "title": "Singularity Flow: Safely Reinitialize Capabilities & Workspaces",
+        "title": "Singularity Flow: Upgrade Framework Seeds (Safe Preview)",
         "icon": "$(sync)"
       },
       {
@@ -292,8 +293,8 @@
         "icon": "$(sparkle)"
       },
       {
-        "command": "singularityFlow.reinitialize",
-        "title": "Singularity Flow: Factory Reset / Reinitialize Any Git Repository (Destructive)",
+        "command": "singularityFlow.factoryReset",
+        "title": "Singularity Flow: Factory Reset Local SFlow Data (Destructive)",
         "icon": "$(debug-restart)"
       },
       {

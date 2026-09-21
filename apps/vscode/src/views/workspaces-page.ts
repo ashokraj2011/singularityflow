@@ -8,9 +8,10 @@
 import {
   duplicateBaseDirectory, duplicateDirectory, duplicateProblems, type WorkspaceRow, type WorkspaceStatus,
   type WorkspaceRepositoryStatus, type WorkspaceCapabilityChoice,
-  type WorkspaceConfigurationConflict, type WorkspaceConfigurationRefreshResult,
-  type WorkspaceConfigurationResolution, type WorkspaceCapabilityAttachScope,
-  type WorkspaceFosAction, type WorkspaceFosOutcome, type WorkspaceRecoveryAction
+  type WorkspaceConfigurationRefreshResult,
+  type WorkspaceCapabilityAttachScope,
+  type WorkspaceFosAction, type WorkspaceFosOutcome, type WorkspaceRecoveryAction,
+  isSafeWorkspaceReinitializationPreview
 } from './workspaces-model.ts';
 import { escape, icon } from './webview.ts';
 import { commandGuidanceHtml } from './command-guidance.ts';
@@ -183,19 +184,22 @@ function fastOnboardingHtml(
       settings; cache clearing removes only derived data; doctor is read-only; resume continues an
       explicitly selected recovery checkpoint.</p>
     <details>
-      <summary>Destructive recovery for an old or broken repository</summary>
+      <summary>Factory reset for an unrecoverable old or broken repository</summary>
       <div class="notice error">
-        <p><strong>Reinitialize with the current SFlow format</strong></p>
+        <p><strong>Factory reset all local SFlow data</strong></p>
         <p>Removes only <code>singularity/</code>, <code>.singularity/</code>, <code>.sdlc/</code>,
           and worktree-private plus repository-shared SFlow runtime data (including runtime shared
           by linked worktrees), then installs the current packaged configuration.
+          Unlike normal reinitialize, this destructive recovery can remove user-created SFlow
+          workflows, templates and artifacts. Use it only when the seeded-only plan cannot read the
+          repository.
           Application source, Git history, branches, remotes, the workspace registry, and remote
           <code>sflow/config</code>/<code>state</code> branches are preserved. Invalid custom agents
           are retained byte-for-byte in a disclosed, content-addressed recovery folder outside active
           agent discovery.</p>
         <button class="secondary" data-fos-action="factory-reset" data-workspace-path="${escape(row.path)}"
           ${busy ? 'disabled ' : ''}title="Preview the exact reset boundary, explicitly accept any SFlow data loss, and type the repository-bound confirmation before anything is removed. If repository details cannot load, a Git-folder picker opens.">
-          Choose repository and review reset…</button>
+          Review destructive factory reset…</button>
       </div>
     </details>
   </div>`;
@@ -211,7 +215,7 @@ function fosActionLabel(action: WorkspaceFosAction): string {
     'local-authority': 'Creating local-only authority',
     doctor: 'Running workspace doctor',
     'resume-bootstrap': 'Continuing workspace setup',
-    'factory-reset': 'Reviewing destructive repository reinitialization'
+    'factory-reset': 'Reviewing destructive factory reset'
   }[action];
 }
 
@@ -354,32 +358,14 @@ export const EMPTY_EDIT_DRAFT: WorkspaceEditDraft = {
 export interface WorkspaceConfigurationRefreshView {
   scope: 'selected' | 'all';
   result: WorkspaceConfigurationRefreshResult | null;
-  resolutions: Record<string, WorkspaceConfigurationResolution>;
   loading: boolean;
   applying: boolean;
   error: string | null;
 }
 
 export const EMPTY_CONFIGURATION_REFRESH: WorkspaceConfigurationRefreshView = {
-  scope: 'selected', result: null, resolutions: {}, loading: false, applying: false, error: null
+  scope: 'selected', result: null, loading: false, applying: false, error: null
 };
-
-function conflictChoice(
-  conflict: WorkspaceConfigurationConflict,
-  choices: Record<string, WorkspaceConfigurationResolution>
-): WorkspaceConfigurationResolution {
-  const selected = choices[conflict.path];
-  if (selected) return selected;
-  if (conflict.resolution.includes('bundled')) return 'bundled';
-  if (conflict.resolution.includes('merged')) return 'merge';
-  return 'local';
-}
-
-function mergeableConflict(conflict: WorkspaceConfigurationConflict): boolean {
-  return Array.isArray(conflict.local) && Array.isArray(conflict.bundled)
-    && conflict.local.every((entry) => typeof entry === 'string')
-    && conflict.bundled.every((entry) => typeof entry === 'string');
-}
 
 function quoteRecoveryDirectory(value: string, shell: WorkspaceRecoveryAction['shell']): string {
   return shell === 'powershell'
@@ -418,24 +404,38 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
   const repositories = result?.results ?? [];
   const schemaCensuses = result?.schemaCensuses ?? [];
   const topologyIssues = result?.topologyIssues ?? [];
-  const plannedLeads = result?.capabilityPortability?.plannedLeads ?? [];
-  const portabilityResults = result?.capabilityPortability?.results ?? [];
+  const capabilityScope = result?.capabilityPortability;
   const conflicts = [...new Map(repositories.flatMap((repository) => repository.conflicts ?? [])
     .map((conflict) => [conflict.path, conflict])).values()];
+  const ownershipTransferConflicts = conflicts.filter((conflict) =>
+    !['preserved-local', 'preserved-local-deletion'].includes(conflict.resolution));
   const agentRepairPaths = [...new Set(repositories.flatMap((repository) =>
     repository.repair?.kind === 'packaged-agents' ? repository.repair.paths : []))].sort();
-  // Even a configuration-current workspace may need its portable capability locator verified or
-  // republished. The exact plan, not a guessed "changed files" count, is the apply authority.
-  const actionable = result?.dryRun === true && result.status === 'preview' && Boolean(result.planId);
-  return `<h2>${icon('configuration')}Safely reinitialize capabilities &amp; workspaces</h2>
+  const changedPaths = repositories.flatMap((repository) => (repository.files ?? [])
+    .map((file) => ({ repository: repository.repository, file })))
+    .sort((left, right) => left.repository.localeCompare(right.repository)
+      || left.file.localeCompare(right.file));
+  const removedPaths = repositories.flatMap((repository) => (repository.removedStatePaths ?? [])
+    .map((file) => ({ repository: repository.repository, file })))
+    .sort((left, right) => left.repository.localeCompare(right.repository)
+      || left.file.localeCompare(right.file));
+  // The exact plan is necessary but not sufficient: a retained panel can receive output from an
+  // older configured CLI. Only the current seeded-only contract may authorize Apply.
+  const actionable = isSafeWorkspaceReinitializationPreview(result);
+  return `<h2>${icon('configuration')}Reinitialize framework-seeded assets</h2>
   <div class="card${view.error ? ' blocked' : ''}">
-    <div class="card-head"><strong>Review and repair from this SFlow build</strong>
+    <div class="card-head"><strong>Review and refresh this SFlow build's managed assets</strong>
       <span class="grow"></span>${result ? `<span class="pill ${result.status === 'blocked' || result.status === 'partial' ? 'bad' : 'ok'}">${escape(result.status)}</span>` : ''}</div>
-    <p class="muted">This is the repeatable, non-destructive upgrade path. It brings approved
-      workflow assets forward with a three-way review, refreshes their <code>state</code>
-      projections, verifies or republishes portable capability locators, and checks every stored
-      schema version. Readable legacy records migrate in memory; immutable history, world models,
-      application branches and application source remain untouched.</p>
+    <p class="muted">This is the repeatable, non-destructive upgrade path. It installs missing
+      framework seeds and refreshes only byte-exact registered framework revisions for workflow,
+      phase, artifact-set, template, prompt and agent assets. User-created or user-modified assets
+      remain repository-owned and unchanged. Same-name or same-path collisions are reported instead
+      of overwritten, and work-item artifacts are excluded. The action also refreshes framework
+      <code>state</code> projections and checks every stored schema version. Capability-specific
+      publication and portable locator repair
+      are outside this action; user-owned capability definitions remain unchanged in the approved
+      configuration mirror. Readable legacy records migrate in memory; immutable history, world
+      models, application branches and application source remain untouched.</p>
     <p class="card-foot">
       <button class="secondary" data-config-preview="selected"${view.loading || view.applying ? ' disabled' : ''}>
         ${view.loading && view.scope === 'selected' ? 'Checking…' : `Review ${escape(row.name)}`}</button>
@@ -456,9 +456,16 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
           <td>${repository.error ? `<span class="blockers">${escape(repository.error)}</span>${repository.proposalBranch
             ? `<br><span class="muted">Review <code>${escape(repository.proposalBranch)}</code></span>` : ''}`
             : `<span class="muted">${escape(repository.files?.length ?? 0)} packaged files
-              · ${escape(repository.conflicts?.length ?? 0)} choices</span>`}</td>
+              · ${escape(repository.conflicts?.length ?? 0)} preserved collisions</span>`}</td>
         </tr>`).join('')}</tbody>
       </table>` : '<p class="muted">No registered workspace repositories were found.</p>'}
+      ${changedPaths.length || removedPaths.length ? `<h3>Exact reviewed paths</h3>
+        ${changedPaths.length ? `<p class="muted"><strong>Refresh:</strong></p><ul>${changedPaths
+          .map((entry) => `<li><code>${escape(entry.repository)}:${escape(entry.file)}</code></li>`)
+          .join('')}</ul>` : ''}
+        ${removedPaths.length ? `<p class="muted"><strong>Remove from state projection:</strong></p><ul>${removedPaths
+          .map((entry) => `<li><code>${escape(entry.repository)}:${escape(entry.file)}</code></li>`)
+          .join('')}</ul>` : ''}` : ''}
       ${schemaCensuses.length ? `<h3>Stored schema compatibility</h3>
         <table><thead><tr><th>Repository</th><th>Schema</th><th>Records</th><th>Details</th></tr></thead>
         <tbody>${schemaCensuses.map((census) => `<tr>
@@ -473,50 +480,44 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
         </tr>`).join('')}</tbody></table>
         <p class="muted">${escape(result.schemaMigrationPolicy?.statement
           ?? 'Stored schemas are validated without rewriting historical records.')}</p>` : ''}
-      ${plannedLeads.length || portabilityResults.length ? `<h3>Capability-map portability</h3>
-        <table><thead><tr><th>Lead authority</th><th>Workspaces</th><th>Status</th></tr></thead>
-        <tbody>${[...plannedLeads.map((lead) => ({
-          ...lead, status: 'will verify after confirmation', reason: undefined, nextAction: undefined
-        })),
-          ...portabilityResults].map((entry) => `<tr>
-          <td><code>${escape(entry.lead)}</code></td>
-          <td>${escape(entry.workspaceIds.join(', '))}</td>
-          <td><span class="pill ${entry.status === 'current' ? 'ok' : entry.status === 'pending' ? 'bad' : 'wait'}">${escape(entry.status)}</span>
-            ${'reason' in entry && entry.reason ? `<br><span class="blockers">${escape(entry.reason)}</span>` : ''}
-            ${'nextAction' in entry ? recoveryActionHtml(entry.nextAction) : ''}</td>
-        </tr>`).join('')}</tbody></table>
-        <p class="muted">The approved map stays on the lead repository's <code>sflow/config</code>
-          branch. Delivery repositories receive only a state-branch locator; no capability YAML is
-          copied onto an application branch.</p>` : ''}
+      ${capabilityScope ? `<h3>Capability state</h3>
+        <p><span class="pill ok">${escape(capabilityScope.status)}</span></p>
+        <p class="muted">${escape(capabilityScope.statement
+          ?? 'Capability-specific publication and locator repair are outside safe reinitialization.')}</p>` : ''}
+      ${result.resultType !== 'workspace-reinitialization' ? `<div class="card blocked">
+        <p class="blockers"><strong>Apply disabled:</strong> the CLI did not return the seeded-only
+          reinitialization contract. Update or repair the bundled CLI, then create a new preview.</p>
+      </div>` : ''}
+      ${capabilityScope?.changed !== false ? `<div class="card blocked">
+        <p class="blockers"><strong>Apply disabled:</strong> the preview did not prove that
+          capability state remains unchanged.</p>
+      </div>` : ''}
+      ${ownershipTransferConflicts.length ? `<div class="card blocked">
+        <p class="blockers"><strong>Apply disabled:</strong> this preview attempted an ownership
+          transfer for ${escape(ownershipTransferConflicts.length)} repository-owned
+          ${ownershipTransferConflicts.length === 1 ? 'path' : 'paths'}. Safe reinitialization never
+          accepts packaged-content overrides.</p>
+      </div>` : ''}
       ${topologyIssues.map((issue) => `<div class="card blocked"><p class="blockers"><strong>${escape(topologyIssueSubject(issue))}</strong>:
         ${escape(issue.reason)}</p>${recoveryActionHtml(issue.nextAction)}</div>`).join('')}
-      ${conflicts.length ? `<h3>Review repository choices</h3>
-        <p class="muted">Local is the default. Choose packaged for only the paths you want to
-          replace; merge is offered only for compatible string lists.</p>
-        <table><thead><tr><th>Path</th><th>Use</th></tr></thead><tbody>
-          ${conflicts.map((conflict) => {
-            const choice = conflictChoice(conflict, view.resolutions);
-            return `<tr><td><code>${escape(conflict.path)}</code></td><td>
-              <select data-configuration-resolution="${escape(conflict.path)}"${view.loading || view.applying ? ' disabled' : ''}>
-                <option value="local"${choice === 'local' ? ' selected' : ''}>Keep repository</option>
-                <option value="bundled"${choice === 'bundled' ? ' selected' : ''}>Use packaged</option>
-                ${mergeableConflict(conflict) ? `<option value="merge"${choice === 'merge' ? ' selected' : ''}>Merge lists</option>` : ''}
-              </select></td></tr>`;
-          }).join('')}
-        </tbody></table>
-        <p><button class="secondary" data-config-bundled="assets"${view.loading || view.applying ? ' disabled' : ''}>
-          Use packaged templates, prompts and agents</button></p>` : ''}
+      ${conflicts.length ? `<h3>Preserved repository-owned collisions</h3>
+        <p class="muted">Safe reinitialization never replaces or adopts these paths. They remain
+          repository-owned. Use the separately reviewed configuration refresh journey only when
+          you deliberately want to replace repository content with packaged content.</p>
+        <table><thead><tr><th>Path</th><th>Safe action</th></tr></thead><tbody>
+          ${conflicts.map((conflict) => `<tr><td><code>${escape(conflict.path)}</code></td>
+            <td><span class="pill ok">Keep repository</span></td></tr>`).join('')}
+        </tbody></table>` : ''}
       ${agentRepairPaths.length ? `<div class="card blocked">
-        <div class="card-head"><strong>Governed agents from an older build are blocking this upgrade</strong>
-          <span class="grow"></span><span class="pill wait">repair available</span></div>
-        <p class="muted">Select this build's packaged agent files and run the preview again. This
-          only prepares the choices below; nothing is published until you review and apply the new plan.</p>
-        <p><button data-config-agents="packaged"${view.loading || view.applying ? ' disabled' : ''}>
-          Repair missing or outdated agents</button></p>
+        <div class="card-head"><strong>Repository-owned agents need a separate decision</strong>
+          <span class="grow"></span><span class="pill wait">preserved</span></div>
+        <p class="muted">Safe reinitialization will not overwrite these agent files. Review them
+          through the ordinary configuration refresh journey if you deliberately want to replace
+          repository content. Otherwise, no action is required.</p>
       </div>` : ''}
       <p class="card-foot"><button data-config-apply="${escape(view.scope)}"
         ${!result.planId || !actionable || view.loading || view.applying ? 'disabled' : ''}>
-        ${view.applying ? 'Applying…' : 'Confirm &amp; reinitialize'}</button></p>
+        ${view.applying ? 'Applying…' : 'Confirm seeded-asset reinitialize'}</button></p>
       <p class="muted">You must type the exact plan ID before apply. If configuration or state
         authority changed after preview, nothing is published and a new preview is required.</p>` : ''}
   </div>`;
@@ -614,8 +615,8 @@ export function workspacesHtml(
   <section class="plain">
     <div class="card-head"><div><strong>Refresh or recover an existing repository</strong>
       <p class="muted">Start with its Git URL. SFlow finds its registered workspace and offers a
-        safe configuration refresh, authority-pin repair, or an explicitly reviewed SFlow-only
-        reinitialization. Application code and Git history are preserved.</p></div><span class="grow"></span>
+        safe framework-asset reinitialize, authority-pin repair, or an explicitly reviewed factory
+        reset. Application code and Git history are preserved.</p></div><span class="grow"></span>
       <button data-repository-refresh="1">${icon('refresh')}Refresh / reinitialize…</button></div>
   </section>
 
@@ -663,7 +664,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-fos-action],[data-repository-refresh],[data-help-topic],[data-copy-command]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-fos-action],[data-repository-refresh],[data-help-topic],[data-copy-command]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -680,8 +681,6 @@ export const WORKSPACES_SCRIPT = `
     else if (data.repair !== undefined) vscode.postMessage({ type: 'repair', path: data.repair });
     else if (data.configPreview !== undefined) vscode.postMessage({ type: 'configuration-preview', scope: data.configPreview });
     else if (data.configApply !== undefined) vscode.postMessage({ type: 'configuration-apply' });
-    else if (data.configBundled !== undefined) vscode.postMessage({ type: 'configuration-bundled-assets' });
-    else if (data.configAgents !== undefined) vscode.postMessage({ type: 'configuration-packaged-agents' });
     else if (data.repositoryRefresh !== undefined) vscode.postMessage({ type: 'repository-refresh' });
     else if (data.fosAction !== undefined) vscode.postMessage({
       type: 'fos-action', action: data.fosAction, path: data.workspacePath,
@@ -741,10 +740,5 @@ export const WORKSPACES_SCRIPT = `
     if (field !== 'copy-id' && field !== 'copy-base') return;
     vscode.postMessage({ type: 'draft', field, value: event.target.value });
     affordances();
-  });
-  document.addEventListener('change', (event) => {
-    const conflictPath = event.target.dataset?.configurationResolution;
-    if (!conflictPath) return;
-    vscode.postMessage({ type: 'configuration-resolution', path: conflictPath, resolution: event.target.value });
   });
 `;

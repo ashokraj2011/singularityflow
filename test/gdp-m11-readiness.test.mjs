@@ -35,6 +35,8 @@ function sflow(root, ...args) { return execute(process.execPath, [cli, ...args],
 
 test('M11 readiness reports implemented scope without converting partial work into GA', () => {
   const report = buildGdpReadiness({ platform: 'darwin', architecture: 'arm64', nodeVersion: 'v22.1.0' });
+  assert.equal(report.schemaVersion, 1);
+  assert.equal(Object.hasOwn(report, 'authenticatedRunner'), false);
   assert.equal(report.status, 'not-ready');
   assert.equal(report.gaReady, false);
   assert.equal(report.authority, 'report-only');
@@ -66,6 +68,14 @@ test('M11 readiness schema hard-codes the non-GA result', async () => {
   assert.equal(schema.properties.status.const, 'not-ready');
   assert.equal(schema.properties.gaReady.const, false);
   assert.equal(schema.properties.authority.const, 'report-only');
+  assert.deepEqual(schema.properties.schemaVersion.enum, [1, 2]);
+  assert.equal(
+    schema.properties.authenticatedRunner.$ref,
+    'cab-authenticated-runner-readiness.schema.json'
+  );
+  assert.ok(!schema.required.includes('authenticatedRunner'));
+  assert.deepEqual(schema.allOf[0].then.not.required, ['authenticatedRunner']);
+  assert.deepEqual(schema.allOf[1].then.required, ['authenticatedRunner']);
   assert.equal(schema.additionalProperties, false);
 });
 

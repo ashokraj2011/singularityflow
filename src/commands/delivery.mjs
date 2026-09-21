@@ -24,6 +24,7 @@ import {
   verifyLocalRunnerAttestationWithSigner
 } from '../delivery-modes/local-signed-runner.mjs';
 import { provenanceReadiness } from '../delivery-modes/provenance.mjs';
+import { authenticatedRunnerReadiness } from '../delivery-modes/authenticated-runner-provider.mjs';
 import { buildGdpReadiness } from '../delivery-modes/readiness.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, gitCommitIdentity, head, repoRoot } from '../git.mjs';
@@ -463,12 +464,37 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       }
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
+  if (action === 'authenticated-runner-status') {
+    const providerFile = optionString(options, 'runner-provider-file');
+    const readiness = authenticatedRunnerReadiness(providerFile
+      ? await jsonFile(root, providerFile, 'Authenticated runner provider file') : null);
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation
+        ?? { id: 'delivery.authenticated-runner-status', classification: 'read' },
+      subject: { kind: 'repository', id: path.basename(root) },
+      outcome: succeeded('delivery.authenticated-runner-reported', {
+        status: readiness.status,
+        configured: readiness.configured,
+        integration: readiness.integrationAvailable,
+        authority: readiness.authority
+      }),
+      effects: effects(), restState: 'informational', data: {
+        ...readiness,
+        nextAction: readiness.configured
+          ? 'Obtain independent security, platform, trust-root, provider-pilot, and evidence-store approval; configuration alone cannot activate CAB-R2.'
+          : 'Create and review a repository-relative credential-free runner provider descriptor; this only enables diagnostics.'
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
   if (action === 'readiness') {
     const providerFile = optionString(options, 'provider-file');
+    const runnerProviderFile = optionString(options, 'runner-provider-file');
     const readiness = buildGdpReadiness({
       platform: process.platform, architecture: process.arch, nodeVersion: process.version,
       providerConfiguration: providerFile
-        ? await jsonFile(root, providerFile, 'Provenance provider file') : null
+        ? await jsonFile(root, providerFile, 'Provenance provider file') : null,
+      runnerProviderConfiguration: runnerProviderFile
+        ? await jsonFile(root, runnerProviderFile, 'Authenticated runner provider file') : null
     });
     return emitCommandResult(commandResult({
       operation: suppliedOperation ?? { id: 'delivery.readiness', classification: 'read' },
@@ -508,6 +534,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     `Unknown delivery action '${action}'. Use: delivery recommend, delivery select, `
       + 'delivery workflow-status, delivery execution-status, delivery promotion-preview, '
       + 'delivery promotion-status, delivery assurance-evaluate, delivery provenance-status, '
+      + 'delivery authenticated-runner-status, '
       + 'delivery local-runner-create, delivery local-runner-status, delivery local-runner-options, delivery local-runner-plan, '
       + 'delivery local-runner-run, delivery local-runner-verify, or delivery readiness.',
     { code: 'UNKNOWN_SUBCOMMAND' }

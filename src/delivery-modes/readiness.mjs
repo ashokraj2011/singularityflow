@@ -1,5 +1,6 @@
 /** Honest GDP-M11 readiness projection. Reporting readiness never grants readiness. */
 import { provenanceReadiness } from './provenance.mjs';
+import { authenticatedRunnerReadiness } from './authenticated-runner-provider.mjs';
 
 const IMPLEMENTATION = Object.freeze([
   { milestone: 'GDP-M0', status: 'implemented', scope: 'contract-and-ownership-freeze' },
@@ -36,7 +37,9 @@ const SUPPORT = Object.freeze({
     { id: 'junit5-reviewed-binder', status: 'observe-only' },
     { id: 'unsupported-language-or-runner', status: 'unavailable-non-blocking' }
   ],
-  ciProviders: [{ id: 'provider-neutral-contract', status: 'interface-only' }],
+  ciProviders: [
+    { id: 'provider-neutral-contract', status: 'interface-only' }
+  ],
   packages: [
     { id: 'npm', status: 'requires-release-receipt' },
     { id: 'vsix', status: 'requires-release-receipt' }
@@ -75,27 +78,50 @@ function safeRuntime(value, fallback) {
   return /^[A-Za-z0-9._-]{1,80}$/.test(result) ? result : fallback;
 }
 
+function supportMatrix(includeAuthenticatedRunner) {
+  const support = structuredClone(SUPPORT);
+  if (includeAuthenticatedRunner) {
+    support.ciProviders.push({
+      id: 'authenticated-runner-contract', status: 'configuration-only-unavailable'
+    });
+  }
+  return support;
+}
+
 export function buildGdpReadiness({
-  platform = 'unknown', architecture = 'unknown', nodeVersion = 'unknown', providerConfiguration = null
+  platform = 'unknown', architecture = 'unknown', nodeVersion = 'unknown',
+  providerConfiguration = null, runnerProviderConfiguration = null
 } = {}) {
   const provenance = provenanceReadiness(providerConfiguration);
+  const includeAuthenticatedRunner = runnerProviderConfiguration !== null;
+  const authenticatedRunner = includeAuthenticatedRunner
+    ? authenticatedRunnerReadiness(runnerProviderConfiguration)
+    : null;
   const blockers = [
     ...REQUIRED_BLOCKERS,
     ...(provenance.verifierAvailable ? [] : [{
       code: 'GDP_GA_PROVENANCE_VERIFIER_UNAVAILABLE', owner: 'enterprise-provider',
       requirement: 'Install and approve a cryptographic provenance verifier and its trust-root lifecycle.'
+    }]),
+    ...(!includeAuthenticatedRunner || authenticatedRunner.integrationAvailable ? [] : [{
+      code: 'GDP_GA_AUTHENTICATED_RUNNER_INTEGRATION_UNAVAILABLE',
+      owner: 'security-and-platform',
+      requirement: 'Install, independently approve, and qualify a CAB authenticated-runner integration.'
     }])
   ];
   return Object.freeze({
-    schemaVersion: 1, kind: 'gdp-readiness-report', status: 'not-ready', gaReady: false,
+    schemaVersion: includeAuthenticatedRunner ? 2 : 1,
+    kind: 'gdp-readiness-report', status: 'not-ready', gaReady: false,
     authority: 'report-only', implementation: IMPLEMENTATION.map((entry) => ({ ...entry })),
-    supportMatrix: structuredClone(SUPPORT),
+    supportMatrix: supportMatrix(includeAuthenticatedRunner),
     observedRuntime: {
       platform: safeRuntime(platform, 'unknown'), architecture: safeRuntime(architecture, 'unknown'),
       nodeVersion: safeRuntime(String(nodeVersion ?? 'unknown').replace(/^v/, ''), 'unknown'),
       assurance: 'runtime-label-only-not-a-platform-receipt'
     },
-    provenance, blockers: blockers.map((entry) => ({ ...entry })),
+    provenance,
+    ...(includeAuthenticatedRunner ? { authenticatedRunner } : {}),
+    blockers: blockers.map((entry) => ({ ...entry })),
     prohibitions: [
       'DO_NOT_ENABLE_HIGH_ASSURANCE_ENFORCEMENT',
       'DO_NOT_ACCEPT_PROVIDER_ATTESTATIONS_WITHOUT_VERIFIER',

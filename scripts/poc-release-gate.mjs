@@ -85,6 +85,7 @@ export function pocReleaseStages({
         'test/comprehension-command.test.mjs', 'test/comprehension-cached-symbols.test.mjs',
         'test/cmp-corpus-measurement.test.mjs',
         'test/wel-corpus-measurement.test.mjs',
+        'test/wel-corpus-review-receipt.test.mjs',
         'test/comprehension-diff-preview.test.mjs',
         'test/comprehension-evidence-projection.test.mjs',
         'test/wel-junit5.test.mjs',

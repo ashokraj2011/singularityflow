@@ -40,6 +40,7 @@ to understand which document is authoritative for a specific topic.
 | Track governed comprehension from its read-only pilot through future enforcement | [CMP roadmap](CMP-ROADMAP.md) |
 | Measure CMP safely across explicitly selected real repositories | [CMP real-repository corpus measurement](CMP-REAL-CORPUS-MEASUREMENT.md) |
 | Review the staged Code Assurance Bridge trust and rollout contract | [CAB v0.2](CAB-V0.2.md), [threat model](CAB-THREAT-MODEL.md), and [roadmap](CAB-ROADMAP.md) |
+| Inspect the non-authoritative CAB-R2 provider foundation | [CAB-R2 authenticated-runner provider foundation](CAB-R2-PROVIDER-FOUNDATION.md) |
 | Land bounded work that began without a Story | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) |
 | Create, sign, publish, recover, and audit a deliverable without a product repository | [Local signed deliverables](LOCAL-SIGNED-DELIVERABLES.md) |
 | Stage a reference-driven migration before its target repository exists | [Local reference-to-target migration](LOCAL-REFERENCE-TO-TARGET-MIGRATION.md) |

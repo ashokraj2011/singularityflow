@@ -13,7 +13,7 @@ related:
   - governed-execution
   - evidence-and-ledger
   - story-lifecycle
-version: 2
+version: 3
 ---
 Governed Delivery and Proof (GDP) projects the same Candidate and deterministic proof system across
 Workflow mode and bounded Outcome mode. It is opt-in. Existing Stories keep their creation-pinned
@@ -77,7 +77,14 @@ and digests, never credentials. Signed build, environment, deployment, runtime i
 production observation envelopes remain unusable as authority until an approved verifier is
 injected.
 
-`delivery readiness` is an honest support and blocker report. It always reports `gaReady: false` in
+`delivery authenticated-runner-status` is the CAB-R2 doctor. Without
+`--runner-provider-file` it reports no declaration; with a closed, repository-relative descriptor
+it validates IDs and policy digests but still reports the runner integration, verifier, authority,
+platform evidence, pilots, and evidence storage as unavailable. It never executes a runner or
+upgrades assurance. See `docs/CAB-R2-PROVIDER-FOUNDATION.md`.
+
+`delivery readiness` accepts the same optional `--runner-provider-file` and is an honest support
+and blocker report. It always reports `gaReady: false` in
 this release. It lists missing authenticated-runner evidence, provider pilots, platform/package
 release receipts, migration exercises, the observation window, and duplicate-path dependency
 proof. The current OS and Node labels are diagnostic labels, not cross-platform release evidence.

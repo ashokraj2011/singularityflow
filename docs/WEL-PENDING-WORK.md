@@ -42,8 +42,13 @@ replay and packaged JDK parser. It accepts only an explicitly reviewed, bounded 
 retained reporter bytes without executing tests; refuses repository drift; and emits aggregate
 outcomes, latency, CPU, catalog bytes, and closed reason counts without paths, source, test names,
 clauses, content digests, identities, prompts, or transcripts. The npm package, portable matrix,
-and release gate contain and exercise the runner. This supplies collection machinery only: it is
-not an independently reviewed corpus result, authenticated evidence, or a release authority.
+and release gate contain and exercise the runner. A separate
+[signed corpus-review receipt](WEL-CORPUS-REVIEW-RECEIPT.md) lets an externally trusted reviewer bind
+that exact content-free aggregate to the clean source commit/tree, runner profile, runtime, platform,
+and an opaque approved review reference; every new release-matrix cell and final promotion replay the
+receipt against an independently supplied trust root. The measurement and receipt remain explicitly
+`none-observe-only`: this supplies collection and durable review-handoff machinery only, not an
+authenticated checker execution, Story lifecycle authority, or self-approved corpus result.
 
 The shared package boundary was re-exercised at `main@da6338ab`: both the isolated npm package and
 the exact VSIX-contained engine still import the WEL adapter and packaged Java helper while running
@@ -294,9 +299,10 @@ Implemented in the current increment:
   same suites are mandatory in the release gate rather than relying on the broad test suite to find
   them indirectly;
 - the full 12-sample `npm run benchmark:wel` measurement is a mandatory release-gate stage. The
-  benchmark writes its exact report only to a private runner-owned temporary location; receipt schema
-  v5 validates and embeds the content-free report plus its canonical digest, and aggregate schema v6
-  retains that independently signed report in every platform/Node matrix cell. A missing, unavailable,
+  benchmark writes its exact report only to a private runner-owned temporary location; current receipt
+  schema v7 validates and embeds the content-free report and independent corpus review plus their
+  canonical digests, and current aggregate schema v8 retains them in every platform/Node matrix cell.
+  Historical v5/v6 singles and v6/v7 matrices remain audit-readable only. A missing, unavailable,
   incomplete, host-mismatched, content-bearing, false-exact, or digest-mismatched report refuses the
   receipt rather than relying on an optional developer run or a pass-only stage label.
 - `npm run benchmark:wel:corpus -- --manifest <JSON> --samples <1..20>` measures the production
@@ -306,6 +312,13 @@ Implemented in the current increment:
   not drift, and emits only content-free aggregates. JUnit cases use the bounded packaged local JDK
   parser without compiling or loading Candidate tests. A classification mismatch exits nonzero,
   while the observation remains non-authoritative and ineligible for release by itself.
+- `npm run evidence:wel:corpus-review -- --manifest <JSON> --samples <1..20> --signing-key <PEM>
+  --identity <reviewer> --review-reference <review:uuid|sha256:64hex>` reruns that boundary from a
+  clean exact source,
+  rejects every mismatch or content-bearing shape, and signs the aggregate for one exact runtime.
+  Per-host verification, matrix merge, and promotion require the independently supplied reviewer
+  public key. The signed claim authenticates independent review only and keeps lifecycle authority
+  `none-observe-only`.
 
 Implementation checkpoints: `d55229c7` (content-free benchmark v2), `6fbcf3bf` (isolated npm and
 VSIX engine proof), `d960e928` (portable deterministic corpus command), `396ccb73` (mandatory

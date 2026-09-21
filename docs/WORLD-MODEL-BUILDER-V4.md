@@ -438,7 +438,8 @@ shell-only transport path.
 Ordinary development remains a one-machine workflow. Release promotion is stricter: one clean exact-
 commit builder produces and signs the npm/VSIX pair once. Individually signed clean-checkout cells
 on physical macOS, Linux, and Windows hosts under Node 20 and Node 22 consume those retained bytes,
-and a reviewer merges all six into one signed aggregate. Promotion verifies both trust roots and
+and a reviewer merges all six into one signed aggregate. Promotion verifies the artifact-builder,
+release-reviewer, and WEL corpus-reviewer trust roots and
 byte-copies that same pair; it never rebuilds either artifact.
 
 Physical evidence is an external operator-supplied prerequisite and is deliberately not manufactured
@@ -459,6 +460,8 @@ npm run verification:receipt -- \
   --vsix /retained/release-candidate/singularity-flow-vscode-0.9.0.vsix \
   --signing-key /secure/platform-runner-private.pem \
   --platform-evidence /reviewed/reviewed-darwin-node20.json \
+  --wel-corpus-review /reviewed/wel-corpus-review-darwin-node20.json \
+  --wel-corpus-review-key /trusted/wel-corpus-reviewer-public.pem \
   --identity darwin-node20-reviewer@example.com \
   --out /retained/cells/darwin-node20.json
 
@@ -472,6 +475,7 @@ npm run verification:receipt:merge -- \
   --receipt /retained/cells/win32-node22.json \
   --artifact-receipt /retained/release-candidate/RELEASE-ARTIFACT-RECEIPT.json \
   --artifact-key /trusted/release-artifact-builder-public.pem \
+  --wel-corpus-review-key /trusted/wel-corpus-reviewer-public.pem \
   --signing-key /secure/release-reviewer-private.pem \
   --identity release-reviewer@example.com \
   --out /retained/verification-matrix-receipt.json
@@ -479,7 +483,8 @@ npm run verification:receipt:merge -- \
 
 The merge refuses mixed commits, trees, artifacts, or artifact authorities and records every
 original signed cell. Real promotion and `release:dry` both require the signed artifact receipt,
-explicit builder trust root, retained tarball/VSIX, complete matrix receipt, and reviewer trust root.
+explicit builder and WEL corpus-reviewer trust roots, retained tarball/VSIX, complete matrix receipt,
+and release-reviewer trust root.
 Dry-run promotion may first reconcile a previously interrupted `dist/` directory promotion; when no
 such recovery state exists, it validates without writing a new `dist/`. The full command sequence,
 key-custody boundary, and retained output contract are in

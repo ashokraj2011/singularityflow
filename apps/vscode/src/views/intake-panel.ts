@@ -856,8 +856,8 @@ export class IntakePanel {
 
   dispose(): void {
     if (this.disposed) return;
-    this.invalidateEnhancement();
     this.disposed = true;
+    this.invalidateEnhancement();
     this.cancelBasePreflight();
     if (IntakePanel.current === this) IntakePanel.current = null;
     this.panel.dispose();

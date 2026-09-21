@@ -321,6 +321,13 @@
       },
       "digest": "dba2b2c390bc8a80446a6cd019c4c64b4b95517c5dc50c6c00e5ff175add12be"
     },
+    "scripts/wel-corpus-review-receipt.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "5a7bca1e41fae3d23a52db5ec7188395007995aa64b658156ba86f3ef6504f19"
+    },
     "scripts/worldmodel-minimal.sh": {
       "counts": {
         "shell-process": 10
@@ -1277,9 +1284,9 @@
     },
     "package.json": {
       "counts": {
-        "package-script": 59
+        "package-script": 60
       },
-      "digest": "b74e43786450f775bde5fb4289b963a193dcbb53eceda60d1686b6f133cb8afa"
+      "digest": "18468ddb29e2b4a5aedec4b9043c8d00edf5aae8432535e4a35f061c4eb39f90"
     },
     "apps/vscode/package.json": {
       "counts": {

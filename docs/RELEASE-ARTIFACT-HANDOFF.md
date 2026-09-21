@@ -56,6 +56,8 @@ npm run verification:receipt -- \
   --package /retained/release-candidate/singularity-flow-0.9.0.tgz \
   --vsix /retained/release-candidate/singularity-flow-vscode-0.9.0.vsix \
   --platform-evidence /reviewed/platform-evidence.json \
+  --wel-corpus-review /reviewed/wel-corpus-review-darwin-node22.json \
+  --wel-corpus-review-key /trusted/wel-corpus-reviewer-public.pem \
   --signing-key /secure/platform-runner-private.pem \
   --identity reviewer@example.com \
   --out /retained/cells/darwin-node22.json
@@ -75,8 +77,11 @@ hashes, schemas, and refusal behavior; they cannot prove real host execution, ap
 custody, immutable artifact-store retention, office-network behavior, installed VS Code activation,
 or independent review.
 
-Every `--artifact-key` and `--verification-key` is an operator-selected trust root, not repository
-configuration. Keep these public keys outside the checkout as bounded ordinary non-symlink files.
+Every `--artifact-key`, `--verification-key`, and `--wel-corpus-review-key` is an operator-selected
+trust root, not repository configuration. Keep these public keys outside the checkout as bounded
+ordinary non-symlink files. The artifact-builder, release-verifier, and WEL-reviewer Ed25519 SPKI
+SHA-256 fingerprints must be pairwise distinct; generation, merge, and promotion fail closed if one
+key is reused for two roles.
 Apply the same external, current-user-only custody rule used for the builder key to every platform
 runner and release-reviewer private signing key.
 Receipt outputs are published through an atomic no-clobber claim: choose a fresh output name, and
@@ -94,14 +99,16 @@ npm run verification:receipt:merge -- \
   --receipt /retained/cells/win32-node22.json \
   --artifact-receipt /retained/release-candidate/RELEASE-ARTIFACT-RECEIPT.json \
   --artifact-key /trusted/release-artifact-builder-public.pem \
+  --wel-corpus-review-key /trusted/wel-corpus-reviewer-public.pem \
   --signing-key /secure/release-reviewer-private.pem \
   --identity release-reviewer@example.com \
   --out /retained/verification-matrix-receipt.json
 ```
 
 Merge refuses mixed source subjects, artifact digests, artifact receipt references, missing cells,
-or an untrusted builder. Historical v5 single-cell and v6 matrix receipts remain readable, but all
-new generation uses the build-once v6/v7 contracts and cannot be mixed with historical cells.
+an untrusted builder, or any historical cell. Historical single-cell v5/v6 and matrix v6/v7 receipts
+remain verifiable only for audit. New generation uses the WEL-bearing single-cell v7 and matrix v8
+contracts; historical fields cannot be relabelled or mixed into them.
 
 ## 4. Promote without rebuilding
 
@@ -112,10 +119,12 @@ npm run release -- \
   --package /retained/release-candidate/singularity-flow-0.9.0.tgz \
   --vsix /retained/release-candidate/singularity-flow-vscode-0.9.0.vsix \
   --verification-receipt /retained/verification-matrix-receipt.json \
-  --verification-key /trusted/release-reviewer-public.pem
+  --verification-key /trusted/release-reviewer-public.pem \
+  --wel-corpus-review-key /trusted/wel-corpus-reviewer-public.pem
 ```
 
-Promotion verifies both trust roots and exact bytes, then copies the artifact files only from the
+Promotion requires current matrix schema v8, verifies all three distinct trust roots and exact bytes,
+then copies the artifact files only from the
 descriptor-verified private snapshot into `dist/`. It also writes `SHA256SUMS`, `RELEASE.json`,
 `RELEASE-CHANNEL.json`, `ARTIFACT-RECEIPT.json`, and `VERIFICATION-RECEIPT.json`. Source checks and
 the bundle-budget gate can create disposable diagnostic outputs, but there is no fallback artifact

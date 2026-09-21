@@ -9,8 +9,9 @@
 **Last formal specification audit:** `main@3b5d79e6` on 2026-08-31; subsequent bounded increments
 are reconciled individually below and do not change that audit's authority/enforcement verdict
 
-**Current reconciliation:** checked through `main@ec1b5c88` on 2026-09-07; the first content-free
-P1 measurement harness, experimental source-free record preview/migration prototype, and read-only
+**Current reconciliation:** checked through `main@ec1b5c88` on 2026-09-07, with later bounded
+increments reconciled below; the first content-free P1 measurement harness, the closed v2 private
+review-manifest comparison path, experimental source-free record preview/migration prototype, and read-only
 P3 graph/query/Story-replay projections are active, and the
 existing five-tool gateway now serves a conservative resource-level `intent.trace`. P4 now has a
 bounded observe-only typed walkthrough validator for exact resource-level diff facts. P6 now has
@@ -187,15 +188,24 @@ byte, and has no durable path or writer. This closes the code-local preview/migr
 storage, retention, privacy, real-corpus/platform evidence, and independent rollout authority remain
 open.
 
-The privacy-safe real-repository measurement runner landed at `main@ec1b5c88`. `npm run
-benchmark:cmp:corpus -- --repository <ROOT> ...` accepts 1–16 explicitly reviewed Git roots and a
-single bounded base revision, performs 1–20 samples, verifies unchanged `HEAD` and porcelain state,
-and emits aggregate counts, timing/CPU distributions, and byte distributions only. It emits no
-repository/file path, content digest, source, cause, identity, Work ID, prompt, or transcript and
-invokes no network, model, AST, cache writer, or lifecycle operation. A three-repository local smoke
-observed 126 regions with per-repository total latency from 38.6 to 56.7 ms and no state change. That
-corpus was not independently reviewed and therefore supplies implementation evidence, not the P1
-rollout decision. The operator contract is documented in
+The privacy-safe real-repository measurement runner landed at `main@ec1b5c88`. Its original
+`--repository <ROOT> ...` form remains an explicitly unreviewed v1 performance collector. The bounded
+v2 path instead accepts one private manifest outside the selected repositories with canonical case
+IDs, exact repository/base/change-set subjects, a complete reviewed resource inventory, materiality
+classifications, and an expected diagnostic verdict. It fails nonzero on subject, inventory,
+classification, or verdict mismatch while emitting only aggregate `falseComplete`,
+`falseIncomplete`, `falseMaterial`, `falseNonmaterial`, and stable inventory counters. Both forms
+perform 1–20 samples, verify unchanged `HEAD` and porcelain state, and emit aggregate counts,
+timing/CPU distributions, and byte distributions only. Neither emits the manifest path, case ID,
+repository/file path, commit, content/change-set digest, source, cause, identity, Work ID, prompt, or
+transcript, and neither invokes a network, model, AST, cache writer, or lifecycle operation.
+
+A three-repository v1 smoke observed 126 regions with per-repository total latency from 38.6 to 56.7
+ms and no state change. That corpus was not independently reviewed and therefore supplies
+implementation evidence, not the P1 rollout decision. The v2 runner likewise reports that review
+authentication and independent review are not proven by the runner; actual private corpus review,
+finding disposition, named-machine execution, and rollout authority remain external. The operator
+contract is documented in
 [CMP real-repository corpus measurement](CMP-REAL-CORPUS-MEASUREMENT.md).
 
 The first P3 graph projection landed at `main@bd79630b`. It is model-free, AST-optional, bounded to
@@ -269,7 +279,7 @@ as permission to submit, approve, publish, or merge.
 | Corrected phase | Verified status | Present now | Missing before the phase can exit |
 |---|---|---|---|
 | P0 — contracts and reads | **Partial** | Conservative resource regions; closed cause/relationship/disposition/assurance/availability/refusal/diagnostic registries; bounded diagnostic validation; `regions` and `check`; authority ADR; no-model/no-AST/no-write/no-lifecycle tripwires; isolated npm/VSIX engine proof | Supported-platform deterministic corpus execution |
-| P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark, privacy-safe bounded real-repository corpus runner, and an explicit experimental source-free record preview with assurance-preserving in-memory v1/v2 migration; no durable path, writer, or state | Independently reviewed corpus results, supported-platform measurements, storage/retention/privacy decision, creation-pinned rollout policy, and independent rollout decision |
+| P1 — pilot and storage decision | **Partial** | Release-gated content-free synthetic benchmark; privacy-safe bounded real-repository runner with legacy unreviewed v1 collection and a closed v2 exact-subject/resource-classification/verdict comparison that fails nonzero on aggregate mismatches; explicit experimental source-free record preview with assurance-preserving in-memory v1/v2 migration; no durable path, writer, or state | Independently reviewed private manifest and result dispositions, supported-platform measurements, storage/retention/privacy decision, creation-pinned rollout policy, and independent rollout decision |
 | P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
 | P3 — intent graph and replay | **Partial read projection** | Deterministic ephemeral graph over validated diagnostic bindings; bounded exact clause/file/change reads; opaque handles; content-free normalized Story chronology; existing five-tool gateway resource fallback; explicit unavailable cause/structure; no model, AST requirement, write, or gate | Durable typed index over P2 authority, cache rebuild, cause-backed gateway query, structural expansion, SGOS/cause joins, causal replay, and governed reverse-convergence/post-hoc provenance |
 | P4 — walkthroughs | **Partial read validation** | Deterministic zero-model resource draft; bounded untrusted typed draft; exact resource-level `file-changed` validator; Candidate-bound opaque before/after source references and bounded binary-safe exact expansion; explicit unavailable structure/evidence/human authority; advisory-only model claims; dual hashes; Candidate/dependency integrity; circular-input refusal; selective observe-only revalidation; narrative/fact separation; bounded sources; no model, AST, write, or gate | Optional untrusted model-draft transport, authoritative structural/evidence/human validators, authoritative dependency resolution, durable revalidation receipts, persistence, and governed review |
@@ -339,7 +349,7 @@ platform or independent-review cell.
 | Backlog ID | Required work | Dependency/exit evidence |
 |---|---|---|
 | `CMP-P0-001` | Finish the read-only foundation. The code-local contract, registries, authority ADR, bounded inputs, mutation tripwires, corrected `--phase` recovery text, isolated npm/VSIX loading proof, and deterministic corpus/matrix command are implemented. The unchanged matrix also passes 32/32 on Linux x64 under Node 20.20.2 and 22.23.2 at `main@780da007`. | Signed physical-host execution of the unchanged matrix command on Windows and Linux remains before P0 exit; emulated unsigned containers are portability evidence only |
-| `CMP-P1-001` | The content-free synthetic benchmark is release-gated at `898cb4a0`; the source-free preview/migration prototype landed at `da6338ab`; the bounded privacy-safe real-repository runner landed at `ec1b5c88` and has no writer or authority. Use it to collect the remaining evidence, then decide storage, retention, privacy, measured budgets, and creation-pinned `off`/`record` rollout. | Approved ADRs, independently reviewed corpus results, supported-platform evidence, and independent pilot review |
+| `CMP-P1-001` | The content-free synthetic benchmark is release-gated at `898cb4a0`; the source-free preview/migration prototype landed at `da6338ab`; the bounded privacy-safe real-repository runner landed at `ec1b5c88` and now has a closed v2 private review-manifest comparison with exact subject, resource inventory, materiality, verdict, no-disclosure, and mismatch-exit checks. It still has no writer or authority. Use v2 to collect and disposition the remaining private evidence, then decide storage, retention, privacy, measured budgets, and creation-pinned `off`/`record` rollout. | Approved ADRs, independently reviewed private corpus/results, supported-platform evidence, and independent pilot review; the runner explicitly does not authenticate review independence |
 | `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
 | `CMP-P3-001` | The ephemeral graph and exact `comprehension explain` reads landed at `bd79630b`; the model-free resource-level `intent.trace` gateway fallback landed at `10b8bcd6`; add the P2-authority-backed incremental index, cache rebuild, structural expansion, and cause-backed gateway query | Current bidirectional clause/file/change parity, bounded exact handles, unavailable-cause/structure, tamper, no-model, no-write, no-lifecycle, existing-five-tool, CLI-host, and VS Code-host tests are green; P2 cause authority and cache rebuild remain |
 | `CMP-P3-002` | The content-free normalized Story replay landed at `db61bb90`; add P2 cause records, SGOS lineage joins, refusal/repair subjects, and governed reverse-convergence/post-hoc provenance without colliding with SGOS Process replay | Current ordering, exact focus, source validation, privacy/transcript exclusion, ceiling, no-model, no-write, and command-collision tests are green; fresh-export, SGOS/cause join, recovery, and causal-provenance evidence remain |
@@ -640,6 +650,12 @@ Deliverables:
   latency, cache behavior, and storage bytes;
 - record-mode preview and migration prototype behind an experimental flag;
 - office/offline/proxy and cross-platform release exercise.
+
+The v2 real-corpus runner supplies the code-local comparison boundary for the corpus deliverable: it
+binds each private case to an exact change set and complete resource expectation, distinguishes
+subject, inventory, materiality, and verdict mismatches, and fails nonzero without disclosing which
+private case differed. It does not populate the corpus, authenticate a reviewer, approve a finding
+disposition, establish a machine class, or make the rollout decision.
 
 Acceptance criteria:
 

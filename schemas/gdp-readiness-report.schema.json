@@ -1,20 +1,32 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://singularity-flow.dev/schemas/gdp-readiness-report.schema.json",
-  "title": "GDP General Availability Readiness Report v1", "type": "object",
+  "title": "GDP General Availability Readiness Report v1/v2", "type": "object",
+  "$comment": "Version 1 preserves the original report shape. Version 2 adds the strict fail-closed CAB authenticated-runner diagnostic.",
   "required": ["schemaVersion", "kind", "status", "gaReady", "authority", "implementation", "supportMatrix", "observedRuntime", "provenance", "blockers", "prohibitions", "nextDecision"],
   "properties": {
-    "schemaVersion": { "const": 1 }, "kind": { "const": "gdp-readiness-report" },
+    "schemaVersion": { "enum": [1, 2] }, "kind": { "const": "gdp-readiness-report" },
     "status": { "const": "not-ready" }, "gaReady": { "const": false },
     "authority": { "const": "report-only" },
     "implementation": { "type": "array", "minItems": 12, "maxItems": 12, "items": { "$ref": "#/$defs/milestone" } },
     "supportMatrix": { "$ref": "#/$defs/supportMatrix" },
     "observedRuntime": { "$ref": "#/$defs/runtime" },
     "provenance": { "type": "object" },
+    "authenticatedRunner": { "$ref": "cab-authenticated-runner-readiness.schema.json" },
     "blockers": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/blocker" } },
     "prohibitions": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" } },
     "nextDecision": { "type": "string", "minLength": 1, "maxLength": 500 }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "const": 1 } }, "required": ["schemaVersion"] },
+      "then": { "not": { "required": ["authenticatedRunner"] } }
+    },
+    {
+      "if": { "properties": { "schemaVersion": { "const": 2 } }, "required": ["schemaVersion"] },
+      "then": { "required": ["authenticatedRunner"] }
+    }
+  ],
   "additionalProperties": false,
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },

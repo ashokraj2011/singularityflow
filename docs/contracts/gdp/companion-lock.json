@@ -4,11 +4,12 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "499b2656353c8741f92a770410660750a6f356a3",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-21-BRL.md",
+    "reviewedAtCommit": "2577c98303f3dfab85e1360eabd7138d3a8eca61",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-21-EVIDENCE.md",
     "companionIds": [
-      "migration-registry",
-      "workflow-configuration"
+      "code-assurance-bridge",
+      "witnessed-engineering-delivery-status",
+      "world-model-v4"
     ]
   },
   "companions": [
@@ -35,7 +36,7 @@
     {
       "id": "world-model-v4",
       "path": "docs/WORLD-MODEL-BUILDER-V4.md",
-      "sha256": "sha256:ef6898bada60e1ec02c4accc1a14b4b2042958dea7233943ead948c3a8b87c56"
+      "sha256": "sha256:fb19e89523dddf37fa11dcf8b13305d6c128de0deefeea7b3e4ce2df5f710098"
     },
     {
       "id": "witnessed-engineering-loop",
@@ -45,12 +46,12 @@
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:bd67f0907e4d28636fa9a4c432eb48b4a12949dccd41686cbd2768578448cbe7"
+      "sha256": "sha256:278cca06ddbeb92d034990558187f68871654a6c25bdc43574a3ccf531201eed"
     },
     {
       "id": "code-assurance-bridge",
       "path": "docs/CAB-ROADMAP.md",
-      "sha256": "sha256:5fbbe8e7fef0bb5fb0c7cd4df9d1a7d0486e4a72fa63812c0612f4379e0fd1e6"
+      "sha256": "sha256:b02db4dcf74192d0d33a6e34af0dbd696f831802ff395e67757b4fde8ecbc392"
     },
     {
       "id": "code-assurance-bridge-v0-2",

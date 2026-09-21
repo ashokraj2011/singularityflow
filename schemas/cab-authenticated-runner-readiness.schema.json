@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/cab-authenticated-runner-readiness.schema.json",
+  "title": "CAB Authenticated Runner Readiness Projection v1",
+  "$comment": "Read-only diagnostic projection. The status and every authority/enforcement field are fail-closed constants.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "status", "configured", "enabled", "integrationAvailable",
+    "verifierAvailable", "authority", "gateEligible", "consumedByLifecycle",
+    "enforcementAvailable", "assuranceUpgradeAvailable", "provider", "gaps",
+    "acceptedEvidenceFamilies", "checks"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "cab-authenticated-runner-readiness" },
+    "status": { "const": "unavailable" },
+    "configured": { "type": "boolean" },
+    "enabled": { "type": "boolean" },
+    "integrationAvailable": { "const": false },
+    "verifierAvailable": { "const": false },
+    "authority": { "const": "none" },
+    "gateEligible": { "const": false },
+    "consumedByLifecycle": { "const": false },
+    "enforcementAvailable": { "const": false },
+    "assuranceUpgradeAvailable": { "const": false },
+    "provider": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": [
+            "providerId", "providerType", "integrationId", "trustRootSha256",
+            "runnerProfileSha256", "sandboxPolicySha256", "trustPolicySha256",
+            "resultIngestionPolicySha256", "evidencePolicySha256"
+          ],
+          "properties": {
+            "providerId": { "$ref": "#/$defs/providerId" },
+            "providerType": { "enum": ["enterprise-ci", "independent-runner-service"] },
+            "integrationId": { "$ref": "#/$defs/integrationId" },
+            "trustRootSha256": { "$ref": "#/$defs/digest" },
+            "runnerProfileSha256": { "$ref": "#/$defs/digest" },
+            "sandboxPolicySha256": { "$ref": "#/$defs/digest" },
+            "trustPolicySha256": { "$ref": "#/$defs/digest" },
+            "resultIngestionPolicySha256": { "$ref": "#/$defs/digest" },
+            "evidencePolicySha256": { "$ref": "#/$defs/digest" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "gaps": {
+      "type": "array", "minItems": 6, "maxItems": 8, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^CAB_RUNNER_[A-Z0-9_]+$" }
+    },
+    "acceptedEvidenceFamilies": { "const": [] },
+    "checks": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "items": {
+        "type": "object", "required": ["id", "status", "detail"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "status": { "enum": ["missing", "declared", "disabled", "unavailable"] },
+          "detail": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "providerId": { "type": "string", "pattern": "^cabp_[a-f0-9]{64}$" },
+    "integrationId": { "type": "string", "pattern": "^cabi_[a-f0-9]{64}$" },
+    "id": {
+      "type": "string", "pattern": "^[a-z0-9]+(?:[._:-][a-z0-9]+)*$", "maxLength": 160
+    },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

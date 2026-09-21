@@ -1,16 +1,19 @@
 # Code Assurance Bridge — corrected roadmap
 
-**Status:** CAB-R0 design and CAB-R1 observe-only pilot active; enforcement not authorized
+**Status:** CAB-R0 design, CAB-R1 observe-only pilot, and the fail-closed CAB-R2 provider/readiness
+foundation are active; authenticated execution and enforcement are not authorized
 
 **Roadmap baseline:** `main@40d3f159`
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@259b76f1` on 2026-09-05. Later SGOS, WEL, and GDP
-work delivered reusable Candidate, proof-observation, exact-static JUnit identity, human mapping
-review, and developer-local signed-runner primitives. CAB v0.2 now has a machine-checked code-local
-architecture and adversarial design fixtures. Those components remain non-gating and do not provide
-an authenticated independent verifier or authorize enforcement.
+**Current reconciliation:** reviewed 2026-09-21. The last named implementation anchor remains
+`main@259b76f1`; no commit is assigned here to later worktree increments. Later SGOS, CMP, WEL, and
+GDP work delivered reusable Candidate and proof-observation primitives, exact-static JUnit identity,
+a closed CMP reviewed-manifest comparison, signed content-free WEL corpus-review receipts bound into
+the current release-verification path, human mapping review, developer-local signed-runner
+primitives, and a fail-closed CAB-R2 provider/readiness diagnostic. CAB v0.2 still has no approved
+authenticated sandbox/provider, independent checker authority, or enforcement authority.
 
 **Source proposal:** `SFlow_Code_Assurance_Bridge_SPEC.md` draft v0.1
 
@@ -198,12 +201,16 @@ Explicitly excluded:
 Implemented code-locally: the WEL adapter parses one Maven/JUnit subset without loading Candidate
 classes, joins literal qualified tags to exact static declarations and Surefire occurrences, binds
 proposals to immutable clause bytes, and collects explicit existing-authority review decisions.
-The reviewed local corpus covers literal/named/fully qualified tags and rejects comment/string
+The synthetic reviewed local corpus covers literal/named/fully qualified tags and rejects comment/string
 decoys, wildcard imports, non-literal tags, parameterized/dynamic/repeated/nested tests, duplicate
 report identities, and class mismatches with zero false exact matches. The outcome remains
-`inconclusive` and non-blocking. Candidate/Program/attempt authentication, broader real-repository
-corpus evidence, durable attempt-lineage retry semantics, and supported-platform receipts remain
-open. Candidate/Program/attempt authentication and authoritative retry lineage are not a missing
+`inconclusive` and non-blocking. The bounded real-repository WEL runner now has a signed,
+content-free independent-review receipt contract, and current single-host verification, matrix
+merge, and promotion require its separately supplied trust root. That is code-local durable handoff
+machinery, not evidence that the private corpus was actually executed or independently reviewed.
+Candidate/Program/attempt authentication, actual private real-repository corpus results and finding
+dispositions, durable attempt-lineage retry semantics, and physical supported-platform receipts
+remain open. Candidate/Program/attempt authentication and authoritative retry lineage are not a missing
 local hash or nullable field: they require the CAB-R2 authenticated runner and CAB-R6 lifecycle
 bridge. Existing local observations must keep those bindings null rather than manufacture a join.
 Explicit focus and framework-level reruns already refuse exact-static mapping.
@@ -218,9 +225,23 @@ Exit gates:
 - representative office Java/Maven repositories pass on Windows, macOS, and Linux with approved
   proxy, CA, and offline-cache configurations.
 
-### [ ] CAB-R2 — Hermetic runner and authenticated evidence
+### [~] CAB-R2 — Hermetic runner and authenticated evidence
 
 **Planning range:** 6–10 person-weeks
+
+Implemented code-locally in the 2026-09-21 reconciliation: a closed credential-free provider
+descriptor accepts only opaque provider/integration identifiers and policy/trust digests; the
+read-only `delivery authenticated-runner-status` doctor and GDP readiness v2 projection always
+report the integration, verifier, authority, lifecycle consumption, enforcement, and assurance
+upgrade as unavailable. Configuration cannot load provider code, execute Candidate code, ingest an
+attestation, satisfy a gate, or upgrade assurance. GDP readiness without the new provider input
+retains its original v1 shape.
+
+Still required before CAB-R2 can exit: an independently approved and operated sandbox/provider,
+external trust-root custody and signer lifecycle, authenticated result ingestion, immutable evidence
+storage, supported physical-platform containment/process-quiescence proof, and reviewed outage,
+replay, revocation, privacy, and retention pilots. The diagnostic foundation satisfies none of
+those external gates.
 
 Deliver:
 

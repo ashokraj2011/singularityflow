@@ -96,12 +96,16 @@ export async function runPackagedCliSmoke({
       'src/wel-adapters.mjs',
       'src/wel-javascript.mjs',
       'src/wel-junit5.mjs',
+      'src/wel-corpus-review-receipt.mjs',
       'src/wel/WelJunitCatalog.java',
       'src/revision/producer-lock.json',
       'scripts/cmp-corpus-measurement.mjs',
       'scripts/wel-corpus-measurement.mjs',
+      'scripts/wel-corpus-review-receipt.mjs',
+      'schemas/wel-corpus-review-receipt.schema.json',
       'docs/CMP-ROADMAP.md',
       'docs/WEL-PENDING-WORK.md',
+      'docs/WEL-CORPUS-REVIEW-RECEIPT.md',
       'docs/adr/0014-cmp-observe-authority-boundary.md',
       'docs/adr/0015-wel-javascript-local-identity.md'
     ];

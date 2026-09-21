@@ -30,13 +30,16 @@ async function main() {
   const receiptPaths = repeated('--receipt').map((value) => path.resolve(root, value));
   const artifactReceiptPath = option('--artifact-receipt');
   const artifactKeyPath = option('--artifact-key');
+  const welCorpusReviewKeyPath = option('--wel-corpus-review-key');
   const signingKeyPath = option('--signing-key');
   const identity = option('--identity');
   const output = path.resolve(root, option('--out') ?? 'verification-matrix-receipt.json');
-  if (!receiptPaths.length || !artifactReceiptPath || !artifactKeyPath || !signingKeyPath || !identity) {
+  if (!receiptPaths.length || !artifactReceiptPath || !artifactKeyPath || !welCorpusReviewKeyPath
+      || !signingKeyPath || !identity) {
     throw new Error(
       'Usage: node scripts/merge-verification-receipts.mjs --receipt <path> [--receipt <path> ...] '
       + '--artifact-receipt <path> --artifact-key <trusted-builder-public.pem> '
+      + '--wel-corpus-review-key <trusted-independent-reviewer-public.pem> '
       + '--signing-key <ed25519-private.pem> '
       + '--identity <reviewer> [--out <path>]'
     );
@@ -63,11 +66,20 @@ async function main() {
   const artifactKey = (await readSecurePublicKey(path.resolve(root, artifactKeyPath), {
     repository: root, label: 'Trusted artifact-builder public key'
   })).bytes;
+  const welCorpusReviewKey = (await readSecurePublicKey(path.resolve(root, welCorpusReviewKeyPath), {
+    repository: root, label: 'Trusted independent WEL corpus reviewer public key'
+  })).bytes;
   const aggregate = mergeSignedVerificationReceipts(
     receipts,
     signingAuthority.bytes,
     identity,
-    { artifactReceipt, trustedArtifactPublicKeyPem: artifactKey, requireSgosEndToEnd: true }
+    {
+      artifactReceipt,
+      trustedArtifactPublicKeyPem: artifactKey,
+      requireSgosEndToEnd: true,
+      requireWelCorpusReview: true,
+      trustedWelCorpusReviewPublicKeyPem: welCorpusReviewKey
+    }
   );
   // This is the deliberate review boundary: a partial aggregate is useful diagnostics but must not
   // be written with a release-authority filename.
@@ -79,7 +91,10 @@ async function main() {
     artifactReceipt,
     trustedArtifactPublicKeyPem: artifactKey,
     requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
-    requireSgosEndToEnd: true
+    requireCurrentMatrixVersion: true,
+    requireSgosEndToEnd: true,
+    requireWelCorpusReview: true,
+    trustedWelCorpusReviewPublicKeyPem: welCorpusReviewKey
   });
   await mkdir(path.dirname(output), { recursive: true, mode: 0o700 });
   await writeReleaseJsonNoClobber(output, aggregate);

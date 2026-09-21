@@ -149,19 +149,21 @@ or promoted as current release authority. See
 
 Only check outcomes, lower-kebab mechanism names, and SHA-256 references to externally retained raw
 evidence enter the receipt. Raw logs, commands, paths, host names, URLs, and credentials are rejected
-as unknown fields. Historical single-host receipt schema v5 and aggregate schema v6 remain readable.
-New single-host schema v6 and aggregate schema v7 additionally bind one separately signed artifact
-receipt, and carry both the physical platform evidence and the exact content-free WEL benchmark
-report plus its canonical digest in every matrix cell. The report binds parser, ingestion, receipt
-and Context X-Ray timing, byte growth,
+as unknown fields. Historical single-host receipt schemas v5/v6 and aggregate schemas v6/v7 remain
+readable for audit, but cannot be merged or promoted. Current single-host schema v7 and aggregate
+schema v8 bind one separately signed artifact receipt and one independently signed, content-free WEL
+corpus-review receipt, and carry both those inputs, the physical platform evidence, and the exact WEL
+benchmark report plus their canonical digests in every matrix cell. The artifact-builder,
+release-verifier, and WEL-reviewer Ed25519 trust roots must be pairwise distinct. The benchmark report
+binds parser, ingestion, receipt and Context X-Ray timing, byte growth,
 exact/inexact counts, Story-start timing, exact publication recovery, offline/fresh-clone recovery,
 interrupted-write restoration, and cancellation behavior. A non-observed, incomplete, host-mismatched,
 content-bearing, or digest-mismatched benchmark cannot authorize a receipt. New merge and promotion
-reject missing evidence, a mismatched artifact subject, an untrusted builder key, changed artifact
-bytes, or cells naming different artifact-receipt payloads. Verification cells and promotion never
-rebuild the npm package or VSIX. Each cell first snapshots descriptor-verified artifact bytes into a
-private directory, installs the exact snapshot tarball, executes the CLI engine extracted from the
-exact snapshot VSIX, and removes that snapshot after re-verification. Its consumer-mode POC gate
+reject historical versions, missing evidence, a mismatched artifact subject, an untrusted role key,
+changed artifact bytes, or cells naming different artifact-receipt payloads. Verification cells and
+promotion never rebuild the npm package or VSIX. Each cell first snapshots descriptor-verified
+artifact bytes into a private directory, installs the exact snapshot tarball, executes the CLI engine
+extracted from the exact snapshot VSIX, and removes that snapshot after re-verification. Its consumer-mode POC gate
 does not package a VSIX, build a source extension bundle, or run npm package inventory. Broader
 source validation may create disposable diagnostic packs or bundles; those outputs cannot enter or
 replace the signed artifact subject. See

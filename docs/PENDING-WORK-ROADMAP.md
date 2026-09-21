@@ -4,7 +4,7 @@
 
 **Baseline:** `main@fbdc7aea`
 
-**Last reviewed:** 2026-09-19
+**Last reviewed:** 2026-09-21
 
 The Git Access Layer code-local caller-migration increment is complete at `main@fbdc7aea`; it is
 not yet release-qualified. Approved read-path cutovers, closed remote/ref authority hardening,
@@ -79,21 +79,37 @@ VS Code views, Story-local planned intent, and fulfilment comparison are code-lo
 features. CALM is not pending feature work; only the common signed package/platform evidence and
 any separately proposed future projection contracts remain open.
 
-The privacy-safe CMP real-repository corpus runner landed at `main@ec1b5c88`. It measures 1–16
-explicit Git roots through the production exact-change/coverage path, refuses concurrent state
-drift, and outputs aggregate timing/count/byte distributions without paths, source, content
-digests, identities, prompts, or network/model/AST/lifecycle activity. A three-repository local
-smoke measured 126 regions without changing repository state. Independent corpus review and signed
-supported-platform evidence remain open.
+The privacy-safe CMP real-repository corpus runner landed at `main@ec1b5c88`. Its original v1 form
+remains an explicitly unreviewed performance collector. The 2026-09-21 worktree reconciliation adds
+a closed v2 private reviewed manifest with exact repository/base/change-set subjects, complete
+resource inventory and materiality classifications, and expected coverage verdicts. It fails
+nonzero on subject, inventory, classification, or verdict mismatch and emits only stable aggregate
+false-complete, false-incomplete, false-material, false-nonmaterial, and inventory counters. It
+still authenticates neither the reviewer nor reviewer independence. Actual execution against an
+independently approved private corpus, finding disposition, named physical-platform measurements,
+storage/privacy approval, and rollout authority remain external; no landing SHA is claimed here.
 
 The privacy-safe WEL real-repository corpus runner landed at `main@8fbd3a97` and gained the matching
 JUnit/Surefire path at `main@3edb8bcf`. It measures the production observe-only JUnit/Surefire and
-Jest/Vitest profiles from a bounded, explicitly reviewed local manifest, consumes existing reporter
-bytes without executing tests, detects repository drift and classification mismatches, and emits no
-repository/test/content/identity data. JUnit cases use the bounded packaged JDK parser without
-compiling or loading Candidate tests. The npm package, portable CMP/WEL matrix, and release gate
-exercise the same runner. Execution and independent corpus review, supported physical-platform
-evidence, authenticated execution, and signed release authority remain open.
+Jest/Vitest profiles from a bounded reviewed manifest without executing tests or emitting
+repository/test/content identities. The 2026-09-21 worktree reconciliation adds a closed signed
+content-free corpus-review receipt that binds the exact source commit/tree, runner/profile,
+runtime, aggregate, and independently supplied reviewer trust root. Current single-host receipt
+generation, six-cell merge, and release promotion require and replay that receipt. This completes
+the code-local signed handoff and release-refusal path only. The actual independently reviewed
+private-corpus executions, retained review decisions, physical macOS/Linux/Windows by Node 20/22
+matrix, office-network evidence, and authenticated hermetic checker execution remain external; no
+landing SHA is claimed here.
+
+The 2026-09-21 worktree reconciliation also adds the fail-closed CAB-R2 provider/readiness
+foundation. A closed credential-free descriptor accepts opaque provider/integration identities and
+policy/trust digests; `delivery authenticated-runner-status` and opt-in GDP readiness v2 report the
+provider integration, verifier, authority, lifecycle consumption, enforcement, and assurance
+upgrade as unavailable. Ordinary GDP readiness retains its v1 shape. This is diagnostic
+configuration only: no sandbox or provider is installed, no attestation is verified or ingested,
+and no Story or release gate accepts CAB evidence. An independently approved authenticated
+sandbox/provider, trust-root custody, physical containment proof, evidence-store authority, and
+provider pilots remain external and pending.
 
 The SGOS end-to-end release-proof contract landed at `main@7304c65c`. The existing platform
 evidence, signed receipt, six-cell merge, and release promotion path now requires distinct retained
@@ -344,20 +360,20 @@ digest is `sha256:4c46cd2938b5dba6086a20bf200502e54fda74f3328645cbd6bd012ebc0c70
 Both editor-profile cells are therefore complete on macOS; Linux child RSS, Windows,
 office-network, pinned-runner baseline, and signed package/platform evidence remain open.
 
-## 2026-09-11 reconciliation snapshot
+## 2026-09-21 reconciliation snapshot
 
 This snapshot resolves conflicts between older domain roadmaps and the executable baseline. A
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `ef6a4529` | Still open |
+| Area | Implemented code-local boundary | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile, P0/P1 controls, interval pacing, provenance-preserving direct Ad Hoc Candidate adoption, and an exact registered Flow Impact comparison projection | Optional SGOS execution profile plus collection and independent review of qualifying comparison cohorts |
-| CMP | Model-free, read-only `comprehension regions`, `check`, experimental source-free record preview/in-memory migration, bounded privacy-safe real-repository measurement, Candidate-bound bounded exact before/after source expansion, ephemeral intent graph, exact clause/file/change explanation, content-free normalized Story replay, resource-level `intent.trace` through the existing five gateway tools, release-gated synthetic benchmark, deterministic resource walkthrough drafts, typed validation, selective observe-only revalidation, a leased read-only VS Code Comprehension Center with bounded exact tracked-diff and on-demand source inspection, per-file/hunk indexing, cache-only current-symbol navigation, keyboard semantics, built-host/repository-switch fencing, an exact-region join to recorded delivery/test references, guarded `/sf-learn` routing, and a no-full-backfill touched-area/historical-proposal diagnostic with a native Brownfield tab | Independently reviewed corpus results and storage/privacy decision, durable cause authority/index, cause-backed gateway query, authoritative structural/evidence expansion, SGOS/cause replay joins, governed causal provenance, optional model drafting, authoritative walkthrough validators/receipts, lifecycle enforcement, remaining physical production evidence, reviewed CMP lessons, and governed historical persistence/review |
+| CMP | Model-free read projections, preview/migration, synthetic benchmark, native diagnostics, and the privacy-safe real-repository runner are present. Its v2 path consumes a closed private exact-subject/resource-classification/verdict manifest, reports stable aggregate mismatches, and exits nonzero without disclosing corpus identity or content | Execute the v2 runner over an independently approved private corpus; retain review and finding dispositions; collect named physical-platform results; approve storage/privacy and rollout. Durable cause authority, governed persistence, authoritative validators, and enforcement remain separate later phases |
 | SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, isolated interruption-resumable learning workspaces, identity-free monotonic portable learning progress with v1-to-v2 migration, exact-active-Pack-bound offline learning bundles, release-gated content-free read-model budgets, and a strict v2 end-to-end release-proof/merge/promotion boundary | Real external-adapter Secret Broker integration, consented external telemetry, independently reviewed physical six-cell release evidence, additional adapters, orchestration, stores, independent certification, and accessibility validation |
-| WEL | Observe-only witnessed clauses; exact-static local JUnit/Surefire and bounded top-level literal Jest/Vitest adapters; human mapping review; durable synthetic adversarial corpora; a bounded privacy-safe reviewed-manifest runner for real JUnit/Surefire and Jest/Vitest repositories; same-process incremental cost; content-free Context X-Ray projection; model-free local Story-start transaction measurement; cancellable Java parser execution; synthetic push/offline/fresh-clone/interrupted-write recovery; strict benchmark binding in signed release receipts; clean Linux Node 20/22 portable matrices; and a complete unsigned Linux Node 22 package/VSIX release gate. Results remain inconclusive | Candidate/Program/attempt join, execution and independent review of the real corpora, physical Windows and office-network recovery receipts, authenticated hermetic execution, enforcement recovery, further adapter shapes, and signed platform release proof |
-| CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
-| GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |
+| WEL | Observe-only exact-static adapters, adversarial corpora, the bounded privacy-safe real-repository runner, and synthetic/portable benchmark paths remain non-authoritative. A signed content-free corpus-review receipt is now bound into current single-host verification, matrix merge, and release promotion | Execute and independently review the actual private corpora; retain dispositions; collect the physical Windows/macOS/Linux by Node 20/22 and office-network cells; add authenticated hermetic execution, Candidate/Program/attempt authority, and enforcement recovery |
+| CAB | CAB v0.2 architecture, adversarial design contract, observe-only pilot, and a closed fail-closed CAB-R2 provider/readiness diagnostic are active. Configuration grants no integration, verifier, authority, evidence consumption, enforcement, or assurance upgrade | Independent R0 ratification plus an approved authenticated sandbox/provider, trust-root lifecycle, result ingestion, evidence CAS, physical containment/platform proof, provider pilots, opt-in enforcement, adequacy, and regulated deployment proof |
+| GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness are partial. Existing readiness v1 is preserved; opt-in v2 embeds the strict unavailable CAB-R2 diagnostic | Approved authenticated runner/verifier, provider pilots, enforce enrollment, migration/support-window exercises, completed physical signed package/platform receipts, and GA decision |
 | VS Code UI remediation | Multi-Story navigation, timeout recovery, responsive layout, visual regression contract, native developer-local runner review, and the initial read-only CMP Comprehension Center are complete code-local increments | CMP Center physical-host accessibility/performance evidence and its future authoritative expansion remain product-roadmap work, not defects left in the closed remediation plan |
 | WMB v4 | Build-once exact-Git npm/VSIX artifact authority, consuming platform receipts, merger, copy-only promotion, and refusal gate are implemented at `854380a9`; historical receipts remain readable and unsigned local macOS Node 20/22 aggregates are green | Execute and independently review the physical signed macOS/Linux/Windows by Node 20/22 cells against one retained artifact pair; approve builder-key custody and artifact-store retention |
 | CALM projection | Deterministic `arch.calm@1` projection, packaged offline FINOS CALM 1.2 validation, exact source maps, atomic state-branch publication, CLI/Copilot/VS Code inspection, Story-local planned intent, export, and fulfilment comparison are implemented through `e5f84ae6` | Shared signed npm/VSIX and supported-platform release evidence; any new projection contract requires a separately reviewed increment |
@@ -444,10 +460,10 @@ matrix cell.
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Persisted World-Model exact history | Governed identity, exact-key lookup, build-to-binding staging, owned saved-view publication, byte-only packets, and automatic new-Story exact-history activation are implemented. Registered-v4 Story creation selects exact already-published model/view keys at one immutable authority cut before WFA; phase composition re-proves and replays that cut without hidden model/render/AST work | Collect physical-platform/fresh-clone/race evidence; add IDE/FWM exact-history consumers and portable handoff/adoption. Add a tokenizer owner only if a future variant claims token measurement | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
 | REV code/test loop | The guarded built-in pilot exposes preview/confirmation, private feedback attachments, exact parent/child Candidate retention, append-only interval lineage, manual IDE capture, deterministic precheck cards, and recovery. The BRL foundation adds bounded `/sf-revision-checks` capability/plan/status/result reads, fixed-bridge candidate observations, full Story/phase/loop/interval/run/attempt and test-manifest binding, one immutable receipt per run, exact staleness, a private opaque artifact inventory, and a non-authoritative VS Code result-card model. Artifacts are explicitly unverified and non-previewable until secure admission exists. Visual claims fail closed; runner, candidate-under-test attestation, witness, green, Testing, and publication authority remain false | Add an approved isolated executor with candidate-under-test build/deployment attestation, authenticated quality receipts, secure browser-artifact admission, a registered pixel comparator and governed baseline/finding lifecycle, trusted unsaved-buffer adapter, exact selected-head publication bridge, and signed cross-platform witness matrix before autonomous/default activation | [REV delivery status](REV-DELIVERY-STATUS.md), [BRL v0.4](SPEC-BROWSER-VERIFIED-REVISION-LOOP.md) |
-| Witnessed Engineering Loop | Exact-static local JUnit and bounded literal Jest/Vitest observations, immutable proposal binding, existing-approval review, migration, release-gated baseline/delta/Context-X-Ray/Story-start/recovery benchmark, cancellable Java parser boundary, isolated npm/VSIX proof, strict signed benchmark-report binding, a bounded platform-matrix command, and a privacy-safe real-repository JUnit/Surefire plus Jest/Vitest corpus runner are active; portable Linux matrices and package gates are green, process-private parser reuse is present, and `main@03825387` closes the remaining reproduced exact-publication/aggregate-interruption liveness defects; authenticated testcase claims and enforcement remain unavailable | Execute and independently review both corpus families through the new runner, sign the physical-host/office-network P0 gates, then satisfy Candidate/Program/attempt and authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
-| Code Assurance Bridge | CAB-R0 architecture and CAB-R1 observe pilot are active; enforcement remains unavailable | Independent CAB-R0 review plus authenticated CAB-R2 runner authority | [CAB roadmap](CAB-ROADMAP.md) |
-| Governed comprehension | Read-only, non-authoritative P0 contract, closed registries, authority ADR, mutation tripwires, isolated npm/VSIX proof, deterministic corpus/matrix command, content-free P1 benchmark, bounded privacy-safe real-repository measurement, experimental source-free record preview/in-memory migration, bounded ephemeral P3 graph/exact explanation reads, normalized Story replay, an existing-five-tool resource-level gateway trace, and code-local incremental brownfield diagnostics with a leased native view exist | Execute and sign the unchanged `CMP-P0-001` matrix on Windows and Linux, independently review collected corpus results, complete the P1 storage/privacy and rollout decision, add P2-backed durable graph/causal authority plus SGOS joins, then integrate governed historical review before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
-| Governed Delivery and Proof | M0–M8 are implemented; M9–M11 have code-local partial surfaces and remain non-GA | Authenticated M9 runner/verifier and signed release evidence before provider pilots or enforcement | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
+| Witnessed Engineering Loop | The observe-only exact-static adapters, privacy-safe real-repository runner, benchmark paths, and prior portable evidence remain non-authoritative. A signed content-free corpus-review receipt now binds the exact source/tree, runner/profile, runtime, aggregate, and external reviewer trust root into current single-host verification, matrix merge, and release promotion; authenticated testcase claims and enforcement remain unavailable | Execute and independently review both private corpus families, retain their decisions, collect the physical macOS/Linux/Windows by Node 20/22 and office-network cells, then satisfy Candidate/Program/attempt and approved authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
+| Code Assurance Bridge | CAB-R0 architecture, CAB-R1 observe pilot, and the fail-closed CAB-R2 provider/readiness foundation are active. Its closed credential-free descriptor and status projection grant no integration, verifier, authority, evidence consumption, enforcement, or assurance upgrade | Complete independent CAB-R0 review, approve and operate an authenticated sandbox/provider and trust-root lifecycle, then collect physical containment/platform evidence and provider pilots before any enforcement | [CAB roadmap](CAB-ROADMAP.md) |
+| Governed comprehension | The existing read-only surfaces, benchmarks, native diagnostics, and privacy-safe real-repository runner remain non-authoritative. Its v2 path now accepts a closed exact-subject/resource-classification/verdict manifest, fails on stable aggregate mismatch counters, and emits no corpus identities or content | Execute v2 against an independently approved private corpus, retain finding dispositions, collect physical matrix evidence, approve storage/privacy and rollout, then add durable governed cause/history authority before enforcement | [CMP roadmap](CMP-ROADMAP.md) |
+| Governed Delivery and Proof | M0–M8 are implemented; M9–M11 remain partial and non-GA. Readiness v1 stays backward-compatible, while opt-in v2 embeds the strict fail-closed CAB-R2 provider diagnostic | Approve an authenticated runner/provider and verifier, complete provider pilots and physical signed release evidence, then exercise enrollment/migration/support windows before enforcement or GA | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Auto v2 | Story P0/P1, model/AST optionality, direct Ad Hoc Candidate adoption, and guarded registered comparative-quality projection are implemented | Optional SGOS profile after its independent acceptance contract; execute and independently review a real qualifying comparison study | [Auto v2 roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) |
 | Fast onboarding and safe Git | M0–M5 code-local contracts are active. Portable delivery-state authority discovery, URL-first approved-map inspection, explicit registered-lead search, deferred proposal enumeration, exact conflict reconciliation, cross-process verified capability-catalog reuse, Smart clone defaults, and the VS Code explanation/recovery slice landed through `main@7508665e`. RDS v1's explicit model-free provider catalog and repository selection flow subsequently landed at `main@baca8ed1`; controlled release evidence remains open | Complete `CAD-WSP-PLAN-v1` M6 office/platform evidence, FOS AC-035, external M5 adapter certification, and RDS physical office/provider evidence | [Operator guide](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md), [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md), [capability/workspace extension plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md), and [repository discovery specification](SPEC-RDS-REPOSITORY-DISCOVERY-AND-SELECTION-v1.md) |
 
@@ -472,6 +488,11 @@ new responsiveness defect belongs in the DXP track below, not in that closed rem
 - **Deferred tracks:** CMP enforcement and durable cause authority, CAB/WEL authenticated runners,
   GDP provider pilots/enforcement, Auto-SGOS, extra provider adapters, advanced orchestration, and
   other new UI surfaces remain behind their own authority and release contracts.
+
+The CMP reviewed-manifest v2 path, WEL signed corpus-review receipt and release binding, and CAB-R2
+fail-closed readiness foundation are completed code-local mechanisms. They do not close the
+deferred external executions, physical evidence, provider approval, trust custody, or enforcement
+work listed above.
 
 ## Dependency order
 
@@ -605,11 +626,14 @@ The last line is useful local evidence, not an accepted reference baseline.
 - **Implementation anchor:** `main@854380a9`
 - **Target:** the release that promotes WMB v4
 
-The receipt generator, merger, artifact binding, and release refusal gate are implemented. Completion
-requires clean-checkout signed receipts for macOS, Linux, and Windows on Node 20 and Node 22, one
-reviewed aggregate over the same final commit and tree, and one separately signed artifact-builder
-receipt whose retained npm/VSIX pair every cell consumed unchanged.
-Local Node 25 runs and simulated platform tests satisfy none of those six cells.
+The receipt generator, merger, artifact binding, and release refusal gate are implemented. Current
+single-host verification, matrix merge, and release promotion also require and replay a per-cell
+signed WEL corpus-review receipt against a separately supplied reviewer trust root. Completion still
+requires actual independently reviewed private-corpus executions, clean-checkout signed receipts for
+macOS, Linux, and Windows on Node 20 and Node 22, one reviewed aggregate over the same final commit
+and tree, and one separately signed artifact-builder receipt whose retained npm/VSIX pair every cell
+consumed unchanged. The receipt contract is not physical evidence: local Node 25 runs, simulated
+platform tests, and code-local receipt fixtures satisfy none of those six cells.
 
 ### Pre-remediation audit baseline
 

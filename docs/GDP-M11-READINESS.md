@@ -12,6 +12,23 @@ To include a reviewed provider descriptor:
 singularity-flow delivery readiness --provider-file <repository-relative-provider.json> --json
 ```
 
+To include the separate CAB-R2 authenticated-runner declaration diagnostic:
+
+```text
+singularity-flow delivery authenticated-runner-status \
+  --runner-provider-file <repository-relative-runner-provider.json> --json
+singularity-flow delivery readiness \
+  --runner-provider-file <repository-relative-runner-provider.json> --json
+```
+
+The runner declaration cannot make the report ready. It validates only a closed credential-free
+configuration shape; integration, verifier, external trust authority, containment evidence,
+provider pilots, and lifecycle consumption remain unavailable.
+
+For compatibility, readiness without `--runner-provider-file` retains the original v1 report shape.
+Supplying the new descriptor emits v2 and adds the strictly fail-closed `authenticatedRunner`
+projection; v1 never carries that field, and v2 always does.
+
 The report separates implemented product surfaces from external release evidence. M0–M8 are
 implemented. M9 is a non-gating local observation profile. M10 supplies provider-neutral contracts
 but no installed verifier. M11 currently supplies the report itself; it does not grant GA status.

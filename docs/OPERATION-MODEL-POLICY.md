@@ -155,6 +155,7 @@ Every public operation is classified before its implementation module is importe
 | copilot.launch | mutation | required | — | copilot-cli |
 | copilot.preview | read | never | — | — |
 | delivery.assurance-evaluate | read | never | — | — |
+| delivery.authenticated-runner-status | read | never | — | — |
 | delivery.execution-status | read | never | — | — |
 | delivery.local-runner-create | mutation | never | — | — |
 | delivery.local-runner-options | read | never | — | — |

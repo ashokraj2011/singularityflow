@@ -42,6 +42,8 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
     'the release gate must exercise the privacy-safe real-corpus measurement boundary');
   assert.match(gate, /test\/wel-corpus-measurement\.test\.mjs/,
     'the release gate must exercise the privacy-safe WEL real-corpus measurement boundary');
+  assert.match(gate, /test\/wel-corpus-review-receipt\.test\.mjs/,
+    'the release gate must exercise independently signed content-free WEL corpus review evidence');
   assert.match(gate, /test\/comprehension-cached-symbols\.test\.mjs/,
     'the release gate must prove optional symbol navigation is cache-only');
   assert.match(gate, /test\/comprehension-diff-preview\.test\.mjs/,
@@ -214,6 +216,10 @@ test('packaged CLI smoke installs the tarball into an isolated prefix before exe
     'the installed package must carry the privacy-safe real-corpus runner');
   assert.match(smoke, /scripts\/wel-corpus-measurement\.mjs/,
     'the installed package must carry the privacy-safe WEL real-corpus runner');
+  assert.match(smoke, /scripts\/wel-corpus-review-receipt\.mjs/,
+    'the installed package must carry the independently signed WEL corpus review CLI');
+  assert.match(smoke, /schemas\/wel-corpus-review-receipt\.schema\.json/,
+    'the installed package must carry the WEL corpus review receipt schema');
   assert.match(smoke, /src\/wel\/WelJunitCatalog\.java/,
     'the installed package must carry the WEL parser helper');
   assert.match(smoke, /classifyJunit5SurefireCommandScope/,

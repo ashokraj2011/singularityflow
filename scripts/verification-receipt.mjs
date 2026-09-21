@@ -5,6 +5,7 @@
  * Usage:
  *   node scripts/verification-receipt.mjs --signing-key <private.pem>
  *     --platform-evidence <reviewed-evidence.json>
+ *     --wel-corpus-review <signed-review.json> --wel-corpus-review-key <trusted-reviewer-public.pem>
  *     --artifact-receipt <receipt.json> --artifact-key <builder-public.pem>
  *     --package <release.tgz> --vsix <release.vsix>
  *     [--identity <reviewer>] [--out <receipt.json>]
@@ -20,14 +21,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  assertReleaseCheckoutClean, parseReleaseTestSummary, signVerificationReceipt,
-  validateReleasePlatformEvidence
+  assertDistinctReleaseTrustRoots, assertReleaseCheckoutClean,
+  CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION, parseReleaseTestSummary,
+  signVerificationReceipt, validateReleasePlatformEvidence
 } from '../src/verification-receipt.mjs';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
 import {
   createVerifiedReleaseArtifactSnapshot, verifyReleaseArtifactReceipt
 } from '../src/release-artifact-receipt.mjs';
 import { validateWelBenchmarkEvidence } from '../src/wel-benchmark-evidence.mjs';
+import { verifyWelCorpusReviewReceipt } from '../src/wel-corpus-review-receipt.mjs';
 import { readSecurePrivateKey, readSecurePublicKey } from '../src/secure-private-key.mjs';
 import {
   readStableReleaseJson, writeReleaseJsonNoClobber
@@ -41,6 +44,8 @@ function option(name) {
 }
 const signingKey = option('--signing-key');
 const platformEvidenceOption = option('--platform-evidence');
+const welCorpusReviewOption = option('--wel-corpus-review');
+const welCorpusReviewKeyOption = option('--wel-corpus-review-key');
 const artifactReceiptOption = option('--artifact-receipt');
 const artifactKeyOption = option('--artifact-key');
 const packageOption = option('--package');
@@ -123,10 +128,22 @@ async function main() {
       + 'The receipt generator does not fabricate installed-host, installer, network-isolation, or authenticated-MCP evidence.'
     );
   }
+  if (!welCorpusReviewOption || !welCorpusReviewKeyOption) {
+    throw new Error(
+      'Provide independently signed WEL corpus review evidence with --wel-corpus-review <json-path> '
+      + 'and --wel-corpus-review-key <trusted-independent-reviewer-public.pem>.'
+    );
+  }
   const platformEvidencePath = path.resolve(root, platformEvidenceOption);
   const platformEvidenceInput = (await readStableReleaseJson(platformEvidencePath, {
     label: 'Platform evidence', maxBytes: 1024 * 1024
   })).value;
+  const welCorpusReviewInput = (await readStableReleaseJson(path.resolve(root, welCorpusReviewOption), {
+    label: 'Signed WEL corpus review receipt', maxBytes: 1024 * 1024
+  })).value;
+  const welCorpusReviewKey = (await readSecurePublicKey(path.resolve(root, welCorpusReviewKeyOption), {
+    repository: root, label: 'Trusted independent WEL corpus reviewer public key'
+  })).bytes;
   const baseline = assertReleaseCheckoutClean(root, { label: 'Verification start' });
   const { commit, tree } = baseline;
   const signingAuthority = await readSecurePrivateKey(signingKey, {
@@ -145,6 +162,11 @@ async function main() {
   const artifactKey = (await readSecurePublicKey(artifactKeyPath, {
     repository: root, label: 'Trusted artifact-builder public key'
   })).bytes;
+  assertDistinctReleaseTrustRoots({
+    artifactBuilderKey: artifactKey,
+    releaseVerifierKey: signingAuthority.bytes,
+    welReviewerKey: welCorpusReviewKey
+  });
   const artifactSnapshot = await createVerifiedReleaseArtifactSnapshot(artifactReceipt, {
     trustedPublicKeyPem: artifactKey,
     expectedCommit: commit,
@@ -156,6 +178,14 @@ async function main() {
   const packagePath = artifactSnapshot.packagePath;
   const vsixPath = artifactSnapshot.vsixPath;
   const artifactAuthority = artifactSnapshot;
+  let welCorpusReview = verifyWelCorpusReviewReceipt(welCorpusReviewInput, {
+    trustedPublicKeyPem: welCorpusReviewKey,
+    expectedCommit: commit,
+    expectedTree: tree,
+    expectedPlatform: process.platform,
+    expectedArchitecture: process.arch,
+    expectedNodeVersion: process.versions.node
+  });
   validateReleasePlatformEvidence(platformEvidenceInput, {
     platform: process.platform,
     nodeVersion: process.versions.node,
@@ -204,8 +234,17 @@ async function main() {
     reviewerIdentity: identity,
     requireSgosEndToEnd: true
   });
+  // Replay after all checks so the signed corpus subject cannot be decoupled from the final cell.
+  welCorpusReview = verifyWelCorpusReviewReceipt(welCorpusReviewInput, {
+    trustedPublicKeyPem: welCorpusReviewKey,
+    expectedCommit: commit,
+    expectedTree: tree,
+    expectedPlatform: process.platform,
+    expectedArchitecture: process.arch,
+    expectedNodeVersion: process.versions.node
+  });
   const receipt = signVerificationReceipt({
-    schemaVersion: 6, // schema-transient: externally signed release receipt, not a migration-registry record
+    schemaVersion: CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION, // schema-transient: externally signed release receipt, not a migration-registry record
     generatedAt: new Date().toISOString(),
     commit,
     tree,
@@ -226,6 +265,8 @@ async function main() {
     vsixSha256: finalArtifactAuthority.vsixSha256,
     welBenchmark: welBenchmark.evidence,
     welBenchmarkSha256: welBenchmark.evidenceSha256,
+    welCorpusReview: welCorpusReview.evidence,
+    welCorpusReviewSha256: welCorpusReview.evidenceSha256,
     platformEvidence: platformEvidence.evidence,
     platformEvidenceSha256: platformEvidence.evidenceSha256
   }, signingAuthority.bytes, identity);

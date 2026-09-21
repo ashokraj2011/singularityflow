@@ -139,6 +139,7 @@ Use these for the larger governed-runtime and delivery-proof programs.
 | [CAB v0.2](CAB-V0.2.md) | Code Assurance Bridge staged design |
 | [CAB threat model](CAB-THREAT-MODEL.md) | CAB trust and risk model |
 | [CAB roadmap](CAB-ROADMAP.md) | CAB rollout plan |
+| [CAB-R2 provider foundation](CAB-R2-PROVIDER-FOUNDATION.md) | Closed provider descriptor and fail-closed readiness diagnostics |
 
 ## Architecture And Governance
 

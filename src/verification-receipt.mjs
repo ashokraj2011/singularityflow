@@ -9,16 +9,19 @@ import { MCP_SCAFFOLD_VERSIONS } from './mcp-host.mjs';
 import {
   isWelBenchmarkEvidenceSha256, validateWelBenchmarkEvidence
 } from './wel-benchmark-evidence.mjs';
+import {
+  isWelCorpusReviewEvidenceSha256, verifyWelCorpusReviewReceipt
+} from './wel-corpus-review-receipt.mjs';
 import { verifyReleaseArtifactReceiptAuthority } from './release-artifact-receipt.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
 const SUPPORTED_RELEASE_PLATFORMS = Object.freeze(['darwin', 'linux', 'win32']);
 const SUPPORTED_RELEASE_NODE_MAJORS = Object.freeze([20, 22]);
-const LEGACY_SINGLE_RECEIPT_VERSION = 5; // schema-transient: historical externally signed receipt
-const SINGLE_RECEIPT_VERSION = 6; // schema-transient: externally signed release receipt
-const LEGACY_MATRIX_RECEIPT_VERSION = 6; // schema-transient: historical externally signed receipt
-const MATRIX_RECEIPT_VERSION = 7; // schema-transient: externally signed release receipt
+const HISTORICAL_SINGLE_RECEIPT_VERSIONS = Object.freeze([5, 6]); // schema-transient: historical externally signed receipts
+export const CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION = 7; // schema-transient: externally signed release receipt
+const HISTORICAL_MATRIX_RECEIPT_VERSIONS = Object.freeze([6, 7]); // schema-transient: historical externally signed receipts
+export const CURRENT_MATRIX_VERIFICATION_RECEIPT_VERSION = 8; // schema-transient: externally signed release receipt
 const PLATFORM_EVIDENCE_VERSION = 1; // schema-transient: historical reviewed external evidence input
 const SGOS_PLATFORM_EVIDENCE_VERSION = 2; // schema-transient: reviewed SGOS release evidence input
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
@@ -233,6 +236,69 @@ function publicKeyDer(key) {
   return publicKey.export({ type: 'spki', format: 'der' });
 }
 
+function ed25519PublicKeyFingerprint(key, role) {
+  let publicKey;
+  try { publicKey = key?.type === 'public' ? key : createPublicKey(key); } catch {
+    throw new SingularityFlowError(`The ${role} key is not a valid public key.`, {
+      code: 'VERIFICATION_TRUST_ROOT_INVALID', details: { role }
+    });
+  }
+  if (publicKey.asymmetricKeyType !== 'ed25519') {
+    throw new SingularityFlowError(`The ${role} key must be Ed25519.`, {
+      code: 'VERIFICATION_TRUST_ROOT_INVALID', details: { role }
+    });
+  }
+  return `sha256:${sha256(publicKeyDer(publicKey))}`;
+}
+
+/** Refuse one Ed25519 key being presented under two independent release roles. */
+export function assertDistinctReleaseTrustRoots({
+  artifactBuilderKey = null,
+  releaseVerifierKey = null,
+  welReviewerKey = null
+} = {}) {
+  const supplied = [
+    ['artifact-builder', artifactBuilderKey],
+    ['release-verifier', releaseVerifierKey],
+    ['WEL-reviewer', welReviewerKey]
+  ].filter(([, key]) => key != null);
+  const fingerprints = Object.fromEntries(supplied.map(([role, key]) => (
+    [role, ed25519PublicKeyFingerprint(key, role)]
+  )));
+  const rolesByFingerprint = new Map();
+  for (const [role, fingerprint] of Object.entries(fingerprints)) {
+    const roles = rolesByFingerprint.get(fingerprint) ?? [];
+    roles.push(role);
+    rolesByFingerprint.set(fingerprint, roles);
+  }
+  const collision = [...rolesByFingerprint.entries()].find(([, roles]) => roles.length > 1);
+  if (collision) {
+    const [fingerprint, roles] = collision;
+    throw new SingularityFlowError(
+      `Release trust roots must be distinct; ${roles.join(' and ')} share ${fingerprint}.`,
+      { code: 'VERIFICATION_TRUST_ROOT_COLLISION', details: { fingerprint, roles } }
+    );
+  }
+  return Object.freeze({ ...fingerprints });
+}
+
+function receiptVersionProfile(isMatrix, schemaVersion) {
+  if (isMatrix) {
+    if (schemaVersion === 6) return { current: false, artifactAuthority: false, welEnhanced: false }; // schema-transient: historical external receipt
+    if (schemaVersion === 7) return { current: false, artifactAuthority: true, welEnhanced: false }; // schema-transient: historical external receipt
+    if (schemaVersion === CURRENT_MATRIX_VERIFICATION_RECEIPT_VERSION) { // schema-transient: external release receipt
+      return { current: true, artifactAuthority: true, welEnhanced: true };
+    }
+    return null;
+  }
+  if (schemaVersion === 5) return { current: false, artifactAuthority: false, welEnhanced: false }; // schema-transient: historical external receipt
+  if (schemaVersion === 6) return { current: false, artifactAuthority: true, welEnhanced: false }; // schema-transient: historical external receipt
+  if (schemaVersion === CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION) { // schema-transient: external release receipt
+    return { current: true, artifactAuthority: true, welEnhanced: true };
+  }
+  return null;
+}
+
 function payload(receipt) {
   const copy = structuredClone(receipt);
   delete copy.signature;
@@ -320,9 +386,45 @@ function artifactAuthorityFailures(value) {
   return failures;
 }
 
+function welCorpusReviewFailures(evidence, evidenceSha256, expected, {
+  required = false,
+  trustedPublicKeyPem = null
+} = {}) {
+  const absent = evidence == null && evidenceSha256 == null;
+  if (absent) return required ? ['WEL independent corpus review evidence is absent'] : [];
+  if (evidence == null || evidenceSha256 == null) {
+    return ['WEL independent corpus review evidence and digest must be present together'];
+  }
+  if (!trustedPublicKeyPem) {
+    return ['WEL independent corpus review evidence requires an explicitly trusted reviewer key'];
+  }
+  if (!isWelCorpusReviewEvidenceSha256(evidenceSha256)) {
+    return ['WEL independent corpus review evidence digest is invalid'];
+  }
+  try {
+    const verified = verifyWelCorpusReviewReceipt(evidence, {
+      trustedPublicKeyPem,
+      expectedCommit: expected.commit,
+      expectedTree: expected.tree,
+      expectedPlatform: expected.platform,
+      expectedArchitecture: expected.architecture,
+      expectedNodeVersion: expected.nodeVersion
+    });
+    if (verified.evidenceSha256 !== evidenceSha256) {
+      return ['WEL independent corpus review evidence digest does not match the signed receipt'];
+    }
+  } catch (error) {
+    return [error.message];
+  }
+  return [];
+}
+
 function validatePlatformMatrix(receipt, required = null, {
   requireSgosEndToEnd = false,
-  modern = false
+  artifactAuthority = false,
+  welEnhanced = false,
+  requireWelCorpusReview = false,
+  trustedWelCorpusReviewPublicKeyPem = null
 } = {}) {
   if (receipt.platformMatrix == null) {
     if (required?.length) return { failures: ['platformMatrix is absent'], cells: [] };
@@ -334,8 +436,8 @@ function validatePlatformMatrix(receipt, required = null, {
   const failures = [];
   const cells = [];
   const seen = new Set();
-  const artifact = modern ? receipt.artifactAuthority : receipt.artifactEvidence;
-  const artifactValid = modern
+  const artifact = artifactAuthority ? receipt.artifactAuthority : receipt.artifactEvidence;
+  const artifactValid = artifactAuthority
     ? artifactAuthorityFailures(artifact).length === 0
     : artifact && typeof artifact === 'object' && !Array.isArray(artifact)
       && JSON.stringify(Object.keys(artifact).sort()) === JSON.stringify([
@@ -344,15 +446,26 @@ function validatePlatformMatrix(receipt, required = null, {
       && SHA256.test(String(artifact.payloadSha256 ?? ''))
       && SHA256.test(String(artifact.signerKeySha256 ?? ''))
       && validIdentity(artifact.verifierIdentity);
-  if (!artifactValid) failures.push(modern ? 'artifactAuthority is invalid' : 'artifactEvidence is invalid');
+  if (!artifactValid) failures.push(artifactAuthority ? 'artifactAuthority is invalid' : 'artifactEvidence is invalid');
   for (const entry of receipt.platformMatrix) {
     const major = nodeMajor(entry?.nodeVersion);
+    const hasAnyWelCorpusReview = entry?.welCorpusReview != null
+      || entry?.welCorpusReviewSha256 != null;
+    const hasCompleteWelCorpusReview = entry?.welCorpusReview != null
+      && entry?.welCorpusReviewSha256 != null;
+    const cellLabel = `${entry?.platform ?? 'unknown'}/node-${entry?.nodeMajor ?? 'unknown'}`;
+    if (welEnhanced && !hasCompleteWelCorpusReview) {
+      failures.push(`platformMatrix ${cellLabel}: WEL independent corpus review evidence is absent or incomplete`);
+    } else if (!welEnhanced && hasAnyWelCorpusReview) {
+      failures.push(`platformMatrix ${cellLabel}: historical receipt versions cannot contain WEL corpus review fields`);
+    }
     const exactFields = entry && typeof entry === 'object' && !Array.isArray(entry)
       && JSON.stringify(Object.keys(entry).sort()) === JSON.stringify([
         'evidencePayloadSha256', 'evidenceSignerKeySha256', 'evidenceVerifierIdentity',
         'nodeMajor', 'nodeVersion', 'platform', 'platformEvidence', 'platformEvidenceSha256',
-        'welBenchmark', 'welBenchmarkSha256'
-      ]);
+        'welBenchmark', 'welBenchmarkSha256',
+        ...(welEnhanced ? ['welCorpusReview', 'welCorpusReviewSha256'] : [])
+      ].sort());
     const valid = entry && typeof entry === 'object' && !Array.isArray(entry)
       && exactFields
       && SUPPORTED_RELEASE_PLATFORMS.includes(entry.platform)
@@ -400,6 +513,23 @@ function validatePlatformMatrix(receipt, required = null, {
     } catch (error) {
       failures.push(`platformMatrix ${entry?.platform ?? 'unknown'}/node-${entry?.nodeMajor ?? 'unknown'}: ${error.message}`);
     }
+    if (welEnhanced || requireWelCorpusReview) {
+      failures.push(...welCorpusReviewFailures(
+        entry.welCorpusReview,
+        entry.welCorpusReviewSha256,
+        {
+          commit: receipt.commit,
+          tree: receipt.tree,
+          platform: entry.platform,
+          architecture: entry.welBenchmark?.architecture,
+          nodeVersion: entry.nodeVersion
+        },
+        {
+          required: true,
+          trustedPublicKeyPem: trustedWelCorpusReviewPublicKeyPem
+        }
+      ).map((failure) => (`platformMatrix ${cellLabel}: ${failure}`)));
+    }
     const cell = {
       platform: entry.platform,
       nodeVersion: entry.nodeVersion,
@@ -410,14 +540,18 @@ function validatePlatformMatrix(receipt, required = null, {
       platformEvidence: structuredClone(entry.platformEvidence),
       platformEvidenceSha256: entry.platformEvidenceSha256,
       welBenchmark: structuredClone(entry.welBenchmark),
-      welBenchmarkSha256: entry.welBenchmarkSha256
+      welBenchmarkSha256: entry.welBenchmarkSha256,
+      ...(welEnhanced ? {
+        welCorpusReview: structuredClone(entry.welCorpusReview),
+        welCorpusReviewSha256: entry.welCorpusReviewSha256
+      } : {})
     };
     const key = matrixKey(cell);
     if (seen.has(key)) failures.push(`platformMatrix repeats ${key}`);
     seen.add(key);
     cells.push(cell);
   }
-  if (!modern && artifactValid && !cells.some((cell) => (
+  if (!artifactAuthority && artifactValid && !cells.some((cell) => (
     cell.evidencePayloadSha256 === artifact.payloadSha256
       && cell.evidenceSignerKeySha256 === artifact.signerKeySha256
       && cell.evidenceVerifierIdentity === artifact.verifierIdentity
@@ -476,7 +610,10 @@ export function verifyVerificationReceipt(receipt, {
   expectedPackageSha256 = null,
   expectedVsixSha256 = null,
   requiredPlatformMatrix = null,
+  requireCurrentMatrixVersion = false,
   requireSgosEndToEnd = false,
+  requireWelCorpusReview = false,
+  trustedWelCorpusReviewPublicKeyPem = null,
   artifactReceipt = null,
   trustedArtifactPublicKeyPem = null
 } = {}) {
@@ -489,7 +626,17 @@ export function verifyVerificationReceipt(receipt, {
       code: 'VERIFICATION_RECEIPT_UNTRUSTED'
     });
   }
-  const trusted = createPublicKey(trustedPublicKeyPem);
+  let trusted;
+  try { trusted = createPublicKey(trustedPublicKeyPem); } catch {
+    throw new SingularityFlowError('The trusted release-verifier public key is invalid.', {
+      code: 'VERIFICATION_RECEIPT_UNTRUSTED'
+    });
+  }
+  if (trusted.asymmetricKeyType !== 'ed25519') {
+    throw new SingularityFlowError('The trusted release-verifier public key must be Ed25519.', {
+      code: 'VERIFICATION_RECEIPT_UNTRUSTED'
+    });
+  }
   const trustedDer = publicKeyDer(trusted);
   const embedded = Buffer.from(String(signature.publicKeySpki ?? ''), 'base64');
   if (!embedded.equals(trustedDer)
@@ -508,19 +655,30 @@ export function verifyVerificationReceipt(receipt, {
   const failures = [];
   const isMatrix = receipt.platformMatrix != null;
   const receiptVersion = receipt.schemaVersion;
-  const modern = isMatrix
-    ? receiptVersion === MATRIX_RECEIPT_VERSION
-    : receiptVersion === SINGLE_RECEIPT_VERSION;
-  const legacy = isMatrix
-    ? receiptVersion === LEGACY_MATRIX_RECEIPT_VERSION
-    : receiptVersion === LEGACY_SINGLE_RECEIPT_VERSION;
-  if (!modern && !legacy) {
+  const profile = receiptVersionProfile(isMatrix, receiptVersion);
+  if (!profile) {
     failures.push(
       `schemaVersion must be ${isMatrix
-        ? `${MATRIX_RECEIPT_VERSION} (or historical ${LEGACY_MATRIX_RECEIPT_VERSION})`
-        : `${SINGLE_RECEIPT_VERSION} (or historical ${LEGACY_SINGLE_RECEIPT_VERSION})`} `
+        ? `${CURRENT_MATRIX_VERIFICATION_RECEIPT_VERSION} (or historical ${HISTORICAL_MATRIX_RECEIPT_VERSIONS.join(', ')})`
+        : `${CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION} (or historical ${HISTORICAL_SINGLE_RECEIPT_VERSIONS.join(', ')})`} `
       + `for a ${isMatrix ? 'platform-matrix' : 'single-platform'} receipt`
     );
+  }
+  const current = profile?.current === true;
+  const artifactAuthority = profile?.artifactAuthority === true;
+  const welEnhanced = profile?.welEnhanced === true;
+  if (requireCurrentMatrixVersion
+      && (!isMatrix || receiptVersion !== CURRENT_MATRIX_VERIFICATION_RECEIPT_VERSION)) {
+    failures.push(
+      `release promotion requires current platform-matrix schemaVersion ${CURRENT_MATRIX_VERIFICATION_RECEIPT_VERSION}`
+    );
+  }
+  if (welEnhanced) {
+    assertDistinctReleaseTrustRoots({
+      artifactBuilderKey: trustedArtifactPublicKeyPem,
+      releaseVerifierKey: trustedPublicKeyPem,
+      welReviewerKey: trustedWelCorpusReviewPublicKeyPem
+    });
   }
   if (!GIT_OBJECT_ID.test(String(receipt.commit ?? ''))) failures.push('commit is invalid');
   if (!GIT_OBJECT_ID.test(String(receipt.tree ?? ''))) failures.push('tree is invalid');
@@ -539,7 +697,7 @@ export function verifyVerificationReceipt(receipt, {
     failures.push('npmTest has no complete passing result without failed, skipped, cancelled, or todo tests');
   }
   if (receipt.pocReleaseGate !== 'passed') failures.push('pocReleaseGate did not pass');
-  if (modern) {
+  if (artifactAuthority) {
     if (receipt.artifactConsumption !== 'passed') failures.push('artifactConsumption did not pass');
     failures.push(...artifactAuthorityFailures(receipt.artifactAuthority));
     if (!artifactReceipt || !trustedArtifactPublicKeyPem) {
@@ -599,13 +757,40 @@ export function verifyVerificationReceipt(receipt, {
     } catch (error) {
       failures.push(error.message);
     }
+    const hasAnyWelCorpusReview = receipt.welCorpusReview != null
+      || receipt.welCorpusReviewSha256 != null;
+    if (!welEnhanced && hasAnyWelCorpusReview) {
+      failures.push('historical receipt versions cannot contain WEL corpus review fields');
+    }
+    if (welEnhanced || requireWelCorpusReview) {
+      failures.push(...welCorpusReviewFailures(
+        receipt.welCorpusReview,
+        receipt.welCorpusReviewSha256,
+        {
+          commit: receipt.commit,
+          tree: receipt.tree,
+          platform: receipt.platforms?.[0],
+          architecture: receipt.welBenchmark?.architecture,
+          nodeVersion: receipt.nodeVersions?.[0]
+        },
+        {
+          required: true,
+          trustedPublicKeyPem: trustedWelCorpusReviewPublicKeyPem
+        }
+      ));
+    }
     if (receipt.artifactEvidence != null) failures.push('single-platform receipt must not contain artifactEvidence');
   } else if (receipt.platformEvidence != null || receipt.platformEvidenceSha256 != null
-      || receipt.welBenchmark != null || receipt.welBenchmarkSha256 != null) {
+      || receipt.welBenchmark != null || receipt.welBenchmarkSha256 != null
+      || receipt.welCorpusReview != null || receipt.welCorpusReviewSha256 != null) {
     failures.push('platform-matrix receipt must keep platform and WEL benchmark evidence inside each matrix cell');
   }
   failures.push(...validatePlatformMatrix(receipt, requiredPlatformMatrix, {
-    requireSgosEndToEnd, modern
+    requireSgosEndToEnd,
+    artifactAuthority,
+    welEnhanced,
+    requireWelCorpusReview,
+    trustedWelCorpusReviewPublicKeyPem
   }).failures);
   if (!SHA256.test(String(receipt.packageSha256 ?? ''))) failures.push('packageSha256 is invalid');
   if (!SHA256.test(String(receipt.vsixSha256 ?? ''))) failures.push('vsixSha256 is invalid');
@@ -620,6 +805,10 @@ export function verifyVerificationReceipt(receipt, {
   }
   return {
     valid: true,
+    current,
+    historical: !current,
+    schemaVersion: receiptVersion,
+    shape: isMatrix ? 'platform-matrix' : 'single-platform',
     verifierIdentity: receipt.verifierIdentity,
     publicKeySha256: signature.publicKeySha256,
     commit: receipt.commit,
@@ -652,37 +841,48 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
   generatedAt = new Date().toISOString(),
   artifactReceipt = null,
   trustedArtifactPublicKeyPem = null,
-  requireSgosEndToEnd = false
+  requireSgosEndToEnd = false,
+  trustedWelCorpusReviewPublicKeyPem = null
 } = {}) {
   if (!Array.isArray(receipts) || !receipts.length) {
     throw new SingularityFlowError('Verification receipt merge requires at least one signed receipt.', {
       code: 'VERIFICATION_RECEIPT_INVALID'
     });
   }
-  const modern = receipts[0]?.schemaVersion === SINGLE_RECEIPT_VERSION; // schema-transient: externally signed transport receipt
-  if (receipts.some((receipt) => (receipt.schemaVersion === SINGLE_RECEIPT_VERSION) !== modern)) { // schema-transient: externally signed transport receipt
-    throw new SingularityFlowError('Verification receipt merge cannot mix historical and current cells.', {
-      code: 'VERIFICATION_RECEIPT_REJECTED'
-    });
+  if (receipts.some((receipt) => (
+    receipt?.schemaVersion !== CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION // schema-transient: externally signed transport receipt
+  ))) {
+    throw new SingularityFlowError(
+      `Verification receipt merge requires current schemaVersion ${CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION}; `
+      + 'historical cells remain available only for audit reads.', {
+        code: 'VERIFICATION_RECEIPT_REJECTED'
+      }
+    );
   }
-  let releaseArtifacts = null;
-  if (modern) {
-    if (!artifactReceipt || !trustedArtifactPublicKeyPem) {
-      throw new SingularityFlowError(
-        'Current verification receipt merge requires a signed artifact receipt and trusted builder key.',
-        { code: 'VERIFICATION_RECEIPT_REJECTED' }
-      );
-    }
-    releaseArtifacts = verifyReleaseArtifactReceiptAuthority(artifactReceipt, {
-      trustedPublicKeyPem: trustedArtifactPublicKeyPem
-    });
+  if (!artifactReceipt || !trustedArtifactPublicKeyPem
+      || !trustedWelCorpusReviewPublicKeyPem) {
+    throw new SingularityFlowError(
+      'Current verification receipt merge requires a signed artifact receipt, trusted builder key, '
+      + 'and trusted independent WEL reviewer key.',
+      { code: 'VERIFICATION_RECEIPT_REJECTED' }
+    );
   }
+  assertDistinctReleaseTrustRoots({
+    artifactBuilderKey: trustedArtifactPublicKeyPem,
+    releaseVerifierKey: privateKeyPem,
+    welReviewerKey: trustedWelCorpusReviewPublicKeyPem
+  });
+  const releaseArtifacts = verifyReleaseArtifactReceiptAuthority(artifactReceipt, {
+    trustedPublicKeyPem: trustedArtifactPublicKeyPem
+  });
   const verified = receipts.map((receipt) => {
     verifyVerificationReceipt(receipt, {
       trustedPublicKeyPem: embeddedPublicKey(receipt),
       requireSgosEndToEnd,
-      artifactReceipt: modern ? artifactReceipt : null,
-      trustedArtifactPublicKeyPem: modern ? trustedArtifactPublicKeyPem : null
+      requireWelCorpusReview: true,
+      trustedWelCorpusReviewPublicKeyPem,
+      artifactReceipt,
+      trustedArtifactPublicKeyPem
     });
     if (receipt.platformMatrix != null
         || receipt.platforms.length !== 1 || receipt.nodeVersions.length !== 1) {
@@ -694,8 +894,8 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
     return receipt;
   });
   const first = verified[0];
-  if (modern && (releaseArtifacts.sourceCommit !== first.commit
-      || releaseArtifacts.sourceTree !== first.tree)) {
+  if (releaseArtifacts.sourceCommit !== first.commit
+      || releaseArtifacts.sourceTree !== first.tree) {
     throw new SingularityFlowError('Artifact receipt subject does not match the matrix cells.', {
       code: 'VERIFICATION_RECEIPT_REJECTED'
     });
@@ -713,27 +913,6 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
       }
     }
   }
-  const artifactEvidence = modern ? null : (artifactReceipt ?? first);
-  if (!modern && !verified.some((receipt) => (
-    receipt.signature.payloadSha256 === artifactEvidence?.signature?.payloadSha256
-      && receipt.signature.publicKeySha256 === artifactEvidence?.signature?.publicKeySha256
-      && receipt.verifierIdentity === artifactEvidence?.verifierIdentity
-  ))) {
-    throw new SingularityFlowError(
-      'Selected artifact evidence must be one of the reviewed single-platform receipts.',
-      { code: 'VERIFICATION_RECEIPT_REJECTED' }
-    );
-  }
-  if (!modern) {
-    verifyVerificationReceipt(artifactEvidence, {
-      trustedPublicKeyPem: embeddedPublicKey(artifactEvidence),
-      expectedCommit: first.commit,
-      expectedTree: first.tree,
-      expectedPackageSha256: first.packageSha256,
-      expectedVsixSha256: first.vsixSha256,
-      requireSgosEndToEnd
-    });
-  }
   const byCell = new Map();
   for (const receipt of verified) {
     const cell = {
@@ -746,7 +925,11 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
       platformEvidence: structuredClone(receipt.platformEvidence),
       platformEvidenceSha256: receipt.platformEvidenceSha256,
       welBenchmark: structuredClone(receipt.welBenchmark),
-      welBenchmarkSha256: receipt.welBenchmarkSha256
+      welBenchmarkSha256: receipt.welBenchmarkSha256,
+      ...(receipt.welCorpusReview != null || receipt.welCorpusReviewSha256 != null ? {
+        welCorpusReview: structuredClone(receipt.welCorpusReview),
+        welCorpusReviewSha256: receipt.welCorpusReviewSha256
+      } : {})
     };
     if (!SUPPORTED_RELEASE_PLATFORMS.includes(cell.platform)
         || !Number.isInteger(cell.nodeMajor)) {
@@ -766,9 +949,7 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
     matrixKey(left) < matrixKey(right) ? -1 : matrixKey(left) > matrixKey(right) ? 1 : 0
   ));
   const unsigned = {
-    schemaVersion: modern
-      ? MATRIX_RECEIPT_VERSION
-      : LEGACY_MATRIX_RECEIPT_VERSION, // schema-transient: externally signed release receipt
+    schemaVersion: CURRENT_MATRIX_VERIFICATION_RECEIPT_VERSION, // schema-transient: externally signed release receipt
     generatedAt,
     commit: first.commit,
     tree: first.tree,
@@ -789,17 +970,8 @@ export function mergeSignedVerificationReceipts(receipts, privateKeyPem, verifie
     platforms: [...new Set(platformMatrix.map((cell) => cell.platform))].sort(),
     nodeVersions: [...new Set(platformMatrix.map((cell) => cell.nodeVersion))].sort(),
     platformMatrix,
-    ...(modern ? {
-      artifactAuthority: structuredClone(first.artifactAuthority),
-      artifactConsumption: 'passed'
-    } : {
-      artifactEvidence: {
-        payloadSha256: artifactEvidence.signature.payloadSha256,
-        signerKeySha256: artifactEvidence.signature.publicKeySha256,
-        verifierIdentity: artifactEvidence.verifierIdentity
-      },
-      vscodeBuild: 'passed'
-    }),
+    artifactAuthority: structuredClone(first.artifactAuthority),
+    artifactConsumption: 'passed',
     packageSha256: first.packageSha256,
     vsixSha256: first.vsixSha256
   };

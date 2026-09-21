@@ -31,7 +31,8 @@ npm run release -- \
   --package /retained/release-candidate/singularity-flow-0.9.0.tgz \
   --vsix /retained/release-candidate/singularity-flow-vscode-0.9.0.vsix \
   --verification-receipt /retained/verification-matrix-receipt.json \
-  --verification-key /trusted/release-reviewer-public.pem
+  --verification-key /trusted/release-reviewer-public.pem \
+  --wel-corpus-review-key /trusted/wel-corpus-reviewer-public.pem
 ```
 
 The artifact builder refuses a dirty source tree, materializes npm inputs from exact Git blobs and
@@ -54,15 +55,23 @@ Generate the receipt on the same host/runtime with
 `npm run verification:receipt -- --artifact-receipt <retained/artifact-receipt.json>
 --artifact-key <trusted/builder-public.pem> --package <retained/release.tgz>
 --vsix <retained/release.vsix> --signing-key <secure/runner-private.pem>
---platform-evidence <reviewed/platform-evidence.json> --out <retained/cell.json>`, then merge the six
+--platform-evidence <reviewed/platform-evidence.json>
+--wel-corpus-review <reviewed/wel-corpus-review.json>
+--wel-corpus-review-key <trusted/wel-corpus-reviewer-public.pem>
+--out <retained/cell.json>`, then merge the six
 receipts with `npm run verification:receipt:merge -- --receipt <retained/cell.json> ...
 --artifact-receipt <retained/artifact-receipt.json> --artifact-key <trusted/builder-public.pem>
+--wel-corpus-review-key <trusted/wel-corpus-reviewer-public.pem>
 --signing-key <secure/release-reviewer-private.pem> --identity <reviewer>
 --out <retained/verification-matrix-receipt.json>`. Mixed commits, trees, artifact authorities, npm
 tarballs, or VSIX bytes are refused. Historical receipt formats remain readable but cannot be mixed
 into newly generated build-once release authority. Keep every retained path, signing key, and public
 trust root outside the checkout. Dry runs and ordinary developer checks remain single-machine
 operations.
+
+Every cell's WEL corpus review input is produced independently for that exact source and runtime as
+described in [`docs/WEL-CORPUS-REVIEW-RECEIPT.md`](docs/WEL-CORPUS-REVIEW-RECEIPT.md). Its signature
+authenticates review of the content-free aggregate only; WEL lifecycle authority remains observe-only.
 
 The platform-evidence input is intentionally digest-only. It names the exact commit, tree, npm
 tarball SHA-256, VSIX SHA-256, platform, Node version, reviewer identity, and review time. It then

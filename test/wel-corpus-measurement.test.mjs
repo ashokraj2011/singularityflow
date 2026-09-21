@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { validateWelCorpusMeasurement } from '../src/wel-corpus-review-receipt.mjs';
+
 function git(root, args) {
   const result = spawnSync('git', args, {
     cwd: root,
@@ -155,6 +157,7 @@ test('real WEL corpus measurement aggregates reviewed outcomes without leaking o
   assert.equal(report.lifecycleGate, false);
   assert.equal(report.authoritative, false);
   assert.equal(report.releaseEligible, false);
+  assert.match(validateWelCorpusMeasurement(report).evidenceSha256, /^sha256:[a-f0-9]{64}$/u);
   assert.equal(git(exact, ['status', '--porcelain=v1', '-z']), beforeExact);
   assert.equal(git(inexact, ['status', '--porcelain=v1', '-z']), beforeInexact);
 

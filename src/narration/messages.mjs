@@ -69,6 +69,12 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `GDP provenance is ${slot(s.status)} (configured: ${slot(s.configured)}, verifier: ${slot(s.verifier)}).`,
     preserves: true
   },
+  'delivery.authenticated-runner-reported': {
+    headline: (s) => `CAB authenticated runner is ${slot(s.status)} `
+      + `(configured: ${slot(s.configured)}, integration: ${slot(s.integration)}, `
+      + `authority: ${slot(s.authority)}).`,
+    preserves: true
+  },
   'delivery.readiness-reported': {
     headline: (s) => `GDP GA readiness is ${slot(s.status)} with ${slot(s.blockers, '0')} blocker(s) (ready: ${slot(s.gaReady)}).`,
     preserves: true

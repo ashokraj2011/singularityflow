@@ -287,7 +287,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     const action = args[1] ?? 'recommend';
     return [
       'recommend', 'workflow-status', 'execution-status', 'promotion-preview',
-      'promotion-status', 'assurance-evaluate', 'provenance-status', 'readiness',
+      'promotion-status', 'assurance-evaluate', 'provenance-status',
+      'authenticated-runner-status', 'readiness',
       'local-runner-status', 'local-runner-options', 'local-runner-plan',
       'local-runner-verify'
     ].includes(action) ? 'read' : 'mutation';

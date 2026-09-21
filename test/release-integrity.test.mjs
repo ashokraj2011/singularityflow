@@ -181,6 +181,14 @@ test('artifacts build once while platform verification and promotion consume exa
     'the retained WEL benchmark must be validated before it enters signed evidence');
   assert.match(receipt, /welBenchmarkSha256/,
     'the signed receipt must bind the canonical WEL benchmark digest');
+  assert.match(receipt, /schemaVersion: CURRENT_SINGLE_VERIFICATION_RECEIPT_VERSION/,
+    'the platform CLI must emit only the current WEL-bearing single-host receipt version');
+  assert.match(receipt, /assertDistinctReleaseTrustRoots\(/,
+    'the platform CLI must reject artifact-builder, verifier, or WEL-reviewer key reuse before signing');
+  assert.match(mergedReceipt, /requireCurrentMatrixVersion:\s*true/,
+    'the merge CLI must validate its output as the current matrix version');
+  assert.ok((release.match(/requireCurrentMatrixVersion:\s*true/g) ?? []).length >= 2,
+    'promotion must require the current matrix version before and after exact artifact consumption');
   assert.doesNotMatch(receipt, /(?:failed|skipped|cancelled|todo): count\([^\n]+\) \?\? 0/,
     'missing output counters must never be rewritten as observed zeroes');
 });

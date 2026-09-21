@@ -902,6 +902,7 @@ const baselineSchemaFiles = [
   'schemas/mcp-preflight.schema.json',
   'schemas/release-artifact-receipt.schema.json',
   'schemas/release-platform-evidence.schema.json',
+  'schemas/wel-corpus-review-receipt.schema.json',
   'schemas/reference-envelope.schema.json',
   'schemas/reference-record.schema.json',
   'schemas/harness-event.schema.json',

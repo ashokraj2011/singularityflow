@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.local/schemas/wel-corpus-review-receipt.schema.json",
+  "title": "Signed content-free independent review of one WEL real-repository corpus run",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "kind",
+    "reviewedAt",
+    "reviewerIdentity",
+    "independentReviewReference",
+    "sourceCommit",
+    "sourceTree",
+    "runner",
+    "measurement",
+    "measurementSha256",
+    "assurance",
+    "lifecycleAuthority",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "singularity-flow-wel-real-corpus-review-receipt" },
+    "reviewedAt": { "type": "string", "format": "date-time" },
+    "reviewerIdentity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "independentReviewReference": {
+      "type": "string",
+      "pattern": "^(review:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|sha256:[a-f0-9]{64})$"
+    },
+    "sourceCommit": { "$ref": "#/$defs/gitObjectId" },
+    "sourceTree": { "$ref": "#/$defs/gitObjectId" },
+    "runner": {
+      "type": "object",
+      "required": ["entrypoint", "profile", "reportSchema", "runtime"],
+      "properties": {
+        "entrypoint": { "const": "scripts/wel-corpus-measurement.mjs" },
+        "profile": { "const": "operator-reviewed-manifest-v1" },
+        "reportSchema": { "const": "sflow-wel-real-corpus/v2" },
+        "runtime": {
+          "type": "object",
+          "required": ["platform", "architecture", "nodeVersion"],
+          "properties": {
+            "platform": { "enum": ["darwin", "linux", "win32"] },
+            "architecture": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+            },
+            "nodeVersion": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "measurement": { "$ref": "#/$defs/measurement" },
+    "measurementSha256": { "$ref": "#/$defs/sha256" },
+    "assurance": { "const": "content-free-independent-review" },
+    "lifecycleAuthority": { "const": "none-observe-only" },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "publicKeySpki", "publicKeySha256", "payloadSha256", "value"],
+      "properties": {
+        "algorithm": { "const": "ed25519" },
+        "publicKeySpki": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "publicKeySha256": { "$ref": "#/$defs/sha256" },
+        "payloadSha256": { "$ref": "#/$defs/sha256" },
+        "value": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "gitObjectId": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+    },
+    "distribution": {
+      "type": "object",
+      "required": ["minimum", "median", "p95", "maximum"],
+      "properties": {
+        "minimum": { "type": "number", "minimum": 0, "maximum": 3600000 },
+        "median": { "type": "number", "minimum": 0, "maximum": 3600000 },
+        "p95": { "type": "number", "minimum": 0, "maximum": 3600000 },
+        "maximum": { "type": "number", "minimum": 0, "maximum": 3600000 }
+      },
+      "additionalProperties": false
+    },
+    "byteDistribution": {
+      "type": "object",
+      "required": ["minimum", "median", "p95", "maximum"],
+      "properties": {
+        "minimum": { "type": "number", "minimum": 0, "maximum": 1000000000 },
+        "median": { "type": "number", "minimum": 0, "maximum": 1000000000 },
+        "p95": { "type": "number", "minimum": 0, "maximum": 1000000000 },
+        "maximum": { "type": "number", "minimum": 0, "maximum": 1000000000 }
+      },
+      "additionalProperties": false
+    },
+    "measurement": {
+      "type": "object",
+      "required": [
+        "schema",
+        "assurance",
+        "authority",
+        "platform",
+        "architecture",
+        "nodeMajor",
+        "corpusProfile",
+        "inputBinding",
+        "repositoryCount",
+        "caseCount",
+        "requestedSamplesPerCase",
+        "completedMeasurements",
+        "outcome",
+        "timingsMilliseconds",
+        "catalogBytesPerCase",
+        "counts",
+        "availability",
+        "repositoryState",
+        "lifecycleGate",
+        "authoritative",
+        "releaseEligible",
+        "contentExcluded"
+      ],
+      "properties": {
+        "schema": { "const": "sflow-wel-real-corpus/v2" },
+        "assurance": { "const": "content-free-local-measurement" },
+        "authority": { "const": "none" },
+        "platform": { "enum": ["darwin", "linux", "win32"] },
+        "architecture": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+        },
+        "nodeMajor": { "type": "integer", "minimum": 20, "maximum": 99 },
+        "corpusProfile": { "const": "operator-reviewed-manifest-v1" },
+        "inputBinding": { "const": "operator-reviewed-out-of-band" },
+        "repositoryCount": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "caseCount": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "requestedSamplesPerCase": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "completedMeasurements": { "type": "integer", "minimum": 1, "maximum": 1280 },
+        "outcome": { "const": "observed" },
+        "timingsMilliseconds": {
+          "type": "object",
+          "required": ["observation", "cpu"],
+          "properties": {
+            "observation": { "$ref": "#/$defs/distribution" },
+            "cpu": { "$ref": "#/$defs/distribution" }
+          },
+          "additionalProperties": false
+        },
+        "catalogBytesPerCase": { "$ref": "#/$defs/byteDistribution" },
+        "counts": {
+          "type": "object",
+          "required": [
+            "expectedExact",
+            "expectedInexact",
+            "expectedReportRefused",
+            "observedExact",
+            "observedInexact",
+            "observedReportRefused",
+            "falseExact",
+            "falseInconclusive",
+            "mismatched",
+            "mappingProposals",
+            "exactOccurrences",
+            "reasons"
+          ],
+          "properties": {
+            "expectedExact": { "$ref": "#/$defs/count" },
+            "expectedInexact": { "$ref": "#/$defs/count" },
+            "expectedReportRefused": { "$ref": "#/$defs/count" },
+            "observedExact": { "$ref": "#/$defs/count" },
+            "observedInexact": { "$ref": "#/$defs/count" },
+            "observedReportRefused": { "$ref": "#/$defs/count" },
+            "falseExact": { "const": 0 },
+            "falseInconclusive": { "const": 0 },
+            "mismatched": { "const": 0 },
+            "mappingProposals": { "$ref": "#/$defs/count" },
+            "exactOccurrences": { "$ref": "#/$defs/count" },
+            "reasons": {
+              "type": "object",
+              "maxProperties": 64,
+              "propertyNames": {
+                "enum": [
+                  "CODE_TEST_RESULT_REQUIRED",
+                  "FOCUSED_TEST_EXECUTION_UNSUPPORTED",
+                  "FOCUSED_OR_RETRIED_TEST_EXECUTION_UNSUPPORTED",
+                  "FRAMEWORK_RETRY_UNSUPPORTED",
+                  "JAVASCRIPT_SOURCE_CATALOG_UNAVAILABLE",
+                  "JAVASCRIPT_TEST_SOURCE_UNAVAILABLE",
+                  "JAVASCRIPT_TEST_SOURCES_UNAVAILABLE",
+                  "JUNIT_SOURCE_CATALOG_UNAVAILABLE",
+                  "JUNIT_SOURCE_NOT_UTF8",
+                  "JUNIT_SOURCE_PARSER_CANCELLED",
+                  "JUNIT_SOURCE_PARSER_MALFORMED",
+                  "JUNIT_SOURCE_PARSER_OUTPUT_LIMIT",
+                  "JUNIT_SOURCE_PARSER_TIMEOUT",
+                  "JUNIT_SOURCE_PARSER_UNAVAILABLE",
+                  "JUNIT_TEST_SOURCE_UNAVAILABLE",
+                  "JUNIT_TEST_SOURCES_UNAVAILABLE",
+                  "MAVEN_SUREFIRE_COMMAND_UNSUPPORTED",
+                  "REPOSITORY_IDENTITY_UNAVAILABLE",
+                  "REPORT_SOURCE_DECLARATION_UNMATCHED",
+                  "REPORT_TEST_IDENTITY_AMBIGUOUS",
+                  "SOURCE_PATH_INVALID",
+                  "TAGGED_TEST_DECLARATIONS_UNAVAILABLE",
+                  "TEST_DECLARATION_COLLISION",
+                  "TEST_SOURCE_CHANGED_DURING_CAPTURE",
+                  "TEST_SOURCE_LIMIT_EXCEEDED",
+                  "UNSUPPORTED_JUNIT5_SOURCE_SHAPE",
+                  "UNSUPPORTED_JAVASCRIPT_SOURCE_SHAPE",
+                  "WITNESS_MAPPING_COLLISION",
+                  "WITNESS_MAPPING_PROPOSALS_UNAVAILABLE"
+                ]
+              },
+              "patternProperties": {
+                "^[A-Z][A-Z0-9_]{2,127}$": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000000000
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "availability": {
+          "type": "object",
+          "required": [
+            "javascriptStaticObservation",
+            "junitSurefireStaticObservation",
+            "model",
+            "astIntelligence",
+            "structuralExtraction",
+            "network",
+            "testExecution",
+            "cache"
+          ],
+          "properties": {
+            "javascriptStaticObservation": { "enum": ["used", "not-selected"] },
+            "junitSurefireStaticObservation": { "enum": ["used", "not-selected"] },
+            "model": { "const": "not-invoked" },
+            "astIntelligence": { "const": "not-invoked" },
+            "structuralExtraction": { "enum": ["local-jdk-parser", "not-invoked"] },
+            "network": { "const": "not-invoked" },
+            "testExecution": { "const": "not-invoked" },
+            "cache": { "const": "not-used-observe-only" }
+          },
+          "additionalProperties": false
+        },
+        "repositoryState": { "const": "unchanged-observed" },
+        "lifecycleGate": { "const": false },
+        "authoritative": { "const": false },
+        "releaseEligible": { "const": false },
+        "contentExcluded": {
+          "const": [
+            "manifest-path",
+            "repository-path",
+            "file-path",
+            "test-name",
+            "clause-id",
+            "content-digest",
+            "source-bytes",
+            "report-bytes",
+            "work-id",
+            "git-identity",
+            "prompt",
+            "transcript"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000
+    }
+  },
+  "additionalProperties": false
+}

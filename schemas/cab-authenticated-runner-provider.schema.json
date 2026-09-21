@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/cab-authenticated-runner-provider.schema.json",
+  "title": "CAB Authenticated Runner Provider Declaration v1",
+  "$comment": "Credential-free configuration input only. Validity never grants runner authority or enables enforcement.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "providerId", "providerType", "integrationId",
+    "trustRootSha256", "runnerProfileSha256", "sandboxPolicySha256", "trustPolicySha256",
+    "resultIngestionPolicySha256", "evidencePolicySha256", "acceptedIssuerDigests",
+    "acceptedAudienceDigests", "enabled"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "cab-authenticated-runner-provider" },
+    "providerId": { "$ref": "#/$defs/providerId" },
+    "providerType": { "enum": ["enterprise-ci", "independent-runner-service"] },
+    "integrationId": { "$ref": "#/$defs/integrationId" },
+    "trustRootSha256": { "$ref": "#/$defs/digest" },
+    "runnerProfileSha256": { "$ref": "#/$defs/digest" },
+    "sandboxPolicySha256": { "$ref": "#/$defs/digest" },
+    "trustPolicySha256": { "$ref": "#/$defs/digest" },
+    "resultIngestionPolicySha256": { "$ref": "#/$defs/digest" },
+    "evidencePolicySha256": { "$ref": "#/$defs/digest" },
+    "acceptedIssuerDigests": { "$ref": "#/$defs/digests" },
+    "acceptedAudienceDigests": { "$ref": "#/$defs/digests" },
+    "enabled": { "type": "boolean" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "providerId": { "type": "string", "pattern": "^cabp_[a-f0-9]{64}$" },
+    "integrationId": { "type": "string", "pattern": "^cabi_[a-f0-9]{64}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "digests": {
+      "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+      "items": { "$ref": "#/$defs/digest" }
+    }
+  }
+}

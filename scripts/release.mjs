@@ -19,6 +19,7 @@
  *     --artifact-receipt <path> --artifact-key <trusted-builder-public-key.pem>
  *     --package <path> --vsix <path>
  *     --verification-receipt <path> --verification-key <trusted-public-key.pem>
+ *     --wel-corpus-review-key <trusted-independent-reviewer-public.pem>
  *
  * `--dry-run` verifies everything and writes nothing to `dist/`, so the whole promotion can be
  * rehearsed. A real promotion requires an independently signed clean-checkout receipt. `--skip-tests`
@@ -64,6 +65,7 @@ function option(name) {
 }
 const verificationReceiptPath = option('--verification-receipt');
 const verificationKeyPath = option('--verification-key');
+const welCorpusReviewKeyPath = option('--wel-corpus-review-key');
 const artifactReceiptPath = option('--artifact-receipt');
 const artifactKeyPath = option('--artifact-key');
 const packagePath = option('--package');
@@ -129,14 +131,22 @@ async function main() {
   });
   try {
   const exactArtifacts = artifactSnapshot;
-  if (!verificationReceiptPath || !verificationKeyPath) {
-    throw new Error('Release promotion and dry-run require --verification-receipt <path> and --verification-key <trusted-public-key.pem>. Generate the receipt with npm run verification:receipt -- --signing-key <ed25519-private.pem>.');
+  if (!verificationReceiptPath || !verificationKeyPath || !welCorpusReviewKeyPath) {
+    throw new Error(
+      'Release promotion and dry-run require --verification-receipt <path>, '
+      + '--verification-key <trusted-public-key.pem>, and '
+      + '--wel-corpus-review-key <trusted-independent-reviewer-public.pem>. '
+      + 'Generate the receipt with npm run verification:receipt -- --signing-key <ed25519-private.pem>.'
+    );
   }
   const verificationReceipt = (await readStableReleaseJson(path.resolve(root, verificationReceiptPath), {
     label: 'Verification matrix receipt', maxBytes: 16 * 1024 * 1024
   })).value;
   const trustedVerificationKey = (await readSecurePublicKey(path.resolve(root, verificationKeyPath), {
     repository: root, label: 'Trusted release-reviewer public key'
+  })).bytes;
+  const trustedWelCorpusReviewKey = (await readSecurePublicKey(path.resolve(root, welCorpusReviewKeyPath), {
+    repository: root, label: 'Trusted independent WEL corpus reviewer public key'
   })).bytes;
   verifyVerificationReceipt(verificationReceipt, {
     trustedPublicKeyPem: trustedVerificationKey,
@@ -145,7 +155,10 @@ async function main() {
     artifactReceipt,
     trustedArtifactPublicKeyPem: trustedArtifactKey,
     requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
-    requireSgosEndToEnd: true
+    requireCurrentMatrixVersion: true,
+    requireSgosEndToEnd: true,
+    requireWelCorpusReview: true,
+    trustedWelCorpusReviewPublicKeyPem: trustedWelCorpusReviewKey
   });
 
   // `npm run check` already asserts one version across the root package, the plugin manifest, the
@@ -221,7 +234,10 @@ async function main() {
     artifactReceipt,
     trustedArtifactPublicKeyPem: trustedArtifactKey,
     requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX,
-    requireSgosEndToEnd: true
+    requireCurrentMatrixVersion: true,
+    requireSgosEndToEnd: true,
+    requireWelCorpusReview: true,
+    trustedWelCorpusReviewPublicKeyPem: trustedWelCorpusReviewKey
   });
 
   if (dryRun) {

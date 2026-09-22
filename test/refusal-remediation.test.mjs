@@ -201,6 +201,25 @@ test('an agent that names a missing phase points capability users to configurati
   assert.equal(plan.retry.automatic, false);
 });
 
+test('an incomplete Story configuration authority exposes the reviewed seeded repair on both surfaces', () => {
+  const error = Object.assign(new Error('Approved configuration is incomplete.'), {
+    code: 'STORY_CONFIGURATION_WORKFLOW_MISSING',
+    details: {
+      recoveryCommand: {
+        command: 'singularity-flow workspace reinitialize --dry-run --json',
+        skill: '/sf-admin'
+      }
+    }
+  });
+  const envelope = refusalEnvelope(error, ['workspace', 'branches', '--json', '--intake']);
+  assert.equal(envelope.error.code, 'STORY_CONFIGURATION_WORKFLOW_MISSING');
+  assert.equal(envelope.remediationPlan.steps[0].command,
+    'singularity-flow workspace reinitialize --dry-run --json');
+  assert.equal(envelope.remediationPlan.steps[0].copilotCommand, '/sf-admin');
+  assert.deepEqual(envelope.remediationPlan.steps[0].argv,
+    ['workspace', 'reinitialize', '--dry-run', '--json']);
+});
+
 test('an imported capability-map bootstrap refusal preserves the map and gives the reviewed next action', () => {
   const plan = refusalRemediationPlan(Object.assign(
     new Error("The imported capability map does not define requested capability 'payments'."),

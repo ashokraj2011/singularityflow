@@ -1998,7 +1998,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         /** Exact repository selected by that menu; narrows preview and apply together. */
         repositoryId?: string;
         capabilityIds?: readonly string[];
-        authority?: { leadUrl?: string; sourceBranch?: string; sourceCommit?: string };
+        authority?: {
+          leadUrl?: string;
+          configurationBranch?: string;
+          configurationCommit?: string;
+          /** Compatibility with handoffs emitted before authority/projection identities split. */
+          sourceBranch?: string;
+          sourceCommit?: string;
+        };
       }
     ) => {
     const requestGeneration = ++openWorkspacesRequestGeneration;
@@ -2039,19 +2046,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       : [];
     const authoritySupplied = Boolean(request && typeof request === 'object' && 'authority' in request);
     const rawAuthority = authoritySupplied
-      ? (request as { authority?: { leadUrl?: string; sourceBranch?: string; sourceCommit?: string } }).authority
+      ? (request as { authority?: {
+          leadUrl?: string; configurationBranch?: string; configurationCommit?: string;
+          sourceBranch?: string; sourceCommit?: string;
+        } }).authority
       : null;
+    const rawAuthorityBranch = rawAuthority?.configurationBranch ?? rawAuthority?.sourceBranch;
+    const rawAuthorityCommit = rawAuthority?.configurationCommit ?? rawAuthority?.sourceCommit;
     const requestedAuthority = rawAuthority
       && typeof rawAuthority.leadUrl === 'string'
       && !gitRemoteProblem(rawAuthority.leadUrl, 'Capability authority')
-      && typeof rawAuthority.sourceBranch === 'string'
-      && rawAuthority.sourceBranch.trim() && !/[\u0000-\u001f\u007f\s]/u.test(rawAuthority.sourceBranch.trim())
-      && typeof rawAuthority.sourceCommit === 'string'
-      && /^[0-9a-f]{40,64}$/i.test(rawAuthority.sourceCommit.trim())
+      && typeof rawAuthorityBranch === 'string'
+      && rawAuthorityBranch.trim() && !/[\u0000-\u001f\u007f\s]/u.test(rawAuthorityBranch.trim())
+      && typeof rawAuthorityCommit === 'string'
+      && /^[0-9a-f]{40,64}$/i.test(rawAuthorityCommit.trim())
       ? {
           leadUrl: rawAuthority.leadUrl.trim(),
-          sourceBranch: rawAuthority.sourceBranch.trim(),
-          sourceCommit: rawAuthority.sourceCommit.trim().toLowerCase()
+          configurationBranch: rawAuthorityBranch.trim(),
+          configurationCommit: rawAuthorityCommit.trim().toLowerCase()
         }
       : null;
     if (authoritySupplied && !requestedAuthority) {
@@ -2098,6 +2110,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
     let inspectedAuthorityOrganisation: {
       governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
+      configurationBranch?: string; configurationCommit?: string;
       capabilities?: RemoteCapability[] | null;
       repositories?: Record<string, { url?: string; defaultBranch?: string }>;
     } | null = null;
@@ -2114,6 +2127,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const organisation = await registry.run<{
           governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
+          configurationBranch?: string; configurationCommit?: string;
           capabilities?: RemoteCapability[] | null;
           repositories?: Record<string, { url?: string; defaultBranch?: string }>;
         }>(['capability', 'organisation', capabilityAuthorityUrl, '--json']);
@@ -2152,13 +2166,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         inspectedAuthorityOrganisation = await registry.run<{
           governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
+          configurationBranch?: string; configurationCommit?: string;
           capabilities?: RemoteCapability[] | null;
           repositories?: Record<string, { url?: string; defaultBranch?: string }>;
         }>(['capability', 'organisation', requestedAuthority.leadUrl, '--json']);
         if (inspectedAuthorityOrganisation.governed !== true
           || inspectedAuthorityOrganisation.stale === true
-          || inspectedAuthorityOrganisation.sourceBranch !== requestedAuthority.sourceBranch
-          || inspectedAuthorityOrganisation.sourceCommit?.toLowerCase() !== requestedAuthority.sourceCommit) {
+          || (inspectedAuthorityOrganisation.configurationBranch
+            ?? inspectedAuthorityOrganisation.sourceBranch) !== requestedAuthority.configurationBranch
+          || (inspectedAuthorityOrganisation.configurationCommit
+            ?? inspectedAuthorityOrganisation.sourceCommit)?.toLowerCase()
+              !== requestedAuthority.configurationCommit) {
           issue = 'The capability authority changed after repository inspection. Check the repository mapping again; no local workspace was selected.';
         }
       } catch (error) {
@@ -2190,7 +2208,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const lead = status.repositories.find((repository) =>
           repository.id === status.workspace.leadRepository || repository.role === 'lead');
         const authorityUrl = status.workspace.capabilityAuthority?.url?.trim() || lead?.url?.trim();
-        if (authorityUrl === requestedAuthority.leadUrl) matchingPaths.push(entry.path);
+        if (authorityUrl && sameGitRepository(authorityUrl, requestedAuthority.leadUrl)) {
+          matchingPaths.push(entry.path);
+        }
       }
       if (!matchingPaths.length) {
         issue = 'No local workspace is bound to the verified capability authority. Create a workspace for this authority, or use an existing clone, before attaching the capability.';
@@ -2283,6 +2303,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           && preview.dropLocal === dropLocal
           && preview.workspace?.path === message.row.directory
           && preview.authority && typeof preview.authority.url === 'string'
+          && typeof preview.authority.configurationBranch === 'string'
+          && typeof preview.authority.configurationCommit === 'string'
           && typeof preview.authority.sourceBranch === 'string'
           && typeof preview.authority.sourceCommit === 'string'
           && Array.isArray(preview.materializeRepositories)
@@ -2297,9 +2319,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const expectedAuthority = message.type === 'attach-capability'
           ? message.expectedAuthority : null;
-        if (expectedAuthority && (preview.authority.url !== expectedAuthority.leadUrl
-          || preview.authority.sourceBranch !== expectedAuthority.sourceBranch
-          || preview.authority.sourceCommit.toLowerCase() !== expectedAuthority.sourceCommit.toLowerCase())) {
+        if (expectedAuthority && (!sameGitRepository(
+          preview.authority.url, expectedAuthority.leadUrl
+        )
+          || preview.authority.configurationBranch !== expectedAuthority.configurationBranch
+          || preview.authority.configurationCommit.toLowerCase()
+              !== expectedAuthority.configurationCommit.toLowerCase())) {
           const error = 'The capability authority changed after repository inspection. Nothing was attached; check the repository mapping again before retrying.';
           output.appendLine(`  failed: ${error}`);
           return error;

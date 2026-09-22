@@ -2385,6 +2385,9 @@ export async function inspectCapabilityRepository(repositoryUrl, {
           .filter((capability) => (capability.repositories ?? []).includes(repositoryId))
           .map((capability) => capability.id),
         governed: organisation.governed,
+        // Keep approved authority identity separate from the possibly moving state projection.
+        configurationBranch: organisation.configurationBranch ?? organisation.branch ?? null,
+        configurationCommit: organisation.configurationCommit ?? null,
         sourceBranch: organisation.sourceBranch ?? null,
         sourceCommit: organisation.sourceCommit ?? null,
         capabilityMapSha256: organisation.capabilityMapSha256 ?? null,

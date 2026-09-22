@@ -661,6 +661,11 @@ function profileHtml(form: IntakeForm): string {
  */
 function baseBranchHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
+  if (workflowCatalogCoversBranchFailure(form)) {
+    return `<section><h2>${icon('workflow')}Base branch</h2>
+      <p class="question">Not checked because approved Story configuration did not load.
+        Repair or refresh it above; branch readiness will then be checked again.</p></section>`;
+  }
   if (form.baseBranchReason) {
     return `<section><h2>${icon('workflow')}Base branch</h2>
       <p class="blockers">${escape(form.baseBranchReason)}</p>
@@ -696,11 +701,23 @@ function baseBranchHtml(form: IntakeForm): string {
   </section>`;
 }
 
+/** One aggregate authority failure can prevent both workflow and branch discovery. */
+function workflowCatalogCoversBranchFailure(form: IntakeForm): boolean {
+  const workflowReason = form.workflowReason?.trim();
+  const branchReason = form.baseBranchReason?.trim();
+  return form.shape === 'story' && !form.storyWorkflows.length
+    && Boolean(workflowReason && branchReason && workflowReason.includes(branchReason));
+}
+
 function storyWorkflowHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
   if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length) {
     return `<section><h2>${icon('workflow')}Story workflow</h2>
-      <p class="blockers">${escape(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.')}</p></section>`;
+      <p class="blockers">${escape(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.')}</p>
+      <p class="question">Approved configuration needs a valid workflow catalog. Refresh restores
+        missing framework assets without replacing repository-owned workflow customizations.</p>
+      <p><button type="button" class="secondary" data-workflow-refresh>
+        Refresh or reinitialize repository configuration</button></p></section>`;
   }
   return `
   <section>
@@ -908,6 +925,14 @@ function inFlightHtml(form: IntakeForm): string {
 
 export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
   const problems = intakeProblems(form);
+  // Keep every mutation gate while rendering the workflow authority failure only once.
+  const workflowProblem = form.shape === 'story' && !form.storyWorkflows.length
+    ? form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.'
+    : null;
+  const branchProblem = workflowCatalogCoversBranchFailure(form) ? form.baseBranchReason : null;
+  const summaryProblems = workflowProblem
+    ? problems.filter((problem) => problem !== workflowProblem && problem !== branchProblem)
+    : problems;
   const noun = form.shape === 'initiative' ? 'Initiative' : form.shape === 'epic' ? 'Epic' : 'Story';
   const recoveryRoute = commandGuidance(form.recoveryRouteCommand);
   return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">
@@ -950,7 +975,9 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
 
   <section>
     ${problems.length
-    ? `<h2>${icon('bad')}Before this can start</h2><ul class="blockers">${problems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
+    ? `<h2>${icon('bad')}Before this can start</h2>${summaryProblems.length
+      ? `<ul class="blockers">${summaryProblems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
+      : '<p class="blockers">Fix the highlighted configuration issue above, then check again.</p>'}`
     : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${mintsIdentifier(form)
       ? `Reserves a branch for this ${escape(noun.toLowerCase())}, which is what mints its identifier, and commits its first governed state.`
       : `Starts ${escape(noun.toLowerCase())} <code>${escape(intakeIdentifier(form))}</code> and commits its first governed state.`}</p>`}

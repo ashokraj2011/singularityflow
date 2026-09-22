@@ -13,6 +13,7 @@ import {
   configurationAssetPaths, isConfigurationAsset, loadStoryConfigurationDefinition,
   loadStoryConfigurationSnapshot,
   materializeConfigurationSnapshot, readConfigurationSource, resolveConfigurationRemote,
+  portableConfigurationTraversalPath,
   resolveRemoteStoryConfigurationAuthority, resolveStoryConfigurationAuthority,
   retainStateConfigurationHistory, stateConfigurationHistoryBranch,
   STATE_CONFIGURATION_BRANCH, STATE_CONFIGURATION_MANIFEST,
@@ -58,6 +59,17 @@ test('configuration asset paths cannot traverse the repository', () => {
     'non-NFC filesystem aliases are never portable configuration paths');
   assert.equal(isConfigurationAsset('singularity/world-model/manifest.json'), false,
     'the stock generated world model remains runtime, not approved configuration');
+});
+
+test('Windows configuration traversal converts native separators before applying Git path policy', () => {
+  const native = path.win32.join('singularity', 'workflow.yml');
+  const portable = portableConfigurationTraversalPath(native, path.win32.sep);
+  assert.equal(native, 'singularity\\workflow.yml');
+  assert.equal(portable, 'singularity/workflow.yml');
+  assert.equal(isConfigurationAsset(portable), true,
+    'a healthy Windows authority must retain its required workflow asset');
+  assert.equal(isConfigurationAsset(native), false,
+    'the approved Git-path policy remains strict; only the local traversal boundary converts it');
 });
 
 async function repositoryFixture({ branch = 'main' } = {}) {
@@ -721,6 +733,42 @@ test('one verified Story snapshot validates and materializes without a second re
     });
     assert.equal(materialized.commit, authority.commit);
     assert.equal((await loadDefinition(checkout)).version, 2);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('a genuinely incomplete Story authority is classified with plan-first reinitialization', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const editor = path.join(fixture.root, 'damaged-configuration-editor');
+    run('git', ['clone', '-q', '--single-branch', '--branch', CONFIGURATION_BRANCH,
+      fixture.remote, editor], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Configuration Tester'], { cwd: editor });
+    run('git', ['config', 'user.email', 'configuration@example.com'], { cwd: editor });
+    await rm(path.join(editor, 'singularity/workflow.yml'));
+    run('git', ['add', '-A'], { cwd: editor });
+    run('git', ['commit', '-qm', 'damage approved configuration'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+      cwd: editor
+    });
+
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    await assert.rejects(
+      loadStoryConfigurationSnapshot(authority),
+      (error) => {
+        assert.equal(error?.code, 'STORY_CONFIGURATION_WORKFLOW_MISSING');
+        assert.match(error.message, /approved configuration sflow\/config@[0-9a-f]{12} is incomplete/iu);
+        assert.match(error.message, /Nothing was changed/u);
+        assert.deepEqual(error.details?.missing, ['singularity/workflow.yml']);
+        assert.deepEqual(error.details?.recoveryCommand, {
+          command: 'singularity-flow workspace reinitialize --dry-run --json',
+          skill: '/sf-admin'
+        });
+        return true;
+      }
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

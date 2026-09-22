@@ -632,7 +632,7 @@ export function workspacesHtml(
   ${attachScope ? `<section class="plain">
     <p class="${attachScope.matchingPaths.length ? 'meta' : 'blockers'}"><strong>Attach existing capability</strong><br>
       ${attachScope.matchingPaths.length
-        ? `Showing only local workspaces bound to the verified capability authority at <code>${escape(attachScope.authority.sourceBranch)}@${escape(attachScope.authority.sourceCommit.slice(0, 12))}</code>.`
+        ? `Showing only local workspaces bound to the verified capability authority at <code>${escape(attachScope.authority.configurationBranch)}@${escape(attachScope.authority.configurationCommit.slice(0, 12))}</code>.`
         : escape(attachScope.issue
           ?? 'No local workspace is bound to this verified capability authority. Create a workspace for this authority, or use an existing clone, before attaching the capability.')}</p>
   </section>` : ''}

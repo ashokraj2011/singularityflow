@@ -41,11 +41,35 @@ test('Git URL maintenance collapses only proven aliases without weakening identi
     'git@git.example.invalid:acme/RuleEngineUI.git',
     'https://git.example.invalid/acme/RuleEngineUI/'
   ), false, 'an arbitrary host may bind transport or SSH username into repository authority');
+  const literalScpPath = 'git@example.test:repository.git?release#prod';
+  assert.equal(sameGitRepository(literalScpPath, literalScpPath), true,
+    'an admitted SCP path treats query- and fragment-shaped bytes as literal repository identity');
+  const ipv6Scp = 'git@[2001:db8::1]:team/repository.git';
+  assert.equal(sameGitRepository(ipv6Scp, ipv6Scp), true,
+    'an exact admitted bracketed-IPv6 SCP authority remains reflexive');
+  assert.equal(sameGitRepository(
+    'git@example.test:repositories/platform.git',
+    'git@example.test:/repositories/platform.git'
+  ), false, 'SCP home-relative and absolute repository paths are distinct authorities');
+  assert.notEqual(
+    gitRepositoryComparisonKey('git@example.test:repositories/platform.git'),
+    gitRepositoryComparisonKey('git@example.test:/repositories/platform.git')
+  );
   assert.equal(sameGitRepository(
     'https://git.example.invalid/acme/RuleEngineUI.git',
     'https://git.example.invalid/acme/another.git'
   ), false);
   assert.equal(gitRepositoryComparisonKey('https://token@git.example.invalid/acme/RuleEngineUI.git'), null);
+  assert.equal(sameGitRepository(
+    'https://token@git.example.invalid/acme/RuleEngineUI.git',
+    'https://token@git.example.invalid/acme/RuleEngineUI.git'
+  ), false, 'exact equality never bypasses credential-free remote validation');
+  assert.equal(sameGitRepository(
+    'user:password@git.example.invalid:acme/RuleEngineUI.git',
+    'user:password@git.example.invalid:acme/RuleEngineUI.git'
+  ), false, 'password-shaped SCP user information is never an identity proof');
+  assert.equal(sameGitRepository('ext::opaque', 'ext::opaque'), false,
+    'external remote helpers are outside the closed comparison boundary');
   assert.equal(gitRepositoryComparisonKey('https://git.example.invalid/acme/RuleEngineUI.git?token=secret'), null);
   assert.equal(
     gitRepositoryComparisonKey('C:\\Work\\RuleEngineUI.git'),
@@ -99,6 +123,26 @@ test('Git URL maintenance collapses only proven aliases without weakening identi
     'https://git.example.invalid/Acme/RuleEngineUI.git',
     'git@git.example.invalid:acme/ruleengineui'
   ), false, 'unknown Git hosts retain case-sensitive repository identity');
+});
+
+test('attach-existing authority identity is portable but never broadens to another repository', () => {
+  const publicGithub = ['github', 'com'].join('.');
+  assert.equal(sameGitRepository(
+    'C:\\Work\\RuleEngineUI',
+    'c:/work/ruleengineui/'
+  ), true, 'Windows drive case and separator spelling do not create another authority');
+  assert.equal(sameGitRepository(
+    '/srv/work/RuleEngineUI/.git/',
+    '/srv/work/RuleEngineUI'
+  ), true, 'a worktree and its Git-directory spelling identify one local authority');
+  assert.equal(sameGitRepository(
+    `https://${publicGithub}/Acme/RuleEngineUI.git`,
+    `git@${publicGithub}:acme/ruleengineui`
+  ), true, 'the documented GitHub HTTPS/SSH transports identify one hosted authority');
+  assert.equal(sameGitRepository(
+    `https://${publicGithub}/acme/RuleEngineUI.git`,
+    `https://${publicGithub}/acme/RuleEngineAPI.git`
+  ), false, 'a neighboring repository can never satisfy the inspected authority lease');
 });
 
 test('Git URL maintenance resolves only exact repositories in readable registered workspaces', () => {

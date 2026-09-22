@@ -79,8 +79,8 @@ export interface WorkspaceCapabilityAttachScope {
   capabilityIds: string[];
   authority: {
     leadUrl: string;
-    sourceBranch: string;
-    sourceCommit: string;
+    configurationBranch: string;
+    configurationCommit: string;
   };
   /** Workspace registry paths whose manifests name this exact lead authority. */
   matchingPaths: string[];

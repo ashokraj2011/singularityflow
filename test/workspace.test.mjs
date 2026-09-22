@@ -36,6 +36,7 @@ import {
 import { run, SingularityFlowError } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { initializeDefinition } from '../src/config.mjs';
+import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { writeV3Manifest } from '../src/world-model-materialization.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
@@ -413,6 +414,16 @@ async function approveCapabilityAuthority(base, leadRemote, capabilities, reposi
   run('git', ['add', 'singularity/portfolio.yml', 'singularity/capabilities.yml'], { cwd: checkout });
   run('git', ['commit', '-m', 'approve workspace capability fixture'], { cwd: checkout });
   run('git', ['push', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: checkout });
+  return run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+}
+
+async function advanceRemoteBranch(base, remote, branch, message) {
+  const checkout = await mkdtemp(path.join(base, `advance-${branch.replaceAll('/', '-')}-`));
+  run('git', ['clone', '--quiet', '--branch', branch, remote, checkout], { cwd: base });
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: checkout });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: checkout });
+  run('git', ['commit', '--allow-empty', '-m', message], { cwd: checkout });
+  run('git', ['push', 'origin', `HEAD:refs/heads/${branch}`], { cwd: checkout });
   return run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
 }
 
@@ -891,6 +902,78 @@ test('workspace capability detach preserves checkouts, drop is bounded, and atta
   );
   assert.equal(restored.status.repositories.find((repository) => repository.id === 'payments-api').state, 'ready');
   assert.ok(await stat(path.join(checkout, '.git')), 'reattach reclones only the missing checkout');
+});
+
+test('workspace capability confirmation tolerates state-only projection advance but not configuration advance', async (t) => {
+  const setup = async (name, { publishState = false } = {}) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), `sflow-workspace-authority-${name}-`));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const platformRemote = await remoteRepository(root, `${name}-platform`);
+    const apiRemote = await remoteRepository(root, `${name}-api`);
+    await approveCapabilityAuthority(root, platformRemote, {
+      api: { name: 'API', kind: 'delivery', parent: null, repository: 'api' }
+    }, {
+      platform: { url: platformRemote }, api: { url: apiRemote }
+    });
+    if (publishState) {
+      await publishOrganisationCapabilityMap(platformRemote, {
+        initiatingRoot: packageRoot,
+        initiatingEnv: {
+          ...process.env,
+          NODE_ENV: 'test',
+          SINGULARITY_FLOW_TEST_IDENTITY: 'Workspace Tester'
+        }
+      });
+    }
+    const created = await createWorkspaceConfiguration({
+      baseDirectory: path.join(root, 'workspaces'), id: name, name,
+      leadRepository: 'platform', capabilities: [], capabilityAuthority: { url: platformRemote },
+      repositories: {
+        platform: {
+          url: platformRemote, defaultBranch: 'main', path: 'repos/platform', capabilities: []
+        }
+      }
+    }, { confirmation: name, clone: true });
+    return { root, platformRemote, apiRemote, created };
+  };
+
+  const projected = await setup('state-advance', { publishState: true });
+  const statePreview = await previewWorkspaceCapabilityChange(
+    projected.created.workspace.path, 'api', { action: 'attach' }
+  );
+  assert.equal(statePreview.authority.sourceBranch, 'state');
+  const previousSourceCommit = statePreview.authority.sourceCommit;
+  const advancedSourceCommit = await advanceRemoteBranch(
+    projected.root, projected.platformRemote, 'state', 'Unrelated runtime state evidence'
+  );
+  assert.notEqual(advancedSourceCommit, previousSourceCommit);
+  const attached = await changeWorkspaceCapability(
+    projected.created.workspace.path, 'api', { action: 'attach' },
+    { confirmation: statePreview.planId }
+  );
+  assert.deepEqual(attached.workspace.capabilities, ['api'],
+    'state-only projection movement does not invalidate an otherwise identical confirmed plan');
+  assert.ok(await stat(path.join(projected.created.workspace.path, 'repos', 'api', '.git')),
+    'all ordinary materialization checks still run after projection-only movement');
+
+  const configured = await setup('config-advance');
+  const configPreview = await previewWorkspaceCapabilityChange(
+    configured.created.workspace.path, 'api', { action: 'attach' }
+  );
+  await advanceRemoteBranch(
+    configured.root, configured.platformRemote, 'sflow/config', 'Advance approved configuration'
+  );
+  await assert.rejects(
+    () => changeWorkspaceCapability(
+      configured.created.workspace.path, 'api', { action: 'attach' },
+      { confirmation: configPreview.planId }
+    ),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_CONFIRMATION_REQUIRED'
+  );
+  const unchanged = await readWorkspace(configured.created.workspace.path);
+  assert.deepEqual(unchanged.capabilities, []);
+  assert.equal(await stat(path.join(configured.created.workspace.path, 'repos', 'api'))
+    .catch(() => null), null, 'configuration movement cannot materialize a repository');
 });
 
 test('workspace capability drop refuses dirty and adopted repositories without changing the manifest', async () => {
@@ -1980,6 +2063,27 @@ test('workspace repair resolves only exact interrupted capability-drop transacti
     'target-manifest recovery deletes only the exact staged checkout');
   assert.equal(await stat(discardRoot).catch(() => null), null);
   assert.equal((await readWorkspace(created.workspace.path)).repositories.api, undefined);
+});
+
+test('workspace repair accepts a sealed capability-drop transaction with the legacy source-bound plan id', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-legacy-plan-'));
+  const fixture = await stagedCapabilityDropFixture(root, 'legacy-plan');
+  const digest = workspaceFixtureSha256(fixture.transaction.plan);
+  const legacyPlanId = `wscp-${digest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
+  assert.notEqual(legacyPlanId, fixture.transaction.planId,
+    'the legacy identity included informational source revision fields');
+  const legacyRoot = path.join(path.dirname(fixture.transactionRoot), legacyPlanId);
+  await rename(fixture.transactionRoot, legacyRoot);
+  const migrated = structuredClone(fixture.transaction);
+  migrated.planId = legacyPlanId;
+  migrated.repositories[0].staged = path.join(legacyRoot, 'api');
+  const sealed = resealWorkspaceDropFixture(migrated);
+  await writeFile(path.join(legacyRoot, 'transaction.json'), `${JSON.stringify(sealed, null, 2)}\n`);
+
+  await repairWorkspace(fixture.workspace.path);
+  assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+    'upgrading plan identity does not strand a checkout staged by an older build');
+  assert.equal(await stat(legacyRoot).catch(() => null), null);
 });
 
 test('workspace repair retains malformed, tampered, and third-state capability-drop transactions', async (t) => {

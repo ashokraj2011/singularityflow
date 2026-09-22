@@ -5,6 +5,17 @@ import { fileURLToPath } from 'node:url';
 // Keep provider spelling assembled so repository-source hygiene does not turn one public host into
 // a sample authority baked throughout the product. It is used only for documented URL aliasing.
 const PUBLIC_GITHUB_HOST = ['github', 'com'].join('.');
+const UNSAFE_REMOTE_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u;
+const PASSWORD_SHAPED_REMOTE = /^(?:[^/@\s:]+:[^/@\s]+@[^:\s]+:.+|(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)[\\/]*[^/@\s:]+:[^/@\s]+@)/iu;
+
+/** Closed, lightweight admission for latency-sensitive identity comparisons. */
+function remoteComparisonInput(value) {
+  const remote = String(value ?? '').trim();
+  if (!remote || remote.length > 8192 || UNSAFE_REMOTE_CONTROLS.test(remote)
+      || remote.startsWith('-') || /^[a-z][a-z0-9+.-]*::/iu.test(remote)
+      || PASSWORD_SHAPED_REMOTE.test(remote)) return null;
+  return remote;
+}
 
 function withoutGitDirectorySuffix(value) {
   return String(value).replace(/\/+$/u, '').replace(/\/\.git$/iu, '').replace(/\/+$/u, '');
@@ -28,9 +39,23 @@ function decodeUnreserved(value) {
   });
 }
 
-function scpRemote(value) {
-  const match = String(value).match(/^([^/@:\s]+)@([^:\s]+):(.+)$/u);
-  return match ? `ssh://${match[1]}@${match[2]}/${match[3]}` : value;
+function scpRemoteComparisonKey(remote) {
+  if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(remote)) return null;
+  const match = remote.match(/^(?:([^/@:\s]+)@)?(\[[^\]\s]+\]|[^/:\s]+):(.+)$/u);
+  if (!match) return null;
+  const repository = match[3].replace(/\/+$/u, '');
+  if (!repository) return null;
+  const username = match[1] ?? '';
+  const hostname = match[2].toLocaleLowerCase('en-US');
+  const absolute = repository.startsWith('/');
+  // Only GitHub documents its home-relative SCP spelling as an HTTPS alias. Other hosts retain
+  // relative-versus-absolute identity.
+  if (hostname === PUBLIC_GITHUB_HOST && username === 'git' && !absolute) {
+    const hosted = withoutHostedRepositorySuffix(decodeUnreserved(repository))
+      .toLocaleLowerCase('en-US');
+    return hosted ? `remote:${PUBLIC_GITHUB_HOST}/${hosted}` : null;
+  }
+  return `remote:scp:${username ? `${username}@` : ''}${hostname}:${absolute ? 'absolute' : 'relative'}:${repository}`;
 }
 
 /** Return a local filesystem locator when the Git remote is a local-path spelling. */
@@ -56,7 +81,7 @@ export function gitRepositoryLocalPath(value) {
  * a real authority boundary. Local paths are normalized lexically without filesystem I/O.
  */
 export function gitRepositoryComparisonKey(value) {
-  let remote = String(value ?? '').trim();
+  const remote = remoteComparisonInput(value);
   if (!remote) return null;
   if (/^[A-Za-z]:[\\/]/u.test(remote)) {
     const local = canonicalWindowsPath(remote);
@@ -68,7 +93,8 @@ export function gitRepositoryComparisonKey(value) {
     return repositoryPath
       ? `local-unc:${uncPath[1].toLocaleLowerCase('en-US')}/${repositoryPath}` : null;
   }
-  remote = scpRemote(remote);
+  const scpKey = scpRemoteComparisonKey(remote);
+  if (scpKey) return scpKey;
   try {
     const parsed = new URL(remote);
     const sshProtocol = ['ssh:', 'git+ssh:', 'ssh+git:'].includes(parsed.protocol);

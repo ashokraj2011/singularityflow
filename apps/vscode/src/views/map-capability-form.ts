@@ -84,6 +84,8 @@ export interface RepositoryInspectionMatch {
   stateBranch?: string;
   capabilities?: string[];
   governed?: boolean;
+  configurationBranch?: string | null;
+  configurationCommit?: string | null;
   sourceBranch?: string | null;
   sourceCommit?: string | null;
   cached?: boolean;

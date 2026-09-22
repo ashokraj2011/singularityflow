@@ -552,12 +552,27 @@ test('repository inspection finds an exact URL in registered capability maps wit
   assert.equal(found.matches[0].lead, org.platform);
   assert.equal(found.matches[0].repositoryId, 'service');
   assert.deepEqual(found.matches[0].capabilities, ['calculator']);
+  assert.equal(found.matches[0].configurationBranch, 'sflow/config');
+  assert.equal(found.matches[0].configurationCommit,
+    run('git', ['rev-parse', 'refs/heads/sflow/config'], { cwd: org.platform }).stdout.trim(),
+    'inspection exposes the approved authority separately from its state projection');
   assert.deepEqual(proposalRefs(org.platform), refsBefore, 'inspection created a proposal');
   assert.equal(found.authorityScope, 'registered');
   assert.equal(found.completeness, 'complete');
   assert.equal(found.proposalCoverage, 'complete');
   assert.deepEqual(found.proposalInspection, { total: 0, inspected: 0, limitPerAuthority: 64 },
     'an approved exact match does not enumerate review proposal refs');
+
+  await publishOrganisationCapabilityMap(org.platform);
+  const projected = await inspectCapabilityRepository(org.service, {
+    leadUrl: org.platform, refresh: true
+  });
+  assert.equal(projected.matches[0].sourceBranch, 'state',
+    'inspection preserves which projection supplied the bytes');
+  assert.equal(projected.matches[0].configurationBranch, 'sflow/config');
+  assert.equal(projected.matches[0].configurationCommit,
+    run('git', ['rev-parse', 'refs/heads/sflow/config'], { cwd: org.platform }).stdout.trim(),
+    'the UI lease remains bound to approved configuration when the bytes came from state');
 
   const missing = await inspectCapabilityRepository(org.unmapped, { leadUrl: org.platform });
   assert.equal(missing.status, 'not-onboarded');

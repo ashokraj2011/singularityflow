@@ -51,6 +51,10 @@ export interface Organisation {
   governed: boolean;
   capabilities: OrganisationCapability[];
   repositories?: Record<string, OrganisationRepository>;
+  configurationBranch?: string | null;
+  configurationCommit?: string | null;
+  sourceBranch?: string | null;
+  sourceCommit?: string | null;
 }
 
 interface RepositoryInspection {
@@ -59,7 +63,9 @@ interface RepositoryInspection {
   matches?: Array<{
     lead?: string; repositoryId?: string; repositoryUrl?: string; capabilities?: string[];
     defaultBranch?: string; stateBranch?: string;
-    governed?: boolean; sourceBranch?: string | null; sourceCommit?: string | null;
+    governed?: boolean;
+    configurationBranch?: string | null; configurationCommit?: string | null;
+    sourceBranch?: string | null; sourceCommit?: string | null;
     cached?: boolean; stale?: boolean;
   }>;
   pendingMatches?: Array<{
@@ -1320,10 +1326,11 @@ export class BootstrapPanel {
         // Refusing it made this action fail deterministically after the first successful read.
         // An offline fallback is different and remains excluded by the explicit stale check.
         && match.governed === true && match.stale !== true
-        && Boolean(match.sourceBranch?.trim())
-        && /^[0-9a-f]{40,64}$/i.test(match.sourceCommit?.trim() ?? ''));
+        && Boolean((match.configurationBranch ?? match.sourceBranch)?.trim())
+        && /^[0-9a-f]{40,64}$/i.test(
+          (match.configurationCommit ?? match.sourceCommit)?.trim() ?? ''));
       const authorityIdentities = [...new Set(authorityMatches.map((match) =>
-        `${match.lead?.trim()}\n${match.sourceBranch?.trim()}\n${match.sourceCommit?.trim().toLowerCase()}`))];
+        `${match.lead?.trim()}\n${(match.configurationBranch ?? match.sourceBranch)?.trim()}\n${(match.configurationCommit ?? match.sourceCommit)?.trim().toLowerCase()}`))];
       if (authorityIdentities.length !== 1 || !authorityMatches[0]) {
         this.update({
           error: 'The existing mapping is not bound to one exact, current capability authority revision. Check the repository again before attaching it to a workspace.'
@@ -1345,8 +1352,10 @@ export class BootstrapPanel {
         capabilityIds,
         authority: {
           leadUrl: boundLead,
-          sourceBranch: authorityMatch.sourceBranch!.trim(),
-          sourceCommit: authorityMatch.sourceCommit!.trim().toLowerCase()
+          configurationBranch: (authorityMatch.configurationBranch
+            ?? authorityMatch.sourceBranch)!.trim(),
+          configurationCommit: (authorityMatch.configurationCommit
+            ?? authorityMatch.sourceCommit)!.trim().toLowerCase()
         }
       });
       return;

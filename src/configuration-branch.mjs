@@ -254,7 +254,12 @@ export async function retainStateConfigurationHistory(root, remote, sourceCommit
   );
 }
 
-function slash(value) { return value.split(path.sep).join('/'); }
+/** Canonicalize a host traversal path before applying portable Git-path policy. */
+export function portableConfigurationTraversalPath(value, separator = path.sep) {
+  return String(value).split(separator).join('/');
+}
+
+function slash(value) { return portableConfigurationTraversalPath(value); }
 
 export function isConfigurationAsset(relative, policy = DEFAULT_CONFIGURATION_ASSET_POLICY) {
   return isConfigurationAssetPath(relative, policy);
@@ -306,15 +311,15 @@ async function filesBelow(root, relative, policy, output = []) {
   }
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const child = path.join(relative, entry.name);
+    const portable = slash(child);
     if (entry.isDirectory()) {
-      const portable = slash(child);
       const containsExplicit = [...policy.roots, ...policy.files]
         .some((configured) => configured.startsWith(`${portable}/`));
       if (isConfigurationAsset(portable, policy) || containsExplicit) {
         await filesBelow(root, child, policy, output);
       }
     }
-    else if (entry.isFile() && isConfigurationAsset(child, policy)) output.push(slash(child));
+    else if (entry.isFile() && isConfigurationAsset(portable, policy)) output.push(portable);
   }
   return output;
 }
@@ -1475,6 +1480,25 @@ export async function loadStoryConfigurationDefinition(authority) {
   return (await loadStoryConfigurationSnapshot(authority)).definition;
 }
 
+function missingStoryConfigurationWorkflow(authority, sourceCommit) {
+  const commit = String(sourceCommit ?? authority?.sourceCommit ?? authority?.commit ?? 'unknown');
+  return new SingularityFlowError(
+    `Approved configuration ${CONFIGURATION_BRANCH}@${commit.slice(0, 12)} is incomplete: it does not contain singularity/workflow.yml. Nothing was changed. Preview the seeded-only workspace reinitialization, review its exact plan, and apply that plan before creating a Story.`,
+    {
+      code: 'STORY_CONFIGURATION_WORKFLOW_MISSING',
+      details: {
+        branch: CONFIGURATION_BRANCH,
+        commit,
+        missing: ['singularity/workflow.yml'],
+        recoveryCommand: {
+          command: 'singularity-flow workspace reinitialize --dry-run --json',
+          skill: '/sf-admin'
+        }
+      }
+    }
+  );
+}
+
 async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   observedCommit,
   sourceCommit,
@@ -1482,6 +1506,12 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   definition: retainedDefinition = null,
   env = process.env
 }) {
+  // A remote authority must use reviewed workspace repair, not repository-local init advice.
+  const workflow = await lstat(path.join(scratch, 'singularity/workflow.yml')).catch((error) => {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    throw error;
+  });
+  if (!workflow) throw missingStoryConfigurationWorkflow(authority, sourceCommit);
   const definition = retainedDefinition ?? await loadDefinition(scratch);
   const assets = [];
   const treeEntries = mirror?.assets
@@ -1509,8 +1539,7 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
     }));
   }
   if (!assets.some((entry) => entry.relative === 'singularity/workflow.yml')) {
-    throw new SingularityFlowError(
-      `${CONFIGURATION_BRANCH}@${sourceCommit.slice(0, 12)} does not contain singularity/workflow.yml.`);
+    throw missingStoryConfigurationWorkflow(authority, sourceCommit);
   }
   return Object.freeze({
     [STORY_CONFIGURATION_SNAPSHOT]: true,

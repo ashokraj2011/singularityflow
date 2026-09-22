@@ -4921,7 +4921,14 @@ test('Story intake refuses to fall through to an interactive workflow prompt', (
     workflowReason: 'Could not load Story workflows from this repository.'
   });
   assert.match(intakeProblems(missing).join(' '), /Could not load Story workflows/);
-  assert.match(intakeHtml(missing), /Could not load Story workflows/);
+  const missingHtml = intakeHtml(missing);
+  assert.match(missingHtml, /Could not load Story workflows/);
+  assert.match(missingHtml, /data-workflow-refresh/,
+    'missing approved workflow assets offer the governed refresh/reinitialize journey in place');
+  assert.match(missingHtml, /data-submit="start" disabled/,
+    'the recovery action never weakens the Story-start gate');
+  assert.equal((missingHtml.match(/Could not load Story workflows from this repository\./g) ?? []).length, 1,
+    'the workflow authority failure is explained once rather than repeated in the footer');
   assert.deepEqual(storyPreflightCommand(missing), [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
     '--from-branch', 'main'
@@ -4931,6 +4938,25 @@ test('Story intake refuses to fall through to an interactive workflow prompt', (
     workType: 'bugfix', workflowReason: null };
   assert.deepEqual(intakeProblems(selected), []);
   assert.match(intakeCommand(selected).join(' '), /--work-type bugfix/);
+});
+
+test('one aggregate configuration-authority failure is not rendered as two Story blockers', () => {
+  const authorityFailure = 'sflow/config@2dffdf937030 does not contain singularity/workflow.yml.';
+  const form = intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry checkout',
+    description: 'Retry once', storyWorkflows: [], availableStoryWorkflows: [], workType: null,
+    workflowReason: `Could not load Story workflows: ${authorityFailure}`,
+    baseBranch: null, baseBranchChoices: [], baseBranchReason: authorityFailure,
+    basePreflightPassed: false
+  });
+  const html = intakeHtml(form);
+  assert.equal((html.match(/sflow\/config@2dffdf937030 does not contain singularity\/workflow\.yml\./g) ?? []).length, 1,
+    'the aggregate catalog error is not repeated by workflow, branch, and summary sections');
+  assert.match(html, /Not checked because approved Story configuration/);
+  assert.match(html, /Refresh or reinitialize repository configuration/);
+  assert.match(html, /data-submit="start" disabled/);
+  assert.ok(intakeProblems(form).length >= 2,
+    'presentation deduplication must not remove either engine-side mutation gate');
 });
 
 test('the profiles are shown with the phases that distinguish them', () => {
@@ -5603,7 +5629,8 @@ test('an attach-existing handoff explains its authority scope and has a distinct
   const scope = {
     capabilityIds: ['payments-api'],
     authority: {
-      leadUrl: '/git/platform.git', sourceBranch: 'sflow/config', sourceCommit: 'a'.repeat(40)
+      leadUrl: '/git/platform.git',
+      configurationBranch: 'sflow/config', configurationCommit: 'a'.repeat(40)
     },
     matchingPaths: [],
     issue: 'No local workspace is bound to the verified capability authority.'

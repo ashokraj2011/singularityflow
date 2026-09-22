@@ -4024,10 +4024,16 @@ test('Attach existing offers only workspaces from the inspected capability autho
     '--no-clone'], { encoding: 'utf8', env: process.env });
   assert.equal(created.status, 0, created.stderr);
 
-  const authority = (org) => ({
-    leadUrl: org.lead,
-    sourceBranch: 'sflow/config',
-    sourceCommit: run('git', ['rev-parse', 'refs/heads/sflow/config'], { cwd: org.lead }).stdout.trim()
+  const authority = (org, leadUrl = org.lead) => ({
+    leadUrl,
+    configurationBranch: 'sflow/config',
+    configurationCommit: run('git', ['rev-parse', 'refs/heads/sflow/config'], {
+      cwd: org.lead
+    }).stdout.trim(),
+    // State is a projection and can advance for unrelated evidence between the Map and Workspace
+    // panels. It must not invalidate the approved configuration lease.
+    sourceBranch: 'state',
+    sourceCommit: 'e'.repeat(40)
   });
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
@@ -4035,13 +4041,20 @@ test('Attach existing offers only workspaces from the inspected capability autho
   await extension.activate(context());
 
   await registered.commands.get('singularityFlow.openWorkspaces')({
-    capabilityIds: ['payments-api'], authority: authority(first)
+    capabilityIds: ['payments-api'],
+    // Git accepts this trailing-slash spelling for the same bare repository. Authority matching
+    // must use repository identity rather than raw URL bytes, on every host.
+    authority: authority(first, `${first.lead}/`)
   });
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
   const matching = await until(() => panel.webview.html.includes('<option value="payments-api" selected>')
     ? panel.webview.html : null);
   assert.match(matching, /first-authority/);
   assert.match(matching, /Showing only local workspaces bound to the verified capability authority/);
+  const workspaceRoot = path.join(await realpath(workspaces), 'first-authority');
+  await panel.post({ type: 'capability-attach', path: workspaceRoot, id: 'payments-api' });
+  assert.ok(registered.warningActions.some((actions) => actions.includes('Attach capability')),
+    'an equivalent inspected-authority URL reaches guarded confirmation instead of a false stale-authority refusal');
 
   // The retained panel must replace the complete scope. Its currently selected workspace belongs
   // to the first authority and must not become the "best available" choice for the second one.
@@ -4060,7 +4073,7 @@ test('Attach existing offers only workspaces from the inspected capability autho
 
   await registered.commands.get('singularityFlow.openWorkspaces')({
     capabilityIds: ['payments-api'],
-    authority: { ...authority(other), sourceCommit: 'f'.repeat(40) }
+    authority: { ...authority(other), configurationCommit: 'f'.repeat(40) }
   });
   assert.ok(registered.warnings.some((message) =>
     /capability authority changed after repository inspection/i.test(message)),
@@ -4069,8 +4082,7 @@ test('Attach existing offers only workspaces from the inspected capability autho
   assert.doesNotMatch(panel.webview.html, /<td><a[^>]*>first-authority<\/a>/,
     'a failed authority revalidation cannot replace the last verified workspace scope');
 
-  const firstWorkspace = path.join(await realpath(workspaces), 'first-authority');
-  const manifestFile = path.join(firstWorkspace, 'workspace.json');
+  const manifestFile = path.join(workspaceRoot, 'workspace.json');
   const manifestBytes = await readFile(manifestFile, 'utf8');
   await writeFile(manifestFile, '{ not valid workspace json\n');
   try {
@@ -5946,8 +5958,8 @@ test('a new laptop can find an already-onboarded repository through an explicit 
     capabilityIds: ['payments-api'],
     authority: {
       leadUrl: org.lead,
-      sourceBranch: 'sflow/config',
-      sourceCommit: authorityCommit
+      configurationBranch: 'sflow/config',
+      configurationCommit: authorityCommit
     }
   }], 'repository inspection passes the approved capability and its exact authority into Workspaces');
 

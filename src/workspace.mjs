@@ -36,6 +36,7 @@ export const WORKSPACE_SCHEMA_VERSION = 1;
 export const MAX_RECENT_WORKSPACES = 20;
 const WORKSPACE_REGISTRY_SCHEMA_VERSION = currentSchemaVersion('workspace-registry');
 const WORKSPACE_CAPABILITY_DROP_SCHEMA_VERSION = currentSchemaVersion('workspace-capability-drop-transaction');
+const CAPABILITY_CONFIGURATION_BRANCH = 'sflow/config';
 const registryMutationTails = new Map();
 const workspaceDropGitEnvironments = new WeakSet();
 const REGISTRY_LOCK_TIMEOUT_MS = 10_000;
@@ -1883,6 +1884,26 @@ function workspaceCapabilityChangeSha256(value) {
   return `sha256:${createHash('sha256').update(JSON.stringify(stableValue(value))).digest('hex')}`;
 }
 
+/** Bind confirmation to authority and safety proofs, excluding informational state projection. */
+function workspaceCapabilityPlanId(plan) {
+  let authority = plan?.authority;
+  if (authority && typeof authority === 'object' && !Array.isArray(authority)) {
+    const { sourceBranch: _sourceBranch, sourceCommit: _sourceCommit, ...authorityFields } = authority;
+    authority = authorityFields;
+  }
+  const identity = plan && typeof plan === 'object' && !Array.isArray(plan)
+    ? { ...plan, authority }
+    : plan;
+  const digest = workspaceCapabilityChangeSha256(identity);
+  return `wscp-${digest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
+}
+
+/** Compatibility identity for capability-drop transactions prepared by older builds. */
+function legacyWorkspaceCapabilityPlanId(plan) {
+  const digest = workspaceCapabilityChangeSha256(plan);
+  return `wscp-${digest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
+}
+
 function workspaceCapabilityTargetSha256(manifest) {
   // updatedAt is written for human diagnostics, not authority. Excluding only that clock value
   // keeps a preview confirmable when the same immutable source manifest and repository proofs are
@@ -2843,7 +2864,7 @@ export async function previewWorkspaceCapabilityChange(workspacePath, capability
     })),
     targetManifestSha256: workspaceCapabilityTargetSha256(manifest)
   };
-  const planId = `wscp-${workspaceCapabilityChangeSha256(planPayload).slice('sha256:'.length, 'sha256:'.length + 24)}`;
+  const planId = workspaceCapabilityPlanId(planPayload);
   return {
     schemaVersion: 1, // schema-transient: exact workspace capability preview, never persisted
     planId,
@@ -3163,13 +3184,9 @@ export async function changeWorkspaceCapability(workspacePath, capabilityId, opt
 async function assertWorkspaceCapabilityAuthorityCurrent(authority) {
   const configurationBranch = String(authority?.configurationBranch ?? '').trim();
   const configurationCommit = String(authority?.configurationCommit ?? '').trim();
-  const sourceBranch = String(authority?.sourceBranch ?? '').trim();
-  const sourceCommit = String(authority?.sourceCommit ?? '').trim();
   if (!authority?.url
-      || !isGitRefName(configurationBranch)
-      || !/^[0-9a-f]{40,64}$/i.test(configurationCommit)
-      || !isGitRefName(sourceBranch)
-      || !/^[0-9a-f]{40,64}$/i.test(sourceCommit)) {
+      || configurationBranch !== CAPABILITY_CONFIGURATION_BRANCH
+      || !/^[0-9a-f]{40,64}$/i.test(configurationCommit)) {
     throw new SingularityFlowError(
       'The capability transition is not bound to an exact approved authority revision. Preview again.',
       { code: 'WORKSPACE_CAPABILITY_AUTHORITY_UNBOUND' }
@@ -3177,16 +3194,12 @@ async function assertWorkspaceCapabilityAuthorityCurrent(authority) {
   }
   const env = enterpriseGitEnvironment();
   const session = new GitRemoteSession({ env });
-  const refs = [...new Set([
-    `refs/heads/${configurationBranch}`, `refs/heads/${sourceBranch}`
-  ])];
   const observation = await session.observeAsync(authority.url, {
-    includeHead: false, refs
+    includeHead: false, refs: [`refs/heads/${configurationBranch}`]
   });
   requireRemoteObservation(observation, 'workspace capability authority');
   const actualConfiguration = observation.refs.get(`refs/heads/${configurationBranch}`) ?? null;
-  const actualSource = observation.refs.get(`refs/heads/${sourceBranch}`) ?? null;
-  if (actualConfiguration !== configurationCommit || actualSource !== sourceCommit) {
+  if (actualConfiguration !== configurationCommit) {
     throw new SingularityFlowError(
       `The approved capability authority moved after preview (${configurationCommit.slice(0, 12)} -> ${actualConfiguration?.slice(0, 12) ?? 'missing'}). Nothing was changed; create a fresh preview.`,
       {
@@ -3194,10 +3207,7 @@ async function assertWorkspaceCapabilityAuthorityCurrent(authority) {
         details: {
           configurationBranch,
           expectedConfigurationCommit: configurationCommit,
-          actualConfigurationCommit: actualConfiguration,
-          sourceBranch,
-          expectedSourceCommit: sourceCommit,
-          actualSourceCommit: actualSource
+          actualConfigurationCommit: actualConfiguration
         }
       }
     );
@@ -3496,11 +3506,13 @@ async function recoverWorkspaceCapabilityDropTransactions(workspacePath) {
         blockers.push(`${file}: ${error.message}`);
         continue;
       }
-      const planDigest = workspaceCapabilityChangeSha256(transaction?.plan ?? null);
-      const derivedPlanId = `wscp-${planDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
+      const derivedPlanIds = new Set([
+        workspaceCapabilityPlanId(transaction?.plan ?? null),
+        legacyWorkspaceCapabilityPlanId(transaction?.plan ?? null)
+      ]);
       if (transaction?.format !== 'workspace-capability-drop-v1'
           || transaction?.planId !== entry.name
-          || derivedPlanId !== entry.name
+          || !derivedPlanIds.has(entry.name)
           || !validWorkspaceCapabilityDropTransactionSeal(transaction)
           || !['prepared', 'staged', 'manifest-updated'].includes(transaction?.phase)
           || transaction?.workspace !== workspace.path

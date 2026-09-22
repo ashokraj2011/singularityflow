@@ -736,6 +736,143 @@ test('visual editor configuration saves validate atomically and publish scoped c
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure visual editor template/);
 });
 
+test('environment declarations use the validated Configuration Center save, export, and publish path', async () => {
+  const root = await repository();
+  const declarationPath = 'singularity/environments.yml';
+  const valid = `schemaVersion: 1
+environments:
+  qa:
+    requires:
+      - name: API_TOKEN
+        kind: secret
+    localFiles:
+      - .env.qa
+checks:
+  typescript-compile:
+    environment: qa
+neverCommit:
+  - .env.*
+`;
+  const saved = await saveConfigurationFile(root, declarationPath, valid);
+  assert.equal(saved.path, declarationPath);
+  assert.equal(saved.changed, true);
+  assert.equal((await validateEditorConfiguration(root)).environments, 1);
+  assert.equal((await readConfigurationFile(root, declarationPath)).content, valid);
+
+  const bundle = await exportConfigurationBundle(root);
+  assert.equal(bundle.files.find((entry) => entry.path === declarationPath)?.content, valid);
+
+  const raced = valid.replace('kind: secret', 'kind: secret\n        value: concurrently-inserted-secret');
+  const capturedRead = await readConfigurationFile(root, declarationPath, {
+    afterEnvironmentCapture: () => writeFile(path.join(root, declarationPath), raced)
+  });
+  assert.equal(capturedRead.content, valid,
+    'the generic reader returns the exact bytes it validated, even if the pathname is replaced');
+  assert.doesNotMatch(capturedRead.content, /concurrently-inserted-secret/);
+  await writeFile(path.join(root, declarationPath), valid);
+  const capturedBundle = await exportConfigurationBundle(root, {
+    afterEnvironmentCapture: () => writeFile(path.join(root, declarationPath), raced)
+  });
+  assert.equal(capturedBundle.files.find((entry) => entry.path === declarationPath)?.content, valid,
+    'bundle export returns the exact declaration bytes it validated');
+  assert.doesNotMatch(JSON.stringify(capturedBundle), /concurrently-inserted-secret/);
+  await writeFile(path.join(root, declarationPath), valid);
+
+  const beforeInvalid = await readFile(path.join(root, declarationPath), 'utf8');
+  await assert.rejects(
+    () => saveConfigurationFile(root, declarationPath, valid.replace(
+      'kind: secret', 'kind: secret\n        value: forbidden'
+    )),
+    /unsupported field.*value/i
+  );
+  assert.equal(await readFile(path.join(root, declarationPath), 'utf8'), beforeInvalid,
+    'a declaration outside the closed schema never replaces the editor draft');
+
+  await assert.rejects(
+    () => saveConfigurationFile(root, declarationPath, valid.replace(
+      'typescript-compile:', 'unknown-quality-command:'
+    )),
+    /unknown quality command ID.*unknown-quality-command/i
+  );
+  assert.equal(await readFile(path.join(root, declarationPath), 'utf8'), beforeInvalid,
+    'an invalid check mapping never replaces the editor draft');
+
+  const invalidLegacy = valid.replace('typescript-compile:', 'unknown-quality-command:');
+  await writeFile(path.join(root, declarationPath), invalidLegacy);
+  await assert.rejects(
+    () => validateEditorConfiguration(root),
+    /unknown quality command ID.*unknown-quality-command/i,
+    'whole-configuration validation must refuse an invalid declaration introduced outside the editor'
+  );
+  await writeFile(path.join(root, declarationPath), valid);
+
+  const published = await publishEditorConfiguration(root, 'Configure QA environment declaration');
+  assert.deepEqual(published.files, [declarationPath]);
+  assert.match(run('git', ['show', 'HEAD:singularity/environments.yml'], root).stdout,
+    /typescript-compile/);
+
+  // A legacy model may predate environment-local exclusions. Neither the bundle nor the generic
+  // file-export boundary may replay those stored bytes without a valid, current model manifest.
+  const legacySecret = 'legacy-model-secret-value';
+  const legacyReference = 'vault://teams/payments/qa';
+  const legacyModelPath = 'singularity/world-model/core/legacy.json';
+  await mkdir(path.dirname(path.join(root, legacyModelPath)), { recursive: true });
+  await writeFile(path.join(root, legacyModelPath), JSON.stringify({
+    path: '.env.qa', value: legacySecret, reference: legacyReference
+  }));
+  run('git', ['add', legacyModelPath], root);
+  run('git', ['commit', '-m', 'legacy model fixture'], root);
+  for (const operation of [
+    () => exportConfigurationBundle(root),
+    () => readConfigurationFile(root, legacyModelPath)
+  ]) {
+    await assert.rejects(operation, (error) => {
+      assert.equal(error.code, 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED');
+      assert.doesNotMatch(error.message, new RegExp(`${legacySecret}|${legacyReference}`));
+      return true;
+    });
+  }
+});
+
+test('configuration bundle excludes a captured environment declaration from overlapping roots', async () => {
+  const root = await repository();
+  const declarationPath = 'singularity/environments.yml';
+  const valid = `schemaVersion: 1
+environments:
+  qa:
+    requires:
+      - name: API_TOKEN
+        kind: secret
+    localFiles:
+      - .env.qa
+checks:
+  typescript-compile:
+    environment: qa
+neverCommit:
+  - .env.*
+`;
+  await saveConfigurationFile(root, declarationPath, valid);
+
+  // Model a valid legacy layout whose template root is the whole singularity directory. Copy the
+  // packaged template hierarchy to the locations that layout resolves before changing the root.
+  await cp(path.join(root, 'singularity', 'templates'), path.join(root, 'singularity'), {
+    recursive: true, force: true
+  });
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.templatesRoot = 'singularity';
+  await writeFile(workflowPath, YAML.stringify(definition));
+
+  const raced = valid.replace('kind: secret', 'kind: secret\n        value: must-not-be-read');
+  const bundle = await exportConfigurationBundle(root, {
+    afterEnvironmentCapture: () => writeFile(path.join(root, declarationPath), raced)
+  });
+  const records = bundle.files.filter((entry) => entry.path === declarationPath);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].content, valid);
+  assert.doesNotMatch(JSON.stringify(bundle), /must-not-be-read/);
+});
+
 test('visual editor cannot expand a dirty candidate root over application source', async () => {
   const root = await repository();
   const workflowPath = path.join(root, 'singularity/workflow.yml');

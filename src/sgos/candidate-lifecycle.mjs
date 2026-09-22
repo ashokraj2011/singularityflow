@@ -14,8 +14,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  branch, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, hasRemote,
-  publicationPushOutcome, pushCommitToBranchAsync
+  admitExactProspectiveTree, branch, exactRemoteBranchObservationAsync, gitCommonDir,
+  governedCommitIdentity, head, hasRemote, publicationPushOutcome, pushCommitToBranchAsync
 } from '../git.mjs';
 import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
 import { gitDisabledHooksPath } from '../git-isolation-paths.mjs';
@@ -532,6 +532,12 @@ export async function freezeSgosCandidate(root, {
     fail('Lifecycle Candidate bytes changed after exact publication admission.',
       'SGOS_CANDIDATE_SCOPE_DRIFT', { expectedCandidateTree, observedCandidateTree: candidateTree });
   }
+  // SGOS also creates Candidate trees with private indexes (and can re-admit an exact existing
+  // commit). Keep its security boundary identical to ordinary governed publication: policy and
+  // bytes come from the immutable prospective tree, never from the mutable checkout.
+  admitExactProspectiveTree(root, {
+    baselineCommit, candidateTree, label: 'SGOS Candidate'
+  });
   const { resources, totalBytes } = exactCandidateCommit != null
     ? (baselineCommit === exactCandidateCommit
       ? { resources: [], totalBytes: 0 }
@@ -988,6 +994,15 @@ export async function readSgosRetainedCandidate(root, candidateId) {
   if (observedCommit !== repository.candidateCommit || observedTree !== repository.candidateTree) {
     fail('Candidate retention ref no longer names the frozen tree.', 'SGOS_CANDIDATE_RETENTION_LOST');
   }
+  // Retained records can outlive the release which created them.  Hashes and ref identity prove
+  // custody, but an older Candidate may never have crossed today's environment-local and secret
+  // admission boundary.  Re-run that boundary over its immutable baseline/tree pair whenever the
+  // record is reopened, before verification or publication can consume it.
+  admitExactProspectiveTree(root, {
+    baselineCommit: repository.baselineCommit,
+    candidateTree: repository.candidateTree,
+    label: 'Retained SGOS Candidate'
+  });
   return freezeDeep(record);
 }
 

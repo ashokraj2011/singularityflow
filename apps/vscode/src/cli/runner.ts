@@ -91,7 +91,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
-  'search-known', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'strict', 'submission-readiness', 'terminal', 'timings', 'today', 'update', 'write',
+  'search-known', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'terminal', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief'
 ]);
 

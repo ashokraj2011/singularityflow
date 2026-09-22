@@ -1,5 +1,6 @@
 import { normalizeRepositoryPath } from '../contracts.mjs';
 import { compareText } from '../canonicalize.mjs';
+import { portableFilesystemPathIdentity } from '../../configuration-assets.mjs';
 import { normalizeScopePattern, validateScopeManifest } from './manifest.mjs';
 
 function escapeRegex(character) {
@@ -39,7 +40,16 @@ function literalBase(pattern) {
 }
 
 function matchRecord(relative, pattern, classification) {
-  if (!scopePatternRegex(pattern).test(relative)) return null;
+  // Exclusions are a safety boundary shared by case-sensitive Git storage and default Windows /
+  // macOS checkouts.  Match their strictest portable filesystem identity so case aliases,
+  // compatibility folds, and Win32 trailing-dot/space aliases cannot re-enter a scoped snapshot.
+  // Allowed/shared paths retain exact Git spelling; folding those could expand authority.
+  const portableExclusion = classification === 'excluded';
+  const candidate = portableExclusion ? portableFilesystemPathIdentity(relative) : relative;
+  const candidatePattern = portableExclusion
+    ? portableFilesystemPathIdentity(pattern)
+    : pattern;
+  if (!scopePatternRegex(candidatePattern).test(candidate)) return null;
   const base = literalBase(pattern);
   const baseDepth = base ? base.split('/').filter(Boolean).length : 0;
   const pathDepth = relative.split('/').length;

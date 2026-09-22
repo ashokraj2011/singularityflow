@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -313,4 +313,98 @@ test('detaching used Story evidence reopens only its downstream dependency cone'
   const stale = JSON.parse(await readFile(path.join(contextDirectory, 'design-gen1.json'), 'utf8'));
   assert.equal(stale.stale, true);
   assert.match(stale.staleReason, /DOC-001/);
+});
+
+test('document intake refuses environment-local paths and secret-bearing bytes before copying', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'singularity', 'environments.yml'), `schemaVersion: 1
+environments:
+  qa:
+    requires:
+      - name: API_TOKEN
+        kind: secret
+    localFiles:
+      - .env.qa
+checks:
+  browser-tests:
+    environment: qa
+neverCommit:
+  - .env*
+`);
+  run('git', ['add', 'singularity/environments.yml'], root);
+  run('git', ['commit', '-m', 'declare QA environment inputs'], root);
+  run('git', ['push'], root);
+  flow(root, ['start', 'ENV-DOCS-1', '--from-branch', 'main', '--title', 'Environment document refusal']);
+
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-environment-documents-'));
+  const environmentFile = path.join(uploads, '.env.qa');
+  await writeFile(environmentFile, 'API_TOKEN=not-printed\n');
+  const localRefusal = flow(root, ['documents', 'upload', environmentFile], { allowFailure: true });
+  assert.notEqual(localRefusal.status, 0);
+  assert.match(localRefusal.stderr, /ENVIRONMENT_LOCAL_CONTENT_REFUSED|matches .*\.env\*/);
+  assert.doesNotMatch(localRefusal.stderr, /not-printed/);
+
+  const credential = `ghp_${'z'.repeat(36)}`;
+  const ordinaryDocument = path.join(uploads, 'review-notes.md');
+  await writeFile(ordinaryDocument, `# Notes\n\ntoken = "${credential}"\n`); // sflow-allow-secret: invented input verifies upload refusal
+  const secretRefusal = flow(root, ['documents', 'upload', ordinaryDocument], { allowFailure: true });
+  assert.notEqual(secretRefusal.status, 0);
+  assert.match(secretRefusal.stderr, /Document upload was refused before any bytes were copied/);
+  assert.match(secretRefusal.stderr, /review-notes\.md:3/);
+  assert.doesNotMatch(secretRefusal.stderr, new RegExp(credential));
+
+  const invalidUtf8 = path.join(uploads, 'invalid-utf8.md');
+  await writeFile(invalidUtf8, Buffer.from([0x23, 0x20, 0xff, 0x0a]));
+  const invalidUtf8Refusal = flow(root, ['documents', 'upload', invalidUtf8], { allowFailure: true });
+  assert.notEqual(invalidUtf8Refusal.status, 0);
+  assert.match(invalidUtf8Refusal.stderr, /DOCUMENT_CONTENT_UNSCANNABLE|not valid NUL-free UTF-8 text/);
+
+  const nulText = path.join(uploads, 'nul-text.md');
+  await writeFile(nulText, Buffer.from('# Notes\n\0hidden\n'));
+  const nulRefusal = flow(root, ['documents', 'upload', nulText], { allowFailure: true });
+  assert.notEqual(nulRefusal.status, 0);
+  assert.match(nulRefusal.stderr, /DOCUMENT_CONTENT_UNSCANNABLE|not valid NUL-free UTF-8 text/);
+
+  const packageRoot = path.join(uploads, 'package');
+  await mkdir(packageRoot, { recursive: true });
+  await writeFile(path.join(packageRoot, 'safe.md'), '# Safe input\n');
+  await writeFile(path.join(packageRoot, '.env.qa'), 'SAFE_NAME=value\n');
+  const packageRefusal = flow(root, ['documents', 'upload', packageRoot], { allowFailure: true });
+  assert.notEqual(packageRefusal.status, 0);
+  assert.match(packageRefusal.stderr, /ENVIRONMENT_LOCAL_CONTENT_REFUSED|matches .*\.env/);
+
+  const trackedInputs = run('git', [
+    'ls-files', 'singularity/work-items/ENV-DOCS-1/inputs'
+  ], root).stdout.trim();
+  assert.equal(trackedInputs, '');
+});
+
+test('document intake canonicalizes repository aliases before applying path-specific environment rules', async () => {
+  const root = await repository();
+  await mkdir(path.join(root, 'config'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'environments.yml'), `schemaVersion: 1
+environments:
+  qa:
+    requires:
+      - name: API_TOKEN
+        kind: secret
+    localFiles:
+      - config/qa.env
+checks: {}
+neverCommit: []
+`);
+  run('git', ['add', 'singularity/environments.yml'], root);
+  run('git', ['commit', '-m', 'declare path-specific QA input'], root);
+  run('git', ['push'], root);
+  flow(root, ['start', 'ENV-DOCS-ALIAS', '--from-branch', 'main', '--title', 'Alias refusal']);
+
+  const localInput = path.join(root, 'config', 'qa.env');
+  await writeFile(localInput, 'SAFE_NAME=value\n');
+  const canonicalInput = await realpath(localInput);
+  // On macOS /var and /private/var are the usual distinct spellings. The assertion remains valid
+  // on hosts where realpath preserves the lexical spelling too.
+  const refusal = flow(root, ['documents', 'upload', canonicalInput], { allowFailure: true });
+  assert.notEqual(refusal.status, 0);
+  assert.match(refusal.stderr, /ENVIRONMENT_LOCAL_CONTENT_REFUSED|config\/qa\.env/);
+  assert.doesNotMatch(refusal.stderr, /SAFE_NAME=value/);
 });

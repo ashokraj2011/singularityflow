@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "dc2146c99abfdb9cb910c5612844507356c85913",
-  "topicCount": 67,
-  "contentSha256": "d49c85d3ee8984317ce0212ba2c0b0a2dc9d43a609b23db48f6a825f52cae5e7",
+  "sourceCommit": "c0b5fb7e5b8e6cc6a5b409842e07174dffec79da",
+  "topicCount": 68,
+  "contentSha256": "416fe008a3e82fa4c639fce4e0dd512d65286c74061b05ce46b5f17d64f6cb44",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -148,6 +148,14 @@
       "sha256": "2d374bdd55a1943310fb10eb715b3835d1d1dee78f4d19dd6c13a361f68e54d9",
       "routingSha256": "76ae2d7d5ea6d171289a78938a37c1c9a822cd56dbf581809b7f59c81560b424",
       "file": "diagnostics-and-regression.md"
+    },
+    {
+      "id": "environment-bindings",
+      "title": "Test environments without committing their values",
+      "version": 1,
+      "sha256": "1ead778e05605a3c7eee15b168e259f95c8d57da5c7d70f630ed8e27fe2f76ab",
+      "routingSha256": "0c61c3f9e4515b7e0995db1a3080f4f9a94910d5ba00054a2486e856fa068c30",
+      "file": "environment-bindings.md"
     },
     {
       "id": "epics-and-planning",

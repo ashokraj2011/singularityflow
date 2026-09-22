@@ -4,9 +4,9 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import {
-  branch, changes, commitIsAncestor, exactRemoteBranchObservationAsync, gitCommonDir,
-  governedCommitIdentity, head, publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead,
-  remoteContains
+  admitExactProspectiveTree, branch, changes, commitIsAncestor,
+  exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head,
+  publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead, remoteContains
 } from './git.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import {
@@ -873,6 +873,17 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
         { code: 'PENDING_PUBLICATION_IDENTITY_INVALID', details: { subject, failures: verification.failures } }
       );
     }
+    // A machine-sealed Story or Initiative marker may predate Candidate receipts and the ENV
+    // admission boundary.  Its self-consistent commit trailers prove identity, not that the exact
+    // historical tree is safe under the installed environment-local and secret policy.  Re-admit
+    // the immutable parent/tree pair before any local finalization or remote push.  Candidate-
+    // bearing records deliberately pass through the same gate so recovery cannot become weaker
+    // than first publication after a product upgrade.
+    admitExactProspectiveTree(root, {
+      baselineCommit: verification.identity.parents[0],
+      candidateTree: record.tree,
+      label: `Pending ${subject.kind} publication`
+    });
     // Ad hoc and Goal recovery were introduced with the Candidate boundary and therefore have no
     // legitimate unsealed marker format. Their local tail metadata controls terminal session/Goal
     // cleanup, so authenticating only the commit while accepting edited progress metadata would

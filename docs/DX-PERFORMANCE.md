@@ -320,6 +320,19 @@ already-sufficient context-runtime, status-worker, extension-module, and support
 remain unchanged. The aggregate ceiling is 27,890,000 bytes, leaving 1,092 bytes of measured
 headroom rather than admitting an unrelated increase.
 
+The Environment Bindings candidate initially raised the gateway and world-model closures by two
+modules: the public declaration policy and the private binding store. Binding resolution is an
+execution-time concern, so `state.mjs` now loads the staged private runtime only when an
+environment-bound quality command reaches that gate. This removes `environment-bindings.mjs` from
+both long-lived bundles. The remaining single module increase is the names-only declaration policy
+required by Git publication, source-snapshot, and quality-command admission. The isolated candidate,
+including stable configuration reads, portable path identity, and the final exact worktree/index/HEAD
+policy-union hardening, measures 28,046,165 bytes. The affected entries are 8,561,477/602
+(`gateway-runtime.cjs`), 3,879,012/424 (`help-runtime.cjs`), 3,686,931/406
+(`support-runtime.cjs`), and 8,615,804/608 (`world-model-build.cjs`). The immutable-index repair adds
+no source modules. Only those four entry ceilings and the aggregate ceiling move to the next 5,000-byte
+boundary; all other byte and module ceilings remain unchanged.
+
 ## Bounded aggregate verification
 
 `npm test` and `npm run test:cli` no longer start one unbounded all-files process. They create eight

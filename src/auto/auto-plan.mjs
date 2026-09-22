@@ -18,6 +18,8 @@ import { branch, gitCommonDir, head, identity } from '../git.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
+import { loadEnvironmentDeclaration } from '../environment-declaration.mjs';
+import { normalizeExternalCommand } from '../external-command-policy.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
@@ -143,6 +145,48 @@ function predictedPathList(value) {
     }
     return normalized;
   });
+}
+
+/**
+ * Names-only environment prerequisites for the reachable Auto rail.
+ *
+ * This deliberately does not resolve machine-local bindings. An Auto Plan is portable authority,
+ * so it may name the declaration, phases, commands, variables, and classifications needed by a
+ * runner, but never a binding value, provider reference, binding revision, or machine status.
+ */
+export function autoEnvironmentRequirements(phaseVerification = [], declaration = null) {
+  const requirements = new Map();
+  for (const phase of phaseVerification) {
+    for (const [index, value] of (phase.commands ?? []).entries()) {
+      const command = normalizeExternalCommand(value, index);
+      const environmentName = command.environment
+        ?? declaration?.checks?.[command.id]?.environment
+        ?? null;
+      if (!environmentName) continue;
+      const declared = declaration?.environments?.[environmentName] ?? null;
+      const current = requirements.get(environmentName) ?? {
+        name: environmentName,
+        declarationSha256: declaration?.declarationSha256 ?? null,
+        phaseIds: new Set(),
+        commandIds: new Set(),
+        requiredBindings: (declared?.requires ?? []).map(({ name, kind }) => ({ name, kind }))
+      };
+      current.phaseIds.add(phase.phase);
+      current.commandIds.add(command.id);
+      requirements.set(environmentName, current);
+    }
+  }
+  return Object.freeze([...requirements.values()]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((entry) => Object.freeze({
+      name: entry.name,
+      declarationSha256: entry.declarationSha256,
+      phaseIds: Object.freeze([...entry.phaseIds].sort()),
+      commandIds: Object.freeze([...entry.commandIds].sort()),
+      requiredBindings: Object.freeze(entry.requiredBindings
+        .map((binding) => Object.freeze({ ...binding }))
+        .sort((left, right) => left.name.localeCompare(right.name)))
+    })));
 }
 
 function proposalObject(value) {
@@ -526,6 +570,10 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     .filter((entry) => entry.required && entry.commands.length === 0)
     .map((entry) => entry.phase);
   const deliveryQualityCommands = phaseVerification.flatMap((entry) => entry.commands);
+  const environmentDeclaration = await loadEnvironmentDeclaration(root, { optional: true });
+  const requiredEnvironments = autoEnvironmentRequirements(
+    phaseVerification, environmentDeclaration
+  );
   const verificationReady = missingVerificationPhases.length === 0;
   const executionHost = {
     id: selectedHost.provider,
@@ -592,7 +640,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     },
     execution: {
       profile, pace, until, ceilings: policy.ceilings, concurrency: policy.concurrency,
-      eligibility: policy.eligibility, repair: policy.repair
+      eligibility: policy.eligibility, repair: policy.repair, requiredEnvironments
     },
     humanBoundaries: {
       firstPhaseClarificationRequired: resolution.phases[0]?.clarification?.mode === 'required',

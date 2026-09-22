@@ -69,6 +69,9 @@ import {
 } from './composition-cache.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
+import {
+  loadEnvironmentDeclaration, withEnvironmentWorldModelExclusions
+} from './environment-declaration.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { astCommand } from './ast-intelligence.mjs';
 import { resolveImpactPromptOverride } from './impact.mjs';
@@ -618,9 +621,12 @@ export async function loadWorldModelConfig(root, {
     // the effective definition rather than the execution catalog itself. Apply it after selecting
     // the already-verified saved agent so a scope projection cannot discard the catalog capability
     // and trigger a second manifest/policy/blob verification.
-    const definition = withWorldModelSourceScope(
-      executionContext?.effectiveDefinition ?? scopedDefinition,
-      selectedSourceScope
+    const definition = withEnvironmentWorldModelExclusions(
+      withWorldModelSourceScope(
+        executionContext?.effectiveDefinition ?? scopedDefinition,
+        selectedSourceScope
+      ),
+      await loadEnvironmentDeclaration(root, { optional: true })
     );
     const stateAuthority = worldModelStateAuthority(definition);
     const agentViewMode = definition.worldModel?.agentViews ?? 'fallback';

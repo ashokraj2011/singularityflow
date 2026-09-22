@@ -15,6 +15,11 @@ import {
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
+import {
+  ENVIRONMENT_DECLARATION_PATH, loadEnvironmentDeclarationSync, matchEnvironmentLocalPath,
+  parseEnvironmentDeclaration
+} from './environment-declaration.mjs';
+import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 
 function git(args, options = {}) {
   // stdout is the data channel: `--json` callers parse this process's stdout, so a child git's
@@ -23,6 +28,21 @@ function git(args, options = {}) {
   // it visible in a terminal while leaving stdout pure for machine-readable output.
   if (options.stdio === 'inherit') return run('git', args, { ...options, stdio: ['inherit', 2, 'inherit'] });
   return run('git', args, options);
+}
+
+/**
+ * Isolate immutable local-object reads from caller-selected indexes/object stores and Git replace
+ * refs. Exact admission must never reinterpret an admitted OID, and a partial clone must not turn
+ * a local verification step into an undeclared network fetch.
+ */
+function immutableLocalGitEnvironment(source = process.env, { indexFile = null } = {}) {
+  const env = {
+    ...withoutGitProcessOverrides(source),
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_NO_LAZY_FETCH: '1'
+  };
+  if (indexFile != null) env.GIT_INDEX_FILE = indexFile;
+  return env;
 }
 
 /**
@@ -929,6 +949,37 @@ export function fileAtRef(root, ref, file) {
   return result.status === 0 ? result.stdout : null;
 }
 
+const EXACT_LOCAL_OBJECT_ID = /^[a-f0-9]{40,64}$/iu;
+
+/** Read one blob from an exact local object without replace refs or a promisor-network fallback. */
+export function exactFileAtObject(root, objectId, file, { maximumBytes = 1024 * 1024 } = {}) {
+  invariant(EXACT_LOCAL_OBJECT_ID.test(String(objectId ?? '')), 'Exact Git object ID is invalid.');
+  invariant(typeof file === 'string' && file.length > 0 && !file.includes('\0'), 'Exact Git path is invalid.');
+  const result = git(['show', `${objectId}:${file}`], {
+    cwd: root,
+    env: immutableLocalGitEnvironment(),
+    allowFailure: true,
+    encoding: 'buffer',
+    maxBuffer: maximumBytes
+  });
+  if (result.status !== 0) return null;
+  return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '');
+}
+
+/** List paths from an exact local tree under the same immutable-object boundary. */
+export function exactTreePathsAtObject(root, objectId, pathspec = []) {
+  invariant(EXACT_LOCAL_OBJECT_ID.test(String(objectId ?? '')), 'Exact Git object ID is invalid.');
+  invariant(Array.isArray(pathspec) && pathspec.every((entry) => (
+    typeof entry === 'string' && entry.length > 0 && !entry.includes('\0')
+  )), 'Exact Git pathspec is invalid.');
+  const result = git(['ls-tree', '-r', '--name-only', '-z', objectId, ...pathspec], {
+    cwd: root,
+    env: immutableLocalGitEnvironment(),
+    allowFailure: true
+  });
+  return result.status === 0 ? nullList(result.stdout) : null;
+}
+
 function nullList(value) {
   return value.split('\0').filter(Boolean);
 }
@@ -945,8 +996,667 @@ export function changedFiles(root) {
   return [...new Set([...unstaged, ...staged, ...untracked])].sort();
 }
 
+function exactIndexRoster(root, env, { maximumBytes = 16 * 1024 * 1024 } = {}) {
+  const result = git(['ls-files', '--stage', '-z'], {
+    cwd: root, env, allowFailure: true, maxBuffer: maximumBytes
+  });
+  if (result.status !== 0 || result.error || result.timedOut || result.signal != null
+      || result.outputOverflow) {
+    throw new SingularityFlowError(
+      'Git could not capture the exact candidate-index roster.',
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' }
+    );
+  }
+  const entries = result.stdout.split('\0').filter(Boolean).map((record) => {
+    const tab = record.indexOf('\t');
+    const match = tab < 0 ? null : record.slice(0, tab).match(
+      /^(100644|100755|120000|160000) ([a-f0-9]{40,64}) ([0-3])$/u
+    );
+    const relative = tab < 0 ? '' : record.slice(tab + 1);
+    if (!match || !relative) {
+      throw new SingularityFlowError(
+        'Git returned a malformed candidate-index roster.',
+        { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' }
+      );
+    }
+    return Object.freeze({
+      path: relative, mode: match[1], oid: match[2], stage: match[3]
+    });
+  });
+  return Object.freeze({ raw: result.stdout, entries: Object.freeze(entries) });
+}
+
+function environmentDeclarationFromIndexRoster(root, entries, env) {
+  const matches = entries.filter(({ path: relative }) => relative === ENVIRONMENT_DECLARATION_PATH);
+  if (!matches.length) return null;
+  const entry = matches.length === 1 ? matches[0] : null;
+  if (!entry || entry.stage !== '0' || !['100644', '100755'].includes(entry.mode)) {
+    throw new SingularityFlowError(
+      `Invalid ${ENVIRONMENT_DECLARATION_PATH}: the candidate-index entry must be one regular stage-zero blob.`,
+      { code: 'ENVIRONMENT_DECLARATION_INVALID' }
+    );
+  }
+  return environmentDeclarationBlob(root, entry.oid, env, 'Exact candidate index');
+}
+
+function exactTreeRoster(root, tree, env) {
+  const result = git(['ls-tree', '-r', '-z', tree], {
+    cwd: root, env, allowFailure: true
+  });
+  if (result.status !== 0 || result.error || result.timedOut || result.signal != null
+      || result.outputOverflow) return null;
+  const entries = new Map();
+  for (const record of result.stdout.split('\0').filter(Boolean)) {
+    const tab = record.indexOf('\t');
+    const match = tab < 0 ? null : record.slice(0, tab).match(
+      /^(100644|100755|120000|160000) (blob|commit) ([a-f0-9]{40,64})$/u
+    );
+    const relative = tab < 0 ? '' : record.slice(tab + 1);
+    if (!match || !relative || (match[1] === '160000') !== (match[2] === 'commit')) return null;
+    entries.set(relative, Object.freeze({ path: relative, mode: match[1], oid: match[3] }));
+  }
+  return entries;
+}
+
+/**
+ * Closed local Git observations used by `env audit`.
+ *
+ * Keeping these argv forms in the Git owner prevents the command surface from creating a second
+ * Git execution path. Returned blob bytes are invocation-local and must be reduced to redacted
+ * findings by the caller; they are never written to logs or durable records.
+ */
+export function environmentAuditGitSnapshot(root, {
+  maximumObjectBytes = 1024 * 1024,
+  maximumTotalBytes = 16 * 1024 * 1024
+} = {}) {
+  const env = immutableLocalGitEnvironment();
+  const indexSnapshot = exactIndexRoster(root, env, {
+    maximumBytes: Math.max(1024 * 1024, maximumTotalBytes)
+  });
+  const tracked = [...new Set(indexSnapshot.entries.map(({ path: relative }) => relative))];
+  const untracked = nullList(git(
+    ['ls-files', '-z', '--others', '--exclude-standard'], { cwd: root, env }
+  ).stdout);
+  const ignored = nullList(git(
+    ['ls-files', '-z', '--others', '--ignored', '--exclude-standard'], { cwd: root, env }
+  ).stdout);
+  const stagedEntries = [];
+  const headEntries = [];
+  const headPaths = [];
+  const skipped = [];
+  // Keep each immutable source bound to the declaration stored in that same source. The command
+  // combines these with the stable worktree declaration so neither a staged nor unstaged policy
+  // weakening can make an older local-only path disappear from the audit.
+  const candidateIndexDeclaration = environmentDeclarationFromIndexRoster(
+    root, indexSnapshot.entries, env
+  );
+  let lastPublicationDeclaration = null;
+  const verifiedHead = git(['rev-parse', '--verify', '--quiet', 'HEAD^{tree}'], {
+    cwd: root, env, allowFailure: true, maxBuffer: 256
+  });
+  const headTree = verifiedHead.status === 0
+      && /^([a-f0-9]{40}|[a-f0-9]{64})\r?\n?$/u.test(verifiedHead.stdout)
+    ? verifiedHead.stdout.trim()
+    : null;
+  const cleanMissingHead = verifiedHead.status === 1 && !verifiedHead.stdout
+    && !verifiedHead.stderr && !verifiedHead.error && !verifiedHead.timedOut
+    && verifiedHead.signal == null;
+  const candidateBaseline = headTree ? exactTreeRoster(root, headTree, env)
+    : cleanMissingHead ? new Map() : null;
+  const indexByPath = new Map();
+  for (const entry of indexSnapshot.entries) {
+    const entries = indexByPath.get(entry.path) ?? [];
+    entries.push(entry);
+    indexByPath.set(entry.path, entries);
+  }
+  let admittedBytes = 0;
+  for (const [relative, stages] of indexByPath) {
+    const selected = stages.length === 1 && stages[0].stage === '0' ? stages[0] : null;
+    if (!selected) {
+      skipped.push(Object.freeze({
+        path: relative, source: 'candidate-index', reason: 'staged-entry-unavailable'
+      }));
+      continue;
+    }
+    const baseline = candidateBaseline?.get(relative);
+    if (candidateBaseline && baseline?.mode === selected.mode && baseline.oid === selected.oid) {
+      continue;
+    }
+    if (selected.mode === '160000') {
+      skipped.push(Object.freeze({
+        path: relative, source: 'candidate-index', reason: 'staged-entry-unavailable'
+      }));
+      continue;
+    }
+    const forceScan = selected.mode === '120000';
+    if (!forceScan && !scannablePath(relative)) continue;
+    let content = null;
+    try {
+      content = readLocalGitBlobs(root, [selected.oid], {
+        env,
+        maximumBytes: Math.max(0, maximumTotalBytes - admittedBytes),
+        maximumObjectBytes,
+        code: 'ENVIRONMENT_AUDIT_INDEX_UNREADABLE',
+        label: 'Environment audit candidate-index scan'
+      }).get(selected.oid) ?? null;
+    } catch {
+      // Reduced to a bounded unavailable finding below; raw Git diagnostics and bytes stay private.
+    }
+    if (!content) {
+      skipped.push(Object.freeze({
+        path: relative, source: 'candidate-index',
+        reason: 'staged-audit-byte-ceiling-or-unreadable'
+      }));
+      continue;
+    }
+    const bytes = content.length;
+    if (bytes > maximumObjectBytes || admittedBytes + bytes > maximumTotalBytes) {
+      skipped.push(Object.freeze({
+        path: relative, source: 'candidate-index',
+        reason: 'staged-audit-byte-ceiling-or-unreadable'
+      }));
+      continue;
+    }
+    let text;
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(content); }
+    catch {
+      skipped.push(Object.freeze({
+        path: relative, source: 'candidate-index', reason: 'staged-audit-invalid-utf8'
+      }));
+      continue;
+    }
+    if (content.includes(0)) {
+      skipped.push(Object.freeze({
+        path: relative, source: 'candidate-index', reason: 'staged-audit-binary'
+      }));
+      continue;
+    }
+    admittedBytes += bytes;
+    stagedEntries.push(Object.freeze({ path: relative, content: text, forceScan }));
+  }
+
+  // Audit the exact last-published tree independently of the mutable index/worktree. A path that
+  // is now deleted or staged for deletion is still relevant historical evidence, and replacement
+  // refs must not be allowed to substitute cleaner bytes for the committed object.
+  if (headTree) {
+    lastPublicationDeclaration = exactEnvironmentDeclarationAtRef(root, headTree, env, {
+      allowMissingRef: false
+    });
+    const listing = git(['ls-tree', '-r', '-z', '--long', headTree], {
+      cwd: root, env, allowFailure: true, encoding: 'buffer',
+      maxBuffer: Math.max(1024 * 1024, maximumTotalBytes)
+    });
+    if (listing.status !== 0 || listing.error || listing.timedOut || listing.signal != null) {
+      skipped.push(Object.freeze({
+        path: 'HEAD', source: 'last-publication', reason: 'head-tree-unreadable'
+      }));
+    } else {
+      const descriptors = [];
+      let malformed = false;
+      let listingText = null;
+      try { listingText = new TextDecoder('utf-8', { fatal: true }).decode(listing.stdout); }
+      catch {
+        skipped.push(Object.freeze({
+          path: 'HEAD', source: 'last-publication', reason: 'head-tree-invalid-utf8'
+        }));
+      }
+      for (const record of (listingText ?? '').split('\0').filter(Boolean)) {
+        const tab = record.indexOf('\t');
+        const match = tab < 0 ? null : record.slice(0, tab).match(
+          /^(100644|100755|120000|160000) (blob|commit) ([a-f0-9]{40,64}) +([0-9]+|-)$/u
+        );
+        const relative = tab < 0 ? '' : record.slice(tab + 1);
+        if (!match || !relative || (match[1] === '160000') !== (match[2] === 'commit')) {
+          malformed = true;
+          break;
+        }
+        headPaths.push(relative);
+        const forceScan = match[1] === '120000';
+        if (!forceScan && !scannablePath(relative)) continue;
+        if (match[1] === '160000' || match[4] === '-') {
+          skipped.push(Object.freeze({
+            path: relative, source: 'last-publication', reason: 'head-entry-unreadable'
+          }));
+          continue;
+        }
+        const bytes = Number(match[4]);
+        if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > maximumObjectBytes) {
+          skipped.push(Object.freeze({
+            path: relative, source: 'last-publication', reason: 'head-audit-byte-ceiling'
+          }));
+          continue;
+        }
+        descriptors.push({ path: relative, oid: match[3], bytes, forceScan });
+      }
+      if (listingText == null) {
+        headPaths.length = 0;
+      } else if (malformed) {
+        headPaths.length = 0;
+        skipped.push(Object.freeze({
+          path: 'HEAD', source: 'last-publication', reason: 'head-tree-malformed'
+        }));
+      } else {
+        let headBytes = 0;
+        const admitted = [];
+        for (const descriptor of descriptors) {
+          if (headBytes + descriptor.bytes > maximumTotalBytes) {
+            skipped.push(Object.freeze({
+              path: descriptor.path, source: 'last-publication', reason: 'head-audit-byte-ceiling'
+            }));
+            continue;
+          }
+          headBytes += descriptor.bytes;
+          admitted.push(descriptor);
+        }
+        let blobs = null;
+        if (admitted.length) {
+          try {
+            blobs = readLocalGitBlobs(root, admitted.map(({ oid }) => oid), {
+              env, maximumBytes: maximumTotalBytes, maximumObjectBytes,
+              code: 'ENVIRONMENT_AUDIT_HEAD_UNREADABLE',
+              label: 'Environment audit last-publication scan'
+            });
+          } catch {
+            for (const descriptor of admitted) skipped.push(Object.freeze({
+              path: descriptor.path, source: 'last-publication', reason: 'head-entry-unreadable'
+            }));
+          }
+        }
+        if (blobs) {
+          for (const descriptor of admitted) {
+            const content = blobs.get(descriptor.oid);
+            if (!content) {
+              skipped.push(Object.freeze({
+                path: descriptor.path, source: 'last-publication', reason: 'head-entry-unreadable'
+              }));
+              continue;
+            }
+            if (content.includes(0)) {
+              skipped.push(Object.freeze({
+                path: descriptor.path, source: 'last-publication', reason: 'head-audit-binary'
+              }));
+              continue;
+            }
+            let text;
+            try { text = new TextDecoder('utf-8', { fatal: true }).decode(content); }
+            catch {
+              skipped.push(Object.freeze({
+                path: descriptor.path, source: 'last-publication', reason: 'head-audit-invalid-utf8'
+              }));
+              continue;
+            }
+            headEntries.push(Object.freeze({
+              path: descriptor.path, content: text, forceScan: descriptor.forceScan
+            }));
+          }
+        }
+      }
+    }
+  } else if (!(verifiedHead.status === 1 && !verifiedHead.stdout && !verifiedHead.stderr
+      && !verifiedHead.error && !verifiedHead.timedOut && verifiedHead.signal == null)) {
+    skipped.push(Object.freeze({
+      path: 'HEAD', source: 'last-publication', reason: 'head-tree-unavailable'
+    }));
+  }
+  const verifiedIndexSnapshot = exactIndexRoster(root, env, {
+    maximumBytes: Math.max(1024 * 1024, maximumTotalBytes)
+  });
+  if (verifiedIndexSnapshot.raw !== indexSnapshot.raw) {
+    skipped.push(Object.freeze({
+      path: 'INDEX', source: 'candidate-index', reason: 'candidate-index-changed-during-audit'
+    }));
+  }
+  return Object.freeze({
+    tracked: Object.freeze(tracked),
+    untracked: Object.freeze(untracked),
+    ignored: Object.freeze(ignored),
+    stagedEntries: Object.freeze(stagedEntries),
+    headPaths: Object.freeze(headPaths),
+    headEntries: Object.freeze(headEntries),
+    declarations: Object.freeze({
+      candidateIndex: candidateIndexDeclaration,
+      lastPublication: lastPublicationDeclaration
+    }),
+    skipped: Object.freeze(skipped),
+    admittedBytes
+  });
+}
+
 export function add(root, paths) {
   if (paths.length) git(['add', '-A', '--', ...paths], { cwd: root });
+}
+
+/**
+ * Refuse repository paths which the committed environment declaration classifies as local-only.
+ *
+ * This is intentionally enforced beside the secret scan at the final Git boundary. `.gitignore`
+ * is useful guidance, but `git add -f` bypasses it; callers also cannot be trusted to remember a
+ * second gate. The declaration contains names and path rules only, so diagnostics can identify the
+ * offending path and rule without ever reading or printing an environment value.
+ */
+function assertNoEnvironmentLocalPaths(declarations, paths, { label }) {
+  const policies = (Array.isArray(declarations) ? declarations : [declarations]).filter(Boolean);
+  if (!policies.length) return;
+  const findings = [...new Set((paths ?? []).filter(Boolean).map((item) => item.replaceAll('\\', '/')))]
+    // The names-only declaration is the policy source, not environment-local content. A broad
+    // safety pattern must not make it impossible to tighten or repair the declaration itself.
+    .filter((item) => item !== ENVIRONMENT_DECLARATION_PATH)
+    .flatMap((item) => policies.flatMap((declaration) => {
+      const match = matchEnvironmentLocalPath(declaration, item);
+      return match ? [{ path: item, match }] : [];
+    }))
+    .filter((entry, index, entries) => entries.findIndex((candidate) =>
+      candidate.path === entry.path
+        && candidate.match.environmentId === entry.match.environmentId
+        && candidate.match.pattern === entry.match.pattern) === index);
+  if (!findings.length) return;
+  const rendered = findings.map(({ path: item, match }) => {
+    const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
+    const owner = match.environmentId
+      ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
+    return `- ${item} matches ${owner} rule '${rule}'`;
+  }).join('\n');
+  throw new SingularityFlowError(
+    `${label} was refused because environment-local content must never enter Git:\n\n${rendered}\n\n`
+      + 'Remove the path from the index and keep its value in a machine-local environment binding.',
+    {
+      code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED',
+      details: { paths: findings.map((entry) => entry.path) }
+    }
+  );
+}
+
+function hasConfigurationOverlay(root) {
+  return path.resolve(configurationReadRootForPath(root, ENVIRONMENT_DECLARATION_PATH))
+    !== path.resolve(root);
+}
+
+const MAXIMUM_ENVIRONMENT_DECLARATION_BYTES = 256 * 1024;
+
+function environmentDeclarationBlob(root, objectId, env, sourceLabel) {
+  let blobs;
+  try {
+    blobs = readLocalGitBlobs(root, [objectId], {
+      env,
+      maximumBytes: MAXIMUM_ENVIRONMENT_DECLARATION_BYTES,
+      maximumObjectBytes: MAXIMUM_ENVIRONMENT_DECLARATION_BYTES,
+      code: 'ENVIRONMENT_POLICY_UNAVAILABLE',
+      label: sourceLabel
+    });
+  } catch {
+    throw new SingularityFlowError(
+      `${sourceLabel} could not read its exact environment declaration.`,
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' }
+    );
+  }
+  const bytes = blobs.get(objectId);
+  if (!bytes) {
+    throw new SingularityFlowError(
+      `${sourceLabel} could not read its exact environment declaration.`,
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' }
+    );
+  }
+  return parseEnvironmentDeclaration(bytes);
+}
+
+/** Resolve environment policy from an exact commit/tree without replace refs or lazy fetches. */
+export function exactEnvironmentDeclarationAtRef(
+  root, ref = 'HEAD', env = immutableLocalGitEnvironment(), {
+    allowMissingRef = ref === 'HEAD', useConfigurationOverlay = true
+  } = {}
+) {
+  if (useConfigurationOverlay && hasConfigurationOverlay(root)) {
+    // The request-local overlay is an already verified immutable configuration snapshot. It is the
+    // authority when application branches intentionally do not carry configuration files.
+    return loadEnvironmentDeclarationSync(root, { optional: true });
+  }
+  const resolved = git(['rev-parse', '--verify', '--quiet', `${ref}^{tree}`], {
+    cwd: root, env, allowFailure: true, maxBuffer: 256
+  });
+  if (resolved.status !== 0) {
+    const cleanMissing = allowMissingRef && resolved.status === 1 && !resolved.stdout
+      && !resolved.stderr && !resolved.error && !resolved.timedOut && resolved.signal == null;
+    if (cleanMissing) return null;
+    throw new SingularityFlowError(
+      'Git could not resolve the exact environment-policy tree.',
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' }
+    );
+  }
+  const tree = resolved.stdout.trim();
+  if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(tree)) {
+    throw new SingularityFlowError(
+      'Git returned an invalid exact environment-policy tree identity.',
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' }
+    );
+  }
+  const listed = git([
+    'ls-tree', '-z', tree, '--', `:(literal)${ENVIRONMENT_DECLARATION_PATH}`
+  ], { cwd: root, env, allowFailure: true, maxBuffer: 4096 });
+  if (listed.status !== 0 || listed.error || listed.timedOut || listed.signal != null
+      || listed.outputOverflow) {
+    throw new SingularityFlowError(
+      'Git could not inspect the exact environment-policy tree.',
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' }
+    );
+  }
+  const records = listed.stdout.split('\0').filter(Boolean);
+  if (!records.length) return null;
+  const match = records.length === 1 ? records[0].match(
+    /^(100644|100755) blob ([a-f0-9]{40,64})\tsingularity\/environments\.yml$/u
+  ) : null;
+  if (!match) {
+    throw new SingularityFlowError(
+      `Invalid ${ENVIRONMENT_DECLARATION_PATH}: the exact Git entry must be one regular blob.`,
+      { code: 'ENVIRONMENT_DECLARATION_INVALID' }
+    );
+  }
+  return environmentDeclarationBlob(root, match[2], env, 'Exact Git tree');
+}
+
+/** Resolve the policy from the temporary exact index used by governed publication admission. */
+export function exactIndexedEnvironmentDeclaration(root, env = immutableLocalGitEnvironment()) {
+  if (hasConfigurationOverlay(root)) return loadEnvironmentDeclarationSync(root, { optional: true });
+  const listed = git([
+    'ls-files', '--stage', '-z', '--', ENVIRONMENT_DECLARATION_PATH
+  ], { cwd: root, env, allowFailure: true, maxBuffer: 4096 });
+  if (listed.status !== 0 || listed.error || listed.timedOut || listed.signal != null
+      || listed.outputOverflow) {
+    throw new SingularityFlowError(
+      'Git could not inspect the exact candidate-index environment policy.',
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' }
+    );
+  }
+  const records = listed.stdout.split('\0').filter(Boolean);
+  if (!records.length) return null;
+  const match = records.length === 1 ? records[0].match(
+    /^(100644|100755) ([a-f0-9]{40,64}) 0\tsingularity\/environments\.yml$/u
+  ) : null;
+  if (!match || /^0+$/.test(match[2])) {
+    throw new SingularityFlowError(
+      `Invalid ${ENVIRONMENT_DECLARATION_PATH}: the candidate-index entry must be one regular stage-zero blob.`,
+      { code: 'ENVIRONMENT_DECLARATION_INVALID' }
+    );
+  }
+  return environmentDeclarationBlob(root, match[2], env, 'Exact candidate index');
+}
+
+function indexPaths(root, env = immutableLocalGitEnvironment()) {
+  return nullList(git(['ls-files', '-z'], { cwd: root, env }).stdout);
+}
+
+function treePaths(root, tree, env = immutableLocalGitEnvironment()) {
+  return nullList(git(['ls-tree', '-r', '--name-only', '-z', tree], { cwd: root, env }).stdout);
+}
+
+/**
+ * Admit bytes from an already-materialized prospective Git tree.
+ *
+ * Candidate issuers deliberately build their trees in private indexes, outside the ordinary
+ * commit/publication path.  Passing the resulting object ID through this owner keeps those callers
+ * from growing weaker, subtly different copies of the environment-local and secret policy.  Both
+ * declarations are read from immutable Git objects: a mutable worktree edit after `write-tree`
+ * cannot loosen the policy applied to the retained Candidate.
+ */
+export function admitExactProspectiveTree(root, {
+  baselineCommit, candidateTree, label = 'Governed Candidate', allowGitlinks = false
+} = {}) {
+  const oid = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+  if (!oid.test(String(baselineCommit ?? '')) || !oid.test(String(candidateTree ?? ''))) {
+    throw new SingularityFlowError('Exact prospective-tree admission requires full Git object IDs.', {
+      code: 'PROSPECTIVE_TREE_INVALID'
+    });
+  }
+  const env = immutableLocalGitEnvironment();
+  const resolvedBaseline = git(['rev-parse', '--verify', `${baselineCommit}^{tree}`], {
+    cwd: root, env, allowFailure: true
+  });
+  const resolvedCandidate = git(['rev-parse', '--verify', `${candidateTree}^{tree}`], {
+    cwd: root, env, allowFailure: true
+  });
+  if (resolvedBaseline.status !== 0 || resolvedCandidate.status !== 0
+      || resolvedCandidate.stdout.trim() !== candidateTree) {
+    throw new SingularityFlowError('Exact prospective-tree admission could not resolve its bound Git trees.', {
+      code: 'PROSPECTIVE_TREE_INVALID'
+    });
+  }
+
+  assertNoEnvironmentLocalPaths([
+    exactEnvironmentDeclarationAtRef(root, baselineCommit, env),
+    exactEnvironmentDeclarationAtRef(root, candidateTree, env)
+  ], treePaths(root, candidateTree, env), { label });
+
+  const listed = nullList(git([
+    'diff', '--name-only', '-z', '--diff-filter=ACMRT', baselineCommit, candidateTree, '--'
+  ], { cwd: root, env }).stdout);
+  if (!listed.length) return Object.freeze({ tree: candidateTree, paths: Object.freeze([]), scan: null });
+
+  const expectedPaths = new Set(listed);
+  const byPath = new Map();
+  for (let offset = 0; offset < listed.length; offset += 512) {
+    const raw = git([
+      'ls-tree', '-z', candidateTree, '--',
+      ...listed.slice(offset, offset + 512).map((item) => `:(literal)${item}`)
+    ], { cwd: root, env }).stdout;
+    for (const record of raw.split('\0').filter(Boolean)) {
+      const tab = record.indexOf('\t');
+      const match = tab < 0 ? null
+        : record.slice(0, tab).match(/^(100644|100755|120000|160000) (blob|commit) ([a-f0-9]{40,64})$/u);
+      const item = tab < 0 ? '' : record.slice(tab + 1);
+      if (!match || !expectedPaths.has(item) || byPath.has(item)) {
+        throw new SingularityFlowError(
+          `Cannot scan '${item || '(unknown)'}' for secrets: its prospective Git entry is ambiguous.`,
+          { code: 'SECRET_SCAN_UNREADABLE' }
+        );
+      }
+      byPath.set(item, { mode: match[1], type: match[2], oid: match[3] });
+    }
+  }
+  const descriptors = listed.map((item) => {
+    const selected = byPath.get(item);
+    if (!selected) {
+      throw new SingularityFlowError(
+        `Cannot scan '${item}' for secrets: its prospective Git entry mode is unavailable.`,
+        { code: 'SECRET_SCAN_UNREADABLE' }
+      );
+    }
+    if (selected.mode === '160000') {
+      if (allowGitlinks && selected.type === 'commit') {
+        return { path: item, mode: selected.mode, oid: selected.oid, forceScan: false };
+      }
+      throw new SingularityFlowError(
+        `Cannot scan '${item}' for secrets: governed gitlinks are not admitted as binary evidence.`,
+        { code: 'SECRET_SCAN_UNREADABLE' }
+      );
+    }
+    if (selected.type !== 'blob') {
+      throw new SingularityFlowError(
+        `Cannot scan '${item}' for secrets: its prospective Git entry type is unsupported.`,
+        { code: 'SECRET_SCAN_UNREADABLE' }
+      );
+    }
+    return { path: item, mode: selected.mode, oid: selected.oid, forceScan: selected.mode === '120000' };
+  });
+  const blobIds = descriptors.filter(({ mode, path: item }) =>
+    mode !== '160000' && (mode === '120000' || scannablePath(item)))
+    .map(({ oid: object }) => object);
+  const blobs = readLocalGitBlobs(root, blobIds, {
+    env,
+    maximumObjectBytes: 64 * 1024 * 1024,
+    code: 'SECRET_SCAN_UNREADABLE',
+    label: 'Prospective tree secret scan'
+  });
+  const entries = descriptors.flatMap(({ path: item, mode, oid: object, forceScan }) => {
+    // A gitlink contains a commit object ID rather than file bytes. The caller opted into retaining
+    // that exact pointer; environment path policy still applied above, while there is no blob text
+    // to pass to the secret scanner.
+    if (mode === '160000') return [];
+    if (['100644', '100755'].includes(mode) && !scannablePath(item)) return [{ path: item }];
+    const bytes = blobs.get(object);
+    if (!bytes) {
+      throw new SingularityFlowError(
+        `Cannot scan '${item}' for secrets from the prospective tree.`,
+        { code: 'SECRET_SCAN_UNREADABLE' }
+      );
+    }
+    const content = bytes.toString('utf8');
+    if (bytes.includes(0) || !Buffer.from(content, 'utf8').equals(bytes)) {
+      throw new SingularityFlowError(
+        `Cannot scan '${item}' for secrets: its prospective blob is binary or not valid UTF-8.`,
+        { code: 'SECRET_SCAN_UNREADABLE' }
+      );
+    }
+    return [{ path: item, content, forceScan }];
+  });
+  const scan = scanEntries(entries);
+  const refusal = secretRefusal(scan);
+  if (refusal) {
+    throw new SingularityFlowError(`${label} was refused.\n\n${refusal}`, {
+      code: 'SECRET_DETECTED'
+    });
+  }
+  return Object.freeze({ tree: candidateTree, paths: Object.freeze([...listed]), scan });
+}
+
+/**
+ * Enforce both the last committed declaration and the exact prospective declaration against every
+ * path in the tree being committed. Applying their union closes two transition holes: deleting or
+ * weakening policy cannot admit an old local-only file, and adding/tightening policy cannot leave
+ * a newly forbidden file in the same tree merely because that file was unchanged.
+ */
+function assertCommitEnvironmentPolicy(root, paths, { label }) {
+  const baselineEnv = immutableLocalGitEnvironment();
+  const baseline = exactEnvironmentDeclarationAtRef(root, 'HEAD', baselineEnv);
+  if (!paths?.length) {
+    const env = immutableLocalGitEnvironment();
+    const prospective = exactIndexedEnvironmentDeclaration(root, env);
+    assertNoEnvironmentLocalPaths([baseline, prospective], indexPaths(root, env), { label });
+    return;
+  }
+
+  const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
+  mkdirSync(temporaryRoot, { recursive: true });
+  const scratch = mkdtempSync(path.join(temporaryRoot, 'environment-policy-'));
+  const env = immutableLocalGitEnvironment(process.env, {
+    indexFile: path.join(scratch, 'index')
+  });
+  try {
+    const headResult = git(['rev-parse', '--verify', '--quiet', 'HEAD'], {
+      cwd: root, env, allowFailure: true
+    });
+    if (headResult.status === 0) git(['read-tree', 'HEAD'], { cwd: root, env });
+    else if (headResult.status === 1 && !headResult.stdout && !headResult.stderr) {
+      git(['read-tree', '--empty'], { cwd: root, env });
+    } else {
+      throw new SingularityFlowError('Git could not establish the baseline environment policy tree.', {
+        code: 'ENVIRONMENT_POLICY_UNAVAILABLE'
+      });
+    }
+    git(['add', '-A', '--', ...paths], { cwd: root, env });
+    const prospective = exactIndexedEnvironmentDeclaration(root, env);
+    assertNoEnvironmentLocalPaths([baseline, prospective], indexPaths(root, env), { label });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -980,9 +1690,13 @@ export function add(root, paths) {
  * the commit you want to succeed.
  */
 export function assertNoSecrets(root, paths = null, { label = 'This commit' } = {}) {
+  const env = immutableLocalGitEnvironment();
+  assertCommitEnvironmentPolicy(root, paths, { label });
   const listed = paths?.length
     ? [...new Set(paths.filter(Boolean))]
-    : git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT'], { cwd: root, allowFailure: true })
+    : git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT'], {
+      cwd: root, env, allowFailure: true
+    })
       .stdout.split('\0').filter(Boolean);
   if (!listed.length) return null;
 
@@ -997,7 +1711,7 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
         const stat = statSync(absolute);
         // A path may name a directory the caller staged wholesale; expand it to its tracked files.
         if (stat.isDirectory()) {
-          const tracked = git(['ls-files', '-z', '--', item], { cwd: root, allowFailure: true })
+          const tracked = git(['ls-files', '-z', '--', item], { cwd: root, env, allowFailure: true })
             .stdout.split('\0').filter(Boolean);
           for (const file of tracked) {
             entries.push({ path: file, content: readFileSync(path.resolve(root, file), 'utf8') });
@@ -1014,7 +1728,7 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
       }
       entries.push({ path: item, content });
     } else {
-      const show = git(['show', `:${item}`], { cwd: root, allowFailure: true });
+      const show = git(['show', `:${item}`], { cwd: root, env, allowFailure: true });
       if (show.status !== 0) continue;
       entries.push({ path: item, content: show.stdout });
     }
@@ -1039,92 +1753,18 @@ function prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead) {
   const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
   mkdirSync(temporaryRoot, { recursive: true });
   const scratch = mkdtempSync(path.join(temporaryRoot, 'admission-'));
-  const env = { ...process.env, GIT_INDEX_FILE: path.join(scratch, 'index') };
+  const env = immutableLocalGitEnvironment(process.env, {
+    indexFile: path.join(scratch, 'index')
+  });
   try {
     git(['read-tree', expectedHead], { cwd: root, env });
     // This is the exact operation used later by `commitIsolated`: nested untracked, non-ignored
     // files are part of the prospective index and therefore part of secret admission too.
     git(['add', '-A', '--', ...scope], { cwd: root, env });
     const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
-    const listed = git([
-      'diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT', expectedHead,
-      '--', ...scope
-    ], { cwd: root, env }).stdout.split('\0').filter(Boolean);
-    const stagedByPath = new Map();
-    for (let offset = 0; offset < listed.length; offset += 512) {
-      const stagedResult = git(['ls-files', '--stage', '-z', '--', ...listed.slice(offset, offset + 512)], {
-        cwd: root, env, allowFailure: true
-      });
-      if (stagedResult.status !== 0) continue;
-      for (const record of stagedResult.stdout.split('\0').filter(Boolean)) {
-        const tab = record.indexOf('\t');
-        const match = tab < 0 ? null
-          : record.slice(0, tab).match(/^(100644|100755|120000|160000) ([a-f0-9]{40,64}) ([0-3])$/);
-        if (!match) continue;
-        const item = record.slice(tab + 1);
-        const values = stagedByPath.get(item) ?? [];
-        values.push({ mode: match[1], oid: match[2], stage: match[3] });
-        stagedByPath.set(item, values);
-      }
-    }
-    const descriptors = listed.map((item) => {
-      const staged = stagedByPath.get(item) ?? [];
-      const selected = staged.length === 1 && staged[0].stage === '0' ? staged[0] : null;
-      const mode = selected?.mode ?? null;
-      if (!mode) {
-        throw new SingularityFlowError(
-          `Cannot scan '${item}' for secrets: its prospective Git entry mode is unavailable.`,
-          { code: 'SECRET_SCAN_UNREADABLE' }
-        );
-      }
-      // The installed secret policy deliberately excludes bounded binary/evidence extensions.
-      // Honor that policy only for ordinary blobs. A symlink named `proof.png` still contains a
-      // textual target and must be scanned, while a gitlink or any future entry kind remains
-      // unreadable rather than being mistaken for approved binary evidence.
-      const forceScan = mode === '120000';
-      if (mode === '160000') {
-        throw new SingularityFlowError(
-          `Cannot scan '${item}' for secrets: governed gitlinks are not admitted as binary evidence.`,
-          { code: 'SECRET_SCAN_UNREADABLE' }
-        );
-      }
-      return { path: item, mode, oid: selected.oid, forceScan };
+    admitExactProspectiveTree(root, {
+      baselineCommit: expectedHead, candidateTree: tree, label: 'Governed publication'
     });
-    const blobIds = descriptors.filter(({ mode, path: item }) =>
-      mode === '120000' || scannablePath(item)).map(({ oid }) => oid);
-    const blobs = readLocalGitBlobs(root, blobIds, {
-      env,
-      maximumObjectBytes: 64 * 1024 * 1024,
-      code: 'SECRET_SCAN_UNREADABLE',
-      label: 'Prospective publication secret scan'
-    });
-    const entries = descriptors.map(({ path: item, mode, oid, forceScan }) => {
-      if (['100644', '100755'].includes(mode) && !scannablePath(item)) return { path: item };
-      const bytes = blobs.get(oid);
-      if (!bytes) {
-        throw new SingularityFlowError(
-          `Cannot scan '${item}' for secrets from the prospective publication tree.`,
-          { code: 'SECRET_SCAN_UNREADABLE' }
-        );
-      }
-      const content = bytes.toString('utf8');
-      // Secret matching is a text operation. NUL-bearing or invalid UTF-8 bytes must never be
-      // silently interpreted as clean merely because a path extension was unfamiliar.
-      if (bytes.includes(0) || !Buffer.from(content, 'utf8').equals(bytes)) {
-        throw new SingularityFlowError(
-          `Cannot scan '${item}' for secrets: its prospective blob is binary or not valid UTF-8.`,
-          { code: 'SECRET_SCAN_UNREADABLE' }
-        );
-      }
-      return { path: item, content, forceScan };
-    });
-    const scan = scanEntries(entries);
-    const refusal = secretRefusal(scan);
-    if (refusal) {
-      throw new SingularityFlowError(
-        `Governed publication was refused.\n\n${refusal}`, { code: 'SECRET_DETECTED' }
-      );
-    }
     return tree;
   } finally {
     rmSync(scratch, { recursive: true, force: true });
@@ -1139,12 +1779,13 @@ function prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead) {
  * `commitIsolated` repeats it at its own boundary to catch races after verification.
  */
 export function admitGovernedPublication(root, paths, { expectedHead = head(root) } = {}) {
+  const env = immutableLocalGitEnvironment();
   const scope = [...new Set((paths ?? []).filter(Boolean))].filter((candidate) =>
     existsSync(path.join(root, candidate))
-      || Boolean(git(['ls-files', '-z', '--', candidate], { cwd: root }).stdout));
+      || Boolean(git(['ls-files', '-z', '--', candidate], { cwd: root, env }).stdout));
   if (!scope.length) throw new SingularityFlowError('Governed publication requires at least one allowed path.');
   const stagedOverlap = git(
-    ['diff', '--cached', '--name-only', '-z', expectedHead, '--', ...scope], { cwd: root }
+    ['diff', '--cached', '--name-only', '-z', expectedHead, '--', ...scope], { cwd: root, env }
   ).stdout.split('\0').filter(Boolean);
   if (stagedOverlap.length) {
     throw new SingularityFlowError(
@@ -1182,9 +1823,12 @@ function publicationLocalRefCas(root, request) {
     });
   }
   validBranch(root, request.ref.slice('refs/heads/'.length));
+  const env = immutableLocalGitEnvironment();
   // `update-ref` normally dereferences symbolic refs. A raced symbolic branch must never move a
   // different target, even if its resolved OID happens to match the expected old commit.
-  const symbolic = git(['symbolic-ref', '-q', request.ref], { cwd: root, allowFailure: true });
+  const symbolic = git(['symbolic-ref', '-q', request.ref], {
+    cwd: root, env, allowFailure: true
+  });
   if (symbolic.status === 0) {
     throw new SingularityFlowError('The governed publication branch became a symbolic ref before its compare-and-swap.', {
       code: 'PUBLICATION_SYMBOLIC_REF_UNSUPPORTED'
@@ -1197,7 +1841,7 @@ function publicationLocalRefCas(root, request) {
   }
   const result = git([
     'update-ref', '--no-deref', request.ref, request.newCommitOid, request.expectedOldOid
-  ], { cwd: root, allowFailure: true });
+  ], { cwd: root, env, allowFailure: true });
   // A failed or interrupted Git process can have written the ref before returning. The durable
   // journal, not the process exit code, owns reconciliation of that exact commit afterward.
   return result.status === 0 ? 'applied' : 'outcome-unknown';
@@ -1229,8 +1873,11 @@ export async function commitIsolated(root, message, paths, {
   onCommitCreated = null,
   onRefAdvanced = null
 } = {}) {
+  const localEnv = immutableLocalGitEnvironment();
   const checkedOutRef = () => {
-    const observed = git(['symbolic-ref', '-q', 'HEAD'], { cwd: root, allowFailure: true });
+    const observed = git(['symbolic-ref', '-q', 'HEAD'], {
+      cwd: root, env: localEnv, allowFailure: true
+    });
     return observed.status === 0 ? observed.stdout.trim() : null;
   };
   const initialRef = checkedOutRef();
@@ -1263,7 +1910,7 @@ export async function commitIsolated(root, message, paths, {
   // The temporary index is the only process-level Git selector this transaction owns. Strip any
   // inherited repository, worktree, index, object, replacement-ref, command-config, SSH and hook
   // authority before adding it so an IDE/parent shell cannot redirect the governed commit.
-  const env = { ...withoutGitProcessOverrides(process.env), GIT_INDEX_FILE: indexPath };
+  const env = immutableLocalGitEnvironment(process.env, { indexFile: indexPath });
   let refAdvanced = false;
   let sourceCommit = null;
   try {
@@ -1323,7 +1970,7 @@ export async function commitIsolated(root, message, paths, {
         }
       );
     }
-    const priorTree = git(['rev-parse', `${expectedHead}^{tree}`], { cwd: root }).stdout.trim();
+    const priorTree = git(['rev-parse', `${expectedHead}^{tree}`], { cwd: root, env }).stdout.trim();
     if (tree === priorTree) throw new SingularityFlowError('No governed changes are ready to commit.');
 
     const signing = sign ? [signingKey ? `-S${signingKey}` : '-S'] : [];
@@ -1400,7 +2047,9 @@ export async function commitIsolated(root, message, paths, {
     } else {
       // Non-lifecycle owners have their own recovery contracts. Migrate them separately rather
       // than silently changing how they classify a failed ref update in this first GAL increment.
-      const update = git(['update-ref', ref, sourceCommit, expectedHead], { cwd: root, allowFailure: true });
+      const update = git(['update-ref', ref, sourceCommit, expectedHead], {
+        cwd: root, env: localEnv, allowFailure: true
+      });
       if (update.status !== 0) {
         throw new SingularityFlowError(
           `Governed publication lost its branch-head race: ${(update.stderr || update.stdout).trim() || 'compare-and-swap failed'}. `
@@ -1425,12 +2074,14 @@ export async function commitIsolated(root, message, paths, {
 
     // The real index still describes the old HEAD. Refresh only governed entries so they do not
     // appear as synthetic staged reversions; unrelated staged entries remain byte-for-byte intact.
-    git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root });
+    git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root, env: localEnv });
     const refAfterIndexRefresh = checkedOutRef();
     if (expectedRef !== undefined && refAfterIndexRefresh !== expectedRef) {
       // A checkout racing the index refresh may now own this worktree. Restore its index from its
       // own HEAD; the exact governed commit remains safely reachable from expectedRef.
-      git(['reset', '-q', 'HEAD', '--', ...scope], { cwd: root, allowFailure: true });
+      git(['reset', '-q', 'HEAD', '--', ...scope], {
+        cwd: root, env: localEnv, allowFailure: true
+      });
       throw new SingularityFlowError(
         `Governed publication checkout changed while ${expectedRef}'s index was being refreshed (found ${refAfterIndexRefresh ?? 'detached HEAD'}). `
         + `Commit ${sourceCommit.slice(0, 12)} was retained on its captured branch and was not published.`,
@@ -1451,7 +2102,9 @@ export async function commitIsolated(root, message, paths, {
     // allowed; callers must never infer that boundary from whatever HEAD happens to be later.
     error.publicationCommit = sourceCommit;
     error.publicationTree = sourceCommit
-      ? git(['rev-parse', `${sourceCommit}^{tree}`], { cwd: root, allowFailure: true }).stdout.trim() || null
+      ? git(['rev-parse', `${sourceCommit}^{tree}`], {
+        cwd: root, env: localEnv, allowFailure: true
+      }).stdout.trim() || null
       : null;
     throw error;
   } finally {
@@ -1686,12 +2339,16 @@ export function commitIsAncestor(root, ancestor, descendant = 'HEAD') {
 
 /** Read the immutable identity embedded in a governed transaction commit. */
 export function governedCommitIdentity(root, sha) {
-  const verified = git(['rev-parse', '--verify', `${sha}^{commit}`], { cwd: root, allowFailure: true });
+  const env = immutableLocalGitEnvironment();
+  const verified = git(['rev-parse', '--verify', `${sha}^{commit}`], {
+    cwd: root, env, allowFailure: true
+  });
   if (verified.status !== 0) return null;
   const commit = verified.stdout.trim();
-  const tree = git(['rev-parse', `${commit}^{tree}`], { cwd: root }).stdout.trim();
-  const parents = git(['show', '-s', '--format=%P', commit], { cwd: root }).stdout.trim().split(/\s+/).filter(Boolean);
-  const message = git(['show', '-s', '--format=%B', commit], { cwd: root }).stdout;
+  const tree = git(['rev-parse', `${commit}^{tree}`], { cwd: root, env }).stdout.trim();
+  const parents = git(['show', '-s', '--format=%P', commit], { cwd: root, env })
+    .stdout.trim().split(/\s+/).filter(Boolean);
+  const message = git(['show', '-s', '--format=%B', commit], { cwd: root, env }).stdout;
   const trailer = (name) => {
     const matches = [...message.matchAll(new RegExp(`^${name}:\\s*(.+?)\\s*$`, 'gmi'))];
     return matches.length === 1 ? matches[0][1] : null;

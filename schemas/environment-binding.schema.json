@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/environment-binding.schema.json",
+  "title": "Singularity Flow private execution-environment binding v1",
+  "$comment": "Private Git-common sidecar. This record must never be exported, committed, logged, or included in a receipt.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "environment", "declarationSha256", "bindingRevision",
+    "bindings", "boundAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "environment-binding" },
+    "environment": { "$ref": "#/$defs/id" },
+    "declarationSha256": { "$ref": "#/$defs/hash" },
+    "bindingRevision": {
+      "type": "string",
+      "pattern": "^envb_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "bindings": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 128,
+      "propertyNames": { "$ref": "#/$defs/variable" },
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/local" },
+          { "$ref": "#/$defs/reference" }
+        ]
+      }
+    },
+    "boundAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+    "variable": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,127}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "local": {
+      "type": "object",
+      "required": ["source", "value"],
+      "properties": {
+        "source": { "const": "local" },
+        "value": {
+          "type": "string", "minLength": 1, "maxLength": 16384,
+          "pattern": "^[^\\u0000]*$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "object",
+      "required": ["source", "reference"],
+      "properties": {
+        "source": { "const": "reference" },
+        "reference": {
+          "type": "string", "minLength": 1, "maxLength": 2048,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

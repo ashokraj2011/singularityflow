@@ -40,7 +40,7 @@ async function graphFetch(url) {
   return jsonResponse({ id: 'item-1', name: 'summary-spec.md', size: SPEC_BYTES.length, file: { mimeType: 'text/markdown' }, eTag: '"v1"' });
 }
 
-async function repository() {
+async function repository({ withEnvironmentDeclaration = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fetch-'));
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Fetch Tester'], root); run('git', ['config', 'user.email', 'fetch@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Fetch\n'); flow(root, ['init']);
@@ -49,6 +49,21 @@ async function repository() {
   config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
   config.storage = { defaultProvider: 'onedrive', providers: { onedrive: { type: 'sharepoint', tenantId: 't', clientId: 'c', siteId: 's', driveId: 'd' } } };
   await writeFile(configPath, YAML.stringify(config));
+  if (withEnvironmentDeclaration) {
+    await writeFile(path.join(root, 'singularity', 'environments.yml'), [
+      'schemaVersion: 1',
+      'environments:',
+      '  qa:',
+      '    requires:',
+      '      - { name: API_TOKEN, kind: secret }',
+      '    localFiles:',
+      '      - .env.qa',
+      'checks: {}',
+      'neverCommit:',
+      '  - "**/*.local.yml"',
+      ''
+    ].join('\n'));
+  }
   run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
   run('git', ['init', '--bare', '-b', 'main', remote], root);
@@ -107,4 +122,59 @@ test('documents fetch rejects an unknown provider', async () => {
     () => fetchRemoteDocument(root, config, workflow, { providerId: 'nope', remoteRef: 'item-1', runtime: {} }),
     /Unknown or unconfigured storage provider/
   );
+});
+
+test('documents fetch refuses environment-local names, secrets, and unscannable text before mutation', async (t) => {
+  const secret = `ghp_${'q'.repeat(36)}`;
+  for (const scenario of [
+    {
+      name: 'environment-local name', filename: '.env.qa',
+      bytes: Buffer.from('SAFE_NAME=value\n'),
+      code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED', absent: 'SAFE_NAME=value'
+    },
+    {
+      name: 'secret-bearing text', filename: 'review-notes.md',
+      bytes: Buffer.from(`# Notes\n\ntoken = "${secret}"\n`),
+      code: 'SECRET_DETECTED', absent: secret
+    },
+    {
+      name: 'invalid UTF-8 text', filename: 'review-notes.md',
+      bytes: Buffer.from([0x23, 0x20, 0xff, 0x0a]),
+      code: 'DOCUMENT_CONTENT_UNSCANNABLE', absent: null
+    },
+    {
+      name: 'NUL-bearing text', filename: 'review-notes.md',
+      bytes: Buffer.from('# Notes\n\0hidden\n'),
+      code: 'DOCUMENT_CONTENT_UNSCANNABLE', absent: 'hidden'
+    }
+  ]) {
+    await t.test(scenario.name, async () => {
+      const root = await repository({ withEnvironmentDeclaration: true });
+      const config = await loadConfig(root);
+      const workflow = await loadWorkflow(root, config, 'DOCS-9');
+      const beforeStatus = run('git', ['status', '--short'], root).stdout;
+      const fetchImpl = async (url) => {
+        if (url.endsWith('/content')) return bytesResponse(scenario.bytes, 'text/markdown');
+        return jsonResponse({
+          id: 'item-1', name: scenario.filename, size: scenario.bytes.length,
+          file: { mimeType: 'text/markdown' }, eTag: '"v1"'
+        });
+      };
+      await assert.rejects(
+        () => fetchRemoteDocument(root, config, workflow, {
+          providerId: 'onedrive', remoteRef: 'item-1',
+          runtime: { fetchImpl, token: 'fake-graph-token' }
+        }),
+        (error) => {
+          assert.equal(error?.code, scenario.code);
+          if (scenario.absent) assert.doesNotMatch(error.message, new RegExp(scenario.absent));
+          return true;
+        }
+      );
+      assert.equal(run('git', ['status', '--short'], root).stdout, beforeStatus);
+      assert.equal(existsSync(
+        path.join(root, 'singularity/work-items/DOCS-9/documents.json')
+      ), false);
+    });
+  }
 });

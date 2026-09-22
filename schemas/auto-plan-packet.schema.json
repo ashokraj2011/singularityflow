@@ -24,7 +24,8 @@
         "pacing": { "type": ["string", "null"] },
         "until": { "type": ["string", "null"] },
         "repairPolicy": { "enum": ["never", "ask", "auto-on-machine-actionable"] },
-        "repairAttemptsPerPhase": { "type": "integer", "minimum": 0, "maximum": 1 }
+        "repairAttemptsPerPhase": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "requiredEnvironments": { "$ref": "#/$defs/requiredEnvironments" }
       },
       "additionalProperties": false
     },
@@ -33,6 +34,34 @@
     "budgets": { "type": "object" },
     "packetSha256": { "$ref": "#/$defs/hash" }
   },
-  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "requiredEnvironments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "declarationSha256", "phaseIds", "commandIds", "requiredBindings"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+          "declarationSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+          "phaseIds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "commandIds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "requiredBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "kind"],
+              "properties": {
+                "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,127}$" },
+                "kind": { "enum": ["secret", "endpoint", "flag"] }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
   "additionalProperties": false
 }

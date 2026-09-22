@@ -15366,6 +15366,7 @@ async function dispatch(command, positionals, options) {
     authority: async () => (await import('./commands/fos.mjs')).run(argv, { positionals, options }),
     cache: async () => (await import('./commands/fos.mjs')).run(argv, { positionals, options }),
     local: async () => (await import('./commands/local.mjs')).run(argv, { positionals, options }),
+    env: async () => (await import('./commands/environment.mjs')).run(argv, { positionals, options }),
     'factory-reset': () => factoryResetCommand(options),
     'reset-all': () => resetAllCommand(options),
     'local-reset': () => localResetCommand(options),

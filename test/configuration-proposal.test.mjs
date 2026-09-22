@@ -649,6 +649,96 @@ test('workflow proposal activation rejects a newly added migration-required Stor
   }
 });
 
+test('workflow proposal activation refuses an environment declaration with an unknown quality-command ID', async () => {
+  const item = await fixture();
+  const authoring = path.join(item.base, 'invalid-environment-proposal');
+  const proposalBranch = 'sflow/config-change/workflow/invalid-environment-check';
+  try {
+    run('git', ['clone', '-q', '-b', 'sflow/config', item.remote, authoring]);
+    run('git', ['config', 'user.name', 'Workflow Author'], { cwd: authoring });
+    run('git', ['config', 'user.email', 'workflow@example.test'], { cwd: authoring });
+    run('git', ['switch', '-q', '-c', proposalBranch], { cwd: authoring });
+    await writeFile(path.join(authoring, 'singularity/environments.yml'), `schemaVersion: 1
+environments:
+  qa:
+    requires:
+      - name: API_TOKEN
+        kind: secret
+checks:
+  unknown-quality-command:
+    environment: qa
+neverCommit:
+  - .env.*
+`);
+    run('git', ['add', 'singularity/environments.yml'], { cwd: authoring });
+    run('git', ['commit', '-qm', 'propose invalid environment check mapping'], { cwd: authoring });
+    run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${proposalBranch}`], { cwd: authoring });
+    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+
+    await assert.rejects(
+      () => activateWorkflowConfigurationProposal(item.story, proposalBranch, {
+        confirm: commit,
+        acknowledgeUnprotected: true
+      }),
+      (error) => error.code === 'ENVIRONMENT_DECLARATION_INVALID'
+        && /unknown quality command ID.*unknown-quality-command/i.test(error.message)
+    );
+    assert.equal(
+      run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(),
+      item.approved,
+      'invalid environment proposal must not move approved configuration'
+    );
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('workflow proposal activation refuses only mapped conflicting quality-command IDs', async () => {
+  const item = await fixture();
+  const authoring = path.join(item.base, 'ambiguous-environment-proposal');
+  const proposalBranch = 'sflow/config-change/workflow/ambiguous-environment-check';
+  try {
+    run('git', ['clone', '-q', '-b', 'sflow/config', item.remote, authoring]);
+    run('git', ['config', 'user.name', 'Workflow Author'], { cwd: authoring });
+    run('git', ['config', 'user.email', 'workflow@example.test'], { cwd: authoring });
+    run('git', ['switch', '-q', '-c', proposalBranch], { cwd: authoring });
+    // The packaged POC phases intentionally reuse git-diff-check with different timeouts. An
+    // empty declaration is valid, but mapping that ambiguous ID must fail before authority moves.
+    await writeFile(path.join(authoring, 'singularity/environments.yml'), `schemaVersion: 1
+environments:
+  qa:
+    requires:
+      - name: API_TOKEN
+        kind: secret
+checks:
+  git-diff-check:
+    environment: qa
+neverCommit:
+  - .env.*
+`);
+    run('git', ['add', 'singularity/environments.yml'], { cwd: authoring });
+    run('git', ['commit', '-qm', 'propose ambiguous environment check mapping'], { cwd: authoring });
+    run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${proposalBranch}`], { cwd: authoring });
+    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+
+    await assert.rejects(
+      () => activateWorkflowConfigurationProposal(item.story, proposalBranch, {
+        confirm: commit,
+        acknowledgeUnprotected: true
+      }),
+      (error) => error.code === 'ENVIRONMENT_DECLARATION_INVALID'
+        && /ambiguous quality command ID.*git-diff-check/i.test(error.message)
+    );
+    assert.equal(
+      run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(),
+      item.approved,
+      'ambiguous environment proposal must not move approved configuration'
+    );
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
 test('workflow proposal publication distinguishes local authorities whose display URLs collide', async () => {
   const item = await fixture({ remoteName: 'application.git?blue' });
   try {

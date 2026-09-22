@@ -74,6 +74,7 @@ const entries = {
   task: ['sf-sgos'],
   request: ['sf-sgos'],
   evidence: ['sf-sgos'],
+  env: ['sf-environment'],
   candidate: ['sf-sgos'],
   'execution-unit': ['sf-sgos'],
   device: ['sf-sgos'],

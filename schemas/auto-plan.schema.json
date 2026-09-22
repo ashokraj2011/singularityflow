@@ -32,7 +32,8 @@
             "selectionReason": { "enum": ["explicit", "core-fallback", "sgos-available"] }
           },
           "additionalProperties": false
-        }
+        },
+        "requiredEnvironments": { "$ref": "#/$defs/requiredEnvironments" }
       }
     },
     "humanBoundaries": { "type": "object" },
@@ -80,6 +81,32 @@
   }],
   "$defs": {
     "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "requiredEnvironments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "declarationSha256", "phaseIds", "commandIds", "requiredBindings"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+          "declarationSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+          "phaseIds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "commandIds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "requiredBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "kind"],
+              "properties": {
+                "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,127}$" },
+                "kind": { "enum": ["secret", "endpoint", "flag"] }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "legacyCompatibility": {
       "type": "object",
       "required": ["sourceSchemaVersion", "confirmationProtocol", "planSha256", "packetSha256", "validationSha256", "repairPolicy", "repairAttemptsPerPhase"],

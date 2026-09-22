@@ -317,6 +317,23 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
   }
 });
 
+test('environment binding argv is fail-closed even for obsolete or malformed value options', () => {
+  const privateValue = 'arbitrary-private-environment-value';
+  assert.deepEqual(redactCommandArgv([
+    'env', 'bind', 'qa', '--stdin', '--json'
+  ]), ['env', 'bind', 'qa', '--stdin', '--json']);
+  for (const argv of [
+    ['env', 'bind', 'qa', '--set', `DB_CONN=${privateValue}`, '--json'],
+    ['--no-model', 'env', 'bind', 'qa', `--set=DB_CONN=${privateValue}`, '--json'],
+    ['env', 'bind', '--set', privateValue, 'qa'],
+    ['env', '--malformed', 'bind', privateValue, '--json']
+  ]) {
+    const projected = redactCommandArgv(argv);
+    assert.doesNotMatch(JSON.stringify(projected), new RegExp(privateValue));
+    assert.ok(projected.includes(REDACTED));
+  }
+});
+
 test('CLI argv redaction keeps local Story document paths out of durable logging', () => {
   const split = redactCommandArgv([
     'start', 'WRK-1', '--document', '/Users/example/Private Briefs/strategy.md', '--json'

@@ -174,6 +174,13 @@ export const WMB_V4_KERNEL_SOURCE_SHA256 = implementationSourceSha256({
   }],
   files: [
     {
+      // The scope matcher uses this shared portable-filesystem identity helper. Keep its exact
+      // executable bytes inside every extractor identity rather than hashing only the importing
+      // world-model module and leaving a transitive policy dependency unbound.
+      label: 'src/configuration-assets.mjs',
+      path: path.join(PACKAGE_ROOT, 'src', 'configuration-assets.mjs')
+    },
+    {
       label: 'src/repository-facts.mjs',
       path: path.join(PACKAGE_ROOT, 'src', 'repository-facts.mjs')
     },

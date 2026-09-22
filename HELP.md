@@ -3482,6 +3482,7 @@ singularity-flow knowledge list|show|record|import|harvest|resolve ...
 singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]
 singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|organisation|leads
 singularity-flow hook turn-intent|turn-end|agent-start|session-start|agent-guard
+singularity-flow env status|audit|bind|unbind ...
 singularity-flow secrets scan [--staged] [--json]
 singularity-flow secrets protect [--force]
 singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--no-push]

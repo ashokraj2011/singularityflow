@@ -115,6 +115,12 @@ import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
+import {
+  captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, loadEnvironmentDeclaration,
+  validateEnvironmentQualityCommandCatalog
+} from './environment-declaration.mjs';
+import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
 
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
@@ -125,6 +131,39 @@ function workflowCodeGenerationProjection(definition) {
   return Object.fromEntries(Object.keys(definition?.workTypes ?? {}).map((id) => [
     id, workflowCodeGeneration(resolveWorkType(definition, id))
   ]));
+}
+
+/**
+ * Return every normalized quality command reachable from an approved workflow catalog.
+ *
+ * Work-type phase overrides can replace a phase's quality commands, so validating only the base
+ * phase table would accept a declaration which no selectable workflow can actually execute. The
+ * declaration maps an ID to an environment, not to one command body; repeated IDs are therefore
+ * collapsed after each resolved command has passed the normal command validator.
+ */
+function environmentQualityCommandCatalog(definition) {
+  const commands = [];
+  for (const workTypeId of Object.keys(definition.workTypes ?? {}).sort()) {
+    const resolved = resolveWorkType(definition, workTypeId);
+    for (const phase of resolved.phases) {
+      for (const [index, command] of (phase.qualityCommands ?? []).entries()) {
+        commands.push(normalizeExternalCommand(command, index));
+      }
+    }
+  }
+  return commands;
+}
+
+async function captureValidatedEnvironmentConfiguration(root, definition) {
+  const captured = await captureEnvironmentDeclaration(root, { optional: true });
+  validateEnvironmentQualityCommandCatalog(
+    captured?.declaration ?? null, environmentQualityCommandCatalog(definition)
+  );
+  return captured;
+}
+
+async function validateEnvironmentConfiguration(root, definition) {
+  return (await captureValidatedEnvironmentConfiguration(root, definition))?.declaration ?? null;
 }
 
 async function mcpConfigurationStatus(root, definition) {
@@ -240,7 +279,7 @@ async function visualAssuranceSnapshot(root, definition, workflow) {
   };
 }
 
-async function textFiles(root, relativeRoot, { extensions = null } = {}) {
+async function textFiles(root, relativeRoot, { extensions = null, excludePaths = [] } = {}) {
   const boundary = await secureRepositoryPath(root, relativeRoot, {
     label: `Configuration content directory '${relativeRoot}'`,
     type: 'directory'
@@ -248,6 +287,7 @@ async function textFiles(root, relativeRoot, { extensions = null } = {}) {
   if (!boundary.exists) return [];
   const absoluteRoot = boundary.absolute;
   const canonicalRoot = boundary.root;
+  const excluded = new Set(excludePaths.map(portableFilesystemPathIdentity));
   const output = [];
   async function visit(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -257,11 +297,16 @@ async function textFiles(root, relativeRoot, { extensions = null } = {}) {
       }
       if (entry.isDirectory()) await visit(absolute);
       else if (entry.isFile()) {
+        const relative = posix(path.relative(canonicalRoot, absolute));
+        // Reserved configuration files are captured and validated by their dedicated owner. Skip
+        // them before reading bytes so an overlapping legacy templatesRoot cannot re-read or
+        // overwrite a declaration after its stable validation capture.
+        if (excluded.has(portableFilesystemPathIdentity(relative))) continue;
         if (extensions && !extensions.includes(path.extname(entry.name).toLowerCase())) continue;
         const content = await readFile(absolute);
         if (content.length > TEXT_FILE_LIMIT) continue;
         output.push({
-          path: posix(path.relative(canonicalRoot, absolute)),
+          path: relative,
           name: posix(path.relative(absoluteRoot, absolute)),
           content: content.toString('utf8'),
           bytes: content.length
@@ -1907,6 +1952,7 @@ function allowedConfigurationPath(
     || relative === CAPABILITIES_PATH
     || relative === IMPACT_CONFIG_PATH
     || relative === AGENT_MAPPING_PATH
+    || relative === ENVIRONMENT_DECLARATION_PATH
     || paths.directoryRoots.some((directory) => relative.startsWith(`${directory}/`))
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith(`${PROMPTS_ROOT}/`)
@@ -1926,6 +1972,37 @@ function exportablePath(definition, relative, portfolio = null) {
     || relative.startsWith(`${modelRoot}/`)
     || relative.startsWith(`${workRoot}/`)
     || (portfolio && relative.startsWith(`${initiativeRoot}/`));
+}
+
+async function validatedWorldModelExportFiles(root, definition, modelRoot) {
+  const modelPath = path.join(root, modelRoot);
+  if (!await exists(modelPath)) return [];
+  const prefix = `${modelRoot.replace(/\/$/, '')}/`;
+  const changed = changedFiles(root).filter((relative) => (
+    relative === modelRoot || relative.startsWith(prefix)
+  ));
+  if (changed.length) {
+    throw new SingularityFlowError(
+      'World-model export requires a committed, integrity-checked projection. Refresh or discard '
+        + `the changed World-Model artifact(s) before exporting: ${changed.join(', ')}.`,
+      { code: 'WORLD_MODEL_EXPORT_UNSAFE', details: { paths: changed } }
+    );
+  }
+  const validated = await validateWorldModelDirectory(modelPath, {
+    integrity: 'full', sourceLabel: 'configuration-export world model'
+  });
+  const source = await worldModelSourceSnapshot(root, definition);
+  if (validated.normalizedManifest.source_tree_sha256 !== source.sha256) {
+    throw new SingularityFlowError(
+      'World-model export refused a stale projection. Refresh the World Model before exporting it.',
+      { code: 'WORLD_MODEL_EXPORT_UNSAFE' }
+    );
+  }
+  // Read the export bytes only after the directory, manifest, and source identity have passed.
+  // In particular, this prevents dirty legacy files from entering memory before the refusal.
+  return textFiles(root, modelRoot, {
+    extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml']
+  });
 }
 
 function contentSha256(content) {
@@ -1984,6 +2061,7 @@ async function validateConfigurationCandidate(root, relative, content, definitio
   try {
     const sources = new Set([
       WORKFLOW_PATH, PORTFOLIO_PATH, CAPABILITIES_PATH, IMPACT_CONFIG_PATH, AGENT_MAPPING_PATH,
+      ENVIRONMENT_DECLARATION_PATH,
       definition.templatesRoot, portfolio?.templatesRoot, definition.agentPromptsRoot,
       REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents'
     ].filter(Boolean).map(posix));
@@ -2014,6 +2092,7 @@ async function validateConfigurationCandidate(root, relative, content, definitio
     );
     await discoverAgents(validationRoot);
     await loadAgentMappings(validationRoot);
+    await validateEnvironmentConfiguration(validationRoot, updatedDefinition);
   } finally {
     await rm(validationRoot, { recursive: true, force: true });
   }
@@ -2135,8 +2214,9 @@ export async function deleteConfigurationFile(root, requestedPath) {
   const deletable = authority.directoryRoots.some((directory) => relative.startsWith(`${directory}/`))
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith(`${PROMPTS_ROOT}/`)
-    || relative.startsWith('.github/agents/');
-  if (!deletable) throw new SingularityFlowError('Editor deletion is restricted to artifact templates, unreferenced governed-agent prompts, repository skills, and repository agents.');
+    || relative.startsWith('.github/agents/')
+    || relative === ENVIRONMENT_DECLARATION_PATH;
+  if (!deletable) throw new SingularityFlowError('Editor deletion is restricted to artifact templates, unreferenced governed-agent prompts, repository skills, repository agents, and the optional environment declaration.');
   const references = [];
   const impact = await loadImpactDefinition(root) ?? { studies: [] };
   if (relative.startsWith(`${templatesRoot}/`)) {
@@ -2186,41 +2266,72 @@ export async function deleteConfigurationFile(root, requestedPath) {
   return { path: relative, deleted: true, changed: changedFiles(root).includes(relative) };
 }
 
-export async function readConfigurationFile(root, requestedPath) {
+export async function readConfigurationFile(root, requestedPath, { afterEnvironmentCapture = null } = {}) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
   if (!exportablePath(definition, relative, portfolio)) throw new SingularityFlowError(`File is not an exportable Singularity Flow configuration, world-model, work-item, or initiative file: ${relative}`);
-  const target = await secureRepositoryPath(root, relative, {
-    label: 'Editor export file',
-    mustExist: true,
-    type: 'file'
-  });
-  const content = await readFile(target.absolute);
+  let environmentCapture = null;
+  if (relative === ENVIRONMENT_DECLARATION_PATH) {
+    // A declaration is exportable only after its names-only contract and quality-command links
+    // have been proven. This prevents a manually introduced legacy file from using the generic
+    // configuration reader to exfiltrate a value which the ENV parser would reject.
+    environmentCapture = await captureValidatedEnvironmentConfiguration(root, definition);
+    await afterEnvironmentCapture?.();
+  }
+  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model')
+    .replace(/\/$/, '');
+  if (relative.startsWith(`${modelRoot}/`)) {
+    // A generic file export must not replay an old model which predates environment-local source
+    // exclusions. Prove the whole committed projection and its current source identity first.
+    await validatedWorldModelExportFiles(root, definition, modelRoot);
+  }
+  const content = environmentCapture?.bytes ?? await (async () => {
+    const target = await secureRepositoryPath(root, relative, {
+      label: 'Editor export file',
+      mustExist: true,
+      type: 'file'
+    });
+    return readFile(target.absolute);
+  })();
   if (content.length > TEXT_FILE_LIMIT) throw new SingularityFlowError(`File exceeds the ${TEXT_FILE_LIMIT}-byte editor export limit: ${relative}`);
   return { path: relative, name: path.posix.basename(relative), content: content.toString('utf8'), contentBase64: content.toString('base64'), bytes: content.length };
 }
 
-export async function exportConfigurationBundle(root) {
+export async function exportConfigurationBundle(root, { afterEnvironmentCapture = null } = {}) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
+  const environmentCapture = await captureValidatedEnvironmentConfiguration(root, definition);
+  await afterEnvironmentCapture?.();
   const agents = (await discoverAgents(root)).filter((agent) => agent.scope === 'repository' && !agent.source.startsWith('..'));
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   const prompt = await worldModelPrompt(root, definition);
   const planner = await planningPrompt(root, definition);
+  const modelFiles = await validatedWorldModelExportFiles(root, definition, modelRoot);
+  const independentlyCapturedPaths = [
+    WORKFLOW_PATH, PORTFOLIO_PATH, ENVIRONMENT_DECLARATION_PATH
+  ];
   const groups = [
     [{ path: WORKFLOW_PATH, content: await readFile(path.join(root, WORKFLOW_PATH), 'utf8') }],
     portfolio ? [{ path: PORTFOLIO_PATH, content: await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') }] : [],
-    await textFiles(root, definition.templatesRoot),
-    await textFiles(root, definition.agentPromptsRoot),
-    await textFiles(root, PROMPTS_ROOT, { extensions: ['.md'] }),
-    await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
+    environmentCapture ? [{
+      path: ENVIRONMENT_DECLARATION_PATH,
+      content: environmentCapture.bytes.toString('utf8')
+    }] : [],
+    await textFiles(root, definition.templatesRoot, { excludePaths: independentlyCapturedPaths }),
+    await textFiles(root, definition.agentPromptsRoot, { excludePaths: independentlyCapturedPaths }),
+    await textFiles(root, PROMPTS_ROOT, {
+      extensions: ['.md'], excludePaths: independentlyCapturedPaths
+    }),
+    await textFiles(root, REPOSITORY_SKILLS_ROOT, {
+      extensions: ['.md'], excludePaths: independentlyCapturedPaths
+    }),
     agents.map((agent) => ({ path: agent.source, content: agent.text })),
     await exists(path.join(root, AGENT_MAPPING_PATH)) ? [{ path: AGENT_MAPPING_PATH, content: await readFile(path.join(root, AGENT_MAPPING_PATH), 'utf8') }] : [],
     await exists(path.join(root, AGENT_LOCK_PATH)) ? [{ path: AGENT_LOCK_PATH, content: await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') }] : [],
     prompt.missing ? [] : [prompt],
     planner.missing ? [] : [planner],
-    await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
+    modelFiles
   ];
   const files = [...new Map(groups.flat().map((file) => [file.path, { path: file.path, content: file.content }])).values()].sort((left, right) => left.path.localeCompare(right.path));
   return { files, repository: path.basename(root), exportedAt: new Date().toISOString(), worldModelRepositoryOwned: true };
@@ -2236,6 +2347,7 @@ export async function validateEditorConfiguration(root, { baselineDefinition = n
   if (portfolio) validatePortfolioWorldModelViews(portfolio, definition);
   const agents = await discoverAgents(root);
   await loadAgentMappings(root, { agents });
+  const environmentDeclaration = await validateEnvironmentConfiguration(root, definition);
   return {
     // `valid` is always true because this function signals failure by throwing; it is kept so the
     // JSON shape does not change under callers that read it.
@@ -2248,7 +2360,8 @@ export async function validateEditorConfiguration(root, { baselineDefinition = n
     agents: agents.length,
     initiativeProfiles: Object.keys(portfolio?.initiativeProfiles ?? {}).length,
     initiativePhases: Object.keys(portfolio?.initiativePhases ?? {}).length,
-    repositories: Object.keys(portfolio?.repositories ?? {}).length
+    repositories: Object.keys(portfolio?.repositories ?? {}).length,
+    environments: Object.keys(environmentDeclaration?.environments ?? {}).length
   };
 }
 

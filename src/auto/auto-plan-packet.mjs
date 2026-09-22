@@ -65,7 +65,10 @@ export function buildAutoPlanPacket(plan, validation = buildAutoPlanValidation(p
       pacing: plan.execution?.pace?.source ?? null,
       until: plan.execution?.until?.source ?? null,
       repairPolicy: plan.execution?.repair?.policy ?? 'ask',
-      repairAttemptsPerPhase: plan.execution?.repair?.maximumAttempts ?? 0
+      repairAttemptsPerPhase: plan.execution?.repair?.maximumAttempts ?? 0,
+      ...(Array.isArray(plan.execution?.requiredEnvironments)
+        ? { requiredEnvironments: structuredClone(plan.execution.requiredEnvironments) }
+        : {})
     },
     humanStops: structuredClone(plan.humanBoundaries?.stopPoints ?? []),
     evidence: [...(plan.proposal?.acceptanceCriteria ?? [])],

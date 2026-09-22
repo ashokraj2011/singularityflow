@@ -352,6 +352,41 @@ The large-view regression records 781 complete Facts, 60 selected Facts, 27 mode
 mandatory-overflow, omitted-reference, execution-route, cache, publication, persisted-store,
 registry, extractor-conformance, and complete World-Model suites own this transition.
 
+## Portable environment-exclusion identity acceptance
+
+The 2026-09-22 environment-binding review found that configured World-Model exclusions were exact
+Git spellings in both the in-memory scope matcher and the scoped-commit pathspec. On default Windows
+and macOS filesystems, a case alias, Unicode compatibility alias, or Win32 trailing-dot/space alias
+could therefore refer to the same checkout path while escaping an exclusion intended to keep local
+environment material out of the model.
+
+The bounded repair changes only these identity-bearing inputs:
+
+- `scope/matcher.mjs` applies the strict portable filesystem identity to exclusions while retaining
+  exact Git spelling for allowed and shared authority;
+- `source/snapshot.mjs` adds Git's `icase` pathspec constraint for the subset Git can exclude, with
+  final NFKC and trailing-dot/space admission still owned by the matcher;
+- `source-digest.mjs` includes `src/configuration-assets.mjs`, whose shared
+  `portableFilesystemPathIdentity` function is now a transitive executable dependency of the WMB
+  scope matcher. This closes the source-identity boundary rather than accepting an unbound helper.
+
+No extractor algorithm, parser grammar, declared Fact type, evidence kind, permission, View
+Contract, renderer, composition budget, or publication authority changed. Exact source admission did
+change fail-closed, so every extractor implementation identity and the closed registry must move as
+one reviewed mechanical transition:
+
+| Identity | Prior accepted | Accepted after portable exclusion repair |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:fcb6379667299b0f6aadadd7d38881d1734059243b81daca28703e45531e2db5` | `sha256:b2e1bfeb1211a022b8e68dd92648087b613fe21b7c79cf33dc4a8763c927f30c` |
+| Coverage implementation | `sha256:00d8df6af3fb38e83ab2bec6cf9617c576da513d7fe8921430d437f4c00ce9c1` | `sha256:62f40aecfb586773debdc1c9648bafce6857ec25ad389e24eb943a73c9e4b4cc` |
+| Coverage conformance receipt | `sha256:3e494753ecf4352cce00ccb62e115561efa917269d5f525d4aee43f09bc4a109` | `sha256:f46ec45e996dc9e9933829d19dd2e206ad4a22d21a9eb7c545a8a08ac499b7a7` |
+| Coverage manifest | `sha256:a8c4eeac47f27e0a2305a99a7e6dc2ea300801ea585e13534efd34ab0062ae72` | `sha256:7ec77d325d22d33e16b60f5a0034f1e3b13e2a94ec893fedcf7bdaf91a6f6624` |
+| Built-in Extractor Registry | `sha256:83aaacb514ad8af54819d2aa16b7fd9f3d3b79ddc744c1ab6ae53333ebda0531` | `sha256:95968338f449e6a1628fccf167233e986bde1cd0619724c4e048c0aff6531503` |
+
+The registry, source-digest, and environment-exclusion regressions own this transition. They prove
+the frozen identities, installation-independent hashing, case/compatibility exclusion behavior,
+and legacy-v3/registered-v4 exclusion boundary together.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

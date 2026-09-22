@@ -190,6 +190,10 @@ Every public operation is classified before its implementation module is importe
 | documents.preview | read | never | — | — |
 | documents.upload | mutation | never | — | — |
 | documents.view | read | never | — | — |
+| env.audit | read | never | — | — |
+| env.bind | mutation | never | — | — |
+| env.status | read | never | — | — |
+| env.unbind | mutation | never | — | — |
 | epic | mutation | never | — | — |
 | evidence.export | mutation | never | — | — |
 | evidence.reconstruct | read | never | — | — |

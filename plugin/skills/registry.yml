@@ -117,6 +117,7 @@ skills:
   sflow-converge: { class: echo }
   sflow-doctor: { class: echo, executionBoundary: machine }
   sflow-documents: { class: mutation, executionBoundary: repository }
+  sflow-environment: { class: interactive, executionBoundary: repository }
   sflow-epic-complete: { class: review, executionBoundary: repository }
   sflow-epic-drift: { class: mutation, executionBoundary: repository }
   sflow-epic-journey: { class: echo, executionBoundary: repository }

@@ -1,11 +1,13 @@
 import path from 'node:path';
 import { SingularityFlowError } from './util.mjs';
+import { ENVIRONMENT_IDENTIFIER } from './environment-declaration.mjs';
 
 export const EXTERNAL_MODEL_POLICIES = Object.freeze(['never', 'required', 'unknown']);
 export const QUALITY_COMMAND_KINDS = Object.freeze([
   'test', 'compile', 'lint', 'format', 'static-analysis', 'security', 'other'
 ]);
 export const QUALITY_COMMAND_REQUIREMENTS = Object.freeze(['required', 'advisory']);
+export const ENVIRONMENT_ID_PATTERN = ENVIRONMENT_IDENTIFIER;
 export const TEST_RESULT_ADAPTERS = Object.freeze([
   'junit-xml', 'jest-json', 'vitest-json', 'playwright-json', 'go-test-json', 'node-tap',
   'karma-text', 'dotnet-trx', 'cargo-json', 'sflow-test-result-v1'
@@ -59,6 +61,17 @@ export function normalizeExternalCommand(value, index = 0) {
   if (kind != null && !QUALITY_COMMAND_KINDS.includes(kind)) {
     throw new SingularityFlowError(`qualityCommands[${index}].kind must be ${QUALITY_COMMAND_KINDS.join(', ')}.`);
   }
+  const environment = value.environment == null ? null : String(value.environment).trim();
+  if (environment != null && !ENVIRONMENT_ID_PATTERN.test(environment)) {
+    throw new SingularityFlowError(
+      `qualityCommands[${index}].environment must be a lower-kebab environment identifier.`
+    );
+  }
+  if (environment != null && command) {
+    throw new SingularityFlowError(
+      `qualityCommands[${index}] uses environment '${environment}' and must use argv instead of a shell command.`
+    );
+  }
   const workingDirectory = value.workingDirectory == null
     ? null
     : relativePath(value.workingDirectory, `qualityCommands[${index}].workingDirectory`, { allowDot: true });
@@ -99,6 +112,7 @@ export function normalizeExternalCommand(value, index = 0) {
   return {
     id, command, argv, modelPolicy, requirement, timeoutMs,
     ...(value.kind != null ? { kind } : {}),
+    ...(environment != null ? { environment } : {}),
     ...(value.workingDirectory != null ? { workingDirectory } : {}),
     ...(value.affectedRoots != null ? { affectedRoots: normalizedRoots } : {}),
     ...(value.result != null ? { result } : {})

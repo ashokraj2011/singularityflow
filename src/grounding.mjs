@@ -4,7 +4,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { head } from './git.mjs';
+import { exactEnvironmentDeclarationAtRef, exactTreePathsAtObject, head } from './git.mjs';
 import { authoredReferencePreview, resolveReference } from './harness-imports.mjs';
 import { exists, mapLimit, posix, run, secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
 import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
@@ -20,6 +20,9 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import {
+  loadEnvironmentDeclaration, loadEnvironmentDeclarationSync, matchEnvironmentLocalPath
+} from './environment-declaration.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 let storyGroundingVerificationRuntimePromise = null;
@@ -203,6 +206,30 @@ async function visibleRecord(root, relative, indexed = null, { compareToIndex = 
   };
 }
 
+function environmentSourcePolicies(...declarations) {
+  const byDigest = new Map();
+  for (const declaration of declarations.flat().filter(Boolean)) {
+    byDigest.set(declaration.declarationSha256, declaration);
+  }
+  return [...byDigest.values()];
+}
+
+function matchesEnvironmentSourcePolicy(declarations, file) {
+  return declarations.some((declaration) => Boolean(matchEnvironmentLocalPath(declaration, file)));
+}
+
+async function currentEnvironmentSourcePolicies(root) {
+  const current = await loadEnvironmentDeclaration(root, { optional: true });
+  const committed = exactEnvironmentDeclarationAtRef(root, 'HEAD');
+  return environmentSourcePolicies(current, committed);
+}
+
+function currentEnvironmentSourcePoliciesSync(root) {
+  const current = loadEnvironmentDeclarationSync(root, { optional: true });
+  const committed = exactEnvironmentDeclarationAtRef(root, 'HEAD');
+  return environmentSourcePolicies(current, committed);
+}
+
 /**
  * Describe a Git worktree without reading every tracked file.
  *
@@ -211,7 +238,9 @@ async function visibleRecord(root, relative, indexed = null, { compareToIndex = 
  * checkout's SKIP_WORKTREE entries remain present through their index object instead of being
  * misreported as deletions.
  */
-async function gitSourceRecords(root, { definition = {}, excludeGovernance = true } = {}) {
+async function gitSourceRecords(root, {
+  definition = {}, excludeGovernance = true, environmentDeclarations = []
+} = {}) {
   const pathspec = sourcePathspec(definition);
   const index = indexManifest(root, definition);
   const stageZero = new Map(index.filter((entry) => entry.stage === 0).map((entry) => [entry.path, entry]));
@@ -234,7 +263,8 @@ async function gitSourceRecords(root, { definition = {}, excludeGovernance = tru
     if (entry.assumeUnchanged || entry.skipWorktree) changed.add(entry.path);
   }
   const include = (file) => (!excludeGovernance || !excludedSourcePath(file, definition))
-    && sourcePathIncluded(file, definition);
+    && sourcePathIncluded(file, definition)
+    && !matchesEnvironmentSourcePolicy(environmentDeclarations, file);
   const indexed = [...stageZero.values()].filter((entry) => include(entry.path));
   // Asking cat-file for a missing promisor object can lazily download it. Sparse-absent paths stay
   // represented by their index identity with size 0; materializing bytes is a workspace decision,
@@ -266,7 +296,15 @@ async function gitSourceRecords(root, { definition = {}, excludeGovernance = tru
 export async function worldModelSourceSnapshot(root, definition = {}) {
   assertNoHiddenWorktreeChanges(root, 'World-model source capture');
   const effectiveDefinition = await withInitiativeRoot(root, definition);
-  const records = await gitSourceRecords(root, { definition: effectiveDefinition, excludeGovernance: true });
+  // The names-only declaration is approved configuration (or the request-local immutable
+  // configuration overlay). Invalid policy must fail closed: silently ignoring it could admit a
+  // historically tracked environment-local file into legacy-v3 grounding.
+  const environmentDeclarations = await currentEnvironmentSourcePolicies(root);
+  const records = await gitSourceRecords(root, {
+    definition: effectiveDefinition,
+    excludeGovernance: true,
+    environmentDeclarations
+  });
   const scope = worldModelSourceScope(effectiveDefinition);
   const hash = createHash('sha256');
   hash.update(WORLD_MODEL_SOURCE_FINGERPRINT_ALGORITHM).update('\0');
@@ -297,11 +335,42 @@ function sourcePathsChangedSince(root, definition, ref) {
     cwd: root, allowFailure: true
   });
   if (worktree.status !== 0 || untracked.status !== 0) return null;
+  const environmentDeclarations = currentEnvironmentSourcePoliciesSync(root);
   return [...new Set([
     ...changedBetweenCommits.stdout.split('\0').filter(Boolean),
     ...splitNull(worktree.stdout),
     ...splitNull(untracked.stdout)
-  ])].map(posix).filter((file) => !excludedSourcePath(file, definition) && sourcePathIncluded(file, definition)).sort();
+  ])].map(posix).filter((file) => !excludedSourcePath(file, definition)
+    && sourcePathIncluded(file, definition)
+    && !matchesEnvironmentSourcePolicy(environmentDeclarations, file)).sort();
+}
+
+/**
+ * Whether current environment policy newly hides source which belonged to the model's source tree.
+ *
+ * A legacy manifest can carry a digest from before governance paths were removed from the source
+ * fingerprint.  Its digest mismatch is intentionally tolerated when the only commits since its
+ * source revision are governed state.  Environment policy tightening is different: filtering the
+ * changed-path diagnostic through current policy also hides the exact source path which made the
+ * stored model unsafe to retain.  Compare policy at the model revision with current policy over
+ * that revision's source paths so only a relevant tightening defeats legacy compatibility.
+ */
+function environmentExclusionsTightenedSince(root, definition, ref) {
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/i.test(ref ?? '')) return null;
+  const current = currentEnvironmentSourcePoliciesSync(root);
+  if (!current.length) return false;
+  const historical = exactEnvironmentDeclarationAtRef(root, ref, undefined, {
+    allowMissingRef: false,
+    useConfigurationOverlay: false
+  });
+  const treePaths = exactTreePathsAtObject(root, ref, sourcePathspec(definition));
+  if (!treePaths) return null;
+  return treePaths.map(posix).some((file) => (
+    !excludedSourcePath(file, definition)
+      && sourcePathIncluded(file, definition)
+      && !matchEnvironmentLocalPath(historical, file)
+      && matchesEnvironmentSourcePolicy(current, file)
+  ));
 }
 
 export async function repositoryContentSnapshot(root, definition = {}) {
@@ -1210,13 +1279,20 @@ export async function worldModelRebuildReason(root, config) {
     const currentSource = await worldModelSourceSnapshot(root, effectiveConfig);
     if (!worldModelCommit(root, outputDir)) return 'The repository world model is not committed.';
     if (!manifest.source_tree_sha256 || manifest.source_tree_sha256 !== currentSource.sha256) {
-      const changedSources = sourcePathsChangedSince(root, effectiveConfig, manifest.repository_commit ?? manifest.repository?.commit);
-      if (changedSources?.length === 0) return null;
+      const sourceRevision = manifest.repository_commit ?? manifest.repository?.commit;
+      const changedSources = sourcePathsChangedSince(root, effectiveConfig, sourceRevision);
+      if (changedSources?.length === 0
+          && environmentExclusionsTightenedSince(root, effectiveConfig, sourceRevision) === false) {
+        return null;
+      }
       if (changedSources?.length) {
         const visible = changedSources.slice(0, 6).join(', ');
         const suffix = changedSources.length > 6 ? ` and ${changedSources.length - 6} more` : '';
         return `The repository world model is stale for source changes: ${visible}${suffix}.`;
       }
+      // Unknown comparisons and relevant environment-policy tightening fail closed.  Current
+      // policy filters the formerly visible path from changedSources, but the old model can still
+      // retain it and must be rebuilt.
       return 'The repository world model is stale for the current source tree.';
     }
     return null;

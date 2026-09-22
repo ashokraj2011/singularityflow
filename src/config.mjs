@@ -85,6 +85,9 @@ import {
   isRetiredPackagedAsset, packagedAssetSha256
 } from './packaged-asset-history.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
+import {
+  loadEnvironmentDeclaration, withEnvironmentWorldModelExclusions
+} from './environment-declaration.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -1659,7 +1662,10 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
       await validateAgentBriefHeadingContracts(root, definition);
       await validateWorldModelPromptViewReferences(root, definition);
     }
-    return definition;
+    return withEnvironmentWorldModelExclusions(
+      definition,
+      await loadEnvironmentDeclaration(root, { optional: true })
+    );
   }
   if (existsSync(path.join(root, LEGACY_CONTROL_ROOT)) || existsSync(path.join(root, 'singularity/config.json'))) {
     throw new SingularityFlowError('Legacy workflow configuration is not supported by the governed-agent model. Recreate it with singularity-flow init.');

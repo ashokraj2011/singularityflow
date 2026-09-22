@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   SingularityFlowError, ensureSecureRepositoryDirectory, exists, invariant, nowIso, posix, readJson,
   repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeBytes, writeJson, writeText
@@ -63,6 +64,10 @@ import {
 } from './generation-boundary.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
+import {
+  ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog
+} from './environment-declaration.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -131,7 +136,9 @@ import {
   recordFinalReconciliation
 } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
-import { evaluateExternalCommandForModelMode, externalCommandText } from './external-command-policy.mjs';
+import {
+  evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand
+} from './external-command-policy.mjs';
 import { assertProducerAllowed, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
@@ -3177,8 +3184,148 @@ async function restoreTransientQualityResult(check) {
   await restore();
 }
 
+function safeEnvironmentFingerprint(value) {
+  const normalized = String(value ?? '').toLowerCase().replace(/^sha256:/, '');
+  return /^[a-f0-9]{64}$/.test(normalized) ? `sha256:${normalized}` : null;
+}
+
+const PUBLIC_ENVIRONMENT_BINDING_SOURCES = Object.freeze([
+  'none', 'private-binding', 'private-binding+declaration-defaults', 'declaration-defaults'
+]);
+let environmentBindingRuntimePromise = null;
+
+async function resolveEnvironmentBinding(root, environmentId, options) {
+  // Private binding values are needed only when a quality command reaches its execution gate.
+  // Keep their store/validation implementation out of every long-lived VS Code gateway bundle;
+  // PACKAGE_ROOT resolves the repository source in development and the staged CLI in a VSIX.
+  const runtimeUrl = pathToFileURL(path.join(
+    PACKAGE_ROOT, 'src', 'environment-bindings.mjs'
+  )).href;
+  environmentBindingRuntimePromise ??= import(runtimeUrl);
+  const runtime = await environmentBindingRuntimePromise;
+  return runtime.resolveEnvironmentBinding(root, environmentId, options);
+}
+
+function safeEnvironmentMetadata(value, fallbackName = null) {
+  const name = ENVIRONMENT_IDENTIFIER.test(String(value?.name ?? fallbackName ?? ''))
+    ? String(value?.name ?? fallbackName)
+    : null;
+  if (!name) return null;
+  const boundNames = Array.isArray(value?.boundNames)
+    ? [...new Set(value.boundNames
+      .map((entry) => String(entry))
+      .filter((entry) => /^[A-Z][A-Z0-9_]*$/.test(entry)))].sort()
+    : [];
+  const source = PUBLIC_ENVIRONMENT_BINDING_SOURCES.includes(value?.source)
+    ? value.source
+    : 'none';
+  const bindingRevision = /^envb_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(String(value?.bindingRevision ?? ''))
+    ? String(value.bindingRevision)
+    : null;
+  const secretsPresent = Array.isArray(value?.secretsPresent)
+    ? [...new Set(value.secretsPresent
+      .map((entry) => String(entry))
+      .filter((entry) => /^[A-Z][A-Z0-9_]*$/.test(entry)))].sort()
+    : [];
+  return {
+    name,
+    declarationSha256: safeEnvironmentFingerprint(value?.declarationSha256),
+    boundNames,
+    endpointsSha256: safeEnvironmentFingerprint(value?.endpointsSha256),
+    secretsPresent,
+    source,
+    bindingRevision,
+    fingerprintSha256: safeEnvironmentFingerprint(value?.fingerprintSha256)
+  };
+}
+
+/**
+ * Environment-bound quality commands fail closed until an approved isolated runner owns value
+ * materialization. The resolver may return private processEnvironment data for a future runner;
+ * this boundary intentionally neither reads nor spreads it. Durable checks retain only the public
+ * environment identifier and its value-independent binding fingerprint.
+ */
+export async function environmentQualityCommandBlock(root, policy, {
+  sourceCommit,
+  sourceTreeSha256,
+  startedAt,
+  resolver = resolveEnvironmentBinding
+} = {}) {
+  let resolution = null;
+  let resolutionFailed = false;
+  try {
+    resolution = await resolver(root, policy?.environment ?? null, { commandId: policy?.id });
+  } catch {
+    // Declaration, private-store, and resolver failures are all unavailable at this execution
+    // boundary. Raw resolver errors may contain provider or host details and are never copied into
+    // a governed check.
+    resolutionFailed = true;
+  }
+  const environment = safeEnvironmentMetadata(resolution?.environment, policy?.environment ?? null);
+  // A command with neither an explicit environment nor a declaration check mapping remains an
+  // ordinary quality command. A resolver failure still blocks because a malformed declaration
+  // could otherwise hide a command-to-environment mapping.
+  if (!environment && !policy?.environment && !resolutionFailed) return null;
+  const shellCommandRefused = Boolean(policy?.command) && Boolean(environment || policy?.environment);
+  const bound = resolution?.status === 'bound';
+  const errorCode = shellCommandRefused
+    ? 'ENVIRONMENT_ARGV_REQUIRED'
+    : bound
+      ? 'ENVIRONMENT_ISOLATED_RUNNER_REQUIRED'
+      : 'ENVIRONMENT_BINDING_UNAVAILABLE';
+  const reason = resolutionFailed && !environment && !policy?.environment
+    ? `Environment requirements could not be resolved safely for quality command '${policy.id}'. The command was not executed.`
+    : shellCommandRefused
+      ? `Environment '${environment?.name ?? policy.environment}' is assigned to quality command '${policy.id}', but environment-bound commands must use an exact argv declaration. The shell command was not executed.`
+      : bound
+        ? `Environment '${environment?.name ?? policy.environment}' is bound, but quality command '${policy.id}' requires an approved isolated runner. No environment values were materialized and the command was not executed.`
+        : `Environment '${environment?.name ?? policy.environment}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`;
+  return {
+    id: policy.id,
+    command: policy.command ?? policy.argv.join(' '),
+    kind: policy.kind,
+    // An environment prerequisite is a fail-closed execution requirement even when an older
+    // command happened to label the command itself advisory.
+    requirement: 'required',
+    externalModelPolicy: policy.modelPolicy,
+    workingDirectory: policy.workingDirectory,
+    timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+    sourceCommit,
+    sourceTreeSha256,
+    startedAt,
+    completedAt: nowIso(),
+    status: 'blocked',
+    errorCode,
+    exitCode: null,
+    stdout: '',
+    stderr: reason,
+    stdoutBytes: 0,
+    stderrBytes: Buffer.byteLength(reason),
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    environment: environment ?? safeEnvironmentMetadata({}, policy.environment) ?? null
+  };
+}
+
+export function effectiveEnvironmentQualityCommandCatalog(
+  phase, workflow, commands = phase?.qualityCommands ?? []
+) {
+  // Delivery adapters may infer or strengthen a repository-native command after Story acceptance.
+  // The actual current-phase execution set is authoritative for that phase; combine it with every
+  // *other* pinned phase so inferred commands cannot evade cross-phase duplicate-ID or explicit
+  // environment checks, without treating a strengthened current command as a second definition.
+  const pinnedOtherPhaseCommands = (workflow?.resolution?.phases ?? [])
+    .filter((entry) => entry.id !== phase?.id)
+    .flatMap((entry) => entry.qualityCommands ?? []);
+  return [...pinnedOtherPhaseCommands, ...commands]
+    .map((entry, index) => normalizeExternalCommand(entry, index));
+}
+
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? []) {
   const checks = [];
+  const declaration = await loadEnvironmentDeclaration(root, { optional: true });
+  const catalog = effectiveEnvironmentQualityCommandCatalog(phase, workflow, commands);
+  validateEnvironmentQualityCommandCatalog(declaration, catalog);
   const sourceCommit = head(root);
   const sourceTreeSha256 = await sourceTreeHash(root, config, workflow);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
@@ -3189,6 +3336,13 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
     const command = policy.command ?? policy.argv.join(' ');
     const startedAt = nowIso();
+    const environmentBlock = await environmentQualityCommandBlock(root, policy, {
+      sourceCommit, sourceTreeSha256, startedAt
+    });
+    if (environmentBlock) {
+      checks.push(environmentBlock);
+      continue;
+    }
     if (policy.action === 'block') throw new SingularityFlowError(policy.reason, { code: 'EXTERNAL_MODEL_POLICY_BLOCKED' });
     if (policy.action === 'skip') {
       checks.push({

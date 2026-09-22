@@ -323,6 +323,29 @@ function redactRemoteOperand(value, allowKeyedPrefix = true) {
  */
 export function redactCommandArgv(argv) {
   const source = Array.isArray(argv) ? argv : [];
+  // Environment values are accepted only on stdin.  This projection runs before command parsing,
+  // so it must also protect people following an obsolete `env bind --set NAME=value` example or
+  // supplying any other malformed/value-bearing option.  Preserve only the route, a syntactically
+  // valid public environment ID, and the closed set of value-free flags; everything else is
+  // private by default.  Over-redaction is deliberate here: validation diagnostics can explain an
+  // unsupported option without retaining the rejected bytes in activity or harness logs.
+  const environmentIndex = source.findIndex((value) => String(value) === 'env');
+  const environmentBind = environmentIndex >= 0
+    && source.slice(environmentIndex + 1).some((value) => String(value) === 'bind');
+  if (environmentBind) {
+    const bindIndex = source.findIndex(
+      (value, index) => index > environmentIndex && String(value) === 'bind'
+    );
+    const safeFlags = new Set(['--stdin', '--json', '--timings', '--no-model']);
+    const environmentId = /^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
+    return source.map((raw, index) => {
+      const token = String(raw);
+      if (index === environmentIndex || index === bindIndex || safeFlags.has(token)) return token;
+      if (bindIndex === environmentIndex + 1
+          && index === bindIndex + 1 && environmentId.test(token)) return token;
+      return REDACTED;
+    });
+  }
   // Global flags may precede the command and malformed invocations still reach the activity log.
   // Over-redact if these two route words are present rather than relying on positional parsing.
   const revisionAttachment = source.includes('revision') && source.includes('attachments');

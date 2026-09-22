@@ -184,7 +184,10 @@ function gitScopePathspecs(scopeManifest) {
   const include = [...scope.allowedPaths, ...scope.sharedPaths]
     .map((pattern) => `:(top,glob)${pattern}`);
   const exclude = scope.excludedPaths
-    .map((pattern) => `:(top,exclude,glob)${pattern}`);
+    // The in-memory matcher applies the strict portable filesystem identity.  Git's `icase`
+    // pathspec keeps scoped-commit selection aligned for the case aliases Git can filter itself;
+    // final file admission still uses the stricter NFKC/trailing-dot-aware matcher.
+    .map((pattern) => `:(top,exclude,icase,glob)${pattern}`);
   return [...(include.length ? include : [':(top,glob)**']), ...exclude];
 }
 

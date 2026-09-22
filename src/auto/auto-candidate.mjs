@@ -5,7 +5,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 
-import { gitCommonDir } from '../git.mjs';
+import {
+  admitExactProspectiveTree, gitCommonDir, governedCommitIdentity
+} from '../git.mjs';
 import { isAllowedTestAutomationPath, parseTestResult } from '../code-delivery-tests.mjs';
 import { TEST_RESULT_ADAPTERS } from '../external-command-policy.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';
@@ -411,6 +413,12 @@ export async function freezeAutoCandidate(root, {
   }
   const baselineTree = outputText(git(root, ['rev-parse', '--verify', `${baselineCommit}^{tree}`]));
   const frozen = await freezeWorktreeTree(root);
+  // The temporary index is the Candidate authority. Admit that immutable tree before creating
+  // either its commit or retention ref; scanning the mutable worktree here would leave a TOCTOU
+  // gap and would not cover recovery of an older Candidate object.
+  admitExactProspectiveTree(root, {
+    baselineCommit, candidateTree: frozen.tree, label: 'Auto Candidate', allowGitlinks: true
+  });
   const candidateSha256 = autoCandidateSourceTreeSha256(root, frozen.tree, pathContext);
   // A baseline-to-worktree diff cannot recognize an unstaged rename: Git reports the old path as
   // deleted and the new path separately as untracked. The frozen Git tree can. Build the manifest
@@ -528,7 +536,27 @@ function assertLocalCandidateRetention(root, binding) {
   if (observedCommit !== binding.repository.candidateCommit || observedTree !== binding.repository.candidateTree) {
     fail('Auto Candidate retention ref no longer names the frozen tree.', 'AUTO_CANDIDATE_RETENTION_LOST');
   }
+  admitExactProspectiveTree(root, {
+    baselineCommit: binding.repository.baselineCommit,
+    candidateTree: binding.repository.candidateTree,
+    label: 'Auto Candidate',
+    allowGitlinks: true
+  });
   return binding;
+}
+
+function admitRecoveredAutoCandidate(root, binding) {
+  const observedTree = governedCommitIdentity(root, binding.repository.candidateCommit)?.tree ?? null;
+  if (observedTree !== binding.repository.candidateTree) {
+    fail('Recovered Candidate commit does not reproduce its governed tree.',
+      'AUTO_CANDIDATE_RECOVERY_CORRUPT');
+  }
+  admitExactProspectiveTree(root, {
+    baselineCommit: binding.repository.baselineCommit,
+    candidateTree: binding.repository.candidateTree,
+    label: 'Recovered Auto Candidate',
+    allowGitlinks: true
+  });
 }
 
 async function remoteObjectAtRef(root, remote, ref) {
@@ -648,6 +676,7 @@ function readFetchedRecoveryAuthority(root, advertisedCommit, parsed) {
     fail('Auto Candidate recovery commit message does not bind its ref context.',
       'AUTO_CANDIDATE_RECOVERY_CORRUPT');
   }
+  admitRecoveredAutoCandidate(root, binding);
   retainImmutableLocalRef(root, binding.repository.retainedRef, binding.repository.candidateCommit, {
     conflictCode: 'AUTO_CANDIDATE_RECOVERY_CONFLICT',
     conflictMessage: 'Recovered Candidate conflicts with an existing local retention ref.'
@@ -743,7 +772,7 @@ async function remoteCandidateObject(root, remote, retainedRef) {
  * closed rather than allowing a later flight to replace bytes already named by a checkpoint.
  */
 export async function publishAutoCandidateAuthority(root, binding, { remote = 'origin' } = {}) {
-  const retained = validateAutoCandidateBinding(binding);
+  const retained = assertLocalCandidateRetention(root, validateAutoCandidateBinding(binding));
   if (typeof remote !== 'string' || !remote.trim()) {
     fail('Auto Candidate authority requires a configured remote.',
       'AUTO_CANDIDATE_REMOTE_UNAVAILABLE');
@@ -817,6 +846,12 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
       fail('The governed Auto Candidate commit could not be fetched exactly.',
         'AUTO_CANDIDATE_REMOTE_LOST');
     }
+  }
+  // A remote recovery ref may have been authored before environment admission existed. Re-run the
+  // exact immutable-tree gate before making it locally reachable; never trust mutable checkout
+  // bytes or the binding's claimed tree identity on their own.
+  admitRecoveredAutoCandidate(root, retained);
+  if (!local) {
     retainImmutableLocalRef(root, retained.repository.retainedRef,
       retained.repository.candidateCommit, {
         expectedOld: local,

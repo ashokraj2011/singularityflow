@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { assertNoPendingPublication, saveStoryDraft, workDir, workDirRelative } from './state-stores.mjs';
 import { loadSession } from './session.mjs';
@@ -9,6 +9,10 @@ import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
 import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
+import {
+  loadEnvironmentDeclarationSync, matchEnvironmentLocalPath
+} from './environment-declaration.mjs';
+import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
 
 const DOCUMENT_MANIFEST_SCHEMA_VERSION = currentSchemaVersion('document-manifest');
 export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
@@ -232,6 +236,39 @@ async function readFrozenDocument(source, expected) {
   }
 }
 
+async function readStableDocument(source, maximumBytes) {
+  let handle;
+  try {
+    const before = await lstat(source, { bigint: true });
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error('not a regular file');
+    if (before.size > BigInt(maximumBytes)) throw new Error('document byte ceiling exceeded');
+    handle = await open(source, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino
+        || opened.size !== before.size || opened.mtimeNs !== before.mtimeNs
+        || opened.ctimeNs !== before.ctimeNs) throw new Error('identity changed before read');
+    const bytes = await handle.readFile();
+    const after = await handle.stat({ bigint: true });
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+        || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs
+        || bytes.byteLength !== Number(opened.size) || bytes.byteLength > maximumBytes) {
+      throw new Error('source changed while read');
+    }
+    return {
+      bytes,
+      size: bytes.byteLength,
+      sha256: createHash('sha256').update(bytes).digest('hex')
+    };
+  } catch (error) {
+    throw new SingularityFlowError(
+      `Story document changed while it was being captured: ${source}`,
+      { code: 'STORY_DOCUMENT_CHANGED', cause: error }
+    );
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
 function assertDocumentPathTrackable(root, relative) {
   const ignored = run('git', ['check-ignore', '--quiet', '--no-index', '--', relative], {
     cwd: root, allowFailure: true
@@ -442,6 +479,78 @@ function assertCapabilityMime(workflow, type, label) {
   }
 }
 
+async function repositoryRelativeSource(root, source) {
+  // Compare canonical filesystem locations rather than caller spellings. macOS commonly exposes
+  // the same file through /var and /private/var, while Windows drive casing and junctions create
+  // equivalent aliases. A lexical comparison could treat a repository-local environment file as
+  // external and thereby skip its path-specific localFiles rule.
+  const [canonicalRoot, canonicalSource] = await Promise.all([
+    realpath(path.resolve(root)), realpath(path.resolve(source))
+  ]);
+  const relative = path.relative(canonicalRoot, canonicalSource);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relative)) return null;
+  return posix(relative);
+}
+
+/** Refuse environment-local input before the first byte is copied into governed Story state. */
+async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, workflow, config, {
+  additionalCandidates = [], sourceIsLocalPath = true
+} = {}) {
+  if (!declaration) return;
+  const filename = safeName(input.source);
+  const preservedPath = input.sourceRelativePath
+    ? path.posix.join(input.packageName, ...input.sourceRelativePath.split('/').map(safeName))
+    : filename;
+  const candidates = [...new Set([
+    sourceIsLocalPath ? await repositoryRelativeSource(root, input.source) : null,
+    input.sourceRelativePath ? posix(input.sourceRelativePath) : null,
+    filename,
+    // Use a stable placeholder for the generated document ID. Glob matching is path-based and the
+    // ID cannot change whether the preserved filename is an environment-local path.
+    path.posix.join(
+      workDirRelative(config, workflow.workItem.id), 'inputs', 'DOCUMENT', preservedPath
+    ),
+    ...additionalCandidates.map((candidate) => candidate == null ? null : posix(String(candidate)))
+  ].filter(Boolean))];
+  for (const candidate of candidates) {
+    const match = matchEnvironmentLocalPath(declaration, candidate);
+    if (!match) continue;
+    const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
+    const owner = match.environmentId
+      ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
+    throw new SingularityFlowError(
+      `Document upload was refused: '${candidate}' matches ${owner} rule '${rule}'. `
+        + 'Environment-local files must remain in the machine-local binding and cannot become Story documents.',
+      {
+        code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED',
+        details: { path: candidate, rule }
+      }
+    );
+  }
+}
+
+function assertDocumentInputContainsNoSecret(input, captured) {
+  const logicalPath = input.sourceRelativePath ? posix(input.sourceRelativePath) : safeName(input.source);
+  if (!scannablePath(logicalPath)) return;
+  let content;
+  try {
+    if (captured.bytes.includes(0)) throw new TypeError('NUL byte');
+    content = new TextDecoder('utf-8', { fatal: true }).decode(captured.bytes);
+  } catch {
+    throw new SingularityFlowError(
+      `Document upload was refused before any bytes were copied: '${logicalPath}' is not valid NUL-free UTF-8 text.`,
+      { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
+    );
+  }
+  const refusal = secretRefusal(scanEntries([{ path: logicalPath, content }]));
+  if (!refusal) return;
+  throw new SingularityFlowError(
+    `Document upload was refused before any bytes were copied.\n\n${refusal}`,
+    { code: 'SECRET_DETECTED' }
+  );
+}
+
 async function governedDocumentPath(root, config, workflow, record) {
   if (!record.path) throw new SingularityFlowError(`Document '${record.id}' has no repository path.`);
   const itemRoot = path.resolve(workDir(root, config, workflow.workItem.id));
@@ -509,6 +618,17 @@ export async function addDocuments(root, config, workflow, {
     if (input.info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${input.source}`);
     assertCapabilityMime(workflow, mimeType(input.source), input.source);
   }
+  const environmentDeclaration = loadEnvironmentDeclarationSync(root, { optional: true });
+  const capturedBySource = new Map();
+  for (const input of fileInputs) {
+    await assertDocumentInputNotEnvironmentLocal(root, environmentDeclaration, input, workflow, config);
+    const expected = frozenBySource?.get(path.resolve(input.source)) ?? null;
+    const captured = expected
+      ? await readFrozenDocument(input.source, expected)
+      : await readStableDocument(input.source, policy.maxFileBytes ?? 26214400);
+    assertDocumentInputContainsNoSecret(input, captured);
+    capturedBySource.set(path.resolve(input.source), captured);
+  }
   const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active governed-agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
   const manifest = await loadManifest(root, config, workflow); const added = [];
   const packageMap = new Map();
@@ -528,18 +648,15 @@ export async function addDocuments(root, config, workflow, {
       workDirRelative(config, workflow.workItem.id), 'inputs', id, preservedPath
     );
     assertDocumentPathTrackable(root, relative);
-    const expected = frozenBySource?.get(path.resolve(source)) ?? null;
-    const frozenSnapshot = expected ? await readFrozenDocument(source, expected) : null;
+    const captured = capturedBySource.get(path.resolve(source));
+    if (!captured) throw new SingularityFlowError(
+      `Story document capture is unavailable: ${source}`, { code: 'STORY_DOCUMENT_CHANGED' }
+    );
     const destination = path.join(root, relative);
     await mkdir(path.dirname(destination), { recursive: true });
-    if (frozenSnapshot) {
-      await writeFile(destination, frozenSnapshot.bytes, { flag: 'wx' });
-    } else {
-      await copyFile(source, destination, fsConstants.COPYFILE_EXCL);
-    }
+    await writeFile(destination, captured.bytes, { flag: 'wx' });
     const fileSnapshot = await snapshot(destination);
-    if (frozenSnapshot && (fileSnapshot.size !== frozenSnapshot.size
-        || fileSnapshot.sha256 !== frozenSnapshot.sha256)) {
+    if (fileSnapshot.size !== captured.size || fileSnapshot.sha256 !== captured.sha256) {
       throw new SingularityFlowError(
         `Story document changed while it was being staged: ${source}`,
         { code: 'STORY_DOCUMENT_CHANGED' }
@@ -593,13 +710,24 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   const maxBytes = policy.maxFileBytes ?? 26214400;
   const result = await adapter.get(reference, { maxBytes });
   if (!result?.bytes) throw new SingularityFlowError(`Provider '${selectedId}' returned no bytes for '${remoteRef}'.`);
-  if (result.bytes.length > maxBytes) throw new SingularityFlowError(`Fetched document exceeds the ${maxBytes} byte limit: ${remoteRef}`);
+  const fetchedBytes = Buffer.from(result.bytes);
+  if (fetchedBytes.length > maxBytes) throw new SingularityFlowError(`Fetched document exceeds the ${maxBytes} byte limit: ${remoteRef}`);
   const filename = safeName(name ?? headMeta?.name ?? label ?? String(remoteRef));
   assertCapabilityMime(workflow, result.mimeType ?? headMeta?.mimeType ?? mimeType(filename), remoteRef);
+  const environmentDeclaration = loadEnvironmentDeclarationSync(root, { optional: true });
+  const input = {
+    source: filename, info: { size: fetchedBytes.length }, packageName: null,
+    packageSource: null, sourceRelativePath: null
+  };
+  await assertDocumentInputNotEnvironmentLocal(root, environmentDeclaration, input, workflow, config, {
+    additionalCandidates: [name, headMeta?.name, remoteRef],
+    sourceIsLocalPath: false
+  });
+  assertDocumentInputContainsNoSecret(input, { bytes: fetchedBytes });
   const manifest = await loadManifest(root, config, workflow);
   const id = nextId(manifest.documents);
   const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, filename);
-  const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, result.bytes);
+  const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, fetchedBytes);
   const fileSnapshot = await snapshot(destination);
   const record = {
     id, type: 'file', label: label ?? headMeta?.name ?? filename, kind: kind ?? 'provider-fetch', sourceName: filename,

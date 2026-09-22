@@ -63,6 +63,15 @@ test('external commands are classified and model-disabled behavior is determinis
   assert.equal(evaluateExternalCommandForModelMode('opaque command', { modelEnabled: false, unknownStrictness: 'block' }).action, 'block');
   assert.equal(evaluateExternalCommandForModelMode({ id: 'review', command: 'review-tool', modelPolicy: 'required' }, { modelEnabled: false }).action, 'block');
   assert.equal(normalizeExternalCommand({ id: 'hint', argv: ['hint'], requirement: 'advisory' }).requirement, 'advisory');
+  assert.equal(normalizeExternalCommand({
+    id: 'qa-tests', argv: ['npm', 'test'], modelPolicy: 'never', environment: 'qa-shared'
+  }).environment, 'qa-shared');
+  assert.throws(() => normalizeExternalCommand({
+    id: 'bad-environment', argv: ['npm', 'test'], modelPolicy: 'never', environment: 'QA shared'
+  }), /lower-kebab environment identifier/);
+  assert.throws(() => normalizeExternalCommand({
+    id: 'unsafe-environment-shell', command: 'npm test', modelPolicy: 'never', environment: 'qa'
+  }), /must use argv instead of a shell command/);
   assert.throws(() => normalizeExternalCommand({ id: 'bad', argv: ['bad'], requirement: 'optional' }), /requirement/);
 });
 

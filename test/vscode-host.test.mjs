@@ -24,6 +24,7 @@ import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
 import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
+import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
 import { run } from '../src/util.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -4023,6 +4024,17 @@ test('Attach existing offers only workspaces from the inspected capability autho
     '--organisation', first.lead, '--capability', 'storefront-web', '--confirm', 'first-authority',
     '--no-clone'], { encoding: 'utf8', env: process.env });
   assert.equal(created.status, 0, created.stderr);
+  const firstSeed = path.join(first.base, 'platform.git-seed');
+  await initializeDefinition(firstSeed);
+  const workflowFile = path.join(firstSeed, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.ledger.enabled = true;
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '-A'], { cwd: firstSeed });
+  run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
+    'commit', '-qm', 'Complete governed configuration'], { cwd: firstSeed });
+  run('git', ['push', '-q', first.lead, 'HEAD:sflow/config'], { cwd: firstSeed });
+  await publishOrganisationCapabilityMap(first.lead);
 
   const authority = (org, leadUrl = org.lead) => ({
     leadUrl,
@@ -4043,8 +4055,14 @@ test('Attach existing offers only workspaces from the inspected capability autho
   await registered.commands.get('singularityFlow.openWorkspaces')({
     capabilityIds: ['payments-api'],
     // Git accepts this trailing-slash spelling for the same bare repository. Authority matching
-    // must use repository identity rather than raw URL bytes, on every host.
-    authority: authority(first, `${first.lead}/`)
+    // must use repository identity rather than raw URL bytes, on every host. Retained Map panels
+    // from the pre-split schema supplied the state projection here; a current host upgrades that
+    // exact fresh projection lease to the canonical configuration identity before attachment.
+    authority: {
+      leadUrl: `${first.lead}/`,
+      sourceBranch: 'state',
+      sourceCommit: run('git', ['rev-parse', 'refs/heads/state'], { cwd: first.lead }).stdout.trim()
+    }
   });
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
   const matching = await until(() => panel.webview.html.includes('<option value="payments-api" selected>')

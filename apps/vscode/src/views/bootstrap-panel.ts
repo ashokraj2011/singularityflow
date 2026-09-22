@@ -16,6 +16,7 @@ import {
 import type { StartWizardProgress } from './start-wizard.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
 import { commandGuidance } from '../copilot-command.ts';
+import { sameGitRepository } from '../repository-refresh-model.ts';
 import {
   clearMapCapabilityOperation, LEGACY_MAP_CAPABILITY_OPERATION_KEY,
   migrateLegacyMapCapabilityOperation, readMapCapabilityOperations,
@@ -750,8 +751,11 @@ export class BootstrapPanel {
   }
 
   private inspectionIsBound(repositoryUrl: string, leadUrl: string): boolean {
-    return this.form.inspectionBoundRepositoryUrl === repositoryUrl.trim()
-      && this.form.inspectionBoundLeadUrl === leadUrl.trim();
+    const boundRepository = this.form.inspectionBoundRepositoryUrl?.trim();
+    const boundLead = this.form.inspectionBoundLeadUrl?.trim();
+    return Boolean(boundRepository && boundLead
+      && sameGitRepository(boundRepository, repositoryUrl.trim())
+      && sameGitRepository(boundLead, leadUrl.trim()));
   }
 
   /**
@@ -1030,7 +1034,8 @@ export class BootstrapPanel {
     // still requires an explicit selection or the separately consented --search-known traversal.
     const soleKnownLead = this.form.leads.length === 1 ? this.form.leads[0]?.trim() : null;
     const explicitLead = explicitLeadUrl?.trim()
-      || (soleKnownLead === repositoryUrl ? soleKnownLead : null)
+      || (soleKnownLead && sameGitRepository(soleKnownLead, repositoryUrl)
+        ? soleKnownLead : null)
       || null;
     const repositoryProblem = gitRemoteProblem(repositoryUrl, 'Repository');
     const inspectionLeads = explicitLead
@@ -1319,8 +1324,12 @@ export class BootstrapPanel {
       // another capability proposal or pass a webview-supplied URL into a mutation.
       const boundLead = this.form.inspectionBoundLeadUrl?.trim() ?? '';
       const authorityMatches = this.form.inspectionMatches.filter((match) =>
-        match.lead?.trim() === boundLead
-        && match.repositoryUrl?.trim() === this.form.inspectionBoundRepositoryUrl?.trim()
+        Boolean(match.lead?.trim() && boundLead
+          && sameGitRepository(match.lead!.trim(), boundLead))
+        && Boolean(match.repositoryUrl?.trim() && this.form.inspectionBoundRepositoryUrl?.trim()
+          && sameGitRepository(
+            match.repositoryUrl!.trim(), this.form.inspectionBoundRepositoryUrl!.trim()
+          ))
         // `cached: true, stale: false` is still a current authority observation: the engine has
         // compared the cached configuration/source commit with the freshly advertised remote refs.
         // Refusing it made this action fail deterministically after the first successful read.

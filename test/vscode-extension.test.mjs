@@ -39,6 +39,65 @@ const { resolveCli, SingularityFlowClient, commandClass } = await import(source(
 const { phasesInOrder, packsWithMembers, storiesByRepository, isApprovalPinned } =
   await import(source('cli/snapshot.ts'));
 const { renderReworkRollForwardPreview } = await import(source('views/rework-roll-forward-preview.ts'));
+const { verifyCapabilityAuthorityLease } = await import(source('views/workspaces-model.ts'));
+
+test('capability attachment upgrades an exact legacy state lease without accepting drift', () => {
+  const configurationCommit = 'a'.repeat(40);
+  const sourceCommit = 'b'.repeat(40);
+  const observed = {
+    governed: true,
+    stale: false,
+    configurationBranch: 'sflow/config',
+    configurationCommit,
+    sourceBranch: 'state',
+    sourceCommit
+  };
+  const legacy = verifyCapabilityAuthorityLease({
+    leadUrl: 'https://git.example/platform.git',
+    configurationBranch: 'state',
+    configurationCommit: sourceCommit,
+    identityKind: 'legacy-projection'
+  }, observed);
+  assert.deepEqual(legacy, {
+    status: 'verified',
+    authority: {
+      leadUrl: 'https://git.example/platform.git',
+      configurationBranch: 'sflow/config',
+      configurationCommit
+    },
+    upgradedLegacyProjection: true
+  });
+  assert.equal(verifyCapabilityAuthorityLease({
+    leadUrl: 'https://git.example/platform.git',
+    configurationBranch: 'state',
+    configurationCommit: 'c'.repeat(40),
+    identityKind: 'legacy-projection'
+  }, observed).status, 'changed');
+  assert.equal(verifyCapabilityAuthorityLease({
+    leadUrl: 'https://git.example/platform.git',
+    configurationBranch: 'sflow/config',
+    configurationCommit,
+    identityKind: 'configuration'
+  }, { ...observed, stale: true }).status, 'unavailable');
+  assert.equal(verifyCapabilityAuthorityLease({
+    leadUrl: 'https://git.example/platform.git',
+    configurationBranch: 'sflow/config',
+    configurationCommit,
+    identityKind: 'configuration'
+  }, { ...observed, governed: false, stale: true }).status, 'unavailable');
+  assert.equal(verifyCapabilityAuthorityLease({
+    leadUrl: 'https://git.example/platform.git',
+    configurationBranch: 'state',
+    configurationCommit: sourceCommit,
+    identityKind: 'configuration'
+  }, observed).status, 'changed', 'a modern configuration lease cannot cross identity planes');
+  assert.equal(verifyCapabilityAuthorityLease({
+    leadUrl: 'https://git.example/platform.git',
+    configurationBranch: 'sflow/config',
+    configurationCommit,
+    identityKind: 'configuration'
+  }, { ...observed, configurationBranch: 'main' }).status, 'invalid');
+});
 
 const snapshot = JSON.parse(await readFile(
   path.join(packageRoot, 'apps', 'vscode', 'test', 'fixtures', 'snapshot-initiative-lite.json'), 'utf8'));

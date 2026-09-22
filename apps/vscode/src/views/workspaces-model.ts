@@ -88,6 +88,70 @@ export interface WorkspaceCapabilityAttachScope {
   issue?: string | null;
 }
 
+export interface CapabilityAuthorityLease {
+  leadUrl: string;
+  configurationBranch: string;
+  configurationCommit: string;
+}
+
+export interface CapabilityAuthorityLeaseRequest extends CapabilityAuthorityLease {
+  identityKind: 'configuration' | 'legacy-projection';
+}
+
+export interface ObservedCapabilityAuthority {
+  governed?: boolean;
+  stale?: boolean;
+  configurationBranch?: string | null;
+  configurationCommit?: string | null;
+  sourceBranch?: string | null;
+  sourceCommit?: string | null;
+}
+
+export type CapabilityAuthorityLeaseVerification =
+  | { status: 'verified'; authority: CapabilityAuthorityLease; upgradedLegacyProjection: boolean }
+  | { status: 'ungoverned' | 'unavailable' | 'invalid' | 'changed'; authority: null };
+
+/**
+ * Reconcile a Map-panel authority lease with one fresh organisation observation.
+ *
+ * Current panels lease `sflow/config`. Panels retained from the older, single-identity schema may
+ * lease the state projection instead. The latter is safe only when it still exactly matches the
+ * freshly observed projection; the result is then upgraded to the approved configuration identity
+ * before any preview or mutation is allowed to use it.
+ */
+export function verifyCapabilityAuthorityLease(
+  requested: CapabilityAuthorityLeaseRequest,
+  observed: ObservedCapabilityAuthority
+): CapabilityAuthorityLeaseVerification {
+  if (observed.stale === true) return { status: 'unavailable', authority: null };
+  if (observed.governed !== true) return { status: 'ungoverned', authority: null };
+  const configurationBranch = observed.configurationBranch?.trim();
+  const configurationCommit = observed.configurationCommit?.trim().toLowerCase();
+  if (configurationBranch !== 'sflow/config' || !configurationCommit
+    || !/^[0-9a-f]{40,64}$/u.test(configurationCommit)) {
+    return { status: 'invalid', authority: null };
+  }
+  const requestedBranch = requested.configurationBranch.trim();
+  const requestedCommit = requested.configurationCommit.trim().toLowerCase();
+  const matches = (branch?: string | null, commit?: string | null): boolean =>
+    branch?.trim() === requestedBranch && commit?.trim().toLowerCase() === requestedCommit;
+  const matchesConfiguration = matches(configurationBranch, configurationCommit);
+  const matchesProjection = requested.identityKind === 'legacy-projection'
+    && matches(observed.sourceBranch, observed.sourceCommit);
+  if (!matchesConfiguration && !matchesProjection) {
+    return { status: 'changed', authority: null };
+  }
+  return {
+    status: 'verified',
+    authority: {
+      leadUrl: requested.leadUrl,
+      configurationBranch,
+      configurationCommit
+    },
+    upgradedLegacyProjection: !matchesConfiguration && matchesProjection
+  };
+}
+
 export interface WorkspaceArchiveReadiness {
   eligible: boolean;
   checkedAt: string;

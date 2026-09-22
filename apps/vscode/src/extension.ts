@@ -50,7 +50,7 @@ import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
 import {
   archiveCommand, capabilityChangeCommand, restoreCommand, workspaceReinitializeCommand, workspaceRows,
-  WORKSPACE_ACTION_CANCELLED,
+  verifyCapabilityAuthorityLease, WORKSPACE_ACTION_CANCELLED,
   type WorkspaceCapabilityChangePreview, type WorkspaceCapabilityChangeResult,
   type WorkspaceCapabilityAttachScope,
   type WorkspaceConfigurationRefreshResult,
@@ -2051,19 +2051,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           sourceBranch?: string; sourceCommit?: string;
         } }).authority
       : null;
-    const rawAuthorityBranch = rawAuthority?.configurationBranch ?? rawAuthority?.sourceBranch;
-    const rawAuthorityCommit = rawAuthority?.configurationCommit ?? rawAuthority?.sourceCommit;
+    const validAuthorityPair = (branch: unknown, commit: unknown): branch is string =>
+      typeof branch === 'string' && Boolean(branch.trim())
+      && !/[\u0000-\u001f\u007f\s]/u.test(branch.trim())
+      && typeof commit === 'string' && /^[0-9a-f]{40,64}$/i.test(commit.trim());
+    const configurationPairPresent = Boolean(rawAuthority
+      && (rawAuthority.configurationBranch !== undefined
+        || rawAuthority.configurationCommit !== undefined));
+    const sourcePairPresent = Boolean(rawAuthority
+      && (rawAuthority.sourceBranch !== undefined || rawAuthority.sourceCommit !== undefined));
+    const configurationPairValid = validAuthorityPair(
+      rawAuthority?.configurationBranch, rawAuthority?.configurationCommit
+    );
+    const sourcePairValid = validAuthorityPair(
+      rawAuthority?.sourceBranch, rawAuthority?.sourceCommit
+    );
+    const rawAuthorityBranch = configurationPairValid
+      ? rawAuthority!.configurationBranch! : sourcePairValid ? rawAuthority!.sourceBranch! : null;
+    const rawAuthorityCommit = configurationPairValid
+      ? rawAuthority!.configurationCommit! : sourcePairValid ? rawAuthority!.sourceCommit! : null;
     const requestedAuthority = rawAuthority
       && typeof rawAuthority.leadUrl === 'string'
       && !gitRemoteProblem(rawAuthority.leadUrl, 'Capability authority')
-      && typeof rawAuthorityBranch === 'string'
-      && rawAuthorityBranch.trim() && !/[\u0000-\u001f\u007f\s]/u.test(rawAuthorityBranch.trim())
-      && typeof rawAuthorityCommit === 'string'
-      && /^[0-9a-f]{40,64}$/i.test(rawAuthorityCommit.trim())
+      && (!configurationPairPresent || configurationPairValid)
+      && (!sourcePairPresent || sourcePairValid)
+      && rawAuthorityBranch && rawAuthorityCommit
       ? {
           leadUrl: rawAuthority.leadUrl.trim(),
           configurationBranch: rawAuthorityBranch.trim(),
-          configurationCommit: rawAuthorityCommit.trim().toLowerCase()
+          configurationCommit: rawAuthorityCommit.trim().toLowerCase(),
+          identityKind: configurationPairValid
+            ? 'configuration' as const : 'legacy-projection' as const
         }
       : null;
     if (authoritySupplied && !requestedAuthority) {
@@ -2163,20 +2181,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     let attachScope: WorkspaceCapabilityAttachScope | null = null;
     if (requestedAuthority) {
       let issue: string | null = null;
+      let verifiedAuthority: WorkspaceCapabilityAttachScope['authority'] = {
+        leadUrl: requestedAuthority.leadUrl,
+        configurationBranch: requestedAuthority.configurationBranch,
+        configurationCommit: requestedAuthority.configurationCommit
+      };
       try {
-        inspectedAuthorityOrganisation = await registry.run<{
+        const readAuthority = (refresh: boolean) => registry.run<{
           governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
           configurationBranch?: string; configurationCommit?: string;
           capabilities?: RemoteCapability[] | null;
           repositories?: Record<string, { url?: string; defaultBranch?: string }>;
-        }>(['capability', 'organisation', requestedAuthority.leadUrl, '--json']);
-        if (inspectedAuthorityOrganisation.governed !== true
-          || inspectedAuthorityOrganisation.stale === true
-          || (inspectedAuthorityOrganisation.configurationBranch
-            ?? inspectedAuthorityOrganisation.sourceBranch) !== requestedAuthority.configurationBranch
-          || (inspectedAuthorityOrganisation.configurationCommit
-            ?? inspectedAuthorityOrganisation.sourceCommit)?.toLowerCase()
-              !== requestedAuthority.configurationCommit) {
+        }>([
+          'capability', 'organisation', requestedAuthority.leadUrl,
+          ...(refresh ? ['--refresh'] : []), '--json'
+        ]);
+        // Prefer the commit-validated cache. Retry once from the remote only when an old cache
+        // schema cannot express the split identity or its last observation was explicitly stale.
+        // This avoids an unconditional clone while preventing either condition from masquerading
+        // as a real sflow/config revision change.
+        inspectedAuthorityOrganisation = await readAuthority(false);
+        let verification = verifyCapabilityAuthorityLease(
+          requestedAuthority, inspectedAuthorityOrganisation
+        );
+        if (verification.status === 'unavailable' || verification.status === 'invalid') {
+          inspectedAuthorityOrganisation = await readAuthority(true);
+          verification = verifyCapabilityAuthorityLease(
+            requestedAuthority, inspectedAuthorityOrganisation
+          );
+        }
+        if (verification.status === 'verified') {
+          // Older/retained Map panels handed Workspaces the state-projection identity. Accept that
+          // lease only when it still exactly matches the freshly observed projection, then upgrade
+          // it to the canonical sflow/config identity used by preview and apply. This keeps old
+          // panels recoverable without weakening the exact-CAS mutation boundary.
+          verifiedAuthority = verification.authority;
+        } else if (verification.status === 'ungoverned') {
+          issue = 'The repository no longer exposes an approved capability authority. Check the repository mapping again; no local workspace was selected.';
+        } else if (verification.status === 'unavailable') {
+          issue = 'The capability authority could not be freshly verified. Check Git access and retry; no local workspace was selected.';
+        } else if (verification.status === 'invalid') {
+          issue = 'The capability authority did not report an exact approved configuration revision. Refresh or upgrade the repository mapping; no local workspace was selected.';
+        } else if (verification.status === 'changed') {
           issue = 'The capability authority changed after repository inspection. Check the repository mapping again; no local workspace was selected.';
         }
       } catch (error) {
@@ -2217,7 +2263,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       attachScope = {
         capabilityIds: requestedCapabilityIds,
-        authority: requestedAuthority,
+        authority: verifiedAuthority,
         matchingPaths,
         issue
       };

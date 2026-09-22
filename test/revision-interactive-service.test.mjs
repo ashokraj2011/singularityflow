@@ -41,6 +41,7 @@ import { buildSpecIndex } from '../src/specifications.mjs';
 import { createWorkflow, loadConfig, saveWorkflow } from '../src/state.mjs';
 import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
 import { sgosRevisionCandidateReference } from '../src/revision/candidate-adapter.mjs';
+import { currentInteractiveRevisionPublication } from '../src/revision/publication-adapter.mjs';
 
 const hash = (value) => `sha256:${recordSha256(value)}`;
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -112,7 +113,7 @@ async function interactiveRevisionRepository(t, id) {
   await setAgentSession(root, config, {
     name: 'Revision Test', email: 'revision@example.com', login: null
   }, 'product-owner', id, { phaseId: 'implementation', source: 'test' });
-  return { root, git };
+  return { root, git, config, workflow };
 }
 
 async function completeInteractiveRevision(root, id) {
@@ -136,15 +137,14 @@ async function completeInteractiveRevision(root, id) {
   return { startOptions, startPlan, started, captureOptions, capturePlan, completed };
 }
 
-test('guarded REV cards never claim Story publication authority', () => {
+test('guarded REV cards expose publication only for an eligible exact current precheck', () => {
   const current = renderRevisionCard({
     status: { scope: { phaseId: 'implementation' }, intervalSequence: 1 },
     precheck: candidate, state: { status: 'prechecked' }
   });
-  assert.equal(current.publicationEligible, false);
-  assert.deepEqual(current.remainingObligations,
-    ['selected-head-publication-bridge-unavailable']);
-  assert.equal(current.next, 'revision.revise-or-inspect');
+  assert.equal(current.publicationEligible, true);
+  assert.deepEqual(current.remainingObligations, []);
+  assert.equal(current.next, 'phase.publish-code');
 
   const historical = renderRevisionCard({
     status: { scope: { phaseId: 'implementation' }, intervalSequence: 1 },
@@ -154,6 +154,20 @@ test('guarded REV cards never claim Story publication authority', () => {
   assert.match(historical.headline, /^Historical revision interval/u);
   assert.ok(historical.remainingObligations.includes(
     'historical-interval-is-not-current-authority'));
+});
+
+test('ordinary Code publication sees no binding before REV and refuses an ineligible selected head', async (t) => {
+  const id = 'REV-PUBLICATION-ADAPTER-1';
+  const { root, config, workflow } = await interactiveRevisionRepository(t, id);
+  const accepted = { definition: config, workflow };
+  assert.equal(await currentInteractiveRevisionPublication(root, accepted), null);
+
+  const completed = await completeInteractiveRevision(root, id);
+  assert.equal(completed.completed.state.status, 'prechecked');
+  assert.equal(completed.completed.precheck.publicationEligible, false);
+  await assert.rejects(currentInteractiveRevisionPublication(root, accepted), {
+    code: 'REV_PUBLICATION_NOT_READY'
+  });
 });
 
 test('guarded REV state cards route every incomplete effect through the exact recovery action', () => {

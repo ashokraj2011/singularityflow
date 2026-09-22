@@ -75,6 +75,12 @@ export const MESSAGES = Object.freeze({
       + `authority: ${slot(s.authority)}).`,
     preserves: true
   },
+  'delivery.wel-readiness-reported': {
+    headline: (s) => `WEL ${slot(s.readinessScope)} is ${slot(s.status)} `
+      + `(lifecycle verification: ${slot(s.lifecycleVerification)}, `
+      + `joined: ${slot(s.lifecycleJoined)}, enforcement available: ${slot(s.enforcementAvailable)}).`,
+    preserves: true
+  },
   'delivery.readiness-reported': {
     headline: (s) => `GDP GA readiness is ${slot(s.status)} with ${slot(s.blockers, '0')} blocker(s) (ready: ${slot(s.gaReady)}).`,
     preserves: true

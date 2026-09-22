@@ -137,8 +137,11 @@ from the deterministic command surface:
 - **Packet compose and Candidate freeze API:** there is no participant-ready `packet compose` →
   model response → `candidate freeze` contract. The participant neither freezes model output nor
   writes application files or Git refs.
-- **REV execution:** feedback-attachment intake is available, but `/revise` and the user-facing
-  mutating Revision Loop remain unavailable. See [REV delivery status](REV-DELIVERY-STATUS.md).
+- **REV execution:** feedback-attachment intake and the guarded manual Revision Loop are available
+  through `/sf-revise`. The participant route `@sflow /revise` is deliberately bounded: it may read
+  status/cards or prefill the separate skill, but it never opens an interval itself. Autonomous
+  code execution, trusted browser execution, and unrestricted/default REV activation remain
+  unavailable. See [REV delivery status](REV-DELIVERY-STATUS.md).
 - **Full participant telemetry:** local content-free command metrics are implemented, but exact
   provider request/response tokens, phase TEL integration, billed cost, packet/response hashes,
   and resident-host performance receipts are deferred with the drafting pipeline.

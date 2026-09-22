@@ -11,6 +11,7 @@ import { normalizeExternalCommand } from '../external-command-policy.mjs';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { sgosRevisionCandidateReference } from './candidate-adapter.mjs';
+import { APPROVED_RUNNER_PROVIDER } from './approved-runner-contract.mjs';
 import { readLatestRevisionBrowserRunReceipt } from './browser-run-store.mjs';
 import { inspectInteractiveRevision } from './interactive-service.mjs';
 import { loadActiveRevisionStory } from './product-context.mjs';
@@ -31,10 +32,26 @@ export const revisionBrowserCheckCapabilities = Object.freeze({
     boundedEffectsBridge: 'available-not-browser-execution',
     immutableReceiptStore: 'available-local-private',
     assertionProjection: 'available-observation-only',
-    deterministicVisualComparison: 'unavailable'
+    deterministicVisualComparison: 'unavailable',
+    approvedRunnerProviderContract: 'available-fail-closed',
+    candidateUnderTestAttestation: 'available-requires-sgos-cab-trust',
+    authenticatedRunnerReceiptStore: 'available-requires-sgos-cab-trust',
+    secureArtifactAdmission: 'available-non-rendering'
+  }),
+  approvedRunnerBoundary: Object.freeze({
+    providerId: APPROVED_RUNNER_PROVIDER.id,
+    providerProtocol: APPROVED_RUNNER_PROVIDER.protocol,
+    apiVersion: APPROVED_RUNNER_PROVIDER.apiVersion,
+    authoritySource: 'sgos-cab-approved-configuration',
+    activationStatus: 'disabled-pending-authority-revalidation-and-adapter-wiring',
+    executionEnabled: false,
+    testingVerificationEstablished: false,
+    publicationEligibilityEstablished: false
   }),
   unavailable: Object.freeze({
     executor: 'REV_CODE_CHECK_EXECUTOR_UNAVAILABLE',
+    approvedRunnerProvider: 'REV_RUNNER_PROVIDER_UNAVAILABLE',
+    approvedRunnerTrust: 'REV_RUNNER_AUTHORITY_UNAVAILABLE',
     candidateUnderTestProvenance: 'BRL_CANDIDATE_UNDER_TEST_UNAVAILABLE',
     visualComparator: 'BRL_VISUAL_COMPARATOR_UNAVAILABLE',
     governedBaselineStore: 'BRL_BASELINE_STORE_UNAVAILABLE',

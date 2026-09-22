@@ -5,6 +5,7 @@ import { readAdhocSession, startAdhocSession } from '../adhoc/session.mjs';
 import { promoteAdhocSession } from '../adhoc/landing.mjs';
 import { readSessionRecord, writeSessionRecord } from '../adhoc/session-store.mjs';
 import { loadDefinition } from '../config.mjs';
+import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import {
   buildOutcomeSelectionBundle, normalizeDeliveryRequest, recommendDelivery,
   validateRecommendationPlan
@@ -26,6 +27,8 @@ import {
 import { provenanceReadiness } from '../delivery-modes/provenance.mjs';
 import { authenticatedRunnerReadiness } from '../delivery-modes/authenticated-runner-provider.mjs';
 import { buildGdpReadiness } from '../delivery-modes/readiness.mjs';
+import { storyWelEnrollmentStatus } from '../state-stores.mjs';
+import { unavailableWelEnforcementReadiness } from '../wel-readiness-foundation.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, gitCommitIdentity, head, repoRoot } from '../git.mjs';
 import { commandResult, succeeded } from '../narration/command-result.mjs';
@@ -136,8 +139,12 @@ async function workflowDeliveryFor(root, definition, policy, workId, proofProfil
 export async function run(_argv, { positionals, options, operation: suppliedOperation = null } = {}) {
   const action = positionals?.[1] ?? 'recommend';
   const root = repoRoot();
-  const definition = await loadDefinition(root);
-  const policy = deliveryPolicy(definition);
+  // WEL readiness is a closed, fail-safe projection. Repository-scoped readiness does not
+  // consume configuration, and Story-scoped readiness resolves only the accepted execution
+  // closure below. Do not let today's mutable or temporarily invalid workflow.yml prevent
+  // either read-only diagnostic from reporting the external authority gaps.
+  const definition = action === 'wel-readiness' ? null : await loadDefinition(root);
+  const policy = definition ? deliveryPolicy(definition) : null;
   if (action === 'local-runner-create') {
     const signer = await createLocalRunnerSigner(
       root, requiredOption(options, 'signer')
@@ -486,6 +493,45 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       }
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
+  if (action === 'wel-readiness') {
+    const workId = optionString(options, 'work-id');
+    const runnerProviderFile = optionString(options, 'runner-provider-file');
+    // Read an existing Story only through its accepted execution closure. Today's mutable
+    // workflow definition, phase catalog, agents, and work-item root cannot reinterpret the
+    // creation-pinned WEL enrollment or select a different raw aggregate.
+    const accepted = workId ? await loadAcceptedStoryExecution(root, workId) : null;
+    const workflow = accepted?.workflow ?? null;
+    const enrollmentStatus = accepted
+      ? storyWelEnrollmentStatus(
+        root, accepted.definition, accepted.workflow.workItem.id
+      ) : null;
+    // The public command reports the installed foundation only. It cannot accept a caller-supplied
+    // lifecycle join or owner-verification token and therefore cannot turn enforcement on.
+    const readiness = unavailableWelEnforcementReadiness({
+      enrollment: enrollmentStatus?.classification === 'enrolled'
+        ? enrollmentStatus.enrollment : null,
+      runnerProviderConfiguration: runnerProviderFile
+        ? await jsonFile(root, runnerProviderFile, 'Authenticated runner provider file') : null,
+      story: workId ? {
+        workId: workflow.workItem.id,
+        enrollmentClassification: enrollmentStatus.classification,
+        enrollmentReason: enrollmentStatus.reason,
+        creationCommit: enrollmentStatus.creationCommit
+      } : null
+    });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.wel-readiness', classification: 'read' },
+      subject: { kind: workId ? 'story' : 'repository', id: workId ?? path.basename(root) },
+      outcome: succeeded('delivery.wel-readiness-reported', {
+        status: readiness.status,
+        readinessScope: readiness.readinessScope,
+        lifecycleVerification: readiness.lifecycleVerification,
+        lifecycleJoined: readiness.lifecycleJoined,
+        enforcementAvailable: readiness.enforcementAvailable
+      }),
+      effects: effects(), restState: 'informational', data: readiness
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
   if (action === 'readiness') {
     const providerFile = optionString(options, 'provider-file');
     const runnerProviderFile = optionString(options, 'runner-provider-file');
@@ -534,7 +580,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     `Unknown delivery action '${action}'. Use: delivery recommend, delivery select, `
       + 'delivery workflow-status, delivery execution-status, delivery promotion-preview, '
       + 'delivery promotion-status, delivery assurance-evaluate, delivery provenance-status, '
-      + 'delivery authenticated-runner-status, '
+      + 'delivery authenticated-runner-status, delivery wel-readiness, '
       + 'delivery local-runner-create, delivery local-runner-status, delivery local-runner-options, delivery local-runner-plan, '
       + 'delivery local-runner-run, delivery local-runner-verify, or delivery readiness.',
     { code: 'UNKNOWN_SUBCOMMAND' }

@@ -99,6 +99,7 @@ export const revisionRuntimeCapabilities = Object.freeze({
   guardedInteractivePreviewAvailable: true,
   guardedManualCaptureAvailable: true,
   guardedLocalHeadCasAvailable: true,
+  guardedSelectedHeadPublicationAvailable: true,
   registeredAttachmentRoutingAvailable: true,
   routeKernelAvailable: true,
   publicRoutePreviewAvailable: false,
@@ -168,8 +169,8 @@ export function assertGuardedRevisionCapability(operation) {
 const ACTIVATION_FOUNDATIONS = Object.freeze([
   Object.freeze({ id: 'candidate-head-cas', status: 'guarded-local',
     detail: 'The guarded interactive command exposes the machine-local append-only head journal and exact retained Candidate CAS; autonomous execution remains disabled.' }),
-  Object.freeze({ id: 'candidate-precheck-publication', status: 'guarded-local-precheck-only',
-    detail: 'Candidate-bound precheck is exposed by the guarded local flow. Exact selected-tree Story publication is not bridged in this build.' }),
+  Object.freeze({ id: 'candidate-precheck-publication', status: 'guarded-local-publication',
+    detail: 'Candidate-bound precheck is exposed by the guarded local flow. An eligible exact current selected head is consumed by ordinary Code-phase publication under the Story transaction lock.' }),
   Object.freeze({ id: 'code-check-projection', status: 'projection-only',
     detail: 'Code-check planning and result projection exist; no authenticated durable Code-check receipt can be produced.' }),
   Object.freeze({ id: 'compare-discard-restore', status: 'kernel-only',

@@ -288,7 +288,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return [
       'recommend', 'workflow-status', 'execution-status', 'promotion-preview',
       'promotion-status', 'assurance-evaluate', 'provenance-status',
-      'authenticated-runner-status', 'readiness',
+      'authenticated-runner-status', 'wel-readiness', 'readiness',
       'local-runner-status', 'local-runner-options', 'local-runner-plan',
       'local-runner-verify'
     ].includes(action) ? 'read' : 'mutation';

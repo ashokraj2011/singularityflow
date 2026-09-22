@@ -12,7 +12,7 @@ related:
   - revision-feedback-attachments
   - artifacts-and-generation
   - workflow-authoring
-version: 1
+version: 2
 ---
 ## Purpose and prerequisites
 
@@ -36,7 +36,14 @@ REV is eligible only when the selected Story session is ready, the active open g
 4. Confirm with the full digest and the same feedback bytes and selectors. The CLI rereads every binding; a changed Candidate, phase, authority, buffer, feedback byte, or plan fails closed. Successful first confirmation retains the previewed source snapshot as the immutable first parent.
 5. After interval start, the developer edits and saves only the returned bounded code/test scope. The guarded build does not invoke a model, project command, shell, or Git command to make those edits. Preview with `singularity-flow revision capture --preview --note <NOTE> --saved-buffers-confirmed`, then repeat the same note and assertion with `--plan sha256:<PLAN> --confirm sha256:<PLAN>` only after reviewing that digest. A Code check is Candidate evidence, not the later Testing or Verification verdict.
 6. Inspect the resulting card. It identifies the exact retained Candidate, deterministic precheck, warnings, unexplained diff units, and remaining actions. It does not invent test, screenshot, or hunk-attribution evidence.
-7. At `PRECHECKED`, inspect the remaining obligations and stop. The guarded pilot does not yet bridge the selected REV head into ordinary phase publication, and it never presents an unavailable check as passed. Continue ordinary phase work separately; do not claim that it consumed the REV Candidate.
+7. At `PRECHECKED`, inspect the remaining obligations. If the exact selected head is publication
+   eligible, continue with the explicit `/sf-code` action (Shell:
+   `singularity-flow phase publish <phase>`). The Story publication transaction rereads the private
+   pointer, append-only journal, retained Candidate, precheck, phase/configuration context, and every
+   admitted application blob under the Story lock. Any stale, incomplete, abandoned,
+   recovery-required, or ineligible REV state refuses instead of falling back to an unbound
+   worktree publication. This explicit publication still does not submit, approve, merge, deploy,
+   or turn REV precheck observations into Testing evidence.
 
 ## State and safety
 

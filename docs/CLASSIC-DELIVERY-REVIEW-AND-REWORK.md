@@ -26,8 +26,9 @@ the returned `revision capture` preview/confirmation and inspect the determinist
 `activationProfile: disabled` and `eligible: false` describe the unavailable autonomous/full REV
 profile; they do not disable the separately reported guarded local operations. A repository flag
 cannot override a missing guarded capability, wrong phase, unsaved buffers, publication, or
-recovery state. The pilot stops before ordinary phase publication, submission, approval, merge, or
-deployment.
+recovery state. `/sf-revise` itself stops before ordinary phase publication, submission, approval,
+merge, or deployment. A later explicit `/sf-code` publication may consume only the exact current,
+prechecked, publication-eligible selected head and revalidates it inside the Story transaction.
 
 ## Prepare Classic Delivery
 
@@ -101,8 +102,9 @@ singularity-flow revision card --json
 ```
 
 Copilot uses `/sf-revise`; `@sflow /revise` is read-only or prefills that skill. A green REV card
-is not a test verdict and the selected head is not automatically published. Complete the ordinary
-`/sf-code` test and publication flow separately against the same reviewed bytes.
+is not a test verdict and the selected head is never published by the revision action itself.
+Complete the ordinary `/sf-code` test and publication action explicitly; that transaction must
+revalidate and consume the same reviewed Candidate bytes or fail closed.
 
 If source or test files were already edited while Testing is **in progress**, ordinary Testing
 publication must still refuse: its earlier Code receipt no longer describes those bytes. Keep the
@@ -120,6 +122,8 @@ browser or environment failure with **no** source/test change should be re-obser
 not sent back to Code. Protected workflow configuration still uses its separate authority.
 
 Classic Delivery currently **reviews** Code's committed tests in Testing; it does not claim an
-independent Testing rerun receipt. Autonomous REV execution and selected-head publication remain
-disabled until the specification's isolated execution/cleanup, durable quality receipts, exact
-publication bridge, distinct Testing evidence, and release witness gates are satisfied.
+independent Testing rerun receipt. The guarded selected-head Code-publication bridge is active, but
+autonomous REV execution, browser-result promotion, and default/full-profile activation remain
+disabled until an approved isolated runner is wired through SGOS/CAB authority, durable quality
+and cross-clone receipts exist, distinct Testing evidence is implemented, and the release witness
+gates are satisfied.

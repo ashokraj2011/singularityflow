@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "dca87c409b4901199c92703d42737270300d4a72",
+  "sourceCommit": "dc2146c99abfdb9cb910c5612844507356c85913",
   "topicCount": 67,
-  "contentSha256": "e991b8c77b949294d0099f51f96f6a4114848227587e34e4242ad70ad0073fca",
+  "contentSha256": "d49c85d3ee8984317ce0212ba2c0b0a2dc9d43a609b23db48f6a825f52cae5e7",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,8 +128,8 @@
     {
       "id": "delivery-and-proof",
       "title": "Governed Delivery and Proof",
-      "version": 3,
-      "sha256": "b846adafe1cecfd3657b4135efc21796c814b8c02c02b677d0199d58ccd75af6",
+      "version": 4,
+      "sha256": "b238f4a2b3616da21b0bf809fef29506c9a2d149dc593983fb1ca1410e193938",
       "routingSha256": "50fe51fde59f58a3a2685e84eb13987d273f1b70e6f4dd46f32df823e3d8f341",
       "file": "delivery-and-proof.md"
     },
@@ -416,8 +416,8 @@
     {
       "id": "revision-loop",
       "title": "Bounded code Candidate revision loop",
-      "version": 1,
-      "sha256": "fbc9a0631981ca185fec2987cfad58b5380f2da8d8533628a6983c01341f5c6f",
+      "version": 2,
+      "sha256": "0caa2651ea73c63cf282b291028b4dee6656791c94594f19a8d624c9a7542f7b",
       "routingSha256": "da32593b0266e2e0d23bceecf9bd245d71449ec93893456df95884e41dd890c0",
       "file": "revision-loop.md"
     },

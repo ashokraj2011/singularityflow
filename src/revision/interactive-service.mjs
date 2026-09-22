@@ -1338,15 +1338,17 @@ export function renderRevisionCard({
     unexplainedHunks: precheck.unexplainedHunks,
     refusals: precheck.refusalSummary,
     verification: 'not-started',
-    // The guarded profile has no selected-head Story publication bridge. Even a clean deterministic
-    // precheck is local review evidence, never phase-publication authority.
-    publicationEligible: false,
+    // The bridge is intentionally narrow: this current card may be consumed only when the
+    // deterministic receipt itself is eligible. Historical, stale, incomplete, or uncertain
+    // pointers remain non-authoritative and the Story transaction rechecks every binding.
+    publicationEligible: freshness === 'current' && precheck.publicationEligible === true,
     remainingObligations: [...new Set([
       ...(precheck.remainingObligations ?? []),
-      ...(precheck.publicationEligible ? ['selected-head-publication-bridge-unavailable'] : []),
       ...(freshness === 'current' ? [] : ['refresh-precheck-after-worktree-change'])
     ])],
-    next: freshness === 'current' ? 'revision.revise-or-inspect' : 'revision.capture-or-recover'
+    next: freshness === 'current' && precheck.publicationEligible
+      ? 'phase.publish-code' : freshness === 'current'
+        ? 'revision.revise-or-inspect' : 'revision.capture-or-recover'
   });
 }
 

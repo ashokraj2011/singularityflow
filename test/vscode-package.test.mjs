@@ -79,6 +79,20 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   assert.ok(CLI_PAYLOAD.includes('LICENSE'), 'the bundled polyglot pack license is part of the installed payload');
   assert.ok(CLI_PAYLOAD.includes('scripts/install-staged-artifacts.mjs'),
     'the bundled reinstall command carries its activation helper');
+  assert.ok(VSIX_REQUIRED_CLI_RUNTIME.includes('src/wel-lifecycle.mjs'),
+    'the bundled CLI declares its WEL lifecycle/readiness runtime dependency');
+  for (const required of [
+    'src/revision/approved-runner-boundary.mjs',
+    'src/revision/approved-runner-contract.mjs',
+    'src/revision/publication-adapter.mjs',
+    'src/wel-readiness-foundation.mjs',
+    'src/wel-test-lifecycle.mjs',
+    'schemas/revision-runner-artifact-admission.schema.json',
+    'schemas/wel-test-lifecycle.schema.json'
+  ]) {
+    assert.ok(VSIX_REQUIRED_CLI_RUNTIME.includes(required),
+      `the bundled CLI declares its new runtime dependency ${required}`);
+  }
 
   const extension = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-package-'));
   const staged = await stageCli({ rootDir: root, extensionDir: extension });
@@ -145,6 +159,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   await Promise.all([
     mkdir(path.join(repository, 'bin'), { recursive: true }),
     mkdir(path.join(repository, 'src'), { recursive: true }),
+    mkdir(path.join(repository, 'src', 'revision'), { recursive: true }),
     mkdir(path.join(repository, 'src', 'world-model', 'history'), { recursive: true }),
     mkdir(path.join(repository, 'schemas'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'skills', 'sflow-sgos'), { recursive: true }),
@@ -168,6 +183,12 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'safe-command-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'phase-preparation-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'gal-async-read.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'revision', 'approved-runner-boundary.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'revision', 'approved-runner-contract.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'revision', 'publication-adapter.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'wel-lifecycle.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'wel-readiness-foundation.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'wel-test-lifecycle.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'workflow-transfer.mjs'), '// fixture\n'),
     writeFile(path.join(
       repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
@@ -175,6 +196,10 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(
       repository, 'schemas', 'story-world-model-history-pin.schema.json'
     ), '{}\n'),
+    ...VSIX_REQUIRED_CLI_RUNTIME
+      .filter((relative) => relative.startsWith('schemas/revision-')
+        || relative.startsWith('schemas/wel-'))
+      .map((relative) => writeFile(path.join(repository, ...relative.split('/')), '{}\n')),
     writeFile(path.join(repository, 'plugin', 'skills', 'sflow-sgos', 'SKILL.md'), '# fixture\n'),
     writeFile(path.join(repository, 'package.json'), '{"name":"fixture","version":"1.0.0"}\n'),
     writeFile(path.join(repository, 'toolchains', 'npm-pack', 'package.json'), `${JSON.stringify({
@@ -203,9 +228,17 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs',
     'src/safe-command-guidance.mjs', 'src/phase-preparation-guidance.mjs',
     'src/gal-async-read.mjs',
+    'src/revision/approved-runner-boundary.mjs',
+    'src/revision/approved-runner-contract.mjs',
+    'src/revision/publication-adapter.mjs',
+    'src/wel-lifecycle.mjs',
+    'src/wel-readiness-foundation.mjs',
+    'src/wel-test-lifecycle.mjs',
     'src/workflow-transfer.mjs',
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
+    ...VSIX_REQUIRED_CLI_RUNTIME.filter((relative) => relative.startsWith('schemas/revision-')
+      || relative.startsWith('schemas/wel-')),
     'plugin/skills/sflow-sgos/SKILL.md', 'package.json',
     'package-lock.json', 'toolchains/npm-pack/package.json']);
   runGit(['commit', '-q', '-m', 'Fixture']);

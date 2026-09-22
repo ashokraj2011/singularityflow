@@ -231,7 +231,7 @@
       "previewSha256": "sha256:ed4cf83259ce47f50bdffa729838dcf0753992dd85f3cdababaf956a4841253f"
     }
   ],
-  "test-execution": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed" } }, { "schemaVersion": 3, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed", "exact": false, "verdict": "inconclusive", "disposition": "witness-inconclusive", "catalog": null, "mappingProposals": [] } }],
+  "test-execution": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed" } }, { "schemaVersion": 3, "candidate": null, "program": null, "attempt": null, "adapterIdentity": null, "testcaseObservation": { "status": "unavailable", "assurance": "unavailable", "profile": null, "occurrences": [], "rawReports": [], "notice": "legacy module receipt; testcase execution was not observed", "exact": false, "verdict": "inconclusive", "disposition": "witness-inconclusive", "catalog": null, "mappingProposals": [] } }, { "schemaVersion": 4 }],
   "code-delivery": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "work-reconciliation": [{ "schemaVersion": 1 }],
   "work-checkpoint": [{ "schemaVersion": 1 }],
@@ -1181,6 +1181,11 @@
   "revision-browser-run-state": [{ "schemaVersion": 1 }],
   "revision-browser-run-receipt": [{ "schemaVersion": 1 }],
   "revision-browser-comparison": [{ "schemaVersion": 1 }],
+  "revision-candidate-under-test-attestation": [{ "schemaVersion": 1 }],
+  "revision-candidate-under-test-attestation-envelope": [{ "schemaVersion": 1 }],
+  "revision-runner-artifact-admission": [{ "schemaVersion": 1 }],
+  "revision-authenticated-runner-receipt": [{ "schemaVersion": 1 }],
+  "revision-authenticated-runner-receipt-envelope": [{ "schemaVersion": 1 }],
   "revision-code-check-receipt": [{ "schemaVersion": 1 }],
   "revision-publication-selection": [{ "schemaVersion": 1 }],
   "revision-publication-prepared": [{ "schemaVersion": 1 }],

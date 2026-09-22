@@ -8,6 +8,7 @@ import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { welResultAdapter } from './wel-adapters.mjs';
+import { unavailableWelTestLifecycle } from './wel-test-lifecycle.mjs';
 
 const SUPPORTING_SEGMENTS = new Set([
   '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
@@ -1311,6 +1312,7 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     candidate: null,
     program: null,
     attempt: null,
+    lifecycle: unavailableWelTestLifecycle({ observed: observationSupported }),
     localExecution: observationSupported ? {
       sourceCommit: check.sourceCommit ?? null,
       sourceTreeSha256: check.sourceTreeSha256 ?? null,

@@ -21,11 +21,24 @@ export const VSIX_CLI_PAYLOAD = Object.freeze([
  */
 export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/gal-async-read.mjs',
+  'src/revision/approved-runner-boundary.mjs',
+  'src/revision/approved-runner-contract.mjs',
+  'src/revision/publication-adapter.mjs',
+  'src/wel-lifecycle.mjs',
+  'src/wel-readiness-foundation.mjs',
+  'src/wel-test-lifecycle.mjs',
   'src/workflow-transfer.mjs',
   'src/safe-command-guidance.mjs',
   'src/phase-preparation-guidance.mjs',
   'src/world-model/history/story-grounding-activation.mjs',
   'schemas/story-world-model-history-pin.schema.json',
+  'schemas/revision-authenticated-runner-receipt-envelope.schema.json',
+  'schemas/revision-authenticated-runner-receipt.schema.json',
+  'schemas/revision-candidate-under-test-attestation-envelope.schema.json',
+  'schemas/revision-candidate-under-test-attestation.schema.json',
+  'schemas/revision-runner-artifact-admission.schema.json',
+  'schemas/wel-enforcement-readiness.schema.json',
+  'schemas/wel-test-lifecycle.schema.json',
   'plugin/skills/sflow-sgos/SKILL.md'
 ]);
 

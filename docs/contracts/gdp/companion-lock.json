@@ -4,10 +4,12 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "dca87c409b4901199c92703d42737270300d4a72",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-22-WORKFLOW-BUNDLE.md",
+    "reviewedAtCommit": "dc2146c99abfdb9cb910c5612844507356c85913",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-22-WEL-LIFECYCLE.md",
     "companionIds": [
-      "migration-registry"
+      "migration-registry",
+      "witnessed-engineering-delivery-status",
+      "witnessed-engineering-loop"
     ]
   },
   "companions": [
@@ -39,12 +41,12 @@
     {
       "id": "witnessed-engineering-loop",
       "path": "docs/WEL-SPEC.md",
-      "sha256": "sha256:386d3dab9b68e268069f489a0db97ecce67bfb49e16f76273192941778c863ef"
+      "sha256": "sha256:cdbcf42d94286c30a12381074d6df4aac7008a5cddf41da500ce7add7716542d"
     },
     {
       "id": "witnessed-engineering-delivery-status",
       "path": "docs/WEL-PENDING-WORK.md",
-      "sha256": "sha256:278cca06ddbeb92d034990558187f68871654a6c25bdc43574a3ccf531201eed"
+      "sha256": "sha256:3c95a71cfccda8654fb3287ac41d997889109680a4b8f57a29df638837da222b"
     },
     {
       "id": "code-assurance-bridge",
@@ -99,7 +101,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:f5bc636a3191eb67bf786cf5260ded5b0d664cb6dc9b1eeddcd0e2a8bc8b8652"
+      "sha256": "sha256:6261e5fcc1335cc4e12e9663c334c28fedbba1b25eba93524e962f0529cc8f6e"
     },
     {
       "id": "smart-initialization-v1",

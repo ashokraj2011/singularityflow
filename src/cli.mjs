@@ -38,6 +38,7 @@ import { applicationChangeSetProjection, applicationPathContext } from './work-i
 import {
   assertAutoCandidateMatches, observeAutoCandidateWorktree
 } from './auto/auto-candidate.mjs';
+import { currentInteractiveRevisionPublication } from './revision/publication-adapter.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import {
   captureTelemetryCursorsForWorkItem, copilotTelemetryStatus,
@@ -142,6 +143,7 @@ import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
 import { readRecord } from './schema-migrations.mjs';
+import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
 import {
   materializeReferenceRepositories, parseReferenceRepositoryOptions,
   resolveReferenceRepositoryPins
@@ -5610,16 +5612,19 @@ async function phaseReview(root, config, workflow, phase) {
     }
   }
   const testcaseObservations = [];
+  const welLifecycles = [];
   for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
     try {
       const stored = await readFile(path.join(root, execution.receiptPath));
       const receipt = readRecord('test-execution', stored).record;
       if (receipt.testcaseObservation) testcaseObservations.push(receipt.testcaseObservation);
+      if (receipt.lifecycle) welLifecycles.push(receipt.lifecycle);
     } catch {
       testcaseObservations.push({
         status: 'unavailable', assurance: 'unavailable', occurrences: [],
         notice: `test receipt '${execution.commandId}' is unavailable`
       });
+      welLifecycles.push(null);
     }
   }
   const localObservations = testcaseObservations.filter((entry) => entry.status === 'observed'
@@ -5628,6 +5633,9 @@ async function phaseReview(root, config, workflow, phase) {
   const observedTestcases = localObservations
     .flatMap((entry) => entry.occurrences ?? []);
   const witnessReview = await witnessMappingReview(root, config, workflow, phase);
+  const welReadiness = unavailableWelEnforcementReadiness({
+    enrollment: workflow.resolution?.wel ?? null
+  });
   return {
     schemaVersion: 1,
     workId: workflow.workItem.id,
@@ -5656,6 +5664,18 @@ async function phaseReview(root, config, workflow, phase) {
             ? 'exact static testcase identities observed locally; verdict is inconclusive until human mapping review and independent execution authority exist'
             : 'candidate-controlled testcase results observed locally as non-exact diagnostics; verdict is inconclusive and there is no independent attestation or reviewed witness mapping'
           : testcaseObservations.at(-1)?.notice ?? 'exact testcase observation unavailable'
+      },
+      lifecycle: {
+        status: welLifecycles.length
+          && welLifecycles.every((entry) => entry?.status === 'unavailable')
+          ? 'unavailable' : 'not-recorded',
+        joined: false,
+        retryLineage: welLifecycles.reduce((count, entry) =>
+          count + (entry?.retryLineage?.length ?? 0), 0),
+        enforcementAvailable: welReadiness.enforcementAvailable,
+        authority: welReadiness.authority,
+        gaps: welReadiness.gaps,
+        recoveryActions: welReadiness.nextActions
       },
       notice: 'module execution remains the authoritative delivery evidence; testcase observation is diagnostic and non-blocking'
     } : null,
@@ -5970,6 +5990,13 @@ async function phaseCommand(positionals, options) {
     .filter((record) => !attributedInvocations.has(record.id));
   const kernelInvocationIds = kernelInvocations.map((record) => record.id);
   const generationStart = await generationStartPublicationBinding(root, workflow, requestedPhase);
+  // A code phase with no REV loop keeps the ordinary publication path. Once the guarded REV flow
+  // has established any private pointer/journal state, publication may proceed only through its
+  // exact current prechecked selected head; missing, stale, abandoned, or uncertain state refuses
+  // instead of silently publishing whatever happens to be in the worktree.
+  const revisionPublication = phaseRequiresCodeDelivery(requestedPhase)
+    ? await currentInteractiveRevisionPublication(root, accepted)
+    : null;
   let phase = requestedPhase;
   let publicationStabilityGuard = null;
   const result = await commitAndPublish(
@@ -6112,10 +6139,11 @@ async function phaseCommand(positionals, options) {
           });
         }
         return publicationStabilityGuard();
-      }
+      },
+      revisionPublication
     }
   );
-  console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+  console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
   const telemetry = (phase.telemetry ?? []).find((item) => item.generation === phase.generation);
   const generationUsage = (phase.usage ?? []).filter((item) => item.generation === phase.generation);
   const tokens = generationUsage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);

@@ -170,6 +170,7 @@ Every public operation is classified before its implementation module is importe
 | delivery.readiness | read | never | — | — |
 | delivery.recommend | read | never | — | — |
 | delivery.select | mutation | never | — | — |
+| delivery.wel-readiness | read | never | — | — |
 | delivery.workflow-status | read | never | — | — |
 | device.doctor | read | never | — | — |
 | device.intent | read | never | — | — |

@@ -2,11 +2,11 @@
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { gitCommonDir, identity } from '../git.mjs';
 import { executeGitQuery } from '../git-query.mjs';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
 import { recordSha256 } from '../records.mjs';
 import { loadSession, validAgentSession } from '../session.mjs';
@@ -34,7 +34,7 @@ const INSTALLED_OPERATIONS = Object.freeze([
   'revision.code', 'artifact.revise', 'story.amend', 'story.clarify',
   'implementation.reopen', 'release.plan.revise', 'outcome.review', 'work.create'
 ]);
-const INSTALLED_PACKAGE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const INSTALLED_PACKAGE_ROOT = PACKAGE_ROOT;
 
 function implementationFiles(root) {
   const selected = [];
@@ -144,11 +144,19 @@ export function revisionEffectPolicy(active) {
   });
 }
 
-export async function loadActiveRevisionStory(root) {
+export async function loadActiveRevisionStory(root, {
+  definition = null, workflow: selectedWorkflow = null, workId = null
+} = {}) {
   const session = await loadSession(root);
-  const config = await loadConfig(root);
-  // Deliberately omit an ID so branch/worktree ownership is checked by the state store.
-  const workflow = await loadStoryAggregate(root, config);
+  const config = definition ?? await loadConfig(root);
+  // Ordinary interactive entry points deliberately omit an ID so branch/worktree ownership is
+  // checked by the state store. Publication can instead provide the already accepted Story
+  // execution definition and aggregate; subsequent rechecks reload that same Story through its
+  // accepted definition rather than interpreting it through today's mutable configuration.
+  const workflow = selectedWorkflow ?? await loadStoryAggregate(root, config, workId ?? undefined);
+  if (workId != null && workflow.workItem?.id !== workId) {
+    fail('REV_NO_ACTIVE_WORK', `The selected Story '${workflow.workItem?.id ?? 'unknown'}' does not match '${workId}'.`);
+  }
   const pendingPublication = await readPendingPublication(root, {
     kind: 'story', id: workflow.workItem.id, migrate: false
   });
@@ -323,7 +331,9 @@ const REV_STABLE_CONTEXT_FIELDS = Object.freeze([
  * unobserved worktree window.
  */
 export async function readPinnedRevisionContext(active, pinnedContext) {
-  const current = await readRevisionContext(await loadActiveRevisionStory(active.root));
+  const current = await readRevisionContext(await loadActiveRevisionStory(active.root, {
+    definition: active.config, workId: active.workflow.workItem.id
+  }));
   for (const field of REV_STABLE_CONTEXT_FIELDS) {
     if (current.context[field] !== pinnedContext[field]) {
       fail('REV_CONTEXT_STALE', `Revision authority '${field}' changed during the interval.`);
@@ -513,7 +523,9 @@ export function revisionLoopStore(active, {
     assertCurrentContext: async ({ scope, context }) => {
       if (revisionDigest(scope) !== revisionDigest(active.subject)) return false;
       try {
-        const live = await readRevisionContext(await loadActiveRevisionStory(active.root));
+        const live = await readRevisionContext(await loadActiveRevisionStory(active.root, {
+          definition: active.config, workId: active.workflow.workItem.id
+        }));
         const existing = await store.read();
         const pinnedSource = existing?.context?.sourceTreeSha256 ?? live.context.sourceTreeSha256;
         if (context.sourceTreeSha256 !== pinnedSource) return false;

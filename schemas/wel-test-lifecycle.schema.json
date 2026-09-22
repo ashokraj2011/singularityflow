@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/wel-test-lifecycle.schema.json",
+  "title": "WEL test-execution lifecycle availability v1",
+  "$comment": "Embedded in test-execution v4. This build can record absence only; it cannot manufacture lifecycle or CAB authority.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "status", "candidate", "program", "attempt", "retryLineage",
+    "taskReceipt", "authenticatedExecution", "approval", "publication",
+    "enforcementEligible", "gaps"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "const": "unavailable" },
+    "candidate": { "const": null },
+    "program": { "const": null },
+    "attempt": { "const": null },
+    "retryLineage": { "const": [] },
+    "taskReceipt": { "const": null },
+    "authenticatedExecution": { "const": null },
+    "approval": { "const": null },
+    "publication": { "const": null },
+    "enforcementEligible": { "const": false },
+    "gaps": {
+      "oneOf": [
+        {
+          "type": "array",
+          "prefixItems": [
+            { "const": "WEL_TEST_CANDIDATE_NOT_YET_FROZEN" },
+            { "const": "WEL_SGOS_PROGRAM_NOT_MATERIALIZED" },
+            { "const": "WEL_SGOS_ATTEMPT_NOT_DISPATCHED" },
+            { "const": "WEL_AUTHENTICATED_RUNNER_UNAVAILABLE" },
+            { "const": "WEL_TRUST_AUTHORITY_UNAPPROVED" },
+            { "const": "WEL_SANDBOX_PLATFORM_EVIDENCE_MISSING" },
+            { "const": "WEL_RELEASE_MATRIX_EVIDENCE_MISSING" },
+            { "const": "WEL_INDEPENDENT_SECURITY_REVIEW_MISSING" }
+          ],
+          "items": false,
+          "minItems": 8,
+          "maxItems": 8
+        },
+        {
+          "type": "array",
+          "prefixItems": [
+            { "const": "WEL_TEST_CANDIDATE_NOT_YET_FROZEN" },
+            { "const": "WEL_SGOS_PROGRAM_NOT_MATERIALIZED" },
+            { "const": "WEL_SGOS_ATTEMPT_NOT_DISPATCHED" },
+            { "const": "WEL_EXACT_TEST_OBSERVATION_UNAVAILABLE" },
+            { "const": "WEL_AUTHENTICATED_RUNNER_UNAVAILABLE" },
+            { "const": "WEL_TRUST_AUTHORITY_UNAPPROVED" },
+            { "const": "WEL_SANDBOX_PLATFORM_EVIDENCE_MISSING" },
+            { "const": "WEL_RELEASE_MATRIX_EVIDENCE_MISSING" },
+            { "const": "WEL_INDEPENDENT_SECURITY_REVIEW_MISSING" }
+          ],
+          "items": false,
+          "minItems": 9,
+          "maxItems": 9
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,6 +1,7 @@
 import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { WEL_EXACT_TEST_ADAPTERS } from './wel-adapters.mjs';
+import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 
@@ -90,9 +91,10 @@ function normalizeTestcaseExactPolicy(value, defaults) {
   rejectUnknownKeys(source, ['mode', 'adapter', 'requiredWitnessTypes', 'evidenceTier'], 'codeDelivery.tests.testcaseExact');
   const mode = enumValue(source.mode ?? defaults.mode, ['disabled', 'observe', 'enforce'], 'codeDelivery.tests.testcaseExact.mode');
   if (mode === 'enforce') {
+    const readiness = unavailableWelEnforcementReadiness();
     throw new SingularityFlowError(
-      'codeDelivery.tests.testcaseExact.mode enforce is unavailable until an approved CAB execution profile and SGOS lifecycle bridge are configured. Use observe or disabled.',
-      { code: 'WEL_ENFORCEMENT_UNAVAILABLE' }
+      'codeDelivery.tests.testcaseExact.mode enforce is unavailable until the authenticated CAB runner, exact SGOS lifecycle join, trusted release evidence, and recovery path are approved. Use observe or disabled.',
+      { code: 'WEL_ENFORCEMENT_UNAVAILABLE', details: readiness }
     );
   }
   const adapter = source.adapter ?? defaults.adapter;

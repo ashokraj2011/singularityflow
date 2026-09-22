@@ -1,6 +1,6 @@
 # REV delivery status and activation boundary
 
-Singularity Flow includes a guarded, interactive Revision Loop pilot for exact code-Candidate refinement. The pilot joins Candidate retention, route, packet, append-only head journal, manual capture, and deterministic precheck behind preview/confirmation contracts. It does not expose a public Candidate-comparison UI. Restoration and ordinary Story publication integration are not exposed by this guarded profile.
+Singularity Flow includes a guarded, interactive Revision Loop pilot for exact code-Candidate refinement. The pilot joins Candidate retention, route, packet, append-only head journal, manual capture, and deterministic precheck behind preview/confirmation contracts. A separately invoked local Code-publication bridge revalidates and consumes the exact selected head. It does not expose a public Candidate-comparison UI or autonomous restoration/execution profile.
 
 It is deliberately **not** an autonomous model executor and does not imply release eligibility. Check the installed boundary with `singularity-flow revision capabilities --json`; run `singularity-flow revision activation --json` from the exact repository to see current eligibility and blockers. Those commands are read-only and are the operational source of truth for the installed build.
 
@@ -11,10 +11,18 @@ It is deliberately **not** an autonomous model executor and does not imply relea
 - `singularity-flow revise --feedback-stdin --saved-buffers-confirmed [same selectors] --confirm sha256:<PLAN> --json` revalidates the exact preview before opening one bounded interval. Changed authority, Candidate, phase, buffers, attachments, feedback, or plan fails closed.
 - For the first interval, successful confirmation retains the previewed source snapshot as the immutable parent Candidate. Later previews bind the loop's already-retained selected head.
 - A routing-required preview cannot be confirmed. Its structured `routing` field is the exact result. `/sf-recommend` and `singularity-flow recommend --json` only re-evaluate the repository's current next step; they do not consume the preview's routing plan.
-- `/sf-revise` provides the same preview/explicit-confirmation flow in Copilot. It stops before ordinary phase publication, submission, approval, merge, or deployment. `@sflow /revise` performs read-only status/card inspection or prefills `/sf-revise`; the participant never starts a revision directly.
+- `/sf-revise` provides the same preview/explicit-confirmation flow in Copilot. It stops before ordinary phase publication, submission, approval, merge, or deployment. A later `/sf-code` publication independently revalidates and consumes an eligible exact current selected head. `@sflow /revise` performs read-only status/card inspection or prefills `/sf-revise`; the participant never starts a revision directly.
 - A confirmed interval can admit only a result Candidate produced through the returned safe built-in packet/capture/precheck actions. It cannot run arbitrary shell commands, Git commands, an autonomous model agent, unknown network effects, or organization-specific test infrastructure.
 - `revision resume` is a bounded local recovery mutation: it may finish precheck from an already retained Candidate or repair a journal/pointer gap when exact immutable evidence exists. It never repeats an uncertain attempt. Capturing or recovery-required state cannot be abandoned; the separately previewed/confirmed abandon flow applies only when no capture is in flight.
-- The guarded pilot stops at a retained, prechecked local Candidate. This build does **not** bridge that selected REV head into ordinary phase publication; ordinary publication does not consume a REV selection automatically. Full selected-Candidate publication remains disabled until registered quality/proof adapters and the publication bridge are release-qualified.
+- Ordinary publication remains unchanged when the active Code generation has never opened a REV loop. Once REV state exists, `phase publish` fails closed unless the private pointer, append-only journal, exact retained Candidate, precheck input, Story/phase/generation, configuration/workflow/proof context, baseline commit, live application bytes, and admitted prospective tree all identify the same current selected head. In-flight, abandoned, recovery-required, missing, stale, or ineligible state cannot fall back to unbound worktree publication.
+- The governed Code commit trailer binds the exact selection digest, and the pending-publication
+  recovery record binds that same digest to the exact transaction commit. The complete prepared and
+  retained selection record is machine-private today; a fresh clone can read the commit trailer and
+  its selection digest, but cannot recompute or authenticate the complete REV selection proof without a future governed
+  cross-clone receipt. This limitation does not weaken the local fail-closed publication
+  transaction, but it remains a release/portable-verification gate. REV precheck evidence never
+  becomes Testing evidence: the normal code-delivery receipt remains the Code receipt, and
+  Testing/Verification must still create and approve its own downstream evidence.
 
 ## Feedback attachments
 
@@ -57,13 +65,14 @@ lifecycle exist.
 The dedicated VS Code result-card model displays candidate and run identity, observed status,
 test totals, stale bindings, an empty reserved visual section, and an escaped opaque artifact
 inventory. Artifact provenance is explicitly unverified and artifacts remain non-previewable until
-secure admission exists. It does not render report HTML, artifact bytes, command controls, or
+the installed admission contract is connected to an approved, authority-revalidated runner and a
+sandboxed viewer. It does not render report HTML, artifact bytes, command controls, or
 authority claims. Wiring that card into a mutating panel remains gated on a stable result envelope
 and approved runner lifecycle.
 
 ## Evidence and safety boundary
 
-The machine-local append-only journal uses compare-and-swap for the selected head. Candidate references, route/packet plans, context, and precheck are content-addressed and rechecked at mutation time. Each successful start confirmation has an immutable result receipt keyed by its exact plan digest, so the same feedback and selectors replay the original result even after a later interval replaces the current pointer. Other historical mutations are not replayable. Changed bytes or authority require a new preview. This profile neither claims automatic restoration nor creates an ordinary phase-publication selection.
+The machine-local append-only journal uses compare-and-swap for the selected head. Candidate references, route/packet plans, context, and precheck are content-addressed and rechecked at mutation time. Each successful start confirmation has an immutable result receipt keyed by its exact plan digest, so the same feedback and selectors replay the original result even after a later interval replaces the current pointer. Other historical mutations are not replayable. Changed bytes or authority require a new preview. The Story publication transaction rechecks the current selection under the Story lock and compares every application blob in its prospective Git tree with the retained Candidate. This profile does not claim automatic restoration or autonomous revision execution.
 
 The built-in attempt bridge is intentionally narrow. It can apply only explicitly admitted bounded
 operations and return exact non-promoting bytes after cleanup. Its same-process receipt seals the
@@ -89,10 +98,11 @@ Code-phase tests, screenshots, or Playwright observations may be attached to the
 - Approved isolated model/code executor with process-tree quiescence and external-effect resolution.
 - Trusted editor-buffer adapter where the host cannot prove saved/captured buffers.
 - Organization-approved quality-command adapters and authenticated durable test receipts.
+- Governed cross-clone REV selection receipt and terminal-gate verifier; the current full
+  selection attestation is machine-private even though its digest is commit- and recovery-bound.
 - Candidate-under-test build/launch or deployment attestation proving that the browser exercised
   the exact retained Candidate, plus governed baseline/finding lifecycle and secure artifact
   admission, before a browser result can become a qualifying witness.
-- Exact selected-head integration with ordinary Story phase publication.
 - Binary attachment scanning/extraction and timed quarantine expiry.
 - Full macOS/Linux/Windows fault witness matrix and a release-owned profile attestation.
 - Decision owner and independent validator for default/full-profile activation.

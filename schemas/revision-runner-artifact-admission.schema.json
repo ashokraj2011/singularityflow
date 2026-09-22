@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-runner-artifact-admission.schema.json",
+  "title": "Singularity Flow approved-runner artifact admission v1",
+  "$comment": "Bounded byte admission only. Admitted artifacts remain non-active, non-renderable, and non-extractable.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "runId", "runKeySha256", "receiptSha256",
+    "candidateAttestationSha256", "artifacts", "artifactCount", "totalBytes",
+    "renderingAuthorized", "extractionAuthorized", "admissionSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-runner-artifact-admission" },
+    "runId": { "type": "string", "pattern": "^BRL-[a-f0-9]{12}$" },
+    "runKeySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "receiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "candidateAttestationSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "artifactCount": { "type": "integer", "minimum": 0, "maximum": 256 },
+    "totalBytes": { "type": "integer", "minimum": 0, "maximum": 33554432 },
+    "renderingAuthorized": { "const": false },
+    "extractionAuthorized": { "const": false },
+    "admissionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "required": [
+        "receiptIndex", "path", "artifactSha256", "receiptSha256",
+        "candidateAttestationSha256", "kind",
+        "declaredMediaType", "detectedMediaType", "bytes", "validation",
+        "activeContentPermitted", "archiveExtractionPermitted", "previewable"
+      ],
+      "properties": {
+        "receiptIndex": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "artifactSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "receiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateAttestationSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "kind": {
+          "enum": [
+            "playwright-report", "playwright-trace", "playwright-screenshot",
+            "playwright-video", "visual-diff", "structured-result", "bounded-log"
+          ]
+        },
+        "declaredMediaType": { "$ref": "#/$defs/mediaType" },
+        "detectedMediaType": { "$ref": "#/$defs/mediaType" },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 8388608 },
+        "validation": { "enum": ["decoded-bounded-content", "magic-bounded-opaque"] },
+        "activeContentPermitted": { "const": false },
+        "archiveExtractionPermitted": { "const": false },
+        "previewable": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "mediaType": {
+      "enum": [
+        "application/json", "application/zip", "text/plain", "text/html", "image/png",
+        "image/jpeg", "image/webp", "video/webm"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

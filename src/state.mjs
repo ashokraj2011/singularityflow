@@ -107,6 +107,7 @@ import { validateDocumentPublicationTree } from './document-publication.mjs';
 import {
   prepareRevisionPublicationSelection, verifyPreparedRevisionPublicationSelection
 } from './revision/publication-selection.mjs';
+import { assertNoInteractiveRevisionPublication } from './revision/publication-adapter.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
 import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
@@ -6337,6 +6338,11 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         // after the publication unit has acquired the subject lock and opened
         // its recovery journal. Callers may prepare an in-memory decision before
         // this point, but may not persist governed files outside this callback.
+        if (revisionPublication === null && phaseRequiresCodeDelivery(
+          workflow.phases?.[workflow.currentPhase]
+        )) {
+          await assertNoInteractiveRevisionPublication(root, { definition: config, workflow });
+        }
         const transitionResult = beforeStateWrite
           ? await beforeStateWrite(publicationEvent, transactionContext)
           : undefined;

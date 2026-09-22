@@ -42,6 +42,17 @@ The current foundation can project registered assertion outcomes only. It refuse
 activation and visual comparison claims until a registered pixel comparator and governed baseline
 store are installed; screenshots remain review artifacts, not deterministic visual proof.
 
+The installed foundation also includes a fail-closed contract boundary reserved for a future approved runner. It fixes one
+shell-free provider ABI, a Candidate-under-test attestation contract, SGOS-compatible Ed25519
+receipt authentication, non-rendering bounded artifact admission, and an immutable private
+supplement store. This is infrastructure, not activation. `capabilities` reports
+`executionEnabled: false` until an adapter is wired and the current SGOS/CAB authority supplies and
+revalidates the exact runner key, approval receipt, and policy binding. Even an authenticated
+supplement reports `testingVerificationEstablished: false` and
+`publicationEligibilityEstablished: false`; lifecycle admission remains a separate governed join.
+Opaque ZIP, image, and video artifacts are retained only after digest, size, signature, and magic
+checks and are never extracted, rendered, or marked previewable by the admission boundary.
+
 ```bash
 singularity-flow revision checks capabilities --json
 ```

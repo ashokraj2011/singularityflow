@@ -302,7 +302,7 @@ function repositorySha256(root) {
 
 function exactProposal(declaration, clauseId, parser) {
   const core = {
-    schemaVersion: 1, // schema-transient: embedded proposal in test-execution v3.
+    schemaVersion: 1, // schema-transient: embedded proposal in current test-execution v4 (introduced by v3).
     kind: 'wel-witness-mapping-proposal',
     clauseId,
     witnessType: 'test',
@@ -405,7 +405,7 @@ export async function observeJunit5SurefireIdentities(root, command, parsed, tes
   }
   const exact = gaps.size === 0 && exactOccurrences.length > 0;
   const catalogCore = {
-    schemaVersion: 1, // schema-transient: embedded catalog in test-execution v3.
+    schemaVersion: 1, // schema-transient: embedded catalog in current test-execution v4 (introduced by v3).
     kind: 'wel-junit5-static-catalog',
     parser: catalog.parser,
     repositorySha256: repositoryIdentity,

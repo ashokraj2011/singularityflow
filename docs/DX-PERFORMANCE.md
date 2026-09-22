@@ -307,6 +307,19 @@ post-dedup module/byte closures with approximately 1–3% headroom; these entrie
 product code rather than an additional copy of the status kernel. This is a new packaging
 layout baseline, not a claim that extension-host latency or memory improved by the same ratio.
 
+At clean `main@dc2146c9`, an isolated build measured 27,783,865 bytes: the committed baseline
+already exceeded the then-current 27,485,000-byte ceiling by 298,865 bytes before the candidate
+changes were applied. The final candidate measures 27,888,908 bytes, 105,043 bytes above that
+clean baseline after the approved-runner and revision publication paths became part of the
+gateway and world-model runtime closures. The failing entries measure 1,337,520 bytes/156 modules
+(`extension.cjs`), 8,517,634/601 (`gateway-runtime.cjs`), 3,844,532/423 (`help-runtime.cjs`),
+1,848,127/181 (`lazy-panels-runtime.cjs`), 3,652,936/405 (`support-runtime.cjs`), and
+8,571,925/607 (`world-model-build.cjs`). This rebaseline moves only those failing byte ceilings to
+the next 5,000-byte boundary and only the exceeded module ceilings to the exact observed count;
+already-sufficient context-runtime, status-worker, extension-module, and support-module ceilings
+remain unchanged. The aggregate ceiling is 27,890,000 bytes, leaving 1,092 bytes of measured
+headroom rather than admitting an unrelated increase.
+
 ## Bounded aggregate verification
 
 `npm test` and `npm run test:cli` no longer start one unbounded all-files process. They create eight

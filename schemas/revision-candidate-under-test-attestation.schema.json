@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-candidate-under-test-attestation.schema.json",
+  "title": "Singularity Flow candidate-under-test attestation v1",
+  "$comment": "Provider-signed isolation evidence only. This record never establishes Testing or publication authority.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "providerId", "providerProtocol", "providerKeyId", "run",
+    "observedAt", "completedAt", "nonceSha256", "isolation", "cleanupStatus",
+    "testingAuthorityEstablished", "publicationEligibilityEstablished", "attestationSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-candidate-under-test-attestation" },
+    "providerId": { "const": "sflow-isolated-runner" },
+    "providerProtocol": { "const": "revision-isolated-runner-v1" },
+    "providerKeyId": { "$ref": "#/$defs/keyId" },
+    "run": { "$ref": "#/$defs/runBinding" },
+    "observedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "completedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "nonceSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "isolation": { "$ref": "#/$defs/isolation" },
+    "cleanupStatus": { "const": "verified" },
+    "testingAuthorityEstablished": { "const": false },
+    "publicationEligibilityEstablished": { "const": false },
+    "attestationSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "$defs": {
+    "keyId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{1,127}$"
+    },
+    "runBinding": {
+      "type": "object",
+      "required": [
+        "runId", "runKeySha256", "candidateId", "candidateSha256",
+        "candidateRefSha256", "candidateTree", "materializationSha256", "environmentSha256"
+      ],
+      "properties": {
+        "runId": { "type": "string", "pattern": "^BRL-[a-f0-9]{12}$" },
+        "runKeySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateId": { "$ref": "revision-contract-definitions.schema.json#/$defs/candidateId" },
+        "candidateSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateRefSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "candidateTree": { "$ref": "revision-contract-definitions.schema.json#/$defs/gitObject" },
+        "materializationSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "environmentSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "isolation": {
+      "type": "object",
+      "required": ["filesystem", "process", "network"],
+      "properties": {
+        "filesystem": { "const": "ephemeral-readonly-candidate" },
+        "process": { "const": "dedicated-process-group" },
+        "network": { "const": "deny-all" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-authenticated-runner-receipt.schema.json",
+  "title": "Singularity Flow authenticated runner receipt v1",
+  "$comment": "Provider-authenticated execution evidence pending lifecycle admission. This record cannot establish publication eligibility.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "providerId", "providerProtocol", "providerKeyId", "authority",
+    "runId", "runKeySha256", "browserReceiptSha256", "candidateAttestationSha256",
+    "artifactAdmissionSha256", "issuedAt", "executionAssurance",
+    "testingVerificationStatus", "publicationEligibilityEstablished", "authenticatedReceiptSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-authenticated-runner-receipt" },
+    "providerId": { "const": "sflow-isolated-runner" },
+    "providerProtocol": { "const": "revision-isolated-runner-v1" },
+    "providerKeyId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{1,127}$" },
+    "authority": { "$ref": "#/$defs/authority" },
+    "runId": { "type": "string", "pattern": "^BRL-[a-f0-9]{12}$" },
+    "runKeySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "browserReceiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "candidateAttestationSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "artifactAdmissionSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+    "issuedAt": { "$ref": "revision-contract-definitions.schema.json#/$defs/timestamp" },
+    "executionAssurance": { "const": "provider-signed-isolation-claims" },
+    "testingVerificationStatus": { "const": "authenticated-not-lifecycle-admitted" },
+    "publicationEligibilityEstablished": { "const": false },
+    "authenticatedReceiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" }
+  },
+  "$defs": {
+    "authority": {
+      "type": "object",
+      "required": ["source", "receiptSha256", "policySha256", "revalidationRequiredAtConsumption"],
+      "properties": {
+        "source": { "const": "sgos-cab-approved-configuration" },
+        "receiptSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "policySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "revalidationRequiredAtConsumption": { "const": true }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

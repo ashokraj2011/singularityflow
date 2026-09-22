@@ -112,8 +112,26 @@ test('capabilities is a machine-local read that separates foundations from unava
   assert.equal(output.data.foundations.immutableReceiptStore, 'available-local-private');
   assert.equal(output.data.foundations.assertionProjection, 'available-observation-only');
   assert.equal(output.data.foundations.deterministicVisualComparison, 'unavailable');
+  assert.equal(output.data.foundations.approvedRunnerProviderContract,
+    'available-fail-closed');
+  assert.equal(output.data.foundations.authenticatedRunnerReceiptStore,
+    'available-requires-sgos-cab-trust');
+  assert.deepEqual(output.data.approvedRunnerBoundary, {
+    providerId: 'sflow-isolated-runner',
+    providerProtocol: 'revision-isolated-runner-v1',
+    apiVersion: 1,
+    authoritySource: 'sgos-cab-approved-configuration',
+    activationStatus: 'disabled-pending-authority-revalidation-and-adapter-wiring',
+    executionEnabled: false,
+    testingVerificationEstablished: false,
+    publicationEligibilityEstablished: false
+  });
   assert.equal(output.data.unavailable.visualComparator, 'BRL_VISUAL_COMPARATOR_UNAVAILABLE');
   assert.equal(output.data.unavailable.executor, 'REV_CODE_CHECK_EXECUTOR_UNAVAILABLE');
+  assert.equal(output.data.unavailable.approvedRunnerProvider,
+    'REV_RUNNER_PROVIDER_UNAVAILABLE');
+  assert.equal(output.data.unavailable.approvedRunnerTrust,
+    'REV_RUNNER_AUTHORITY_UNAVAILABLE');
   assert.equal(
     output.data.unavailable.candidateUnderTestProvenance,
     'BRL_CANDIDATE_UNDER_TEST_UNAVAILABLE'

@@ -23,6 +23,7 @@ import { readRecord } from './schema-migrations.mjs';
 import {
   verifyExactTestcaseIdentityObservation, welResultAdapter
 } from './wel-adapters.mjs';
+import { validateWelTestLifecycle } from './wel-test-lifecycle.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
 import {
@@ -775,6 +776,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       continue;
     }
     const observation = testReceipt.testcaseObservation;
+    if (!validateWelTestLifecycle(testReceipt.lifecycle)) {
+      fail(`test receipt ${execution.commandId} has an invalid or authority-inventing WEL lifecycle projection`);
+    }
     if (observation?.status === 'observed') {
       if (testReceipt.assurance !== 'module-executed' || testReceipt.testcaseExecutionProven !== false) {
         fail(`test receipt ${execution.commandId} does not preserve module execution as its sole authority`);

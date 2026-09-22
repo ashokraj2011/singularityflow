@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/revision-authenticated-runner-receipt-envelope.schema.json",
+  "title": "Singularity Flow signed authenticated runner receipt envelope v1",
+  "$comment": "Machine-private durable wrapper. The provider signature continues to cover the exact nested authenticated receipt; lifecycle admission remains unestablished.",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "record", "signature"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "revision-authenticated-runner-receipt-envelope" },
+    "record": { "$ref": "revision-authenticated-runner-receipt.schema.json" },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "keyId", "keySha256", "payloadSha256", "value"],
+      "properties": {
+        "algorithm": { "const": "ed25519" },
+        "keyId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{1,127}$" },
+        "keySha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "payloadSha256": { "$ref": "revision-contract-definitions.schema.json#/$defs/hash" },
+        "value": { "type": "string", "pattern": "^[A-Za-z0-9+/]{86}==$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

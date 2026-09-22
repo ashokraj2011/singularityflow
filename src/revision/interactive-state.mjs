@@ -220,10 +220,11 @@ export async function writeRevisionInteractiveState(root, value, {
   expectedStateSha256 = undefined
 } = {}) {
   const selectedSubject = subject(value.subject);
-  return withSubjectLock(root, {
-    kind: 'revision-interactive-state',
-    id: `${selectedSubject.workId}:${selectedSubject.phaseId}:${selectedSubject.phaseGeneration}`
-  }, async () => {
+  return withSubjectLock(root, { kind: 'story', id: selectedSubject.workId }, () =>
+    withSubjectLock(root, {
+      kind: 'revision-interactive-state',
+      id: `${selectedSubject.workId}:${selectedSubject.phaseId}:${selectedSubject.phaseGeneration}`
+    }, async () => {
     const current = await readRevisionInteractiveState(root, selectedSubject, { optional: true });
     if (expectedStateSha256 !== undefined
         && (current?.stateSha256 ?? null) !== expectedStateSha256) {
@@ -262,7 +263,7 @@ export async function writeRevisionInteractiveState(root, value, {
       maximumBytes: MAX_STATE_BYTES, enforceWindowsAcl: true
     });
     return sealed;
-  });
+    }));
 }
 
 export async function writeRevisionInteractivePayload(root, selected, payload) {

@@ -244,7 +244,7 @@ export function classifyJavascriptTestCommandScope(command) {
 
 function exactProposal(declaration, clauseId, parser, profile) {
   const core = {
-    schemaVersion: 1, // schema-transient: embedded proposal in test-execution v3.
+    schemaVersion: 1, // schema-transient: embedded proposal in current test-execution v4 (introduced by v3).
     kind: 'wel-witness-mapping-proposal', clauseId, witnessType: 'test',
     executionProfile: profile, logicalTestId: declaration.logicalTestId,
     sourcePath: declaration.sourcePath,
@@ -322,7 +322,7 @@ export async function observeJavascriptTestIdentities(root, command, parsed, tes
   }
   const exact = gaps.size === 0 && exactOccurrences.length > 0;
   const catalogCore = {
-    schemaVersion: 1, // schema-transient: embedded catalog in test-execution v3.
+    schemaVersion: 1, // schema-transient: embedded catalog in current test-execution v4 (introduced by v3).
     kind: 'wel-javascript-static-catalog', parser, repositorySha256: repositoryIdentity,
     framework, sourceCount: sourceSet.sources.length, declarations
   };
@@ -425,7 +425,7 @@ export async function verifyJavascriptTestIdentityObservation(root, observation,
     const { mappingSha256, reviewStatus, ...core } = proposal;
     const declaration = declarations.get(proposal.logicalTestId);
     if (reviewStatus !== 'unreviewed' || mappingSha256 !== `sha256:${recordSha256(core)}`
-        || core.schemaVersion !== 1 || core.kind !== 'wel-witness-mapping-proposal' // schema-transient: embedded proposal in test-execution v3.
+        || core.schemaVersion !== 1 || core.kind !== 'wel-witness-mapping-proposal' // schema-transient: embedded proposal in current test-execution v4.
         || core.witnessType !== 'test' || !QUALIFIED_CLAUSE.test(core.clauseId ?? '')
         || proposal.executionProfile !== observation.profile
         || !declaration || proposal.sourcePath !== declaration.sourcePath

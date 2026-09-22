@@ -218,6 +218,15 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
       rawReports: (observation.rawReports ?? []).map(({ path: reportPath, sha256, bytes }) => ({
         path: reportPath, sha256, bytes
       })),
+      lifecycle: {
+        status: receipt.lifecycle?.status ?? 'unavailable',
+        candidate: receipt.lifecycle?.candidate ?? null,
+        program: receipt.lifecycle?.program ?? null,
+        attempt: receipt.lifecycle?.attempt ?? null,
+        retryLineage: receipt.lifecycle?.retryLineage ?? [],
+        enforcementEligible: receipt.lifecycle?.enforcementEligible === true,
+        gaps: receipt.lifecycle?.gaps ?? ['WEL_LIFECYCLE_JOIN_UNAVAILABLE']
+      },
       notice: localDiagnostic
         ? observation.notice ?? null
         : 'testcase evidence did not satisfy the supported non-exact local-observation contract'

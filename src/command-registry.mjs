@@ -303,7 +303,7 @@ const COMPREHENSION_SUBCOMMANDS = Object.freeze([
 const DELIVERY_SUBCOMMANDS = Object.freeze([
   'recommend', 'select', 'workflow-status', 'execution-status',
   'promotion-preview', 'promotion-apply', 'promotion-status', 'assurance-evaluate',
-  'provenance-status', 'authenticated-runner-status',
+  'provenance-status', 'authenticated-runner-status', 'wel-readiness',
   'local-runner-create', 'local-runner-status', 'local-runner-options', 'local-runner-plan',
   'local-runner-run', 'local-runner-verify', 'readiness'
 ]);
@@ -648,7 +648,7 @@ function resolveDeliveryOperation(definition, positionals) {
   return never(
     `delivery.${subcommand}`, definition,
     ['recommend', 'workflow-status', 'execution-status', 'promotion-preview', 'promotion-status',
-      'assurance-evaluate', 'provenance-status', 'authenticated-runner-status', 'readiness']
+      'assurance-evaluate', 'provenance-status', 'authenticated-runner-status', 'wel-readiness', 'readiness']
       .concat(['local-runner-status', 'local-runner-options', 'local-runner-plan', 'local-runner-verify'])
       .includes(subcommand) ? 'read' : 'mutation'
   );
@@ -1551,6 +1551,7 @@ export function operationCatalog() {
     never('delivery.assurance-evaluate', deliveryDefinition, 'read'),
     never('delivery.provenance-status', deliveryDefinition, 'read'),
     never('delivery.authenticated-runner-status', deliveryDefinition, 'read'),
+    never('delivery.wel-readiness', deliveryDefinition, 'read'),
     never('delivery.local-runner-create', deliveryDefinition, 'mutation'),
     never('delivery.local-runner-status', deliveryDefinition, 'read'),
     never('delivery.local-runner-options', deliveryDefinition, 'read'),

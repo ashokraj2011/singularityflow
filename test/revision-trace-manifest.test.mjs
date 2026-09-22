@@ -190,7 +190,7 @@ test('REV pilot activation requires a real repository-local opt-in and refuses f
   });
   assert.deepEqual(dormant.foundations.map(({ id, status }) => ({ id, status })), [
     { id: 'candidate-head-cas', status: 'guarded-local' },
-    { id: 'candidate-precheck-publication', status: 'guarded-local-precheck-only' },
+    { id: 'candidate-precheck-publication', status: 'guarded-local-publication' },
     { id: 'code-check-projection', status: 'projection-only' },
     { id: 'compare-discard-restore', status: 'kernel-only' }
   ]);

@@ -13,7 +13,7 @@ related:
   - governed-execution
   - evidence-and-ledger
   - story-lifecycle
-version: 3
+version: 4
 ---
 Governed Delivery and Proof (GDP) projects the same Candidate and deterministic proof system across
 Workflow mode and bounded Outcome mode. It is opt-in. Existing Stories keep their creation-pinned
@@ -82,6 +82,20 @@ injected.
 it validates IDs and policy digests but still reports the runner integration, verifier, authority,
 platform evidence, pilots, and evidence storage as unavailable. It never executes a runner or
 upgrades assurance. See `docs/CAB-R2-PROVIDER-FOUNDATION.md`.
+
+`delivery wel-readiness [--work-id STORY-ID] [--runner-provider-file FILE] --json` is the public
+read-only WEL lifecycle and enforcement foundation projection. It does not load or verify SGOS
+owner records, and therefore reports `readinessScope: foundation-projection`,
+`lifecycleVerification: not-loaded`, and `lifecycleJoined: false`. A private caller that supplies a
+structural join still receives `lifecycleVerification: structure-only`; only a process-local token
+minted after the SGOS owner reads the Process, Program, immutable attempts, and receipt and matches
+their Task Contract and receipt identities to the validated structural join can report
+`sgos-owner-verified`. That remains a partial projection: this build has no
+complete cross-authority approval-owner verifier, so `lifecycleJoined` remains false. The doctor
+reports CAB gaps, trusted-release gaps, and the existing SGOS retry, approval,
+publication-recovery, and reviewed-configuration owners. The
+current build always reports `enforcementAvailable: false` and `authority: none`; diagnostics and
+configuration declarations cannot turn local test observations into authenticated evidence.
 
 `delivery readiness` accepts the same optional `--runner-provider-file` and is an honest support
 and blocker report. It always reports `gaReady: false` in

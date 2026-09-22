@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
 
 const WEL_ROLLOUT = Object.freeze({ id: 'wel-v0.2-observe', version: 1, enrollment: 'new-story-only' });
 
@@ -49,9 +50,10 @@ export function buildWelEnrollment({
     exact.mode ?? 'disabled'
   ]);
   if (modes.has('enforce')) {
+    const readiness = unavailableWelEnforcementReadiness();
     throw new SingularityFlowError(
-      'WEL enforcement is unavailable until CAB external attestation and the SGOS lifecycle bridge are configured.',
-      { code: 'WEL_ENFORCEMENT_UNAVAILABLE' }
+      'WEL enforcement is unavailable until CAB external attestation, the SGOS lifecycle join, trusted release evidence, and recovery approval are present.',
+      { code: 'WEL_ENFORCEMENT_UNAVAILABLE', details: readiness }
     );
   }
   const mode = modes.has('observe') ? 'observe' : 'disabled';

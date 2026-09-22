@@ -1969,6 +1969,41 @@ function testExecutionV2ToV3(source) {
   };
 }
 
+function testExecutionV3ToV4(source) {
+  const observed = source.testcaseObservation?.status === 'observed';
+  return {
+    ...source,
+    schemaVersion: 4,
+    // Historical local executions happened before the publication Candidate existed and did not
+    // run as an SGOS material task. Migration records that absence explicitly; it never derives a
+    // Program, attempt, retry lineage, CAB attestation, approval, or publication join from names.
+    lifecycle: {
+      schemaVersion: 1,
+      status: 'unavailable',
+      candidate: null,
+      program: null,
+      attempt: null,
+      retryLineage: [],
+      taskReceipt: null,
+      authenticatedExecution: null,
+      approval: null,
+      publication: null,
+      enforcementEligible: false,
+      gaps: [
+        'WEL_TEST_CANDIDATE_NOT_YET_FROZEN',
+        'WEL_SGOS_PROGRAM_NOT_MATERIALIZED',
+        'WEL_SGOS_ATTEMPT_NOT_DISPATCHED',
+        ...(observed ? [] : ['WEL_EXACT_TEST_OBSERVATION_UNAVAILABLE']),
+        'WEL_AUTHENTICATED_RUNNER_UNAVAILABLE',
+        'WEL_TRUST_AUTHORITY_UNAPPROVED',
+        'WEL_SANDBOX_PLATFORM_EVIDENCE_MISSING',
+        'WEL_RELEASE_MATRIX_EVIDENCE_MISSING',
+        'WEL_INDEPENDENT_SECURITY_REVIEW_MISSING'
+      ]
+    }
+  };
+}
+
 function storySubmissionPacketV1ToV2(source) {
   return {
     ...source,
@@ -2724,8 +2759,11 @@ const families = [
     steps: [migration(1, 2, comprehensionRecordPreviewV1ToV2)]
   }),
   family({
-    id: 'test-execution', currentVersion: 3,
-    steps: [migration(1, 2, testExecutionV1ToV2), migration(2, 3, testExecutionV2ToV3)],
+    id: 'test-execution', currentVersion: 4,
+    steps: [
+      migration(1, 2, testExecutionV1ToV2), migration(2, 3, testExecutionV2ToV3),
+      migration(3, 4, testExecutionV3ToV4)
+    ],
     paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/tests\/[^/]+\.json$/], immutable: true
   }),
   family({
@@ -3618,6 +3656,31 @@ const families = [
   }),
   family({ id: 'revision-browser-comparison', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity' }),
+  // Approved-runner provider records are signed before SFlow sees them. Preserve those exact signed
+  // bytes inside versioned envelopes at the paths the private store actually writes; do not pretend
+  // the inner signed record lives in REV's ordinary content-addressed record namespace. Admission is
+  // an SFlow-owned record and therefore maps directly to its one immutable stored path. The envelope
+  // families recognize the short-lived pre-registration preview shape as v1 on read so an already
+  // captured provider signature is not rewritten or discarded.
+  family({ id: 'revision-candidate-under-test-attestation', currentVersion: 1,
+    immutable: true, migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-candidate-under-test-attestation-envelope', currentVersion: 1,
+    immutable: true, unversionedAs: 1, migrationPolicy: 'frozen-identity',
+    paths: [
+      /^\$git\/revision-browser-runs\/BRL-[a-f0-9]{12}\/authenticated\/attestation\.json$/
+    ] }),
+  family({ id: 'revision-runner-artifact-admission', currentVersion: 1,
+    immutable: true, migrationPolicy: 'frozen-identity',
+    paths: [
+      /^\$git\/revision-browser-runs\/BRL-[a-f0-9]{12}\/authenticated\/admission\.json$/
+    ] }),
+  family({ id: 'revision-authenticated-runner-receipt', currentVersion: 1,
+    immutable: true, migrationPolicy: 'frozen-identity' }),
+  family({ id: 'revision-authenticated-runner-receipt-envelope', currentVersion: 1,
+    immutable: true, unversionedAs: 1, migrationPolicy: 'frozen-identity',
+    paths: [
+      /^\$git\/revision-browser-runs\/BRL-[a-f0-9]{12}\/authenticated\/authenticated-receipt\.json$/
+    ] }),
   family({ id: 'revision-code-check-receipt', currentVersion: 1, immutable: true,
     migrationPolicy: 'frozen-identity' }),
   family({ id: 'revision-publication-selection', currentVersion: 1, immutable: true,

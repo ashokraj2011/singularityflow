@@ -20,15 +20,35 @@ import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { buildSpecIndex, canonicalJson } from '../src/specifications.mjs';
+import { recordSha256 } from '../src/records.mjs';
+import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
+import { sgosRevisionCandidateReference } from '../src/revision/candidate-adapter.mjs';
+import { computeRevisionPrecheck } from '../src/revision/precheck.mjs';
+import { currentInteractiveRevisionPublication } from '../src/revision/publication-adapter.mjs';
+import {
+  loadActiveRevisionStory, producerIdentity, readRevisionContext, revisionLoopStore
+} from '../src/revision/product-context.mjs';
+import {
+  readRevisionInteractiveState, writeRevisionInteractivePayload, writeRevisionInteractiveState
+} from '../src/revision/interactive-state.mjs';
 import {
   assertPlannedSpecificationClaims, commitAndPublish, createWorkflow,
   inspectRequiredArtifactRegistration, loadConfig, preparePhaseInputs,
-  generationResultMatches, publishGeneration, registerArtifact, scanArtifacts, submitPhase
+  beginPhaseGeneration, generationResultMatches, publishGeneration, registerArtifact,
+  saveWorkflow, scanArtifacts, submitPhase
 } from '../src/state.mjs';
 
 const ACTOR = { name: 'Template Author', email: 'author@example.invalid', login: null };
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+const revHash = (value) => `sha256:${recordSha256(value)}`;
+const revDigest = (letter) => `sha256:${letter.repeat(64)}`;
+const REV_CHECKS = [
+  'candidateIntegrity', 'candidateFreeze', 'parentResultLineage', 'scope', 'protectedPaths',
+  'forbiddenEffects', 'secretScan', 'hunkDisposition', 'criteriaBindingFreshness',
+  'specificationDisposition', 'requiredStructure', 'kernelChecks',
+  'proofProfileReadiness', 'pendingRecovery', 'worktreeEquality'
+];
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -410,11 +430,14 @@ const AUTHORSHIP = buildGenerationAuthorship({
   source: null
 });
 
-async function publishCodeGoverned(root, config, workflow, phaseId) {
+async function publishCodeGoverned(root, config, workflow, phaseId, options = {}) {
   await scanArtifacts(root, config, workflow, phaseId);
   const phase = workflow.phases[phaseId];
   const generation = Number(phase.generation) + 1;
   const payload = await generationStartPublicationBinding(root, workflow, phase);
+  const revisionPublication = Object.hasOwn(options, 'revisionPublication')
+    ? options.revisionPublication
+    : await currentInteractiveRevisionPublication(root, { definition: config, workflow });
   return commitAndPublish(
     root,
     config,
@@ -430,9 +453,185 @@ async function publishCodeGoverned(root, config, workflow, phaseId) {
           transactionId: transactionContext.transactionId,
           expectedHead: transactionContext.expectedHead
         }
-      })
+      }),
+      revisionPublication,
+      fault: options.fault ?? null
     }
   );
+}
+
+async function installEligibleSelectedRevisionHead(context) {
+  await beginPhaseGeneration(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  await saveWorkflow(context.root, context.config, context.workflow);
+  const active = await loadActiveRevisionStory(context.root, {
+    definition: context.config, workId: context.workflow.workItem.id
+  });
+  const producer = producerIdentity();
+  const observed = await readRevisionContext(active);
+  const parentFrozen = await freezeSgosCandidate(context.root, {
+    subjectId: 'DELIVERY-1:implementation', paths: [],
+    createdBy: { kind: 'human', id: ACTOR.email }
+  });
+  const parentReference = await sgosRevisionCandidateReference(
+    context.root, parentFrozen.candidate.candidateId);
+  const summary = (reference) => ({
+    candidateId: reference.candidateId,
+    candidateSha256: reference.candidateSha256,
+    candidateRefSha256: revHash(reference),
+    candidateTree: reference.repository.candidateTree
+  });
+  const initialStore = revisionLoopStore(active);
+  await initialStore.append({
+    expectedRevision: -1, expectedHeadCandidateRefSha256: null,
+    context: observed.context, idempotencyKey: 'eligible-publication-open',
+    transition: {
+      type: 'open-loop', loopId: 'REVLOOP-DELIVERY-1-ELIGIBLE',
+      initialCandidate: summary(parentReference)
+    }
+  });
+  const opened = await initialStore.read();
+  await writeFile(path.join(context.root, 'src', 'app.java'),
+    'final class App { int selected = 2; }\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest { int selected = 2; }\n');
+  const resultFrozen = await freezeSgosCandidate(context.root, {
+    subjectId: 'DELIVERY-1:implementation',
+    paths: ['src/app.java', 'src/test/AppTest.java'],
+    createdBy: { kind: 'human', id: ACTOR.email }
+  });
+  const candidateReference = await sgosRevisionCandidateReference(
+    context.root, resultFrozen.candidate.candidateId);
+  const candidate = summary(candidateReference);
+  const current = await readRevisionContext(await loadActiveRevisionStory(context.root, {
+    definition: context.config, workId: context.workflow.workItem.id
+  }));
+  const intervalContext = {
+    ...opened.context,
+    editorDiskIndexBaselineSha256: current.context.editorDiskIndexBaselineSha256
+  };
+  const transitionCore = {
+    schemaVersion: 1, kind: 'revision-head-transition',
+    expectedLoopRevision: opened.revision,
+    expectedHeadTransitionSha256: opened.headTransitionSha256,
+    fromCandidateRefSha256: opened.head.candidateRefSha256,
+    toCandidateRefSha256: candidate.candidateRefSha256,
+    worktreeIndexEditorPreimageSha256: opened.context.editorDiskIndexBaselineSha256,
+    materializedPostimageSha256: intervalContext.editorDiskIndexBaselineSha256,
+    reason: 'eligible-selected-result', producer
+  };
+  const headTransition = {
+    ...transitionCore, transitionSha256: revHash(transitionCore)
+  };
+  const claims = {
+    schemaVersion: 1, kind: 'revision-hunk-claim-set',
+    subject: active.subject, producer,
+    parentCandidateId: parentReference.candidateId,
+    resultCandidateId: candidateReference.candidateId,
+    claims: [{ hunkId: 'HUNK-001', cause: {
+      kind: 'criterion', id: 'DELIVERY-1:AC-001'
+    }, status: 'claimed' }], unexplained: []
+  };
+  claims.claimSetSha256 = revHash(claims);
+  const precheckInput = {
+    subject: active.subject, producer, candidateReference,
+    head: {
+      ...candidate, headRevision: opened.revision + 1,
+      headTransitionSha256: headTransition.transitionSha256,
+      phaseGeneration: active.subject.phaseGeneration,
+      workflowSha256: intervalContext.workflowSha256,
+      configSha256: intervalContext.configSha256,
+      proofProfileSha256: intervalContext.proofProfileSha256,
+      editorDiskIndexBaselineSha256: intervalContext.editorDiskIndexBaselineSha256
+    },
+    bindings: {
+      criteriaBindingSha256: revDigest('1'),
+      specificationDispositionSha256: revDigest('2'),
+      hunkClaimSetSha256: claims.claimSetSha256
+    },
+    hunkClaimSet: claims,
+    worktree: {
+      savedTree: candidate.candidateTree,
+      editorDiskIndexBaselineSha256: intervalContext.editorDiskIndexBaselineSha256,
+      changedPaths: []
+    },
+    validations: Object.fromEntries(REV_CHECKS.map((name) => [name, {
+      status: 'pass', evidenceSha256: revHash(name)
+    }])),
+    criteria: [{
+      clauseId: 'DELIVERY-1:AC-001', applicable: true, claimedChange: true,
+      witnessReady: false, availability: 'available', contradicted: false,
+      testBodySha256: null, environmentSha256: null, witnesses: []
+    }],
+    refusalSummary: { count: 0, corrected: 0, unresolved: 0 },
+    proofProfile: 'standard'
+  };
+  const precheck = computeRevisionPrecheck(precheckInput);
+  assert.equal(precheck.publicationEligible, true);
+  const snapshotCore = {
+    ...candidate, phaseGeneration: active.subject.phaseGeneration,
+    headRevision: opened.revision + 1,
+    headTransitionSha256: headTransition.transitionSha256,
+    workflowSha256: intervalContext.workflowSha256,
+    configSha256: intervalContext.configSha256,
+    proofProfileSha256: intervalContext.proofProfileSha256,
+    editorDiskIndexBaselineSha256: intervalContext.editorDiskIndexBaselineSha256
+  };
+  const headSnapshot = {
+    ...snapshotCore, headSnapshotSha256: revHash(snapshotCore)
+  };
+  const intervalCore = {
+    schemaVersion: 1, kind: 'revision-interval', intervalId: 'REV-DELIVERY-1-001',
+    sequence: 1, subject: active.subject,
+    trigger: {
+      kind: 'developer-feedback', feedbackId: 'REVFB-DELIVERY10001',
+      author: { kind: 'configured-local', id: ACTOR.email, name: ACTOR.name },
+      feedbackSha256: revDigest('5'), feedbackRecordSha256: revDigest('6'),
+      criteriaBindingSha256: revDigest('1'),
+      specificationDispositionSha256: revDigest('2'),
+      startPinSha256: revDigest('7'), noteSha256: revDigest('8')
+    },
+    parentCandidate: summary(parentReference), resultCandidate: candidate,
+    packetSha256: revDigest('9'), criteriaBindingSha256: revDigest('1'),
+    specificationDispositionSha256: revDigest('2'),
+    executionAttempts: [revDigest('a')], hunkClaimSetSha256: claims.claimSetSha256,
+    startedAt: '2026-09-22T00:00:00.000Z', endedAt: '2026-09-22T00:01:00.000Z',
+    producer, precheckSha256: precheck.precheckSha256, status: 'prechecked'
+  };
+  const interval = { ...intervalCore, intervalSha256: revHash(intervalCore) };
+  const store = revisionLoopStore(active, {
+    expectedPrecheck: precheck, expectedPrecheckInput: precheckInput,
+    frozenCaptureContext: intervalContext
+  });
+  const committed = await store.append({
+    expectedRevision: opened.revision,
+    expectedHeadCandidateRefSha256: opened.head.candidateRefSha256,
+    context: intervalContext, idempotencyKey: 'eligible-publication-commit',
+    transition: {
+      type: 'commit-interval', loopId: opened.loopId, interval,
+      headTransition, headSnapshot, precheck
+    }
+  });
+  const precheckInputSha256 = await writeRevisionInteractivePayload(
+    context.root, active.subject, precheckInput);
+  await writeRevisionInteractiveState(context.root, {
+    subject: active.subject, status: 'prechecked', loopId: opened.loopId,
+    loopRevision: committed.revision,
+    startPlanSha256: revDigest('b'), startPlanPayloadSha256: revDigest('c'),
+    startPinSha256: revDigest('7'), contextSha256: revHash(intervalContext),
+    feedbackRecordSha256: revDigest('6'), criteriaBindingSha256: revDigest('1'),
+    dispositionSha256: revDigest('2'), packetSha256: revDigest('9'),
+    routePlanSha256: revDigest('d'), parentCandidateId: parentReference.candidateId,
+    resultCandidateId: candidateReference.candidateId,
+    capturePlanSha256: revDigest('e'), capturePayloadSha256: revDigest('f'),
+    captureEffectSetSha256: candidateReference.effectSetSha256,
+    recoveryCode: null, captureStartedAt: '2026-09-22T00:00:00.000Z',
+    captureEndedAt: '2026-09-22T00:01:00.000Z',
+    abandonPlanSha256: null, abandonPayloadSha256: null,
+    precheckSha256: precheck.precheckSha256, precheckInputSha256
+  });
+  return { candidateReference, precheck };
 }
 
 async function publishGoverned(root, config, workflow, phaseId) {
@@ -1204,6 +1403,173 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   });
   const adoption = adoptable.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.match(adoption.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
+});
+
+test('eligible REV publication keeps the accepted Story definition after current configuration refresh', async (t) => {
+  const context = await codeFixture('revision-selected-head');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await buildSpecIndex(context.root,
+    'singularity/work-items/DELIVERY-1/artifacts/requirements/requirements.md', {
+      workId: 'DELIVERY-1', phase: 'requirements', generation: 1,
+      outputPath: 'singularity/work-items/DELIVERY-1/context/spec-indexes/requirements-gen1.json',
+      policy: { mode: 'enforce', namespace: 'DELIVERY-1' }
+    });
+
+  const ordinary = await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  assert.equal(ordinary.revisionSelection, undefined,
+    'a Code generation with no REV loop changed its ordinary publication contract');
+
+  const selected = await installEligibleSelectedRevisionHead(context);
+  const mutableCurrentConfig = await loadConfig(context.root);
+  assert.notEqual(revHash(mutableCurrentConfig), revHash(context.config),
+    'fixture must model current configuration changing after the Story pinned its execution definition');
+  const acceptedBinding = await currentInteractiveRevisionPublication(context.root, {
+    definition: context.config, workflow: context.workflow
+  });
+  assert.equal(acceptedBinding.candidateReference.candidateId,
+    selected.candidateReference.candidateId,
+    'mutable current configuration replaced the accepted Story execution definition');
+  const publication = await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  assert.equal(publication.revisionSelection.candidateId,
+    selected.candidateReference.candidateId);
+  assert.equal(publication.revisionSelection.precheckSha256,
+    selected.precheck.precheckSha256);
+  assert.equal(publication.revisionSelection.prospectiveTree,
+    git(context.root, 'rev-parse', 'HEAD^{tree}'));
+  const message = git(context.root, 'show', '-s', '--format=%B', 'HEAD');
+  assert.match(message, new RegExp(
+    `Singularity-Flow-REV-Selection-SHA256: ${publication.revisionSelection.selectionSha256}`
+  ));
+
+  const receipt = JSON.parse(await readFile(path.join(
+    context.root, context.phase.deliveryEvidence.receiptPath
+  ), 'utf8'));
+  assert.equal(receipt.kind, 'code-delivery');
+  assert.equal(receipt.phase, 'implementation');
+  assert.equal(receipt.generation, 2);
+  assert.equal(receipt.status, 'pending-tests');
+  assert.equal(Object.hasOwn(receipt, 'revisionPrecheck'), false,
+    'REV precheck was promoted into the Code test receipt');
+  assert.equal(Object.hasOwn(receipt, 'testingEvidence'), false,
+    'Code publication fabricated downstream Testing evidence');
+});
+
+test('a stale no-REV observation cannot bypass private state created before the Story lock', async (t) => {
+  const context = await codeFixture('revision-absence-race');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App { int value = 2; }\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest { int value = 2; }\n');
+  await buildSpecIndex(context.root,
+    'singularity/work-items/DELIVERY-1/artifacts/requirements/requirements.md', {
+      workId: 'DELIVERY-1', phase: 'requirements', generation: 1,
+      outputPath: 'singularity/work-items/DELIVERY-1/context/spec-indexes/requirements-gen1.json',
+      policy: { mode: 'enforce', namespace: 'DELIVERY-1' }
+    });
+
+  const staleAbsence = await currentInteractiveRevisionPublication(context.root, {
+    definition: context.config, workflow: context.workflow
+  });
+  assert.equal(staleAbsence, null);
+  const active = { subject: {
+    workId: context.workflow.workItem.id,
+    phaseId: context.workflow.currentPhase,
+    phaseGeneration: Number(context.workflow.phases[context.workflow.currentPhase].generation)
+  } };
+  await writeRevisionInteractiveState(context.root, {
+    subject: active.subject, status: 'opening', loopId: 'REVLOOP-ABSENCE-RACE',
+    loopRevision: -1, startPlanSha256: revDigest('1'),
+    startPlanPayloadSha256: revDigest('2'), startPinSha256: revDigest('3'),
+    contextSha256: revDigest('4'), feedbackRecordSha256: revDigest('5'),
+    criteriaBindingSha256: revDigest('6'), dispositionSha256: revDigest('7'),
+    packetSha256: revDigest('8'), routePlanSha256: revDigest('9'),
+    parentCandidateId: 'CAN-DELIVERY-ABSENCE-RACE', resultCandidateId: null,
+    precheckSha256: null, precheckInputSha256: null
+  }, { expectedStateSha256: null });
+  const before = git(context.root, 'rev-parse', 'HEAD');
+
+  await inContext(context.root, () => assert.rejects(
+    publishCodeGoverned(context.root, context.config, context.workflow, 'implementation', {
+      revisionPublication: staleAbsence
+    }),
+    (error) => error.code === 'REV_PUBLICATION_HEAD_UNAVAILABLE'
+  ));
+  assert.equal(git(context.root, 'rev-parse', 'HEAD'), before,
+    'stale absence advanced the Story ref');
+});
+
+test('interactive pointer writes fail closed while the selected head is crossing Story ref CAS', async (t) => {
+  const context = await codeFixture('revision-pointer-race');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await buildSpecIndex(context.root,
+    'singularity/work-items/DELIVERY-1/artifacts/requirements/requirements.md', {
+      workId: 'DELIVERY-1', phase: 'requirements', generation: 1,
+      outputPath: 'singularity/work-items/DELIVERY-1/context/spec-indexes/requirements-gen1.json',
+      policy: { mode: 'enforce', namespace: 'DELIVERY-1' }
+    });
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  await installEligibleSelectedRevisionHead(context);
+  const selected = await currentInteractiveRevisionPublication(context.root, {
+    definition: context.config, workflow: context.workflow
+  });
+  const active = await loadActiveRevisionStory(context.root, {
+    definition: context.config, workId: context.workflow.workItem.id
+  });
+  const pointer = await readRevisionInteractiveState(context.root, active.subject);
+  let releaseWriter;
+  const writerGate = new Promise((resolve) => { releaseWriter = resolve; });
+  let writerStarted;
+  const writerStartedGate = new Promise((resolve) => { writerStarted = resolve; });
+  const writer = (async () => {
+    await writerGate;
+    writerStarted();
+    return writeRevisionInteractiveState(context.root, {
+      ...pointer, status: 'capturing', updatedAt: '2026-09-22T00:02:00.000Z'
+    }, { expectedStateSha256: pointer.stateSha256 });
+  })().then((value) => ({ value, error: null }), (error) => ({ value: null, error }));
+  let raceObserved = false;
+
+  let publication;
+  try {
+    publication = await inContext(context.root, () => publishCodeGoverned(
+      context.root, context.config, context.workflow, 'implementation', {
+        revisionPublication: selected,
+        fault: async (stage) => {
+          if (stage !== 'after-candidate-verification') return;
+          raceObserved = true;
+          releaseWriter();
+          await writerStartedGate;
+          const outcome = await writer;
+          assert.equal(outcome.error?.code, 'SUBJECT_LOCK_BUSY',
+            'interactive pointer escaped the Story publication lease before ref CAS');
+        }
+      }
+    ));
+  } finally {
+    releaseWriter();
+  }
+  const attempted = await writer;
+  assert.equal(raceObserved, true);
+  assert.equal(publication.revisionSelection.candidateId,
+    selected.candidateReference.candidateId);
+  assert.equal(attempted.error?.code, 'SUBJECT_LOCK_BUSY');
+  assert.equal((await readRevisionInteractiveState(context.root, active.subject)).status, 'prechecked',
+    'a competing pointer update changed the selection guarded through ref CAS');
 });
 
 test('a passing quality command cannot mutate unregistered application source', async () => {

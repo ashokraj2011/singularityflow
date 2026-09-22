@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/wel-enforcement-readiness.schema.json",
+  "title": "WEL enforcement readiness projection v1",
+  "$comment": "Read-only diagnostic/UI projection. Enforcement fields are fail-closed constants until a later reviewed CAB integration changes the contract.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "readinessScope", "lifecycleVerification", "status",
+    "enforcementAvailable", "authority", "story", "enrolled",
+    "lifecycleJoined", "authenticatedRunner", "releaseEvidence", "recoveryAvailable",
+    "gaps", "nextActions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "wel-enforcement-readiness" },
+    "readinessScope": { "const": "foundation-projection" },
+    "lifecycleVerification": {
+      "enum": ["not-loaded", "structure-only", "sgos-owner-verified"]
+    },
+    "status": { "const": "unavailable" },
+    "enforcementAvailable": { "const": false },
+    "authority": { "const": "none" },
+    "story": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": [
+            "workId", "enrollmentClassification", "enrollmentReason", "creationCommit"
+          ],
+          "properties": {
+            "workId": { "type": "string", "minLength": 1, "maxLength": 160 },
+            "enrollmentClassification": { "enum": ["legacy", "enrolled"] },
+            "enrollmentReason": { "type": ["string", "null"], "maxLength": 200 },
+            "creationCommit": {
+              "oneOf": [
+                { "type": "null" },
+                { "type": "string", "pattern": "^[a-f0-9]{40,64}$" }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "enrolled": { "type": "boolean" },
+    "lifecycleJoined": { "const": false },
+    "authenticatedRunner": { "$ref": "cab-authenticated-runner-readiness.schema.json" },
+    "releaseEvidence": { "const": "missing" },
+    "recoveryAvailable": { "const": true },
+    "gaps": {
+      "type": "array", "minItems": 5, "maxItems": 20, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^(?:WEL|CAB_RUNNER)_[A-Z0-9_]+$" }
+    },
+    "nextActions": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "items": {
+        "type": "object", "required": ["id", "owner", "mutation"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "owner": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "mutation": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

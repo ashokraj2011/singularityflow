@@ -907,7 +907,7 @@ Schema work is feature-atomic, not a version-first increment.
 | Family | Current | Planned change | Migration rule |
 |---|---:|---|---|
 | `specification-claim-map` | 2 | no pilot bump | v1 claims remain readable and cannot gain typed witness authority |
-| `test-execution` | 3 | no further local-pilot bump | v1→v2 preserves module evidence with no exact authority; v2→v3 adds an empty exact catalog and proposal projection with `exact: false`; stored bytes are not rewritten |
+| `test-execution` | 4 | lifecycle-unavailable projection only | v1→v2 preserves module evidence with no exact authority; v2→v3 adds an empty exact catalog and proposal projection with `exact: false`; v3→v4 adds an explicit closed lifecycle-unavailable projection and never invents Candidate, Program, retry, approval, publication, or authenticated-runner authority; stored bytes are not rewritten |
 | `code-delivery` | 2 | v3 only when authenticated exact evidence becomes authoritative | verify the raw v2 digest before migration; add null exact-evidence references and retain original assurance |
 | `phase-approval` | 2 | remain v2 | mapping and observation identities belong in the immutable submission review snapshot referenced by approval |
 | `story-submission-packet` | 2 | no pilot bump | verify raw v1 `packetSha256` before additive migration; v1 packets gain empty review projections only |

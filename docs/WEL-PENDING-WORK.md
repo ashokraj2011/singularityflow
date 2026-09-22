@@ -155,8 +155,10 @@ Implemented in the current increment:
   bounds, reconciliation, and fail-safe fallback;
 - the [WEL threat and privacy model](WEL-THREAT-MODEL.md) covers the code-local attack and data
   surfaces and states the platform/release boundary;
-- `test-execution` v3 migration preserves old bytes and gives earlier records empty, inexact WEL
-  fields rather than invented assurance.
+- `test-execution` v4 migration preserves old bytes, retains the v3 empty/inexact WEL
+  catalog and proposal defaults, and gives earlier records an explicit lifecycle-unavailable
+  projection; it does not invent Candidate, Program, retry, approval, publication, or runner
+  authority. Earlier records retain their historical fields rather than gaining invented assurance.
 - [CAB v0.2](CAB-V0.2.md), its trust/sandbox/rollout ADRs, closed architecture contract, and
   adversarial design tests now align WEL with the current SGOS owners without activating CAB.
 
@@ -543,6 +545,25 @@ Depends on: CAB-R2. WEL must not implement a parallel sandbox or trust store.
 Bind exact observations to the same Candidate and publication authority used by every governed
 Story.
 
+Code-local readiness added on 2026-09-22:
+
+- `test-execution` v4 carries an explicit fail-closed lifecycle projection. Migration preserves
+  historical top-level bytes but sets Candidate, Program, attempt, retry lineage, authenticated
+  execution, approval, and publication authority to unavailable instead of deriving them;
+- the WEL lifecycle join validator consumes the existing SGOS Candidate binding, immutable GVM
+  Program, contiguous attempt/retry chain, passed task receipt, phase-approval mapping decision,
+  and publication transaction identities. It creates no scheduler, publisher, approval, or retry
+  path of its own;
+- candidate/publication verification delegates to the existing SGOS retained-Candidate verifier,
+  and delivery replay refuses malformed or authority-inventing lifecycle projections;
+- a structurally complete local join remains `joined-observe-only`, with authenticated execution
+  absent and `enforcementEligible: false`.
+
+This completes the repository-local join contract and migration plumbing, not the item. A normal
+Story still runs local tests before its publication Candidate is frozen, and CAB-R6 supplies no
+authenticated material-task evidence in this build. Those external/runtime prerequisites remain
+required before a joined record can gate publication.
+
 Acceptance gates:
 
 - SGOS-P0-001 routes lifecycle publication through one universal Candidate boundary;
@@ -559,6 +580,23 @@ Depends on: `SGOS-P0-001`, CAB-R6, and `WEL-P1-001`.
 
 Expose enforcement only for explicitly enrolled newly created Stories after all trust prerequisites
 are complete.
+
+Code-local readiness added on 2026-09-22:
+
+- `singularity-flow delivery wel-readiness --json` is a read-only foundation projection for
+  enrollment, CAB runner/trust, release evidence, and recovery ownership. It does not load SGOS
+  owner records and therefore reports the lifecycle join as not loaded;
+- recovery actions route to the existing SGOS Candidate/runtime/retry, phase approval, publication
+  recovery, and reviewed-configuration owners rather than creating WEL mutations;
+- requesting `testcaseExact.mode: enforce` includes the same machine-readable readiness gaps in its
+  `WEL_ENFORCEMENT_UNAVAILABLE` refusal;
+- the current readiness schema fixes `status: unavailable`, `authority: none`, and
+  `enforcementAvailable: false`. A provider declaration, local signature, migrated receipt, or
+  syntactically complete lifecycle join cannot change those values.
+
+This completes fail-closed opt-in readiness and recovery projection plumbing. It does not complete
+the item: CAB authenticated-runner integration, approved trust roots, physical-platform/release
+evidence, independent security review, and a governed enrollment rollout remain external gates.
 
 Acceptance gates:
 

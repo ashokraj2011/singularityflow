@@ -280,6 +280,9 @@ function positionalReceiptIndex(argv: readonly string[]): number {
 export function redactCliArgsForDisplay(argv: readonly string[]): string[] {
   const safe: string[] = [];
   const pending: Array<'secret' | 'remote'> = [];
+  const commandOffset = argv[0] === 'singularity-flow' ? 1 : 0;
+  const mapTeamRequestPath = argv[commandOffset] === 'capability'
+    && argv[commandOffset + 1] === 'map-team';
   const receiptIndex = positionalReceiptIndex(argv);
   // This projection precedes command validation. Mask capability-shaped UUIDs conservatively when
   // any secret option or receipt family is present, including malformed invocations where an
@@ -294,11 +297,14 @@ export function redactCliArgsForDisplay(argv: readonly string[]): string[] {
   let secretIntervened = false;
   for (const [index, raw] of argv.entries()) {
     const token = String(raw);
-    if (DISPLAY_PRIVATE_PATH_OPTION.test(String(argv[index - 1] ?? ''))) {
+    const previous = String(argv[index - 1] ?? '');
+    if (DISPLAY_PRIVATE_PATH_OPTION.test(previous)
+        || (mapTeamRequestPath && previous === '--request')) {
       safe.push('[redacted-path]');
       continue;
     }
-    if (/^--document=/i.test(token)) {
+    if (/^--document=/i.test(token)
+        || (mapTeamRequestPath && /^--request=/i.test(token))) {
       safe.push(`${token.slice(0, token.indexOf('=') + 1)}[redacted-path]`);
       continue;
     }

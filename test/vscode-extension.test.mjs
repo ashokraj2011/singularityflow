@@ -2784,6 +2784,46 @@ test('the organisation map is flattened with each capability\'s depth, ancestors
   assert.equal(choices.find((choice) => choice.id === 'commerce').repository, null);
 });
 
+test('multi-repository capabilities preserve every checkout and respect their declared lead', () => {
+  const choices = capabilityChoices([{
+    id: 'checkout', name: 'Checkout',
+    repositories: ['api', 'web', 'api'], leadRepository: 'web', children: []
+  }], REMOTE_REPOSITORIES);
+  const checkout = choices[0];
+  assert.equal(checkout.repository, 'web', 'the compatibility shorthand projects the declared lead');
+  assert.equal(checkout.url, 'https://example.com/web.git');
+  assert.deepEqual(checkout.repositories.map((repository) => repository.id), ['api', 'web']);
+  assert.deepEqual(checkout.repositories.filter((repository) => repository.lead).map((repository) => repository.id), ['web']);
+
+  const form = withMap(['checkout'], { capabilities: choices, leadCapability: 'checkout' });
+  assert.deepEqual(derivedRepositories(form).map((repository) => repository.id), ['api', 'web']);
+  assert.equal(effectiveLead(form).repository, 'web');
+  const html = workspaceFormHtml(form);
+  assert.match(html, /<code>api<\/code>/);
+  assert.match(html, /<code>web<\/code>/);
+  assert.match(html, /lead<\/span><\/td>\s*<td>web<\/td>/);
+});
+
+test('multi-repository capability projection deduplicates shared repositories without hiding a missing declaration', () => {
+  const choices = capabilityChoices([
+    { id: 'one', repositories: ['api', 'missing'], leadRepository: 'api' },
+    { id: 'two', repository: 'api' }
+  ], REMOTE_REPOSITORIES);
+  const form = withMap(['one', 'two'], { capabilities: choices });
+  assert.deepEqual(derivedRepositories(form).map((repository) => repository.id), ['api']);
+  assert.deepEqual(uncloneable(form).map((capability) => capability.id), ['one']);
+  assert.match(formProblems(form).join(' '), /One ships from 'missing'/i);
+  assert.match(workspaceFormHtml(form), /<code>missing<\/code>.*no clone URL/s);
+});
+
+test('an invalid multi-repository lead never invents a phantom checkout in the workspace projection', () => {
+  const [choice] = capabilityChoices([{
+    id: 'checkout', repositories: ['api', 'web'], leadRepository: 'not-declared'
+  }], REMOTE_REPOSITORIES);
+  assert.deepEqual(choice.repositories.map((repository) => repository.id), ['api', 'web']);
+  assert.equal(choice.repository, 'api', 'invalid authority is reported elsewhere; projection stays bounded');
+});
+
 test('choosing a capability includes everything beneath it, the way a directory does', () => {
   const form = withMap(['payments']);
   assert.deepEqual(coveredCapabilities(form).map((entry) => entry.id),
@@ -2947,7 +2987,8 @@ test('a form still missing something disables the button and lists why', () => {
   assert.match(html, /<button data-submit="create" disabled>/);
 
   const ready = workspaceFormHtml(withMap(['payments']));
-  assert.match(ready, /1 repository will be cloned into <code>\/work\/checkout-platform<\/code>/);
+  assert.match(ready, /1 repository is included for <code>\/work\/checkout-platform<\/code>/);
+  assert.match(ready, /preflight will prove which checkouts are cloned or reused/);
   assert.match(ready, /led by <code>Payments API<\/code>/);
   assert.match(ready, /<button data-submit="create" >/);
 });

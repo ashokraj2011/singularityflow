@@ -153,6 +153,7 @@ function managedCapabilityHtml(
     ${treeHtml(tree, selected)}
     <p class="remedy">This map is receipt-managed. Changes are proposed for review; direct form edits are disabled.</p>
     <div class="action-grid">
+      <button type="button" class="secondary" data-onboard-team>${icon('team')}Onboard a team</button>
       <button type="button" data-progressive-add>${icon('add')}Add a narrower capability</button>
       <button type="button" class="secondary" data-progressive-protect>${icon('approval')}Protect a path</button>
       <button type="button" class="secondary" data-progressive-why>${icon('search')}Explain current ownership</button>
@@ -388,6 +389,7 @@ export function bodyHtml(
   ${dashboard ? dashboardHtml(dashboard) : ''}
   <section class="plain">
     ${treeHtml(tree, selected)}
+    <p><button type="button" class="secondary" data-onboard-team>${icon('team')}Onboard a team and its repositories</button></p>
     ${flattenCapabilities(tree).length
     ? `<p><button class="secondary" data-add="${escape(selected ?? '')}">Add a capability${selected ? ' inside this one' : ''}</button></p>`
     : ''}
@@ -450,11 +452,12 @@ export const SCRIPT = `
     if (event.target.dataset?.field === 'autoEligibility') synchronizeAuto();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings],[data-onboard-team]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
-    if (data.openAutoSettings !== undefined) vscode.postMessage({ type: 'open-auto-settings' });
+    if (data.onboardTeam !== undefined) vscode.postMessage({ type: 'onboard-team' });
+    else if (data.openAutoSettings !== undefined) vscode.postMessage({ type: 'open-auto-settings' });
     else if (data.progressiveStart !== undefined) vscode.postMessage({ type: 'progressive-start' });
     else if (data.progressiveAdd !== undefined) vscode.postMessage({ type: 'progressive-add' });
     else if (data.progressiveProtect !== undefined) vscode.postMessage({ type: 'progressive-protect' });

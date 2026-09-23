@@ -54,6 +54,7 @@ interface BootstrapSession {
   status: string;
   preflight?: {
     ready: boolean;
+    checks?: Array<{ id: string; status: string; observed?: unknown }>;
     findings: Array<{ severity: string; message: string; action?: string }>;
   } | null;
   plan: {
@@ -374,14 +375,27 @@ export class WorkspacePanel {
         return;
       }
 
-      const repositoryPlan = prepared.plan.repositories
-        .map((repository) => `${repository.id}: ${repository.defaultBranch} → ${repository.targetPath}`)
-        .join('\n');
+      const targetState = prepared.preflight?.checks
+        ?.find((check) => check.id === 'workspace-target')?.observed;
+      const matchingManagedWorkspace = targetState === 'matching-workspace';
+      const repositoryPlan = (await Promise.all(prepared.plan.repositories.map(async (repository) => {
+        const checkoutExists = matchingManagedWorkspace
+          ? await vscode.workspace.fs.stat(vscode.Uri.file(repository.targetPath))
+            .then(() => true, () => false)
+          : false;
+        const disposition = matchingManagedWorkspace
+          ? (checkoutExists ? 'Reuse/repair managed checkout' : 'Clone missing checkout')
+          : 'Clone into new workspace';
+        return `${repository.id}: ${disposition} · ${repository.defaultBranch} → ${repository.targetPath}`;
+      }))).join('\n');
+      const workspaceDisposition = matchingManagedWorkspace
+        ? 'The matching managed workspace will be reused. Existing repository directories are validated and repaired; missing ones are cloned.'
+        : 'The target does not exist. Every listed repository will be cloned into the new managed workspace.';
       const confirmed = await vscode.window.showInformationMessage(
         `Create workspace ${prepared.plan.workspace.name}?`,
         {
           modal: true,
-          detail: `Target: ${prepared.plan.workspace.targetPath}\n\nRepositories:\n${repositoryPlan}\n\nThe destination has not been created. SFlow will recheck immediately before cloning.`
+          detail: `Target: ${prepared.plan.workspace.targetPath}\n${workspaceDisposition}\n\nRepositories:\n${repositoryPlan}\n\nSFlow will recheck every repository immediately before materialization.`
         },
         'Create workspace'
       );
@@ -402,7 +416,9 @@ export class WorkspacePanel {
       const result = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Creating workspace and cloning ${cloning} ${cloning === 1 ? 'repository' : 'repositories'}…`
+          title: matchingManagedWorkspace
+            ? `Reusing workspace and validating ${cloning} ${cloning === 1 ? 'repository' : 'repositories'}…`
+            : `Creating workspace and cloning ${cloning} ${cloning === 1 ? 'repository' : 'repositories'}…`
         },
         () => client.run<BootstrapSession>(resumeArgs));
 

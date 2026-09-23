@@ -140,6 +140,7 @@
             },
             "completionEvents": [
               "onCommand:singularityFlow.startWizard",
+              "onCommand:singularityFlow.onboardTeam",
               "onCommand:singularityFlow.switchWorkspace",
               "onCommand:singularityFlow.createWorkspace"
             ]
@@ -221,6 +222,11 @@
         "command": "singularityFlow.mapCapability",
         "title": "Singularity Flow: Map a Capability",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "singularityFlow.onboardTeam",
+        "title": "Singularity Flow: Onboard a Team",
+        "icon": "$(organization)"
       },
       {
         "command": "singularityFlow.reviewCapabilityProposals",

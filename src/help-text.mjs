@@ -830,6 +830,15 @@ Usage:
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
      says which delivery repository holds governed state when there are several. Remote mapping
      pushes a review branch against sflow/config and never writes an application branch.)
+  singularity-flow capability map-team <TEAM-ID> --lead <LEAD-URL> --name <TEAM-NAME>
+    [--jira-project KEY] [--member <CHILD-ID>=<GIT-URL>]...
+    [--member-name <CHILD-ID>=<FRIENDLY-NAME>]... [--link <EXISTING-CAPABILITY-ID>]... [--json]
+  singularity-flow capability map-team --request <JSON-FILE> [--json]
+    (creates or extends one team collection with at most 20 combined members and links. New members
+     use whole-repository scope and blobless clones with no full-clone fallback. The command creates
+     one atomic review proposal and never implicitly reparents an existing capability. Native hosts
+     use the bounded, closed request file so valid team data never exceeds Windows process argv;
+     the individual flags remain available for small manual invocations.)
   singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
     [--include-proposals] [--refresh] [--state-branch NAME] [--json]
     (read-only portable state-link/self-hosted lookup by default; registered-map search and proposal

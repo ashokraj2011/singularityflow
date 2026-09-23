@@ -97,7 +97,7 @@ const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
 ]);
 const REMOTE_CAPABILITY_OPERATIONS = new Set([
-  'map', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'world-model', 'organisation',
+  'map', 'map-team', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'world-model', 'organisation',
   'fsck', 'discard-proposal', 'repair-proposal'
 ]);
 

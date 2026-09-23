@@ -112,6 +112,9 @@ export const CAPABILITY_MAP_INPUT_LIMITS = Object.freeze({
   collectionItems: 256,
   aggregateBytes: 512 * 1024
 });
+export const CAPABILITY_TEAM_MAX_MEMBERS = 20;
+
+const CAPABILITY_IDENTIFIER_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function capabilityMapInputError(message, code) {
   throw new SingularityFlowError(`${message} Nothing was changed.`, {
@@ -136,6 +139,137 @@ function scalarInputBytes(value, field) {
       'CAPABILITY_MAP_SCALAR_LIMIT_EXCEEDED');
   }
   return bytes;
+}
+
+function capabilityTeamInputError(message, code = 'CAPABILITY_TEAM_INPUT_INVALID', details = {}) {
+  throw new SingularityFlowError(`${message} Nothing was changed.`, {
+    code,
+    details: {
+      ...capabilityRecovery({
+        stage: 'proposal', state: 'input-refused', recoverable: true,
+        preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
+      }),
+      ...details
+    }
+  });
+}
+
+function capabilityTeamMutationError(message, code, remote, details = {}) {
+  throw new SingularityFlowError(`${message} Nothing was changed.`, {
+    code,
+    details: {
+      ...capabilityRecovery({
+        stage: 'proposal', state: 'team-mapping-refused', remote,
+        preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
+      }),
+      ...details
+    }
+  });
+}
+
+/** Normalize and bound an atomic team request before authorship or remote Git discovery. */
+export function normalizeCapabilityTeamRequest(leadUrl, {
+  teamId, name, jiraProject = null, members = [], links = []
+} = {}) {
+  const id = String(teamId ?? '').trim();
+  const teamName = String(name ?? '').trim();
+  const lead = String(leadUrl ?? '').trim();
+  if (!id) capabilityTeamInputError('A team capability identifier is required.', 'CAPABILITY_ID_REQUIRED');
+  if (!CAPABILITY_IDENTIFIER_PATTERN.test(id)) {
+    capabilityTeamInputError('A team capability identifier must use lower-case kebab-case.',
+      'CAPABILITY_ID_INVALID');
+  }
+  if (!lead) capabilityTeamInputError('A lead repository URL is required.', 'CAPABILITY_LEAD_REQUIRED');
+  if (!teamName) capabilityTeamInputError('A team name is required.', 'CAPABILITY_TEAM_NAME_REQUIRED');
+  if (!Array.isArray(members) || !Array.isArray(links)) {
+    capabilityTeamInputError('Team members and links must be lists.');
+  }
+  if (members.length + links.length === 0) {
+    capabilityTeamInputError('Choose at least one new member or existing capability link.',
+      'CAPABILITY_TEAM_EMPTY');
+  }
+  if (members.length + links.length > CAPABILITY_TEAM_MAX_MEMBERS) {
+    capabilityTeamInputError(
+      `A team proposal accepts at most ${CAPABILITY_TEAM_MAX_MEMBERS} combined members and links.`,
+      'CAPABILITY_TEAM_MEMBER_LIMIT_EXCEEDED', {
+        maximum: CAPABILITY_TEAM_MAX_MEMBERS, requested: members.length + links.length
+      });
+  }
+  const project = jiraProject == null ? null : String(jiraProject).trim();
+  if (project != null && !/^[A-Z][A-Z0-9_-]{0,31}$/.test(project)) {
+    capabilityTeamInputError('A Jira project key must begin with an upper-case letter and contain only upper-case letters, digits, underscore, or hyphen.',
+      'CAPABILITY_TEAM_JIRA_PROJECT_INVALID');
+  }
+
+  const seenCapabilityIds = new Set([id]);
+  const seenUrls = new Set();
+  const seenRepositoryIds = new Set();
+  const normalizedMembers = members.map((member, index) => {
+    if (!member || typeof member !== 'object' || Array.isArray(member)) {
+      capabilityTeamInputError(`Team member ${index + 1} must name a capability ID and repository URL.`);
+    }
+    const capabilityId = String(member.capabilityId ?? member.id ?? '').trim();
+    if (!CAPABILITY_IDENTIFIER_PATTERN.test(capabilityId)) {
+      capabilityTeamInputError(`Team member '${capabilityId || index + 1}' must use a lower-case kebab-case capability ID.`,
+        'CAPABILITY_TEAM_MEMBER_ID_INVALID');
+    }
+    if (seenCapabilityIds.has(capabilityId)) {
+      capabilityTeamInputError(`Capability '${capabilityId}' is selected more than once.`,
+        'CAPABILITY_TEAM_MEMBER_DUPLICATE', { capabilityId });
+    }
+    seenCapabilityIds.add(capabilityId);
+    const repositoryUrl = assertCredentialFreeRemote(member.repositoryUrl ?? member.url);
+    const repositoryId = repositoryIdOf(repositoryUrl);
+    if (seenUrls.has(repositoryUrl) || seenRepositoryIds.has(repositoryId)) {
+      capabilityTeamInputError(
+        `Repository '${sanitizeRemote(repositoryUrl)}' is selected more than once in this team proposal.`,
+        'CAPABILITY_TEAM_REPOSITORY_DUPLICATE', { repositoryId });
+    }
+    seenUrls.add(repositoryUrl);
+    seenRepositoryIds.add(repositoryId);
+    const memberName = String(member.name ?? capabilityId).trim();
+    if (!memberName) capabilityTeamInputError(
+      `Team member '${capabilityId}' requires a non-empty friendly name.`,
+      'CAPABILITY_TEAM_MEMBER_NAME_INVALID', { capabilityId });
+    for (const [field, value] of Object.entries({ capabilityId, repositoryUrl, memberName })) {
+      scalarInputBytes(value, `members[${index}].${field}`);
+    }
+    return Object.freeze({ capabilityId, name: memberName, repositoryUrl, repositoryId });
+  });
+
+  const normalizedLinks = links.map((value) => String(value ?? '').trim());
+  const seenLinks = new Set();
+  for (const capabilityId of normalizedLinks) {
+    if (!CAPABILITY_IDENTIFIER_PATTERN.test(capabilityId)) {
+      capabilityTeamInputError(`Linked capability '${capabilityId}' must use a lower-case kebab-case ID.`,
+        'CAPABILITY_TEAM_LINK_ID_INVALID');
+    }
+    if (capabilityId === id || seenCapabilityIds.has(capabilityId) || seenLinks.has(capabilityId)) {
+      capabilityTeamInputError(`Capability '${capabilityId}' is selected more than once.`,
+        'CAPABILITY_TEAM_LINK_DUPLICATE', { capabilityId });
+    }
+    seenLinks.add(capabilityId);
+    scalarInputBytes(capabilityId, 'links');
+  }
+  for (const [field, value] of Object.entries({ lead, teamId: id, name: teamName, jiraProject: project })) {
+    scalarInputBytes(value, field);
+  }
+  let serialized;
+  try {
+    serialized = JSON.stringify({ lead, teamId: id, name: teamName, jiraProject: project,
+      members: normalizedMembers, links: normalizedLinks });
+  } catch {
+    capabilityTeamInputError('Team mapping request must be serializable.');
+  }
+  if (Buffer.byteLength(serialized, 'utf8') > CAPABILITY_MAP_INPUT_LIMITS.aggregateBytes) {
+    capabilityTeamInputError(
+      `Team mapping request exceeds the ${CAPABILITY_MAP_INPUT_LIMITS.aggregateBytes}-byte aggregate limit.`,
+      'CAPABILITY_MAP_REQUEST_LIMIT_EXCEEDED');
+  }
+  return Object.freeze({
+    leadUrl: assertCredentialFreeRemote(lead), teamId: id, name: teamName,
+    jiraProject: project, members: Object.freeze(normalizedMembers), links: Object.freeze(normalizedLinks)
+  });
 }
 
 /** Refuse unbounded API input before identity discovery, enterprise setup, or any Git observation. */
@@ -919,7 +1053,7 @@ function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNa
     });
   }
   const progressiveChange = receipt.kind === 'capability-change'
-    && ['add', 'protect', 'depend'].includes(receipt.operation);
+    && ['add', 'protect', 'depend', 'map-team'].includes(receipt.operation);
   const managedAdoption = receipt.kind === 'capability-managed-adoption'
     && receipt.operation === 'adopt-managed';
   if (!progressiveChange && !managedAdoption) {
@@ -1507,7 +1641,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     // approved authority merely because somebody opened the mapper.
     await initializeDefinition(scratch);
     const result = await mutate(
-      scratch, baseBranch, operationSession, observedAuthority, proposalAuthor
+      scratch, baseBranch, operationSession, observedAuthority, proposalAuthor, baseCommit
     );
 
     // Validate the complete joined configuration before publishing a review ref.  Previously the
@@ -3429,6 +3563,403 @@ export async function mapCapability(leadUrl, {
     cleanupTemporaryTree,
     runRemoteCommand
   });
+}
+
+/**
+ * Create or extend one team collection and all of its selected children in one reviewed commit.
+ *
+ * New members are delivery capabilities with one whole-repository source scope and a conservative
+ * blobless/refuse clone contract. Existing capabilities are moved only by an explicit `links`
+ * selection, and even then only from the top level; a different approved parent is never replaced.
+ */
+export async function mapCapabilityTeam(leadUrl, {
+  teamId,
+  name,
+  jiraProject = null,
+  members = [],
+  links = [],
+  initiatingRoot = process.cwd(),
+  initiatingEnv = process.env,
+  cleanupTemporaryTree = removeTemporaryTree,
+  runRemoteCommand = runRemoteGitAsync
+} = {}) {
+  const request = normalizeCapabilityTeamRequest(leadUrl, {
+    teamId, name, jiraProject, members, links
+  });
+  const authorIdentity = requireCapabilityProposalAuthor(
+    await captureCapabilityProposalAuthor(initiatingRoot, initiatingEnv)
+  );
+  const remoteSession = new GitRemoteSession({ env: enterpriseGitEnvironment() });
+  const leadKey = request.leadUrl;
+  const proposalBranchPrefix = `${CAPABILITY_PROPOSAL_PREFIX}map-team-${request.teamId}-`;
+  const configurationRef = `refs/heads/${CONFIGURATION_BRANCH}`;
+  const authorityObservation = await remoteSession.observeAsync(leadKey, {
+    includeHead: true,
+    refs: [configurationRef, `refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*`]
+  });
+  requireRemoteObservation(authorityObservation,
+    `capability authority '${sanitizeRemote(leadKey)}'`);
+
+  const orphanedProposals = [...authorityObservation.refs]
+    .filter(([ref]) => ref.startsWith(`refs/heads/${CAPABILITY_PROPOSAL_PREFIX}`))
+    .map(([branch, commit]) => ({ branch, commit }));
+  if (!authorityObservation.refs.has(configurationRef) && orphanedProposals.length) {
+    throw missingCapabilityConfigurationError(leadKey, orphanedProposals);
+  }
+
+  // Refuse an unavailable member before withLeadCheckout can initialize a first authority. These
+  // observations are eligibility checks only; every URL is refreshed again in the mutation callback.
+  await mapLimit(request.members, Math.max(1, Math.min(4, request.members.length || 1)),
+    async (member) => {
+      const observation = member.repositoryUrl === leadKey
+        ? authorityObservation
+        : await remoteSession.observeAsync(member.repositoryUrl, {
+            includeHead: true, refs: []
+          });
+      requireRemoteObservation(observation,
+        `capability repository '${sanitizeRemote(member.repositoryUrl)}'`);
+      await observedDefaultBranchAsync(member.repositoryUrl, remoteSession, observation);
+    });
+
+  const matchingProposalRefs = [...authorityObservation.refs]
+    .filter(([ref]) => ref.startsWith(`refs/heads/${proposalBranchPrefix}`))
+    .map(([ref, commit]) => ({ branch: ref.slice('refs/heads/'.length), commit }))
+    .filter(({ branch }) => /^[0-9a-f]{8}$/i.test(
+      branch.slice(proposalBranchPrefix.length)))
+    .sort((left, right) => left.branch.localeCompare(right.branch));
+  if (matchingProposalRefs.length && !authorityObservation.refs.has(configurationRef)) {
+    throw unresolvedCapabilityProposalError(leadKey, request.teamId,
+      matchingProposalRefs.map((proposal) => ({
+        ...proposal,
+        proposalCommit: proposal.commit,
+        status: 'unreadable', merged: false, valid: false,
+        failure: { code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING' }
+      })));
+  }
+
+  return withLeadCheckout(leadKey, `Map team ${request.teamId}`,
+    `capability/map-team-${request.teamId}`, async (
+      root, _baseBranch, leadRemoteSession, _leadAuthorityObservation, proposalAuthor,
+      mutationBaseCommit
+    ) => {
+      // One refreshed advertisement binds the checked-out base, same-team proposal guard, and a
+      // member that happens to use the lead repository to the same mutation boundary.
+      const boundaryObservation = await leadRemoteSession.observeAsync(leadKey, {
+        includeHead: true,
+        refs: [configurationRef, `refs/heads/${proposalBranchPrefix}*`],
+        refresh: true
+      });
+      requireRemoteObservation(boundaryObservation,
+        `capability authority '${sanitizeRemote(leadKey)}'`);
+      const boundaryConfigurationCommit = boundaryObservation.refs.get(configurationRef) ?? null;
+      if (boundaryConfigurationCommit !== mutationBaseCommit) {
+        throw new SingularityFlowError(
+          'Approved capability configuration changed while the team proposal was being prepared. Nothing was changed; retry against the current map.', {
+            code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
+            details: capabilityRecovery({
+              stage: 'proposal', state: 'configuration-advanced', remote: leadKey,
+              nextAction: {
+                command: `singularity-flow capability organisation ${quoted(commandRemote(leadKey))} --refresh --json`,
+                skill: '/sf-capability-map'
+              },
+              preserved: ['approved-configuration', 'application-branches', 'existing-proposals']
+            })
+          }
+        );
+      }
+      const boundaryProposalRefs = [...boundaryObservation.refs]
+        .filter(([ref]) => ref.startsWith(`refs/heads/${proposalBranchPrefix}`))
+        .map(([ref, commit]) => ({ branch: ref.slice('refs/heads/'.length), commit }))
+        .filter(({ branch }) => /^[0-9a-f]{8}$/i.test(
+          branch.slice(proposalBranchPrefix.length)))
+        .sort((left, right) => left.branch.localeCompare(right.branch));
+      const proposalHistory = await classifyMatchingCapabilityProposals(
+        root, leadKey, boundaryProposalRefs, { env: leadRemoteSession.env }
+      );
+      if (proposalHistory.blocking.length) {
+        throw unresolvedCapabilityProposalError(
+          leadKey, request.teamId, proposalHistory.blocking, proposalHistory.historical
+        );
+      }
+
+      const boundaryBranches = new Map(await mapLimit(
+        request.members, Math.max(1, Math.min(4, request.members.length || 1)),
+        async (member) => {
+          const observation = member.repositoryUrl === leadKey
+            ? boundaryObservation
+            : await leadRemoteSession.observeAsync(member.repositoryUrl, {
+                includeHead: true, refs: [], refresh: true
+              });
+          requireRemoteObservation(observation,
+            `capability repository '${sanitizeRemote(member.repositoryUrl)}'`);
+          const defaultBranch = await observedDefaultBranchAsync(
+            member.repositoryUrl, leadRemoteSession, observation
+          );
+          return [member.repositoryUrl, defaultBranch];
+        }
+      ));
+
+      assertGovernanceVisible(root);
+      const capabilityFile = path.join(root, CAPABILITIES_PATH);
+      const portfolioFile = path.join(root, PORTFOLIO_PATH);
+      const governed = existsSync(capabilityFile);
+      if (!governed) {
+        await initializeDefinition(root);
+        await describeRepository(
+          root, repositoryIdFromUrl(leadKey), leadKey,
+          await leadApplicationBranch(
+            root, leadKey, leadRemoteSession, boundaryObservation
+          ), proposalAuthor
+        );
+        await enableLedger(root, 'state');
+      }
+      if (!existsSync(portfolioFile)) {
+        capabilityTeamMutationError(
+          `The capability authority has no '${PORTFOLIO_PATH}' to declare team repositories.`,
+          'CAPABILITY_PORTFOLIO_REQUIRED', leadKey);
+      }
+
+      const capabilities = governed
+        ? YAML.parseDocument(await readFile(capabilityFile, 'utf8'))
+        : YAML.parseDocument('version: 1\ncapabilities: {}\n');
+      const portfolio = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
+      const beforeValue = capabilities.toJS() ?? {};
+      const beforePortfolio = portfolio.toJS() ?? {};
+      const beforeDefinition = governed
+        ? validateCapabilities(beforeValue, beforePortfolio)
+        : null;
+      const approvedCapabilities = beforeValue.capabilities ?? {};
+      const approvedRepositories = beforePortfolio.repositories ?? {};
+      const existingTeam = approvedCapabilities[request.teamId] ?? null;
+      let teamNeedsName = false;
+      let teamNeedsJira = false;
+      if (existingTeam) {
+        const differences = [];
+        if (existingTeam.kind !== 'collection') differences.push('kind');
+        if ((existingTeam.parent ?? null) !== null) differences.push('parent');
+        if (existingTeam.name != null && existingTeam.name !== request.name) differences.push('name');
+        if (request.jiraProject != null && existingTeam.jira?.projectKey != null
+            && existingTeam.jira.projectKey !== request.jiraProject) differences.push('jira.projectKey');
+        if (differences.length) {
+          capabilityTeamMutationError(
+            `Capability '${request.teamId}' already exists but is not the requested matching team collection.`,
+            'CAPABILITY_TEAM_CONFLICT', leadKey, {
+              teamId: request.teamId, differences
+            });
+        }
+        teamNeedsName = existingTeam.name == null;
+        teamNeedsJira = request.jiraProject != null && existingTeam.jira?.projectKey == null;
+      }
+      const effectiveJiraProject = request.jiraProject
+        ?? existingTeam?.jira?.projectKey ?? null;
+
+      const newMembers = [];
+      for (const member of request.members) {
+        const existing = approvedCapabilities[member.capabilityId] ?? null;
+        if (existing) {
+          const approvedParent = existing.parent ?? null;
+          if (approvedParent !== request.teamId) {
+            capabilityTeamMutationError(
+              approvedParent == null
+                ? `Capability '${member.capabilityId}' is already mapped at the top level. Select it with --link instead of --member.`
+                : `Capability '${member.capabilityId}' already belongs to '${approvedParent}' and cannot be implicitly reparented.`,
+              'CAPABILITY_TEAM_MEMBER_ALREADY_MAPPED', leadKey, {
+                capabilityId: member.capabilityId, approvedParent,
+                requestedParent: request.teamId
+              });
+          }
+          const approvedRepositoryIds = capabilityRepositories(existing);
+          const differences = [];
+          if (existing.kind !== 'delivery') differences.push('kind');
+          if (existing.name !== member.name) differences.push('name');
+          if (approvedRepositoryIds.length !== 1
+              || approvedRepositoryIds[0] !== member.repositoryId) differences.push('repository');
+          if (approvedRepositories[member.repositoryId]?.url !== member.repositoryUrl) {
+            differences.push('repositoryUrl');
+          }
+          if (normalizeSourceRoots(existing.sourceRoots ?? []).length !== 0) {
+            differences.push('sourceRoots');
+          }
+          if (differences.length) {
+            capabilityTeamMutationError(
+              `Capability '${member.capabilityId}' is already a child of '${request.teamId}' with different requested attributes.`,
+              'CAPABILITY_TEAM_MEMBER_CONFLICT', leadKey, {
+                capabilityId: member.capabilityId, differences
+              });
+          }
+          continue;
+        }
+        const repository = approvedRepositories[member.repositoryId];
+        if (repository?.url && repository.url !== member.repositoryUrl) {
+          capabilityTeamMutationError(
+            `Repository identifier '${member.repositoryId}' is already assigned to '${sanitizeRemote(repository.url)}'; it cannot also identify '${sanitizeRemote(member.repositoryUrl)}'.`,
+            'CAPABILITY_REPOSITORY_ID_COLLISION', leadKey, {
+              repositoryId: member.repositoryId
+            });
+        }
+        const mappedCapabilityIds = Object.entries(approvedCapabilities)
+          .filter(([, capability]) => capabilityRepositories(capability)
+            .includes(member.repositoryId))
+          .map(([capabilityId]) => capabilityId);
+        if (mappedCapabilityIds.length) {
+          capabilityTeamMutationError(
+            `Repository '${member.repositoryId}' is already mapped by ${mappedCapabilityIds.join(', ')}. Link the compatible approved capability instead of creating a second member.`,
+            'CAPABILITY_TEAM_REPOSITORY_ALREADY_MAPPED', leadKey, {
+              repositoryId: member.repositoryId, capabilityIds: mappedCapabilityIds
+            });
+        }
+        newMembers.push(member);
+      }
+
+      const linksToAdd = [];
+      for (const capabilityId of request.links) {
+        const existing = approvedCapabilities[capabilityId];
+        if (!existing) {
+          capabilityTeamMutationError(
+            `Cannot link unknown capability '${capabilityId}'.`,
+            'CAPABILITY_TEAM_LINK_UNKNOWN', leadKey, { capabilityId });
+        }
+        const approvedParent = existing.parent ?? null;
+        if (approvedParent === request.teamId) {
+          continue;
+        }
+        if (approvedParent != null) {
+          capabilityTeamMutationError(
+            `Capability '${capabilityId}' already belongs to '${approvedParent}' and cannot be implicitly reparented.`,
+            'CAPABILITY_TEAM_LINK_PARENT_CONFLICT', leadKey, {
+              capabilityId, approvedParent, requestedParent: request.teamId
+            });
+        }
+        linksToAdd.push(capabilityId);
+      }
+
+      const changed = !existingTeam || teamNeedsName || teamNeedsJira
+        || newMembers.length > 0 || linksToAdd.length > 0;
+      const memberResults = request.members.map((member) => ({
+        capabilityId: member.capabilityId,
+        name: member.name,
+        repositoryId: member.repositoryId,
+        repositoryUrl: member.repositoryUrl,
+        status: newMembers.includes(member) ? 'will-add' : 'already-member'
+      }));
+      const linkResults = request.links.map((capabilityId) => ({
+        capabilityId,
+        status: linksToAdd.includes(capabilityId) ? 'will-link' : 'already-linked'
+      }));
+      if (!changed) {
+        return {
+          status: 'already-mapped', alreadyMapped: true,
+          lead: leadKey, capabilityId: request.teamId, teamId: request.teamId,
+          team: { id: request.teamId, name: request.name, jiraProject: effectiveJiraProject },
+          members: memberResults, links: linkResults,
+          memberIds: request.members.map((member) => member.capabilityId),
+          linkedCapabilityIds: [...request.links],
+          repositoryIds: request.members.map((member) => member.repositoryId),
+          state: { published: true, reason: 'already present in approved configuration' }
+        };
+      }
+
+      if (!existingTeam) {
+        capabilities.setIn(['capabilities', request.teamId], capabilities.createNode({
+          name: request.name,
+          kind: 'collection',
+          parent: null,
+          ...(request.jiraProject ? { jira: { projectKey: request.jiraProject } } : {})
+        }));
+      } else {
+        if (teamNeedsName) capabilities.setIn(
+          ['capabilities', request.teamId, 'name'], request.name
+        );
+        if (teamNeedsJira) capabilities.setIn(
+          ['capabilities', request.teamId, 'jira', 'projectKey'], request.jiraProject
+        );
+      }
+
+      const safeClone = normalizeCloneStrategy({ mode: 'blobless', fallback: 'refuse' },
+        'Team member clone strategy');
+      for (const member of newMembers) {
+        const existingRepository = portfolio
+          .getIn(['repositories', member.repositoryId], true)?.toJSON?.() ?? {};
+        portfolio.setIn(['repositories', member.repositoryId], portfolio.createNode({
+          ...existingRepository,
+          url: member.repositoryUrl,
+          defaultBranch: boundaryBranches.get(member.repositoryUrl),
+          required: true,
+          clone: { ...safeClone, sparseCone: [...safeClone.sparseCone] }
+        }));
+        capabilities.setIn(['capabilities', member.capabilityId], capabilities.createNode({
+          name: member.name,
+          kind: 'delivery',
+          parent: request.teamId,
+          repository: member.repositoryId,
+          sourceRoots: []
+        }));
+      }
+      for (const capabilityId of linksToAdd) {
+        capabilities.setIn(['capabilities', capabilityId, 'parent'], request.teamId);
+      }
+
+      const portfolioValue = portfolio.toJS();
+      const afterDefinition = validateCapabilities(capabilities.toJS(), portfolioValue);
+      if (newMembers.length) {
+        await writeFile(portfolioFile, portfolio.toString(YAML_OUTPUT), 'utf8');
+      }
+      await writeFile(capabilityFile, capabilities.toString(YAML_OUTPUT), 'utf8');
+
+      let receipt = null;
+      let receiptPath = null;
+      if (beforeDefinition?.version === 2
+          && beforeDefinition.management?.mode === 'sflow-cli') {
+        receipt = capabilityChangeReceipt({
+          operation: 'map-team',
+          beforeSha256: capabilityDigest(beforeDefinition),
+          afterSha256: capabilityDigest(afterDefinition),
+          parameters: {
+            teamId: request.teamId,
+            name: request.name,
+            jiraProject: request.jiraProject,
+            members: request.members.map((member) => ({
+              capabilityId: member.capabilityId,
+              repositoryId: member.repositoryId,
+              repositoryUrl: member.repositoryUrl,
+              name: member.name
+            })),
+            links: [...request.links]
+          },
+          materialization: null
+        });
+        receiptPath = `singularity/capability-changes/${receipt.changeId.toLowerCase()}.json`;
+        await mkdir(path.dirname(path.join(root, receiptPath)), { recursive: true });
+        await writeFile(path.join(root, receiptPath), canonicalJson(receipt), 'utf8');
+      }
+
+      return {
+        status: 'proposal-created', alreadyMapped: false,
+        lead: leadKey, capabilityId: request.teamId, teamId: request.teamId,
+        team: { id: request.teamId, name: request.name, jiraProject: effectiveJiraProject },
+        members: memberResults.map((member) => ({
+          ...member, status: member.status === 'will-add' ? 'added' : member.status
+        })),
+        links: linkResults.map((link) => ({
+          ...link, status: link.status === 'will-link' ? 'linked' : link.status
+        })),
+        memberIds: request.members.map((member) => member.capabilityId),
+        linkedCapabilityIds: [...request.links],
+        addedMemberIds: newMembers.map((member) => member.capabilityId),
+        addedLinkIds: [...linksToAdd],
+        repositoryIds: request.members.map((member) => member.repositoryId),
+        ...(receipt ? { receipt, receiptPath } : {}),
+        state: { published: false, reason: 'awaiting review and merge' }
+      };
+    }, {
+      remoteSession,
+      authorityObservation,
+      fullHistory: matchingProposalRefs.length > 0,
+      bindProposalToBase: true,
+      authorIdentity,
+      cleanupTemporaryTree,
+      runRemoteCommand
+    });
 }
 
 /** Add one shipping repository to an existing delivery capability as a reviewed proposal. */

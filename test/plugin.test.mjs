@@ -127,6 +127,25 @@ test('capability mapping reviews and activates the exact proposal instead of sto
   assert.doesNotMatch(content, /Ask the contributor to review and merge[\s\S]*capability publish/);
 });
 
+test('capability mapping onboards a selected team through one bounded atomic proposal', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-capability-map', 'SKILL.md'), 'utf8');
+  assert.match(content, /# Map a capability or onboard a team/i);
+  assert.match(content, /select at most 20 repositories/i);
+  assert.match(content, /Inspect the selected repositories \*\*one at a time\*\*/i);
+  assert.match(content, /Never inspect a whole result page/i);
+  for (const status of ['Will add', 'Will link', 'Needs a choice', 'Left out']) {
+    assert.ok(content.includes(`**${status}**`), `team onboarding preserves ${status}`);
+  }
+  assert.match(content, /Setting one repository aside must not discard eligible results/i);
+  assert.match(content, /capability map-team <TEAM-ID>[\s\S]*--member <CHILD-ID>=<GIT-URL>/i);
+  assert.match(content, /show the exact proposed tree[\s\S]*complete command before mutation/i);
+  assert.match(content, /Run it exactly once after confirmation/i);
+  assert.match(content, /one atomic proposal/i);
+  assert.match(content, /stop for explicit approval/i);
+  assert.match(content, /capability activate <REVIEW-BRANCH>[\s\S]*--confirm <FULL-PROPOSAL-COMMIT>/i);
+  assert.match(content, /Offer `\/sf-workspace`; do not invoke it/i);
+});
+
 test('document skill manages active and detached evidence with explicit consequences', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-documents', 'SKILL.md'), 'utf8');
   assert.match(content, /documents list[\s\S]*--all/);

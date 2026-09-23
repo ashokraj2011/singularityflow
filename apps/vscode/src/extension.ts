@@ -1116,6 +1116,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       label: 'Review capability proposals', description: 'inspect pending organisation changes',
       tooltip: 'List pending capability-map proposals across every registered lead repository.',
       icon: 'merge', runCommand: 'singularityFlow.reviewCapabilityProposals'
+    }, {
+      kind: 'action', id: 'configuration:onboard-team',
+      label: 'Onboard a team', description: 'select repositories and propose them together',
+      tooltip: 'Discover repositories, inspect only explicit selections, and create one reviewed team proposal.',
+      icon: 'team', runCommand: 'singularityFlow.onboardTeam'
     }]);
     logsTree.replace([{
       kind: 'action', id: 'logs:unavailable', label: 'Choose a workspace',
@@ -1882,6 +1887,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return fosFailure('resume-bootstrap', 'Workspace setup recovery needs attention', error, null);
     }
   }));
+
+  /**
+   * Onboard one team and its explicitly selected repositories as one reviewed capability change.
+   *
+   * Registered before repository activation can stop: repository discovery and organisation
+   * authority are machine/global concerns, so this journey must also work from an empty window.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.onboardTeam',
+    async () => {
+      let location;
+      try {
+        location = resolveCli({ extensionPath: context.extensionPath });
+      } catch (error) {
+        return showRefusal(error, { headline: 'Team onboarding is unavailable' });
+      }
+      const initiatingRepository = await capabilityActionInitiatingRoot();
+      const client = new SingularityFlowClient({
+        location,
+        repository: initiatingRepository,
+        environment: cliEnvironment,
+        onOutput: (text) => output.append(text)
+      });
+      const run = async (
+        argv: string[], signal?: AbortSignal
+      ): Promise<{ result: unknown; error: string | null }> => {
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
+        try {
+          return { result: await client.run<unknown>(argv, signal), error: null };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          output.appendLine(`  failed: ${message}`);
+          return { result: null, error: message };
+        }
+      };
+      const { TeamOnboardingPanel } = lazyPanels();
+      TeamOnboardingPanel.show(
+        context,
+        run,
+        (lead, branch, onActivated) => {
+          const { CapabilityProposalPanel } = lazyPanels();
+          CapabilityProposalPanel.show(context, lead, branch, run, async () => onActivated());
+        },
+        async (teamId, lead) => {
+          await vscode.commands.executeCommand('singularityFlow.createWorkspace', {
+            capabilityId: teamId,
+            organisation: lead
+          });
+        }
+      );
+    }
+  ));
 
   /**
    * Govern a repository that has never heard of Singularity Flow.

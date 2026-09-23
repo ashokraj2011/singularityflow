@@ -100,6 +100,7 @@ test('capability reads and diagnostics do not route through the mapping mutation
   assert.equal(copilotSkillForCommand('singularity-flow capability leads --json'), '/sf-capability-doctor');
   assert.equal(copilotSkillForCommand('singularity-flow capability fsck --json'), '/sf-capability-doctor');
   assert.equal(copilotSkillForCommand('singularity-flow capability map rule-engine --json'), '/sf-capability-map');
+  assert.equal(copilotSkillForCommand('singularity-flow capability map-team payments --json'), '/sf-capability-map');
 });
 
 test('initiative and Epic routes are closed over real skill names', () => {

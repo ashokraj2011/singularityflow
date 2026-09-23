@@ -86,6 +86,9 @@ export class CapabilitiesPanel {
           }
         );
       }
+      if (message?.type === 'onboard-team') {
+        return vscode.commands.executeCommand('singularityFlow.onboardTeam');
+      }
       if (message?.type === 'remove' && typeof message.id === 'string') {
         const target = message.reparentChildrenTo;
         if (target !== undefined && target !== null && typeof target !== 'string') return;

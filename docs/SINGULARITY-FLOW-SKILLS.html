@@ -1662,7 +1662,7 @@ offline and must not be represented as remote publication proof.
     <details>
       <summary>
         <span class="skill-number">017</span>
-        <span class="skill-title"><strong>sflow-capability-map</strong><span>Inspect a Git URL, then propose, review, and activate its capability mapping.</span></span>
+        <span class="skill-title"><strong>sflow-capability-map</strong><span>Propose, review, and activate one capability or an atomic team mapping.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -1671,7 +1671,7 @@ offline and must not be represented as remote publication proof.
           <span class="pill">interactive</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~730 body tokens</span>
+          <span class="pill">~798 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-map</code></dd></div>
@@ -1685,45 +1685,44 @@ offline and must not be represented as remote publication proof.
         </div>
         <pre data-source="sflow-capability-map"><code>---
 name: sflow-capability-map
-description: Inspect a Git URL, then propose, review, and activate its capability mapping.
+description: Propose, review, and activate one capability or an atomic team mapping.
 disable-model-invocation: true
 
 ---
 
-# Map a capability
+# Map a capability or onboard a team
 
 &lt;!-- sflow-output-contract: explicit-selection --&gt;
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story or repository required; use only the selected lead URL. Resolve local checks with `singularity-flow workspace current --json`; never search `$HOME`.
 
-1. Ask first for the exact credential-free Git URL.
-2. Run `singularity-flow capability inspect-repository &lt;GIT-URL&gt; --json`; add `--lead &lt;LEAD-URL&gt;` only after explicit selection.
-3. Branch before collecting details:
-   - `already-mapped`: show matches and stop without proposing a duplicate.
-   - `known-repository-unassigned`: ask whether to map it.
-   - `ambiguous`: show choices and inspect again with the selected `--lead`.
-   - `unreachable`: report and stop. Do not reinterpret an unverified absence as a new repository.
-   - `not-onboarded`: show `checkedLeads`; require complete coverage.
-   - `inconclusive`: show `pendingMatches`; stop unless coverage is complete, no authority exists, and the target is reachable.
-4. Continue only after an explicit request for a new mapping. Run `singularity-flow capability organisation &lt;LEAD-URL&gt; --json`; show parents, then ask only for missing ID, name, kind, parent, Jira/team, roots, and clone policy. `delivery` uses the URL; `collection` does not.
-5. Run:
+## One capability
+
+1. Ask first for the exact credential-free Git URL; run `singularity-flow capability inspect-repository &lt;GIT-URL&gt; --json`.
+2. `already-mapped` stops without proposing a duplicate. Ask before `known-repository-unassigned`; resolve `ambiguous`; require complete `not-onboarded` coverage. For `unreachable`, Do not reinterpret an unverified absence as a new repository. Stop on incomplete `inconclusive`.
+3. Continue only after an explicit request for a new mapping. Run `singularity-flow capability organisation &lt;LEAD-URL&gt; --json`; show parents, then ask only for missing ID, name, kind, parent, ownership, roots, and clone policy.
+4. Confirm and run once:
 
    `singularity-flow capability map &lt;ID&gt; --lead &lt;LEAD-URL&gt; --kind &lt;KIND&gt; [--name TEXT] [--parent ID] [--repository URL] [--jira-project KEY] [--teams A,B] --json`
 
-6. Report branch/base/commit. Run `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`, show the diff, then ask approval.
-7. Only after the contributor explicitly approves, run:
+5. Report branch/base/commit. Run `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`; show its diff. After the contributor explicitly approves, run `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`.
+6. `CAPABILITY_CONFIGURATION_UNPROTECTED` needs `--acknowledge-unprotected`; otherwise use external review, then run the same exact-hash `singularity-flow capability activate` command again. Run exact recovery actions only. `singularity-flow capability publish` is a projection-repair command, not activation.
 
-   `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`
+## Team onboarding
 
-8. For `CAPABILITY_PROPOSAL_PACKAGED_COMPATIBILITY_REQUIRED`, run only its exact `repair-proposal` after confirmation. Show repaired paths/new SHA and review the new diff. It upgrades proven package bytes; custom bytes require normal review. Never auto-activate.
-9. `CAPABILITY_CONFIGURATION_UNPROTECTED` needs consent for `--acknowledge-unprotected`; otherwise use external review. After that merge, run the same exact-hash `singularity-flow capability activate` command again. Use `singularity-flow capability fsck` for invalid history.
-10. Activation is staged. For audit/projection recovery run only its returned exact action; never merge/reset again. A recovery conflict requires reported history, not current HEAD.
-11. Report success only when configuration, audit, projection, and required links are complete.
+1. Ask for team name/ID, Jira project, and lead URL. Use `/sf-repositories` with an explicit GitHub/GHE host. Rows remain **Not checked yet**. Never inspect a whole result page.
+2. Select at most 20 repositories with child ID/name; resolve opaque refs through `singularity-flow repositories select`.
+3. Inspect the selected repositories **one at a time** with `singularity-flow capability inspect-repository &lt;URL&gt; --lead &lt;LEAD-URL&gt; --include-proposals --json`; continue after failures. Label **Will add**, **Will link**, **Needs a choice**, or **Left out**. Setting one repository aside must not discard eligible results.
+4. Stop if none qualify. Otherwise show the exact proposed tree, set-aside reasons, and complete command before mutation:
 
-## Boundaries
+   `singularity-flow capability map-team &lt;TEAM-ID&gt; --lead &lt;LEAD-URL&gt; --name &lt;TEAM-NAME&gt; [--jira-project KEY] [--member &lt;CHILD-ID&gt;=&lt;GIT-URL&gt;]... [--member-name &lt;CHILD-ID&gt;=&lt;NAME&gt;]... [--link &lt;EXISTING-ID&gt;]... --json`
 
-- Do not create a workspace. Never hand-edit maps or use raw Git for proposals. `singularity-flow capability publish` is a projection-repair command; it is not activation.
+   Run it exactly once after confirmation, creating one atomic proposal.
+5. Show the proposal diff and stop for explicit approval; then use the activation command above.
+6. Require configuration, audit, projection, and links. Offer `/sf-workspace`; do not invoke it.
+
+Never hand-edit maps, use raw Git, create a workspace, or start work.
 </code></pre>
       </div>
     </details>

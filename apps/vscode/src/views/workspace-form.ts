@@ -26,18 +26,31 @@ export interface FormRepository {
   clone: { mode: string; sparseCone: string[]; fallback: string };
 }
 
+/** One repository named by a capability, resolved against the organisation portfolio. */
+export interface CapabilityRepository extends FormRepository {
+  /** Whether this repository is the capability's declared centre of gravity. */
+  lead: boolean;
+}
+
 /** One capability from the organisation's map. */
 export interface CapabilityChoice {
   id: string;
   name: string;
   depth: number;
   ancestors: string[];
-  /** The repository this capability ships from; null for a grouping. */
+  /**
+   * The repository that leads this capability; null for a grouping.
+   *
+   * Kept as the backwards-compatible shorthand used by older capability maps. New maps may name
+   * several repositories in `repositories` and select their lead with `leadRepository`.
+   */
   repository: string | null;
   /** Where that repository is cloned from, or null when the portfolio does not declare it. */
   url: string | null;
   defaultBranch: string;
   clone: { mode: string; sparseCone: string[]; fallback: string };
+  /** Every repository this capability ships from, with the legacy shorthand normalized into it. */
+  repositories: CapabilityRepository[];
 }
 
 export interface WorkspaceForm {
@@ -83,7 +96,19 @@ export interface RemoteCapability {
   id: string;
   name?: string;
   repository?: string | null;
+  repositories?: string[];
+  leadRepository?: string | null;
   children?: RemoteCapability[];
+}
+
+function uniqueRepositoryIds(node: RemoteCapability): string[] {
+  // A lead chooses from the declared shipping set; it must never create a repository that the
+  // capability did not declare. Schema/CLI validation reports an invalid external lead, while this
+  // read-only projection falls back deterministically to the first actual repository.
+  const identifiers = [node.repository, ...(node.repositories ?? [])]
+    .map((value) => typeof value === 'string' ? value.trim() : '')
+    .filter(Boolean);
+  return [...new Set(identifiers)];
 }
 
 /** Flatten the organisation's map into rows the form can list, carrying each clone URL across. */
@@ -93,21 +118,37 @@ export function capabilityChoices(
 ): CapabilityChoice[] {
   const walk = (nodes: RemoteCapability[], chain: string[]): CapabilityChoice[] =>
     nodes.flatMap((node) => {
-      const declared = node.repository ? repositories[node.repository] : undefined;
+      const repositoryIds = uniqueRepositoryIds(node);
+      const requestedLead = node.leadRepository?.trim() || node.repository?.trim() || null;
+      const leadRepository = requestedLead && repositoryIds.includes(requestedLead)
+        ? requestedLead
+        : repositoryIds[0] ?? null;
+      const projectedRepositories: CapabilityRepository[] = repositoryIds.map((id) => {
+        const declared = repositories[id];
+        return {
+          id,
+          url: declared?.url ?? '',
+          defaultBranch: declared?.defaultBranch ?? 'main',
+          clone: {
+            mode: declared?.clone?.mode ?? 'full',
+            sparseCone: declared?.clone?.sparseCone ?? [],
+            fallback: declared?.clone?.fallback ?? 'refuse'
+          },
+          lead: id === leadRepository
+        };
+      });
+      const lead = projectedRepositories.find((entry) => entry.lead) ?? null;
       return [
         {
           id: node.id,
           name: node.name ?? node.id,
           depth: chain.length,
           ancestors: chain,
-          repository: node.repository ?? null,
-          url: declared?.url ?? null,
-          defaultBranch: declared?.defaultBranch ?? 'main',
-          clone: {
-            mode: declared?.clone?.mode ?? 'full',
-            sparseCone: declared?.clone?.sparseCone ?? [],
-            fallback: declared?.clone?.fallback ?? 'refuse'
-          }
+          repository: lead?.id ?? null,
+          url: lead?.url || null,
+          defaultBranch: lead?.defaultBranch ?? 'main',
+          clone: lead?.clone ?? { mode: 'full', sparseCone: [], fallback: 'refuse' },
+          repositories: projectedRepositories
         },
         ...walk(node.children ?? [], [...chain, node.id])
       ];
@@ -135,7 +176,7 @@ export function coveredCapabilities(form: WorkspaceForm): CapabilityChoice[] {
 
 /** The covered capabilities that ship — the ones that can lead, and the ones that clone. */
 export function shippingCapabilities(form: WorkspaceForm): CapabilityChoice[] {
-  return coveredCapabilities(form).filter((capability) => capability.repository);
+  return coveredCapabilities(form).filter((capability) => capability.repositories.length);
 }
 
 /**
@@ -147,16 +188,33 @@ export function shippingCapabilities(form: WorkspaceForm): CapabilityChoice[] {
 export function derivedRepositories(form: WorkspaceForm): FormRepository[] {
   const byId = new Map<string, FormRepository>();
   for (const capability of shippingCapabilities(form)) {
-    const id = capability.repository ?? '';
-    if (!capability.url || byId.has(id)) continue;
-    byId.set(id, { id, url: capability.url, defaultBranch: capability.defaultBranch, clone: capability.clone });
+    for (const repository of capability.repositories) {
+      if (!repository.url || byId.has(repository.id)) continue;
+      byId.set(repository.id, {
+        id: repository.id,
+        url: repository.url,
+        defaultBranch: repository.defaultBranch,
+        clone: repository.clone
+      });
+    }
   }
   return [...byId.values()];
 }
 
 /** Covered capabilities that name a repository the portfolio does not declare. */
 export function uncloneable(form: WorkspaceForm): CapabilityChoice[] {
-  return shippingCapabilities(form).filter((capability) => !capability.url);
+  return shippingCapabilities(form).filter((capability) =>
+    capability.repositories.some((repository) => !repository.url));
+}
+
+/** Missing repository declarations, retaining both the capability and the exact repository ID. */
+export function uncloneableRepositories(form: WorkspaceForm): Array<{
+  capability: CapabilityChoice;
+  repository: CapabilityRepository;
+}> {
+  return shippingCapabilities(form).flatMap((capability) => capability.repositories
+    .filter((repository) => !repository.url)
+    .map((repository) => ({ capability, repository })));
 }
 
 /**
@@ -194,8 +252,8 @@ export function formProblems(form: WorkspaceForm): string[] {
   } else if (!shippingCapabilities(form).length) {
     problems.push('None of the chosen capabilities ships from a repository, so there would be nothing to work in.');
   }
-  for (const capability of uncloneable(form)) {
-    problems.push(`${capability.name} ships from '${capability.repository}', which the portfolio does not declare, so there is nowhere to clone it from.`);
+  for (const missing of uncloneableRepositories(form)) {
+    problems.push(`${missing.capability.name} ships from '${missing.repository.id}', which the portfolio does not declare, so there is nowhere to clone it from.`);
   }
   return problems;
 }
@@ -287,7 +345,7 @@ function capabilityHtml(form: WorkspaceForm): string {
     <p>
       <label>Include <select data-capability-pick>
         <option value="">— choose a capability —</option>
-        ${offered.map((capability) => `<option value="${escape(capability.id)}">${'&nbsp;&nbsp;'.repeat(capability.depth)}${escape(capability.name)}${capability.repository ? ` (${escape(capability.repository)})` : ''}</option>`).join('')}
+        ${offered.map((capability) => `<option value="${escape(capability.id)}">${'&nbsp;&nbsp;'.repeat(capability.depth)}${escape(capability.name)}${capability.repositories.length ? ` (${capability.repositories.map((repository) => escape(repository.id)).join(', ')})` : ''}</option>`).join('')}
       </select></label>
       <button class="secondary" data-capability-add="1"${offered.length ? '' : ' disabled'}>Add</button>
     </p>
@@ -300,12 +358,13 @@ function capabilityHtml(form: WorkspaceForm): string {
     const beneath = covered.filter((entry) => entry.id !== id && entry.ancestors.includes(id));
     const ships = covered
       .filter((entry) => entry.id === id || entry.ancestors.includes(id))
-      .filter((entry) => entry.repository);
+      .flatMap((entry) => entry.repositories);
+    const repositories = [...new Map(ships.map((repository) => [repository.id, repository])).values()];
     return `
         <tr>
           <td>${icon('capability')}${escape(capability?.name ?? id)}</td>
-          <td class="muted">${beneath.length ? `${beneath.length} beneath it · ` : ''}${ships.length
-      ? ships.map((entry) => `${icon('repository')}<code>${escape(entry.repository ?? '')}</code>${entry.url ? '' : ` <span class="pill bad">${icon('bad')}no clone URL</span>`}`).join(' ')
+          <td class="muted">${beneath.length ? `${beneath.length} beneath it · ` : ''}${repositories.length
+      ? repositories.map((repository) => `${icon('repository')}<code>${escape(repository.id)}</code>${repository.url ? '' : ` <span class="pill bad">${icon('bad')}no clone URL</span>`}`).join(' ')
       : 'ships nothing yet'}</td>
           <td><button class="link" data-capability-remove="${escape(id)}">Remove</button></td>
         </tr>`;
@@ -334,7 +393,7 @@ function leadHtml(form: WorkspaceForm): string {
   return `
     <p>
       <label>Lead capability <select data-field="lead-capability">
-        ${shipping.map((capability) => `<option value="${escape(capability.id)}"${capability.id === lead?.id ? ' selected' : ''}>${escape(capability.name)} (${escape(capability.repository ?? '')})</option>`).join('')}
+        ${shipping.map((capability) => `<option value="${escape(capability.id)}"${capability.id === lead?.id ? ' selected' : ''}>${escape(capability.name)} (${escape(capability.repository ?? '')}${capability.repositories.length > 1 ? ` + ${capability.repositories.length - 1} more` : ''})</option>`).join('')}
       </select></label>
     </p>
     <p class="muted">The workspace's centre of gravity. When the workspace is initialised, the orphan
@@ -424,7 +483,8 @@ export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgr
 
   <section>
     <h2>${icon('git')}Repositories</h2>
-    <p class="question">What the chosen capabilities ship from. Cloned when the workspace is created.</p>
+    <p class="question">What the chosen capabilities ship from. A new target clones them; a matching
+      managed workspace reuses valid checkouts and repairs or clones only what is missing.</p>
     <p><button class="secondary" data-open="repository">${icon('repository')}Choose another repository to map…</button></p>
     <table>
       <thead><tr><th></th><th>Identifier</th><th>Origin</th><th>Branch</th><th>Clone strategy</th></tr></thead>
@@ -435,7 +495,7 @@ export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgr
   <section>
     ${problems.length
     ? `<h2>${icon('bad')}Before this can be created</h2><ul class="blockers">${problems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
-    : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} will be cloned into <code>${escape(form.base ?? '')}/${escape(form.id.trim())}</code>, led by <code>${escape(lead?.name ?? '')}</code>.</p>`}
+    : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${repositories.length} ${repositories.length === 1 ? 'repository is' : 'repositories are'} included for <code>${escape(form.base ?? '')}/${escape(form.id.trim())}</code>, led by <code>${escape(lead?.name ?? '')}</code>. For a new target, ${repositories.length} ${repositories.length === 1 ? 'repository will' : 'repositories will'} be cloned. A matching managed workspace may reuse valid checkouts. The materialization preflight will prove which checkouts are cloned or reused; missing or invalid managed checkouts may be repaired.</p>`}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
     <p>
       <button data-submit="create" ${problems.length || form.busy ? 'disabled' : ''}>

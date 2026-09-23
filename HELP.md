@@ -926,6 +926,10 @@ singularity-flow capability show <CAPABILITY-ID> --json
 singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL> \
   --source-roots <DIR,...> --shared-roots <DIR,...> \
   --clone-mode blobless-sparse --sparse-cone <DIR,...> --clone-fallback refuse
+singularity-flow capability map-team <TEAM-ID> --lead <URL> --name <TEAM-NAME> \
+  [--jira-project KEY] [--member <CHILD-ID>=<GIT-URL>]... \
+  [--member-name <CHILD-ID>=<FRIENDLY-NAME>]... [--link <EXISTING-ID>]... --json
+singularity-flow capability map-team --request <JSON-FILE> --json
 singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode set --parent <PARENT-ID>
 singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode remove --reparent-children-to <PARENT-ID>
 singularity-flow capability proposals --lead <URL>
@@ -961,6 +965,28 @@ target itself hosts an approved map; otherwise it can become the first authority
 contributor explicitly chooses that option. Only a confirmed new mapping after `not-onboarded`, or an explicit
 mapping for `known-repository-unassigned`, proceeds to capability ID, kind, ownership,
 roots, clone-policy, Jira, and team questions.
+
+For a team, use Copilot `/sf-capability-map` and choose **Onboard a team**, or use
+`capability map-team` from the shell. Repository discovery remains read-only: select at most 20
+repositories, then inspect those selections sequentially. Uninspected provider results remain
+**Not checked yet**. Each inspected selection is shown as **Will add**, **Will link**, **Needs a
+choice**, or **Left out**. One unreachable or unresolved repository is set aside with its reason
+instead of blocking eligible selections; uncertainty is never reclassified as a new repository.
+
+Before writing anything, the journey shows the exact collection-plus-children tree, safe clone
+defaults, set-aside rows, and complete `map-team` command. After explicit confirmation it creates
+one atomic `sflow/config-change/capability/...` review proposal for the team. Review the exact diff,
+then separately approve and activate its full proposal commit. Selection and inspection are not
+activation consent. A later `map-team` proposal with the same matching collection adds children
+without recreating the team. Workspace creation is a separate `/sf-workspace` journey after
+activation.
+
+The native team panel uses the second form so a valid 20-repository request cannot exceed the
+Windows process command-line limit. The UTF-8 JSON file is capped at 512 KiB and is a closed object
+containing only `teamId`, `lead`, `name`, `jiraProject`, `members`, and `links`; member objects contain
+only `capabilityId`, `repositoryUrl`, and `name`. It uses the same credential-free URL and team
+normalization as the individual flags. The extension creates it privately, never prints its
+contents, and removes it after success, refusal, cancellation, or failure.
 
 When an older proposal contains an exact, unmodified Agent Markdown file from a previous
 Singularity Flow package that no longer matches the current MCP policy, proposal inspection

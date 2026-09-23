@@ -85,6 +85,12 @@ test('capability help starts repository onboarding with a read-only URL lookup',
   assert.match(page, /capability inspect-repository https:\/\/git\.example\/payments\.git --json/);
   assert.match(page, /Repository onboarding starts from an exact credential-free Git URL/);
   assert.match(page, /Only an explicit new-mapping choice proceeds to metadata/);
+  assert.match(page, /capability map-team <TEAM-ID> --lead <LEAD-URL> --name <TEAM-NAME>/);
+  assert.match(page, /--member <CHILD-ID>=<GIT-URL>/);
+  assert.match(page, /--member-name <CHILD-ID>=<FRIENDLY-NAME>/);
+  assert.match(page, /--link <EXISTING-CAPABILITY-ID>/);
+  assert.match(page, /at most 20 combined members and links/);
+  assert.match(page, /one atomic review proposal/);
 });
 
 test('workspace help exposes an exact remote doctor without requiring a bootstrap session', () => {

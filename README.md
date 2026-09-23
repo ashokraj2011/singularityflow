@@ -580,6 +580,42 @@ credential-free clone URL remains available. Copilot exposes the same journey as
 `/sf-repositories`; it discloses provider-backed names only after an explicit provider/host request
 and labels the private/internal count. Without that request, use the native picker or direct CLI.
 
+### Onboard a team in one proposal
+
+Use `/sf-capability-map` in Copilot and choose **Onboard a team**, or run
+`singularity-flow capability map-team --help`. A team becomes one `collection` capability and each
+new shipping repository becomes a `delivery` child. The journey lists repositories visible through
+the explicitly selected GitHub/GHE identity but labels them **Not checked yet** until inspected.
+Only repositories the contributor selects are inspected, sequentially, with a maximum of 20 per
+onboarding.
+
+Inspection produces four honest outcomes: **Will add**, **Will link**, **Needs a choice**, or
+**Left out**. A failed or unresolved repository is set aside rather than blocking eligible
+selections. Before mutation, Flow shows the exact tree and complete shell command. One confirmed
+`map-team` invocation then creates one atomic review proposal; it does not activate the map or write
+an application branch. Review the proposal and activate its exact full commit separately. Reusing
+the same matching team ID later adds selected children without recreating the collection.
+
+```bash
+singularity-flow capability map-team order-services \
+  --lead "https://git.example.corp/retail/sflow-config.git" \
+  --name "Order Services" --jira-project ORDS \
+  --member order-routing-service=https://git.example.corp/retail/order-routing-service.git \
+  --member-name order-routing-service="Order routing" \
+  --link existing-order-ui \
+  --json
+```
+
+The native team panel transports the same normalized fields with
+`capability map-team --request <JSON-FILE> --json`. Its closed UTF-8 document is capped at 512 KiB,
+contains only credential-free repository locators, and is created privately and removed after the
+CLI finishes. This keeps a valid 20-repository request below the Windows process command-line limit;
+the individual flags remain available for small manual shell invocations.
+
+After activation, create a workspace separately and repeat `--capability` to select capabilities
+from this or other teams. The workspace preview remains the authority for which repositories will
+be cloned and which managed checkouts can be reused.
+
 ## Capabilities, and the workspaces made of them
 
 What an organisation builds is a forest of one or more **capability trees**. Capability `kind` is a

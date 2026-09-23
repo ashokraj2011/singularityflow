@@ -141,7 +141,12 @@ GitLab, Bitbucket, and Azure DevOps adapters can be added later without changing
 5. **No authority by listing.** Provider results cannot authorize capability membership, workspace
    creation, Story work, approvals, or state publication.
 6. **Selection before inspection.** RDS does not run capability inspection against every result.
-   Exact state-link and approved-map reads begin only for the selected repository.
+   Exact state-link and approved-map reads begin only for repositories the user explicitly selects.
+   A team-onboarding action may select and inspect up to 20 repositories in one review session,
+   provided each repository is displayed and selected first, inspections run as individually
+   attributable bounded operations, cancellation stops the remaining queue, and one failure is set
+   aside instead of being reinterpreted as absence or blocking the other results. This is a bounded
+   queue of explicit selections, not inspection of a provider result page.
 7. **Bounded work.** Every provider request has a deadline, cancellation, page-size limit, total
    result limit, and output-size ceiling. Partial results remain explicitly partial.
 8. **Exact account scope.** Results name the adapter, host, content-free account identity, and
@@ -437,7 +442,11 @@ repository selection
   -> optional workspace bootstrap
 ```
 
-RDS must not batch this inspection across a provider result page.
+RDS must not batch inspection across a provider result page. A team-onboarding queue is permitted
+only after explicit checkbox selection, is capped at 20 repositories, preserves one inspection
+result per repository, and never grants authority by aggregation. Only repositories with a complete
+eligible result may enter the later capability proposal; every excluded or unresolved repository
+remains visibly `Left out` or `Needs a choice`.
 
 ## 11. Observability and privacy
 
@@ -513,6 +522,9 @@ indefinitely.
 - **RDS:REQ-019** — Packaged npm and VSIX runtimes work without source-tree access.
 - **RDS:REQ-020** — Every public operation is classified `never` for model use and read-only for
   mutation auditing.
+- **RDS:REQ-021** — A native team-onboarding surface may inspect at most 20 explicitly selected
+  repositories sequentially, preserving independent results, cancellation, and partial progress;
+  unselected provider results are never inspected.
 
 ## 14. Acceptance criteria
 
@@ -553,6 +565,9 @@ indefinitely.
   screen-reader labels, cancellation, selection, and safe URL fallback.
 - **RDS:AC-020** — Controlled office evidence proves GHE proxy/certificate/helper behavior without
   recording repository identities or credentials.
+- **RDS:AC-021** — Selecting six repositories from a 10,000-result provider catalog executes exactly
+  six independently reported capability inspections, can set one failed repository aside, and
+  leaves every unselected repository untouched.
 
 ## 15. Delivery roadmap
 

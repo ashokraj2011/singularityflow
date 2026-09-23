@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 13
+version: 14
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -33,7 +33,7 @@ Use this topic when the current goal matches **capability management**. Start in
 ## Use it from each surface
 
 - **Shell:** `sflow capability`, `sflow capabilities`. Run `singularity-flow capability --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-capabilities`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-capabilities` for reads; `/sf-capability-map` for one mapping or atomic team onboarding. The skills must preserve CLI results and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Configuration Center**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -51,6 +51,37 @@ Use this topic when the current goal matches **capability management**. Start in
 6. Use `sflow capability fsck --repository <DELIVERY-URL> --json` to verify portable discovery from a delivery repository. Add `--search-known` only when no state link exists and an explicit compatibility search is intended.
 7. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
 8. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
+
+## Onboard a team atomically
+
+Choose **Onboard a team** in `/sf-capability-map` when several repositories belong under one team.
+Flow models the team as a `collection` and its shipping repositories as `delivery` children; no
+alternate team schema is introduced. Discover repositories with RDS, explicitly select at most 20,
+and inspect only those selections, sequentially. Provider visibility alone remains **Not checked
+yet** and never implies capability ownership.
+
+Every inspected selection must remain visibly classified as **Will add**, **Will link**, **Needs a
+choice**, or **Left out**. Unreachable, inconclusive, expired, or unresolved selections are set
+aside with their reasons so eligible repositories can continue. An existing compatible capability
+is linked only after an explicit choice; a capability owned by another collection is never silently
+reparented.
+
+Before mutation, review the exact proposed tree, safe defaults, set-aside results, and command:
+
+```bash
+singularity-flow capability map-team <TEAM-ID> --lead <LEAD-URL> --name <TEAM-NAME> \
+  [--jira-project KEY] \
+  [--member <CHILD-ID>=<GIT-URL>]... \
+  [--member-name <CHILD-ID>=<FRIENDLY-NAME>]... \
+  [--link <EXISTING-CAPABILITY-ID>]... --json
+```
+
+One confirmed invocation creates one collection-plus-children review proposal. It does not merge,
+activate, or create a workspace. Inspect the returned branch and full commit with `capability
+proposal`; activate that exact commit only after separate approval. If branch protection requires
+external review, merge through the normal provider controls and rerun the exact activation command.
+Use the same matching team ID in a later proposal to add children without recreating the team.
+After activation, `/sf-workspace` is a separate journey and may select capabilities across teams.
 
 Run `singularity-flow capability fsck --lead <URL>` whenever proposal history or
 the state projection looks inconsistent, or a workspace says its selected capability

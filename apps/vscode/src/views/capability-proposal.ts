@@ -4,6 +4,7 @@ import {
   brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { COMMAND_GUIDANCE_COPY_SCRIPT, commandGuidanceHtml } from './command-guidance.ts';
+import { capabilityActivationSucceeded } from './capability-proposal-model.ts';
 
 export interface CapabilityProposal {
   remote: string;
@@ -56,7 +57,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
   const files = proposal.changedFiles.map((file) => `<tr>
       <td><code>${escape(file.status)}</code></td><td>${escape(file.paths.join(' to '))}</td></tr>`).join('');
   const projection = activated?.projection;
-  const activationComplete = activated?.activated !== false;
+  const activationComplete = capabilityActivationSucceeded(activated);
   // The engine proves repairability against the exact mismatching Agent Markdown bytes at the
   // reviewed Git ref. Never infer that safety boundary from human-readable error text.
   const packagedRepairAvailable = !proposal.merged && proposal.repairable === true;
@@ -143,14 +144,16 @@ export class CapabilityProposalPanel {
   private busy = false;
   private error: string | null = null;
   private activated: ActivationResult | null = null;
+  private readonly activationCallbacks = new Set<(result: ActivationResult) => Promise<void>>();
 
   private constructor(
     context: vscode.ExtensionContext,
     private readonly lead: string,
     private readonly branch: string,
     private readonly run: Run,
-    private readonly onActivated?: (result: ActivationResult) => Promise<void>
+    onActivated?: (result: ActivationResult) => Promise<void>
   ) {
+    if (onActivated) this.activationCallbacks.add(onActivated);
     this.panel = vscode.window.createWebviewPanel(
       'singularityFlow.capabilityProposal', 'Capability proposal review', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true,
@@ -174,6 +177,7 @@ export class CapabilityProposalPanel {
     const key = `${lead}\n${branch}`;
     const existing = this.current.get(key);
     if (existing) {
+      if (onActivated) existing.activationCallbacks.add(onActivated);
       existing.panel.reveal(vscode.ViewColumn.Active);
       return existing;
     }
@@ -279,8 +283,14 @@ export class CapabilityProposalPanel {
     if (error) this.error = error;
     else {
       this.activated = result as ActivationResult;
-      if (this.activated.activated !== false) {
-        await this.onActivated?.(this.activated);
+      if (capabilityActivationSucceeded(this.activated)) {
+        const followUps = await Promise.allSettled(
+          [...this.activationCallbacks].map((callback) => callback(this.activated as ActivationResult))
+        );
+        const failedFollowUps = followUps.filter((followUp) => followUp.status === 'rejected');
+        if (failedFollowUps.length) {
+          this.error = `Capability activation succeeded, but ${failedFollowUps.length} UI follow-up action(s) failed. Refresh the affected page; do not repeat the activation.`;
+        }
         void vscode.window.showInformationMessage(
           `Capability configuration activated on ${this.activated.targetBranch}.`);
       } else {
@@ -293,6 +303,7 @@ export class CapabilityProposalPanel {
 
   dispose(): void {
     CapabilityProposalPanel.current.delete(`${this.lead}\n${this.branch}`);
+    this.activationCallbacks.clear();
     for (const disposable of this.disposables) disposable.dispose();
   }
 }

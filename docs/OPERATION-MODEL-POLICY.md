@@ -111,6 +111,7 @@ Every public operation is classified before its implementation module is importe
 | capability.inspect-repository | read | never | — | — |
 | capability.leads | read | never | — | — |
 | capability.map | mutation | never | — | — |
+| capability.map-team | mutation | never | — | — |
 | capability.of | read | never | — | — |
 | capability.organisation | read | never | — | — |
 | capability.proposal | read | never | — | — |

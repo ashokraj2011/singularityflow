@@ -47,7 +47,7 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
  * read the selected repository. The subcommand boundary preserves both behaviours.
  */
 export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
-  'map', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'discard-proposal',
+  'map', 'map-team', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'discard-proposal',
   'world-model', 'organisation', 'leads', 'inspect-repository', 'fsck', 'reconcile',
   'repository', 'repair-proposal', 'adopt-managed'
 ]);

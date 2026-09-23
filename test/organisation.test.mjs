@@ -29,9 +29,11 @@ import {
   capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
   capabilityPushRecoveryDirectory, cleanupCapabilityPushRecoveries,
   editCapabilityInOrganisation, initializeWorkspaceState,
-  inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability, readOrganisation,
+  inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability,
+  mapCapabilityTeam, readOrganisation,
   organisationCacheFile, previewCapabilityReconciliation,
-  previewStaleCapabilityAuthorityLinkRetirement, proposeProgressiveCapabilityChange, repositoryIdOf,
+  previewManagedCapabilityAdoption, previewStaleCapabilityAuthorityLinkRetirement,
+  proposeProgressiveCapabilityChange, repositoryIdOf,
   publishOrganisationCapabilityMap, repairCapabilityProposal, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
@@ -476,6 +478,170 @@ test('the first capability governs the repository it is mapped into', async () =
   });
   const both = run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
   assert.match(both, /parent: commerce/);
+});
+
+test('team mapping creates one atomic proposal with safe members and an explicit link', async () => {
+  const org = await remotes('platform', 'existing', 'service', 'web', 'worker');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'existing-service', name: 'Existing service', kind: 'delivery',
+    repositoryUrl: org.existing
+  });
+  const approvedBefore = run('git', ['rev-parse', 'refs/heads/sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+
+  const proposal = await mapCapabilityTeam(org.platform, {
+    teamId: 'checkout-team', name: 'Checkout Team', jiraProject: 'SHOP',
+    members: [
+      { capabilityId: 'checkout-api', name: 'Checkout API', repositoryUrl: org.service },
+      { capabilityId: 'checkout-web', name: 'Checkout Web', repositoryUrl: org.web }
+    ],
+    links: ['existing-service']
+  });
+
+  assert.equal(proposal.capabilityId, 'checkout-team');
+  assert.equal(proposal.teamId, 'checkout-team');
+  assert.equal(proposal.lead, org.platform);
+  assert.equal(proposal.reviewRequired, true);
+  assert.match(proposal.branch,
+    /^sflow\/config-change\/capability\/map-team-checkout-team-[0-9a-f]{8}$/);
+  assert.equal(run('git', ['rev-list', '--count', `${proposal.baseCommit}..${proposal.commit}`], {
+    cwd: org.platform
+  }).stdout.trim(), '1', 'the complete team change is one proposal commit');
+  assert.equal(proposalRefs(org.platform)
+    .filter((entry) => entry.includes('/map-team-checkout-team-')).length, 1,
+    'the operation publishes one team proposal ref');
+  assert.equal(run('git', ['rev-parse', 'refs/heads/sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim(), approvedBefore, 'the approved authority is unchanged before review');
+
+  const capabilities = YAML.parse(run('git', [
+    'show', `${proposal.branch}:singularity/capabilities.yml`
+  ], { cwd: org.platform }).stdout).capabilities;
+  assert.deepEqual(capabilities['checkout-team'], {
+    name: 'Checkout Team', kind: 'collection', parent: null, jira: { projectKey: 'SHOP' }
+  });
+  assert.deepEqual(capabilities['checkout-api'].sourceRoots, []);
+  assert.equal(capabilities['checkout-api'].parent, 'checkout-team');
+  assert.equal(capabilities['checkout-api'].repository, 'service');
+  assert.equal(capabilities['checkout-web'].parent, 'checkout-team');
+  assert.equal(capabilities['existing-service'].parent, 'checkout-team');
+  const portfolio = YAML.parse(run('git', [
+    'show', `${proposal.branch}:singularity/portfolio.yml`
+  ], { cwd: org.platform }).stdout).repositories;
+  for (const repositoryId of ['service', 'web']) {
+    assert.deepEqual(portfolio[repositoryId].clone, {
+      mode: 'blobless', filter: 'blob:none', sparseCone: [], fallback: 'refuse'
+    });
+    assert.equal(portfolio[repositoryId].defaultBranch, 'main');
+    assert.equal(portfolio[repositoryId].required, true);
+  }
+
+  await mergeProposal(org.platform, proposal);
+  const exactRetry = await mapCapabilityTeam(org.platform, {
+    teamId: 'checkout-team', name: 'Checkout Team', jiraProject: 'SHOP',
+    members: [
+      { capabilityId: 'checkout-api', name: 'Checkout API', repositoryUrl: org.service },
+      { capabilityId: 'checkout-web', name: 'Checkout Web', repositoryUrl: org.web }
+    ],
+    links: ['existing-service']
+  });
+  assert.equal(exactRetry.status, 'already-mapped');
+  assert.equal(exactRetry.changed, false);
+  assert.equal(exactRetry.branch, null);
+  assert.equal(exactRetry.commit, null);
+
+  const later = await mapCapabilityTeam(org.platform, {
+    teamId: 'checkout-team', name: 'Checkout Team',
+    members: [
+      { capabilityId: 'checkout-worker', name: 'Checkout Worker', repositoryUrl: org.worker }
+    ]
+  });
+  assert.deepEqual(later.addedMemberIds, ['checkout-worker']);
+  const laterCapabilities = YAML.parse(run('git', [
+    'show', `${later.branch}:singularity/capabilities.yml`
+  ], { cwd: org.platform }).stdout).capabilities;
+  assert.equal(laterCapabilities['checkout-worker'].parent, 'checkout-team');
+  assert.equal(Object.keys(laterCapabilities).filter((id) => id === 'checkout-team').length, 1);
+});
+
+test('team mapping refuses an implicit reparent and over-limit request without publishing a ref', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'other-team', name: 'Other Team', kind: 'collection'
+  });
+  await mapAndMerge(org.platform, {
+    capabilityId: 'owned-service', name: 'Owned Service', kind: 'delivery',
+    parent: 'other-team', repositoryUrl: org.service
+  });
+  const before = proposalRefs(org.platform);
+  await assert.rejects(mapCapabilityTeam(org.platform, {
+    teamId: 'new-team', name: 'New Team', links: ['owned-service']
+  }), (error) => error.code === 'CAPABILITY_TEAM_LINK_PARENT_CONFLICT');
+  assert.deepEqual(proposalRefs(org.platform), before);
+
+  await assert.rejects(mapCapabilityTeam(org.platform, {
+    teamId: 'new-team', name: 'New Team',
+    links: Array.from({ length: 21 }, (_, index) => `service-${index}`)
+  }), (error) => error.code === 'CAPABILITY_TEAM_MEMBER_LIMIT_EXCEEDED');
+  assert.deepEqual(proposalRefs(org.platform), before);
+});
+
+test('an unreachable team member cannot initialize or otherwise change the authority', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const before = run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'
+  ], { cwd: org.platform }).stdout;
+  const missing = path.join(org.base, 'missing-member.git');
+  await assert.rejects(mapCapabilityTeam(org.platform, {
+    teamId: 'checkout-team', name: 'Checkout Team',
+    members: [{ capabilityId: 'checkout-api', repositoryUrl: missing }]
+  }), (error) => error.code === 'REMOTE_REMOTE_NOT_FOUND');
+  assert.equal(run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'
+  ], { cwd: org.platform }).stdout, before);
+});
+
+test('a managed team proposal carries one aggregate receipt and passes proposal validation', async () => {
+  const org = await remotes('platform', 'existing', 'service', 'web');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'existing-service', name: 'Existing service', kind: 'delivery',
+    repositoryUrl: org.existing
+  });
+  const preview = await previewManagedCapabilityAdoption(org.platform);
+  const adoption = await adoptManagedCapabilityMap(org.platform, {
+    confirm: preview.plan.planSha256
+  });
+  await mergeProposal(org.platform, adoption);
+
+  const proposal = await mapCapabilityTeam(org.platform, {
+    teamId: 'managed-team', name: 'Managed Team',
+    members: [
+      { capabilityId: 'managed-api', repositoryUrl: org.service },
+      { capabilityId: 'managed-web', repositoryUrl: org.web }
+    ],
+    links: ['existing-service']
+  });
+  assert.equal(proposal.receipt.operation, 'map-team');
+  assert.equal(proposal.receipt.parameters.members.length, 2);
+  assert.deepEqual(proposal.receipt.parameters.links, ['existing-service']);
+  const changedNames = run('git', [
+    'diff', '--name-only', proposal.baseCommit, proposal.commit
+  ], { cwd: org.platform }).stdout.trim().split('\n').filter(Boolean);
+  const receipts = changedNames.filter((relative) =>
+    /^singularity\/capability-changes\/[^/]+\.json$/.test(relative));
+  assert.deepEqual(receipts, [proposal.receiptPath]);
+  assert.equal(run('git', ['rev-list', '--count', `${proposal.baseCommit}..${proposal.commit}`], {
+    cwd: org.platform
+  }).stdout.trim(), '1');
+
+  const inspected = await inspectCapabilityProposal(org.platform, proposal.branch);
+  assert.equal(inspected.valid, true);
+  assert.equal(inspected.failure, undefined);
 });
 
 test('mapping another capability preserves an existing reviewed sparse clone strategy', async () => {

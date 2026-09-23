@@ -2451,6 +2451,79 @@ test('the first capability can be onboarded outside every repository and without
   await assert.rejects(readFile(workspaceRegistry), { code: 'ENOENT' });
 });
 
+test('an atomic team can be mapped from an empty window through the direct capability command', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-team-'));
+  const lead = await remoteRepository(root, 'platform');
+  const service = await remoteRepository(root, 'checkout-service');
+  const outside = path.join(root, 'empty-window');
+  const activeWorkspace = path.join(root, 'active-workspace.json');
+  const workspaceRegistry = path.join(root, 'workspaces.json');
+  await mkdir(outside);
+  const applicationHead = run('git', ['rev-parse', 'refs/heads/main'], {
+    cwd: lead
+  }).stdout.trim();
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
+  ], { cwd: lead, allowFailure: true }).status, 1,
+    'the regression begins without a configuration authority');
+  const result = spawnSync(process.execPath, [cli,
+    'capability', 'map-team', 'checkout-team',
+    '--lead', lead,
+    '--name', 'Checkout Team',
+    '--jira-project', 'SHOP',
+    '--member', `checkout-api=${service}`,
+    '--member-name', 'checkout-api=Checkout = API',
+    '--json'
+  ], {
+    cwd: outside,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Team CLI Author',
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace,
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: workspaceRegistry,
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(root, 'leads.json'),
+      NO_COLOR: '1'
+    }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const mapped = JSON.parse(result.stdout);
+  assert.equal(mapped.lead, lead);
+  assert.equal(mapped.capabilityId, 'checkout-team');
+  assert.equal(mapped.teamId, 'checkout-team');
+  assert.equal(mapped.reviewRequired, true);
+  assert.match(mapped.branch,
+    /^sflow\/config-change\/capability\/map-team-checkout-team-[0-9a-f]{8}$/);
+  assert.equal(run('git', ['rev-parse', 'refs/heads/sflow/config'], {
+    cwd: lead
+  }).stdout.trim(), mapped.baseCommit,
+    'the newly established authority remains the proposal base');
+  assert.equal(run('git', ['rev-parse', `${mapped.commit}^`], {
+    cwd: lead
+  }).stdout.trim(), mapped.baseCommit,
+    'all team changes are contained in the single proposal commit');
+  assert.equal(run('git', ['rev-list', '--count', `${mapped.baseCommit}..${mapped.commit}`], {
+    cwd: lead
+  }).stdout.trim(), '1');
+  assert.equal(run('git', ['rev-parse', 'refs/heads/main'], {
+    cwd: lead
+  }).stdout.trim(), applicationHead,
+    'mapping the first team leaves the application branch unchanged');
+  assert.equal(run('git', [
+    'ls-tree', '--name-only', 'sflow/config', '--', 'singularity/capabilities.yml'
+  ], { cwd: lead }).stdout.trim(), '',
+    'the unreviewed team map is absent from the newly established authority');
+  const capabilities = YAML.parse(run('git', [
+    'show', `${mapped.branch}:singularity/capabilities.yml`
+  ], { cwd: lead }).stdout).capabilities;
+  assert.equal(capabilities['checkout-team'].kind, 'collection');
+  assert.equal(capabilities['checkout-api'].name, 'Checkout = API');
+  assert.equal(capabilities['checkout-api'].parent, 'checkout-team');
+  await assert.rejects(readFile(activeWorkspace), { code: 'ENOENT' });
+  await assert.rejects(readFile(workspaceRegistry), { code: 'ENOENT' });
+});
+
 /**
  * The same remote, but actually a Singularity Flow repository.
  *

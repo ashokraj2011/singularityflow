@@ -1642,6 +1642,10 @@ const PAGES = Object.freeze({
       'target becomes the first map only by explicit choice. A bounded scan also finds matching pending',
       'proposals; incomplete pending-proposal coverage blocks creation. Only an explicit new-mapping choice proceeds to metadata.',
       '',
+      '`capability map-team` keeps its individual flags for small manual use. Native hosts send the',
+      'same normalized request through a private `--request` JSON file, avoiding the Windows process',
+      'command-line ceiling without widening fields, accepting credentials, or changing validation.',
+      '',
       'A capability stores one parent link; the reverse child list is derived from it. Removing a',
       'parent with children requires `--reparent-children-to`, so the move and removal validate and',
       'publish as one proposal. An empty destination moves direct children to the top level.',
@@ -1667,6 +1671,7 @@ const PAGES = Object.freeze({
     ],
     options: [
       ['--lead URL', 'Configuration-authority repository to inspect or update.'],
+      ['--request JSON-FILE', 'For map-team native hosts: one bounded, closed JSON request; cannot be combined with mapping flags.'],
       ['--confirm FULL-COMMIT', 'For stale discard, the complete proposal commit reported by a current fsck.'],
       ['--reason TEXT', 'Required explanation for discarding an unrelated-history proposal.'],
       ['--json', 'Emit structured checks, exact refs, and remediation commands.']

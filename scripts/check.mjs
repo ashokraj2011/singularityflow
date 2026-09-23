@@ -20,6 +20,7 @@ import { validateNarrationMigrationStatus } from '../src/narration/migration-sta
 import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import { releaseDependencyLockProblems } from '../src/release-dependency-lock.mjs';
+import { isModelRoutingSource, portableCheckPath } from './check-path-policy.mjs';
 import {
   CURRENT_PACKAGED_ASSET_SHA256,
   isCurrentPackagedAssetHash, isKnownPackagedAssetHash, packagedAssetSha256
@@ -1306,18 +1307,9 @@ const VENDOR_MODEL_SHAPES = [
   ['g', 'pt'].join(''), ['gem', 'ini'].join(''), ['lla', 'ma'].join(''), ['mist', 'ral'].join(''),
   ['son', 'net'].join(''), ['ha', 'iku'].join(''), ['op', 'us'].join('')
 ].map((stem) => new RegExp(`\\b${stem}[-.]?[0-9]`, 'i'));
-const ROUTING_SOURCES = allFiles.filter((file) => {
-  const relative = path.relative(root, file);
-  if (relative.startsWith('node_modules/') || relative.startsWith('.git/')) return false;
-  if (relative === 'templates/modelTiers.yml') return false;      // the one file allowed to name them
-  if (relative.startsWith('test/') || relative.startsWith('docs/')) return false;
-  // `plugin/skills/`, not `skills/` — the latter matches nothing, which would have left the lint
-  // passing over the surface AC-003 exists to protect while reporting a healthy file count.
-  return relative.startsWith('plugin/skills/') || relative.startsWith('templates/')
-    || relative === 'src/command-registry.mjs' || relative.endsWith('.agent.md');
-});
+const ROUTING_SOURCES = allFiles.filter((file) => isModelRoutingSource(path.relative(root, file)));
 for (const file of ROUTING_SOURCES) {
-  const relative = path.relative(root, file);
+  const relative = portableCheckPath(path.relative(root, file));
   /**
    * The one exemption, and it is a single line rather than a file. An agent's `model:` line is
    * written mechanically by `stamp-agent-models.mjs` from the tier mapping, so it is the mapping

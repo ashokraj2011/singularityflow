@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { invokeModel } from '../src/model-runner.mjs';
 import { launchHostSession } from '../src/host-session-launcher.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { modelBoundaryFailures } from '../scripts/model-boundary-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -15,6 +16,26 @@ test('the static model boundary admits only the registered provider and host lau
   const result = spawnSync(process.execPath, ['scripts/audit-model-boundary.mjs'], { cwd: root, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /passed/);
+});
+
+test('the static model boundary applies reviewed exceptions to Windows repository paths', () => {
+  const reviewed = [
+    ['src\\model-provider-registry.mjs', "import provider from './model-providers/copilot-cli.mjs';"],
+    ['src\\model-runner.mjs', "import provider from './model-provider-registry.mjs';"],
+    ['src\\plugin.mjs', "run('copilot', ['plugin', 'list']);"],
+    ['src\\reinstall.mjs', "execute('copilot', ['plugin', 'install']);"]
+  ];
+  assert.deepEqual(reviewed.flatMap(([file, source]) => modelBoundaryFailures(file, source)), []);
+
+  assert.deepEqual(modelBoundaryFailures(
+    'src\\unregistered-launcher.mjs',
+    "import provider from './model-providers/copilot-cli.mjs';\n"
+      + "import registry from './model-provider-registry.mjs';\nrun('copilot', []);"
+  ), [
+    'src/unregistered-launcher.mjs: starts Copilot outside the registered model/host boundary',
+    'src/unregistered-launcher.mjs: imports a model provider directly instead of using model-runner.mjs',
+    'src/unregistered-launcher.mjs: imports the provider registry directly instead of using model-runner.mjs'
+  ]);
 });
 
 test('a never-model operation rejects before provider lookup, process start, or audit creation', async () => {

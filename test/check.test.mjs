@@ -4,8 +4,27 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isModelRoutingSource, portableCheckPath } from '../scripts/check-path-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('model-name routing source selection is identical for POSIX and Windows paths', () => {
+  const cases = [
+    ['plugin/skills/sflow-plan/SKILL.md', true],
+    ['templates/workflow.yml', true],
+    ['templates/agents/developer.agent.md', true],
+    ['src/command-registry.mjs', true],
+    ['templates/modelTiers.yml', false],
+    ['test/model-tiers.test.mjs', false],
+    ['docs/model-routing.md', false]
+  ];
+  for (const [relative, expected] of cases) {
+    assert.equal(isModelRoutingSource(relative), expected, relative);
+    const windows = relative.replaceAll('/', '\\');
+    assert.equal(isModelRoutingSource(windows), expected, windows);
+    assert.equal(portableCheckPath(windows), relative, windows);
+  }
+});
 
 test('deterministic check ignores generated files excluded by Git', async () => {
   const directory = path.join(root, 'coverage', 'ignored-check-probe');

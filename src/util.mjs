@@ -34,7 +34,7 @@ export class SingularityFlowError extends Error {
   }
 }
 
-const WINDOWS_RESERVED_PORTABLE_BASENAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const WINDOWS_RESERVED_PORTABLE_BASENAME = /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|(?:com|lpt)(?:[1-9]|[¹²³]))(?:\..*)?$/iu;
 
 /**
  * Validate one exact component of a durable repository-relative path.
@@ -550,6 +550,7 @@ export function run(command, args = [], {
   timeoutClass = null,
   timeoutMs = defaultTimeoutFor(command, { timeoutClass, env }),
   killSignal = 'SIGTERM',
+  windowsHide = undefined,
   platform = process.platform,
   spawnSyncCommand = spawnSync,
   platformLookupCommand = spawnSync,
@@ -611,7 +612,8 @@ export function run(command, args = [], {
     if (!allowFailure) throw new SingularityFlowError(`Unable to resolve ${command}: ${error.message}`, {
       code: 'SUBPROCESS_UNAVAILABLE', cause: error
     });
-    return { status: 1, stdout: '', stderr: '', error, signal: null, timedOut: false, blocked: false };
+    const empty = encoding === 'buffer' ? Buffer.alloc(0) : '';
+    return { status: 1, stdout: empty, stderr: empty, error, signal: null, timedOut: false, blocked: false };
   }
   const ownsGitTiming = command === 'git' && recordGitTiming;
   const serviceStarted = ownsGitTiming ? performance.now() : 0;
@@ -624,6 +626,7 @@ export function run(command, args = [], {
     result = spawnSyncCommand(launch.executable, launch.arguments, {
       cwd, env, encoding, stdio, timeout: timeoutMs, killSignal,
       ...launch.spawnOptions,
+      ...(windowsHide === undefined ? {} : { windowsHide }),
       ...(maxBuffer === undefined ? {} : { maxBuffer }),
       /**
        * Always bytes.

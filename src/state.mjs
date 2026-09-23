@@ -8,6 +8,7 @@ import {
   SingularityFlowError, ensureSecureRepositoryDirectory, exists, invariant, nowIso, posix, readJson,
   repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeBytes, writeJson, writeText
 } from './util.mjs';
+import { validatePortableWorkId } from './work-id.mjs';
 import {
   branch, changedFiles, commitIsAncestor, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, untrackedFiles
@@ -251,11 +252,12 @@ async function assertConvergenceConfirmation(root, config, workflow, phase, conf
 }
 
 export function validateId(config, id) {
-  if (!id || id === '.' || id === '..' || id.includes('/') || id.includes('\\')) throw new SingularityFlowError('Work ID must be one safe identifier without slashes.');
-  if (!(new RegExp(config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(id)) throw new SingularityFlowError(`Work ID ${id} does not match ${config.idPattern}.`);
-  const reserved = new Set(['main', 'master', String(config.defaultBaseBranch ?? '').trim()].filter(Boolean));
-  if (reserved.has(id)) {
-    throw new SingularityFlowError(`Work ID '${id}' is reserved for application integration and cannot identify governed work.`);
+  const portableId = validatePortableWorkId(id);
+  if (!(new RegExp(config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(portableId)) throw new SingularityFlowError(`Work ID ${portableId} does not match ${config.idPattern}.`);
+  const reserved = new Set(['main', 'master', String(config.defaultBaseBranch ?? '').trim()]
+    .filter(Boolean).map((value) => value.toLocaleLowerCase('en-US')));
+  if (reserved.has(portableId.toLocaleLowerCase('en-US'))) {
+    throw new SingularityFlowError(`Work ID '${portableId}' is reserved for application integration and cannot identify governed work.`);
   }
 }
 
@@ -729,6 +731,7 @@ export function storyStatusMarkdown(workflow) {
 }
 
 export async function saveWorkflow(root, config, workflow) {
+  validateId(config, workflow?.workItem?.id);
   await ensureSecureRepositoryDirectory(
     root,
     workDirRelative(config, workflow.workItem.id),
@@ -6325,6 +6328,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   revisionPublication = null,
   fault = null
 } = {}) {
+  validateId(config, workflow?.workItem?.id);
   if (revisionPublication !== null && (typeof revisionPublication !== 'object'
       || Array.isArray(revisionPublication))) {
     throw new SingularityFlowError('REV publication selection must be an internal exact binding.', {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -104,6 +105,73 @@ test('Windows Git resolves only a native git.exe from PATH, never a batch shim',
     spawnSyncCommand: () => { throw new Error('must not search PATH'); }
   });
   assert.equal(explicit.executable, 'C:\\Tools\\git.exe');
+});
+
+test('REV local Git sites use the shared Windows-safe runner with byte-exact diagnostics', async () => {
+  const revisionSources = await Promise.all([
+    'src/revision/runtime.mjs',
+    'src/revision/manual-capture.mjs',
+    'src/revision/isolated-attempt.mjs'
+  ].map(async (relative) => ({
+    relative,
+    source: await readFile(path.join(repositoryRoot, relative), 'utf8')
+  })));
+  for (const { relative, source } of revisionSources) {
+    assert.doesNotMatch(source, /node:child_process|\b(?:execFileSync|spawnSync)\s*\(/u,
+      `${relative} must not bypass the shared process boundary`);
+    assert.match(source, /\brun\('git',/u,
+      `${relative} must route local Git through the shared process boundary`);
+    assert.match(source, /allowFailure:\s*true/u,
+      `${relative} must retain its REV-specific structured failure mapping`);
+    assert.match(source, /\.toUpperCase\(\)/u,
+      `${relative} must remove mixed-case Git process overrides on Windows`);
+  }
+
+  const environment = {
+    ...windowsEnvironment,
+    PATH: 'C:\\Program Files\\Git\\cmd',
+    PATHEXT: '.EXE'
+  };
+  const rawOutput = Buffer.from([0x31, 0x30, 0x30, 0x36, 0x34, 0x34, 0x00, 0xff]);
+  const calls = [];
+  const result = run('git', ['ls-tree', '-rz', '--full-tree', 'a'.repeat(40)], {
+    platform: 'win32', cwd: 'C:\\workspaces\\revision-pilot', env: environment,
+    platformLookupCommand(command, args, options) {
+      calls.push({ kind: 'lookup', command, args, options });
+      return { status: 0, stdout: 'C:\\Program Files\\Git\\cmd\\git.exe\r\n', stderr: '' };
+    },
+    spawnSyncCommand(command, args, options) {
+      calls.push({ kind: 'spawn', command, args, options });
+      return { status: 0, stdout: rawOutput, stderr: Buffer.alloc(0), signal: null };
+    },
+    encoding: 'buffer', allowFailure: true, timeoutMs: 10_000,
+    maxBuffer: 8 * 1024 * 1024, windowsHide: true
+  });
+
+  assert.equal(calls[0].command, 'C:\\Windows\\System32\\where.exe');
+  assert.deepEqual(calls[0].args, ['$PATH:git.exe']);
+  assert.equal(calls[1].command, 'C:\\Program Files\\Git\\cmd\\git.exe');
+  assert.equal(calls[1].options.shell, false);
+  assert.equal(calls[1].options.windowsHide, true);
+  assert.equal(calls[1].options.timeout, 10_000);
+  assert.equal(calls[1].options.maxBuffer, 8 * 1024 * 1024);
+  assert.deepEqual(result.stdout, rawOutput);
+
+  let spawned = false;
+  const unavailable = run('git', ['rev-parse', '--show-toplevel'], {
+    platform: 'win32', cwd: 'C:\\workspaces\\revision-pilot', env: environment,
+    platformLookupCommand: () => ({ status: 1, stdout: '', stderr: '' }),
+    spawnSyncCommand() { spawned = true; throw new Error('must not spawn unresolved Git'); },
+    encoding: 'buffer', allowFailure: true
+  });
+  assert.equal(spawned, false);
+  assert.equal(unavailable.status, 1);
+  assert.ok(unavailable.error instanceof TypeError);
+  assert.deepEqual(unavailable.stdout, Buffer.alloc(0));
+  assert.deepEqual(unavailable.stderr, Buffer.alloc(0));
+  assert.equal(unavailable.signal, null);
+  assert.equal(unavailable.timedOut, false);
+  assert.equal(unavailable.blocked, false);
 });
 
 test('Windows npm and npx use narrow cmd-shim launches without changing logical identity', () => {

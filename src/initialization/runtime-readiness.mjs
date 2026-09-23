@@ -8,6 +8,7 @@ import path from 'node:path';
 
 import { inferRepositoryTestCommands } from '../delivery-evidence.mjs';
 import { gitCommonDir, head } from '../git.mjs';
+import { resolvePlatformProcess } from '../platform-process.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { signalProcessTree, SingularityFlowError, run } from '../util.mjs';
@@ -464,11 +465,23 @@ function sanitizedCommandResult(command, result, purpose = command.purpose) {
   };
 }
 
+export function resolveRepositoryReadinessCommandLaunch(command, {
+  cwd,
+  environment = process.env,
+  platform = process.platform,
+  resolveProcess = resolvePlatformProcess
+} = {}) {
+  return resolveProcess(command.argv[0], command.argv.slice(1), {
+    platform, environment, cwd
+  });
+}
+
 async function defaultRunCommand(command, {
   root,
   signal,
   environment = process.env,
   platform = process.platform,
+  resolveProcess = resolvePlatformProcess,
   terminateTree = signalProcessTree,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -484,6 +497,15 @@ async function defaultRunCommand(command, {
       code: 'REPOSITORY_READINESS_COMMAND_INVALID'
     });
   }
+  const childEnvironment = { ...environment, CI: '1', GIT_TERMINAL_PROMPT: '0' };
+  // On Windows, a bare CreateProcess/cmd launch can select an executable or batch shim from the
+  // repository cwd before PATH. Resolve the reviewed logical argv to one absolute, validated
+  // platform launch before entering the repository-controlled working directory. This also gives
+  // npm/npx and repository-owned Maven/Gradle wrappers the narrow shell-free cmd.exe adapter they
+  // require on Windows while preserving their original argv for the readiness plan and receipt.
+  const launch = resolveRepositoryReadinessCommandLaunch(command, {
+    platform, environment: childEnvironment, cwd, resolveProcess
+  });
   return await new Promise((resolve, reject) => {
     let child;
     let settled = false;
@@ -533,10 +555,10 @@ async function defaultRunCommand(command, {
       });
     };
     try {
-      child = spawn(command.argv[0], command.argv.slice(1), {
+      child = spawn(launch.executable, launch.arguments, {
+        ...launch.spawnOptions,
         cwd,
-        env: { ...environment, CI: '1', GIT_TERMINAL_PROMPT: '0' },
-        shell: false,
+        env: childEnvironment,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
         detached: platform !== 'win32'

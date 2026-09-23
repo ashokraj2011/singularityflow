@@ -1594,7 +1594,7 @@ async function durableLocalStoryOnBranch(root, workId, branchName) {
 
 async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, options) {
   const {
-    completeStoryWorktree, prepareStoryWorktree, rollbackStoryWorktree
+    completeStoryWorktree, prepareStoryWorktree, rollbackFailedStoryWorktree
   } = await import('./story-worktree.mjs');
   // A public FOS lookup remains strictly bound to the worktree where it was reviewed. Seal the
   // source authority before Git creates or enters another worktree; only this controlled start
@@ -1643,6 +1643,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     base: durableLocalStory ? 'HEAD' : launchBaseCommit
   });
   const previousDirectory = process.cwd();
+  let result;
   try {
     const readinessPolicy = {
       ...(launchDefinition?.repositoryReadiness ?? {}),
@@ -1672,7 +1673,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       childOptions[ISOLATED_STORY_CONFIGURATION_HANDOFF] = configurationHandoff;
     }
     process.chdir(prepared.repositoryPath);
-    const result = await startCommand(positionals, childOptions);
+    result = await startCommand(positionals, childOptions);
     completeStoryWorktree(prepared);
     try {
       await activateWorkspaceStoryContext(
@@ -1684,19 +1685,11 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       // receipt must never turn that durable success into a failed start or cause a duplicate retry.
       console.warn(`Warning: Story '${id}' started, but its active-checkout selection was not updated: ${error.message}`);
     }
-    return result;
   } catch (error) {
-    const recovery = rollbackStoryWorktree(prepared);
-    if (recovery.retained) {
-      throw new SingularityFlowError(
-        `${error.message}\nThe governed Story state was retained at ${recovery.repositoryPath}; open that folder and run singularity-flow doctor.`,
-        { code: error.code ?? 'STORY_WORKTREE_RECOVERY_REQUIRED', details: { repositoryPath: recovery.repositoryPath }, cause: error }
-      );
-    }
-    throw error;
-  } finally {
-    process.chdir(previousDirectory);
+    rollbackFailedStoryWorktree(prepared, error, previousDirectory);
   }
+  process.chdir(previousDirectory);
+  return result;
 }
 
 export async function startCommand(positionals, options) {
@@ -3028,7 +3021,22 @@ export async function startCommand(positionals, options) {
     catch (recoveryError) {
       throw new SingularityFlowError(
         `${error.message} Story-start recovery also stopped: ${recoveryError.message}`,
-        { code: recoveryError.code ?? 'STORY_START_RECOVERY_FAILED', cause: error }
+        {
+          code: recoveryError.code ?? 'STORY_START_RECOVERY_FAILED',
+          details: {
+            originalError: {
+              code: typeof error?.code === 'string' ? error.code : null,
+              message: error?.message ?? String(error),
+              details: error?.details ?? null
+            },
+            recoveryError: {
+              code: typeof recoveryError?.code === 'string' ? recoveryError.code : null,
+              message: recoveryError?.message ?? String(recoveryError),
+              details: recoveryError?.details ?? null
+            }
+          },
+          cause: error
+        }
       );
     }
     throw error;

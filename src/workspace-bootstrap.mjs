@@ -549,7 +549,7 @@ function finding({
   return { id, scope, severity, classification, message, action, retryable, repository, evidence };
 }
 
-const WINDOWS_RESERVED_PATH = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const WINDOWS_RESERVED_PATH = /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|(?:com|lpt)(?:[1-9]|[¹²³]))(?:\..*)?$/iu;
 
 /** Pure platform-path checks so native behavior is testable without pretending another OS. */
 export function portableWorkspacePathFindings(target, { platform = process.platform } = {}) {
@@ -562,6 +562,11 @@ export function portableWorkspacePathFindings(target, { platform = process.platf
       id: 'machine.path.reserved-device', scope: 'workspace', classification: 'platform-path-invalid',
       message: `The planned Windows workspace path contains reserved device name '${segment}'.`,
       action: 'Choose a workspace ID and base directory without Windows reserved device names.'
+    }));
+    if (/[<>:"|?*\u0000-\u001f]/u.test(segment)) findings.push(finding({
+      id: 'machine.path.invalid-character', scope: 'workspace', classification: 'platform-path-invalid',
+      message: `The planned Windows workspace path contains a filename character Windows does not allow in '${segment}'.`,
+      action: 'Choose a workspace ID and base directory without Windows-forbidden filename characters.'
     }));
     if (/[. ]$/.test(segment)) findings.push(finding({
       id: 'machine.path.trailing-character', scope: 'workspace', classification: 'platform-path-invalid',

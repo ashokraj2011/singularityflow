@@ -9,8 +9,10 @@ import {
   executeRepositoryReadinessPlan,
   hydrateRepositoryDependencies,
   inspectRepositoryReadinessReceipt,
-  loadRepositoryReadinessReceipt
+  loadRepositoryReadinessReceipt,
+  resolveRepositoryReadinessCommandLaunch
 } from '../src/initialization/runtime-readiness.mjs';
+import { resolvePlatformProcess } from '../src/platform-process.mjs';
 import { run } from '../src/util.mjs';
 
 async function repository() {
@@ -89,6 +91,84 @@ test('repository readiness builds one deterministic, purpose-ordered shell-free 
       assert.ok(Array.isArray(command.argv));
       assert.equal(command.argv.some((argument) => /(?:&&|\|\||;)/u.test(argument)), false);
     }
+  });
+});
+
+test('readiness resolves Windows npm through its PATH-bound cmd shim', async () => {
+  await withRepository(async (root) => {
+    const environment = {
+      PATH: 'C:\\Program Files\\nodejs', PATHEXT: '.EXE;.CMD',
+      SystemRoot: 'C:\\Windows', ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+      CI: '1', GIT_TERMINAL_PROMPT: '0'
+    };
+    const lookups = [];
+    const command = {
+      id: 'dependency-node-root', purpose: 'dependency',
+      argv: ['npm', 'ci'], workingDirectory: '.', mode: 'completion'
+    };
+    const launch = resolveRepositoryReadinessCommandLaunch(command, {
+      cwd: path.resolve(root), platform: 'win32', environment,
+      resolveProcess(logicalCommand, logicalArguments, options) {
+        return resolvePlatformProcess(logicalCommand, logicalArguments, {
+          ...options,
+          spawnSyncCommand(executable, args, spawnOptions) {
+            lookups.push({ executable, args, options: spawnOptions });
+            return {
+              status: 0,
+              stdout: '.\\npm.cmd\r\nC:\\Program Files\\nodejs\\npm.cmd\r\n'
+            };
+          }
+        });
+      }
+    });
+
+    assert.deepEqual(command.argv, ['npm', 'ci'], 'the receipt-facing logical argv stays unchanged');
+    assert.equal(lookups.length, 1);
+    assert.equal(lookups[0].executable, 'C:\\Windows\\System32\\where.exe');
+    assert.deepEqual(lookups[0].args, ['$PATH:npm.cmd']);
+    assert.equal(lookups[0].options.cwd, 'C:\\Windows\\System32');
+    assert.equal(launch.executable, environment.ComSpec);
+    assert.deepEqual(launch.arguments.slice(0, 4), ['/d', '/s', '/v:off', '/c']);
+    assert.match(launch.arguments[4], /Program.*npm\.cmd/u);
+    assert.deepEqual(launch.spawnOptions, { shell: false, windowsVerbatimArguments: true });
+  });
+});
+
+test('readiness resolves repository wrappers with the exact cwd and fails closed', async () => {
+  await withRepository(async (root) => {
+    const command = {
+      id: 'dependency-maven-root', purpose: 'dependency',
+      argv: ['.\\mvnw.cmd', '--batch-mode', 'dependency:go-offline'],
+      workingDirectory: '.', mode: 'completion'
+    };
+    const expectedArguments = ['/d', '/s', '/v:off', '/c', 'fixture-wrapper-command'];
+    let resolved = null;
+    const launch = resolveRepositoryReadinessCommandLaunch(command, {
+      cwd: path.resolve(root), platform: 'win32', environment: { SystemRoot: 'C:\\Windows' },
+      resolveProcess(logicalCommand, logicalArguments, options) {
+        resolved = { logicalCommand, logicalArguments, options };
+        return {
+          executable: 'C:\\Windows\\System32\\cmd.exe',
+          arguments: expectedArguments,
+          spawnOptions: { shell: false, windowsVerbatimArguments: true }
+        };
+      }
+    });
+    assert.equal(resolved.logicalCommand, '.\\mvnw.cmd');
+    assert.deepEqual(resolved.logicalArguments, command.argv.slice(1));
+    assert.equal(resolved.options.cwd, path.resolve(root));
+    assert.equal(resolved.options.platform, 'win32');
+    assert.equal(launch.executable, 'C:\\Windows\\System32\\cmd.exe');
+    assert.equal(launch.arguments, expectedArguments);
+    assert.equal(launch.spawnOptions.windowsVerbatimArguments, true);
+
+    assert.throws(
+      () => resolveRepositoryReadinessCommandLaunch(command, {
+        cwd: path.resolve(root), platform: 'win32', environment: { SystemRoot: 'C:\\Windows' },
+        resolveProcess() { throw new TypeError('fixture wrapper escaped its verified cwd'); }
+      }),
+      /escaped its verified cwd/u
+    );
   });
 });
 

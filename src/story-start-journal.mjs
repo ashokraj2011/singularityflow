@@ -16,15 +16,19 @@ import { bindLifecycleEvent } from './lifecycle-event.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { verifiedSgosLifecycleCandidateForCommit } from './sgos/candidate-lifecycle.mjs';
 import { scavengeStoryDocumentCaptures } from './story-start-documents.mjs';
+import { validatePortableWorkId } from './work-id.mjs';
 
 const FAMILY = 'story-start-journal';
 
 function safeId(id) {
-  return encodeURIComponent(String(id ?? '').trim()).replace(/%/g, '_');
+  return encodeURIComponent(id).replace(/%/g, '_');
 }
 
 export function storyStartJournalPath(root, id) {
-  return path.join(gitCommonDir(root), 'singularity-flow', 'story-start', `${safeId(id)}.json`);
+  const workId = validatePortableWorkId(id, {
+    label: 'Story start Work ID', code: 'STORY_START_JOURNAL_INVALID'
+  });
+  return path.join(gitCommonDir(root), 'singularity-flow', 'story-start', `${safeId(workId)}.json`);
 }
 
 async function writePrivate(target, record) {

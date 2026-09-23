@@ -79,6 +79,8 @@ test('POSIX paths remain canonical and platform mismatches or traversal fail clo
   );
   assert.throws(() => canonicalizeSgosAbsolutePath('C:/repo/../escape'), /traversal/);
   assert.throws(() => canonicalizeSgosAbsolutePath('C:/repo/NUL/report.json'), /unsafe component/);
+  assert.throws(() => canonicalizeSgosAbsolutePath('C:/repo/COM¹/report.json'), /unsafe component/);
+  assert.throws(() => canonicalizeSgosAbsolutePath('C:/repo/CONOUT$/report.json'), /unsafe component/);
   assert.throws(() => canonicalizeSgosAbsolutePath('C:/repo/result.json:alternate-stream'), /unsafe component/);
   assert.equal(
     sgosContractPathFromLocal('\\\\?\\C:\\repo\\feature', { platform: 'win32' }),

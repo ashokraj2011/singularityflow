@@ -21,6 +21,7 @@ import { documentSetSha256 } from '../src/document-publication.mjs';
 import {
   ensureConfigurationBranch, resolveStoryConfigurationAuthority
 } from '../src/configuration-branch.mjs';
+import { SingularityFlowError } from '../src/util.mjs';
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -499,6 +500,47 @@ test('Story opening refuses and rolls back a manifest or blob changed after stat
       /ENOENT/
     );
   }
+});
+
+test('Story start exposes both the initiating error and an automatic recovery failure', async (t) => {
+  const root = await repository({ configurationAuthority: true });
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  const id = 'WORK-DOUBLE-FAILURE';
+
+  await assert.rejects(
+    () => startStory(root, {
+      id,
+      source: manualStorySource(id, { title: 'Keep both Story start failures' }),
+      workType: 'feature',
+      baseBranch: 'main',
+      publicationFault: async (stage) => {
+        if (stage !== 'after-state-write') return;
+        run('git', ['switch', '-c', 'recovery-blocker'], root);
+        throw new SingularityFlowError('Injected Story start failure.', {
+          code: 'STORY_START_INJECTED_FAILURE',
+          details: { stage, reason: 'focused double-failure test' }
+        });
+      }
+    }),
+    (error) => {
+      assert.equal(error.code, 'STORY_START_RECOVERY_DIVERGED');
+      assert.equal(error.cause?.code, 'STORY_START_INJECTED_FAILURE');
+      assert.deepEqual(error.details?.originalError, {
+        code: 'STORY_START_INJECTED_FAILURE',
+        message: 'Injected Story start failure.',
+        details: { stage: 'after-state-write', reason: 'focused double-failure test' }
+      });
+      assert.equal(error.details?.recoveryError?.code, 'STORY_START_RECOVERY_DIVERGED');
+      assert.match(error.details?.recoveryError?.message ?? '', /root checkout moved to 'recovery-blocker'/);
+      assert.deepEqual(error.details?.recoveryError?.details, {
+        failures: ["root checkout moved to 'recovery-blocker'"]
+      });
+      return true;
+    }
+  );
 });
 
 test('desktop Story intake freezes documents before mutation and a retry cannot duplicate them', async (t) => {

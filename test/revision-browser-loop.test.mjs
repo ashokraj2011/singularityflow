@@ -149,7 +149,9 @@ function bridgeBoundReceiptInput(prepared, brokered, overrides = {}) {
 }
 
 test('BRL path boundaries reject Windows device aliases and trailing dot or space', () => {
-  for (const outputRoot of ['CON', 'nul.json', 'reports.', 'reports ']) {
+  for (const outputRoot of [
+    'CON', 'nul.json', 'COM¹', 'lpt².json', 'CONIN$', 'clock$.log', 'reports.', 'reports '
+  ]) {
     assert.throws(() => check({
       outputRoots: [outputRoot],
       result: {
@@ -159,7 +161,9 @@ test('BRL path boundaries reject Windows device aliases and trailing dot or spac
     }), { code: 'REV_BROWSER_PATH_INVALID' }, outputRoot);
   }
 
-  for (const unsafe of ['AUX.log', 'COM1.txt', 'output.', 'output ']) {
+  for (const unsafe of [
+    'AUX.log', 'COM1.txt', 'COM¹.txt', 'LPT³.log', 'CONOUT$', 'output.', 'output '
+  ]) {
     assert.throws(() => registerRevisionBrokeredExecutionPlan([{
       kind: 'write', path: unsafe, bytes: Buffer.from('blocked')
     }]), { code: 'REV_ATTEMPT_PATH_INVALID' }, unsafe);

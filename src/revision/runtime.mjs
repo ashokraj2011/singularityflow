@@ -1,10 +1,9 @@
 /** Honest capability boundary for the guarded local writer and unavailable full REV profile. */
-import { execFileSync } from 'node:child_process';
 import { constants } from 'node:fs';
 import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SingularityFlowError } from '../util.mjs';
+import { run, SingularityFlowError } from '../util.mjs';
 import { verifyRevisionPacket } from './packet.mjs';
 
 export const REV_PILOT_OPT_IN_PATH = '.sflow/revision-pilot.json';
@@ -25,6 +24,18 @@ function exactKeys(value, names) {
     && Object.keys(value).sort().join('\0') === [...names].sort().join('\0');
 }
 
+function localGitEnvironment() {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    const normalized = key.toUpperCase();
+    if (normalized.startsWith('GIT_') || normalized.startsWith('GCM_')) delete env[key];
+  }
+  return {
+    ...env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'
+  };
+}
+
 /** An opt-in belongs to the requested repository, not to the process environment or package. */
 export async function readRevisionPilotOptIn(repositoryRoot) {
   if (typeof repositoryRoot !== 'string' || !path.isAbsolute(repositoryRoot)) {
@@ -35,9 +46,14 @@ export async function readRevisionPilotOptIn(repositoryRoot) {
   catch { refusePilot('REV pilot repository root is unavailable.'); }
   let gitRoot;
   try {
-    gitRoot = await realpath(execFileSync('git', ['-C', root, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
-    }).trim());
+    const result = run('git', ['-C', root, 'rev-parse', '--show-toplevel'], {
+      cwd: root, env: localGitEnvironment(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      allowFailure: true, timeoutClass: 'local-read', windowsHide: true
+    });
+    if (result.error || result.status !== 0) {
+      refusePilot('REV pilot requires the exact Git repository top-level.');
+    }
+    gitRoot = await realpath(result.stdout.trim());
   } catch { refusePilot('REV pilot requires the exact Git repository top-level.'); }
   if (gitRoot !== root) refusePilot('REV pilot opt-in must name the exact Git repository top-level.');
   const directory = path.join(root, '.sflow');

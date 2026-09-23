@@ -795,7 +795,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "04e72f34a218b9a8e0ae90b35cf5847e74be049cf3a44eccaaf1d658ebdf3044"
+      "digest": "7264a30567663fefb07e45039100c038d3ed1a4cb47aceb9d92bcf8a7bb87ff9"
     },
     "src/initialization/source-snapshot.mjs": {
       "counts": {
@@ -1012,18 +1012,15 @@
     },
     "src/revision/isolated-attempt.mjs": {
       "counts": {
-        "process-import": 1,
-        "process-launch": 2
+        "command-run": 2
       },
-      "digest": "af3ac73a4e480551ef58e2f6106f612e559fadbc99f84abbdc73c0a9d2008677"
+      "digest": "1692b88cc0111afd780cbf8ccdd028623a3d60cc162bd0d463cf50804f688799"
     },
     "src/revision/manual-capture.mjs": {
       "counts": {
-        "command-git": 4,
-        "process-import": 1,
-        "process-launch": 2
+        "command-run": 2
       },
-      "digest": "9905d7a49104827a934e65e44b60d95e55feb632a78e46ecf87cc4d67e3fe1eb"
+      "digest": "979ec42d5d0a4967b23299c03f625205ca4a6a025e3b4f26bd9bc16c29bb3ebc"
     },
     "src/revision/publication-projection.mjs": {
       "counts": {
@@ -1033,10 +1030,9 @@
     },
     "src/revision/runtime.mjs": {
       "counts": {
-        "process-import": 1,
-        "process-launch": 1
+        "command-run": 1
       },
-      "digest": "4a7f4ccf4e21719dc244608c31f894a2ac5e8cdd9eb552403cb25d1501370df4"
+      "digest": "f1280fb5629e5e5e9938e0d24f08003f60ae283c2b1e4d2e499fcdc578b34dc0"
     },
     "src/schema-census.mjs": {
       "counts": {
@@ -1292,7 +1288,7 @@
       "counts": {
         "package-script": 60
       },
-      "digest": "18468ddb29e2b4a5aedec4b9043c8d00edf5aae8432535e4a35f061c4eb39f90"
+      "digest": "e1880ce1f682d894b73662d37c7260874807371521a967119b7f34cd39c4ba54"
     },
     "apps/vscode/package.json": {
       "counts": {

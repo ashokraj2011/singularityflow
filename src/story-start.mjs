@@ -32,6 +32,7 @@ import {
   workDirRelative
 } from './state-stores.mjs';
 import { run, SingularityFlowError } from './util.mjs';
+import { validatePortableWorkId } from './work-id.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { writeReturnLocator } from './return-locator.mjs';
 import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
@@ -66,6 +67,14 @@ import { collectRepositoryReadinessEvidence } from './repository-readiness-evide
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
   return String(value ?? '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+}
+
+function failureRecord(error) {
+  return {
+    code: typeof error?.code === 'string' ? error.code : null,
+    message: error?.message ?? String(error),
+    details: error?.details ?? null
+  };
 }
 
 export function manualStorySource(id, input = {}) {
@@ -111,9 +120,7 @@ function validateStorySource(source, id) {
 }
 
 function assertSafeStoryId(id) {
-  if (!id || id === '.' || id === '..' || String(id).includes('/') || String(id).includes('\\')) {
-    throw new SingularityFlowError('Work ID must be one safe identifier without slashes.');
-  }
+  validatePortableWorkId(id);
 }
 
 async function resumePinnedLocalStory(root, { id, agent = null } = {}) {
@@ -864,7 +871,14 @@ export async function startStory(root, {
       catch (recoveryError) {
         throw new SingularityFlowError(
           `${error.message} Story-start recovery also stopped: ${recoveryError.message}`,
-          { code: recoveryError.code ?? 'STORY_START_RECOVERY_FAILED', cause: error }
+          {
+            code: recoveryError.code ?? 'STORY_START_RECOVERY_FAILED',
+            details: {
+              originalError: failureRecord(error),
+              recoveryError: failureRecord(recoveryError)
+            },
+            cause: error
+          }
         );
       }
     }

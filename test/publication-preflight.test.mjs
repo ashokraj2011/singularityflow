@@ -14,7 +14,8 @@ import { withOperationContext } from '../src/operation-context.mjs';
 import {
   artifactFindingMessage, artifactPlaceholderFindings, authoredArtifactFingerprint, inspectArtifactContent,
   inspectManagedArtifactMetadata, inspectPhaseAuthoredReviewContent, inspectRequiredArtifactContent,
-  phaseAuthoredReviewArtifacts, repairPreparedArtifactMetadata
+  phaseAuthoredReviewArtifacts, repairPreparedArtifactMetadata, reviewArtifactBytesStable,
+  reviewArtifactIdentityDecision
 } from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
@@ -105,6 +106,22 @@ async function fixture(name) {
   const target = path.join(root, 'singularity', 'work-items', 'PREFLIGHT-1', phase.requiredArtifact.path);
   const statePath = path.join(root, 'singularity', 'work-items', 'PREFLIGHT-1', 'workflow.json');
   return { root, config, workflow, phase, target, statePath };
+}
+
+async function createSymlinkOrSkip(t, target, link) {
+  try {
+    await symlink(target, link);
+    return true;
+  } catch (error) {
+    // A stock corporate Windows image may forbid symlink creation without Developer Mode. Keep
+    // the Windows regression lane useful there; hosts which permit links still exercise the
+    // security refusal below.
+    if (process.platform === 'win32' && ['EPERM', 'EACCES', 'UNKNOWN'].includes(error?.code)) {
+      t.skip(`Windows host cannot create the symlink fixture (${error.code}).`);
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function codeFixture(name, {
@@ -382,7 +399,7 @@ test('phase preparation refuses a symlinked required artifact without reading it
   await writeFile(outside, '# Outside repository\n\nThis content must never become governed evidence.\n');
   await mkdir(path.dirname(context.target), { recursive: true });
   await unlink(context.target);
-  await symlink(outside, context.target);
+  if (!await createSymlinkOrSkip(t, outside, context.target)) return;
 
   await assert.rejects(
     () => inspectRequiredArtifactContent(context.root, context.config, context.workflow, context.phase),
@@ -397,6 +414,33 @@ test('phase preparation refuses a symlinked required artifact without reading it
     (error) => error?.code === 'REPOSITORY_PATH_UNSAFE' && /symbolic link/.test(error.message)
   );
   assert.match(await readFile(outside, 'utf8'), /must never become governed evidence/);
+});
+
+test('Windows identity mismatches fall back to exact-byte stability without weakening POSIX races', () => {
+  const descriptor = { dev: 17n, ino: 900719925474099312345n };
+  const pathEntry = { dev: 19n, ino: 900719925474099398765n };
+
+  assert.equal(reviewArtifactIdentityDecision(descriptor, pathEntry, { platform: 'win32' }), 'verify-bytes');
+  assert.equal(reviewArtifactIdentityDecision(descriptor, pathEntry, { platform: 'linux' }), 'mismatch');
+  assert.equal(reviewArtifactBytesStable(
+    Buffer.from('# Intake\r\n\r\nStable office filesystem bytes.\r\n'),
+    Buffer.from('# Intake\r\n\r\nStable office filesystem bytes.\r\n')
+  ), true);
+  assert.equal(reviewArtifactBytesStable(
+    Buffer.from('# Intake\n\nOriginal governed bytes.\n'),
+    Buffer.from('# Intake\n\nReplacement bytes differ.\n')
+  ), false);
+});
+
+test('zero, missing, and unsafe numeric file identities require byte verification', () => {
+  const exact = { dev: 7n, ino: 900719925474099312345n };
+  assert.equal(reviewArtifactIdentityDecision(exact, { ...exact }), 'match');
+  assert.equal(reviewArtifactIdentityDecision({ dev: 0n, ino: 8n }, { dev: 7n, ino: 8n }), 'verify-bytes');
+  assert.equal(reviewArtifactIdentityDecision({ dev: 7n }, { dev: 7n, ino: 8n }), 'verify-bytes');
+  assert.equal(reviewArtifactIdentityDecision(
+    { dev: Number.MAX_SAFE_INTEGER + 1, ino: 8 },
+    { dev: Number.MAX_SAFE_INTEGER + 1, ino: 8 }
+  ), 'verify-bytes');
 });
 
 test('artifact registration cannot adopt another Story or governed configuration', async (t) => {
@@ -770,7 +814,9 @@ test('supporting review scan refuses a symlink without reading its outside targe
   const outside = path.join(os.tmpdir(), `sflow-supporting-secret-${process.pid}-${Date.now()}.md`);
   t.after(() => rm(outside, { force: true }));
   await writeFile(outside, '# Outside\n\nTODO this content must never be scanned.\n');
-  await symlink(outside, path.join(path.dirname(context.target), 'review-notes.md'));
+  if (!await createSymlinkOrSkip(
+    t, outside, path.join(path.dirname(context.target), 'review-notes.md')
+  )) return;
 
   await assert.rejects(
     () => inspectPhaseAuthoredReviewContent(

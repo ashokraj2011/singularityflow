@@ -7,8 +7,9 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
-  prepareStoryWorktree, rollbackStoryWorktree, samePlatformPath
+  prepareStoryWorktree, rollbackFailedStoryWorktree, rollbackStoryWorktree, samePlatformPath
 } from '../src/story-worktree.mjs';
+import { SingularityFlowError } from '../src/util.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { preflightFetchedStoryCapability } from '../src/commands/story.mjs';
 import { onboardRepository } from '../src/onboard.mjs';
@@ -145,6 +146,72 @@ test('Story worktree path identity follows Windows drive and casing rules', () =
     samePlatformPath('C:\\Work\\Repo\\one', 'C:\\Work\\Repo\\two', 'win32'),
     false
   );
+});
+
+test('failed Story recovery leaves the worktree before attempting removal', () => {
+  const prepared = {
+    repositoryPath: 'C:\\workspace\\.singularity-flow\\story-worktrees\\WINDOWS-CLEANUP-1'
+  };
+  const original = new SingularityFlowError('The requested workflow is not installed.', {
+    code: 'WORKFLOW_NOT_FOUND'
+  });
+  const events = [];
+
+  assert.throws(() => rollbackFailedStoryWorktree(prepared, original, 'C:\\workspace\\repository', {
+    changeDirectory(directory) {
+      events.push({ action: 'chdir', directory });
+    },
+    rollback(value) {
+      events.push({ action: 'rollback', directory: value.repositoryPath });
+      return { removed: true, retained: false, repositoryPath: value.repositoryPath };
+    }
+  }), (error) => error === original);
+
+  assert.deepEqual(events, [
+    { action: 'chdir', directory: 'C:\\workspace\\repository' },
+    { action: 'rollback', directory: prepared.repositoryPath }
+  ]);
+});
+
+test('failed Story recovery preserves both the start error and Windows cleanup error', () => {
+  const prepared = {
+    repositoryPath: 'C:\\workspace\\.singularity-flow\\story-worktrees\\WINDOWS-CLEANUP-2'
+  };
+  const original = new SingularityFlowError('The requested workflow is not installed.', {
+    code: 'WORKFLOW_NOT_FOUND',
+    details: { workflow: 'missing-office-workflow' }
+  });
+  const cleanup = new SingularityFlowError(
+    'error: failed to delete worktree: Permission denied', {
+      code: 'STORY_WORKTREE_RECOVERY_REQUIRED',
+      details: { operatingSystem: 'win32', stage: 'remove-worktree' }
+    }
+  );
+
+  assert.throws(() => rollbackFailedStoryWorktree(prepared, original, 'C:\\workspace\\repository', {
+    changeDirectory() {},
+    rollback() { throw cleanup; }
+  }), (error) => {
+    assert.equal(error.code, 'STORY_WORKTREE_RECOVERY_REQUIRED');
+    assert.equal(error.cause, original);
+    assert.match(error.message, /The requested workflow is not installed/);
+    assert.match(error.message, /Permission denied/);
+    assert.deepEqual(error.details, {
+      repositoryPath: prepared.repositoryPath,
+      cleanupStage: 'remove-worktree',
+      originalError: {
+        code: 'WORKFLOW_NOT_FOUND',
+        message: 'The requested workflow is not installed.',
+        details: { workflow: 'missing-office-workflow' }
+      },
+      cleanupError: {
+        code: 'STORY_WORKTREE_RECOVERY_REQUIRED',
+        message: 'error: failed to delete worktree: Permission denied',
+        details: { operatingSystem: 'win32', stage: 'remove-worktree' }
+      }
+    });
+    return true;
+  });
 });
 
 test('isolated Story start fetches the configured remote before pinning its base', async (t) => {

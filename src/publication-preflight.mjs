@@ -1,5 +1,5 @@
 import { constants as fsConstants } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { lstat, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
@@ -29,6 +29,38 @@ function lineAt(text, index) {
 
 function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function supportedFileIdentityPart(value) {
+  if (typeof value === 'bigint') return value > 0n ? value : null;
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return BigInt(value);
+  return null;
+}
+
+/**
+ * Decide whether descriptor and path metadata can safely prove that they name the same file.
+ *
+ * BigInt values avoid silently rounded inode/file-index values. Some Windows filesystems and
+ * filter drivers nevertheless report different non-zero identities through `fstat` and `lstat`.
+ * A mismatch there is therefore a request for canonical-path plus exact-byte verification, not a
+ * false unsafe-path refusal. A supported mismatch remains a hard path-race signal on platforms
+ * where device/inode identity is stable.
+ */
+export function reviewArtifactIdentityDecision(opened, rebound, { platform = process.platform } = {}) {
+  const openedDev = supportedFileIdentityPart(opened?.dev);
+  const openedIno = supportedFileIdentityPart(opened?.ino);
+  const reboundDev = supportedFileIdentityPart(rebound?.dev);
+  const reboundIno = supportedFileIdentityPart(rebound?.ino);
+  if ([openedDev, openedIno, reboundDev, reboundIno].some((value) => value == null)) {
+    return 'verify-bytes';
+  }
+  if (openedDev === reboundDev && openedIno === reboundIno) return 'match';
+  return platform === 'win32' ? 'verify-bytes' : 'mismatch';
+}
+
+/** Exact bytes are the portable evidence boundary when host file identity is unavailable. */
+export function reviewArtifactBytesStable(opened, rebound) {
+  return Buffer.from(opened).equals(Buffer.from(rebound));
 }
 
 /**
@@ -296,55 +328,112 @@ export function requiredArtifactRepoPath(config, workflow, phase) {
   return `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/${phase.requiredArtifact.path}`;
 }
 
-/**
- * Read one review document without following a final symlink or trusting a path after validation.
- *
- * `secureRepositoryPath` proves the lexical and canonical repository boundary. The descriptor then
- * pins that exact regular file with `O_NOFOLLOW` where the host provides it. Re-resolving the path
- * and comparing file identity closes replacement of either the file or one of its ancestors before
- * any bytes become governed review evidence.
- */
-async function readReviewArtifact(root, relative, label) {
-  const secured = await secureRepositoryPath(root, relative, { label, type: 'file' });
+function unsafeReviewArtifact(label, relative, reason, cause = null) {
+  const description = reason === 'symbolic-link'
+    ? `${label} cannot be a symbolic link: ${relative}`
+    : reason === 'non-regular-file'
+      ? `${label} must be a regular file: ${relative}`
+      : `${label} changed while it was being read: ${relative}`;
+  return new SingularityFlowError(description, {
+    code: 'REPOSITORY_PATH_UNSAFE', details: { path: relative, reason }, ...(cause ? { cause } : {})
+  });
+}
+
+function canonicalPathKey(value, platform) {
+  const normalized = path.resolve(String(value));
+  return platform === 'win32'
+    ? normalized.replaceAll('\\', '/').toLocaleLowerCase('en-US')
+    : normalized;
+}
+
+function sameStatValue(left, right) {
+  if (typeof left === 'bigint' || typeof right === 'bigint') {
+    try {
+      return BigInt(left) === BigInt(right);
+    } catch {
+      return false;
+    }
+  }
+  return left === right;
+}
+
+async function reboundReviewArtifact(root, secured, openedStat, label, platform) {
+  const rebound = await secureRepositoryPath(root, secured.relative, {
+    label, mustExist: true, type: 'file'
+  });
+  if (canonicalPathKey(rebound.root, platform) !== canonicalPathKey(secured.root, platform)
+      || canonicalPathKey(rebound.absolute, platform) !== canonicalPathKey(secured.absolute, platform)) {
+    throw unsafeReviewArtifact(label, secured.relative, 'path-race');
+  }
+
+  // Request BigInt metadata independently of secureRepositoryPath's general-purpose Stats object.
+  // This keeps large Windows file-index values exact without changing that shared API's callers.
+  const entry = await lstat(rebound.absolute, { bigint: true });
+  if (entry.isSymbolicLink()) throw unsafeReviewArtifact(label, secured.relative, 'symbolic-link');
+  if (!entry.isFile()) throw unsafeReviewArtifact(label, secured.relative, 'non-regular-file');
+  const identity = reviewArtifactIdentityDecision(openedStat, entry, { platform });
+  if (identity === 'mismatch') throw unsafeReviewArtifact(label, secured.relative, 'path-race');
+  return identity;
+}
+
+async function readPinnedReviewArtifact(root, relative, label, {
+  mustExist = false, platform = process.platform
+} = {}) {
+  const secured = await secureRepositoryPath(root, relative, { label, mustExist, type: 'file' });
   if (!secured.exists) return null;
   let handle;
   try {
     handle = await open(secured.absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-    const before = await handle.stat();
-    if (!before.isFile()) {
-      throw new SingularityFlowError(`${label} must be a regular file: ${secured.relative}`, {
-        code: 'REPOSITORY_PATH_UNSAFE', details: { path: secured.relative, reason: 'non-regular-file' }
-      });
-    }
-    const rebound = await secureRepositoryPath(root, secured.relative, {
-      label, mustExist: true, type: 'file'
-    });
-    if ((before.ino !== 0 && rebound.entry?.ino !== before.ino)
-        || (before.dev !== 0 && rebound.entry?.dev !== before.dev)) {
-      throw new SingularityFlowError(`${label} changed while it was being read: ${secured.relative}`, {
-        code: 'REPOSITORY_PATH_UNSAFE', details: { path: secured.relative, reason: 'path-race' }
-      });
-    }
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile()) throw unsafeReviewArtifact(label, secured.relative, 'non-regular-file');
+
+    const beforeBinding = await reboundReviewArtifact(root, secured, before, label, platform);
     const bytes = await handle.readFile();
-    const after = await handle.stat();
-    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
-        || before.mtimeMs !== after.mtimeMs) {
-      throw new SingularityFlowError(`${label} changed while it was being read: ${secured.relative}`, {
-        code: 'REPOSITORY_PATH_UNSAFE', details: { path: secured.relative, reason: 'content-race' }
-      });
+    const after = await handle.stat({ bigint: true });
+    const descriptorIdentity = reviewArtifactIdentityDecision(before, after, { platform });
+    const beforeMtime = before.mtimeNs ?? before.mtimeMs;
+    const afterMtime = after.mtimeNs ?? after.mtimeMs;
+    if (descriptorIdentity === 'mismatch' || !sameStatValue(before.size, after.size)
+        || !sameStatValue(beforeMtime, afterMtime)) {
+      throw unsafeReviewArtifact(label, secured.relative, 'content-race');
     }
-    return bytes.toString('utf8');
+    const afterBinding = await reboundReviewArtifact(root, secured, after, label, platform);
+    return {
+      bytes,
+      verifyBytes: beforeBinding !== 'match'
+        || descriptorIdentity !== 'match'
+        || afterBinding !== 'match'
+    };
   } catch (error) {
     if (error instanceof SingularityFlowError) throw error;
     if (['ELOOP', 'EMLINK'].includes(error?.code)) {
-      throw new SingularityFlowError(`${label} cannot be a symbolic link: ${secured.relative}`, {
-        code: 'REPOSITORY_PATH_UNSAFE', details: { path: secured.relative, reason: 'symbolic-link' }, cause: error
-      });
+      throw unsafeReviewArtifact(label, secured.relative, 'symbolic-link', error);
     }
     throw error;
   } finally {
     await handle?.close().catch(() => {});
   }
+}
+
+/**
+ * Read one review document without following a final symlink or trusting a path after validation.
+ *
+ * `secureRepositoryPath` proves the lexical and canonical repository boundary. The descriptor then
+ * pins that exact regular file with `O_NOFOLLOW` where the host provides it. Stable BigInt file
+ * identity closes path replacement where the host supports it. When identity is unavailable (or
+ * unreliable on Windows), a second pinned read must produce exactly the same bytes before those
+ * bytes can become governed review evidence.
+ */
+async function readReviewArtifact(root, relative, label) {
+  const opened = await readPinnedReviewArtifact(root, relative, label);
+  if (opened == null) return null;
+  if (opened.verifyBytes) {
+    const rebound = await readPinnedReviewArtifact(root, relative, label, { mustExist: true });
+    if (!reviewArtifactBytesStable(opened.bytes, rebound.bytes)) {
+      throw unsafeReviewArtifact(label, relative, 'content-race');
+    }
+  }
+  return opened.bytes.toString('utf8');
 }
 
 /** Pure, complete artifact authoring preflight used by publish, recover, and host guidance. */

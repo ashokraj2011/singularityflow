@@ -19,7 +19,7 @@ function invalid(value, message = 'SGOS path must be an absolute POSIX, Windows-
 function validateWindowsSegment(segment, value) {
   if (!segment || segment === '.' || segment === '..'
       || /[<>:"|?*\u0000-\u001f]/.test(segment) || /[ .]$/.test(segment)
-      || /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(segment)) {
+      || /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|(?:com|lpt)(?:[1-9]|[¹²³]))(?:\.|$)/iu.test(segment)) {
     invalid(value, `SGOS Windows path contains unsafe component '${segment}'.`);
   }
 }

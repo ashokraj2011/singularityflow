@@ -16,6 +16,7 @@ import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
+import { validatePortableWorkId } from './work-id.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
@@ -25,7 +26,9 @@ function digest(value) {
 }
 
 function portableId(value) {
-  const id = String(value ?? '').trim();
+  const id = validatePortableWorkId(value, {
+    label: 'Story worktree ID', code: 'STORY_WORKTREE_INVALID'
+  });
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) {
     throw new SingularityFlowError(`'${id}' is not a portable Story worktree identifier.`, {
       code: 'STORY_WORKTREE_INVALID'
@@ -49,6 +52,13 @@ export function samePlatformPath(left, right, platform = process.platform) {
     return platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved;
   };
   return normalize(left) === normalize(right);
+}
+
+function pathContains(parent, candidate, platform = process.platform) {
+  const api = platform === 'win32' ? path.win32 : path;
+  const relative = api.relative(api.resolve(String(parent)), api.resolve(String(candidate)));
+  return relative === ''
+    || (relative !== '..' && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative));
 }
 
 function worktreeInventory(root) {
@@ -203,6 +213,19 @@ export function rollbackStoryWorktree(prepared) {
   if (workflowAtBranch || published) {
     return { removed: false, retained: true, repositoryPath: prepared.repositoryPath };
   }
+  // Windows refuses to remove a directory that owns the current process working directory. Unix
+  // may appear to allow it, but leaves the process inside an unlinked directory and makes later
+  // path resolution unpredictable. Keep the invariant platform-independent so every test host
+  // exercises the same ordering requirement as an office Windows laptop.
+  if (pathContains(prepared.repositoryPath, process.cwd())) {
+    throw new SingularityFlowError(
+      `Story worktree cleanup cannot run while the current process is inside ${prepared.repositoryPath}.`,
+      {
+        code: 'STORY_WORKTREE_RECOVERY_REQUIRED',
+        details: { repositoryPath: prepared.repositoryPath }
+      }
+    );
+  }
   const removed = run('git', ['worktree', 'remove', '--force', '--', prepared.repositoryPath], {
     cwd: root, allowFailure: true
   });
@@ -216,6 +239,67 @@ export function rollbackStoryWorktree(prepared) {
     run('git', ['branch', '-D', '--', branch], { cwd: root, allowFailure: true });
   }
   return { removed: true, retained: false, repositoryPath: prepared.repositoryPath };
+}
+
+function failureRecord(error) {
+  return {
+    code: typeof error?.code === 'string' ? error.code : null,
+    message: error?.message ?? String(error),
+    details: error?.details ?? null
+  };
+}
+
+/**
+ * Finish a failed isolated Story start without hiding the failure that initiated recovery.
+ *
+ * The process must leave the managed checkout before asking Git to remove it. When leaving or
+ * removing the checkout also fails, retain both errors in the public recovery result: the first
+ * explains why Story start stopped and the second explains why manual cleanup is now required.
+ */
+export function rollbackFailedStoryWorktree(
+  prepared, originalError, previousDirectory, {
+    changeDirectory = (directory) => process.chdir(directory),
+    rollback = rollbackStoryWorktree
+  } = {}
+) {
+  let recovery;
+  let cleanupStage = 'leave-worktree';
+  try {
+    changeDirectory(previousDirectory);
+    cleanupStage = 'remove-worktree';
+    recovery = rollback(prepared);
+  } catch (cleanupError) {
+    const original = failureRecord(originalError);
+    const cleanup = failureRecord(cleanupError);
+    const action = cleanupStage === 'leave-worktree'
+      ? 'leave its isolated checkout before cleanup'
+      : 'remove its isolated checkout';
+    throw new SingularityFlowError(
+      `${original.message}\nStory worktree cleanup also failed while trying to ${action}: ${cleanup.message}\n`
+      + `The isolated checkout was retained at ${prepared.repositoryPath}; open that folder and run singularity-flow doctor.`,
+      {
+        code: 'STORY_WORKTREE_RECOVERY_REQUIRED',
+        details: {
+          repositoryPath: prepared.repositoryPath,
+          cleanupStage,
+          originalError: original,
+          cleanupError: cleanup
+        },
+        cause: originalError
+      }
+    );
+  }
+  if (recovery.retained) {
+    throw new SingularityFlowError(
+      `${originalError.message}\nThe governed Story state was retained at ${recovery.repositoryPath}; open that folder and run singularity-flow doctor.`,
+      {
+        code: originalError.code ?? 'STORY_WORKTREE_RECOVERY_REQUIRED',
+        details: { repositoryPath: recovery.repositoryPath },
+        cause: originalError
+      }
+    );
+  }
+  throw originalError;
 }
 
 /** Read-only management surface used by diagnostics and future UI recovery. */

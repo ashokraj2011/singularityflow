@@ -5,7 +5,6 @@
  * Neither operation advances a REV loop head or publishes a Story generation.
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
@@ -13,7 +12,7 @@ import { gitDisabledHooksPath } from '../git-isolation-paths.mjs';
 import { recordSha256 } from '../records.mjs';
 import { repositoryCaseInsensitivePaths } from '../repository-change-set.mjs';
 import { scannablePath, scanEntries, secretRefusal } from '../secrets.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { run, SingularityFlowError } from '../util.mjs';
 import { verifySgosRevisionCandidateReference } from './candidate-adapter.mjs';
 import {
   executeIsolatedRevisionAttempt, freezeRevisionAttemptCandidate,
@@ -47,7 +46,8 @@ function safePath(value) {
 function gitEnv() {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
-    if (key.startsWith('GIT_') || key.startsWith('GCM_')) delete env[key];
+    const normalized = key.toUpperCase();
+    if (normalized.startsWith('GIT_') || normalized.startsWith('GCM_')) delete env[key];
   }
   return {
     ...env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1',
@@ -55,13 +55,13 @@ function gitEnv() {
   };
 }
 
-function git(root, args) {
-  const result = spawnSync('git', [
+function gitBytes(root, args) {
+  const result = run('git', [
     '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
     '-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false', ...args
   ], {
-    cwd: root, env: gitEnv(), encoding: 'buffer', maxBuffer: 8 * 1024 * 1024,
-    timeout: 10_000, windowsHide: true
+    cwd: root, env: gitEnv(), encoding: 'buffer', allowFailure: true,
+    maxBuffer: 8 * 1024 * 1024, timeoutMs: 10_000, windowsHide: true
   });
   if (result.error || result.status !== 0) {
     fail('REV_MANUAL_GIT_UNAVAILABLE', 'The local Git snapshot could not be read safely.');
@@ -69,14 +69,15 @@ function git(root, args) {
   return Buffer.from(result.stdout);
 }
 
-function text(root, args) { return git(root, args).toString('utf8').trim(); }
+function text(root, args) { return gitBytes(root, args).toString('utf8').trim(); }
 
 function fileModeSupported(root) {
-  const result = spawnSync('git', [
+  const result = run('git', [
     '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
     'config', '--bool', '--get', 'core.filemode'
   ], {
-    cwd: root, env: gitEnv(), encoding: 'utf8', timeout: 10_000, windowsHide: true
+    cwd: root, env: gitEnv(), encoding: 'utf8', allowFailure: true,
+    timeoutMs: 10_000, windowsHide: true
   });
   if (result.error || ![0, 1].includes(result.status)) {
     fail('REV_MANUAL_GIT_UNAVAILABLE', 'Git file-mode policy could not be read.');
@@ -99,7 +100,7 @@ function nulRecords(buffer) {
 function treeMap(root, tree) {
   if (!OID.test(tree)) fail('REV_MANUAL_PARENT_INVALID', 'The candidate tree is invalid.');
   const entries = new Map();
-  for (const line of nulRecords(git(root, ['ls-tree', '-rz', '--full-tree', tree]))) {
+  for (const line of nulRecords(gitBytes(root, ['ls-tree', '-rz', '--full-tree', tree]))) {
     const match = /^(100644|100755|120000|160000) (blob|commit) ([a-f0-9]{40}(?:[a-f0-9]{24})?)\t(.+)$/u.exec(line);
     if (!match) fail('REV_MANUAL_TREE_UNSUPPORTED', 'A Git tree contains an unsupported entry.');
     const item = safePath(match[4]);
@@ -113,7 +114,7 @@ function treeMap(root, tree) {
 
 function indexMap(root) {
   const entries = new Map();
-  for (const line of nulRecords(git(root, ['ls-files', '--stage', '-z']))) {
+  for (const line of nulRecords(gitBytes(root, ['ls-files', '--stage', '-z']))) {
     const match = /^(100644|100755|120000|160000) ([a-f0-9]{40}(?:[a-f0-9]{24})?) ([0-3])\t(.+)$/u.exec(line);
     if (!match) fail('REV_MANUAL_INDEX_UNSUPPORTED', 'The real Git index contains an unsupported entry.');
     const item = safePath(match[4]);
@@ -126,7 +127,7 @@ function indexMap(root) {
 }
 
 function untrackedPaths(root) {
-  const values = nulRecords(git(root, ['ls-files', '--others', '--exclude-standard', '-z']));
+  const values = nulRecords(gitBytes(root, ['ls-files', '--others', '--exclude-standard', '-z']));
   if (values.length > MAX_PATHS) fail('REV_MANUAL_PATH_LIMIT', 'Too many untracked paths to inventory.');
   return values.map(safePath);
 }

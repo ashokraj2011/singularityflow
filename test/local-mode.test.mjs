@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { writeLocArchive, inspectLocArchive } from '../src/local-mode/archive.mjs';
+import { portablePath } from '../src/local-mode/contracts.mjs';
 import { canonicalJcs, parseCanonicalJcs } from '../src/local-mode/jcs.mjs';
 import {
   auditLocalBundle, createLocalSigner, exportLocalTrustKey, publishLocalBundle,
@@ -20,6 +21,17 @@ import {
 } from '../src/local-mode/store.mjs';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('local bundle paths reject every Windows device alias and forbidden filename character', () => {
+  for (const candidate of [
+    'payload/COM¹.json', 'payload/lpt²', 'payload/CONIN$', 'payload/conout$.txt',
+    'payload/CLOCK$', 'payload/name:stream', 'payload/*.json', 'payload/question?.json',
+    'payload/quote".json', 'payload/less<.json', 'payload/greater>.json', 'payload/pipe|.json'
+  ]) {
+    assert.throws(() => portablePath(candidate), { code: 'LOCAL_PATH_INVALID' }, candidate);
+  }
+  assert.equal(portablePath('payload/portable-name.json'), 'payload/portable-name.json');
+});
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-mode-'));

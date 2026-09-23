@@ -21,7 +21,7 @@ export const LOC_LIMITS = Object.freeze({
 });
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
-const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|(?:com|lpt)(?:[1-9]|[¹²³]))(?:\..*)?$/iu;
 const STORY = /^LOC-[0-9A-F]{32}$/;
 const SIGNER = /^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9_-])?$/;
 
@@ -63,7 +63,7 @@ export function portablePath(value, { control = false } = {}) {
   const parts = input.split('/');
   if (parts.some((part) => !part || part === '.' || part === '..'
       || part !== part.normalize('NFC') || /[\u0000-\u001f\u007f]/u.test(part)
-      || /[. ]$/.test(part) || WINDOWS_RESERVED.test(part)
+      || /[:*?"<>|]/u.test(part) || /[. ]$/.test(part) || WINDOWS_RESERVED.test(part)
       || (!control && part.toLowerCase() === '.git'))) {
     locFail(`Bundle path '${input}' contains a forbidden component.`, 'LOCAL_PATH_INVALID');
   }

@@ -5,7 +5,6 @@
  * This module never changes a Git ref, the visible worktree, or a REV loop head.
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,7 +13,7 @@ import { readLocalGitBlobs } from '../git-blob-batch.mjs';
 import { gitDisabledHooksPath } from '../git-isolation-paths.mjs';
 import { recordSha256 } from '../records.mjs';
 import { freezeSgosCandidate, readSgosRetainedCandidate } from '../sgos/candidate-lifecycle.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { run, SingularityFlowError } from '../util.mjs';
 import {
   sgosRevisionCandidateReference, verifySgosRevisionCandidateReference
 } from './candidate-adapter.mjs';
@@ -71,7 +70,8 @@ function pathSet(values, context) {
 function localGitEnv() {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
-    if (key.startsWith('GIT_') || key.startsWith('GCM_')) delete env[key];
+    const normalized = key.toUpperCase();
+    if (normalized.startsWith('GIT_') || normalized.startsWith('GCM_')) delete env[key];
   }
   return {
     ...env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1',
@@ -80,9 +80,9 @@ function localGitEnv() {
 }
 
 function gitRead(root, args, env) {
-  const result = spawnSync('git', ['-c', `core.hooksPath=${gitDisabledHooksPath()}`, ...args], {
-    cwd: root, env, encoding: 'buffer', maxBuffer: 4 * 1024 * 1024,
-    timeout: 10_000, windowsHide: true
+  const result = run('git', ['-c', `core.hooksPath=${gitDisabledHooksPath()}`, ...args], {
+    cwd: root, env, encoding: 'buffer', allowFailure: true,
+    maxBuffer: 4 * 1024 * 1024, timeoutMs: 10_000, windowsHide: true
   });
   if (result.error || result.status !== 0) {
     fail('REV_ATTEMPT_TREE_UNAVAILABLE', 'The retained parent tree could not be read locally.');
@@ -91,12 +91,12 @@ function gitRead(root, args, env) {
 }
 
 function gitObject(root, args, env, input = undefined) {
-  const result = spawnSync('git', [
+  const result = run('git', [
     '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
     '-c', 'commit.gpgSign=false', ...args
   ], {
-    cwd: root, env, input, encoding: 'buffer', maxBuffer: 1024 * 1024,
-    timeout: 10_000, windowsHide: true
+    cwd: root, env, input, encoding: 'buffer', allowFailure: true,
+    maxBuffer: 1024 * 1024, timeoutMs: 10_000, windowsHide: true
   });
   if (result.error || result.status !== 0) {
     fail('REV_ATTEMPT_FREEZE_GIT_FAILED', 'Private-index candidate object construction failed.');

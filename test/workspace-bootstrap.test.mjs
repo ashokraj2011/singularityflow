@@ -597,6 +597,14 @@ test('native Windows path rules reject reserved names and trailing characters wi
   const invalid = portableWorkspacePathFindings('C:\\work\\CON\\demo. ', { platform: 'win32' });
   assert.ok(invalid.some((entry) => entry.id === 'machine.path.reserved-device'));
   assert.ok(invalid.some((entry) => entry.id === 'machine.path.trailing-character'));
+  for (const reserved of ['COM¹', 'lpt².log', 'CONIN$', 'conout$.txt', 'CLOCK$']) {
+    const result = portableWorkspacePathFindings(`C:\\work\\${reserved}\\repo`, { platform: 'win32' });
+    assert.ok(result.some((entry) => entry.id === 'machine.path.reserved-device'), reserved);
+  }
+  for (const unsafe of ['bad?name', 'stream:name', 'pipe|name', `control${String.fromCharCode(7)}name`]) {
+    const result = portableWorkspacePathFindings(`C:\\work\\${unsafe}\\repo`, { platform: 'win32' });
+    assert.ok(result.some((entry) => entry.id === 'machine.path.invalid-character'), unsafe);
+  }
   assert.deepEqual(portableWorkspacePathFindings('/work/CON/demo. ', { platform: 'linux' }), []);
   const long = portableWorkspacePathFindings(`C:\\${'workspace\\'.repeat(25)}repo`, { platform: 'win32' });
   assert.ok(long.some((entry) => entry.id === 'machine.path.long' && entry.severity === 'warning'));

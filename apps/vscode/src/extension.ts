@@ -61,6 +61,9 @@ import { unavailableCapabilityAuthorityMessage } from './views/capability-author
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { gitRemoteProblem } from './views/map-capability-form.ts';
 import {
+  parseRepositoryOnboardingPlan, parseRepositoryOnboardingResult
+} from './views/repository-onboarding-model.ts';
+import {
   repositoryRefreshCommand, repositoryRefreshTargetForPath, repositoryRefreshTargets,
   sameGitRepository,
   type RepositoryRefreshTarget, type WorkspaceRefreshObservation
@@ -117,6 +120,8 @@ declare const __SFLOW_BUILD__: string;
 
 const COPILOT_HANDOFF_KEY = 'singularityFlow.pendingCopilotHandoff';
 const START_WIZARD_KEY = 'singularityFlow.pendingStartWizard.v1';
+const REPOSITORY_SETUP_CHANGED_MESSAGE =
+  'Repository setup changed; review the refreshed result.';
 
 type LazyPanelsRuntime = typeof import('./lazy-panels-runtime.ts');
 let lazyPanelsRuntime: LazyPanelsRuntime | null = null;
@@ -1955,6 +1960,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       requestOrReturn?: {
         parent?: string;
         chooseRepository?: boolean;
+        repositoryUrl?: string;
+        maintenance?: boolean;
         journey?: { step: 'capability' | 'workspace' | 'work'; capabilityId?: string | null; workspaceName?: string | null } | null;
       } | ((mapped: Mapped) => Promise<void>),
       returnAfterMapping?: (mapped: Mapped) => Promise<void>
@@ -1963,7 +1970,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ? {
           parent: requestOrReturn.parent,
           journey: requestOrReturn.journey,
-          chooseRepository: requestOrReturn.chooseRepository === true
+          chooseRepository: requestOrReturn.chooseRepository === true,
+          repositoryUrl: requestOrReturn.repositoryUrl,
+          maintenance: requestOrReturn.maintenance === true
         }
       : {};
     const returnToWorkspace = typeof requestOrReturn === 'function'
@@ -1993,7 +2002,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     };
 
-    const leads = await registry
+    // Repository maintenance is intentionally registry-free: the URL/path is sufficient for the
+    // onboarding preview, including on a clean laptop with no registered workspaces or leads.
+    const leads = initial.maintenance ? [] : await registry
       .run<Array<{ url: string }>>(['capability', 'leads', '--json'])
       .catch(() => []);
 
@@ -2065,6 +2076,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           sourceBranch?: string;
           sourceCommit?: string;
         };
+        /**
+         * Fresh repository-setup evidence produced by the Map journey. It may suppress only the
+         * redundant, read-only organisation refresh below. The workspace capability preview still
+         * performs the mutation-bound authority/ref check before anything is attached.
+         */
+        repositorySetup?: { plan?: unknown; result?: unknown };
       }
     ) => {
     const requestGeneration = ++openWorkspacesRequestGeneration;
@@ -2144,17 +2161,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       : null;
     if (authoritySupplied && !requestedAuthority) {
-      void vscode.window.showWarningMessage(
-        'The capability attachment request has no valid verified authority revision. Check the repository mapping again; no workspace was selected.'
-      );
+      void vscode.window.showWarningMessage(REPOSITORY_SETUP_CHANGED_MESSAGE);
       return;
     }
     if (requestedCapabilityIds.length && !requestedAuthority) {
-      void vscode.window.showWarningMessage(
-        'A capability can be preselected only with the exact authority revision that supplied it. Check the repository mapping again.'
-      );
+      void vscode.window.showWarningMessage(REPOSITORY_SETUP_CHANGED_MESSAGE);
       return;
     }
+    const rawRepositorySetup = request && typeof request === 'object'
+      && 'repositorySetup' in request
+      && request.repositorySetup && typeof request.repositorySetup === 'object'
+      ? request.repositorySetup : null;
+    const repositorySetupPlan = parseRepositoryOnboardingPlan(rawRepositorySetup?.plan);
+    const repositorySetupResult = repositorySetupPlan && rawRepositorySetup?.result != null
+      ? parseRepositoryOnboardingResult(rawRepositorySetup.result, repositorySetupPlan.planId)
+      : null;
+    const setupLead = repositorySetupPlan?.routing?.leadUrl
+      ?? repositorySetupPlan?.repository.url ?? null;
+    const setupConfigurationCommit = repositorySetupResult?.configuration?.commit
+      ?? repositorySetupPlan?.observedRefs['refs/heads/sflow/config'] ?? null;
+    const repositorySetupReceiptCurrent = Boolean(requestedAuthority && repositorySetupPlan
+      && repositorySetupPlan.canApply
+      && (repositorySetupResult
+        ? ['ready', 'ready-state-refresh-pending', 'linked-to-team-configuration']
+          .includes(repositorySetupResult.status)
+        : ['ready', 'linked-to-team-configuration'].includes(repositorySetupPlan.status))
+      && setupLead && sameGitRepository(setupLead, requestedAuthority.leadUrl)
+      // A direct configuration receipt must name the exact revision handed to Workspaces. A
+      // delivery-locator receipt intentionally contains no lead configuration ref; its routing is
+      // sufficient for this read-only handoff because attach preview rechecks the lead before write.
+      && (repositorySetupPlan.state.kind === 'delivery-locator'
+        || (setupConfigurationCommit != null
+          && setupConfigurationCommit.toLowerCase()
+            === requestedAuthority.configurationCommit.toLowerCase()))
+      // A result is optional (Ready performs no mutation). When supplied, it must be the exact
+      // confirmed result for this preview; a stale or forged pair never suppresses the live read.
+      && (rawRepositorySetup?.result == null || repositorySetupResult));
     const node = upgrade ? undefined : request as TreeNode | undefined;
     let location;
     try {
@@ -2244,13 +2286,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         configurationCommit: requestedAuthority.configurationCommit
       };
       try {
-        const readAuthority = (refresh: boolean) => registry.run<ObservedCapabilityAuthority & {
-          capabilities?: RemoteCapability[] | null;
-          repositories?: Record<string, { url?: string; defaultBranch?: string }>;
-        }>([
-          'capability', 'organisation', requestedAuthority.leadUrl,
-          ...(refresh ? ['--refresh'] : []), '--json'
-        ]);
+        if (repositorySetupReceiptCurrent) {
+          // The Map panel has already made the bounded repository observation and handed us the
+          // exact approved configuration identity. Do not clone/read the same organisation again
+          // merely to render workspace choices. This never authorizes a write: attach-capability
+          // dry-run verifies the current authority and its returned CAS-bound plan is compared
+          // with `verifiedAuthority` immediately before user confirmation and apply.
+          verifiedAuthority = {
+            leadUrl: requestedAuthority.leadUrl,
+            configurationBranch: requestedAuthority.configurationBranch,
+            configurationCommit: requestedAuthority.configurationCommit
+          };
+        } else {
+          const readAuthority = (refresh: boolean) => registry.run<ObservedCapabilityAuthority & {
+            capabilities?: RemoteCapability[] | null;
+            repositories?: Record<string, { url?: string; defaultBranch?: string }>;
+          }>([
+            'capability', 'organisation', requestedAuthority.leadUrl,
+            ...(refresh ? ['--refresh'] : []), '--json'
+          ]);
         // Prefer the commit-validated cache. Retry once from the remote only when an old cache
         // schema cannot express the split identity or its last observation was explicitly stale.
         // This avoids an unconditional clone while preventing either condition from masquerading
@@ -2272,13 +2326,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // panels recoverable without weakening the exact-CAS mutation boundary.
           verifiedAuthority = verification.authority;
         } else if (verification.status === 'ungoverned') {
-          issue = 'The repository no longer exposes an approved capability authority. Check the repository mapping again; no local workspace was selected.';
+          issue = REPOSITORY_SETUP_CHANGED_MESSAGE;
         } else if (verification.status === 'unavailable') {
           issue = unavailableCapabilityAuthorityMessage(inspectedAuthorityOrganisation);
         } else if (verification.status === 'invalid') {
-          issue = 'The capability authority did not report an exact approved configuration revision. Refresh or upgrade the repository mapping; no local workspace was selected.';
+          issue = REPOSITORY_SETUP_CHANGED_MESSAGE;
         } else if (verification.status === 'changed') {
-          issue = 'The capability authority changed after repository inspection. Check the repository mapping again; no local workspace was selected.';
+          issue = REPOSITORY_SETUP_CHANGED_MESSAGE;
+        }
         }
       } catch (error) {
         issue = `The verified capability authority could not be re-read: ${(error as Error).message}`;
@@ -2427,7 +2482,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           || preview.authority.configurationBranch !== expectedAuthority.configurationBranch
           || preview.authority.configurationCommit.toLowerCase()
               !== expectedAuthority.configurationCommit.toLowerCase())) {
-          const error = 'The capability authority changed after repository inspection. Nothing was attached; check the repository mapping again before retrying.';
+          const error = REPOSITORY_SETUP_CHANGED_MESSAGE;
           output.appendLine(`  failed: ${error}`);
           return error;
         }
@@ -2642,6 +2697,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         repositoryPath: requestedRepository.trim(), action: 'reinitialize'
       })
       : vscode.commands.executeCommand('singularityFlow.reinitializeWorkspaces')
+  ));
+
+  /**
+   * Repository-centric maintenance that works on a new laptop before any workspace is registered.
+   * The Map panel owns the shared setup card and the CLI owns every observation and mutation plan.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.repairRepositorySetup',
+    async (request?: { repositoryUrl?: string; repositoryPath?: string } | string) => {
+      const supplied = typeof request === 'string'
+        ? request.trim()
+        : request?.repositoryUrl?.trim() || request?.repositoryPath?.trim() || '';
+      let repositoryUrl = supplied;
+      if (!repositoryUrl) {
+        repositoryUrl = (await vscode.window.showInputBox({
+          title: 'Repair or upgrade repository setup',
+          prompt: 'Enter a credential-free Git URL or the path to an existing local clone.',
+          placeHolder: 'https://git.example.com/team/repository.git',
+          ignoreFocusOut: true,
+          validateInput: (value) => value.trim()
+            ? gitRemoteProblem(value, 'Repository')
+            : 'Enter a Git URL or local clone path.'
+        }))?.trim() ?? '';
+      }
+      if (!repositoryUrl) return;
+      const problem = gitRemoteProblem(repositoryUrl, 'Repository');
+      if (problem) return showRefusal(problem, { headline: 'The repository cannot be used safely' });
+      return vscode.commands.executeCommand('singularityFlow.mapCapability', {
+        repositoryUrl,
+        maintenance: true
+      });
+    }
   ));
 
   /**
@@ -5831,7 +5918,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
 
-    if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
+    if (message.action === 'repository-setup') await vscode.commands.executeCommand(
+      'singularityFlow.repairRepositorySetup', { repositoryPath: client.repository }
+    );
+    else if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
     else if (message.action === 'add-capability') await vscode.commands.executeCommand('singularityFlow.addCapability');
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');

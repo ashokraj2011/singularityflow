@@ -22,6 +22,18 @@ import {
   migrateLegacyMapCapabilityOperation, readMapCapabilityOperations,
   writeMapCapabilityOperation
 } from './map-capability-operation-store.ts';
+import {
+  parseRepositoryOnboardingPlan,
+  parseRepositoryOnboardingResult,
+  repositoryOnboardingApplyArgv,
+  repositoryOnboardingCanContinue,
+  repositoryOnboardingModeAvailable,
+  repositoryOnboardingPlanMatchesInput,
+  repositoryOnboardingPreviewArgv,
+  type RepositoryOnboardingMode,
+  type RepositoryOnboardingPlan,
+  type RepositoryOnboardingResult
+} from './repository-onboarding-model.ts';
 
 interface OrganisationCapability {
   id: string;
@@ -122,6 +134,8 @@ export interface MapCapabilityLaunch {
   parent?: string;
   journey?: StartWizardProgress | null;
   chooseRepository?: boolean;
+  repositoryUrl?: string;
+  maintenance?: boolean;
 }
 
 type Run = (argv: string[], signal?: AbortSignal) => Promise<{ result: unknown; error: string | null }>;
@@ -387,6 +401,7 @@ export class BootstrapPanel {
   private mapLoadRevision = 0;
   private inspectionRevision = 0;
   private readonly inspectedOrganisations = new Map<string, Organisation>();
+  private repositorySetupResult: RepositoryOnboardingResult | null = null;
   private activeMapController: AbortController | null = null;
   private operationStorageQueue: Promise<void> = Promise.resolve();
 
@@ -439,6 +454,7 @@ export class BootstrapPanel {
       // establishes which onboarding path applies.
       lead: ''
     };
+    this.applyLaunch(initial);
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -463,16 +479,19 @@ export class BootstrapPanel {
       BootstrapPanel.current.prefill(initial);
       BootstrapPanel.current.panel.reveal(vscode.ViewColumn.Active);
       if (initial.chooseRepository) void BootstrapPanel.current.chooseRepository();
+      else if (initial.repositoryUrl?.trim()) void BootstrapPanel.current.inspectRepository();
       return BootstrapPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.mapCapability', initial.journey ? 'Guided start' : 'Map a capability', vscode.ViewColumn.Active, {
+      'singularityFlow.mapCapability', initial.maintenance
+        ? 'Repository setup' : initial.journey ? 'Guided start' : 'Map a capability', vscode.ViewColumn.Active, {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
     BootstrapPanel.current = new BootstrapPanel(context, panel, leads, run, onMapped, initial);
     if (initial.chooseRepository) void BootstrapPanel.current.chooseRepository();
+    else if (initial.repositoryUrl?.trim()) void BootstrapPanel.current.inspectRepository();
     return BootstrapPanel.current;
   }
 
@@ -515,6 +534,7 @@ export class BootstrapPanel {
   }
 
   private prefill(initial: MapCapabilityLaunch): void {
+    this.applyLaunch(initial);
     if (initial.journey !== undefined) this.journey = initial.journey;
     if (initial.parent !== undefined) {
       this.requestedParent = initial.parent.trim();
@@ -522,15 +542,32 @@ export class BootstrapPanel {
         this.form.parent = this.requestedParent;
       }
     }
-    this.panel.title = this.journey ? 'Guided start' : 'Map a capability';
+    this.panel.title = this.form.repositorySetupMaintenance
+      ? 'Repository setup' : this.journey ? 'Guided start' : 'Map a capability';
     this.render();
+  }
+
+  private applyLaunch(initial: MapCapabilityLaunch): void {
+    if (initial.maintenance !== undefined) this.form.repositorySetupMaintenance = initial.maintenance;
+    if (initial.repositoryUrl !== undefined) {
+      const repositoryUrl = initial.repositoryUrl.trim();
+      if (!gitRemoteProblem(repositoryUrl, 'Repository')) {
+        if (repositoryUrl !== this.form.repositoryUrl.trim()) {
+          this.invalidateInspection();
+          this.repositorySetupResult = null;
+        }
+        this.form.repositoryUrl = repositoryUrl;
+        this.form.lead = '';
+      }
+    }
   }
 
   private render(): void {
     if (this.disposed) return;
     const token = nonce();
     this.panel.webview.html = page(
-      this.journey ? 'Guided start' : 'Map a capability',
+      this.form.repositorySetupMaintenance
+        ? 'Repository setup' : this.journey ? 'Guided start' : 'Map a capability',
       mapCapabilityHtml(this.form, this.journey),
       contentSecurityPolicy(this.panel.webview, token),
       token,
@@ -728,8 +765,8 @@ export class BootstrapPanel {
     }
   }
 
-  /** Revoke every result whose repository/authority pair may no longer match the form. */
-  private invalidateInspection(): void {
+  /** Revoke every result whose repository/setup pair may no longer match the form. */
+  private invalidateInspection(preserveRepositorySetup = false): void {
     this.inspectionRevision++;
     this.inspectedOrganisations.clear();
     this.form.inspectionStatus = 'idle';
@@ -748,6 +785,15 @@ export class BootstrapPanel {
     this.form.inspectionCheckedLeadCount = 0;
     this.form.inspectionBoundRepositoryUrl = null;
     this.form.inspectionBoundLeadUrl = null;
+    if (!preserveRepositorySetup) {
+      this.form.repositorySetupPlan = null;
+      this.form.repositorySetupResult = null;
+      this.form.repositorySetupMode = 'auto';
+      this.form.repositorySetupResolved = false;
+      this.form.repositorySetupApplying = false;
+      this.form.repositorySetupNotice = null;
+      this.repositorySetupResult = null;
+    }
   }
 
   private inspectionIsBound(repositoryUrl: string, leadUrl: string): boolean {
@@ -1022,7 +1068,208 @@ export class BootstrapPanel {
     await this.inspectRepository();
   }
 
+  /**
+   * Repository-first setup front door. Explicit lead/search arguments are retained only for the
+   * capability-map read which follows a resolved setup; ordinary inspection always uses the one
+   * versioned onboarding preview.
+   */
   private async inspectRepository(
+    explicitLeadUrl: string | null = null,
+    options: { includeKnownAuthorities?: boolean } = {}
+  ): Promise<void> {
+    if (explicitLeadUrl || options.includeKnownAuthorities) {
+      return this.inspectCapabilityMapping(explicitLeadUrl, options);
+    }
+    await this.previewRepositorySetup('auto');
+  }
+
+  private async previewRepositorySetup(
+    mode: RepositoryOnboardingMode,
+    stateBranch?: string
+  ): Promise<void> {
+    const repositoryUrl = this.form.repositoryUrl.trim();
+    if (!repositoryUrl) return;
+    const repositoryProblem = gitRemoteProblem(repositoryUrl, 'Repository');
+    if (repositoryProblem) {
+      this.invalidateInspection();
+      this.form.repositoryUrl = '';
+      this.form.lead = '';
+      return void this.update({ inspectionStatus: 'inconclusive', error: repositoryProblem });
+    }
+    const revision = ++this.inspectionRevision;
+    this.inspectedOrganisations.clear();
+    this.update({
+      inspectionStatus: 'checking', inspectionComplete: false,
+      inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null,
+      inspectionRecoveryCommand: null, inspectionRecoveryCopilotCommand: null,
+      inspectionFailures: [], inspectionCompleteness: null, inspectionAuthorityScope: null,
+      inspectionCheckedLeadCount: 0, inspectionProposalCoverage: null,
+      inspectionProposalTotal: 0, inspectionProposalInspected: 0,
+      inspectionBoundRepositoryUrl: null, inspectionBoundLeadUrl: null,
+      repositorySetupPlan: null, repositorySetupResult: null,
+      repositorySetupMode: mode, repositorySetupResolved: false,
+      repositorySetupApplying: false, repositorySetupNotice: null, error: null
+    });
+    const argv = repositoryOnboardingPreviewArgv(repositoryUrl, mode, stateBranch);
+    const { result, error } = await this.run(argv);
+    if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
+    if (error) {
+      return void this.update({
+        inspectionStatus: 'inconclusive', inspectionComplete: false,
+        inspectionMessage: 'Repository setup could not be checked. Retry or open Diagnostics.',
+        error
+      });
+    }
+    const plan = parseRepositoryOnboardingPlan(result);
+    if (!plan || !repositoryOnboardingPlanMatchesInput(plan, repositoryUrl)) {
+      return void this.update({
+        inspectionStatus: 'inconclusive', inspectionComplete: false,
+        inspectionMessage: 'The CLI returned an incompatible repository setup preview.',
+        error: 'Update or repair the bundled Singularity Flow CLI, then check this repository again.'
+      });
+    }
+    const routedLead = plan.routing?.leadUrl?.trim() ?? '';
+    if (routedLead && gitRemoteProblem(routedLead, 'Team configuration repository')) {
+      return void this.update({
+        inspectionStatus: 'inconclusive', inspectionComplete: false,
+        inspectionMessage: 'The repository setup preview contained an unsafe team configuration URL.',
+        error: 'The result was refused before any action could use it.'
+      });
+    }
+    const organisation = plan.organisation as Organisation | null;
+    if (organisation && Array.isArray(organisation.capabilities)) {
+      this.inspectedOrganisations.set(routedLead || repositoryUrl, organisation);
+    }
+    this.form = {
+      ...this.form,
+      inspectionStatus: 'idle',
+      repositorySetupPlan: plan,
+      repositorySetupMode: plan.mode,
+      repositorySetupResolved: false,
+      repositorySetupApplying: false,
+      repositorySetupNotice: null,
+      lead: routedLead || this.form.lead,
+      error: null
+    };
+    this.render();
+  }
+
+  private async applyRepositorySetup(): Promise<void> {
+    const plan = this.form.repositorySetupPlan;
+    const repositoryUrl = this.form.repositoryUrl.trim();
+    const revision = this.inspectionRevision;
+    if (!plan || !plan.canApply || !repositoryUrl || this.form.repositorySetupApplying) return;
+    const confirmationLabel = plan.mode === 'reset-local'
+      ? 'Reset local registration' : 'Apply and continue';
+    const confirmed = await vscode.window.showInformationMessage(
+      'Apply this repository setup plan?',
+      {
+        modal: true,
+        detail: `${plan.effects.length} planned ${plan.effects.length === 1 ? 'change' : 'changes'}; `
+          + `${plan.preserved.length} preserved ${plan.preserved.length === 1 ? 'item' : 'items'}.`
+          + (plan.omitted.length ? `\n\nNot carried forward:\n${plan.omitted.join('\n')}` : '')
+      },
+      confirmationLabel
+    );
+    if (confirmed !== confirmationLabel) return;
+    if (revision !== this.inspectionRevision
+      || this.form.repositorySetupPlan?.planId !== plan.planId
+      || this.form.repositoryUrl.trim() !== repositoryUrl) return;
+    this.update({ repositorySetupApplying: true, error: null });
+    const { result, error } = await this.run(repositoryOnboardingApplyArgv(repositoryUrl, plan));
+    if (revision !== this.inspectionRevision
+      || this.form.repositorySetupPlan?.planId !== plan.planId
+      || this.form.repositoryUrl.trim() !== repositoryUrl) return;
+    if (error) return void this.update({ repositorySetupApplying: false, error });
+    const applied = parseRepositoryOnboardingResult(result, plan.planId);
+    if (!applied) {
+      return void this.update({
+        repositorySetupApplying: false,
+        error: 'The CLI did not return the confirmed repository-onboarding result. Nothing else will run from this response.'
+      });
+    }
+    this.repositorySetupResult = applied;
+    this.form.repositorySetupResult = applied;
+    if (applied.mode === 'reset-local') {
+      this.update({
+        repositorySetupApplying: false,
+        repositorySetupNotice: 'Local registration was reset. Rechecking the repository from Git.'
+      });
+      await this.previewRepositorySetup('auto', plan.state.branch);
+      return;
+    }
+    if (applied.status === 'configuration-review-required'
+      || applied.status === 'local-registration-pending') {
+      this.update({ repositorySetupApplying: false, repositorySetupNotice: null });
+      return;
+    }
+    const notice = applied.status === 'ready-state-refresh-pending'
+      ? 'Repository setup is ready; its state refresh is still pending.'
+      : applied.changed
+        ? 'Repository setup was updated successfully.'
+        : 'Repository setup was already current; no change was needed.';
+    this.update({
+      repositorySetupApplying: false, repositorySetupNotice: notice
+    });
+    if (!this.form.repositorySetupMaintenance) {
+      await this.continueRepositorySetup();
+    }
+  }
+
+  private async continueRepositorySetup(): Promise<void> {
+    const plan = this.form.repositorySetupPlan;
+    const applied = this.form.repositorySetupResult;
+    const resultCanContinue = applied != null && applied.mode !== 'reset-local' && [
+      'ready', 'ready-state-refresh-pending', 'linked-to-team-configuration',
+      'sflow-repository-capability-not-mapped'
+    ].includes(applied.status);
+    if (!plan || (!repositoryOnboardingCanContinue(plan) && !resultCanContinue)) return;
+    if (this.form.repositorySetupMaintenance) {
+      this.update({ repositorySetupResolved: true, repositorySetupNotice: 'Repository setup is ready.' });
+      return;
+    }
+    const repositoryUrl = this.form.repositoryUrl.trim();
+    const lead = plan.routing?.leadUrl?.trim() || repositoryUrl;
+    const problem = gitRemoteProblem(lead, 'Capability-map repository');
+    if (problem) return void this.update({ error: problem });
+    this.form.repositorySetupResolved = true;
+    this.form.lead = lead;
+    await this.inspectCapabilityMapping(lead);
+  }
+
+  private async chooseRepositoryStateBranch(): Promise<void> {
+    const branch = await vscode.window.showInputBox({
+      title: 'Choose SFlow state branch',
+      prompt: 'Enter the existing branch that contains this repository’s SFlow state.',
+      value: 'state',
+      validateInput: (value) => {
+        const branch = value.trim();
+        if (!branch) return 'Enter a branch name.';
+        if (branch.startsWith('-') || branch.startsWith('.') || branch.endsWith('.')
+          || branch.endsWith('/') || /(?:\.\.|\/\/|@\{|[\s~^:?*\[\\])/.test(branch)) {
+          return 'Enter a valid Git branch name.';
+        }
+        return null;
+      }
+    });
+    if (branch?.trim()) await this.previewRepositorySetup('auto', branch.trim());
+  }
+
+  private async diagnoseRepositorySetup(): Promise<void> {
+    const repositoryUrl = this.form.repositoryUrl.trim();
+    if (!repositoryUrl || gitRemoteProblem(repositoryUrl, 'Repository')) return;
+    const { error } = await this.run([
+      'workspace', 'doctor', '--network', '--repository', repositoryUrl, '--json'
+    ]);
+    if (error) {
+      this.update({ error });
+      void vscode.window.showWarningMessage('Repository diagnostics found an issue. See Singularity Flow output for details.');
+    } else {
+      void vscode.window.showInformationMessage('Repository diagnostics completed. See Singularity Flow output for details.');
+    }
+  }
+
+  private async inspectCapabilityMapping(
     explicitLeadUrl: string | null = null,
     options: { includeKnownAuthorities?: boolean } = {}
   ): Promise<void> {
@@ -1262,6 +1509,67 @@ export class BootstrapPanel {
 
     if (message?.type === 'redraw') return this.render();
 
+    if (message?.type === 'applyRepositorySetup') {
+      await this.applyRepositorySetup();
+      return;
+    }
+
+    if (message?.type === 'continueRepositorySetup') {
+      await this.continueRepositorySetup();
+      return;
+    }
+
+    if (message?.type === 'retryRepositorySetup') {
+      await this.previewRepositorySetup(
+        'auto', this.form.repositorySetupPlan?.state.branch ?? undefined
+      );
+      return;
+    }
+
+    if (message?.type === 'copyRepositorySetupShell') {
+      const value = typeof message.value === 'string' ? message.value : '';
+      if (value && (value === this.form.repositorySetupResult?.nextActions.shell
+        || value === this.form.repositorySetupResult?.stateRefresh?.retry?.shell)) {
+        await vscode.env.clipboard.writeText(value);
+      }
+      return;
+    }
+
+    if (message?.type === 'copyRepositorySetupCopilot') {
+      const value = typeof message.value === 'string' ? message.value : '';
+      if (value && (value === this.form.repositorySetupResult?.nextActions.copilot
+        || value === this.form.repositorySetupResult?.stateRefresh?.retry?.copilot)) {
+        await vscode.env.clipboard.writeText(value);
+      }
+      return;
+    }
+
+    if (message?.type === 'chooseRepositoryStateBranch') {
+      await this.chooseRepositoryStateBranch();
+      return;
+    }
+
+    if (message?.type === 'previewRepositorySetupMode' && typeof (message as { mode?: unknown }).mode === 'string') {
+      const mode = (message as { mode: string }).mode;
+      const plan = this.form.repositorySetupPlan;
+      if (plan && repositoryOnboardingModeAvailable(plan, mode)) {
+        await this.previewRepositorySetup(mode, plan?.state.branch ?? undefined);
+      }
+      return;
+    }
+
+    if (message?.type === 'diagnoseRepositorySetup') {
+      await this.diagnoseRepositorySetup();
+      return;
+    }
+
+    if (message?.type === 'repositorySetupRequiresNewerVersion') {
+      void vscode.window.showWarningMessage(
+        'This repository uses a newer SFlow setup format. Install a newer Singularity Flow version before changing it.'
+      );
+      return;
+    }
+
     if (message?.type === 'chooseRepository') return void await this.chooseRepository();
 
     if (message?.type === 'inspectRepository') return void await this.inspectRepository();
@@ -1365,7 +1673,11 @@ export class BootstrapPanel {
             ?? authorityMatch.sourceBranch)!.trim(),
           configurationCommit: (authorityMatch.configurationCommit
             ?? authorityMatch.sourceCommit)!.trim().toLowerCase()
-        }
+        },
+        repositorySetup: this.form.repositorySetupPlan ? {
+          plan: this.form.repositorySetupPlan,
+          result: this.repositorySetupResult
+        } : undefined
       });
       return;
     }

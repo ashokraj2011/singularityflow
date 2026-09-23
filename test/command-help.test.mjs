@@ -80,11 +80,14 @@ test('an authored page carries description, examples and related commands', () =
   assert.match(page, /\nSEE ALSO\n/);
 });
 
-test('capability help starts repository onboarding with a read-only URL lookup', () => {
+test('capability help starts repository onboarding with an exact preview and confirmation', () => {
   const page = renderCommandHelp('capability');
+  assert.match(page, /capability onboard <REPOSITORY-URL> --dry-run/);
+  assert.match(page, /capability onboard <REPOSITORY-URL> --confirm-plan sha256:<PLAN>/);
+  assert.match(page, /--migrate \| --recreate \| --reset-local/);
   assert.match(page, /capability inspect-repository https:\/\/git\.example\/payments\.git --json/);
   assert.match(page, /Repository onboarding starts from an exact credential-free Git URL/);
-  assert.match(page, /Only an explicit new-mapping choice proceeds to metadata/);
+  assert.match(page, /returns one ref-bound preview with exact effects and preserved data/);
   assert.match(page, /capability map-team <TEAM-ID> --lead <LEAD-URL> --name <TEAM-NAME>/);
   assert.match(page, /--member <CHILD-ID>=<GIT-URL>/);
   assert.match(page, /--member-name <CHILD-ID>=<FRIENDLY-NAME>/);

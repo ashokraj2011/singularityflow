@@ -76,3 +76,14 @@ test('user documentation advertises current Copilot skill discovery and qualifie
   assert.match(documents.find(([file]) => file === 'README.md')[1], /\/singularity-flow\/sflow-/);
   assert.match(documents.find(([file]) => file === 'README.md')[1], /copilot skill list --json/);
 });
+
+test('canonical help documents repository onboarding as an exact preview and confirmation', async () => {
+  const content = await readFile(path.join(root, 'HELP.md'), 'utf8');
+  assert.match(content, /capability onboard <REPOSITORY-URL> --dry-run --json/);
+  assert.match(content, /capability onboard <REPOSITORY-URL> --confirm-plan <PLAN-ID> --json/);
+  assert.match(content, /repository-onboarding-plan\/v1/);
+  assert.match(content, /exact effects and preserved data/);
+  assert.match(content, /never invents a recovery\s+mode/i);
+  assert.match(content, /`--migrate`, `--recreate`, and `--reset-local` are explicit choices/i);
+  assert.match(content, /inspect-repository` remains a one-release compatibility diagnostic/i);
+});

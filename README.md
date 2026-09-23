@@ -580,6 +580,63 @@ credential-free clone URL remains available. Copilot exposes the same journey as
 `/sf-repositories`; it discloses provider-backed names only after an explicit provider/host request
 and labels the private/internal count. Without that request, use the native picker or direct CLI.
 
+### Set up or recover one repository
+
+Use one repository-centric command for first setup, recovery, and supported upgrades:
+
+```bash
+singularity-flow capability onboard <REPOSITORY-URL> --dry-run --json
+singularity-flow capability onboard <REPOSITORY-URL> --confirm-plan <PLAN-ID> --json
+```
+
+The dry run returns a `repository-onboarding-plan/v1` with one understandable status, exact effects
+and preserved data, and the next Shell and Copilot commands. It does not write. Review that plan,
+then pass its `planId`; apply checks that the observed repository refs are unchanged before it
+writes. `/sf-capability-map` follows the same preview-and-confirm flow.
+
+The normal statuses are **Ready**, **Ready to restore**, **Update available**, **Linked to team
+configuration**, **SFlow repository · capability not mapped**, **Not set up**, **State branch not
+recognized**, **Could not check Git**, **Needs a choice**, and **A newer SFlow version is required**.
+Recovery never overwrites an
+unrecognized `state` branch, and a linked delivery repository continues to its team configuration
+instead of creating its own authority. Git object IDs, authority pins, and cache leases remain in
+diagnostics rather than the normal journey.
+
+Recognized state is enough to resume when `sflow/config` is missing. A repository-bound verified
+configuration mirror restores the exact retained history commit when available and otherwise
+reconstructs it from the verified mirror. A delivery locator continues to its verified lead, while
+lifecycle-only state proceeds to capability mapping without inventing ownership.
+
+Advanced recovery modes are explicit and always previewed separately:
+
+```bash
+singularity-flow capability onboard <REPOSITORY-URL> --migrate --dry-run --json
+singularity-flow capability onboard <REPOSITORY-URL> --recreate --dry-run --json
+singularity-flow capability onboard <REPOSITORY-URL> --reset-local --dry-run --json
+```
+
+Neither Copilot nor the UI chooses one of those modes on the contributor's behalf. `--migrate`
+means custom-preserving reconciliation of missing or exact historical packaged seeds in a valid
+workflow-v2 configuration; it does not migrate an unsupported workflow-v1 configuration.
+`--recreate` builds the installed workflow-v2 package and preserves verified portable organisation
+data from current configuration, a repository-bound state mirror, or retained history.
+`--reset-local` works offline and clears only matching capability lead-registry and organisation
+cache entries. It does not clear workspace registrations, the active workspace/session, FOS pins,
+clones, or remote refs.
+
+An applied plan may safely stop with a resumable partial result:
+
+| Status | Meaning and recovery |
+| --- | --- |
+| `configuration-review-required` | A leased proposal exists, but `sflow/config` is not ready. Review/merge it, then preview again. |
+| `local-registration-pending` | Completed remote writes are preserved, but this machine did not remember the lead. Follow the returned preview/confirmation without republishing configuration. |
+| `ready-state-refresh-pending` | Configuration is ready; run the returned `capability publish` retry without republishing configuration. |
+
+Selected branch snapshots use depth-one, no-tags, blobless partial clones. Onboarding deletes and
+refuses a snapshot above 16,384 local files or 128 MiB before checkout or parsing, even if the
+server ignores filtering. Verified state mirrors are bounded further to 512 declared assets,
+64 KiB of aggregate path bytes, and 64 MiB of asset content.
+
 ### Onboard a team in one proposal
 
 Use `/sf-capability-map` in Copilot and choose **Onboard a team**, or run

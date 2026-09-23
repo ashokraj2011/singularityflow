@@ -117,6 +117,8 @@ test('capability mapping reviews and activates the exact proposal instead of sto
   assert.match(content, /already-mapped[\s\S]*without proposing a duplicate/i);
   assert.match(content, /unreachable[\s\S]*Do not reinterpret an unverified absence as a new repository/i);
   assert.match(content, /Continue only after an explicit request for a new mapping/i);
+  assert.match(content, /For `delivery`, add `--repository <GIT-URL>`/i);
+  assert.match(content, /`collection` omits it/i);
   assert.match(content, /capability proposal <REVIEW-BRANCH>.*--json/s);
   assert.match(content, /explicitly approves/);
   assert.match(content, /capability activate <REVIEW-BRANCH>.*--confirm <FULL-PROPOSAL-COMMIT> --json/s);
@@ -125,6 +127,24 @@ test('capability mapping reviews and activates the exact proposal instead of sto
   assert.match(content, /external review[\s\S]*same exact-hash `singularity-flow capability activate` command again/i);
   assert.match(content, /`singularity-flow capability publish` is a[\s\S]*projection-repair command/i);
   assert.doesNotMatch(content, /Ask the contributor to review and merge[\s\S]*capability publish/);
+});
+
+test('capability mapping previews and confirms the repository onboarding plan without inventing recovery', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-capability-map', 'SKILL.md'), 'utf8');
+  const preview = content.indexOf('capability onboard <GIT-URL> --dry-run --json');
+  const relay = content.indexOf('repository-onboarding-plan/v1');
+  const confirmation = content.indexOf('capability onboard <GIT-URL> --confirm-plan <PLAN-ID> --json');
+  assert.ok(preview >= 0 && relay > preview && confirmation > relay,
+    'the skill previews, relays, and only then confirms the repository onboarding plan');
+  assert.match(content, /effects, preserved data, `planId`, and Shell\/Copilot actions/i);
+  assert.match(content, /Use its status label/i);
+  assert.match(content, /Never infer `--migrate`, `--recreate`, or `--reset-local`/);
+  assert.match(content, /only after explicit choice/i);
+  assert.match(content, /confirm the exact effects and preserved data/i);
+  assert.match(content, /run the exact Shell command returned by the plan once/i);
+  assert.match(content, /Only when compatibility diagnostics are requested[\s\S]*inspect-repository <GIT-URL> --json/i);
+  assert.match(content, /available for one release and is not the normal front door/i);
+  assert.match(content, /hide authority pins, SHAs, and cache leases/i);
 });
 
 test('capability mapping onboards a selected team through one bounded atomic proposal', async () => {

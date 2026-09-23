@@ -1,0 +1,442 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/repository-onboarding-plan.schema.json",
+  "title": "Singularity Flow repository onboarding plan v1",
+  "description": "Read-only, content-addressed repository setup preview returned by capability onboard --dry-run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "repository",
+    "mode",
+    "status",
+    "primaryAction",
+    "state",
+    "configuration",
+    "observedRefs",
+    "effects",
+    "preserved",
+    "omitted",
+    "choices",
+    "availableModes",
+    "canApply",
+    "planId",
+    "nextActions",
+    "dryRun"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "repository-onboarding-plan/v1" },
+    "repository": { "$ref": "#/$defs/repository" },
+    "mode": { "$ref": "#/$defs/mode" },
+    "status": { "$ref": "#/$defs/status" },
+    "primaryAction": { "$ref": "#/$defs/primaryAction" },
+    "state": { "$ref": "#/$defs/state" },
+    "configuration": { "$ref": "#/$defs/configuration" },
+    "applicationSource": { "$ref": "#/$defs/applicationSource" },
+    "stateRefresh": { "$ref": "#/$defs/pendingStateRefresh" },
+    "routing": { "$ref": "#/$defs/routing" },
+    "proposalBranch": { "$ref": "#/$defs/branch" },
+    "observedRefs": { "$ref": "#/$defs/observedRefs" },
+    "effects": { "$ref": "#/$defs/effects" },
+    "preserved": { "$ref": "#/$defs/preserved" },
+    "omitted": { "$ref": "#/$defs/paths" },
+    "choices": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/choice" }
+    },
+    "availableModes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/explicitMode" }
+    },
+    "canApply": { "type": "boolean" },
+    "localReset": { "$ref": "#/$defs/localReset" },
+    "failure": { "$ref": "#/$defs/failure" },
+    "planId": { "$ref": "#/$defs/digest" },
+    "nextActions": { "$ref": "#/$defs/nextActions" },
+    "dryRun": { "const": true }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+    "commitOrNull": {
+      "anyOf": [
+        { "$ref": "#/$defs/commit" },
+        { "type": "null" }
+      ]
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!refs/)(?![-.])(?!@$)(?!.*(?:^|/)\\.)(?!.*(?:^|/)[^/]*\\.lock(?:/|$))(?!.*(?:\\.\\.|//|@\\{|[\\u0000-\\u0020\\u007f~^:?*\\[\\\\]))(?!.*(?:/|\\.)$).+$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[\\u0000\\r\\n]).+$"
+    },
+    "paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/path" }
+    },
+    "mode": { "enum": ["auto", "migrate", "recreate", "reset-local"] },
+    "explicitMode": { "enum": ["migrate", "recreate", "reset-local"] },
+    "status": {
+      "enum": [
+        "ready",
+        "ready-to-restore",
+        "update-available",
+        "linked-to-team-configuration",
+        "sflow-repository-capability-not-mapped",
+        "not-set-up",
+        "state-branch-not-recognized",
+        "could-not-check-git",
+        "needs-a-choice",
+        "newer-version-required"
+      ]
+    },
+    "primaryAction": {
+      "enum": [
+        "continue",
+        "restore-and-continue",
+        "migrate-and-continue",
+        "map-capability",
+        "set-up-sflow",
+        "choose-another-state-branch",
+        "retry",
+        "review-choices",
+        "install-newer-version",
+        "recreate-configuration",
+        "reset-local-registration"
+      ]
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "identity"],
+      "properties": {
+        "url": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "identity": { "$ref": "#/$defs/digest" },
+        "inputIdentity": {
+          "description": "Optional digest of the exact credential-free URL or local clone locator used for this preview.",
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch",
+        "commit",
+        "status",
+        "schemaVersion",
+        "currentSchemaVersion",
+        "stateBranch",
+        "stateProjectionEnabled",
+        "seedChanges",
+        "validationError"
+      ],
+      "properties": {
+        "branch": { "const": "sflow/config" },
+        "commit": { "$ref": "#/$defs/commitOrNull" },
+        "status": { "enum": ["current", "missing", "migration-required", "invalid", "future", "unchecked"] },
+        "schemaVersion": {
+          "anyOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "null" }
+          ]
+        },
+        "currentSchemaVersion": { "type": "integer", "minimum": 1 },
+        "stateBranch": {
+          "anyOf": [
+            { "$ref": "#/$defs/branch" },
+            { "type": "null" }
+          ]
+        },
+        "stateProjectionEnabled": { "type": "boolean" },
+        "seedChanges": { "$ref": "#/$defs/paths" },
+        "validationError": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "state": {
+      "oneOf": [
+        { "$ref": "#/$defs/configurationMirrorState" },
+        { "$ref": "#/$defs/deliveryLocatorState" },
+        { "$ref": "#/$defs/lifecycleState" },
+        { "$ref": "#/$defs/emptyState" },
+        { "$ref": "#/$defs/invalidState" }
+      ]
+    },
+    "configurationMirrorState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "branch",
+        "commit",
+        "sourceCommit",
+        "subjectBound",
+        "repositoryBound",
+        "history",
+        "schemaVersion",
+        "stateProjectionEnabled",
+        "compatibility",
+        "validationError",
+        "seedChanges",
+        "files",
+        "assets"
+      ],
+      "properties": {
+        "kind": { "const": "configuration-mirror" },
+        "branch": { "$ref": "#/$defs/branch" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "sourceCommit": { "$ref": "#/$defs/commit" },
+        "subjectBound": { "type": "boolean" },
+        "repositoryBound": { "type": "boolean" },
+        "legacyBinding": { "$ref": "#/$defs/legacyBinding" },
+        "history": {
+          "anyOf": [
+            { "$ref": "#/$defs/history" },
+            { "type": "null" }
+          ]
+        },
+        "schemaVersion": {
+          "anyOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "null" }
+          ]
+        },
+        "stateProjectionEnabled": { "type": "boolean" },
+        "compatibility": { "enum": ["current", "migration-required", "future", "unsupported-old", "invalid"] },
+        "validationError": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "seedChanges": { "$ref": "#/$defs/paths" },
+        "files": { "$ref": "#/$defs/paths" },
+        "assets": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/path" },
+          "additionalProperties": { "$ref": "#/$defs/asset" }
+        }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "object", "mode"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "object": { "$ref": "#/$defs/commit" },
+        "mode": { "enum": ["100644", "100755"] }
+      }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "commit"],
+      "properties": {
+        "branch": { "$ref": "#/$defs/branch" },
+        "commit": { "$ref": "#/$defs/commit" }
+      }
+    },
+    "legacyBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method"],
+      "properties": {
+        "method": { "const": "retained-history-and-portfolio" },
+        "branch": { "$ref": "#/$defs/branch" },
+        "commit": { "$ref": "#/$defs/commit" }
+      }
+    },
+    "deliveryLocatorState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "branch", "commit", "routing"],
+      "properties": {
+        "kind": { "const": "delivery-locator" },
+        "branch": { "$ref": "#/$defs/branch" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "routing": { "$ref": "#/$defs/routing" }
+      }
+    },
+    "lifecycleState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "branch", "commit"],
+      "properties": {
+        "kind": { "const": "lifecycle-only" },
+        "branch": { "$ref": "#/$defs/branch" },
+        "commit": { "$ref": "#/$defs/commit" }
+      }
+    },
+    "emptyState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "branch", "commit"],
+      "properties": {
+        "kind": { "const": "none" },
+        "branch": { "$ref": "#/$defs/branch" },
+        "commit": { "type": "null" }
+      }
+    },
+    "invalidState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "branch", "commit", "reason"],
+      "properties": {
+        "kind": { "const": "invalid" },
+        "branch": { "$ref": "#/$defs/branch" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "reason": { "type": "string", "minLength": 1 },
+        "code": { "type": "string", "minLength": 1 }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leadUrl", "capabilityIds", "verified"],
+      "properties": {
+        "leadUrl": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "capabilityIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        },
+        "verified": { "type": "boolean" },
+        "repositoryId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "configurationCommit": { "$ref": "#/$defs/commit" },
+        "validationCode": { "type": "string", "minLength": 1 },
+        "validationError": { "type": "string", "minLength": 1 }
+      }
+    },
+    "observedRefs": {
+      "type": "object",
+      "propertyNames": { "type": "string", "pattern": "^(?:HEAD|refs/(?:heads|tags)/)" },
+      "additionalProperties": { "$ref": "#/$defs/commitOrNull" }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "action"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "configuration-migration",
+            "configuration-restore",
+            "configuration-recreate",
+            "state-projection",
+            "local-registration",
+            "local-cache"
+          ]
+        },
+        "target": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "action": { "enum": ["propose", "create", "refresh", "remember", "forget", "delete"] }
+      }
+    },
+    "effects": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/effect" }
+    },
+    "preserved": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "application-head",
+          "application-working-tree",
+          "application-branches",
+          "lifecycle-events",
+          "non-configuration-state",
+          "configuration-proposal-refs"
+        ]
+      }
+    },
+    "choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "description", "mode"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "label": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "mode": { "$ref": "#/$defs/explicitMode" }
+      }
+    },
+    "applicationSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "commit", "ref"],
+      "properties": {
+        "branch": {
+          "anyOf": [
+            { "$ref": "#/$defs/branch" },
+            { "type": "null" }
+          ]
+        },
+        "commit": { "$ref": "#/$defs/commitOrNull" },
+        "ref": { "const": "HEAD" }
+      }
+    },
+    "pendingStateRefresh": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "branch"],
+      "properties": {
+        "status": { "const": "pending" },
+        "branch": { "$ref": "#/$defs/branch" }
+      }
+    },
+    "localReset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targets", "leadRegistrations", "organisationCaches"],
+      "properties": {
+        "targets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 8192 }
+        },
+        "leadRegistrations": { "type": "integer", "minimum": 0 },
+        "organisationCaches": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "classification", "retryable", "advice"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "classification": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "advice": { "type": "string", "minLength": 1 }
+      }
+    },
+    "nextActions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shell", "copilot"],
+      "properties": {
+        "shell": { "type": "string", "minLength": 1 },
+        "copilot": { "const": "/sf-capability-map" }
+      }
+    }
+  }
+}

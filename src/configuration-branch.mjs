@@ -45,6 +45,10 @@ import {
   mergeConfigurationAssetPolicies
 } from './configuration-assets.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
+import { recordSha256 } from './records.mjs';
+import {
+  gitRepositoryComparisonKey, sameGitRepository
+} from './git-repository-identity.mjs';
 
 export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
@@ -66,6 +70,98 @@ const PACKAGE_CONFIGURATION_BASELINE = 'singularity/.product/configuration-basel
 // repository-aware observations use their verified repository root, while private clones use the
 // parent of their freshly-created scratch directory.
 const REMOTE_GIT_READ_CWD = path.resolve(os.tmpdir());
+
+function stateMirrorRepositoryIdentity(remote) {
+  const repositoryKey = gitRepositoryComparisonKey(remote);
+  return repositoryKey ? `sha256:${recordSha256({ repositoryKey })}` : null;
+}
+
+async function legacyMirrorAssetsMatch(root, manifest, { env = process.env } = {}) {
+  const declared = Object.keys(manifest?.files ?? {}).sort();
+  const descriptors = manifest?.assets;
+  if (!declared.length || !descriptors || typeof descriptors !== 'object'
+      || Array.isArray(descriptors)
+      || JSON.stringify(Object.keys(descriptors).sort()) !== JSON.stringify(declared)) return false;
+  let policy;
+  let paths;
+  try {
+    policy = configurationAssetPolicyFromRef(root, 'HEAD', { env });
+    paths = await configurationAssetPaths(root, policy);
+  } catch { return false; }
+  if (JSON.stringify(paths) !== JSON.stringify(declared)) return false;
+  const entries = configurationTreeEntries(root, 'HEAD', policy, { env });
+  for (const relative of declared) {
+    const file = path.join(root, ...relative.split('/'));
+    const info = await lstat(file).catch(() => null);
+    const descriptor = descriptors[relative];
+    const actual = entries.get(relative);
+    if (!info?.isFile() || info.isSymbolicLink() || !descriptor || !actual
+        || descriptor.sha256 !== manifest.files[relative]
+        || descriptor.object !== actual.object || descriptor.mode !== actual.mode
+        || createHash('sha256').update(await readFile(file)).digest('hex') !== descriptor.sha256) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Compatibility proof for deployed v2 mirrors written before subject.repositoryIdentity.
+ *
+ * A portfolio URL inside the mirror is self-asserted and cannot bind it to this repository. The
+ * legacy adapter therefore also requires the same repository to retain the exact approved
+ * configuration commit under the source-addressed history branch, with every mirrored blob and
+ * Git mode matching that retained tree. Callers outside onboarding share this strict proof so an
+ * old copied mirror cannot become Story or capability authority through another read path.
+ */
+export async function legacyStateMirrorMatchesRepository(root, remote, {
+  env = process.env, runRemoteCommand = runRemoteGitAsync
+} = {}) {
+  const file = path.join(root, 'singularity', 'portfolio.yml');
+  const info = await lstat(file).catch((error) => {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    throw error;
+  });
+  if (!info?.isFile() || info.isSymbolicLink()) return false;
+  let portfolio;
+  try { portfolio = YAML.parse(await readFile(file, 'utf8')) ?? {}; }
+  catch { return false; }
+  const matches = Object.values(portfolio?.repositories ?? {})
+    .filter((entry) => sameGitRepository(entry?.url, remote));
+  if (matches.length !== 1) return false;
+
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(path.join(root, STATE_CONFIGURATION_MANIFEST), 'utf8'));
+  } catch { return false; }
+  if (manifest?.subject?.repositoryIdentity != null
+      || manifest?.format !== STATE_CONFIGURATION_FORMAT
+      || manifest?.source?.branch !== CONFIGURATION_BRANCH
+      || !/^[0-9a-f]{40,64}$/u.test(manifest?.source?.commit ?? '')) return false;
+  const historyBranch = stateConfigurationHistoryBranch(manifest.source.commit);
+  if (manifest?.history?.branch !== historyBranch
+      || manifest?.history?.commit !== manifest.source.commit
+      || !await legacyMirrorAssetsMatch(root, manifest, { env })) return false;
+
+  const retained = await mkdtemp(path.join(os.tmpdir(), 'sflow-legacy-state-proof-'));
+  try {
+    const transport = frozenRemoteTransport(remote, { env });
+    const cloned = await runRemoteCommand([
+      '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags',
+      '--single-branch', '--depth', '1', '--branch', historyBranch,
+      transport.remote, retained
+    ], {
+      cwd: path.dirname(retained), operation: 'remote-configuration', env: transport.env
+    });
+    if (cloned.status !== 0) return false;
+    const retainedCommit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
+      cwd: retained, env: transport.env, allowFailure: true
+    }).stdout.trim();
+    return retainedCommit === manifest.source.commit
+      && await legacyMirrorAssetsMatch(retained, manifest, { env: transport.env });
+  } catch { return false; }
+  finally { await removeTemporaryTree(retained); }
+}
 
 function configurationRepositoryHead(root, env = process.env) {
   const commit = executeGitQuery(root, 'repository.head', {}, { env });
@@ -1230,6 +1326,14 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
         { code: 'STATE_CONFIGURATION_MIRROR_INVALID' }
       );
     }
+    const declaredSubject = manifest?.subject?.repositoryIdentity ?? null;
+    if (declaredSubject != null && declaredSubject !== stateMirrorRepositoryIdentity(remote)) {
+      throw new SingularityFlowError(
+        'State configuration mirror belongs to another repository.', {
+          code: 'STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH'
+        }
+      );
+    }
     if (manifest.history != null
       && (manifest.history?.branch !== stateConfigurationHistoryBranch(manifest.source.commit)
         || manifest.history?.commit !== manifest.source.commit)) {
@@ -1267,6 +1371,14 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
           });
         }
       }
+    }
+    if (declaredSubject == null
+        && !await legacyStateMirrorMatchesRepository(source, remote, { env: frozen.env })) {
+      throw new SingularityFlowError(
+        'Legacy state configuration mirror has no repository binding proof.', {
+          code: 'STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH'
+        }
+      );
     }
     const copied = await copyConfigurationAssetsFromRef(source, 'HEAD', destination, {
       env: frozen.env

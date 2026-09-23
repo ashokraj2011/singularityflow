@@ -20,7 +20,9 @@ import {
   withStoryConfigurationSnapshotRead
 } from '../src/configuration-branch.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
+import { gitRepositoryComparisonKey } from '../src/git-repository-identity.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import {
@@ -119,6 +121,11 @@ async function publishStateConfigurationMirror(fixture) {
   const manifest = {
     format: 'singularity-flow-configuration-mirror/v2',
     layout: 'canonical-paths',
+    subject: {
+      repositoryIdentity: `sha256:${recordSha256({
+        repositoryKey: gitRepositoryComparisonKey(fixture.remote)
+      })}`
+    },
     source: { branch: CONFIGURATION_BRANCH, commit: sourceCommit },
     product: { version: 'test', revision: 'test' },
     files,

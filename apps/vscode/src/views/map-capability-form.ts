@@ -14,6 +14,12 @@
 import { createHash } from 'node:crypto';
 import { commandGuidance } from '../copilot-command.ts';
 import { CAPABILITY_KINDS } from './capability-model.ts';
+import {
+  REPOSITORY_ONBOARDING_COPY,
+  type RepositoryOnboardingMode,
+  type RepositoryOnboardingPlan,
+  type RepositoryOnboardingResult
+} from './repository-onboarding-model.ts';
 import { escape, icon } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 
@@ -166,6 +172,15 @@ export interface MapCapabilityForm {
   inspectionBoundRepositoryUrl: string | null;
   inspectionBoundLeadUrl: string | null;
   inspectionComplete: boolean;
+  /** One versioned repository-setup preview; refs and plan IDs stay hidden in normal UI. */
+  repositorySetupPlan: RepositoryOnboardingPlan | null;
+  /** Confirmed partial/success outcome; pending recoveries remain visible until rechecked. */
+  repositorySetupResult: RepositoryOnboardingResult | null;
+  repositorySetupMode: RepositoryOnboardingMode;
+  repositorySetupResolved: boolean;
+  repositorySetupMaintenance: boolean;
+  repositorySetupApplying: boolean;
+  repositorySetupNotice: string | null;
   collectionWithoutRepository: boolean;
   sourceRoots: string;
   sharedRoots: string;
@@ -194,7 +209,11 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
   inspectionProposalTotal: 0, inspectionProposalInspected: 0,
   inspectionLeadUrl: '',
   inspectionBoundRepositoryUrl: null, inspectionBoundLeadUrl: null,
-  inspectionComplete: false, collectionWithoutRepository: false,
+  inspectionComplete: false,
+  repositorySetupPlan: null, repositorySetupResult: null,
+  repositorySetupMode: 'auto', repositorySetupResolved: false,
+  repositorySetupMaintenance: false, repositorySetupApplying: false, repositorySetupNotice: null,
+  collectionWithoutRepository: false,
   cloneMode: 'blobless', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', teams: '',
   loaded: false, busy: false, operation: null, notice: null, error: null
 };
@@ -311,6 +330,9 @@ export function mapProblems(form: MapCapabilityForm): string[] {
     problems.push('Enter the Git repository URL and check it first.');
   } else if (!form.collectionWithoutRepository && gitRemoteProblem(form.repositoryUrl, 'Repository')) {
     problems.push(gitRemoteProblem(form.repositoryUrl, 'Repository') as string);
+  } else if (!form.collectionWithoutRepository && form.repositorySetupPlan
+    && !form.repositorySetupResolved) {
+    problems.push('Complete repository setup before describing a capability.');
   } else if (!form.collectionWithoutRepository && !form.inspectionComplete) {
     const message = form.inspectionStatus === 'checking'
       ? 'The repository is being checked.'
@@ -332,7 +354,7 @@ export function mapProblems(form: MapCapabilityForm): string[] {
   } else if (!form.collectionWithoutRepository
     && (form.inspectionBoundRepositoryUrl !== form.repositoryUrl.trim()
       || form.inspectionBoundLeadUrl !== form.lead.trim())) {
-    problems.push('The selected capability-map repository has not been checked for this Git repository. Check that authority again before continuing.');
+    problems.push('The selected capability-map repository has not been checked for this Git repository. Check that repository again before continuing.');
   }
   else if (!form.loaded) problems.push(form.busy
     ? 'The selected capability map is loading.'
@@ -388,6 +410,146 @@ export function mapCommand(form: MapCapabilityForm): string[] {
   return args;
 }
 
+function repositorySetupPrimary(plan: RepositoryOnboardingPlan): {
+  message: string;
+  label: string;
+  disabled: boolean;
+} {
+  if (plan.mode === 'recreate') {
+    return { message: 'applyRepositorySetup', label: 'Recreate and continue', disabled: !plan.canApply };
+  }
+  if (plan.mode === 'reset-local') {
+    return { message: 'applyRepositorySetup', label: 'Reset local registration', disabled: !plan.canApply };
+  }
+  const copy = REPOSITORY_ONBOARDING_COPY[plan.status];
+  if (plan.primaryAction === 'restore-and-continue' || plan.primaryAction === 'migrate-and-continue'
+    || plan.primaryAction === 'set-up-sflow' || plan.primaryAction === 'recreate-configuration'
+    || plan.primaryAction === 'reset-local-registration') {
+    return { message: 'applyRepositorySetup', label: copy.action, disabled: !plan.canApply };
+  }
+  if (plan.primaryAction === 'continue' || plan.primaryAction === 'map-capability') {
+    // A locator's Continue also remembers its already-verified team configuration locally. Keep
+    // that bounded change behind the same exact-plan confirmation instead of silently skipping it.
+    if (plan.canApply && plan.effects.length > 0) {
+      return { message: 'applyRepositorySetup', label: copy.action, disabled: false };
+    }
+    return { message: 'continueRepositorySetup', label: copy.action, disabled: false };
+  }
+  if (plan.primaryAction === 'choose-another-state-branch') {
+    return { message: 'chooseRepositoryStateBranch', label: copy.action, disabled: false };
+  }
+  if (plan.primaryAction === 'retry') {
+    return { message: 'retryRepositorySetup', label: copy.action, disabled: false };
+  }
+  if (plan.primaryAction === 'review-choices') {
+    return { message: 'reviewRepositorySetupChoices', label: copy.action, disabled: false };
+  }
+  return { message: 'repositorySetupRequiresNewerVersion', label: copy.action, disabled: false };
+}
+
+function repositorySetupHtml(form: MapCapabilityForm): string {
+  if (form.inspectionStatus === 'checking' && !form.repositorySetupPlan) {
+    return `<section class="plain repository-setup-card" aria-live="polite">
+      <div class="card-head"><div><p class="eyebrow">Repository setup</p>
+        <h3>${icon('waiting')}Checking this repository…</h3></div></div>
+      <p class="muted">Recognizing SFlow state and configuration in one bounded check.</p>
+    </section>`;
+  }
+  const plan = form.repositorySetupPlan;
+  if (!plan) return '';
+  const outcome = form.repositorySetupResult;
+  if (outcome?.status === 'configuration-review-required' && outcome.review) {
+    const review = outcome.review;
+    const conflict = review.status === 'proposal-conflict';
+    return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(outcome.status)}" aria-live="polite">
+      <div class="card-head"><div><p class="eyebrow">Repository setup</p>
+        <h3>${icon('warning')}${conflict ? 'Proposal conflict' : 'Review required'}</h3></div></div>
+      <p>${conflict
+        ? 'An existing setup proposal differs from this candidate. It was preserved and must be resolved explicitly.'
+        : `The setup proposal <code>${escape(review.sourceBranch)}</code> is ready for review. Merge it into <code>sflow/config</code>, then check this repository again.`}</p>
+      <p><button type="button" data-repository-setup-primary="retryRepositorySetup">Check setup again</button>
+        <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
+        <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button></p>
+    </section>`;
+  }
+  if (outcome?.status === 'local-registration-pending' && outcome.localRegistration) {
+    const projectionPending = outcome.stateRefresh?.pending === true;
+    return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(outcome.status)}" aria-live="polite">
+      <div class="card-head"><div><p class="eyebrow">Repository setup</p>
+        <h3>${icon('warning')}Local registration pending</h3></div></div>
+      <p>Completed remote writes are preserved. This laptop could not remember the repository locally${projectionPending
+        ? ', and the portable state projection also remains pending.'
+        : '; preview again to retry only the local step.'}</p>
+      <p><button type="button" data-repository-setup-primary="retryRepositorySetup">Retry local registration</button>
+        <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
+        <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>
+        ${projectionPending && outcome.stateRefresh?.retry
+          ? `<button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.stateRefresh.retry.shell)}">Copy state-refresh retry</button>`
+          : ''}</p>
+    </section>`;
+  }
+  if (outcome && ['ready', 'ready-state-refresh-pending', 'linked-to-team-configuration',
+    'sflow-repository-capability-not-mapped'].includes(outcome.status)) {
+    const pendingProjection = outcome.status === 'ready-state-refresh-pending';
+    return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(outcome.status)}" aria-live="polite">
+      <div class="card-head"><div><p class="eyebrow">Repository setup</p>
+        <h3>${icon(pendingProjection ? 'warning' : 'ok')}${pendingProjection ? 'Ready · state refresh pending' : 'Ready'}</h3></div></div>
+      <p>${pendingProjection
+        ? 'Configuration is ready. The portable state projection can be retried without repeating configuration publication.'
+        : 'Repository setup completed and the confirmed result is being reused without another full Git inspection.'}</p>
+      <p><button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">${pendingProjection ? 'Prepare state-refresh retry' : 'Check setup again'}</button>
+        ${pendingProjection ? `<button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy exact shell retry</button>
+        <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>` : ''}</p>
+    </section>`;
+  }
+  const copy = REPOSITORY_ONBOARDING_COPY[plan.status];
+  const primary = repositorySetupPrimary(plan);
+  const iconName = plan.status === 'ready' || plan.status === 'linked-to-team-configuration'
+    ? 'ok' : plan.status === 'could-not-check-git' || plan.status === 'newer-version-required'
+      ? 'bad' : 'warning';
+  const choices = plan.choices.length
+    ? `<div data-repository-setup-choices hidden>
+        <div class="choices">${plan.choices.map((choice) => `<button type="button" class="choice"
+          data-repository-setup-mode="${escape(choice.mode)}">
+          <span class="choice-label">${escape(choice.label)}</span>
+          <span class="choice-detail">${escape(choice.description)}</span>
+        </button>`).join('')}</div>
+      </div>` : '';
+  const omitted = plan.mode === 'recreate' && plan.omitted.length
+    ? `<div class="notice warning"><strong>Not carried forward</strong><ul>${plan.omitted
+      .map((entry) => `<li><code>${escape(entry)}</code></li>`).join('')}</ul></div>` : '';
+  const choiceModes = new Set(plan.choices.map((choice) => choice.mode));
+  const modeLabels: Record<Exclude<RepositoryOnboardingMode, 'auto'>, string> = {
+    migrate: 'Migrate configuration',
+    recreate: 'Recreate configuration',
+    'reset-local': 'Reset local registration'
+  };
+  const optionalModeButtons = plan.availableModes
+    .filter((mode) => mode !== plan.mode && !choiceModes.has(mode))
+    .map((mode) => `<button type="button" class="secondary"
+      data-repository-setup-mode="${escape(mode)}">${escape(modeLabels[mode])}</button>`)
+    .join(' ');
+  const moreOptions = `<details class="configuration-advanced-tools"><summary>More options</summary>
+    <p>${optionalModeButtons}${optionalModeButtons ? ' ' : ''}<button type="button" class="secondary"
+      data-repository-setup-diagnostics>Diagnostics</button></p>
+  </details>`;
+  return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(plan.status)}" aria-live="polite">
+    <div class="card-head"><div><p class="eyebrow">Repository setup</p>
+      <h3>${icon(iconName)}${escape(copy.title)}</h3></div><span class="grow"></span>
+      <span class="pill${plan.status === 'ready' || plan.status === 'linked-to-team-configuration' ? ' ok' : ''}">${escape(copy.title)}</span></div>
+    <p>${escape(copy.message)}</p>
+    ${plan.mode !== 'auto' ? `<p class="muted">Selected option: <strong>${escape(plan.mode === 'reset-local' ? 'reset local registration' : plan.mode)}</strong>.</p>` : ''}
+    ${plan.effects.length ? `<p class="muted">${plan.effects.length} planned ${plan.effects.length === 1 ? 'change' : 'changes'}; ${plan.preserved.length} preserved ${plan.preserved.length === 1 ? 'item' : 'items'}.</p>` : ''}
+    ${omitted}
+    ${form.repositorySetupNotice ? `<p class="ok-text">${icon('ok')}${escape(form.repositorySetupNotice)}</p>` : ''}
+    <p><button type="button" data-repository-setup-primary="${escape(primary.message)}"
+      ${primary.disabled || form.repositorySetupApplying ? 'disabled' : ''}>${form.repositorySetupApplying ? 'Applying…' : escape(primary.label)}</button></p>
+    ${primary.disabled ? '<p class="muted">This preview cannot be applied. Refresh it or open Diagnostics.</p>' : ''}
+    ${choices}
+    ${moreOptions}
+  </section>`;
+}
+
 export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardProgress | null = null): string {
   const inspectionRecovery = form.inspectionRecoveryCommand && form.inspectionRecoveryCopilotCommand
     ? commandGuidance({
@@ -395,7 +557,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       copilotCommand: form.inspectionRecoveryCopilotCommand
     }) : null;
   const problems = mapProblems(form);
-  const detailsVisible = form.collectionWithoutRepository || form.inspectionComplete;
+  const detailsVisible = form.collectionWithoutRepository
+    || (form.inspectionComplete && (!form.repositorySetupPlan || form.repositorySetupResolved));
   const identifierProblem = detailsVisible ? capabilityIdentifierProblem(form) : null;
   const staticProblems = problems.filter((problem) => problem !== identifierProblem);
   const parents = form.parents;
@@ -511,6 +674,25 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
         ? '<button type="button" class="secondary" data-map-operation-clear>Clear completed operation</button>' : ''}
     </p>
   </section>` : '';
+  const setupHtml = repositorySetupHtml(form);
+  if (form.repositorySetupMaintenance) {
+    return `<header>
+      <h1>${icon('configuration', { size: 20 })}Repair or upgrade repository setup</h1>
+      <p class="meta">Enter a Git URL or local clone. SFlow recognizes the repository once and offers one safe next action.</p>
+    </header>
+    <section>
+      <h2>${icon('repository')}Repository</h2>
+      <label class="field full"><span>Git URL or local clone</span><input type="text"
+        value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
+        placeholder="https://git.example.corp/acme/payments-api.git"></label>
+      <p><button type="button" class="secondary" data-map-choose-repository
+        ${form.inspectionStatus === 'checking' ? 'disabled' : ''}>${icon('repository')}Choose repository…</button>
+        <button type="button" data-map-inspect
+          ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' ? 'disabled' : ''}>${form.inspectionStatus === 'checking' ? 'Checking…' : 'Check setup'}</button></p>
+    </section>
+    ${setupHtml}
+    ${form.error ? `<section class="plain"><p class="blockers">${escape(form.error)}</p></section>` : ''}`;
+  }
   return `
   ${startWizardProgress(journey)}
   <header>
@@ -535,7 +717,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       </button>
       <button type="button" class="secondary" data-map-collection>${form.collectionWithoutRepository ? 'Use a repository instead' : 'Map a collection without a repository'}</button>
     </p>
-    ${inspectionResult}${inspectionScope}
+    ${setupHtml}
+    ${!form.repositorySetupPlan || form.repositorySetupResolved ? inspectionResult : ''}
+    ${form.repositorySetupPlan ? '' : inspectionScope}
   </section>
 
   <div data-map-details${detailsVisible ? '' : ' hidden'}>
@@ -670,6 +854,30 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
 export const MAP_CAPABILITY_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    const setupPrimary = event.target.closest('[data-repository-setup-primary]');
+    if (setupPrimary) {
+      const type = setupPrimary.dataset.repositorySetupPrimary;
+      if (type === 'reviewRepositorySetupChoices') {
+        const choices = document.querySelector('[data-repository-setup-choices]');
+        if (choices) choices.hidden = false;
+        return;
+      }
+      return vscode.postMessage({ type });
+    }
+    const setupMode = event.target.closest('[data-repository-setup-mode]');
+    if (setupMode) return vscode.postMessage({
+      type: 'previewRepositorySetupMode', mode: setupMode.dataset.repositorySetupMode
+    });
+    const setupDiagnostics = event.target.closest('[data-repository-setup-diagnostics]');
+    if (setupDiagnostics) return vscode.postMessage({ type: 'diagnoseRepositorySetup' });
+    const setupShell = event.target.closest('[data-repository-setup-copy-shell]');
+    if (setupShell) return vscode.postMessage({
+      type: 'copyRepositorySetupShell', value: setupShell.dataset.repositorySetupCopyShell
+    });
+    const setupCopilot = event.target.closest('[data-repository-setup-copy-copilot]');
+    if (setupCopilot) return vscode.postMessage({
+      type: 'copyRepositorySetupCopilot', value: setupCopilot.dataset.repositorySetupCopyCopilot
+    });
     const chooseRepository = event.target.closest('[data-map-choose-repository]');
     if (chooseRepository) return vscode.postMessage({ type: 'chooseRepository' });
     const inspect = event.target.closest('[data-map-inspect]');

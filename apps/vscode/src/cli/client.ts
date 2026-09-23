@@ -208,6 +208,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'visual') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'capabilities' && args[1] === 'doctor') return 'read';
   if (args[0] === 'capability') {
+    if (args[1] === 'onboard') {
+      return hasOption(args, 'confirm-plan') ? 'mutation'
+        : enabledBooleanOption(args, 'dry-run') ? 'read' : 'unknown';
+    }
     return ['tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation',
       'leads', 'inspect-repository']
       .includes(args[1] ?? 'tree') ? 'read' : 'mutation';
@@ -554,7 +558,8 @@ export class SingularityFlowClient {
     // Fast attachment and authority refresh observe one exact configuration ref. They still cross
     // the office Git/proxy boundary, so the ordinary two-minute UI ceiling is too short and can
     // interrupt a valid receipt transaction while Git is negotiating credentials.
-    if (args[0] === 'onboard' || args[0] === 'authority') {
+    if (args[0] === 'onboard' || args[0] === 'authority'
+        || (args[0] === 'capability' && args[1] === 'onboard')) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
     // Workflow Designer proposals clone the approved configuration authority and publish an exact

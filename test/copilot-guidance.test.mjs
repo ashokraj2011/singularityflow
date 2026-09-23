@@ -99,6 +99,8 @@ test('capability reads and diagnostics do not route through the mapping mutation
   assert.equal(copilotSkillForCommand('singularity-flow capability organisation https://example.test/repo.git --json'), '/sf-capabilities');
   assert.equal(copilotSkillForCommand('singularity-flow capability leads --json'), '/sf-capability-doctor');
   assert.equal(copilotSkillForCommand('singularity-flow capability fsck --json'), '/sf-capability-doctor');
+  assert.equal(copilotSkillForCommand('singularity-flow capability onboard https://example.test/repo.git --dry-run --json'), '/sf-capability-map');
+  assert.equal(copilotSkillForCommand('singularity-flow capability onboard https://example.test/repo.git --confirm-plan plan-1 --json'), '/sf-capability-map');
   assert.equal(copilotSkillForCommand('singularity-flow capability map rule-engine --json'), '/sf-capability-map');
   assert.equal(copilotSkillForCommand('singularity-flow capability map-team payments --json'), '/sf-capability-map');
 });

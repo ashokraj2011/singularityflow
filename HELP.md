@@ -920,6 +920,8 @@ deletes the checkout, branches, artifacts, approvals, or history.
 Useful commands:
 
 ```bash
+singularity-flow capability onboard <REPOSITORY-URL> --dry-run --json
+singularity-flow capability onboard <REPOSITORY-URL> --confirm-plan <PLAN-ID> --json
 singularity-flow capability inspect-repository <GIT-URL> [--lead <URL>]... [--refresh] --json
 singularity-flow capability tree --json
 singularity-flow capability show <CAPABILITY-ID> --json
@@ -953,18 +955,47 @@ singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
 singularity-flow workspace restore <DIRECTORY>
 ```
 
-Start repository onboarding with its exact credential-free Git URL and run
-`capability inspect-repository` before collecting capability metadata. An
-`already-mapped` result identifies the existing lead, repository ID, and capabilities,
-so no duplicate proposal is needed. Resolve `ambiguous` to one explicit lead first.
-Treat `unreachable` and partial `inconclusive` results as unknown, never as permission to create a
-new mapping. The check includes a bounded scan of pending capability proposals; an existing
-pending mapping is returned for review instead of being proposed again, and incomplete proposal
-coverage blocks creation. When no capability-map authority is registered, inspection also checks whether the
-target itself hosts an approved map; otherwise it can become the first authority only after the
-contributor explicitly chooses that option. Only a confirmed new mapping after `not-onboarded`, or an explicit
-mapping for `known-repository-unassigned`, proceeds to capability ID, kind, ownership,
-roots, clone-policy, Jira, and team questions.
+Start repository onboarding with its exact credential-free Git URL and run `capability onboard
+<REPOSITORY-URL> --dry-run --json`. It returns a `repository-onboarding-plan/v1` with one status,
+exact effects and preserved data, a ref-bound `planId`, and the next Shell and Copilot commands.
+Review the plan before running the returned `--confirm-plan` command. Copilot
+`/sf-capability-map` relays that same plan and asks for confirmation; it never invents a recovery
+mode. `--migrate`, `--recreate`, and `--reset-local` are explicit choices, each requiring a new dry
+run. Normal output keeps authority pins, Git object details, and cache leases under diagnostics.
+
+Recognized state can resume onboarding even when `sflow/config` is absent. A repository-bound
+verified configuration mirror restores the retained history commit when available and otherwise
+reconstructs configuration from the verified mirror. A verified delivery locator continues to its
+lead, and lifecycle-only state continues to capability mapping. A branch merely named `state` is
+not proof and is never overwritten.
+
+`--migrate` is a custom-preserving reconciliation of missing or exact historical packaged seeds in
+valid workflow-v2 configuration. It does not migrate unsupported workflow v1. `--recreate` builds
+the installed workflow-v2 package and carries forward verified portable organisation data from
+current configuration, a repository-bound mirror, or retained history. Offline `--reset-local`
+clears only matching capability lead-registry and organisation-cache entries; it does not clear
+workspace registrations, the active workspace/session, FOS pins, clones, or remote refs.
+
+Applied plans can return `configuration-review-required` when a leased proposal must be merged
+before configuration is ready, `local-registration-pending` when the machine-local lead write
+failed after completed remote writes, or `ready-state-refresh-pending` when configuration is ready
+and only the returned `capability publish` retry remains. Follow the returned retry and do not
+repeat completed configuration publication.
+
+Selected branch snapshots are depth-one, no-tags, blobless partial clones. Onboarding deletes and
+refuses any snapshot above 16,384 local files or 128 MiB before checkout or parsing. State mirrors
+are bounded further to 512 declared assets, 64 KiB of aggregate path bytes, and 64 MiB of asset
+content.
+
+`capability inspect-repository` remains a one-release compatibility diagnostic. An
+`already-mapped` result identifies the existing lead, repository ID, and capabilities, so no
+duplicate proposal is needed. Resolve `ambiguous` to one explicit lead first. Treat `unreachable`
+and partial `inconclusive` results as unknown, never as permission to create a new mapping. The
+check includes a bounded scan of pending capability proposals; an existing pending mapping is
+returned for review instead of being proposed again, and incomplete proposal coverage blocks
+creation. Only a confirmed new mapping after `not-onboarded`, or an explicit mapping for
+`known-repository-unassigned`, proceeds to capability ID, kind, ownership, roots, clone-policy,
+Jira, and team questions.
 
 For a team, use Copilot `/sf-capability-map` and choose **Onboard a team**, or use
 `capability map-team` from the shell. Repository discovery remains read-only: select at most 20

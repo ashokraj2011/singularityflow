@@ -333,8 +333,10 @@ const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
   'add', 'protect', 'depend', 'adopt-managed', 'set', 'remove', 'map', 'map-team', 'edit', 'publish',
   'activate', 'discard-proposal', 'repair-proposal', 'reconcile', 'repository'
 ]);
+const CAPABILITY_PLAN_SUBCOMMANDS = Object.freeze(['onboard']);
 const CAPABILITY_SUBCOMMANDS = Object.freeze([
-  ...CAPABILITY_READ_SUBCOMMANDS, ...CAPABILITY_MUTATION_SUBCOMMANDS
+  ...CAPABILITY_READ_SUBCOMMANDS, ...CAPABILITY_MUTATION_SUBCOMMANDS,
+  ...CAPABILITY_PLAN_SUBCOMMANDS
 ]);
 const REPOSITORIES_READ_SUBCOMMANDS = Object.freeze(['providers', 'status', 'list', 'search', 'select']);
 const REPOSITORIES_CACHE_SUBCOMMANDS = Object.freeze(['status', 'clear']);
@@ -1133,10 +1135,15 @@ function resolveSessionOperation(definition, positionals) {
   );
 }
 
-function resolveCapabilityOperation(definition, positionals) {
+function resolveCapabilityOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'tree';
   if (!CAPABILITY_SUBCOMMANDS.includes(subcommand)) {
     return unknownSubcommand('capability', subcommand, CAPABILITY_SUBCOMMANDS);
+  }
+  if (subcommand === 'onboard') {
+    return optionBoolean(options, 'dry-run')
+      ? never('capability.onboard.preview', definition, 'read')
+      : never('capability.onboard.apply', definition, 'mutation');
   }
   return never(
     `capability.${subcommand}`,
@@ -1321,7 +1328,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'session') return resolveSessionOperation(definition, positionals);
-  if (definition.name === 'capability') return resolveCapabilityOperation(definition, positionals);
+  if (definition.name === 'capability') return resolveCapabilityOperation(definition, positionals, options);
   if (definition.name === 'repositories') return resolveRepositoriesOperation(definition, positionals);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
   if (SGOS_SUBCOMMANDS[definition.name]) return resolveSgosOperation(definition, positionals, options);
@@ -1652,6 +1659,8 @@ export function operationCatalog() {
     ...SESSION_MUTATION_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'mutation')),
     ...CAPABILITY_READ_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'read')),
     ...CAPABILITY_MUTATION_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'mutation')),
+    never('capability.onboard.preview', capabilityDefinition, 'read'),
+    never('capability.onboard.apply', capabilityDefinition, 'mutation'),
     ...REPOSITORIES_READ_SUBCOMMANDS.map((name) => never(`repositories.${name}`, repositoriesDefinition, 'read')),
     never('repositories.cache.status', repositoriesDefinition, 'read'),
     never('repositories.cache.clear', repositoriesDefinition, 'mutation'),

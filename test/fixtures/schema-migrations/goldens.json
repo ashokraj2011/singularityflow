@@ -415,6 +415,7 @@
   ],
   "organisation-cache": [{ "schemaVersion": 1 }],
   "capability-lead-registry": [{ "schemaVersion": 1 }],
+  "repository-configuration-recovery": [{ "schemaVersion": 1 }],
   "installation-current": [{ "schemaVersion": 2 }],
   "reinstall-plan": [{ "schemaVersion": 1 }],
   "distribution-install-transaction": [{ "schemaVersion": 1 }],

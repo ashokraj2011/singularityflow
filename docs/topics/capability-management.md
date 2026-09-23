@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 14
+version: 16
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -33,24 +33,104 @@ Use this topic when the current goal matches **capability management**. Start in
 ## Use it from each surface
 
 - **Shell:** `sflow capability`, `sflow capabilities`. Run `singularity-flow capability --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-capabilities` for reads; `/sf-capability-map` for one mapping or atomic team onboarding. The skills must preserve CLI results and ask before any governed mutation.
+- **Copilot:** `/sf-capabilities` for reads; `/sf-capability-map` for repository setup, one mapping, or atomic team onboarding. The skills must preserve CLI results and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Configuration Center**. The extension renders engine results; it does not independently decide lifecycle state.
+
+## Repository setup front door
+
+Start setup, recovery, or upgrade from the same idempotent preview:
+
+```bash
+singularity-flow capability onboard <REPOSITORY-URL> --dry-run --json
+singularity-flow capability onboard <REPOSITORY-URL> --confirm-plan <PLAN-ID> --json
+```
+
+The preview is a `repository-onboarding-plan/v1`. It reports the repository identity, recognized
+state kind (`configuration-mirror`, `delivery-locator`, `lifecycle-only`, `none`, or `invalid`),
+current and configured schema versions, exact effects and preserved data, a `planId` bound to the
+observed refs, and the next Shell and Copilot commands. Previewing performs one bounded recognition
+and writes nothing. Applying the plan performs one final comparison with those refs and refuses a
+changed repository setup instead of replaying a stale decision.
+
+The normal journey presents one status and one primary action:
+
+| Status | Primary action |
+| --- | --- |
+| **Ready** | **Continue** |
+| **Ready to restore** | **Restore and continue** |
+| **Update available** | **Migrate and continue** |
+| **Linked to team configuration** | **Continue** |
+| **SFlow repository · capability not mapped** | **Map capability** |
+| **Not set up** | **Set up SFlow** |
+| **State branch not recognized** | **Choose another state branch** |
+| **Could not check Git** | **Retry** |
+| **Needs a choice** | **Review choices** |
+| **A newer SFlow version is required** | **Install newer version** |
+
+Recovery modes are explicit alternatives, never inferred. After choosing one, preview its effects
+before confirmation:
+
+```bash
+singularity-flow capability onboard <REPOSITORY-URL> --migrate --dry-run --json
+singularity-flow capability onboard <REPOSITORY-URL> --recreate --dry-run --json
+singularity-flow capability onboard <REPOSITORY-URL> --reset-local --dry-run --json
+```
+
+The mode names have narrow meanings:
+
+- `--migrate` reconciles missing and exact recognized historical packaged seeds only when the
+  source is already valid workflow schema v2. It preserves user-created and byte-modified
+  workflows, agents, templates, prompts, and artifacts. It does **not** migrate workflow v1.
+- `--recreate` builds the installed workflow-v2 packaged configuration and carries forward the
+  stable portable organisation data that can be verified from current `sflow/config`, a
+  repository-bound state mirror, or its retained history. Its preview lists exact omitted paths.
+- `--reset-local` works offline and removes only matching capability lead-registry entries and
+  organisation-cache files, including equivalent URL spellings. It does not clear workspace
+  registrations, the active workspace/session, FOS pins, clones, or remote refs.
+
+A recognized state branch is sufficient to resume without an existing `sflow/config`: a verified
+configuration mirror can restore it, a verified delivery locator continues to its lead, and valid
+lifecycle-only state continues to capability mapping. A branch that merely happens to be named
+`state` is not proof and remains untouched.
+
+Confirmed application may return one of three resumable partial statuses:
+
+| Result status | What is already safe | Next action |
+| --- | --- | --- |
+| `configuration-review-required` | A leased review proposal was preserved; `sflow/config` is not ready | Review and merge the named proposal, then preview onboarding again |
+| `local-registration-pending` | Completed remote writes are preserved; this machine did not record the lead | Follow the returned preview/confirmation without republishing configuration; also honor any nested state-refresh retry |
+| `ready-state-refresh-pending` | `sflow/config` is ready; only its portable state projection is pending | Run the returned `capability publish` retry; do not repeat configuration publication |
+
+Normal UI and Copilot output show effects, preserved data, and the returned next actions. Authority
+pins, object IDs, cache leases, and other Git internals remain under diagnostics. A valid delivery
+locator continues to its team configuration; it never creates `sflow/config` in the delivery
+repository. An unrecognized `state` branch is never overwritten.
+
+Onboarding reads selected branches through depth-one, no-tags, blobless partial clones. It refuses
+and deletes any snapshot above 16,384 local files or 128 MiB before checkout or parsing, even when
+the Git server ignores the partial-clone filter. A state configuration mirror is bounded further
+to 512 declared assets, 64 KiB of aggregate declared path bytes, and 64 MiB of asset content.
+
+The existing `capability inspect-repository`, top-level FOS onboarding, and workspace
+reinitialization commands remain available as compatibility and diagnostic surfaces for one
+release. Normal repository setup entry points use `capability onboard`.
 
 ## Guided workflow
 
-1. Begin with the exact credential-free Git URL and run `sflow capability inspect-repository <GIT-URL> --json`. This follows a verified repository state link or checks a self-hosted map; it does not fan out over the laptop cache. Add `--lead <LEAD-URL>` only when that authority was explicitly selected, `--search-known` only for an explicit compatibility search, and `--refresh` when a fresh remote check is required.
-2. Branch on the lookup result before asking for capability metadata. Reuse `already-mapped`; resolve every `ambiguous` match to one explicit lead; and treat `unreachable` or partial `inconclusive` results as unknown rather than new. With no registered authority, the target is also checked for a self-hosted approved map; an ungoverned target can become the first authority only after an explicit choice. `not-onboarded` is scoped to the approved maps reported in `checkedLeads`. `known-repository-unassigned` means the repository exists in the map but is not attached to a capability. A bounded pending-proposal scan returns matching unmerged proposals for review; partial or unavailable proposal coverage blocks a new mapping.
-3. Only after the contributor explicitly requests more detail, use `sflow capability add <ID> --owns <DIRECTORY>`, `capability protect <PATH>`, or `capability depend <TARGET>@<REFERENCE>`. These create governed proposals. Keep `capability map` and remote `capability edit` as expert multi-repository compatibility flows.
-4. Inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**.
+1. Begin with the exact credential-free Git URL and preview `sflow capability onboard <GIT-URL> --dry-run --json`.
+2. Preserve the returned status, effects, preserved data, and next actions. Ask before running its exact `--confirm-plan` command. Do not select `--migrate`, `--recreate`, or `--reset-local` unless the contributor explicitly chose that mode and reviewed its own preview.
+3. Continue to capability metadata only when the applied or already-ready result says to map the capability. `sflow capability inspect-repository <GIT-URL> --json` remains a one-release compatibility diagnostic: reuse `already-mapped`; resolve every `ambiguous` match to one explicit lead; and treat `unreachable` or partial `inconclusive` results as unknown rather than new. `known-repository-unassigned` requires an explicit mapping choice, while `not-onboarded` is scoped to the complete set of checked approved maps.
+4. Only after the contributor explicitly requests more detail, use `sflow capability add <ID> --owns <DIRECTORY>`, `capability protect <PATH>`, or `capability depend <TARGET>@<REFERENCE>`. These create governed proposals. Keep `capability map` and remote `capability edit` as expert multi-repository compatibility flows.
+5. Inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**.
    If inspection identifies an exact historical packaged Agent Markdown contract that conflicts
    with the current MCP policy, use the returned `capability repair-proposal` command (or
    **Prepare compatibility repair** in VS Code). The repair is proposal-only, requires the exact
    current proposal commit, updates only recognized unmodified package bytes, and produces a new
    commit that must be reviewed. It never activates the proposal or replaces customized agents.
-5. If inspection reports independent approved authorities, preview `sflow capability reconcile <DELIVERY-URL> --canonical-lead <URL> --json`. Review its exact commits, map digests, and single state-link write, then repeat with the returned `--confirm-plan` only after choosing the canonical authority. Reconciliation never deletes the competing map.
-6. Use `sflow capability fsck --repository <DELIVERY-URL> --json` to verify portable discovery from a delivery repository. Add `--search-known` only when no state link exists and an explicit compatibility search is intended.
-7. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
-8. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
+6. If inspection reports independent approved authorities, preview `sflow capability reconcile <DELIVERY-URL> --canonical-lead <URL> --json`. Review its exact commits, map digests, and single state-link write, then repeat with the returned `--confirm-plan` only after choosing the canonical authority. Reconciliation never deletes the competing map.
+7. Use `sflow capability fsck --repository <DELIVERY-URL> --json` to verify portable discovery from a delivery repository. Add `--search-known` only when no state link exists and an explicit compatibility search is intended.
+8. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
+9. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
 
 ## Onboard a team atomically
 
@@ -204,6 +284,10 @@ Organisation reads prefer the state mirror, fall back to `sflow/config`, and kee
 - If repository inspection returns `already-mapped`, use the returned capability rather than creating a duplicate. If it returns `ambiguous`, select one exact lead and inspect again.
 - If `pendingMatches` is non-empty, review or activate the named proposal instead of creating another one. If `proposalCoverage` is not `complete`, repair authority access or reduce the pending proposal backlog and inspect again.
 - If repository inspection is `unreachable` or `inconclusive`, repair access and retry with `--refresh`; a failed lookup is not evidence that the repository is new.
+- If onboarding reports `configuration-review-required`, merge or resolve the exact named proposal and preview again; configuration is not ready merely because the proposal was published.
+- If onboarding reports `local-registration-pending`, retry the returned onboarding preview/confirmation. Completed remote writes are preserved and are not republished; also follow any nested state-refresh retry.
+- If onboarding reports `ready-state-refresh-pending`, run the returned `capability publish` action. Do not recreate or migrate `sflow/config` again.
+- If onboarding refuses `REPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED`, reduce the selected branch snapshot below the documented file/byte quotas or repair a server that ignored filtering; do not bypass the limit.
 - If `not-onboarded` has no checked leads, select or register a lead before deciding whether to create a mapping.
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.

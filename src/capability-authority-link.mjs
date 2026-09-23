@@ -22,6 +22,7 @@ import { readRefTreeResult } from './git-ref-tree.mjs';
 import {
   mapLimit, removeTemporaryTree, run, SingularityFlowError, writeAtomic
 } from './util.mjs';
+import { gitRepositoryComparisonKey } from './git-repository-identity.mjs';
 
 export const CAPABILITY_AUTHORITY_LINK_PATH = 'singularity/capability-authority.json';
 export const CAPABILITY_AUTHORITY_BRANCH = 'sflow/config';
@@ -36,6 +37,12 @@ function sha256(value) {
 }
 
 function repositoryIdentity(remote) {
+  const accepted = assertCredentialFreeRemote(remote);
+  const key = gitRepositoryComparisonKey(accepted);
+  return `sha256:${recordSha256({ repositoryKey: key ?? `exact:${accepted}` })}`;
+}
+
+function legacyRepositoryIdentity(remote) {
   return `sha256:${remoteFingerprint(assertCredentialFreeRemote(remote))}`;
 }
 
@@ -245,7 +252,8 @@ export function validateCapabilityAuthorityLink(value, repositoryRemote) {
     && link.authority.branch === CAPABILITY_AUTHORITY_BRANCH
     && link.authority.catalogPath === 'singularity/capabilities.yml'
     && link.authority.id === capabilityAuthorityId(authority, link.authority.branch)
-    && link.subject?.repositoryIdentity === repositoryIdentity(repositoryRemote)
+    && [repositoryIdentity(repositoryRemote), legacyRepositoryIdentity(repositoryRemote)]
+      .includes(link.subject?.repositoryIdentity)
     && Array.isArray(ids) && ids.length > 0 && ids.length <= 256
     && ids.every((id) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))
     && JSON.stringify(ids) === JSON.stringify([...new Set(ids)].sort())

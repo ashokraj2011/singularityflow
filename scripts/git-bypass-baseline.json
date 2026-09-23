@@ -530,9 +530,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 24
+        "command-run": 25
       },
-      "digest": "33cc998ba471e32baa045cac2e80e2dae545975a1b5bd655fc7a60171be31518"
+      "digest": "c2a04767f3a4bf86d9a6a3262ebf024570006252f1464273fa325e37136e7da5"
     },
     "src/configuration-people.mjs": {
       "counts": {
@@ -971,6 +971,12 @@
         "command-run": 1
       },
       "digest": "49eb6624378f2199a7ac85846d03cbbcb86857c83bfaae861c91405b1e0550ab"
+    },
+    "src/repository-onboarding.mjs": {
+      "counts": {
+        "command-run": 20
+      },
+      "digest": "c6c084a3f04578064e14b0edcc55a12eeddc89a439b0e90c1265ca7f33121a26"
     },
     "src/repository-subject-index.mjs": {
       "counts": {

@@ -354,6 +354,12 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--drop-local', '--dry-run']), 'read');
   assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--dry-run=false']), 'mutation');
   assert.equal(commandClass(['capability', 'inspect-repository', 'https://code.example/repo.git']), 'read');
+  assert.equal(commandClass([
+    'capability', 'onboard', 'https://code.example/repo.git', '--dry-run', '--json'
+  ]), 'read');
+  assert.equal(commandClass([
+    'capability', 'onboard', 'https://code.example/repo.git', '--confirm-plan', `sha256:${'a'.repeat(64)}`, '--json'
+  ]), 'mutation');
 });
 
 test('every CLI-backed participant route expands to a read while disguised mutations remain blocked', () => {
@@ -1582,6 +1588,9 @@ test('large remote operations and lifecycle submissions get operation-appropriat
     await client.run(['wm', 'build']).catch(() => {});
     await client.run(['capability', 'map', 'payments']).catch(() => {});
     await client.run(['capability', 'activate', 'proposal']).catch(() => {});
+    await client.run([
+      'capability', 'onboard', 'https://example.test/payments.git', '--dry-run', '--json'
+    ]).catch(() => {});
     await client.run(['workspace', 'refresh-configuration', '--dry-run']).catch(() => {});
     await client.run(
       ['workspace', 'reinitialize', '--dry-run'], new AbortController().signal
@@ -1610,18 +1619,20 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[0], 15 * 60_000);
   assert.equal(timeouts[1], 15 * 60_000);
   assert.equal(timeouts[2], 15 * 60_000);
-  assert.equal(timeouts[3], 30 * 60_000);
+  assert.equal(timeouts[3], 15 * 60_000,
+    'capability onboard uses the remote-operation deadline, not the default two minutes');
   assert.equal(timeouts[4], 30 * 60_000);
   assert.equal(timeouts[5], 30 * 60_000);
-  assert.equal(timeouts[6], 120_000);
-  assert.equal(timeouts[7], 30 * 60_000);
+  assert.equal(timeouts[6], 30 * 60_000);
+  assert.equal(timeouts[7], 120_000);
   assert.equal(timeouts[8], 30 * 60_000);
-  assert.equal(timeouts[9], 15 * 60_000);
+  assert.equal(timeouts[9], 30 * 60_000);
   assert.equal(timeouts[10], 15 * 60_000);
   assert.equal(timeouts[11], 15 * 60_000);
-  assert.equal(timeouts[12], 30 * 60_000);
-  assert.equal(timeouts[13], 120_000);
-  assert.equal(timeouts.length, 14,
+  assert.equal(timeouts[12], 15 * 60_000);
+  assert.equal(timeouts[13], 30 * 60_000);
+  assert.equal(timeouts[14], 120_000);
+  assert.equal(timeouts.length, 15,
     'cancellable machine-wide reinitialization and destructive reset apply have no host kill timer');
 });
 
@@ -3478,6 +3489,12 @@ const { bodyHtml: capabilitiesHtml, readEdits, SCRIPT: CAPABILITY_SCRIPT } =
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
 const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems, screenGitRemotes } =
   await import(source('views/map-capability-form.ts'));
+const {
+  parseRepositoryOnboardingPlan, parseRepositoryOnboardingResult,
+  repositoryOnboardingApplyArgv, repositoryOnboardingCanContinue,
+  repositoryOnboardingModeAvailable, repositoryOnboardingPlanMatchesInput,
+  repositoryOnboardingPreviewArgv
+} = await import(source('views/repository-onboarding-model.ts'));
 
 /** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
 const capabilityFixture = [{
@@ -3528,6 +3545,516 @@ test('mapping a capability defaults Kind to Delivery', () => {
   assert.match(html, /aria-label="Clone URL:/);
   assert.match(html, /aria-label="Clone strategy:/);
   assert.match(html, /aria-label="State branch:/);
+});
+
+test('repository setup renders one primary action and keeps recovery choices under More options', () => {
+  const repositoryUrl = 'https://git.example/payments.git';
+  const preview = {
+    schemaVersion: 1,
+    kind: 'repository-onboarding-plan/v1',
+    repository: { url: repositoryUrl, identity: `sha256:${'d'.repeat(64)}` },
+    mode: 'auto',
+    status: 'ready-to-restore',
+    primaryAction: 'restore-and-continue',
+    state: { kind: 'configuration-mirror', branch: 'state', commit: 'a'.repeat(40) },
+    configuration: {
+      branch: 'sflow/config', commit: null, status: 'missing',
+      schemaVersion: 1, currentSchemaVersion: 1
+    },
+    observedRefs: {
+      'refs/heads/state': 'a'.repeat(40),
+      'refs/heads/sflow/config': null
+    },
+    effects: [{ kind: 'git-ref', target: 'sflow/config', action: 'restore' }],
+    preserved: ['application branches', 'lifecycle state'],
+    omitted: [],
+    choices: [],
+    availableModes: ['migrate', 'recreate', 'reset-local'],
+    routing: null,
+    organisation: null,
+    canApply: true,
+    planId: `sha256:${'b'.repeat(64)}`,
+    nextActions: {
+      shell: `singularity-flow capability onboard ${repositoryUrl} --confirm-plan sha256:${'b'.repeat(64)} --json`,
+      copilot: '/sf-capability-map'
+    },
+    dryRun: true
+  };
+  const plan = parseRepositoryOnboardingPlan(preview);
+  assert.ok(plan);
+  const localClone = path.join(os.tmpdir(), 'selected-application-clone');
+  const localPlan = parseRepositoryOnboardingPlan({
+    ...preview,
+    repository: {
+      ...preview.repository,
+      inputIdentity: `sha256:${createHash('sha256').update(localClone).digest('hex')}`
+    }
+  });
+  assert.ok(localPlan);
+  assert.equal(repositoryOnboardingPlanMatchesInput(localPlan, localClone), true,
+    'a local clone remains bound to the exact input even when the plan exposes its origin URL');
+  assert.equal(repositoryOnboardingPlanMatchesInput(localPlan, `${localClone}-other`), false,
+    'a different local clone cannot reuse the preview');
+  assert.deepEqual(repositoryOnboardingPreviewArgv(repositoryUrl), [
+    'capability', 'onboard', repositoryUrl, '--dry-run', '--json'
+  ]);
+  assert.deepEqual(repositoryOnboardingApplyArgv(repositoryUrl, plan), [
+    'capability', 'onboard', repositoryUrl, '--confirm-plan', preview.planId, '--json'
+  ]);
+  const alternateStatePlan = {
+    ...plan,
+    state: { ...plan.state, branch: 'sflow/state-team' }
+  };
+  assert.deepEqual(repositoryOnboardingPreviewArgv(
+    repositoryUrl, 'recreate', 'sflow/state-team'
+  ), [
+    'capability', 'onboard', repositoryUrl, '--recreate',
+    '--state-branch', 'sflow/state-team', '--dry-run', '--json'
+  ]);
+  assert.deepEqual(repositoryOnboardingApplyArgv(repositoryUrl, alternateStatePlan), [
+    'capability', 'onboard', repositoryUrl, '--state-branch', 'sflow/state-team',
+    '--confirm-plan', preview.planId, '--json'
+  ], 'apply preserves the same alternate state branch that produced the preview');
+  assert.throws(() => repositoryOnboardingPreviewArgv(repositoryUrl, 'auto', 'refs/heads/state'),
+    /Invalid repository onboarding state branch/);
+  assert.throws(() => repositoryOnboardingApplyArgv(repositoryUrl, {
+    ...plan, state: { ...plan.state, branch: 'state..other' }
+  }), /Invalid repository onboarding state branch/,
+  'a forged branch cannot be carried into the apply argv');
+  const html = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl,
+    repositorySetupPlan: plan
+  });
+  assert.match(html, /Repository setup/);
+  assert.match(html, /Ready to restore/);
+  assert.match(html, /data-repository-setup-primary="applyRepositorySetup"/);
+  assert.equal((html.match(/data-repository-setup-primary=/g) ?? []).length, 1);
+  assert.match(html, /<summary>More options<\/summary>/);
+  assert.match(html, /Recreate configuration/);
+  assert.match(html, /Reset local registration/);
+  assert.match(html, /Diagnostics/);
+  assert.doesNotMatch(html, new RegExp(preview.planId));
+  assert.doesNotMatch(html, /refs\/heads/);
+
+  const result = parseRepositoryOnboardingResult({
+    schemaVersion: 1,
+    kind: 'repository-onboarding-result/v1',
+    planId: preview.planId,
+    mode: 'auto',
+    status: 'ready',
+    primaryAction: 'continue',
+    applied: true,
+    changed: true,
+    effects: preview.effects,
+    preserved: preview.preserved,
+    nextActions: preview.nextActions,
+    routing: null,
+    organisation: null,
+    receipt: { id: 'onboarding-receipt' }
+  }, preview.planId);
+  assert.ok(result);
+  assert.equal(parseRepositoryOnboardingResult({ ...result, planId: `sha256:${'c'.repeat(64)}` }, preview.planId), null,
+    'a result for another plan cannot authorize continuation');
+  assert.equal(parseRepositoryOnboardingPlan({ ...preview, canApply: true, planId: 'not-a-plan' }), null,
+    'an invalid plan ID fails closed');
+  assert.equal(parseRepositoryOnboardingPlan({
+    ...preview, repository: { ...preview.repository, identity: 'not-an-identity' }
+  }), null, 'a repository identity outside the content-addressed contract fails closed');
+  assert.equal(parseRepositoryOnboardingPlan({
+    ...preview, state: { ...preview.state, branch: 'refs/heads/state' }
+  }), null, 'an unsafe state branch fails before it can reach apply argv');
+  assert.equal(parseRepositoryOnboardingPlan({ ...preview, primaryAction: 'run-anything' }), null,
+    'an unknown action fails closed');
+
+  const locatorPlan = parseRepositoryOnboardingPlan({
+    ...preview,
+    status: 'linked-to-team-configuration',
+    primaryAction: 'continue',
+    state: { kind: 'delivery-locator', branch: 'state', commit: 'a'.repeat(40) },
+    configuration: { ...preview.configuration, commit: 'c'.repeat(40), status: 'current' },
+    effects: [{ kind: 'local-registration', target: 'lead-registry', action: 'remember' }],
+    availableModes: ['reset-local'],
+    routing: { leadUrl: 'https://git.example/team.git', capabilityIds: ['payments-api'] }
+  });
+  assert.ok(locatorPlan);
+  const locatorHtml = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl,
+    repositorySetupPlan: locatorPlan
+  });
+  assert.match(locatorHtml, /data-repository-setup-primary="applyRepositorySetup"/,
+    'Continue confirms the locator registration effect before opening its map');
+  assert.equal((locatorHtml.match(/data-repository-setup-primary=/g) ?? []).length, 1);
+
+  assert.ok(parseRepositoryOnboardingResult({
+    ...result,
+    status: 'ready-state-refresh-pending'
+  }, preview.planId), 'a successful setup with a deferred state refresh remains a valid result');
+  const reviewResult = parseRepositoryOnboardingResult({
+    ...result,
+    status: 'configuration-review-required',
+    primaryAction: 'review-choices',
+    review: {
+      status: 'review-required', configurationReady: false,
+      sourceBranch: 'sflow/config-change/onboarding/create-aaaaaaaaaaaa',
+      targetBranch: 'sflow/config', proposalCommit: 'a'.repeat(40),
+      candidateCommit: 'a'.repeat(40), published: true, existing: false, conflict: false,
+      recovery: {
+        action: 'merge-proposal',
+        sourceBranch: 'sflow/config-change/onboarding/create-aaaaaaaaaaaa',
+        targetBranch: 'sflow/config', proposalCommit: 'a'.repeat(40),
+        afterMerge: preview.nextActions.shell
+      }
+    }
+  }, preview.planId);
+  assert.ok(reviewResult);
+  const reviewHtml = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: plan,
+    repositorySetupResult: reviewResult
+  });
+  assert.match(reviewHtml, /Review required/);
+  assert.match(reviewHtml, /sflow\/config-change\/onboarding\/create-aaaaaaaaaaaa/);
+  assert.match(reviewHtml, /data-repository-setup-primary="retryRepositorySetup"/);
+  assert.doesNotMatch(reviewHtml, /data-repository-setup-primary="applyRepositorySetup"/,
+    'a pending review cannot accidentally repeat or continue the remote mutation');
+
+  const localPendingResult = parseRepositoryOnboardingResult({
+    ...result,
+    status: 'local-registration-pending', primaryAction: 'retry',
+    stateRefresh: {
+      status: 'pending', pending: true,
+      retry: {
+        shell: `singularity-flow capability publish ${repositoryUrl} --json`,
+        copilot: '/sf-capability-map'
+      }
+    },
+    localRegistration: {
+      status: 'pending', remembered: false, target: repositoryUrl,
+      code: 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED', reason: 'Local write failed.',
+      retry: preview.nextActions
+    }
+  }, preview.planId);
+  assert.ok(localPendingResult);
+  const pendingHtml = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: plan,
+    repositorySetupResult: localPendingResult
+  });
+  assert.match(pendingHtml, /Local registration pending/);
+  assert.match(pendingHtml, /Retry local registration/);
+  assert.match(pendingHtml, /portable state projection also remains pending/);
+  assert.match(pendingHtml, /Copy state-refresh retry/);
+  assert.doesNotMatch(pendingHtml, /data-repository-setup-primary="applyRepositorySetup"/);
+  assert.ok(parseRepositoryOnboardingPlan({
+    ...preview,
+    mode: 'recreate',
+    status: 'update-available',
+    primaryAction: 'recreate-configuration'
+  }), 'the explicit recreate preview action is part of the closed contract');
+  assert.ok(parseRepositoryOnboardingPlan({
+    ...preview,
+    mode: 'reset-local',
+    status: 'ready',
+    primaryAction: 'reset-local-registration',
+    observedRefs: {}
+  }), 'the explicit local-reset preview action is part of the closed contract');
+});
+
+test('repository recovery modes are rendered and accepted only when the engine advertises them', async () => {
+  const repositoryUrl = 'https://git.example/application.git';
+  const commit = 'a'.repeat(40);
+  const base = {
+    schemaVersion: 1,
+    kind: 'repository-onboarding-plan/v1',
+    repository: { url: repositoryUrl, identity: `sha256:${'c'.repeat(64)}` },
+    mode: 'auto',
+    status: 'ready',
+    primaryAction: 'continue',
+    state: { kind: 'configuration-mirror', branch: 'state', commit },
+    configuration: {
+      branch: 'sflow/config', commit, status: 'current', schemaVersion: 1,
+      currentSchemaVersion: 1
+    },
+    observedRefs: {
+      'refs/heads/state': commit,
+      'refs/heads/sflow/config': commit
+    },
+    effects: [], preserved: ['application branches'], omitted: [], choices: [],
+    availableModes: [], routing: null, organisation: null, canApply: true,
+    planId: `sha256:${'b'.repeat(64)}`,
+    nextActions: {
+      shell: `singularity-flow capability onboard ${repositoryUrl} --dry-run --json`,
+      copilot: '/sf-capability-map'
+    },
+    dryRun: true
+  };
+  const parsed = (changes) => {
+    const plan = parseRepositoryOnboardingPlan({ ...base, ...changes });
+    assert.ok(plan);
+    return plan;
+  };
+  const htmlFor = (plan) => mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: plan
+  });
+  const assertOnlyReset = (plan, label) => {
+    const html = htmlFor(plan);
+    assert.match(html, /data-repository-setup-mode="reset-local"/, `${label} offers local reset`);
+    assert.doesNotMatch(html, /data-repository-setup-mode="(?:migrate|recreate)"/,
+      `${label} does not infer a remote configuration mutation`);
+    assert.equal(repositoryOnboardingModeAvailable(plan, 'reset-local'), true);
+    assert.equal(repositoryOnboardingModeAvailable(plan, 'recreate'), false);
+    assert.equal((html.match(/data-repository-setup-primary=/g) ?? []).length, 1);
+  };
+
+  const locator = parsed({
+    status: 'linked-to-team-configuration', primaryAction: 'continue',
+    state: { kind: 'delivery-locator', branch: 'state', commit },
+    effects: [{ kind: 'local-registration', target: 'lead-registry', action: 'remember' }],
+    availableModes: ['reset-local'],
+    routing: { leadUrl: 'https://git.example/platform.git', capabilityIds: ['application'] }
+  });
+  assertOnlyReset(locator, 'a delivery locator');
+
+  const lifecycle = parsed({
+    status: 'sflow-repository-capability-not-mapped', primaryAction: 'map-capability',
+    state: { kind: 'lifecycle-only', branch: 'state', commit },
+    configuration: {
+      ...base.configuration, commit: null, status: 'missing', schemaVersion: null
+    },
+    observedRefs: { ...base.observedRefs, 'refs/heads/sflow/config': null },
+    availableModes: ['reset-local']
+  });
+  assertOnlyReset(lifecycle, 'lifecycle-only state');
+
+  const invalid = parsed({
+    status: 'state-branch-not-recognized', primaryAction: 'choose-another-state-branch',
+    state: { kind: 'invalid', branch: 'state', commit },
+    configuration: {
+      ...base.configuration, commit: null, status: 'missing', schemaVersion: null
+    },
+    observedRefs: { ...base.observedRefs, 'refs/heads/sflow/config': null },
+    availableModes: ['reset-local'], canApply: false
+  });
+  assertOnlyReset(invalid, 'an unrecognized state branch');
+
+  const gitFailure = parsed({
+    status: 'could-not-check-git', primaryAction: 'retry',
+    state: { kind: 'none', branch: 'state', commit: null },
+    configuration: {
+      ...base.configuration, commit: null, status: 'missing', schemaVersion: null
+    },
+    observedRefs: {}, availableModes: ['reset-local'], canApply: false
+  });
+  const failedHtml = htmlFor(gitFailure);
+  assertOnlyReset(gitFailure, 'a failed Git observation');
+  assert.match(failedHtml, /data-repository-setup-diagnostics/);
+  assert.equal(repositoryOnboardingModeAvailable(gitFailure, 'reset-local'), true,
+    'the engine may explicitly offer its separately previewed local-only reset while Git is unavailable');
+
+  const offlineReset = parsed({
+    mode: 'reset-local', status: 'ready', primaryAction: 'reset-local-registration',
+    state: { kind: 'none', branch: 'state', commit: null },
+    configuration: {
+      ...base.configuration, commit: null, status: 'unchecked', schemaVersion: null
+    },
+    observedRefs: {}, availableModes: ['reset-local'], canApply: true,
+    effects: [{ kind: 'local-registration', target: repositoryUrl, action: 'forget' }]
+  });
+  assert.match(htmlFor(offlineReset), /Reset local registration/,
+    'the offline local-reset plan shape remains renderable without pretending Git was checked');
+  assert.equal(repositoryOnboardingCanContinue(offlineReset), false,
+    'reset-local clears machine state but never proves repository readiness');
+
+  assert.equal(parseRepositoryOnboardingPlan({
+    ...base, availableModes: ['recreate', 'invented-mode']
+  }), null, 'unknown advertised modes fail closed');
+  const { availableModes: _omittedModes, ...withoutAvailableModes } = base;
+  assert.equal(parseRepositoryOnboardingPlan(withoutAvailableModes), null,
+    'a plan without the engine-owned mode allow-list fails closed');
+  const panel = await readFile(source('views/bootstrap-panel.ts'), 'utf8');
+  assert.match(panel,
+    /plan && repositoryOnboardingModeAvailable\(plan, mode\)[\s\S]{0,180}previewRepositorySetup\(mode/,
+    'the extension host rechecks the parsed plan instead of trusting a webview mode message');
+  assert.doesNotMatch(panel,
+    /mode === 'recreate' \|\| mode === 'reset-local'[\s\S]{0,120}newer-version-required/,
+    'the host no longer infers broad mode availability from status');
+  assert.match(panel,
+    /const revision = this\.inspectionRevision[\s\S]*confirmed !== confirmationLabel[\s\S]*revision !== this\.inspectionRevision[\s\S]*await this\.run\([\s\S]*revision !== this\.inspectionRevision/,
+    'apply checks the same inspection lease both before and after the asynchronous mutation');
+  assert.match(panel,
+    /applied\.mode === 'reset-local'[\s\S]*previewRepositorySetup\('auto'/,
+    'a local reset must return through a fresh live auto preview');
+});
+
+test('a current repository setup receipt skips only the redundant organisation read', async () => {
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  const expressionStart = extension.indexOf(
+    'const repositorySetupReceiptCurrent = Boolean('
+  );
+  const expressionEnd = extension.indexOf(
+    ';\n    const node = upgrade ? undefined', expressionStart
+  );
+  assert.ok(expressionStart >= 0 && expressionEnd > expressionStart,
+    'the repository-setup receipt gate remains explicit and inspectable');
+  const expression = extension.slice(
+    extension.indexOf('=', expressionStart) + 1,
+    expressionEnd
+  ).trim();
+  const receiptIsCurrent = new Function(
+    'requestedAuthority',
+    'repositorySetupPlan',
+    'setupLead',
+    'setupConfigurationCommit',
+    'sameGitRepository',
+    'rawRepositorySetup',
+    'repositorySetupResult',
+    `return (${expression});`
+  );
+
+  const commit = 'a'.repeat(40);
+  const planId = `sha256:${'b'.repeat(64)}`;
+  const repositoryUrl = 'https://git.example/platform.git';
+  const rawPlan = {
+    schemaVersion: 1,
+    kind: 'repository-onboarding-plan/v1',
+    repository: { url: repositoryUrl, identity: `sha256:${'c'.repeat(64)}` },
+    mode: 'auto',
+    status: 'ready',
+    primaryAction: 'continue',
+    state: { kind: 'configuration-mirror', branch: 'state', commit },
+    configuration: {
+      branch: 'sflow/config', commit, status: 'current', schemaVersion: 1,
+      currentSchemaVersion: 1
+    },
+    observedRefs: {
+      'refs/heads/state': commit,
+      'refs/heads/sflow/config': commit
+    },
+    effects: [], preserved: ['application branches'], omitted: [], choices: [],
+    availableModes: [], routing: null, organisation: null, canApply: true, planId,
+    nextActions: { shell: 'singularity-flow capability onboard platform --dry-run --json', copilot: '/sf-capability-map' },
+    dryRun: true
+  };
+  const rawResult = {
+    schemaVersion: 1,
+    kind: 'repository-onboarding-result/v1',
+    planId,
+    mode: 'auto',
+    status: 'ready',
+    primaryAction: 'continue',
+    applied: true,
+    changed: false,
+    effects: [],
+    preserved: ['application branches'],
+    configuration: { commit, reconciled: false },
+    nextActions: rawPlan.nextActions,
+    routing: null,
+    organisation: null,
+    receipt: { kind: 'repository-onboarding-receipt/v1' }
+  };
+  const plan = parseRepositoryOnboardingPlan(rawPlan);
+  const result = parseRepositoryOnboardingResult(rawResult, planId);
+  assert.ok(plan && result);
+  const authority = {
+    leadUrl: repositoryUrl,
+    configurationBranch: 'sflow/config',
+    configurationCommit: commit
+  };
+  const sameRepository = (left, right) => left === right;
+  const evaluate = (candidatePlan, candidateResult, suppliedResult) => receiptIsCurrent(
+    authority,
+    candidatePlan,
+    candidatePlan?.routing?.leadUrl ?? candidatePlan?.repository.url ?? null,
+    candidateResult?.configuration?.commit
+      ?? candidatePlan?.observedRefs['refs/heads/sflow/config'] ?? null,
+    sameRepository,
+    suppliedResult === undefined ? {} : { result: suppliedResult },
+    candidateResult
+  );
+  assert.equal(evaluate(plan, result, rawResult), true,
+    'an exact parsed plan/result pair may suppress the duplicate read');
+  assert.equal(evaluate(plan, null, undefined), true,
+    'a current no-op Ready preview needs no synthetic mutation result');
+  const restoredPlan = parseRepositoryOnboardingPlan({
+    ...rawPlan,
+    status: 'ready-to-restore', primaryAction: 'restore-and-continue',
+    configuration: { ...rawPlan.configuration, commit: null, status: 'missing' },
+    observedRefs: { ...rawPlan.observedRefs, 'refs/heads/sflow/config': null }
+  });
+  assert.ok(restoredPlan);
+  assert.equal(evaluate(restoredPlan, result, rawResult), true,
+    'the exact successful result carries the new configuration revision without another preview');
+
+  const malformedPlan = parseRepositoryOnboardingPlan({ ...rawPlan, planId: 'not-a-plan' });
+  assert.equal(evaluate(malformedPlan, result, rawResult), false,
+    'malformed setup evidence falls through to live verification');
+  const mismatchedRawResult = { ...rawResult, planId: `sha256:${'d'.repeat(64)}` };
+  const mismatchedResult = parseRepositoryOnboardingResult(mismatchedRawResult, planId);
+  assert.equal(mismatchedResult, null);
+  assert.equal(evaluate(plan, mismatchedResult, mismatchedRawResult), false,
+    'a result for another plan falls through to live verification');
+  assert.equal(receiptIsCurrent(
+    authority, plan, repositoryUrl, commit, sameRepository,
+    { result: rawResult }, result
+  ), true);
+  assert.equal(receiptIsCurrent(
+    { ...authority, configurationCommit: 'e'.repeat(40) },
+    plan, repositoryUrl, commit, sameRepository, { result: rawResult }, result
+  ), false, 'a different authority revision cannot reuse the receipt');
+
+  const decisionStart = extension.indexOf('if (repositorySetupReceiptCurrent)', expressionEnd);
+  const fallbackStart = extension.indexOf('} else {', decisionStart);
+  const decisionEnd = extension.indexOf('      } catch (error) {', fallbackStart);
+  assert.ok(decisionStart >= 0 && fallbackStart > decisionStart && decisionEnd > fallbackStart);
+  const trustedBranch = extension.slice(decisionStart, fallbackStart);
+  const fallbackBranch = extension.slice(fallbackStart, decisionEnd);
+  assert.doesNotMatch(trustedBranch, /\[\s*'capability', 'organisation'/,
+    'trusted current evidence performs no second organisation read');
+  assert.match(fallbackBranch, /\[\s*'capability', 'organisation', requestedAuthority\.leadUrl/,
+    'all evidence rejected by the gate retains the live-read fallback');
+});
+
+test('repository setup handoff leaves workspace attachment behind a fresh preview and exact CAS', async () => {
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension,
+    /const REPOSITORY_SETUP_CHANGED_MESSAGE =\s*\n\s*'Repository setup changed; review the refreshed result\.'/);
+  const workspacesHost = extension.slice(
+    extension.indexOf("'singularityFlow.openWorkspaces', async ("),
+    extension.indexOf("'singularityFlow.upgradeWorkspaces'", extension.indexOf("'singularityFlow.openWorkspaces', async ("))
+  );
+  assert.doesNotMatch(workspacesHost,
+    /capability authority changed after repository inspection|no valid verified authority revision/i,
+    'normal drift messages keep authority and pin vocabulary in Diagnostics');
+  const attachStart = extension.indexOf(
+    "if (message.type === 'attach-capability' || message.type === 'detach-capability')"
+  );
+  const attachEnd = extension.indexOf(
+    '      output.appendLine(`\\n$ singularity-flow ${formatCliArgsForDisplay(message.command)}`);',
+    attachStart
+  );
+  assert.ok(attachStart >= 0 && attachEnd > attachStart,
+    'the bounded workspace capability-change handler remains present');
+  const attach = extension.slice(attachStart, attachEnd);
+  const preview = attach.indexOf('const previewCommand = capabilityChangeCommand(');
+  const previewRun = attach.indexOf('registry.run<WorkspaceCapabilityChangePreview>(previewCommand)');
+  const authorityCas = attach.indexOf('const expectedAuthority = message.type === \'attach-capability\'');
+  const confirmation = attach.indexOf('const confirmed = await vscode.window.showWarningMessage(');
+  const finalCurrentCheck = attach.lastIndexOf('if (!message.isCurrent())');
+  const apply = attach.indexOf('const applyCommand = capabilityChangeCommand(');
+  const confirmPlan = attach.indexOf('planId: preview.planId', apply);
+  const applyRun = attach.indexOf('registry.run<WorkspaceCapabilityChangeResult>(applyCommand)');
+  assert.ok(preview >= 0 && previewRun > preview,
+    'attach begins with a fresh engine dry-run');
+  assert.ok(authorityCas > previewRun && confirmation > authorityCas,
+    'the fresh preview must match the handed-off authority before confirmation');
+  assert.match(attach.slice(authorityCas, confirmation),
+    /preview\.authority\.configurationCommit\.toLowerCase\(\)[\s\S]*expectedAuthority\.configurationCommit\.toLowerCase\(\)/);
+  assert.ok(finalCurrentCheck > confirmation && apply > finalCurrentCheck,
+    'the retained form is checked again after the modal before apply');
+  assert.ok(confirmPlan > apply && applyRun > confirmPlan,
+    'apply uses only the exact plan ID returned by that fresh preview');
+  assert.match(attach.slice(preview, previewRun), /dropLocal/);
+  assert.match(attach.slice(apply, applyRun), /dropLocal, planId: preview\.planId/);
 });
 
 test('mapping operations expose durable recovery, cancellation, retry, and proposal controls', () => {
@@ -5391,6 +5918,7 @@ test('the command palette separates safe workspace reinitialization from destruc
   assert.match(commands.get('singularityFlow.reinitializeWorkspaces'), /Upgrade Framework Seeds/);
   assert.match(commands.get('singularityFlow.upgradeWorkspaces'), /Safe Preview/);
   assert.match(commands.get('singularityFlow.refreshRepositorySetup'), /Git URL/);
+  assert.match(commands.get('singularityFlow.repairRepositorySetup'), /Repair or Upgrade Repository Setup/);
   assert.equal(commands.has('singularityFlow.reinitialize'), false,
     'the ambiguous legacy ID remains a runtime alias, not a discoverable destructive command');
   assert.match(commands.get('singularityFlow.factoryReset'), /Factory Reset.*Destructive/);
@@ -5781,6 +6309,16 @@ test('an attach-existing handoff explains its authority scope and has a distinct
   assert.match(html, /No matching local workspaces are available/);
   assert.doesNotMatch(html, /Choose a workspace name/,
     'the empty authority scope never implies that an active or first workspace was selected');
+
+  const changed = workspacesHtml([], null, EMPTY_COPY, null, null, false, null, undefined, undefined,
+    false, {
+      ...scope,
+      issue: 'Repository setup changed; review the refreshed result.'
+  });
+  assert.match(changed, /Repository setup changed; review the refreshed result\./);
+  const renderedIssue = changed.match(/<p class="blockers">[\s\S]*?<\/p>/)?.[0] ?? '';
+  assert.doesNotMatch(renderedIssue, /authority revision|configuration commit|pin/i,
+    'the normal rendered drift state stays repository-oriented');
 });
 
 test('the page carries the directories it needs to answer without a round trip', () => {

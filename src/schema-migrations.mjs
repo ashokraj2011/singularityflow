@@ -3478,6 +3478,10 @@ const families = [
   family({ id: 'organisation-cache', currentVersion: 1, paths: [/^\$local\/organisation-cache\/[^/]+\.json$/] }),
   family({ id: 'capability-lead-registry', currentVersion: 1, paths: [/^\$local\/leads\.json$/] }),
   family({
+    id: 'repository-configuration-recovery', currentVersion: 1,
+    paths: [/^singularity\/\.product\/configuration-recovery\.json$/]
+  }),
+  family({
     id: 'capability-authority-link', currentVersion: 1,
     paths: [/^\$state\/singularity\/capability-authority\.json$/]
   }),

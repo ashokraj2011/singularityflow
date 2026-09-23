@@ -20,6 +20,7 @@ type ConfigurationNavigationItem = {
 const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavigationItem[] }> = [
   { label: 'Repository setup', items: [
     { label: 'Overview', glyph: 'configuration', tab: 'overview' },
+    { label: 'Repair or upgrade setup', glyph: 'configuration', action: 'repository-setup' },
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
     { label: 'Workflows & artifacts', glyph: 'workflow', action: 'workflow' },
     { label: 'World model', glyph: 'worldModel', tab: 'world-model' },

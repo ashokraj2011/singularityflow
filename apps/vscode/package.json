@@ -204,6 +204,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "singularityFlow.repairRepositorySetup",
+        "title": "Singularity Flow: Repair or Upgrade Repository Setup",
+        "icon": "$(tools)"
+      },
+      {
         "command": "singularityFlow.openWalkthrough",
         "title": "Singularity Flow: Get Started (Walkthrough)",
         "icon": "$(rocket)"

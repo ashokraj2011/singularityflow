@@ -839,6 +839,14 @@ Usage:
      one atomic review proposal and never implicitly reparents an existing capability. Native hosts
      use the bounded, closed request file so valid team data never exceeds Windows process argv;
      the individual flags remain available for small manual invocations.)
+  singularity-flow capability onboard <REPOSITORY-URL> --dry-run [--state-branch NAME]
+    [--migrate | --recreate | --reset-local] [--json]
+  singularity-flow capability onboard <REPOSITORY-URL> --confirm-plan sha256:<PLAN>
+    [--state-branch NAME] [--migrate | --recreate | --reset-local] [--json]
+    (one repository-setup front door: preview exact effects first, then apply only the unchanged
+     ref-bound plan; migrate reconciles packaged seeds only in valid workflow-v2 configuration;
+     offline reset-local clears only the capability lead registry and organisation cache, not
+     workspace/session registrations or FOS pins)
   singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
     [--include-proposals] [--refresh] [--state-branch NAME] [--json]
     (read-only portable state-link/self-hosted lookup by default; registered-map search and proposal

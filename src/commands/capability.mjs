@@ -11,7 +11,7 @@ let legacy = null;
 let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set([
-  'add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed', 'map-team'
+  'add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard'
 ]);
 
 /**
@@ -347,6 +347,73 @@ async function runMapTeam(context) {
   return result;
 }
 
+function repositoryOnboardingMode(options) {
+  const selected = ['migrate', 'recreate', 'reset-local']
+    .filter((name) => optionBoolean(options, name));
+  if (selected.length > 1) {
+    throw new SingularityFlowError(
+      'capability onboard accepts only one of --migrate, --recreate, or --reset-local.', {
+        code: 'REPOSITORY_ONBOARDING_MODE_CONFLICT'
+      }
+    );
+  }
+  return selected[0] ?? 'auto';
+}
+
+async function runOnboard(context) {
+  if ((context.positionals?.length ?? 0) !== 3) {
+    throw new SingularityFlowError(
+      'capability onboard requires exactly one <REPOSITORY-URL>.', {
+        code: 'REPOSITORY_ONBOARDING_REPOSITORY_REQUIRED'
+      }
+    );
+  }
+  const repository = required(context.positionals, 2, '<REPOSITORY-URL>');
+  const options = context.options ?? {};
+  const dryRun = optionBoolean(options, 'dry-run');
+  const confirmPlan = optionString(options, 'confirm-plan');
+  const mode = repositoryOnboardingMode(options);
+  const { onboardRepository } = await import('../repository-onboarding.mjs');
+  const result = await onboardRepository(repository, {
+    dryRun,
+    confirmPlan,
+    mode,
+    stateBranch: optionString(options, 'state-branch', 'state')
+  });
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
+  console.log(`Repository setup: ${result.status}`);
+  if (result.dryRun) {
+    console.log(`  action: ${result.primaryAction}`);
+    console.log(`  state: ${result.state.kind}${result.state.commit ? ` (${result.state.branch}@${result.state.commit.slice(0, 12)})` : ''}`);
+    console.log(`  configuration: ${result.configuration.status}`);
+    if (result.effects.length) {
+      console.log('  proposed effects:');
+      for (const effect of result.effects) {
+        console.log(`    ${effect.action} ${effect.target}`);
+      }
+    } else console.log('  proposed effects: none');
+    if (result.omitted?.length) {
+      console.log('  not carried forward:');
+      for (const item of result.omitted) console.log(`    ${item}`);
+    }
+    console.log(`  plan: ${result.planId}`);
+  } else {
+    console.log(`  changed: ${result.changed ? 'yes' : 'no'}`);
+    if (result.proposal?.reviewRequired) {
+      console.log(`  review branch: ${result.proposal.branch}`);
+    }
+    if (result.stateRefresh?.pending) {
+      console.log('  configuration is ready; state refresh is pending.');
+    }
+  }
+  if (result.nextActions?.shell) console.log(`Shell: ${result.nextActions.shell}`);
+  if (result.nextActions?.copilot) console.log(`Copilot: ${result.nextActions.copilot}`);
+  return result;
+}
+
 async function mutationLead(root, options) {
   const explicit = optionString(options, 'lead');
   if (explicit) return explicit;
@@ -586,6 +653,7 @@ function capabilityAutoOptions(options) {
 
 export async function run(argv, context = {}) {
   const subcommand = context.positionals?.[1] ?? 'show';
+  if (subcommand === 'onboard') return runOnboard(context);
   if (subcommand === 'map-team') return runMapTeam(context);
   if (subcommand === 'leads') {
     const leads = await listLeadRepositories();

@@ -7,12 +7,14 @@ async function loadSupport() {
   support ??= Promise.all([
     import('./schema-migrations.mjs'),
     import('./util.mjs'),
-    import('./git-remote-diagnostics.mjs')
-  ]).then(([migrations, util, remotes]) => ({
+    import('./git-remote-diagnostics.mjs'),
+    import('./git-repository-identity.mjs')
+  ]).then(([migrations, util, remotes, identities]) => ({
     assertCredentialFreeRemote: remotes.assertCredentialFreeRemote,
     currentSchemaVersion: migrations.currentSchemaVersion,
     readRecord: migrations.readRecord,
     readJson: util.readJson,
+    sameGitRepository: identities.sameGitRepository,
     writeAtomic: util.writeAtomic
   }));
   return support;
@@ -65,14 +67,14 @@ async function writeLeads(file, leads) {
 export async function rememberLeadRepository(url, file = leadRegistryFile()) {
   const remote = String(url ?? '').trim();
   if (!remote) return listLeadRepositories(file);
-  const { assertCredentialFreeRemote } = await loadSupport();
+  const { assertCredentialFreeRemote, sameGitRepository } = await loadSupport();
   assertCredentialFreeRemote(remote);
   const { withRegistryFileLease } = await import('./workspace.mjs');
   return await withRegistryFileLease(file, async () => {
     const existing = await listLeadRepositoryRegistryRecords(file);
     const leads = [
       { url: remote, usedAt: new Date().toISOString() },
-      ...existing.filter((lead) => lead.url !== remote)
+      ...existing.filter((lead) => !sameGitRepository(lead?.url, remote))
     ].slice(0, 20);
     await writeLeads(file, leads);
     return listLeadRepositories(file);
@@ -80,10 +82,12 @@ export async function rememberLeadRepository(url, file = leadRegistryFile()) {
 }
 
 export async function forgetLeadRepository(url, file = leadRegistryFile()) {
+  const remote = String(url ?? '').trim();
+  const { sameGitRepository } = await loadSupport();
   const { withRegistryFileLease } = await import('./workspace.mjs');
   return await withRegistryFileLease(file, async () => {
     const leads = (await listLeadRepositoryRegistryRecords(file))
-      .filter((lead) => lead.url !== url);
+      .filter((lead) => !sameGitRepository(lead?.url, remote));
     await writeLeads(file, leads);
     return listLeadRepositories(file);
   });

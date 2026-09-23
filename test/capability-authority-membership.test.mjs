@@ -21,9 +21,11 @@ import {
   STATE_CONFIGURATION_MANIFEST
 } from '../src/configuration-branch.mjs';
 import { configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
+import { gitRepositoryComparisonKey } from '../src/git-repository-identity.mjs';
 import { helpMetricsStatus, recordHelpMetric } from '../src/help-metrics.mjs';
 import { captureCommandOutcome, readJournalEvents } from '../src/local-work-journal.mjs';
 import { promptAuditStatus, recordPromptAudit, setPromptAudit } from '../src/prompt-audit.mjs';
+import { recordSha256 } from '../src/records.mjs';
 import { writeReturnLocator } from '../src/return-locator.mjs';
 import { withTrustedSgosConfigurationRead } from '../src/sgos/authority-trust.mjs';
 import { loadApprovedPlatformMutationAuthority } from '../src/sgos/platform/authority.mjs';
@@ -102,6 +104,11 @@ async function publishStateConfigurationMirror(base, remote) {
   await writeFile(path.join(publisher, STATE_CONFIGURATION_MANIFEST), `${JSON.stringify({
     format: 'singularity-flow-configuration-mirror/v2',
     layout: 'canonical-paths',
+    subject: {
+      repositoryIdentity: `sha256:${recordSha256({
+        repositoryKey: gitRepositoryComparisonKey(remote)
+      })}`
+    },
     source: { branch: CONFIGURATION_BRANCH, commit: sourceCommit },
     history,
     product: { version: 'test', revision: 'test' },

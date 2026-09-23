@@ -49,7 +49,7 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
 export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
   'map', 'map-team', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'discard-proposal',
   'world-model', 'organisation', 'leads', 'inspect-repository', 'fsck', 'reconcile',
-  'repository', 'repair-proposal', 'adopt-managed'
+  'repository', 'repair-proposal', 'adopt-managed', 'onboard'
 ]);
 
 // Consent and capability inspection belong to the machine, not to the repository that happened

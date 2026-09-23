@@ -389,7 +389,7 @@ export function formatCliArgsForDisplay(argv: readonly string[]): string {
 }
 
 /** Bound and scrub provider/CLI prose before it reaches an extension error or Output channel. */
-function safeDisplayDiagnosticText(value: unknown): string {
+export function safeDisplayDiagnosticText(value: unknown): string {
   const source = String(value ?? '');
   const omitted = Math.max(0, source.length - MAX_DISPLAY_ERROR_CHARS);
   let text = displayNormalizeSensitiveSyntax(displayBoundedRedactionInput(source))

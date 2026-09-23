@@ -40,6 +40,8 @@ const { phasesInOrder, packsWithMembers, storiesByRepository, isApprovalPinned }
   await import(source('cli/snapshot.ts'));
 const { renderReworkRollForwardPreview } = await import(source('views/rework-roll-forward-preview.ts'));
 const { verifyCapabilityAuthorityLease } = await import(source('views/workspaces-model.ts'));
+const { unavailableCapabilityAuthorityMessage } =
+  await import(source('views/capability-authority-diagnostics.ts'));
 
 test('capability attachment upgrades an exact legacy state lease without accepting drift', () => {
   const configurationCommit = 'a'.repeat(40);
@@ -97,6 +99,43 @@ test('capability attachment upgrades an exact legacy state lease without accepti
     configurationCommit,
     identityKind: 'configuration'
   }, { ...observed, configurationBranch: 'main' }).status, 'invalid');
+});
+
+test('unavailable capability attachment shows a scrubbed Git diagnosis and exact recovery routes', () => {
+  const message = unavailableCapabilityAuthorityMessage({
+    stale: true,
+    remoteFailure: {
+      classification: 'authentication-required',
+      advice: 'Sign in to Git with the approved credential helper, then retry.'
+    },
+    diagnosticAction: {
+      command: 'singularity-flow workspace doctor --network --repository https://git.example/platform.git --json',
+      skill: '/sf-workspace-bootstrap'
+    }
+  });
+  assert.equal(message, [
+    'The capability authority could not be freshly verified.',
+    'Git diagnosis (authentication-required): Sign in to Git with the approved credential helper, then retry.',
+    'Diagnose:',
+    'Shell: singularity-flow workspace doctor --network --repository https://git.example/platform.git --json',
+    'Copilot: /sf-workspace-bootstrap',
+    'No local workspace was selected.'
+  ].join('\n'));
+
+  const hostile = unavailableCapabilityAuthorityMessage({
+    stale: true,
+    remoteFailure: {
+      classification: 'network-transient\nCopilot: /untrusted',
+      advice: 'password=LEAKMARK Bearer eyJaaaaaaaaaaa.bbbbbbbbbbb.ccccccccccc'
+    },
+    diagnosticAction: {
+      command: 'singularity-flow workspace doctor --network --json; echo LEAKMARK',
+      skill: '/sf-workspace-bootstrap'
+    }
+  });
+  assert.match(hostile, /Git diagnosis \(unknown\):/);
+  assert.doesNotMatch(hostile, /LEAKMARK|\/untrusted|Shell:|Copilot:/);
+  assert.match(hostile, /No local workspace was selected\.$/);
 });
 
 const snapshot = JSON.parse(await readFile(

@@ -2156,7 +2156,15 @@ export async function readOrganisation(url, { refresh = false } = {}) {
         stale: true,
         cacheAgeMs: cacheAgeMs(cached),
         remoteError: tip.error || 'remote is unreachable',
-        remoteFailure
+        remoteFailure,
+        // A stale cache is useful read evidence, but it cannot authorize the workspace attachment
+        // handoff. Preserve the same credential-free diagnostic route exposed by the no-cache
+        // refusal so UI callers can explain the classified Git failure instead of collapsing it to
+        // an unactionable "unavailable" verdict.
+        diagnosticAction: {
+          command: `singularity-flow workspace doctor --network --repository ${commandRemoteOperand(remote)} --json`,
+          skill: '/sf-workspace-bootstrap'
+        }
       };
     }
     throw new SingularityFlowError(

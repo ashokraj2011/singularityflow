@@ -105,6 +105,17 @@ export interface ObservedCapabilityAuthority {
   configurationCommit?: string | null;
   sourceBranch?: string | null;
   sourceCommit?: string | null;
+  remoteFailure?: {
+    code?: unknown;
+    classification?: unknown;
+    retryable?: unknown;
+    advice?: unknown;
+  } | null;
+  diagnosticAction?: {
+    command?: unknown;
+    skill?: unknown;
+    copilotCommand?: unknown;
+  } | null;
 }
 
 export type CapabilityAuthorityLeaseVerification =

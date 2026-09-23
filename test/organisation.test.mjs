@@ -5099,6 +5099,11 @@ test('capability fsck warns without inventing unknown bindings or divergence whe
   await rename(org.platform, `${org.platform}.offline`);
   const stale = await readOrganisation(org.platform, { refresh: true });
   assert.equal(stale.stale, true);
+  assert.equal(typeof stale.remoteFailure?.classification, 'string');
+  assert.equal(typeof stale.remoteFailure?.advice, 'string');
+  assert.match(stale.diagnosticAction?.command ?? '',
+    /^singularity-flow workspace doctor --network --repository .+ --json$/u);
+  assert.equal(stale.diagnosticAction?.skill, '/sf-workspace-bootstrap');
 
   const fsck = await capabilityFsck(org.platform, { workspaces: [workspace] });
   const approved = fsck.checks.find((entry) => entry.id === 'approved-capability-map');

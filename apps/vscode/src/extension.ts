@@ -53,9 +53,11 @@ import {
   verifyCapabilityAuthorityLease, WORKSPACE_ACTION_CANCELLED,
   type WorkspaceCapabilityChangePreview, type WorkspaceCapabilityChangeResult,
   type WorkspaceCapabilityAttachScope,
+  type ObservedCapabilityAuthority,
   type WorkspaceConfigurationRefreshResult,
   type WorkspaceEntry, type WorkspaceStatus, type WorkspaceFosAction, type WorkspaceFosOutcome
 } from './views/workspaces-model.ts';
+import { unavailableCapabilityAuthorityMessage } from './views/capability-authority-diagnostics.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { gitRemoteProblem } from './views/map-capability-form.ts';
 import {
@@ -2183,12 +2185,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       statusCache.set(workspacePath, status);
       return status;
     };
-    let inspectedAuthorityOrganisation: {
-      governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
-      configurationBranch?: string; configurationCommit?: string;
+    let inspectedAuthorityOrganisation: (ObservedCapabilityAuthority & {
       capabilities?: RemoteCapability[] | null;
       repositories?: Record<string, { url?: string; defaultBranch?: string }>;
-    } | null = null;
+    }) | null = null;
     const details = async (workspacePath: string): Promise<WorkspaceStatus> => {
       // Authority matching primes at most one read per candidate. Consume it once; a retained
       // panel must not keep presenting that old manifest indefinitely.
@@ -2244,9 +2244,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         configurationCommit: requestedAuthority.configurationCommit
       };
       try {
-        const readAuthority = (refresh: boolean) => registry.run<{
-          governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
-          configurationBranch?: string; configurationCommit?: string;
+        const readAuthority = (refresh: boolean) => registry.run<ObservedCapabilityAuthority & {
           capabilities?: RemoteCapability[] | null;
           repositories?: Record<string, { url?: string; defaultBranch?: string }>;
         }>([
@@ -2276,7 +2274,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         } else if (verification.status === 'ungoverned') {
           issue = 'The repository no longer exposes an approved capability authority. Check the repository mapping again; no local workspace was selected.';
         } else if (verification.status === 'unavailable') {
-          issue = 'The capability authority could not be freshly verified. Check Git access and retry; no local workspace was selected.';
+          issue = unavailableCapabilityAuthorityMessage(inspectedAuthorityOrganisation);
         } else if (verification.status === 'invalid') {
           issue = 'The capability authority did not report an exact approved configuration revision. Refresh or upgrade the repository mapping; no local workspace was selected.';
         } else if (verification.status === 'changed') {
@@ -2287,6 +2285,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       if (!requestIsCurrent()) return;
       if (issue) {
+        output.appendLine(`\nCapability attachment refused:\n${issue}`);
         void vscode.window.showWarningMessage(issue);
         return;
       }

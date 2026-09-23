@@ -42,15 +42,15 @@ const {
 const authority = {
   id: 'authority:platform',
   label: 'Platform capability map',
-  leadUrl: 'https://git.example.com/platform.git',
+  leadUrl: 'https://git.corp.invalid/platform.git',
   detail: 'sflow/config'
 };
 
-function repository(index, owner = 'acme') {
+function repository(index, owner = 'division-one') {
   return teamOnboardingRepository({
     id: `catalog-row:${index}`,
     nameWithOwner: `${owner}/service-${index}-api`,
-    locator: `https://git.example.com/${owner}/service-${index}-api.git`,
+    locator: `https://git.corp.invalid/${owner}/service-${index}-api.git`,
     visibility: index % 2 ? 'private' : 'internal',
     access: 'maintain'
   });
@@ -83,23 +83,23 @@ test('friendly names and editable IDs start from deterministic repository sugges
   let view = emptyTeamOnboardingView([authority], [repository(1)]);
   view = changeTeamName(view, 'Checkout Crew');
   assert.equal(view.teamId, 'checkout-crew');
-  view = changeRepositoryFriendlyName(view, view.repositories[0].id, 'Public Gateway API');
-  assert.equal(view.repositories[0].capabilityId, 'public-gateway-api');
+  view = changeRepositoryFriendlyName(view, view.repositories[0].id, 'Gateway API');
+  assert.equal(view.repositories[0].capabilityId, 'gateway-api');
   view = changeRepositoryCapabilityId(view, view.repositories[0].id, 'gateway-edge');
   view = changeRepositoryFriendlyName(view, view.repositories[0].id, 'Gateway Edge API');
   assert.equal(view.repositories[0].capabilityId, 'gateway-edge', 'an explicitly edited ID is stable');
 });
 
 test('catalog identity keeps the same owner and repository distinct across Git hosts', () => {
-  const github = teamOnboardingCatalogKey({
-    providerInstanceId: 'github:github.com', nameWithOwner: 'acme/payments'
+  const firstHost = teamOnboardingCatalogKey({
+    providerInstanceId: 'github:git-one.corp.invalid', nameWithOwner: 'division-one/payments'
   });
-  const enterprise = teamOnboardingCatalogKey({
-    providerInstanceId: 'github:ghe.company.com', nameWithOwner: 'acme/payments'
+  const secondHost = teamOnboardingCatalogKey({
+    providerInstanceId: 'github:git-two.corp.invalid', nameWithOwner: 'division-one/payments'
   });
-  assert.notEqual(github, enterprise);
-  assert.equal(github, teamOnboardingCatalogKey({
-    providerInstanceId: 'GITHUB:GITHUB.COM', nameWithOwner: 'ACME/PAYMENTS'
+  assert.notEqual(firstHost, secondHost);
+  assert.equal(firstHost, teamOnboardingCatalogKey({
+    providerInstanceId: 'GITHUB:GIT-ONE.CORP.INVALID', nameWithOwner: 'DIVISION-ONE/PAYMENTS'
   }), 'host and repository casing cannot fork one provider identity');
 });
 
@@ -254,22 +254,22 @@ test('proposal preview and map-team transports include eligible adds and links e
   });
   assert.deepEqual(mapTeamRequest(view), {
     teamId: 'payments-platform',
-    lead: 'https://git.example.com/platform.git',
+    lead: 'https://git.corp.invalid/platform.git',
     name: 'Payments Platform',
     jiraProject: 'PAY',
     members: [{
       capabilityId: 'service-1-api',
-      repositoryUrl: 'https://git.example.com/acme/service-1-api.git',
+      repositoryUrl: 'https://git.corp.invalid/division-one/service-1-api.git',
       name: 'Service 1 API'
     }],
     links: ['settlement-worker']
   });
   assert.deepEqual(mapTeamCommand(view), [
     'capability', 'map-team', 'payments-platform',
-    '--lead', 'https://git.example.com/platform.git',
+    '--lead', 'https://git.corp.invalid/platform.git',
     '--name', 'Payments Platform',
     '--jira-project', 'PAY',
-    '--member', 'service-1-api=https://git.example.com/acme/service-1-api.git',
+    '--member', 'service-1-api=https://git.corp.invalid/division-one/service-1-api.git',
     '--member-name', 'service-1-api=Service 1 API',
     '--link', 'settlement-worker',
     '--json'
@@ -282,7 +282,7 @@ test('map-team argv refuses unsafe host state before it could be logged', () => 
   view = {
     ...view,
     inspection: { ...view.inspection, running: false },
-    repositories: [{ ...view.repositories[0], locator: 'https://user:secret@git.example.com/repo.git' }]
+    repositories: [{ ...view.repositories[0], locator: 'https://user:secret@git.corp.invalid/repo.git' }]
   };
   assert.throws(() => mapTeamCommand(view), /credential-free/);
 });
@@ -293,7 +293,7 @@ test('a valid twenty-member team can exceed the Windows process command-line cei
     ...view,
     repositories: view.repositories.map((row, index) => ({
       ...row,
-      locator: `https://git.example.com/acme/${'repository-segment-'.repeat(110)}${index}.git`
+      locator: `https://git.corp.invalid/division-one/${'repository-segment-'.repeat(110)}${index}.git`
     }))
   };
   for (const row of view.repositories) {
@@ -366,8 +366,8 @@ test('step three distinguishes exact clone and reuse previews before opening wor
         name: 'Payments Platform', authorityLabel: authority.label, selected: true
       }],
       repositories: [
-        { id: 'workspace-repository:api', name: 'payments-api', origin: 'https://git.example.com/payments-api.git', action: 'clone' },
-        { id: 'workspace-repository:web', name: 'payments-web', origin: 'https://git.example.com/payments-web.git', action: 'reuse', evidence: '/work/payments-web' }
+        { id: 'workspace-repository:api', name: 'payments-api', origin: 'https://git.corp.invalid/payments-api.git', action: 'clone' },
+        { id: 'workspace-repository:web', name: 'payments-web', origin: 'https://git.corp.invalid/payments-web.git', action: 'reuse', evidence: '/work/payments-web' }
       ]
     }
   };
@@ -394,7 +394,7 @@ test('step three never guesses clone or reuse before workspace target preflight'
       }],
       repositories: [{
         id: 'workspace-repository:api', name: 'payments-api',
-        origin: 'https://git.example.com/payments-api.git', action: 'pending',
+        origin: 'https://git.corp.invalid/payments-api.git', action: 'pending',
         evidence: 'The workspace target preflight will prove clone or reuse.'
       }]
     }

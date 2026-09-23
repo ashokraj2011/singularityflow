@@ -15,12 +15,12 @@ const { CAPABILITY_TEAM_REQUEST_FILE_MAX_BYTES } = await import(
 
 const request = Object.freeze({
   teamId: 'payments-platform',
-  lead: 'https://git.example.com/platform.git',
+  lead: 'https://git.corp.invalid/platform.git',
   name: 'Payments Platform',
   jiraProject: 'PAY',
   members: [{
     capabilityId: 'checkout-api',
-    repositoryUrl: 'https://git.example.com/checkout-api.git',
+    repositoryUrl: 'https://git.corp.invalid/checkout-api.git',
     name: 'Checkout API'
   }],
   links: ['settlement-worker']

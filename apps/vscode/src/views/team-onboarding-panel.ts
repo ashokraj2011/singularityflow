@@ -357,10 +357,10 @@ export class TeamOnboardingPanel {
     const entered = await vscode.window.showInputBox({
       title: 'Git provider host',
       prompt: 'GitHub or GitHub Enterprise host used by the active stored gh identity.',
-      value: 'github.com',
+      placeHolder: 'Host configured for the active gh identity',
       ignoreFocusOut: true,
       validateInput: (value) => /^[A-Za-z0-9.-]+$/u.test(value.trim())
-        ? null : 'Enter a host name such as github.com or ghe.company.com.'
+        ? null : 'Enter the host name configured for the active gh identity.'
     });
     this.providerHost = entered?.trim() || null;
     return this.providerHost;

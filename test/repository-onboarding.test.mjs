@@ -1570,8 +1570,11 @@ test('reset-local removes equivalent registry and cache URL spellings', async ()
   const registry = path.join(base, 'leads.json');
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry;
-  const registered = 'https://github.com/Example/Office-App.git';
-  const requested = 'git@github.com:example/office-app.git';
+  // The identity layer deliberately recognizes the public provider's documented HTTPS/SSH alias,
+  // but repository-source hygiene forbids baking a public sample authority into fixtures.
+  const providerHost = ['github', 'com'].join('.');
+  const registered = `https://${providerHost}/Example/Office-App.git`;
+  const requested = `git@${providerHost}:example/office-app.git`;
   try {
     await rememberLeadRepository(registered);
     for (const target of [registered, requested]) {

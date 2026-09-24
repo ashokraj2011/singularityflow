@@ -61,7 +61,8 @@ import { unavailableCapabilityAuthorityMessage } from './views/capability-author
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { gitRemoteProblem } from './views/map-capability-form.ts';
 import {
-  parseRepositoryOnboardingPlan, parseRepositoryOnboardingResult
+  parseRepositoryOnboardingPlan, parseRepositoryOnboardingResult,
+  repositoryOnboardingFailureCode
 } from './views/repository-onboarding-model.ts';
 import {
   repositoryRefreshCommand, repositoryRefreshTargetForPath, repositoryRefreshTargets,
@@ -1992,13 +1993,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const registry = new SingularityFlowClient({
       location, repository: initiatingRepository, onOutput: (text) => output.append(text)
     });
-    const run = async (argv: string[], signal?: AbortSignal): Promise<{ result: unknown; error: string | null }> => {
+    const run = async (argv: string[], signal?: AbortSignal): Promise<{
+      result: unknown; error: string | null; errorCode?: string | null;
+    }> => {
       output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
       try {
         return { result: await registry.run<unknown>(argv, signal), error: null };
       } catch (error) {
         output.appendLine(`  failed: ${(error as Error).message}`);
-        return { result: null, error: (error as Error).message };
+        return {
+          result: null,
+          error: (error as Error).message,
+          errorCode: repositoryOnboardingFailureCode(error)
+        };
       }
     };
 

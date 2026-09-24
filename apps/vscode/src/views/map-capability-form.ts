@@ -15,7 +15,8 @@ import { createHash } from 'node:crypto';
 import { commandGuidance } from '../copilot-command.ts';
 import { CAPABILITY_KINDS } from './capability-model.ts';
 import {
-  REPOSITORY_ONBOARDING_COPY,
+  repositoryOnboardingCopy,
+  repositoryOnboardingFailureDiagnosis,
   type RepositoryOnboardingMode,
   type RepositoryOnboardingPlan,
   type RepositoryOnboardingResult
@@ -421,7 +422,7 @@ function repositorySetupPrimary(plan: RepositoryOnboardingPlan): {
   if (plan.mode === 'reset-local') {
     return { message: 'applyRepositorySetup', label: 'Reset local registration', disabled: !plan.canApply };
   }
-  const copy = REPOSITORY_ONBOARDING_COPY[plan.status];
+  const copy = repositoryOnboardingCopy(plan);
   if (plan.primaryAction === 'restore-and-continue' || plan.primaryAction === 'migrate-and-continue'
     || plan.primaryAction === 'set-up-sflow' || plan.primaryAction === 'recreate-configuration'
     || plan.primaryAction === 'reset-local-registration') {
@@ -508,7 +509,8 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>` : ''}</p>
     </section>`;
   }
-  const copy = REPOSITORY_ONBOARDING_COPY[plan.status];
+  const copy = repositoryOnboardingCopy(plan);
+  const failureDiagnosis = repositoryOnboardingFailureDiagnosis(plan);
   const primary = repositorySetupPrimary(plan);
   const iconName = plan.status === 'ready' || plan.status === 'linked-to-team-configuration'
     ? 'ok' : plan.status === 'could-not-check-git' || plan.status === 'newer-version-required'
@@ -547,6 +549,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
       <h3>${icon(iconName)}${escape(copy.title)}</h3></div><span class="grow"></span>
       <span class="pill${plan.status === 'ready' || plan.status === 'linked-to-team-configuration' ? ' ok' : ''}">${escape(copy.title)}</span></div>
     <p>${escape(copy.message)}</p>
+    ${failureDiagnosis ? `<p class="muted" data-repository-setup-failure>${escape(failureDiagnosis)}</p>` : ''}
     ${plan.mode !== 'auto' ? `<p class="muted">Selected option: <strong>${escape(plan.mode === 'reset-local' ? 'reset local registration' : plan.mode)}</strong>.</p>` : ''}
     ${plan.effects.length ? `<p class="muted">${plan.effects.length} planned ${plan.effects.length === 1 ? 'change' : 'changes'}; ${plan.preserved.length} preserved ${plan.preserved.length === 1 ? 'item' : 'items'}.</p>` : ''}
     ${warnings}

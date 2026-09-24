@@ -545,14 +545,41 @@ export async function resolvePosixGitExecutable(
   let canonicalCwd: string;
   try { canonicalCwd = await filesystem.canonicalize(cwd); }
   catch { return null; }
+  // The extension host can start at `/` before a repository has been selected. Filesystem root is
+  // not a meaningful checkout-local exclusion boundary: treating it as one rejects every absolute
+  // Git executable. Preserve the exclusion for every non-root checkout while retaining the
+  // absolute PATH, canonical path, regular-file, and executable-bit checks below. If root contains
+  // a `.git` marker it is a real checkout and remains an exclusion boundary. Bare repositories
+  // have no `.git` entry, so the complete HEAD/object/refs/config layout is checked as well.
+  let rootHasCheckoutMarker = false;
+  if (canonicalCwd === path.parse(canonicalCwd).root) {
+    try {
+      await filesystem.stat(path.join(canonicalCwd, '.git'));
+      rootHasCheckoutMarker = true;
+    } catch { /* A host root without `.git` is not a repository boundary. */ }
+    if (!rootHasCheckoutMarker) {
+      try {
+        const [head, objects, refs, config] = await Promise.all([
+          filesystem.stat(path.join(canonicalCwd, 'HEAD')),
+          filesystem.stat(path.join(canonicalCwd, 'objects')),
+          filesystem.stat(path.join(canonicalCwd, 'refs')),
+          filesystem.stat(path.join(canonicalCwd, 'config'))
+        ]);
+        rootHasCheckoutMarker = head.isFile() && objects.isDirectory() && refs.isDirectory()
+          && config.isFile();
+      } catch { /* A host root without the complete bare layout is not a repository boundary. */ }
+    }
+  }
+  const checkoutBoundary = canonicalCwd !== path.parse(canonicalCwd).root || rootHasCheckoutMarker
+    ? canonicalCwd : null;
   for (const directory of pathValue.split(path.delimiter).slice(0, 128)) {
     if (!path.isAbsolute(directory)) continue;
     const candidate = path.join(directory, 'git');
     try {
       const canonical = await filesystem.canonicalize(candidate);
-      const relative = path.relative(canonicalCwd, canonical);
+      const relative = checkoutBoundary == null ? null : path.relative(checkoutBoundary, canonical);
       if (!path.isAbsolute(canonical) || relative === ''
-        || (relative !== '..' && !relative.startsWith(`..${path.sep}`)
+        || (relative != null && relative !== '..' && !relative.startsWith(`..${path.sep}`)
           && !path.isAbsolute(relative))) continue;
       const info = await filesystem.stat(canonical);
       if (info.isFile() && (info.mode & 0o111) !== 0) return canonical;
@@ -1783,8 +1810,18 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       } catch { /* diagnostic observer only */ }
       if (code !== 0) {
         let result: unknown = null;
-        if (json && stdout.trim()) {
-          try { result = JSON.parse(stdout); } catch { /* the original text remains the diagnostic */ }
+        if (json) {
+          // The CLI writes successful JSON to stdout and refusal envelopes to stderr. Preserve the
+          // versioned refusal object on CliError so callers can route by its closed code instead of
+          // guessing from prose or repository operands. A legacy stdout-only non-zero result stays
+          // supported as the fallback.
+          for (const candidate of [stderr.trim(), stdout.trim()]) {
+            if (!candidate) continue;
+            try {
+              result = JSON.parse(candidate);
+              break;
+            } catch { /* the original bounded text remains the diagnostic */ }
+          }
         }
         const structuredStatus = result && typeof result === 'object' && 'status' in result
           ? String((result as { status?: unknown }).status ?? '').trim()

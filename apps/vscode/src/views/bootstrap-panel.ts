@@ -27,6 +27,7 @@ import {
   parseRepositoryOnboardingResult,
   repositoryOnboardingApplyArgv,
   repositoryOnboardingCanContinue,
+  repositoryOnboardingCommandFailureCopy,
   repositoryOnboardingModeAvailable,
   repositoryOnboardingPlanMatchesInput,
   repositoryOnboardingPreviewArgv,
@@ -138,7 +139,9 @@ export interface MapCapabilityLaunch {
   maintenance?: boolean;
 }
 
-type Run = (argv: string[], signal?: AbortSignal) => Promise<{ result: unknown; error: string | null }>;
+type Run = (argv: string[], signal?: AbortSignal) => Promise<{
+  result: unknown; error: string | null; errorCode?: string | null;
+}>;
 
 export const MAP_CAPABILITY_OPERATION_KEY = LEGACY_MAP_CAPABILITY_OPERATION_KEY;
 
@@ -1111,13 +1114,17 @@ export class BootstrapPanel {
       repositorySetupApplying: false, repositorySetupNotice: null, error: null
     });
     const argv = repositoryOnboardingPreviewArgv(repositoryUrl, mode, stateBranch);
-    const { result, error } = await this.run(argv);
+    const { result, error, errorCode } = await this.run(argv);
     if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
     if (error) {
+      const failure = repositoryOnboardingCommandFailureCopy(errorCode ?? error);
+      const message = `${failure.title}. ${failure.message}`;
       return void this.update({
         inspectionStatus: 'inconclusive', inspectionComplete: false,
-        inspectionMessage: 'Repository setup could not be checked. Retry or open Diagnostics.',
-        error
+        inspectionMessage: message,
+        // The exact scrubbed CLI diagnostic remains in the output channel. Keep paths, remotes,
+        // and provider prose out of the webview when no versioned failure envelope was returned.
+        error: this.form.repositorySetupMaintenance ? message : null
       });
     }
     const plan = parseRepositoryOnboardingPlan(result);
@@ -1176,11 +1183,19 @@ export class BootstrapPanel {
       || this.form.repositorySetupPlan?.planId !== plan.planId
       || this.form.repositoryUrl.trim() !== repositoryUrl) return;
     this.update({ repositorySetupApplying: true, error: null });
-    const { result, error } = await this.run(repositoryOnboardingApplyArgv(repositoryUrl, plan));
+    const { result, error, errorCode } = await this.run(
+      repositoryOnboardingApplyArgv(repositoryUrl, plan)
+    );
     if (revision !== this.inspectionRevision
       || this.form.repositorySetupPlan?.planId !== plan.planId
       || this.form.repositoryUrl.trim() !== repositoryUrl) return;
-    if (error) return void this.update({ repositorySetupApplying: false, error });
+    if (error) {
+      const failure = repositoryOnboardingCommandFailureCopy(errorCode ?? error);
+      return void this.update({
+        repositorySetupApplying: false,
+        error: `${failure.title}. ${failure.message}`
+      });
+    }
     const applied = parseRepositoryOnboardingResult(result, plan.planId);
     if (!applied) {
       return void this.update({

@@ -328,16 +328,45 @@ export function resolvePlatformProcess(command, args = [], {
     // pin the real executable before changing cwd to a repository-controlled worktree.
     let executable = logicalCommand;
     if (logicalCommand === 'git') {
-      const parent = typeof cwd === 'string' && path.isAbsolute(cwd)
+      const canonicalCwd = typeof cwd === 'string' && path.isAbsolute(cwd)
         ? (() => { try { return realpathSyncCommand(cwd); } catch { return path.resolve(cwd); } })()
         : null;
+      // `/` contains every absolute executable path, but it is not a meaningful checkout-local
+      // trust boundary. VS Code can legitimately start with `/` as its process cwd before a
+      // repository is selected. In that case keep every PATH/canonical/file/mode check below, but
+      // do not reject the system Git merely because it is lexically below the filesystem root.
+      // A non-root repository cwd remains an exclusion boundary so checkout-local shadows cannot
+      // be selected from an inherited absolute PATH entry. Root keeps the boundary when a `.git`
+      // marker proves that it is itself a checkout. A bare repository has no `.git` entry, so its
+      // canonical HEAD/object/refs/config layout is also an exclusion boundary.
+      let rootHasCheckoutMarker = false;
+      if (canonicalCwd != null && canonicalCwd === path.parse(canonicalCwd).root) {
+        try {
+          lstatSyncCommand(path.join(canonicalCwd, '.git'));
+          rootHasCheckoutMarker = true;
+        } catch { /* A host root without `.git` is not a repository boundary. */ }
+        if (!rootHasCheckoutMarker) {
+          try {
+            const head = lstatSyncCommand(path.join(canonicalCwd, 'HEAD'));
+            const objects = lstatSyncCommand(path.join(canonicalCwd, 'objects'));
+            const refs = lstatSyncCommand(path.join(canonicalCwd, 'refs'));
+            const config = lstatSyncCommand(path.join(canonicalCwd, 'config'));
+            rootHasCheckoutMarker = head.isFile?.() === true
+              && objects.isDirectory?.() === true && refs.isDirectory?.() === true
+              && config.isFile?.() === true;
+          } catch { /* A host root without the complete bare layout is not a repository boundary. */ }
+        }
+      }
+      const checkoutBoundary = canonicalCwd != null
+        && (canonicalCwd !== path.parse(canonicalCwd).root || rootHasCheckoutMarker)
+        ? canonicalCwd : null;
       executable = null;
       const entries = String(environmentValue(environment, ['PATH']) ?? '').split(path.delimiter);
       for (const directory of entries.slice(0, 128)) {
         if (!path.isAbsolute(directory)) continue;
         try {
           const resolved = realpathSyncCommand(path.join(directory, 'git'));
-          const relative = parent == null ? null : path.relative(parent, resolved);
+          const relative = checkoutBoundary == null ? null : path.relative(checkoutBoundary, resolved);
           if (relative === '' || (relative != null && relative !== '..'
               && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) continue;
           const info = lstatSyncCommand(resolved);

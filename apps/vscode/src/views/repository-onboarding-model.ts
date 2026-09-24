@@ -31,6 +31,37 @@ export type RepositoryOnboardingExplicitMode = Exclude<RepositoryOnboardingMode,
 export type RepositoryStateKind =
   | 'configuration-mirror' | 'delivery-locator' | 'lifecycle-only' | 'none' | 'invalid';
 
+export const REPOSITORY_ONBOARDING_FAILURE_CLASSIFICATIONS = [
+  'network-transient',
+  'offline',
+  'git-unavailable',
+  'working-directory-unavailable',
+  'credential-helper-unavailable',
+  'authentication-required',
+  'sso-authorization-required',
+  'authorization-denied',
+  'tls-trust',
+  'proxy-configuration',
+  'remote-not-found',
+  'branch-not-found',
+  'rate-limited',
+  'policy-rejected',
+  'atomic-push-unsupported',
+  'protocol-unsupported',
+  'unknown'
+] as const;
+
+export type RepositoryOnboardingFailureClassification =
+  (typeof REPOSITORY_ONBOARDING_FAILURE_CLASSIFICATIONS)[number];
+
+/** Bounded public Git diagnosis emitted by the onboarding preview. */
+export interface RepositoryOnboardingFailure {
+  code: string;
+  classification: RepositoryOnboardingFailureClassification;
+  retryable: boolean;
+  advice: string;
+}
+
 export type RepositoryOnboardingPrimaryAction =
   | 'continue' | 'restore-and-continue' | 'migrate-and-continue' | 'map-capability'
   | 'set-up-sflow' | 'choose-another-state-branch' | 'retry' | 'review-choices'
@@ -66,6 +97,7 @@ export interface RepositoryOnboardingPlan {
   effects: Array<{ kind: string; target: string; action: string }>;
   preserved: string[];
   localCleanupWarnings?: string[];
+  failure?: RepositoryOnboardingFailure;
   omitted: string[];
   choices: RepositoryOnboardingChoice[];
   /** Explicit alternate previews the engine permits for this exact observation. */
@@ -155,9 +187,12 @@ const ACTION_SET = new Set<string>([
   'set-up-sflow', 'choose-another-state-branch', 'retry', 'review-choices',
   'install-newer-version', 'recreate-configuration', 'reset-local-registration'
 ]);
+const FAILURE_CLASSIFICATION_SET = new Set<string>(REPOSITORY_ONBOARDING_FAILURE_CLASSIFICATIONS);
 const PLAN_ID = /^sha256:[0-9a-f]{64}$/i;
 const COMMIT = /^[0-9a-f]{40,64}$/i;
 const CAPABILITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const FAILURE_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u;
+const FAILURE_ADVICE_MAX_CHARS = 2_000;
 
 function safeStateBranch(value: string): boolean {
   return value.length <= 1024 && value !== '@' && !value.startsWith('-')
@@ -181,6 +216,19 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/** Recover only a validated refusal identifier from a CLI error/result envelope. */
+export function repositoryOnboardingFailureCode(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const code = value.trim();
+    return code && FAILURE_CODE.test(code) ? code : null;
+  }
+  const candidate = record(value);
+  const result = record(candidate?.result);
+  const nestedError = record(result?.error);
+  const code = text(nestedError?.code) ?? text(candidate?.code);
+  return code && FAILURE_CODE.test(code) ? code : null;
 }
 
 function stringList(value: unknown): string[] | null {
@@ -247,6 +295,24 @@ function availableModes(value: unknown): RepositoryOnboardingExplicitMode[] | nu
   if (!Array.isArray(value) || value.some((mode) =>
     typeof mode !== 'string' || !EXPLICIT_MODE_SET.has(mode))) return null;
   return [...new Set(value)] as RepositoryOnboardingExplicitMode[];
+}
+
+function onboardingFailure(value: unknown): RepositoryOnboardingFailure | null | undefined {
+  if (value == null) return null;
+  const candidate = record(value);
+  const code = text(candidate?.code);
+  const classification = text(candidate?.classification);
+  const advice = text(candidate?.advice);
+  if (!candidate || !code || !FAILURE_CODE.test(code)
+    || !classification || !FAILURE_CLASSIFICATION_SET.has(classification)
+    || typeof candidate.retryable !== 'boolean' || !advice
+    || advice.length > FAILURE_ADVICE_MAX_CHARS) return undefined;
+  return {
+    code,
+    classification: classification as RepositoryOnboardingFailureClassification,
+    retryable: candidate.retryable,
+    advice
+  };
 }
 
 function onboardingReview(value: unknown): RepositoryOnboardingReview | null {
@@ -341,6 +407,7 @@ export function parseRepositoryOnboardingPlan(value: unknown): RepositoryOnboard
   const parsedRouting = routing(candidate?.routing);
   const parsedChoices = choices(candidate?.choices);
   const parsedAvailableModes = availableModes(candidate?.availableModes);
+  const parsedFailure = onboardingFailure(candidate?.failure);
   const stateKind = text(state?.kind);
   const configurationStatus = text(configuration?.status);
   const repositoryUrl = text(repository?.url);
@@ -374,6 +441,7 @@ export function parseRepositoryOnboardingPlan(value: unknown): RepositoryOnboard
     || !parsedEffects || !preserved || !omitted || !parsedNext || !parsedChoices
     || (candidate.localCleanupWarnings != null && !parsedCleanupWarnings)
     || !parsedAvailableModes
+    || parsedFailure === undefined
     || parsedChoices.some((choice) => !parsedAvailableModes.includes(choice.mode))
     || parsedRouting === undefined || typeof candidate.canApply !== 'boolean'
     || !planId || !PLAN_ID.test(planId)) return null;
@@ -399,6 +467,7 @@ export function parseRepositoryOnboardingPlan(value: unknown): RepositoryOnboard
     effects: parsedEffects,
     preserved,
     ...(parsedCleanupWarnings ? { localCleanupWarnings: parsedCleanupWarnings } : {}),
+    ...(parsedFailure ? { failure: parsedFailure } : {}),
     omitted,
     choices: parsedChoices,
     availableModes: parsedAvailableModes,
@@ -510,11 +579,13 @@ export function repositoryOnboardingModeAvailable(
   );
 }
 
-export const REPOSITORY_ONBOARDING_COPY: Record<RepositoryOnboardingStatus, {
+export interface RepositoryOnboardingCopy {
   title: string;
   message: string;
   action: string;
-}> = {
+}
+
+export const REPOSITORY_ONBOARDING_COPY: Record<RepositoryOnboardingStatus, RepositoryOnboardingCopy> = {
   ready: {
     title: 'Ready',
     message: 'Existing SFlow setup is current and can be used.',
@@ -552,7 +623,7 @@ export const REPOSITORY_ONBOARDING_COPY: Record<RepositoryOnboardingStatus, {
   },
   'could-not-check-git': {
     title: 'Could not check Git',
-    message: 'Git access must succeed before setup can be determined.',
+    message: 'The repository inspection did not complete. Retry or open Diagnostics.',
     action: 'Retry'
   },
   'needs-a-choice': {
@@ -566,6 +637,225 @@ export const REPOSITORY_ONBOARDING_COPY: Record<RepositoryOnboardingStatus, {
     action: 'Install newer version'
   }
 };
+
+function retryCopy(title: string, message: string): RepositoryOnboardingCopy {
+  return { title, message, action: 'Retry' };
+}
+
+/**
+ * Translate the closed Git failure vocabulary into user-facing setup guidance.
+ *
+ * The engine advice is useful supporting detail, but it is not trusted to choose the headline.
+ * Snapshot and timeout codes win over a broad transport classification because they establish
+ * that Git was reached and the later bounded inspection is what failed.
+ */
+function repositoryOnboardingFailureCopy(
+  failure: RepositoryOnboardingFailure | null | undefined
+): RepositoryOnboardingCopy {
+  if (!failure) return REPOSITORY_ONBOARDING_COPY['could-not-check-git'];
+  const code = failure.code;
+  const snapshot = code.includes('SNAPSHOT');
+  const timeout = /(?:^|_)TIMEOUT(?:_|$)|TIMED_OUT/u.test(code);
+  if (snapshot && code.includes('WORK_LIMIT_EXCEEDED')) {
+    return retryCopy(
+      'Repository inspection work limit reached',
+      'The governed snapshot may fit the size limit, but SFlow cannot prove another admission pass will remain within the bounded transfer budget. Open Diagnostics before retrying.'
+    );
+  }
+  if (snapshot && code.includes('LIMIT_EXCEEDED')) {
+    return retryCopy(
+      'Repository snapshot is too large',
+      'Git access succeeded, but the repository snapshot exceeded the bounded inspection limit. Open Diagnostics before retrying.'
+    );
+  }
+  if (snapshot && timeout) {
+    return retryCopy(
+      'Repository snapshot timed out',
+      'Git access succeeded, but SFlow could not finish inspecting the repository snapshot within the time limit.'
+    );
+  }
+  if (snapshot) {
+    return retryCopy(
+      'Could not inspect repository snapshot',
+      'Git access succeeded, but SFlow could not inspect the repository snapshot. Retry or open Diagnostics.'
+    );
+  }
+  if (timeout) {
+    return retryCopy(
+      'Git check timed out',
+      'The bounded Git check did not finish within its time limit. Check connectivity or open Diagnostics, then retry.'
+    );
+  }
+  switch (failure.classification) {
+    case 'git-unavailable':
+      return retryCopy(
+        'Git is unavailable to VS Code',
+        'VS Code could not find an approved Git executable. Add Git to PATH, restart VS Code, then retry.'
+      );
+    case 'working-directory-unavailable':
+      return retryCopy(
+        'Working directory is unavailable',
+        'The directory used for the Git check is unavailable. Reopen or restore it, then retry.'
+      );
+    case 'credential-helper-unavailable':
+      return retryCopy(
+        'Git credential helper is unavailable',
+        'Repair the configured Git credential helper, sign in, then retry without putting a token in the URL.'
+      );
+    case 'authentication-required':
+      return retryCopy(
+        'Git sign-in is required',
+        'Sign in with Git or its approved credential helper, then retry without putting a token in the URL.'
+      );
+    case 'sso-authorization-required':
+      return retryCopy(
+        'Git SSO authorization is required',
+        'Authorize the Git credential for the organisation’s SSO, then retry.'
+      );
+    case 'authorization-denied':
+      return retryCopy(
+        'Git access was denied',
+        'The Git provider was reached, but this account cannot read the repository. Ask the repository owner for access, then retry.'
+      );
+    case 'network-transient':
+      return retryCopy(
+        'Git network check failed',
+        'Check DNS and network reachability, then retry the same repository check.'
+      );
+    case 'offline':
+      return retryCopy(
+        'Network is offline',
+        'Reconnect to the network, then retry the repository check.'
+      );
+    case 'rate-limited':
+      return retryCopy(
+        'Git provider rate limit reached',
+        'Wait for the provider limit to reset, then retry the repository check.'
+      );
+    case 'tls-trust':
+      return retryCopy(
+        'Git TLS trust needs attention',
+        'Install the organisation trust chain through the approved system or Git configuration, then retry.'
+      );
+    case 'proxy-configuration':
+      return retryCopy(
+        'Git proxy configuration needs attention',
+        'Correct the approved Git or operating-system proxy configuration, then retry.'
+      );
+    case 'remote-not-found':
+      return retryCopy(
+        'Repository was not found',
+        'Verify the repository URL and this account’s read access, then retry.'
+      );
+    case 'branch-not-found':
+      return retryCopy(
+        'Expected Git branch was not found',
+        'Choose an existing state branch or publish the expected branch, then retry.'
+      );
+    case 'protocol-unsupported':
+      return retryCopy(
+        'Git protocol is unsupported',
+        'Use a Git transport supported by this installation and the repository provider.'
+      );
+    default:
+      return REPOSITORY_ONBOARDING_COPY['could-not-check-git'];
+  }
+}
+
+/** Resolve the dynamic copy for a parsed preview without trusting failure prose as UI control. */
+export function repositoryOnboardingCopy(
+  plan: Pick<RepositoryOnboardingPlan, 'status' | 'failure'>
+): RepositoryOnboardingCopy {
+  return plan.status === 'could-not-check-git'
+    ? repositoryOnboardingFailureCopy(plan.failure)
+    : REPOSITORY_ONBOARDING_COPY[plan.status];
+}
+
+/** A scrubbed diagnostic line suitable for the repository-setup webview. */
+export function repositoryOnboardingFailureDiagnosis(
+  plan: Pick<RepositoryOnboardingPlan, 'status' | 'failure'>
+): string | null {
+  if (plan.status !== 'could-not-check-git' || !plan.failure) return null;
+  // Advice is provider-originated prose and can contain a private remote or path with arbitrary
+  // quoting and whitespace. The closed classification and validated code are sufficient for the
+  // webview; exact scrubbed prose remains available in the output channel.
+  return `Git diagnosis (${plan.failure.classification}; ${plan.failure.code}).`;
+}
+
+/**
+ * Safe fallback for a CLI failure that happened before a versioned preview could be returned.
+ * Only the category influences the webview; raw command prose remains in the scrubbed output log.
+ */
+export function repositoryOnboardingCommandFailureCopy(value: unknown): RepositoryOnboardingCopy {
+  const structuredCode = repositoryOnboardingFailureCode(value);
+  if (!structuredCode) {
+    return retryCopy(
+      'Repository setup check failed',
+      'SFlow could not complete the repository setup check. Retry or open Diagnostics.'
+    );
+  }
+  const diagnostic = structuredCode.toUpperCase();
+  // Only versioned error identifiers may select a remediation. Free-form prose can contain a
+  // repository named `snapshot`, `tls`, or `proxy`; classifying operands would give false advice.
+  if (/\bREPOSITORY_ONBOARDING_SNAPSHOT_WORK_LIMIT_EXCEEDED\b/u.test(diagnostic)) {
+    return retryCopy(
+      'Repository inspection work limit reached',
+      'The governed snapshot may fit the size limit, but SFlow cannot prove another admission pass will remain within the bounded transfer budget. Open Diagnostics before retrying.'
+    );
+  }
+  if (/\bREPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED\b/u.test(diagnostic)) {
+    return retryCopy(
+      'Repository snapshot is too large',
+      'Git access succeeded, but the repository snapshot exceeded the bounded inspection limit. Open Diagnostics before retrying.'
+    );
+  }
+  if (/\bREPOSITORY_ONBOARDING_SNAPSHOT_[A-Z0-9_]*(?:TIMEOUT|TIMED_OUT)\b/u.test(diagnostic)) {
+    return retryCopy(
+      'Repository snapshot timed out',
+      'Git access succeeded, but SFlow could not finish inspecting the repository snapshot within the time limit.'
+    );
+  }
+  if (/\bREPOSITORY_ONBOARDING_SNAPSHOT_[A-Z0-9_]+\b/u.test(diagnostic)) {
+    return retryCopy(
+      'Could not inspect repository snapshot',
+      'Git access succeeded, but SFlow could not inspect the repository snapshot. Retry or open Diagnostics.'
+    );
+  }
+  if (/\bREMOTE_GIT_UNAVAILABLE\b/u.test(diagnostic)) {
+    return repositoryOnboardingFailureCopy({
+      code: 'REMOTE_GIT_UNAVAILABLE', classification: 'git-unavailable', retryable: false, advice: ''
+    });
+  }
+  if (/\bREMOTE_TLS_TRUST\b/u.test(diagnostic)) {
+    return repositoryOnboardingFailureCopy({
+      code: 'REMOTE_TLS_TRUST', classification: 'tls-trust', retryable: false, advice: ''
+    });
+  }
+  if (/\bREMOTE_PROXY_CONFIGURATION\b/u.test(diagnostic)) {
+    return repositoryOnboardingFailureCopy({
+      code: 'REMOTE_PROXY_CONFIGURATION', classification: 'proxy-configuration', retryable: false, advice: ''
+    });
+  }
+  if (/\bREMOTE_(?:CREDENTIAL_HELPER_UNAVAILABLE|AUTHENTICATION_REQUIRED|SSO_AUTHORIZATION_REQUIRED|AUTHORIZATION_DENIED)\b/u.test(diagnostic)) {
+    return repositoryOnboardingFailureCopy({
+      code: 'REMOTE_AUTHENTICATION_REQUIRED', classification: 'authentication-required', retryable: false, advice: ''
+    });
+  }
+  if (/\bREMOTE_TIMEOUT\b/u.test(diagnostic)) {
+    return repositoryOnboardingFailureCopy({
+      code: 'REMOTE_TIMEOUT', classification: 'network-transient', retryable: true, advice: ''
+    });
+  }
+  if (/\bREMOTE_(?:NETWORK_TRANSIENT|OFFLINE)\b/u.test(diagnostic)) {
+    return repositoryOnboardingFailureCopy({
+      code: 'REMOTE_NETWORK_TRANSIENT', classification: 'network-transient', retryable: true, advice: ''
+    });
+  }
+  return retryCopy(
+    'Repository setup check failed',
+    'SFlow could not complete the repository setup check. Retry or open Diagnostics.'
+  );
+}
 
 export function repositoryOnboardingCanContinue(plan: RepositoryOnboardingPlan): boolean {
   return plan.mode !== 'reset-local'

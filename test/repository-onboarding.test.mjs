@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
-  chmod, cp, mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile
+  chmod, cp, mkdir, mkdtemp, readFile, rename, rm, symlink, truncate, writeFile
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,6 +16,7 @@ import {
   configurationAssetPaths, ensureConfigurationBranch
 } from '../src/configuration-branch.mjs';
 import { createCapabilityAuthorityLink } from '../src/capability-authority-link.mjs';
+import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
 import {
   currentSchemaVersion, familyForStoredPath, readRecord
 } from '../src/schema-migrations.mjs';
@@ -26,7 +27,7 @@ import {
   listLeadRepositories, rememberLeadRepository
 } from '../src/lead-repositories.mjs';
 import { gitRepositoryComparisonKey } from '../src/git-repository-identity.mjs';
-import { runRemoteGitAsync } from '../src/git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from '../src/git-execution.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { run } from '../src/util.mjs';
@@ -1004,10 +1005,150 @@ test('an oversized partial-clone fallback is deleted and refused before parsing'
   }
 });
 
+test('a two-stage filtered snapshot is surveyed then admitted without lazy fetch', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: fixture.remote });
+    let cloneCount = 0;
+    let observedAdmissionFilter = false;
+    let movedRemote = false;
+    const trace = path.join(fixture.base, 'sealed-snapshot-trace.json');
+    const tracedGitEnv = enterpriseGitEnvironment(process.env);
+    tracedGitEnv.GIT_TRACE2_EVENT = trace;
+    const remoteSession = new GitRemoteSession({ env: tracedGitEnv });
+    const inspectOfflineAfterClone = async (args, options) => {
+      const result = await runRemoteGitAsync(args, options);
+      if (!movedRemote && result.status === 0 && args.includes('clone')) {
+        cloneCount += 1;
+        if (cloneCount === 1) {
+          assert.ok(args.includes('--filter=blob:none'),
+            'the first clone must survey the tree without content blobs');
+          return result;
+        }
+        const filter = args.find((arg) => arg.startsWith('--filter=blob:limit='));
+        const limit = Number(filter?.split('=').at(-1));
+        assert.ok(Number.isSafeInteger(limit) && limit > 1 && limit < 134217729,
+          'the admitted per-blob limit must be derived from the surveyed file count');
+        assert.deepEqual(args.slice(args.indexOf('--origin'), args.indexOf('--origin') + 2),
+          ['--origin', 'sflow-snapshot'],
+          'the disposable promisor transport must have one deterministic removable name');
+        observedAdmissionFilter = true;
+        await rename(fixture.remote, `${fixture.remote}.offline`);
+        movedRemote = true;
+      }
+      return result;
+    };
+
+    const plan = await inspectRepositoryOnboarding(fixture.remote, {
+      remoteSession, runRemoteCommand: inspectOfflineAfterClone
+    });
+    assert.equal(cloneCount, 2);
+    assert.equal(observedAdmissionFilter, true);
+    assert.equal(plan.configuration.status, 'current');
+    const events = (await readFile(trace, 'utf8')).trim().split('\n').map(JSON.parse);
+    const commands = events.filter((event) => event.event === 'start')
+      .map((event) => event.argv ?? []);
+    const removedAt = commands.findLastIndex((argv) =>
+      argv.includes('remote') && argv.includes('remove') && argv.includes('sflow-snapshot'));
+    const legacyDetachedAt = commands.findLastIndex((argv) =>
+      argv.includes('--unset-all') && argv.includes('extensions.partialClone'));
+    const sizedAt = commands.findIndex((argv) => argv.includes('ls-tree') && argv.includes('--long'));
+    assert.ok(removedAt >= 0 && legacyDetachedAt > removedAt && sizedAt > legacyDetachedAt,
+      'all modern and legacy promisor discovery must be removed before tree sizing');
+  } finally {
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('an uneven valid tree is admitted and object/worktree ceilings remain independent', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const editor = path.join(fixture.base, 'independent-quota-editor');
+    run('git', [
+      'clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH,
+      fixture.remote, editor
+    ], { cwd: fixture.base });
+    run('git', ['config', 'user.name', 'Independent Quota'], { cwd: editor });
+    run('git', ['config', 'user.email', 'independent-quota@example.test'], { cwd: editor });
+    // One incompressible 65 MiB blob plus the ordinary small configuration files is below the
+    // aggregate ceiling but above the first equal-share admission threshold. A bounded retry must
+    // admit it after accounting for the known small blobs. Adding object-store and worktree bytes
+    // together would also exceed 128 MiB even though each independent quota domain is valid.
+    await writeFile(path.join(editor, 'admitted-large.bin'), randomBytes(65 * 1024 * 1024));
+    run('git', ['add', 'admitted-large.bin'], { cwd: editor });
+    run('git', ['commit', '-qm', 'Add independently admitted payload'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
+    run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: fixture.remote });
+
+    const filters = [];
+    const observeAdmissionRounds = async (args, options) => {
+      const result = await runRemoteGitAsync(args, options);
+      if (result.status === 0 && args.includes('clone')) {
+        filters.push(args.find((arg) => arg.startsWith('--filter=')));
+      }
+      return result;
+    };
+    const plan = await inspectRepositoryOnboarding(fixture.remote, {
+      runRemoteCommand: observeAdmissionRounds
+    });
+    assert.equal(plan.configuration.status, 'current');
+    assert.equal(filters[0], '--filter=blob:none');
+    const limits = filters.slice(1).map((filter) => Number(filter.split('=').at(-1)));
+    assert.equal(limits.length, 2, 'the uneven tree must use one bounded admission retry');
+    assert.ok(limits[0] < 65 * 1024 * 1024 && limits[1] > 65 * 1024 * 1024,
+      'the retry must widen only after accounting for already-admitted small blobs');
+  } finally {
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('a valid multi-strata tree is refused when its next pass cannot prove the work bound',
+  async () => {
+    const fixture = await repositoryFixture();
+    try {
+      await ensureConfigurationBranch(fixture.remote, { capability });
+      const editor = path.join(fixture.base, 'multi-strata-editor');
+      run('git', [
+        'clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH,
+        fixture.remote, editor
+      ], { cwd: fixture.base });
+      run('git', ['config', 'user.name', 'Multi Strata'], { cwd: editor });
+      run('git', ['config', 'user.email', 'multi-strata@example.test'], { cwd: editor });
+      const payloadRoot = path.join(editor, 'multi-strata');
+      await mkdir(payloadRoot, { recursive: true });
+      for (const [name, mebibytes] of [['a', 45], ['b', 18], ['c', 35], ['d', 29]]) {
+        const file = path.join(payloadRoot, `${name}.bin`);
+        await writeFile(file, '');
+        await truncate(file, mebibytes * 1024 * 1024);
+      }
+      run('git', ['add', 'multi-strata'], { cwd: editor });
+      run('git', ['commit', '-qm', 'Add valid multi-strata payload'], { cwd: editor });
+      run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
+      run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: fixture.remote });
+      const logicalBytes = run('git', ['ls-tree', '-r', '--long', 'HEAD'], {
+        cwd: editor
+      }).stdout.split(/\r?\n/u).filter(Boolean).reduce((total, line) => {
+        const match = / ([0-9]+)\t/u.exec(line);
+        return total + Number(match?.[1] ?? 0);
+      }, 0);
+      assert.ok(logicalBytes <= 128 * 1024 * 1024,
+        'the fixture must remain aggregate-valid so the refusal tests work, not tree size');
+
+      await assert.rejects(inspectRepositoryOnboarding(fixture.remote), {
+        code: 'REPOSITORY_ONBOARDING_SNAPSHOT_WORK_LIMIT_EXCEEDED'
+      });
+    } finally {
+      await rm(fixture.base, { recursive: true, force: true });
+    }
+  });
+
 test('an oversized tracked tree is refused before any worktree checkout', async () => {
   const fixture = await repositoryFixture();
   try {
     await ensureConfigurationBranch(fixture.remote, { capability });
+    run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: fixture.remote });
     const editor = path.join(fixture.base, 'oversized-tree-editor');
     run('git', [
       'clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH,
@@ -1023,21 +1164,91 @@ test('an oversized tracked tree is refused before any worktree checkout', async 
     run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
 
     let observedNoCheckout = false;
+    let movedRemote = false;
+    let cloneCount = 0;
     const inspectBeforeCheckout = async (args, options) => {
       const result = await runRemoteGitAsync(args, options);
-      if (result.status === 0 && args.includes('clone')) {
+      if (!movedRemote && result.status === 0 && args.includes('clone')) {
+        cloneCount += 1;
         assert.ok(args.includes('--no-checkout'),
           'every remote snapshot must start without materializing its tracked tree');
+        if (cloneCount === 1) {
+          assert.ok(args.includes('--filter=blob:none'));
+          return result;
+        }
+        const filter = args.find((arg) => arg.startsWith('--filter=blob:limit='));
+        assert.ok(filter, 'the admitted clone must use its surveyed per-blob ceiling');
         await assert.rejects(readFile(path.join(args.at(-1), 'oversized.bin')), {
           code: 'ENOENT'
         });
+        if (cloneCount < 3) return result;
         observedNoCheckout = true;
+        // An omitted oversized promisor blob must be classified from local metadata. Making the
+        // remote unavailable proves neither quota inspection nor checkout can lazy-fetch it.
+        await rename(fixture.remote, `${fixture.remote}.offline`);
+        movedRemote = true;
       }
       return result;
     };
     await assert.rejects(inspectRepositoryOnboarding(fixture.remote, {
       runRemoteCommand: inspectBeforeCheckout
     }), { code: 'REPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED' });
+    assert.equal(cloneCount, 3);
+    assert.equal(observedNoCheckout, true);
+  } finally {
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('aggregate tracked bytes are refused before worktree checkout', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const editor = path.join(fixture.base, 'aggregate-tree-editor');
+    run('git', [
+      'clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH,
+      fixture.remote, editor
+    ], { cwd: fixture.base });
+    run('git', ['config', 'user.name', 'Aggregate Tree'], { cwd: editor });
+    run('git', ['config', 'user.email', 'aggregate@example.test'], { cwd: editor });
+    const first = path.join(editor, 'first-large.bin');
+    const second = path.join(editor, 'second-large.bin');
+    await writeFile(first, '');
+    await writeFile(second, '');
+    await truncate(first, 65 * 1024 * 1024);
+    await truncate(second, 64 * 1024 * 1024);
+    run('git', ['add', 'first-large.bin', 'second-large.bin'], { cwd: editor });
+    run('git', ['commit', '-qm', 'Add aggregate oversized payload'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
+    run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: fixture.remote });
+
+    let observedNoCheckout = false;
+    let cloneCount = 0;
+    let movedRemote = false;
+    const inspectBeforeCheckout = async (args, options) => {
+      const result = await runRemoteGitAsync(args, options);
+      if (!movedRemote && result.status === 0 && args.includes('clone')) {
+        cloneCount += 1;
+        const scratch = args.at(-1);
+        await assert.rejects(readFile(path.join(scratch, 'first-large.bin')), { code: 'ENOENT' });
+        await assert.rejects(readFile(path.join(scratch, 'second-large.bin')), { code: 'ENOENT' });
+        if (cloneCount === 1) {
+          assert.ok(args.includes('--filter=blob:none'));
+          return result;
+        }
+        const filter = args.find((arg) => arg.startsWith('--filter=blob:limit='));
+        assert.ok(filter, 'aggregate admission must use a surveyed per-blob ceiling');
+        if (cloneCount < 3) return result;
+        observedNoCheckout = true;
+        await rename(fixture.remote, `${fixture.remote}.offline`);
+        movedRemote = true;
+      }
+      return result;
+    };
+    await assert.rejects(inspectRepositoryOnboarding(fixture.remote, {
+      runRemoteCommand: inspectBeforeCheckout
+    }), { code: 'REPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED' });
+    assert.equal(cloneCount, 3);
     assert.equal(observedNoCheckout, true);
   } finally {
     await rm(fixture.base, { recursive: true, force: true });

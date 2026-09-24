@@ -64,6 +64,49 @@ test('POSIX Git ignores relative PATH entries and checkout-local executable shad
   }), /absolute PATH entries/);
 });
 
+test('POSIX Git resolves a trusted absolute PATH executable when cwd is filesystem root', () => {
+  const seen = [];
+  const launch = resolvePlatformProcess('git', ['ls-remote', 'origin'], {
+    platform: 'darwin', cwd: '/', environment: { PATH: '.:/opt/homebrew/bin:/usr/bin' },
+    realpathSyncCommand(candidate) {
+      seen.push(candidate);
+      return candidate;
+    },
+    lstatSyncCommand(candidate) {
+      if (candidate === '/.git') throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return { isFile: () => true, mode: candidate === '/opt/homebrew/bin/git' ? 0o755 : 0o644 };
+    }
+  });
+
+  assert.deepEqual(seen, ['/', '/opt/homebrew/bin/git']);
+  assert.equal(launch.executable, '/opt/homebrew/bin/git');
+  assert.deepEqual(launch.arguments, ['ls-remote', 'origin']);
+  assert.deepEqual(launch.spawnOptions, { shell: false });
+
+  assert.throws(() => resolvePlatformProcess('git', [], {
+    platform: 'linux', cwd: '/', environment: { PATH: '/tools' },
+    realpathSyncCommand: (candidate) => candidate,
+    lstatSyncCommand: (candidate) => candidate === '/.git'
+      ? { isDirectory: () => true }
+      : { isFile: () => true, mode: 0o755 }
+  }), /absolute PATH entries/, 'a checkout mounted at filesystem root cannot supply Git');
+
+  const bareRootEntries = new Map([
+    ['/HEAD', { isFile: () => true, isDirectory: () => false }],
+    ['/objects', { isFile: () => false, isDirectory: () => true }],
+    ['/refs', { isFile: () => false, isDirectory: () => true }],
+    ['/config', { isFile: () => true, isDirectory: () => false }]
+  ]);
+  assert.throws(() => resolvePlatformProcess('git', [], {
+    platform: 'linux', cwd: '/', environment: { PATH: '/tools' },
+    realpathSyncCommand: (candidate) => candidate,
+    lstatSyncCommand(candidate) {
+      if (candidate === '/.git') throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return bareRootEntries.get(candidate) ?? { isFile: () => true, mode: 0o755 };
+    }
+  }), /absolute PATH entries/, 'a bare repository mounted at filesystem root cannot supply Git');
+});
+
 test('POSIX Git skips a non-executable candidate before selecting a usable binary', () => {
   const launch = resolvePlatformProcess('git', ['--version'], {
     platform: 'linux', cwd: '/work/repository',

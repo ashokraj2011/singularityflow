@@ -74,6 +74,8 @@ const STATE_MIRROR_MAX_PATH_BYTES = 64 * 1024;
 const STATE_MIRROR_MAX_ASSET_BYTES = 64 * 1024 * 1024;
 const SNAPSHOT_MAX_FILES = 16 * 1024;
 const SNAPSHOT_MAX_BYTES = 128 * 1024 * 1024;
+const SNAPSHOT_MAX_ADMISSION_WORK_BYTES = 2 * SNAPSHOT_MAX_BYTES;
+const SNAPSHOT_REMOTE_NAME = 'sflow-snapshot';
 const SNAPSHOT_TREE_LIST_MAX_BYTES = 16 * 1024 * 1024;
 const TEMPORARY_CLEANUP_WARNING =
   'Repository inspection completed, but another process still has its disposable snapshot open. '
@@ -470,17 +472,19 @@ function assertSnapshotQuotaValues(files, bytes) {
 }
 
 async function assertSnapshotQuota(root, {
-  additionalFiles = 0, additionalBytes = 0
+  additionalFiles = 0, additionalBytes = 0, excludedRootEntries = []
 } = {}) {
+  const excluded = new Set(excludedRootEntries);
   let files = 0;
   let bytes = 0;
-  const pending = [root];
+  const pending = [{ directory: root, root: true }];
   while (pending.length) {
-    const directory = pending.pop();
+    const { directory, root: isRoot } = pending.pop();
     for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (isRoot && excluded.has(entry.name)) continue;
       const target = path.join(directory, entry.name);
       if (entry.isDirectory()) {
-        pending.push(target);
+        pending.push({ directory: target, root: false });
         continue;
       }
       files += 1;
@@ -492,11 +496,21 @@ async function assertSnapshotQuota(root, {
   return { files, bytes };
 }
 
-function snapshotTreeQuota(root, env) {
+function parseSnapshotTree(root, env, { long = false, maximumBlobBytes = null } = {}) {
+  // A partial clone must not turn a supposedly local quota calculation into an unbounded network
+  // download. `ls-tree --long` renders an omitted promisor blob's size as `BAD` (and some Git
+  // versions use `-`). Either spelling proves that the complete tree was not admitted locally.
+  // The caller uses the known byte total and missing-path count to derive a strictly bounded retry;
+  // neither this local inspection nor a later checkout is allowed to lazy-fetch the missing object.
+  const localEnv = {
+    ...env,
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_NO_REPLACE_OBJECTS: '1'
+  };
   const listed = run('git', [
-    'ls-tree', '-r', '-z', '--full-tree', '--long', 'HEAD'
+    'ls-tree', '-r', '-z', '--full-tree', ...(long ? ['--long'] : []), 'HEAD'
   ], {
-    cwd: root, env, allowFailure: true, encoding: 'buffer',
+    cwd: root, env: localEnv, allowFailure: true, encoding: 'buffer',
     maxBuffer: SNAPSHOT_TREE_LIST_MAX_BYTES, timeoutClass: 'local-read'
   });
   if (listed.status !== 0 || listed.error || listed.timedOut || listed.signal != null) {
@@ -520,6 +534,7 @@ function snapshotTreeQuota(root, env) {
   const payload = Buffer.from(listed.stdout);
   let files = 0;
   let bytes = 0;
+  let missingBlobs = 0;
   let cursor = 0;
   while (cursor < payload.length) {
     const end = payload.indexOf(0, cursor);
@@ -533,7 +548,9 @@ function snapshotTreeQuota(root, env) {
     const record = payload.subarray(cursor, end);
     const tab = record.indexOf(0x09);
     const header = tab < 0 ? '' : record.subarray(0, tab).toString('ascii');
-    const match = /^(?:100644|100755|120000|160000) (blob|commit) ([0-9a-f]{40}|[0-9a-f]{64}) +([0-9]+|-)$/u.exec(header);
+    const match = long
+      ? /^(?:100644|100755|120000|160000) (blob|commit) ([0-9a-f]{40}|[0-9a-f]{64}) +([0-9]+|-|BAD)$/u.exec(header)
+      : /^(?:100644|100755|120000|160000) (blob|commit) ([0-9a-f]{40}|[0-9a-f]{64})$/u.exec(header);
     if (!match || tab === record.length - 1) {
       throw new SingularityFlowError(
         'Repository setup snapshot tree contains an unsupported entry.', {
@@ -541,7 +558,10 @@ function snapshotTreeQuota(root, env) {
         }
       );
     }
-    const size = match[3] === '-' ? 0 : Number(match[3]);
+    if (long && match[1] === 'blob' && (match[3] === '-' || match[3] === 'BAD')) {
+      missingBlobs += 1;
+    }
+    const size = !long || match[3] === '-' || match[3] === 'BAD' ? 0 : Number(match[3]);
     if (!Number.isSafeInteger(size) || size < 0) {
       throw new SingularityFlowError(
         'Repository setup snapshot tree contains an invalid object size.', {
@@ -554,7 +574,101 @@ function snapshotTreeQuota(root, env) {
     assertSnapshotQuotaValues(files, bytes);
     cursor = end + 1;
   }
-  return { files, bytes };
+  return { files, bytes, missingBlobs, maximumBlobBytes };
+}
+
+function snapshotTreeSurvey(root, env) {
+  const { files } = parseSnapshotTree(root, env);
+  return Object.freeze({ files });
+}
+
+function snapshotTreeQuota(root, env, maximumBlobBytes) {
+  return parseSnapshotTree(root, env, { long: true, maximumBlobBytes });
+}
+
+function snapshotAdmission(files, knownBytes = 0, missingBlobs = files) {
+  if (missingBlobs === 0) return Object.freeze({
+    maximumBlobBytes: 0, filter: '--filter=blob:none'
+  });
+  const remainingBytes = SNAPSHOT_MAX_BYTES - knownBytes;
+  if (remainingBytes < 0) assertSnapshotQuotaValues(files, knownBytes);
+  // `blob:limit=N` omits blobs of size N or greater. Add one so an object exactly at the admitted
+  // ceiling is included. Every already-known blob is smaller than the prior ceiling; dividing the
+  // remaining aggregate budget across only the still-missing paths keeps each retry's worst-case
+  // logical payload at or below SNAPSHOT_MAX_BYTES. For any in-budget tree, at least one missing
+  // integer-sized blob is no larger than that average, so each retry admits another path. Duplicate
+  // blob paths only accelerate that progress; gitlinks are never counted as missing blobs. The
+  // SNAPSHOT_MAX_FILES ceiling therefore also bounds the number of possible admission retries.
+  const maximumBlobBytes = Math.floor(remainingBytes / missingBlobs);
+  return Object.freeze({
+    maximumBlobBytes, filter: `--filter=blob:limit=${maximumBlobBytes + 1}`
+  });
+}
+
+/**
+ * Permanently detach the disposable clone from every Git transport before inspecting its tree.
+ *
+ * `GIT_NO_LAZY_FETCH` is useful defence in depth, but Git versions at the lower end of SFlow's
+ * supported range do not consistently honour it. A filtered clone records its promisor URL in the
+ * repository's local config; leaving that URL in place would allow `ls-tree --long`, checkout, or a
+ * later blob read to contact the network on those versions. The snapshot has only one explicitly
+ * named remote, so remove it and every legacy promisor marker before returning the environment used
+ * by all subsequent reads. This removes implicit fetch authority without blocking the later,
+ * separately frozen and explicitly authorized proposal push.
+ */
+function sealSnapshotTransport(root, env) {
+  const removed = run('git', ['remote', 'remove', SNAPSHOT_REMOTE_NAME], {
+    cwd: root, env, allowFailure: true, timeoutClass: 'local-read'
+  });
+  if (removed.status !== 0 || removed.error || removed.timedOut || removed.signal != null) {
+    throw new SingularityFlowError(
+      'Repository setup snapshot could not detach its temporary Git transport.', {
+        code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE'
+      }
+    );
+  }
+  // Git 2.25-era partial clones can also discover their promisor by the legacy extension key even
+  // after the named remote is gone. Status 5 is Git's documented "key not found" result here.
+  const legacyPromisor = run('git', [
+    'config', '--local', '--unset-all', 'extensions.partialClone'
+  ], { cwd: root, env, allowFailure: true, timeoutClass: 'local-read' });
+  if (![0, 5].includes(legacyPromisor.status) || legacyPromisor.error
+      || legacyPromisor.timedOut || legacyPromisor.signal != null) {
+    throw new SingularityFlowError(
+      'Repository setup snapshot could not remove its legacy promisor configuration.', {
+        code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE'
+      }
+    );
+  }
+  const remaining = run('git', ['remote'], {
+    cwd: root, env, allowFailure: true, timeoutClass: 'local-read'
+  });
+  if (remaining.status !== 0 || remaining.error || remaining.timedOut
+      || remaining.signal != null || remaining.stdout.trim() !== '') {
+    throw new SingularityFlowError(
+      'Repository setup snapshot retained an unexpected Git transport.', {
+        code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE'
+      }
+    );
+  }
+  const promisorConfiguration = run('git', [
+    'config', '--local', '--get-regexp',
+    '^(remote\\..*\\.(promisor|partialclonefilter)|extensions\\.partialclone)$'
+  ], { cwd: root, env, allowFailure: true, timeoutClass: 'local-read' });
+  if (promisorConfiguration.status !== 1 || promisorConfiguration.error
+      || promisorConfiguration.timedOut || promisorConfiguration.signal != null
+      || promisorConfiguration.stdout !== '' || promisorConfiguration.stderr !== '') {
+    throw new SingularityFlowError(
+      'Repository setup snapshot retained promisor transport configuration.', {
+        code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE'
+      }
+    );
+  }
+  return Object.freeze({
+    ...env,
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_NO_REPLACE_OBJECTS: '1'
+  });
 }
 
 function publicFailure(failure) {
@@ -567,18 +681,19 @@ function publicFailure(failure) {
   });
 }
 
-async function cloneObservedBranch(remote, branch, expectedCommit, {
-  env, runRemoteCommand = runRemoteGitAsync, prefix = 'sflow-repository-onboarding-',
-  checkout = true, cleanupQueueRoot = null
+async function cloneFilteredSnapshot(remote, branch, expectedCommit, filter, {
+  transport, runRemoteCommand, prefix, queueRoot
 }) {
-  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   const scratch = await mkdtemp(path.join(os.tmpdir(), prefix));
-  const transport = frozenRemoteTransport(remote, { env });
+  // The per-pass logical admission bound assumes the server honours the requested Git filter.
+  // A filter-ignoring server can transfer more before clone returns; the immediate local object-
+  // store quota below detects and removes that fallback, but Git 2.25 exposes no client-side pack
+  // byte ceiling that can prevent the server's transfer in advance.
   const cloned = await runRemoteCommand([
     '-c', 'core.autocrlf=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
     'clone', '--quiet', '--no-local', '--no-tags',
-    '--single-branch', '--depth', '1', '--filter=blob:none',
-    '--no-checkout',
+    '--single-branch', '--depth', '1', filter,
+    '--no-checkout', '--origin', SNAPSHOT_REMOTE_NAME,
     '--branch', branch, transport.remote, scratch
   ], { cwd: path.dirname(scratch), operation: 'remote-configuration', env: transport.env });
   if (cloned.status !== 0) {
@@ -589,16 +704,22 @@ async function cloneObservedBranch(remote, branch, expectedCommit, {
       }
     ), queueRoot);
   }
-  let localQuota;
+  // From this point onward the snapshot is an admitted local object set. Remove its promisor
+  // transport before the first tree/object read so supported older Git versions cannot turn a
+  // local quota calculation into an implicit network fetch.
+  let localEnv;
   try {
-    // Servers may ignore partial-clone filtering. Enforce an object-store ceiling before inspecting
-    // the tree, then admit the complete tracked tree before any worktree path is materialized.
-    localQuota = await assertSnapshotQuota(scratch);
+    localEnv = sealSnapshotTransport(scratch, transport.env);
+    // Servers may ignore partial-clone filtering. Bound the local object database independently
+    // before inspecting the logical tree. Object storage and checked-out content are separate quota
+    // domains: adding their byte counts would reject an otherwise valid blob merely because Git
+    // stores one copy and the worktree materializes another.
+    await assertSnapshotQuota(scratch);
   } catch (error) {
     return cleanupAfterFailure(scratch, error, queueRoot);
   }
   const commit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
-    cwd: scratch, env: transport.env, allowFailure: true
+    cwd: scratch, env: localEnv, allowFailure: true
   }).stdout.trim();
   if (commit !== expectedCommit) {
     return cleanupAfterFailure(scratch, new SingularityFlowError(
@@ -608,22 +729,129 @@ async function cloneObservedBranch(remote, branch, expectedCommit, {
       }
     ), queueRoot);
   }
+  return { scratch, commit, env: localEnv };
+}
+
+async function removeSnapshotBeforeAdmissionRetry(directory, queueRoot) {
+  try { await removeTemporaryTree(directory); }
+  catch (cleanupFailure) {
+    if (!repositoryOnboardingCleanupContention(cleanupFailure)) throw cleanupFailure;
+    await enqueueRepositoryOnboardingCleanup(directory, { root: queueRoot }).catch(() => false);
+    const error = new SingularityFlowError(
+      'Repository setup could not release its bounded snapshot before the next admission pass.', {
+        code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE'
+      }
+    );
+    throw attachCleanupEvidence(error, cleanupFailure);
+  }
+}
+
+async function cloneObservedBranch(remote, branch, expectedCommit, {
+  env, runRemoteCommand = runRemoteGitAsync, prefix = 'sflow-repository-onboarding-',
+  checkout = true, cleanupQueueRoot = null
+}) {
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
+  const transport = frozenRemoteTransport(remote, { env });
+  // Survey the shallow tree without blobs first, then remove it before a content-bearing pass. For
+  // servers that honor Git's filter capability, this lets the admitted clone derive a per-blob
+  // ceiling whose worst-case logical payload is no larger than SNAPSHOT_MAX_BYTES, including a
+  // repository with many individually-small blobs. A legacy/misconfigured server can ignore the
+  // requested filter and finish writing a full pack; the post-clone object-store quota detects,
+  // refuses, and removes that fallback, but standard Git exposes no portable pre-write byte cap.
+  const survey = await cloneFilteredSnapshot(
+    remote, branch, expectedCommit, '--filter=blob:none', {
+      // Keep the existing owned-prefix shape so a Windows lock can use the same deferred-cleanup
+      // validation and recovery path as every other disposable onboarding snapshot.
+      transport, runRemoteCommand, prefix, queueRoot
+    }
+  );
+  let admission;
+  try { admission = snapshotTreeSurvey(survey.scratch, survey.env); }
+  catch (error) { return cleanupAfterFailure(survey.scratch, error, queueRoot); }
+  // Admission may create another bounded snapshot. Do not let a Windows AV/indexer lock turn the
+  // survey into a queued, still-resident tree while proceeding to allocate the next one. Queue the
+  // locked survey for recovery, but stop this attempt until its disk budget has actually released.
+  await removeSnapshotBeforeAdmissionRetry(survey.scratch, queueRoot);
+  let snapshot = null;
+  let admitted = snapshotAdmission(admission.files);
+  let cumulativeAdmissionBytes = 0;
+  while (true) {
+    snapshot = await cloneFilteredSnapshot(
+      remote, branch, expectedCommit, admitted.filter, {
+        transport, runRemoteCommand, prefix, queueRoot
+      }
+    );
+    let quota;
+    try {
+      quota = snapshotTreeQuota(snapshot.scratch, snapshot.env, admitted.maximumBlobBytes);
+    } catch (error) {
+      return cleanupAfterFailure(snapshot.scratch, error, queueRoot);
+    }
+    if (quota.files !== admission.files) {
+      return cleanupAfterFailure(snapshot.scratch, new SingularityFlowError(
+        'Repository setup tree changed between its bounded survey and admission.', {
+          code: 'REPOSITORY_ONBOARDING_OBSERVATION_CHANGED',
+          details: { branch, expectedFiles: admission.files, actualFiles: quota.files }
+        }
+      ), queueRoot);
+    }
+    cumulativeAdmissionBytes += quota.bytes;
+    if (quota.missingBlobs === 0) break;
+    const next = snapshotAdmission(quota.files, quota.bytes, quota.missingBlobs);
+    if (next.maximumBlobBytes <= admitted.maximumBlobBytes) {
+      return cleanupAfterFailure(snapshot.scratch, new SingularityFlowError(
+        'Repository setup snapshot exceeds its bounded aggregate byte admission.', {
+          code: 'REPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED',
+          details: {
+            files: quota.files, admittedBytes: quota.bytes,
+            missingBlobs: quota.missingBlobs,
+            maximumFiles: SNAPSHOT_MAX_FILES, maximumBytes: SNAPSHOT_MAX_BYTES
+          }
+        }
+      ), queueRoot);
+    }
+    const nextWorstCaseBytes = quota.bytes + quota.missingBlobs * next.maximumBlobBytes;
+    // The per-pass proof above guarantees eventual admission for every aggregate-valid tree, but
+    // repeatedly cloning wider strata can amplify total transfer work. The cumulative policy is an
+    // intentional conservative boundary: a valid multi-strata tree may be refused when the next
+    // pass cannot be proven to remain within two full snapshot budgets, and must then be simplified
+    // or reviewed manually.
+    if (cumulativeAdmissionBytes + nextWorstCaseBytes
+        > SNAPSHOT_MAX_ADMISSION_WORK_BYTES) {
+      return cleanupAfterFailure(snapshot.scratch, new SingularityFlowError(
+        'Repository setup cannot prove its next pass remains within bounded cumulative admission work.', {
+          code: 'REPOSITORY_ONBOARDING_SNAPSHOT_WORK_LIMIT_EXCEEDED',
+          details: {
+            cumulativeAdmissionBytes, nextWorstCaseBytes,
+            maximumAdmissionWorkBytes: SNAPSHOT_MAX_ADMISSION_WORK_BYTES,
+            maximumFiles: SNAPSHOT_MAX_FILES, maximumBytes: SNAPSHOT_MAX_BYTES
+          }
+        }
+      ), queueRoot);
+    }
+    await removeSnapshotBeforeAdmissionRetry(snapshot.scratch, queueRoot);
+    snapshot = null;
+    admitted = next;
+  }
+  if (!snapshot) throw new SingularityFlowError(
+    'Repository setup did not produce an admitted local snapshot.', {
+      code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE'
+    }
+  );
+  const { scratch, commit, env: localEnv } = snapshot;
   if (checkout) {
     try {
-      const treeQuota = snapshotTreeQuota(scratch, transport.env);
-      assertSnapshotQuotaValues(
-        localQuota.files + treeQuota.files,
-        localQuota.bytes + treeQuota.bytes
-      );
       run('git', ['checkout', '--quiet', '--force', '--detach', commit], {
-        cwd: scratch, env: transport.env, timeoutClass: 'local-read'
+        cwd: scratch, env: localEnv, timeoutClass: 'local-read'
       });
-      await assertSnapshotQuota(scratch);
+      // The object database already passed its own ceiling. Recheck only materialized worktree
+      // paths here so checkout cannot bypass the same logical file/byte limits admitted above.
+      await assertSnapshotQuota(scratch, { excludedRootEntries: ['.git'] });
     } catch (error) {
       return cleanupAfterFailure(scratch, error, queueRoot);
     }
   }
-  return { scratch, commit, env: transport.env };
+  return { scratch, commit, env: localEnv };
 }
 
 function parseJson(bytes, label) {
@@ -846,11 +1074,11 @@ export async function classifyRepositoryState(remote, {
   }
   const commit = observation.refs.get(ref) ?? null;
   if (!commit) return Object.freeze({ kind: 'none', branch, commit: null });
+  const warnings = cleanupWarnings ?? [];
   const snapshot = await cloneObservedBranch(repository, branch, commit, {
     env, runRemoteCommand, prefix: 'sflow-state-classifier-', checkout: false,
     cleanupQueueRoot: queueRoot
   });
-  const warnings = cleanupWarnings ?? [];
   const result = await withDisposableReadSnapshot(snapshot.scratch, async () => {
     try {
       return await classifyStateObjectStore(

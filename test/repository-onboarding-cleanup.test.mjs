@@ -47,6 +47,38 @@ async function writeCleanupRecord(queue, target, values = {}) {
   return record;
 }
 
+function snapshotCleanupFailure(originalRm, {
+  prefix, targetIndex = 1, code = 'EBUSY', once = false
+}) {
+  const targets = [];
+  let failures = 0;
+  return {
+    get target() { return targets[targetIndex] ?? null; },
+    get failures() { return failures; },
+    rm: async (target, options) => {
+      if (path.basename(String(target)).startsWith(prefix)) {
+        let index = targets.indexOf(String(target));
+        if (index < 0) {
+          targets.push(String(target));
+          index = targets.length - 1;
+        }
+        if (index === targetIndex && (!once || failures === 0)) {
+          failures += 1;
+          const error = new Error(`${code === 'EMFILE' ? 'too many open files' : 'resource busy or locked'}, rmdir '${target}'`);
+          error.code = code;
+          if (code === 'EBUSY') {
+            error.errno = -4082;
+            error.syscall = 'rmdir';
+            error.path = String(target);
+          }
+          throw error;
+        }
+      }
+      return originalRm(target, options);
+    }
+  };
+}
+
 test('plan identity excludes only the dedicated local-cleanup diagnostic field', async () => {
   const source = await readFile(new URL('../src/repository-onboarding.mjs', import.meta.url), 'utf8');
   assert.match(source, /delete identity\.localCleanupWarnings\b/u,
@@ -267,6 +299,42 @@ test('apply reinspection uses the same explicit cleanup queue as preview', async
   }
 });
 
+test('a locked survey is queued and stops before allocating an admitted snapshot', async () => {
+  const fixture = await configuredRepositoryFixture();
+  const { queue } = cleanupQueueFixture(fixture);
+  const originalRm = fs.promises.rm;
+  const injection = snapshotCleanupFailure(originalRm, {
+    prefix: 'sflow-configuration-classifier-', targetIndex: 0
+  });
+  let clones = 0;
+  fs.promises.rm = injection.rm;
+  syncBuiltinESMExports();
+
+  try {
+    await assert.rejects(inspectRepositoryOnboarding(fixture.remote, {
+      cleanupQueueRoot: queue,
+      runRemoteCommand: async (args, options) => {
+        if (args.includes('clone')) clones += 1;
+        return runRemoteGitAsync(args, options);
+      }
+    }), (error) => {
+      assert.equal(error.code, 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE');
+      assert.equal(error.details?.cleanup?.code, 'EBUSY');
+      return true;
+    });
+    assert.equal(clones, 1, 'a locked blobless survey must stop before another clone');
+    assert.ok(injection.target);
+    assert.ok((await lstat(injection.target)).isDirectory());
+    assert.ok((await lstat(path.join(queue, cleanupRecordName(injection.target)))).isFile(),
+      'the exact locked survey must be queued for later cleanup');
+  } finally {
+    fs.promises.rm = originalRm;
+    syncBuiltinESMExports();
+    if (injection.target) await rm(injection.target, { recursive: true, force: true });
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test('a full cleanup backlog never replaces a successful repository inspection', async () => {
   const fixture = await configuredRepositoryFixture();
   const { queue } = cleanupQueueFixture(fixture);
@@ -277,16 +345,10 @@ test('a full cleanup backlog never replaces a successful repository inspection',
     await writeCleanupRecord(queue, deferred, { nextAttemptAt: '2099-01-01T00:00:00.000Z' });
   }
   const originalRm = fs.promises.rm;
-  let classifierScratch = null;
-  fs.promises.rm = async (target, options) => {
-    if (path.basename(String(target)).startsWith('sflow-configuration-classifier-')) {
-      classifierScratch = String(target);
-      const error = new Error(`resource busy or locked, rmdir '${target}'`);
-      error.code = 'EBUSY';
-      throw error;
-    }
-    return originalRm(target, options);
-  };
+  const injection = snapshotCleanupFailure(originalRm, {
+    prefix: 'sflow-configuration-classifier-'
+  });
+  fs.promises.rm = injection.rm;
   syncBuiltinESMExports();
 
   try {
@@ -295,11 +357,11 @@ test('a full cleanup backlog never replaces a successful repository inspection',
     assert.equal(plan.planId, control.planId,
       'queue capacity is machine-local diagnostics and cannot replace the ref-bound decision');
     assert.ok(plan.localCleanupWarnings.some((warning) => /cleanup could not be queued/u.test(warning)));
-    assert.ok((await lstat(classifierScratch)).isDirectory());
+    assert.ok((await lstat(injection.target)).isDirectory());
   } finally {
     fs.promises.rm = originalRm;
     syncBuiltinESMExports();
-    if (classifierScratch) await rm(classifierScratch, { recursive: true, force: true });
+    if (injection.target) await rm(injection.target, { recursive: true, force: true });
     await rm(fixture.base, { recursive: true, force: true });
   }
 });
@@ -310,34 +372,22 @@ test('configuration classification survives transient EBUSY through retry or def
     const { queue } = cleanupQueueFixture(fixture);
     const control = await inspectRepositoryOnboarding(fixture.remote, { cleanupQueueRoot: queue });
     const originalRm = fs.promises.rm;
-    let injectedBusy = false;
-    let classifierScratch = null;
-    fs.promises.rm = async (target, options) => {
-      if (!injectedBusy
-          && path.basename(String(target)).startsWith('sflow-configuration-classifier-')) {
-        injectedBusy = true;
-        classifierScratch = String(target);
-        const error = new Error(`resource busy or locked, rmdir '${target}'`);
-        error.code = 'EBUSY';
-        error.errno = -4082;
-        error.syscall = 'rmdir';
-        error.path = String(target);
-        throw error;
-      }
-      return originalRm(target, options);
-    };
+    const injection = snapshotCleanupFailure(originalRm, {
+      prefix: 'sflow-configuration-classifier-', once: true
+    });
+    fs.promises.rm = injection.rm;
     syncBuiltinESMExports();
 
     try {
       const plan = await inspectRepositoryOnboarding(fixture.remote, { cleanupQueueRoot: queue });
-      assert.equal(injectedBusy, true, 'the classifier cleanup must reach the injected lock');
+      assert.equal(injection.failures, 1, 'the final classifier cleanup must reach the injected lock');
       assert.equal(plan.configuration.branch, CONFIGURATION_BRANCH);
       assert.equal(plan.configuration.status, 'current');
       assert.equal(plan.status, 'ready');
       assert.equal(plan.canApply, true);
       assert.equal(plan.planId, control.planId,
         'a cleanup retry cannot change the content-addressed onboarding decision');
-      const deferred = await lstat(classifierScratch).then(() => true).catch((error) => {
+      const deferred = await lstat(injection.target).then(() => true).catch((error) => {
         if (error?.code === 'ENOENT') return false;
         throw error;
       });
@@ -350,7 +400,7 @@ test('configuration classification survives transient EBUSY through retry or def
           cleanupQueueRoot: queue
         });
         assert.equal(repeated.planId, control.planId);
-        await assert.rejects(lstat(classifierScratch), { code: 'ENOENT' },
+        await assert.rejects(lstat(injection.target), { code: 'ENOENT' },
           'the next inspection must drain a transiently queued classifier checkout');
       } else {
         assert.deepEqual(plan.localCleanupWarnings, [],
@@ -359,6 +409,7 @@ test('configuration classification survives transient EBUSY through retry or def
     } finally {
       fs.promises.rm = originalRm;
       syncBuiltinESMExports();
+      if (injection.target) await rm(injection.target, { recursive: true, force: true });
       await rm(fixture.base, { recursive: true, force: true });
     }
   });
@@ -368,16 +419,10 @@ test('an exhausted Windows cleanup lock becomes a non-authoritative warning', as
   const { queue } = cleanupQueueFixture(fixture);
   const control = await inspectRepositoryOnboarding(fixture.remote, { cleanupQueueRoot: queue });
   const originalRm = fs.promises.rm;
-  let classifierScratch = null;
-  fs.promises.rm = async (target, options) => {
-    if (path.basename(String(target)).startsWith('sflow-configuration-classifier-')) {
-      classifierScratch = String(target);
-      const error = new Error(`resource busy or locked, rmdir '${target}'`);
-      error.code = 'EBUSY';
-      throw error;
-    }
-    return originalRm(target, options);
-  };
+  const injection = snapshotCleanupFailure(originalRm, {
+    prefix: 'sflow-configuration-classifier-'
+  });
+  fs.promises.rm = injection.rm;
   syncBuiltinESMExports();
 
   try {
@@ -388,7 +433,7 @@ test('an exhausted Windows cleanup lock becomes a non-authoritative warning', as
       'local cleanup diagnostics must not change the ref-bound authority decision');
     assert.equal(plan.localCleanupWarnings.length, 1);
     assert.match(plan.localCleanupWarnings[0], /disposable snapshot open/u);
-    assert.ok((await lstat(classifierScratch)).isDirectory(),
+    assert.ok((await lstat(injection.target)).isDirectory(),
       'the warning must disclose a real deferred cleanup rather than claim deletion');
 
     fs.promises.rm = originalRm;
@@ -396,14 +441,14 @@ test('an exhausted Windows cleanup lock becomes a non-authoritative warning', as
     const repeated = await inspectRepositoryOnboarding(fixture.remote, { cleanupQueueRoot: queue });
     assert.equal(repeated.planId, control.planId);
     assert.deepEqual(repeated.localCleanupWarnings, []);
-    await assert.rejects(lstat(classifierScratch), { code: 'ENOENT' },
+    await assert.rejects(lstat(injection.target), { code: 'ENOENT' },
       'the next inspection must drain the exact queued SFlow snapshot after the lock clears');
     assert.deepEqual(await readdir(queue), [],
       'a successfully drained queue must not retain a stale recovery record');
   } finally {
     fs.promises.rm = originalRm;
     syncBuiltinESMExports();
-    if (classifierScratch) await rm(classifierScratch, { recursive: true, force: true });
+    if (injection.target) await rm(injection.target, { recursive: true, force: true });
     await rm(fixture.base, { recursive: true, force: true });
   }
 });
@@ -414,16 +459,10 @@ test('state classification also survives an exhausted Windows cleanup lock', asy
   await publishUnrecognizedState(fixture);
   const control = await inspectRepositoryOnboarding(fixture.remote, { cleanupQueueRoot: queue });
   const originalRm = fs.promises.rm;
-  let classifierScratch = null;
-  fs.promises.rm = async (target, options) => {
-    if (path.basename(String(target)).startsWith('sflow-state-classifier-')) {
-      classifierScratch = String(target);
-      const error = new Error(`resource busy or locked, rmdir '${target}'`);
-      error.code = 'EBUSY';
-      throw error;
-    }
-    return originalRm(target, options);
-  };
+  const injection = snapshotCleanupFailure(originalRm, {
+    prefix: 'sflow-state-classifier-'
+  });
+  fs.promises.rm = injection.rm;
   syncBuiltinESMExports();
 
   try {
@@ -431,11 +470,11 @@ test('state classification also survives an exhausted Windows cleanup lock', asy
     assert.equal(plan.state.kind, 'invalid');
     assert.equal(plan.planId, control.planId);
     assert.equal(plan.localCleanupWarnings.length, 1);
-    assert.ok((await lstat(classifierScratch)).isDirectory());
+    assert.ok((await lstat(injection.target)).isDirectory());
   } finally {
     fs.promises.rm = originalRm;
     syncBuiltinESMExports();
-    if (classifierScratch) await rm(classifierScratch, { recursive: true, force: true });
+    if (injection.target) await rm(injection.target, { recursive: true, force: true });
     await rm(fixture.base, { recursive: true, force: true });
   }
 });
@@ -473,16 +512,10 @@ test('resource exhaustion during cleanup remains fatal instead of becoming an EB
     const fixture = await configuredRepositoryFixture();
     const { queue } = cleanupQueueFixture(fixture);
     const originalRm = fs.promises.rm;
-    let classifierScratch = null;
-    fs.promises.rm = async (target, options) => {
-      if (path.basename(String(target)).startsWith('sflow-configuration-classifier-')) {
-        classifierScratch = String(target);
-        const error = new Error(`too many open files, rmdir '${target}'`);
-        error.code = 'EMFILE';
-        throw error;
-      }
-      return originalRm(target, options);
-    };
+    const injection = snapshotCleanupFailure(originalRm, {
+      prefix: 'sflow-configuration-classifier-', code: 'EMFILE'
+    });
+    fs.promises.rm = injection.rm;
     syncBuiltinESMExports();
 
     try {
@@ -499,7 +532,7 @@ test('resource exhaustion during cleanup remains fatal instead of becoming an EB
     } finally {
       fs.promises.rm = originalRm;
       syncBuiltinESMExports();
-      if (classifierScratch) await rm(classifierScratch, { recursive: true, force: true });
+      if (injection.target) await rm(injection.target, { recursive: true, force: true });
       await rm(fixture.base, { recursive: true, force: true });
     }
   });
@@ -596,16 +629,10 @@ test('proposal checkout EBUSY preserves an already-published recreate proposal',
   });
   assert.equal(preview.canApply, true);
   const originalRm = fs.promises.rm;
-  let checkout = null;
-  fs.promises.rm = async (target, options) => {
-    if (path.basename(String(target)).startsWith('sflow-onboarding-proposal-')) {
-      checkout = String(target);
-      const error = new Error(`resource busy or locked, rmdir '${target}'`);
-      error.code = 'EBUSY';
-      throw error;
-    }
-    return originalRm(target, options);
-  };
+  const injection = snapshotCleanupFailure(originalRm, {
+    prefix: 'sflow-onboarding-proposal-'
+  });
+  fs.promises.rm = injection.rm;
   syncBuiltinESMExports();
 
   try {
@@ -616,15 +643,15 @@ test('proposal checkout EBUSY preserves an already-published recreate proposal',
     assert.equal(result.proposal.published, true);
     assert.ok(result.localCleanupWarnings.some((warning) =>
       /Repository setup completed[\s\S]*queued cleanup/u.test(warning)));
-    assert.ok(checkout, 'the apply must reach proposal-checkout cleanup after publication');
+    assert.ok(injection.target, 'the apply must reach proposal-checkout cleanup after publication');
     assert.equal(run('git', [
       'rev-parse', `refs/heads/${result.proposal.branch}`
     ], { cwd: fixture.remote }).stdout.trim(), result.proposal.commit);
-    assert.ok((await lstat(path.join(queue, cleanupRecordName(checkout)))).isFile());
+    assert.ok((await lstat(path.join(queue, cleanupRecordName(injection.target)))).isFile());
   } finally {
     fs.promises.rm = originalRm;
     syncBuiltinESMExports();
-    if (checkout) await rm(checkout, { recursive: true, force: true });
+    if (injection.target) await rm(injection.target, { recursive: true, force: true });
     await rm(fixture.base, { recursive: true, force: true });
   }
 });

@@ -224,6 +224,7 @@ test('VS Code POSIX Git resolution ignores relative PATH and checkout-local shim
   const examined = [];
   const filesystem = {
     async stat(candidate) {
+      if (candidate === '/.git') throw Object.assign(new Error('missing'), { code: 'ENOENT' });
       examined.push(candidate);
       return { isFile: () => true, mode: 0o755 };
     },
@@ -245,6 +246,59 @@ test('VS Code POSIX Git resolution ignores relative PATH and checkout-local shim
   assert.equal(await resolvePosixGitExecutable('/work/repo', {
     PATH: '/blocked:/trusted/bin'
   }, nonExecutable), '/trusted/bin/git');
+});
+
+test('VS Code POSIX Git resolution accepts trusted Git when the extension cwd is filesystem root', async () => {
+  const examined = [];
+  const filesystem = {
+    async stat(candidate) {
+      if (candidate === '/.git') throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      examined.push(candidate);
+      return { isFile: () => true, mode: 0o755 };
+    },
+    async canonicalize(candidate) { return candidate; }
+  };
+
+  assert.equal(await resolvePosixGitExecutable('/', {
+    PATH: '.:/opt/homebrew/bin:/usr/bin'
+  }, filesystem), '/opt/homebrew/bin/git');
+  assert.deepEqual(examined, ['/HEAD', '/objects', '/refs', '/config', '/opt/homebrew/bin/git']);
+
+  // The root exception must not weaken the checkout-local shadow exclusion.
+  assert.equal(await resolvePosixGitExecutable('/work/repo', {
+    PATH: '/work/repo'
+  }, filesystem), null);
+
+  const rootCheckout = {
+    async stat(candidate) {
+      return candidate === '/.git'
+        ? { isFile: () => false, isDirectory: () => true, mode: 0o755 }
+        : { isFile: () => true, isDirectory: () => false, mode: 0o755 };
+    },
+    async canonicalize(candidate) { return candidate; }
+  };
+  assert.equal(await resolvePosixGitExecutable('/', {
+    PATH: '/tools'
+  }, rootCheckout), null, 'a checkout mounted at filesystem root cannot supply Git');
+
+  const bareRootEntries = new Map([
+    ['/HEAD', { isFile: () => true, isDirectory: () => false, mode: 0o644 }],
+    ['/objects', { isFile: () => false, isDirectory: () => true, mode: 0o755 }],
+    ['/refs', { isFile: () => false, isDirectory: () => true, mode: 0o755 }],
+    ['/config', { isFile: () => true, isDirectory: () => false, mode: 0o644 }]
+  ]);
+  const rootBareRepository = {
+    async stat(candidate) {
+      if (candidate === '/.git') throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return bareRootEntries.get(candidate)
+        ?? { isFile: () => true, isDirectory: () => false, mode: 0o755 };
+    },
+    async canonicalize(candidate) { return candidate; }
+  };
+  assert.equal(await resolvePosixGitExecutable('/', {
+    PATH: '/tools'
+  }, rootBareRepository), null,
+  'a bare repository mounted at filesystem root cannot supply Git');
 });
 
 test('rework roll-forward preview renders every path without truncation', () => {
@@ -504,6 +558,28 @@ test('a structured non-zero result remains available without turning JSON into t
       assert.equal(error.message, 'The Singularity Flow command reported partial.');
       assert.equal(error.result.status, 'partial');
       assert.equal(error.result.results[0].repository, 'api');
+      return true;
+    }
+  );
+});
+
+test('a JSON refusal written to stderr retains its exact error code', async () => {
+  const refusal = {
+    schemaVersion: 1,
+    resultType: 'sflow-refusal-plan',
+    status: 'failed',
+    error: {
+      code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE',
+      message: 'Repository setup snapshot tree could not be inspected.'
+    },
+    remediationPlan: { schemaVersion: 1, status: 'blocked', code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE', steps: [] }
+  };
+  await assert.rejects(
+    invoke({ spawnImpl: fakeSpawn({ stderr: JSON.stringify(refusal), code: 1 }) }),
+    (error) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.message, refusal.error.message);
+      assert.equal(error.result.error.code, refusal.error.code);
       return true;
     }
   );
@@ -3492,6 +3568,7 @@ const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, gitR
 const {
   parseRepositoryOnboardingPlan, parseRepositoryOnboardingResult,
   repositoryOnboardingApplyArgv, repositoryOnboardingCanContinue,
+  repositoryOnboardingCommandFailureCopy, repositoryOnboardingFailureCode,
   repositoryOnboardingModeAvailable, repositoryOnboardingPlanMatchesInput,
   repositoryOnboardingPreviewArgv
 } = await import(source('views/repository-onboarding-model.ts'));
@@ -3792,6 +3869,169 @@ test('repository setup renders one primary action and keeps recovery choices und
     primaryAction: 'reset-local-registration',
     observedRefs: {}
   }), 'the explicit local-reset preview action is part of the closed contract');
+});
+
+test('repository setup reports classified Git failures without exposing diagnostic secrets or paths', async () => {
+  const repositoryUrl = 'https://git.example/application.git';
+  const base = {
+    schemaVersion: 1,
+    kind: 'repository-onboarding-plan/v1',
+    repository: { url: repositoryUrl, identity: `sha256:${'c'.repeat(64)}` },
+    mode: 'auto',
+    status: 'could-not-check-git',
+    primaryAction: 'retry',
+    state: { kind: 'none', branch: 'state', commit: null },
+    configuration: {
+      branch: 'sflow/config', commit: null, status: 'missing', schemaVersion: null,
+      currentSchemaVersion: 1
+    },
+    observedRefs: {}, effects: [], preserved: ['application branches'], omitted: [], choices: [],
+    availableModes: ['reset-local'], routing: null, organisation: null, canApply: false,
+    planId: `sha256:${'b'.repeat(64)}`,
+    nextActions: {
+      shell: `singularity-flow capability onboard ${repositoryUrl} --dry-run --json`,
+      copilot: '/sf-capability-map'
+    },
+    dryRun: true
+  };
+  const renderFailure = (failure) => {
+    const plan = parseRepositoryOnboardingPlan({ ...base, failure });
+    assert.ok(plan);
+    assert.deepEqual(plan.failure, failure, 'the closed projection retains the public diagnosis');
+    return mapCapabilityHtml({
+      ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: plan
+    });
+  };
+  const examples = [
+    {
+      failure: {
+        code: 'REMOTE_GIT_UNAVAILABLE', classification: 'git-unavailable', retryable: false,
+        advice: 'Install Git, restart the calling application, then retry.'
+      },
+      expected: /Git is unavailable to VS Code/
+    },
+    {
+      failure: {
+        code: 'REMOTE_AUTHENTICATION_REQUIRED', classification: 'authentication-required',
+        retryable: false, advice: 'Sign in to Git, then retry.'
+      },
+      expected: /Git sign-in is required/
+    },
+    {
+      failure: {
+        code: 'REMOTE_NETWORK_TRANSIENT', classification: 'network-transient', retryable: true,
+        advice: 'Check DNS and network reachability, then retry.'
+      },
+      expected: /Git network check failed/
+    },
+    {
+      failure: {
+        code: 'REMOTE_TLS_TRUST', classification: 'tls-trust', retryable: false,
+        advice: 'Install the approved trust chain, then retry.'
+      },
+      expected: /Git TLS trust needs attention/
+    },
+    {
+      failure: {
+        code: 'REMOTE_PROXY_CONFIGURATION', classification: 'proxy-configuration', retryable: false,
+        advice: 'Correct the approved proxy configuration, then retry.'
+      },
+      expected: /Git proxy configuration needs attention/
+    },
+    {
+      failure: {
+        code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE', classification: 'unknown', retryable: true,
+        advice: 'Inspect the repository snapshot and retry.'
+      },
+      expected: /Could not inspect repository snapshot/
+    },
+    {
+      failure: {
+        code: 'REPOSITORY_ONBOARDING_SNAPSHOT_WORK_LIMIT_EXCEEDED',
+        classification: 'unknown', retryable: false,
+        advice: 'The bounded inspection work limit was reached.'
+      },
+      expected: /Repository inspection work limit reached/
+    },
+    {
+      failure: {
+        code: 'REMOTE_TIMEOUT', classification: 'network-transient', retryable: true,
+        advice: 'The bounded Git check timed out.'
+      },
+      expected: /Git check timed out/
+    }
+  ];
+  for (const example of examples) {
+    const html = renderFailure(example.failure);
+    assert.match(html, example.expected);
+    assert.match(html, new RegExp(example.failure.classification));
+    assert.match(html, new RegExp(example.failure.code));
+    assert.doesNotMatch(html, /Git access must succeed/);
+  }
+
+  const hostileAdvice = [
+    'Inspect /private/local/Top Secret Project or C:\\private\\local\\Top Secret Project.',
+    'password=LEAKMARK',
+    'Bearer eyJaaaaaaaaaaa.bbbbbbbbbbb.ccccccccccc',
+    'https://user:password@git.example/private/Secret Project.git',
+    'git@git.example:private/Secret Project.git'
+  ].join(' ');
+  const hostileHtml = renderFailure({
+    code: 'REMOTE_AUTHENTICATION_REQUIRED', classification: 'authentication-required',
+    retryable: false, advice: hostileAdvice
+  });
+  assert.match(hostileHtml, /Git diagnosis \(authentication-required; REMOTE_AUTHENTICATION_REQUIRED\)/);
+  assert.doesNotMatch(hostileHtml,
+    /private\/local|Secret Project|LEAKMARK|eyJaaaaaaaaaaa|user:password|git\.example[/:]private/);
+
+  assert.equal(parseRepositoryOnboardingPlan({
+    ...base,
+    failure: { code: 'remote bad', classification: 'invented-class', retryable: true, advice: 'Retry.' }
+  }), null, 'failure codes and classifications outside the closed public vocabulary fail closed');
+  const legacy = parseRepositoryOnboardingPlan(base);
+  assert.ok(legacy, 'an older v1 failure preview without the optional diagnosis remains readable');
+  assert.match(mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: legacy
+  }), /The repository inspection did not complete/);
+
+  assert.match(repositoryOnboardingCommandFailureCopy(
+    'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE'
+  ).title, /repository snapshot/i);
+  assert.match(repositoryOnboardingCommandFailureCopy('REMOTE_TIMEOUT').title, /timed out/i);
+  assert.match(repositoryOnboardingCommandFailureCopy(
+    'REPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED'
+  ).title, /too large/i);
+  assert.match(repositoryOnboardingCommandFailureCopy(
+    'REPOSITORY_ONBOARDING_SNAPSHOT_WORK_LIMIT_EXCEEDED'
+  ).title, /work limit/i);
+  assert.doesNotMatch(repositoryOnboardingCommandFailureCopy(
+    'REPOSITORY_ONBOARDING_SNAPSHOT_WORK_LIMIT_EXCEEDED'
+  ).title, /too large/i,
+  'bounded repeated-transfer refusal must not claim that the repository itself is oversized');
+  const cliFailure = {
+    message: 'Repository setup snapshot tree could not be inspected.',
+    result: { error: { code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE' } }
+  };
+  assert.equal(repositoryOnboardingFailureCode(cliFailure),
+    'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE');
+  assert.match(repositoryOnboardingCommandFailureCopy(cliFailure).title, /repository snapshot/i,
+    'the structured CliError result drives fallback diagnosis even when prose contains no code');
+  for (const operandOnly of [
+    'Authentication failed for https://git.example/snapshot.git',
+    'Network failed for https://git.example/tls-project.git',
+    'ENOENT under /private/local/proxy/project',
+    'ENOENT under /private/REMOTE_TLS_TRUST/project',
+    '/srv/REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE/repo',
+    'HTTPS path /private/REMOTE_PROXY_CONFIGURATION/project'
+  ]) assert.equal(repositoryOnboardingCommandFailureCopy(operandOnly).title,
+    'Repository setup check failed', 'repository operands cannot select remediation copy');
+  const bootstrap = await readFile(source('views/bootstrap-panel.ts'), 'utf8');
+  assert.match(bootstrap,
+    /const failure = repositoryOnboardingCommandFailureCopy\(errorCode \?\? error\)[\s\S]{0,500}error: this\.form\.repositorySetupMaintenance \? message : null/,
+    'a pre-plan CLI failure is categorized instead of reflecting raw provider or path prose');
+  assert.match(bootstrap,
+    /repositoryOnboardingApplyArgv\(repositoryUrl, plan\)[\s\S]{0,500}repositoryOnboardingCommandFailureCopy\(errorCode \?\? error\)[\s\S]{0,300}error: `\$\{failure\.title\}\. \$\{failure\.message\}`/,
+    'an apply-time CLI failure is categorized instead of reflecting raw provider or path prose');
 });
 
 test('repository recovery modes are rendered and accepted only when the engine advertises them', async () => {

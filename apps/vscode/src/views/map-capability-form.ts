@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import { commandGuidance } from '../copilot-command.ts';
 import { CAPABILITY_KINDS } from './capability-model.ts';
 import {
+  repositoryOnboardingCanDeferStateRefresh,
   repositoryOnboardingCopy,
   repositoryOnboardingFailureDiagnosis,
   type RepositoryOnboardingMode,
@@ -429,9 +430,11 @@ function repositorySetupPrimary(plan: RepositoryOnboardingPlan): {
     return { message: 'applyRepositorySetup', label: copy.action, disabled: !plan.canApply };
   }
   if (plan.primaryAction === 'continue' || plan.primaryAction === 'map-capability') {
-    // A locator's Continue also remembers its already-verified team configuration locally. Keep
-    // that bounded change behind the same exact-plan confirmation instead of silently skipping it.
-    if (plan.canApply && plan.effects.length > 0) {
+    // A current approved configuration can be inspected even when the portable state projection
+    // is pending. Its refresh remains an explicit, separately confirmed optional action below.
+    // Other effects, including local registration for a team locator, retain exact-plan consent.
+    if (plan.canApply && plan.effects.length > 0
+      && !repositoryOnboardingCanDeferStateRefresh(plan)) {
       return { message: 'applyRepositorySetup', label: copy.action, disabled: false };
     }
     return { message: 'continueRepositorySetup', label: copy.action, disabled: false };
@@ -458,6 +461,13 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
   }
   const plan = form.repositorySetupPlan;
   if (!plan) return '';
+  const inlineError = form.error ? `<p class="blockers" role="alert">${escape(form.error)}</p>` : '';
+  const capabilityMapReady = form.repositorySetupResolved && form.inspectionComplete && form.loaded;
+  const capabilityHandoff = capabilityMapReady
+    ? '<p class="ok-text">The approved capability map was checked. Continue with the capability details below. <a href="#map-capability-details">Go to capability details</a></p>'
+    : form.repositorySetupResolved && form.inspectionStatus === 'checking'
+      ? '<p class="muted">Checking the approved capability map…</p>'
+      : '';
   const outcome = form.repositorySetupResult;
   const outcomeCleanupWarnings = outcome?.localCleanupWarnings?.length
     ? `<div class="notice warning"><strong>Local cleanup pending</strong><ul>${outcome.localCleanupWarnings
@@ -483,6 +493,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
         ? 'The proposal branch was published. Its commit is waiting for review; repository setup has not approved it.'
         : 'The existing proposal branch was preserved. Repository setup has not approved it.'}</p>
       ${outcomeCleanupWarnings}
+      ${inlineError}
       <p><button type="button" data-repository-setup-primary="reviewRepositorySetup">Review setup proposal</button>
         <button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">Check setup again</button>
         <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
@@ -498,6 +509,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
         ? ', and the portable state projection also remains pending.'
         : '; preview again to retry only the local step.'}</p>
       ${outcomeCleanupWarnings}
+      ${inlineError}
       <p><button type="button" data-repository-setup-primary="retryRepositorySetup">Retry local registration</button>
         <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>
@@ -516,7 +528,10 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
         ? 'Configuration is ready. The portable state projection can be retried without repeating configuration publication.'
         : 'Repository setup completed and the confirmed result is being reused without another full Git inspection.'}</p>
       ${outcomeCleanupWarnings}
-      <p><button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">${pendingProjection ? 'Prepare state-refresh retry' : 'Check setup again'}</button>
+      ${inlineError}
+      ${capabilityHandoff}
+      <p>${capabilityMapReady ? '' : '<button type="button" data-repository-setup-primary="continueRepositorySetup">Continue to capability mapping</button>'}
+        <button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">${pendingProjection ? 'Prepare state-refresh retry' : 'Check setup again'}</button>
         ${pendingProjection ? `<button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy exact shell retry</button>
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>` : ''}</p>
     </section>`;
@@ -552,9 +567,15 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     .map((mode) => `<button type="button" class="secondary"
       data-repository-setup-mode="${escape(mode)}">${escape(modeLabels[mode])}</button>`)
     .join(' ');
+  const deferredStateRefresh = repositoryOnboardingCanDeferStateRefresh(plan);
+  const optionalStateRefresh = deferredStateRefresh && plan.canApply
+    ? '<button type="button" class="secondary" data-repository-setup-optional-apply>Refresh portable state index</button>'
+    : '';
   const moreOptions = `<details class="configuration-advanced-tools"><summary>More options</summary>
-    <p>${optionalModeButtons}${optionalModeButtons ? ' ' : ''}<button type="button" class="secondary"
+    <p>${optionalStateRefresh}${optionalStateRefresh ? ' ' : ''}${optionalModeButtons}${optionalModeButtons ? ' ' : ''}<button type="button" class="secondary"
       data-repository-setup-diagnostics>Diagnostics</button></p>
+    ${deferredStateRefresh ? '<p class="muted">The approved configuration can be used now. Refreshing its portable state index helps another laptop discover this capability later; it is not required to describe the first capability.</p>' : ''}
+    ${plan.availableModes.includes('reset-local') ? '<p class="muted">Reset local registration clears only this laptop\'s shortcut and cache, then checks Git again. It does not remove the approved configuration or capability map.</p>' : ''}
   </details>`;
   return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(plan.status)}" aria-live="polite">
     <div class="card-head"><div><p class="eyebrow">Repository setup</p>
@@ -567,8 +588,10 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     ${warnings}
     ${omitted}
     ${form.repositorySetupNotice ? `<p class="ok-text">${icon('ok')}${escape(form.repositorySetupNotice)}</p>` : ''}
-    <p><button type="button" data-repository-setup-primary="${escape(primary.message)}"
-      ${primary.disabled || form.repositorySetupApplying ? 'disabled' : ''}>${form.repositorySetupApplying ? 'Applying…' : escape(primary.label)}</button></p>
+    ${inlineError}
+    ${capabilityHandoff}
+    ${capabilityMapReady ? '' : `<p><button type="button" data-repository-setup-primary="${escape(primary.message)}"
+      ${primary.disabled || form.repositorySetupApplying ? 'disabled' : ''}>${form.repositorySetupApplying ? 'Applying…' : escape(primary.label)}</button></p>`}
     ${primary.disabled ? '<p class="muted">This preview cannot be applied. Refresh it or open Diagnostics.</p>' : ''}
     ${choices}
     ${moreOptions}
@@ -716,7 +739,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
           ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' ? 'disabled' : ''}>${form.inspectionStatus === 'checking' ? 'Checking…' : 'Check setup'}</button></p>
     </section>
     ${setupHtml}
-    ${form.error ? `<section class="plain"><p class="blockers">${escape(form.error)}</p></section>` : ''}`;
+    ${form.error && !form.repositorySetupPlan ? `<section class="plain"><p class="blockers" role="alert">${escape(form.error)}</p></section>` : ''}`;
   }
   return `
   ${startWizardProgress(journey)}
@@ -747,7 +770,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     ${form.repositorySetupPlan ? '' : inspectionScope}
   </section>
 
-  <div data-map-details${detailsVisible ? '' : ' hidden'}>
+  <div id="map-capability-details" data-map-details${detailsVisible ? '' : ' hidden'}>
 
   <section>
     <h2>${icon('capability')}The capability</h2>
@@ -867,7 +890,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
         then publish the reviewed projection.</p>
     </div>
     ${form.notice ? `<p class="warning-text">${icon('warning')}${escape(form.notice)}</p>` : ''}
-    ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
+    ${form.error && !form.repositorySetupPlan ? `<p class="blockers" role="alert">${escape(form.error)}</p>` : ''}
     <p>
       <button data-map-submit="1" data-map-busy="${form.busy ? 'true' : 'false'}" ${problems.length || form.busy ? 'disabled' : ''}>
         ${form.busy && form.loaded ? 'Creating proposal…' : 'Create review proposal'}
@@ -893,6 +916,8 @@ export const MAP_CAPABILITY_SCRIPT = `
     if (setupMode) return vscode.postMessage({
       type: 'previewRepositorySetupMode', mode: setupMode.dataset.repositorySetupMode
     });
+    const optionalApply = event.target.closest('[data-repository-setup-optional-apply]');
+    if (optionalApply) return vscode.postMessage({ type: 'applyRepositorySetup' });
     const setupDiagnostics = event.target.closest('[data-repository-setup-diagnostics]');
     if (setupDiagnostics) return vscode.postMessage({ type: 'diagnoseRepositorySetup' });
     const setupShell = event.target.closest('[data-repository-setup-copy-shell]');

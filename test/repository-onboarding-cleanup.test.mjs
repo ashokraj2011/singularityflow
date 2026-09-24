@@ -7,7 +7,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 
 import { CONFIGURATION_BRANCH, ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import {
@@ -19,6 +19,27 @@ import {
 } from '../src/repository-onboarding.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import { run } from '../src/util.mjs';
+
+// A successful cleanup-path apply also registers a lead. Never let fixture repositories enter
+// the operator's machine-local registry when this suite runs on a developer laptop.
+const originalLeadRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+let suiteLeadRegistryRoot;
+before(async () => {
+  suiteLeadRegistryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-cleanup-test-leads-'));
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(suiteLeadRegistryRoot, 'leads.json');
+});
+after(async () => {
+  if (originalLeadRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = originalLeadRegistry;
+  if (suiteLeadRegistryRoot) await rm(suiteLeadRegistryRoot, { recursive: true, force: true });
+});
+
+test('cleanup fixtures use a suite-local lead registry', () => {
+  assert.equal(process.env.SINGULARITY_FLOW_LEAD_REGISTRY,
+    path.join(suiteLeadRegistryRoot, 'leads.json'));
+  assert.notEqual(process.env.SINGULARITY_FLOW_LEAD_REGISTRY,
+    path.join(os.homedir(), '.singularity-flow', 'leads.json'));
+});
 
 const capability = {
   capabilityId: 'application', capabilityName: 'Application', kind: 'delivery',

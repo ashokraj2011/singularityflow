@@ -1090,7 +1090,8 @@ export class BootstrapPanel {
 
   private async previewRepositorySetup(
     mode: RepositoryOnboardingMode,
-    stateBranch?: string
+    stateBranch?: string,
+    completionNotice: string | null = null
   ): Promise<void> {
     const repositoryUrl = this.form.repositoryUrl.trim();
     if (!repositoryUrl) return;
@@ -1113,7 +1114,7 @@ export class BootstrapPanel {
       inspectionBoundRepositoryUrl: null, inspectionBoundLeadUrl: null,
       repositorySetupPlan: null, repositorySetupResult: null,
       repositorySetupMode: mode, repositorySetupResolved: false,
-      repositorySetupApplying: false, repositorySetupNotice: null, error: null
+      repositorySetupApplying: false, repositorySetupNotice: completionNotice, error: null
     });
     const argv = repositoryOnboardingPreviewArgv(repositoryUrl, mode, stateBranch);
     const { result, error, errorCode } = await this.run(argv);
@@ -1156,7 +1157,7 @@ export class BootstrapPanel {
       repositorySetupMode: plan.mode,
       repositorySetupResolved: false,
       repositorySetupApplying: false,
-      repositorySetupNotice: null,
+      repositorySetupNotice: completionNotice,
       lead: routedLead || this.form.lead,
       error: null
     };
@@ -1215,11 +1216,8 @@ export class BootstrapPanel {
       }
     }
     if (applied.mode === 'reset-local') {
-      this.update({
-        repositorySetupApplying: false,
-        repositorySetupNotice: 'Local registration was reset. Rechecking the repository from Git.'
-      });
-      await this.previewRepositorySetup('auto', plan.state.branch);
+      await this.previewRepositorySetup('auto', plan.state.branch,
+        'Local registration was reset. Repository setup was checked again from Git.');
       return;
     }
     if (applied.status === 'configuration-review-required'

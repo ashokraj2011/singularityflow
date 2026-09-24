@@ -848,6 +848,42 @@ test('a malformed lead registry is an empty convenience cache and a later write 
   assert.equal(JSON.parse(await readFile(file, 'utf8')).schemaVersion, 1);
 });
 
+test('missing local onboarding snapshots do not appear as organisations or evict durable leads', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-leads-'));
+  try {
+    const file = registry(root);
+    const live = path.join(root, 'live.git');
+    await mkdir(live);
+    const durable = 'https://git.example/durable.git';
+    const missing = Array.from({ length: 19 }, (_, index) =>
+      path.join(root, `missing-onboarding-${index}.git`));
+    await writeFile(file, `${JSON.stringify({
+      schemaVersion: 1,
+      leads: [
+        ...missing.map((url) => ({ url, usedAt: '2026-01-01T00:00:00.000Z' })),
+        { url: live, usedAt: '2026-01-01T00:00:00.000Z' },
+        { url: durable, usedAt: '2026-01-01T00:00:00.000Z' }
+      ]
+    })}\n`);
+    const {
+      listLeadRepositories: listSafeLeads,
+      listLeadRepositoryRegistryRecords,
+      rememberLeadRepository
+    } = await import('../src/lead-repositories.mjs');
+    assert.deepEqual((await listSafeLeads(file)).map((entry) => entry.url), [live, durable]);
+    assert.equal((await listLeadRepositoryRegistryRecords(file)).length, 21,
+      'read-only discovery does not silently rewrite the operator registry');
+
+    const added = 'https://git.example/added.git';
+    await rememberLeadRepository(added, file);
+    assert.deepEqual((await listSafeLeads(file)).map((entry) => entry.url), [added, live, durable]);
+    assert.deepEqual((await listLeadRepositoryRegistryRecords(file)).map((entry) => entry.url),
+      [added, live, durable], 'a confirmed registry write prunes dead local pointers before the limit');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('the lead registry preserves newer-schema upgrade guidance', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-future-leads-'));
   const file = registry(root);

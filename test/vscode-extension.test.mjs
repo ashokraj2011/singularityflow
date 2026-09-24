@@ -3594,6 +3594,7 @@ const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, gitR
 const {
   parseRepositoryOnboardingPlan, parseRepositoryOnboardingResult,
   repositoryOnboardingApplyArgv, repositoryOnboardingCanContinue,
+  repositoryOnboardingCanDeferStateRefresh,
   repositoryOnboardingCommandFailureCopy, repositoryOnboardingFailureCode,
   repositoryOnboardingModeAvailable, repositoryOnboardingPlanMatchesInput,
   repositoryOnboardingPreviewArgv
@@ -3817,6 +3818,41 @@ test('repository setup renders one primary action and keeps recovery choices und
   assert.match(locatorHtml, /data-repository-setup-primary="applyRepositorySetup"/,
     'Continue confirms the locator registration effect before opening its map');
   assert.equal((locatorHtml.match(/data-repository-setup-primary=/g) ?? []).length, 1);
+
+  const pendingStateIndex = parseRepositoryOnboardingPlan({
+    ...preview,
+    status: 'ready', primaryAction: 'continue',
+    state: { kind: 'none', branch: 'state', commit: null },
+    configuration: { ...preview.configuration, commit: 'c'.repeat(40), status: 'current' },
+    effects: [{ kind: 'state-projection', target: 'state', action: 'refresh' }]
+  });
+  assert.ok(pendingStateIndex);
+  assert.equal(repositoryOnboardingCanDeferStateRefresh(pendingStateIndex), true);
+  const pendingStateHtml = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: pendingStateIndex
+  });
+  assert.match(pendingStateHtml, /data-repository-setup-primary="continueRepositorySetup"[^>]*>Continue</);
+  assert.match(pendingStateHtml, /data-repository-setup-optional-apply>Refresh portable state index/);
+  assert.match(pendingStateHtml, /not required to describe the first capability/);
+  assert.equal((pendingStateHtml.match(/data-repository-setup-primary=/g) ?? []).length, 1);
+  assert.match(pendingStateHtml, /does not remove the approved configuration or capability map/);
+  const mixedEffects = {
+    ...pendingStateIndex,
+    effects: [...pendingStateIndex.effects, { kind: 'git-ref', target: 'sflow/config', action: 'restore' }]
+  };
+  assert.equal(repositoryOnboardingCanDeferStateRefresh(mixedEffects), false,
+    'a new or authority-changing effect never becomes optional by accident');
+  assert.match(mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: mixedEffects
+  }), /data-repository-setup-primary="applyRepositorySetup"/);
+
+  const inlineFailureHtml = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: pendingStateIndex,
+    error: 'Capability map could not be read.'
+  });
+  assert.match(inlineFailureHtml,
+    /data-repository-setup-status="ready"[\s\S]*?<p class="blockers" role="alert">Capability map could not be read\.<\/p>/,
+    'a failed continuation is visible beside Continue instead of only below the hidden mapping form');
 
   assert.ok(parseRepositoryOnboardingResult({
     ...result,

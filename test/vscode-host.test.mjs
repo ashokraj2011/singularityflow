@@ -5896,6 +5896,117 @@ test('Map capability opens the exact repository setup review from its pending re
   controller.dispose();
 });
 
+test('Map capability continues with current configuration without applying optional state refresh', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { BootstrapPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/new-service.git';
+  const commit = 'c'.repeat(40);
+  const calls = [];
+  const controller = BootstrapPanel.show(context(), [], async (argv) => {
+    calls.push([...argv]);
+    if (argv[0] === 'capability' && argv[1] === 'inspect-repository') {
+      return { result: {
+        status: 'not-onboarded', repositoryUrl: lead, matches: [], pendingMatches: [],
+        checkedLeads: [lead], failures: [], completeness: 'complete',
+        authorityScope: 'explicit', proposalCoverage: 'complete',
+        proposalInspection: { total: 0, inspected: 0 },
+        organisations: [{ lead, stale: false, organisation: {
+          url: lead, configurationCommit: commit, capabilities: [], repositories: {}, governed: false
+        } }]
+      }, error: null };
+    }
+    return { result: null, error: `Unexpected command: ${argv.join(' ')}` };
+  }, async () => {});
+  controller.form.repositoryUrl = lead;
+  controller.form.repositorySetupPlan = {
+    mode: 'auto', status: 'ready', primaryAction: 'continue',
+    repository: { url: lead, identity: `sha256:${'d'.repeat(64)}` },
+    state: { kind: 'none', branch: 'state', commit: null },
+    configuration: { branch: 'sflow/config', status: 'current', commit,
+      schemaVersion: 2, currentSchemaVersion: 2 },
+    effects: [{ kind: 'state-projection', target: 'state', action: 'refresh' }],
+    preserved: [], omitted: [], choices: [], availableModes: ['reset-local'],
+    planId: `sha256:${'b'.repeat(64)}`, canApply: true, routing: null
+  };
+  controller.render();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.match(panel.webview.html, /data-repository-setup-primary="continueRepositorySetup"/);
+  await panel.post({ type: 'continueRepositorySetup' });
+  const ready = await until(() => panel.webview.html.includes('0 capabilities available as parents')
+    ? panel.webview.html : null, { attempts: 100 });
+  assert.match(ready, /This repository was not found in the capability maps checked/);
+  assert.match(ready, /The approved capability map was checked/);
+  assert.match(ready, /href="#map-capability-details">Go to capability details/);
+  assert.equal(ready.includes('data-map-details hidden'), false,
+    'the first-capability form opens even while the portable state index is pending');
+  assert.deepEqual(calls, [[
+    'capability', 'inspect-repository', lead, '--json', '--lead', lead, '--include-proposals'
+  ]], 'Continue performs only the bounded approved-map read');
+  controller.dispose();
+});
+
+test('Map capability retains Reset local registration confirmation after the Git recheck', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { BootstrapPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/new-service.git';
+  const commit = 'c'.repeat(40);
+  const autoPlan = {
+    schemaVersion: 1, kind: 'repository-onboarding-plan/v1', dryRun: true,
+    repository: { url: lead, identity: `sha256:${'d'.repeat(64)}` },
+    mode: 'auto', status: 'ready', primaryAction: 'continue',
+    state: { kind: 'none', branch: 'state', commit: null },
+    configuration: { branch: 'sflow/config', status: 'current', commit,
+      schemaVersion: 2, currentSchemaVersion: 2 },
+    observedRefs: { 'refs/heads/sflow/config': commit, 'refs/heads/state': null },
+    effects: [{ kind: 'state-projection', target: 'state', action: 'refresh' }],
+    preserved: ['application-working-tree'], omitted: [], choices: [],
+    availableModes: ['reset-local'], routing: null, organisation: null,
+    canApply: true, planId: `sha256:${'b'.repeat(64)}`,
+    nextActions: { shell: 'singularity-flow capability onboard <repo>', copilot: '/sf-capability-map' }
+  };
+  const resetPlan = {
+    ...autoPlan, mode: 'reset-local', primaryAction: 'reset-local-registration',
+    effects: [{ kind: 'local-registration', target: lead, action: 'forget' }],
+    planId: `sha256:${'a'.repeat(64)}`
+  };
+  const calls = [];
+  const controller = BootstrapPanel.show(context(), [], async (argv) => {
+    calls.push([...argv]);
+    if (argv.includes('--confirm-plan')) return { result: {
+      schemaVersion: 1, kind: 'repository-onboarding-result/v1',
+      planId: resetPlan.planId, mode: 'reset-local', status: 'ready',
+      primaryAction: 'reset-local-registration', applied: true, changed: true,
+      effects: resetPlan.effects, preserved: resetPlan.preserved,
+      nextActions: resetPlan.nextActions, routing: null, organisation: null, receipt: null
+    }, error: null };
+    if (argv.includes('--dry-run')) return { result: autoPlan, error: null };
+    return { result: null, error: `Unexpected command: ${argv.join(' ')}` };
+  }, async () => {});
+  controller.form.repositoryUrl = lead;
+  controller.form.repositorySetupPlan = resetPlan;
+  controller.render();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  registered.informationAnswer = 'Reset local registration';
+  await panel.post({ type: 'applyRepositorySetup' });
+  const refreshed = await until(() => panel.webview.html.includes(
+    'Local registration was reset. Repository setup was checked again from Git.'
+  ) ? panel.webview.html : null, { attempts: 100 });
+  assert.match(refreshed, /data-repository-setup-status="ready"/);
+  assert.match(refreshed, /data-repository-setup-primary="continueRepositorySetup"/);
+  assert.deepEqual(calls.map((argv) => argv.slice(0, 3)), [
+    ['capability', 'onboard', lead], ['capability', 'onboard', lead]
+  ]);
+  controller.dispose();
+});
+
 test('setup review shows an unavailable diff as a blocked inspection', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

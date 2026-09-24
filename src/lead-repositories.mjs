@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { stat } from 'node:fs/promises';
 
 let support = null;
 
@@ -14,10 +15,24 @@ async function loadSupport() {
     currentSchemaVersion: migrations.currentSchemaVersion,
     readRecord: migrations.readRecord,
     readJson: util.readJson,
+    gitRepositoryLocalPath: identities.gitRepositoryLocalPath,
     sameGitRepository: identities.sameGitRepository,
     writeAtomic: util.writeAtomic
   }));
   return support;
+}
+
+/** A disappeared local checkout is not a usable organisation choice. Keep inaccessible paths
+ * (which might be on an unmounted drive) rather than treating permission errors as deletion. */
+async function availableLead(lead, gitRepositoryLocalPath) {
+  const local = gitRepositoryLocalPath(lead?.url);
+  if (!local || !path.isAbsolute(local)) return true;
+  try {
+    await stat(local);
+    return true;
+  } catch (error) {
+    return error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR';
+  }
 }
 
 /** Where the machine-local lead pointers live. Overridable so tests stay isolated. */
@@ -46,12 +61,13 @@ export async function listLeadRepositoryRegistryRecords(file = leadRegistryFile(
 
 /** Operational callers receive only entries that pass the current remote trust boundary. */
 export async function listLeadRepositories(file = leadRegistryFile()) {
-  const { assertCredentialFreeRemote } = await loadSupport();
+  const { assertCredentialFreeRemote, gitRepositoryLocalPath } = await loadSupport();
   const accepted = [];
   for (const lead of await listLeadRepositoryRegistryRecords(file)) {
     try {
       const url = assertCredentialFreeRemote(lead?.url);
-      if (!accepted.some((entry) => entry.url === url)) accepted.push({ ...lead, url });
+      if (await availableLead({ url }, gitRepositoryLocalPath)
+          && !accepted.some((entry) => entry.url === url)) accepted.push({ ...lead, url });
     } catch { /* legacy/corrupt entries remain on disk for explicit diagnosis or removal */ }
   }
   return accepted;
@@ -67,11 +83,13 @@ async function writeLeads(file, leads) {
 export async function rememberLeadRepository(url, file = leadRegistryFile()) {
   const remote = String(url ?? '').trim();
   if (!remote) return listLeadRepositories(file);
-  const { assertCredentialFreeRemote, sameGitRepository } = await loadSupport();
+  const { assertCredentialFreeRemote, gitRepositoryLocalPath, sameGitRepository } = await loadSupport();
   assertCredentialFreeRemote(remote);
   const { withRegistryFileLease } = await import('./workspace.mjs');
   return await withRegistryFileLease(file, async () => {
-    const existing = await listLeadRepositoryRegistryRecords(file);
+    const existing = (await Promise.all((await listLeadRepositoryRegistryRecords(file))
+      .map(async (lead) => ({ lead, available: await availableLead(lead, gitRepositoryLocalPath) }))))
+      .filter((entry) => entry.available).map((entry) => entry.lead);
     const leads = [
       { url: remote, usedAt: new Date().toISOString() },
       ...existing.filter((lead) => !sameGitRepository(lead?.url, remote))

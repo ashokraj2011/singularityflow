@@ -606,7 +606,7 @@ export interface RepositoryOnboardingCopy {
 export const REPOSITORY_ONBOARDING_COPY: Record<RepositoryOnboardingStatus, RepositoryOnboardingCopy> = {
   ready: {
     title: 'Ready',
-    message: 'Existing SFlow setup is current and can be used.',
+    message: 'Repository setup is current. Continue to check whether a capability still needs to be mapped.',
     action: 'Continue'
   },
   'ready-to-restore': {
@@ -879,6 +879,23 @@ export function repositoryOnboardingCanContinue(plan: RepositoryOnboardingPlan):
   return plan.mode !== 'reset-local'
     && (plan.status === 'ready' || plan.status === 'linked-to-team-configuration'
       || plan.status === 'sflow-repository-capability-not-mapped');
+}
+
+/**
+ * A current approved map can be read before its optional portable state index is refreshed.
+ * Keep every other planned effect behind the exact-plan confirmation; in particular, this must
+ * never skip configuration restoration, migration, or an unfamiliar future effect.
+ */
+export function repositoryOnboardingCanDeferStateRefresh(plan: RepositoryOnboardingPlan): boolean {
+  return plan.mode === 'auto'
+    && plan.status === 'ready'
+    && plan.primaryAction === 'continue'
+    && plan.configuration.status === 'current'
+    && plan.configuration.commit != null
+    && plan.effects.length > 0
+    && plan.effects.every((effect) => effect.kind === 'state-projection'
+      && effect.action === 'refresh'
+      && effect.target === plan.state.branch);
 }
 
 /** Bind a preview to the exact local locator while retaining compatibility with URL-only v1 plans. */

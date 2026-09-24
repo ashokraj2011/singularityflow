@@ -5,7 +5,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import YAML from 'yaml';
 
 import {
@@ -26,7 +26,7 @@ import {
   mapCapability, organisationCacheFile, readOrganisation
 } from '../src/organisation.mjs';
 import {
-  listLeadRepositories, rememberLeadRepository
+  leadRegistryFile, listLeadRepositories, rememberLeadRepository
 } from '../src/lead-repositories.mjs';
 import { gitRepositoryComparisonKey } from '../src/git-repository-identity.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from '../src/git-execution.mjs';
@@ -34,6 +34,25 @@ import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { run } from '../src/util.mjs';
+
+// Successful onboarding remembers a lead by default. Keep every test in this file away from
+// the operator's machine-local registry, including cases without an explicit per-test override.
+const originalLeadRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+let suiteLeadRegistryRoot;
+before(async () => {
+  suiteLeadRegistryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-test-leads-'));
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(suiteLeadRegistryRoot, 'leads.json');
+});
+after(async () => {
+  if (originalLeadRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = originalLeadRegistry;
+  if (suiteLeadRegistryRoot) await rm(suiteLeadRegistryRoot, { recursive: true, force: true });
+});
+
+test('onboarding fixtures use an isolated lead registry even without a per-test override', () => {
+  assert.equal(leadRegistryFile(), path.join(suiteLeadRegistryRoot, 'leads.json'));
+  assert.notEqual(leadRegistryFile(), path.join(os.homedir(), '.singularity-flow', 'leads.json'));
+});
 
 async function repositoryFixture(name = 'application', { objectFormat = null } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-repository-onboarding-'));

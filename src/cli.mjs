@@ -12722,9 +12722,16 @@ async function workspaceBootstrapInput(source, options) {
 
   const chosen = optionStrings(options, 'capability');
   if (chosen.length) {
-    // Workspace plans may cause clones and durable registry writes. Re-read the exact approved
-    // configuration bytes instead of authorizing those mutations from a machine-local cache.
-    const organisation = await readOrganisation(source, { refresh: true });
+    // Preparation records a plan but does not clone application code. A warm organisation cache
+    // is safe for this read-only derivation only after readOrganisation freshly observes its exact
+    // configuration and state refs; resume/create still validate authority before materializing.
+    const organisation = await readOrganisation(source);
+    if (organisation.stale) {
+      throw new SingularityFlowError(
+        'The capability authority could not be freshly verified, so workspace preparation cannot use a stale cached map. Restore Git access and retry.',
+        { code: 'CAPABILITY_AUTHORITY_UNAVAILABLE' }
+      );
+    }
     const sparseCone = optionStrings(options, 'sparse-cone')
       .flatMap((entry) => entry.split(','))
       .map((entry) => entry.trim()).filter(Boolean);

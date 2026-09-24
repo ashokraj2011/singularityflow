@@ -28,6 +28,7 @@ import {
 } from '../src/lead-repositories.mjs';
 import { gitRepositoryComparisonKey } from '../src/git-repository-identity.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from '../src/git-execution.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { run } from '../src/util.mjs';
@@ -667,6 +668,159 @@ test('a verified delivery locator takes precedence over conflicting local config
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(lead.base, { recursive: true, force: true });
+    await rm(delivery.base, { recursive: true, force: true });
+  }
+});
+
+test('delivery locator previews reuse exact-ref lead cache and revalidate moved refs', async () => {
+  const lead = await repositoryFixture('preview-lead');
+  const delivery = await repositoryFixture('preview-delivery');
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  const previousCache = process.env.SINGULARITY_FLOW_ORGANISATION_CACHE;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(delivery.base, 'leads.json');
+  process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(delivery.base, 'organisation-cache');
+  try {
+    await ensureConfigurationBranch(lead.remote);
+    const unmappedCommit = run('git', ['rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`], {
+      cwd: lead.remote
+    }).stdout.trim();
+    const mapped = await mapCapability(lead.remote, {
+      capabilityId: 'payments', name: 'Payments', kind: 'delivery',
+      repositoryUrl: delivery.remote, initiatingRoot: lead.source
+    });
+    run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, mapped.commit], {
+      cwd: lead.remote
+    });
+    await publishStateMirror(lead);
+    const link = createCapabilityAuthorityLink({
+      authorityRemote: lead.remote, repositoryRemote: delivery.remote,
+      capabilityIds: ['payments']
+    });
+    await publishStateFiles(delivery, {
+      'singularity/capability-authority.json': `${JSON.stringify(link, null, 2)}\n`
+    });
+    await rm(organisationCacheFile(lead.remote), { force: true });
+
+    let deliveryClones = 0;
+    const options = {
+      env: {
+        ...process.env,
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(delivery.base, 'local', 'workspaces.json')
+      },
+      runRemoteCommand: async (args, remoteOptions) => {
+        if (args.includes('clone')) deliveryClones += 1;
+        return runRemoteGitAsync(args, remoteOptions);
+      },
+      classificationCacheBuildIdentity: `source:${'a'.repeat(64)}`
+    };
+    const inspectTimed = async (extra = {}) => {
+      const timer = commandTimer('delivery-locator-preview');
+      const beforeDeliveryClones = deliveryClones;
+      const plan = await withCommandTiming(timer,
+        () => inspectRepositoryOnboarding(delivery.remote, { ...options, ...extra }));
+      return {
+        plan, counters: timer.finish().counters,
+        deliveryClones: deliveryClones - beforeDeliveryClones
+      };
+    };
+    const remoteCount = (counters, verb) => counters[`git.remote.command.${verb}`] ?? 0;
+
+    const first = await inspectTimed();
+    assert.equal(first.plan.routing.verified, true);
+    assert.ok(remoteCount(first.counters, 'clone') > 0);
+    const repeated = await inspectTimed();
+    assert.equal(repeated.plan.planId, first.plan.planId);
+    assert.equal(remoteCount(repeated.counters, 'clone'), 0,
+      'unchanged delivery and lead refs should reuse both validated snapshots');
+    assert.equal(remoteCount(repeated.counters, 'fetch'), 0);
+    assert.ok(remoteCount(repeated.counters, 'ls-remote') >= 2,
+      'both repositories are still checked against live remote refs');
+
+    await ensureConfigurationBranch(delivery.remote);
+    const localConfigurationAppeared = await inspectTimed();
+    assert.equal(localConfigurationAppeared.plan.routing.verified, true);
+    assert.ok(remoteCount(localConfigurationAppeared.counters, 'clone') > 0,
+      'a newly created delivery configuration ref invalidates the null-ref cache key');
+    run('git', ['update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`], {
+      cwd: delivery.remote
+    });
+    const localConfigurationRemoved = await inspectTimed();
+    assert.equal(localConfigurationRemoved.plan.routing.verified, true);
+    assert.ok(remoteCount(localConfigurationRemoved.counters, 'clone') > 0,
+      'removing the delivery configuration ref also invalidates the cache key');
+
+    const refreshed = await inspectTimed({ refresh: true });
+    assert.equal(refreshed.plan.routing.verified, true);
+    assert.ok(remoteCount(refreshed.counters, 'clone') > refreshed.deliveryClones,
+      'explicit refresh must re-read the lead authority');
+
+    const applyTimer = commandTimer('delivery-locator-apply');
+    const beforeApplyDeliveryClones = deliveryClones;
+    await assert.rejects(withCommandTiming(applyTimer, () => applyRepositoryOnboarding(
+      delivery.remote, { ...options, confirmPlan: `sha256:${'0'.repeat(64)}` }
+    )), { code: 'REPOSITORY_ONBOARDING_CONFIRMATION_MISMATCH' });
+    assert.ok(remoteCount(applyTimer.finish().counters, 'clone')
+      > deliveryClones - beforeApplyDeliveryClones,
+      'apply must deep-revalidate before comparing the confirmed plan');
+
+    run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, unmappedCommit], {
+      cwd: lead.remote
+    });
+    const unmapped = await inspectTimed();
+    assert.equal(unmapped.plan.routing.verified, false);
+    assert.equal(unmapped.plan.canApply, false);
+    assert.ok(remoteCount(unmapped.counters, 'clone') > unmapped.deliveryClones,
+      'a moved lead configuration ref invalidates the warm cache');
+
+    run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, mapped.commit], {
+      cwd: lead.remote
+    });
+    const restored = await inspectTimed();
+    assert.equal(restored.plan.routing.verified, true);
+    const stateEditor = path.join(lead.base, 'advance-lead-state');
+    run('git', ['clone', '-q', '--branch', 'state', lead.remote, stateEditor], {
+      cwd: lead.base
+    });
+    run('git', ['config', 'user.name', 'Onboarding Tester'], { cwd: stateEditor });
+    run('git', ['config', 'user.email', 'onboarding@example.test'], { cwd: stateEditor });
+    run('git', ['commit', '--allow-empty', '-qm', 'Advance lead state receipt'], {
+      cwd: stateEditor
+    });
+    run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateEditor });
+    const advancedState = await inspectTimed();
+    assert.equal(advancedState.plan.routing.verified, true);
+    assert.ok(remoteCount(advancedState.counters, 'clone') > advancedState.deliveryClones,
+      'a moved lead state ref must revalidate before the mapping stays trusted');
+
+    const wrongLink = createCapabilityAuthorityLink({
+      authorityRemote: lead.remote, repositoryRemote: delivery.remote,
+      capabilityIds: ['wrong-capability']
+    });
+    const deliveryEditor = path.join(delivery.base, 'advance-delivery-state');
+    run('git', ['clone', '-q', '--branch', 'state', delivery.remote, deliveryEditor], {
+      cwd: delivery.base
+    });
+    run('git', ['config', 'user.name', 'Onboarding Tester'], { cwd: deliveryEditor });
+    run('git', ['config', 'user.email', 'onboarding@example.test'], { cwd: deliveryEditor });
+    await writeFile(path.join(deliveryEditor, 'singularity', 'capability-authority.json'),
+      `${JSON.stringify(wrongLink, null, 2)}\n`);
+    run('git', ['add', '-A'], { cwd: deliveryEditor });
+    run('git', ['commit', '-qm', 'Move locator to an unapproved capability'], {
+      cwd: deliveryEditor
+    });
+    run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: deliveryEditor });
+    const changedLocator = await inspectTimed();
+    assert.notEqual(changedLocator.plan.state.commit, advancedState.plan.state.commit);
+    assert.equal(changedLocator.plan.routing.verified, false);
+    assert.equal(changedLocator.plan.canApply, false);
+    assert.ok(changedLocator.deliveryClones > 0,
+      'a moved delivery state ref invalidates its classified snapshot');
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    if (previousCache == null) delete process.env.SINGULARITY_FLOW_ORGANISATION_CACHE;
+    else process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = previousCache;
     await rm(lead.base, { recursive: true, force: true });
     await rm(delivery.base, { recursive: true, force: true });
   }

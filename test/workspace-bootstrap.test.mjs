@@ -259,6 +259,7 @@ test('deferred bootstrap registers the workspace without cloning application cod
     confirmation: 'demo', env
   });
   assert.equal(resumed.status, 'registered');
+  assert.equal(resumed.result.status.level, 'readiness');
   assert.equal(resumed.result.status.healthy, false);
   assert.equal(resumed.result.status.repositories[0].state, 'missing');
   assert.equal(await stat(path.join(resumed.result.workspace.path, 'repos', 'application'))
@@ -274,13 +275,17 @@ test('deferred bootstrap registers the workspace without cloning application cod
 
 test('bootstrap preflight observes each unique remote once even when multiple repositories share it', async () => {
   const fixture = await remoteFixture('trunk');
+  for (const branch of ['release', 'unrelated']) {
+    run('git', ['branch', branch], { cwd: fixture.source });
+    run('git', ['push', fixture.remote, branch], { cwd: fixture.source });
+  }
   const env = environment(fixture.root);
   const createInput = input(fixture.root, fixture.remote, 'trunk');
   createInput.id = 'shared-remote';
   createInput.name = 'Shared remote';
   createInput.repositories.secondary = {
     url: fixture.remote,
-    defaultBranch: 'trunk',
+    defaultBranch: 'release',
     required: false,
     path: 'repos/secondary'
   };
@@ -291,10 +296,15 @@ test('bootstrap preflight observes each unique remote once even when multiple re
     createInput
   }, { env }));
   assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+  assert.deepEqual(prepared.preflight.checks
+    .filter((entry) => entry.id.startsWith('remote:'))
+    .map((entry) => [entry.selectedBranch, entry.branchCount]).sort(), [
+    ['release', 2], ['trunk', 2]
+  ], 'the shared probe includes both selected refs and excludes unrelated branches');
 
   const counters = timer.finish().counters;
   assert.equal(counters['git.remote.command.ls-remote'], 1,
-    'one broad operation-scoped inventory must satisfy every repository bound to the same remote');
+    'one grouped exact-ref observation must satisfy every repository bound to the same remote');
 });
 
 test('capability preflight reuses the lead inventory before its single catalog transfer', async () => {
@@ -309,6 +319,8 @@ test('capability preflight reuses the lead inventory before its single catalog t
       teams: []
     }
   });
+  run('git', ['branch', 'unrelated'], { cwd: fixture.source });
+  run('git', ['push', fixture.remote, 'unrelated'], { cwd: fixture.source });
   const env = environment(fixture.root);
   const createInput = input(fixture.root, fixture.remote, 'trunk');
   createInput.id = 'catalog-transfer';
@@ -322,6 +334,8 @@ test('capability preflight reuses the lead inventory before its single catalog t
     createInput
   }, { env }));
   assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+  assert.equal(prepared.preflight.checks.find((entry) => entry.id === 'remote:application').branchCount, 2,
+    'the lead probe includes the selected branch and capability authority, not every head');
 
   const counters = timer.finish().counters;
   assert.equal(counters['git.remote.command.ls-remote'], 1,

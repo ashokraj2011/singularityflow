@@ -28,6 +28,14 @@ The optimized paths preserve exact-ref authority and mutation preflights:
 - repeated capability inspection reobserves the governing remote refs and reuses a locally
   verified authority snapshot only when the exact commits still match. Creating a capability
   review proposal still needs a temporary configuration checkout to form its Git commit;
+- delivery-locator previews and capability-based workspace preparation may reuse that same
+  exact-ref-validated lead snapshot. Explicit refresh and mutation still reread authority; an
+  unreachable remote never turns a stale cached map into workspace-creation authority;
+- workspace bootstrap probes the selected branch and capability configuration ref rather than
+  listing every branch when the branch is already known. Branch inference still requests the
+  full head inventory, and preflight retains its durable configuration object proof;
+- register-only workspace creation uses readiness status instead of scanning World Model and
+  document details. Guided Start Work prepares its selected checkout before one window reload;
 - delivery-repository capability links use a bounded, machine-private bare object cache keyed by
   credential-free repository identity and observed state-branch commit. The remote ref is still
   observed on every operation; a warm cache never authorizes offline work. Set

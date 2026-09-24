@@ -3641,6 +3641,47 @@ test('guided start skips completed capability setup and opens workspace creation
   assert.match(html, /Start work/);
 });
 
+test('guided workspace creation prepares the deferred checkout before its single window reload', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(org.base, 'guided-active-workspace.json');
+  t.after(() => { process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection; });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  api.workspace.getConfiguration = () => ({
+    get: () => '', update: async () => {}
+  });
+  registered.informationAnswer = 'Create workspace';
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')({
+    guidedStart: true, capabilityId: 'payments-api', organisation: org.lead
+  });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  await until(() => panel.webview.html.includes('Payments API') ? panel.webview.html : null);
+  registered.pickedFolder = org.base;
+  await panel.post({ type: 'choose', what: 'base' });
+  await panel.post({ type: 'field', field: 'id', value: 'guided-fast' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
+  await panel.post({ type: 'capability', id: 'payments', selected: true });
+  await settle();
+  assert.match(panel.webview.html, /<button data-submit="create" >/);
+  await panel.post({ type: 'create' });
+  await until(() => registered.executedCommands.some((entry) =>
+    entry.id === 'workbench.action.reloadWindow') || panel.webview.html.includes('Setup '));
+  assert.equal(registered.executedCommands.filter((entry) =>
+    entry.id === 'workbench.action.reloadWindow').length, 1,
+  'selection and checkout preparation must not reload the window separately');
+  assert.equal(registered.errors.length, 0, registered.errors.join(' | '));
+  const createdDirectory = (await readdir(org.base)).find((name) => name.startsWith('guided-fast--'));
+  assert.ok(createdDirectory, 'the guided workspace is registered');
+  assert.equal(existsSync(path.join(org.base, createdDirectory, 'repos', 'api', '.git')), true,
+    'the selected delivery is materialized before the one reload');
+});
+
 test('a workspace is chosen as capabilities, and its repositories follow', async (t) => {
   if (!requireBundle(t)) return;
   // A workspace is capabilities plus a working directory. The repositories are not the thing being

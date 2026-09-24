@@ -36,10 +36,11 @@ import {
 import { run, SingularityFlowError } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { initializeDefinition } from '../src/config.mjs';
-import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
+import { publishOrganisationCapabilityMap, readOrganisation } from '../src/organisation.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { writeV3Manifest } from '../src/world-model-materialization.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -581,6 +582,29 @@ async function attachedCapabilityWorkspace(root, workspaceId) {
     apiCheckout: path.join(created.workspace.path, 'repos', 'api')
   };
 }
+
+test('capability preview reuses a cache bound to freshly observed authority refs', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-preview-cache-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await attachedCapabilityWorkspace(root, 'preview-cache');
+  const reads = [];
+  const timer = commandTimer('workspace-capability-preview', { commandClass: 'read' });
+  const preview = await withCommandTiming(timer, () => previewWorkspaceCapabilityChange(
+    fixture.workspace.path, 'api', {
+      action: 'detach',
+      readOrganisationOperation: (url, options) => {
+        reads.push(options);
+        return readOrganisation(url, options);
+      }
+    }
+  ));
+  assert.deepEqual(reads, [{ refresh: false }]);
+  assert.equal(preview.authority.configurationCommit, run('git', [
+    '--git-dir', fixture.platformRemote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim());
+  assert.equal(timer.finish().counters['git.remote.command.clone'] ?? 0, 0,
+    'a warm read-only preview must not transfer the same configuration snapshot again');
+});
 
 async function stagedCapabilityDropFixture(root, workspaceId) {
   const fixture = await attachedCapabilityWorkspace(root, workspaceId);
@@ -4017,6 +4041,11 @@ test('concurrent workspace registry updates preserve every workspace', async () 
     createWorkspace(firstInput, { confirmation: 'PAY-100', clone: false }),
     createWorkspace(secondInput, { confirmation: 'PAY-200', clone: false })
   ]);
+  assert.equal(first.status.level, 'readiness');
+  assert.equal(second.status.level, 'readiness');
+  assert.equal((await createWorkspace(firstInput, {
+    confirmation: 'PAY-100', clone: false
+  })).status.level, 'readiness');
 
   await Promise.all([
     rememberWorkspace(registry, first.workspace, first.status),

@@ -2608,6 +2608,7 @@ function mergeRequiredRepositoryPlans(base, addition) {
 export async function previewWorkspaceCapabilityChange(workspacePath, capabilityId, {
   action = 'attach',
   dropLocal = false,
+  refreshAuthority = false,
   organisation: suppliedOrganisation = null,
   readOrganisationOperation = null,
   resolveWorkspacePlanOperation = null,
@@ -2638,10 +2639,11 @@ export async function previewWorkspaceCapabilityChange(workspacePath, capability
     readOrganisation ??= organisationModule.readOrganisation;
     resolveWorkspacePlan ??= organisationModule.resolveWorkspacePlan;
   }
-  // Capability attachment changes local workspace membership and may clone or archive a checkout.
-  // Force an authoritative configuration read: a same-tip machine cache is useful for display, but
-  // its derived bytes must never authorize a filesystem mutation.
-  const organisation = suppliedOrganisation ?? await readOrganisation(authorityUrl, { refresh: true });
+  // A preview is read-only. readOrganisation checks the exact configuration and projection refs
+  // before reusing its cache; applying the preview requests a fresh configuration read below.
+  const organisation = suppliedOrganisation ?? await readOrganisation(authorityUrl, {
+    refresh: refreshAuthority
+  });
   if (organisation?.stale) {
     throw new SingularityFlowError(
       'The approved capability authority is unreachable, so only a stale cached map is available. Nothing was changed; restore Git access and preview again.',
@@ -2899,7 +2901,8 @@ export async function changeWorkspaceCapability(workspacePath, capabilityId, opt
   // for read-only callers; persisted bytes are always recomputed from the live approved authority.
   const preview = await previewWorkspaceCapabilityChange(workspacePath, capabilityId, {
     action: options?.action ?? 'attach',
-    dropLocal: options?.dropLocal === true
+    dropLocal: options?.dropLocal === true,
+    refreshAuthority: true
   });
   if (confirmation !== preview.planId) {
     throw new SingularityFlowError(
@@ -4259,7 +4262,10 @@ export async function createWorkspace(options, {
         repair: repaired.repaired
       };
     }
-    return { created: false, resumed: true, workspace: current, status: await workspaceStatus(current.path), repair: [] };
+    return {
+      created: false, resumed: true, workspace: current,
+      status: await workspaceStatus(current.path, { level: 'readiness' }), repair: []
+    };
   }
   await mkdir(path.dirname(root), { recursive: true });
   await mkdir(root, { recursive: false });
@@ -4388,7 +4394,9 @@ export async function createWorkspace(options, {
         .map(discardStagedWorkspaceClone));
     }
   }
-  const finalStatus = await workspaceStatus(root);
+  const finalStatus = await workspaceStatus(root, {
+    level: clone ? 'full' : 'readiness', env: gitEnv
+  });
   return {
     created: true,
     resumed: false,

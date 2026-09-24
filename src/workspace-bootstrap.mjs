@@ -845,10 +845,13 @@ function rebuiltPlan(plan, branchUpdates) {
 }
 
 async function asynchronousRemoteProbe(remote, {
-  branch = null, env = process.env, session = new GitRemoteSession({ env }), signal = null
+  branch = null, refs = [], includeAllHeads = false,
+  env = process.env, session = new GitRemoteSession({ env }), signal = null
 } = {}) {
   const url = assertCredentialFreeRemote(remote);
-  const observed = await session.observeAsync(url, { includeHead: true, includeAllHeads: true, signal });
+  const observed = await session.observeAsync(url, {
+    includeHead: true, refs, includeAllHeads, signal
+  });
   const branches = observed.branches;
   const defaultBranch = observed.defaultBranch;
   const base = {
@@ -878,9 +881,28 @@ async function remotePreflight(plan, {
   const findings = [];
   const branchUpdates = new Map();
   let liveCapabilityValidation = null;
-  // One operation-scoped observation cache lets duplicate repository URLs and the capability
-  // authority reuse a single broad HEAD + heads inventory. The final materialization boundary
-  // still performs its separate exact-ref freshness check through the branded validation receipt.
+  const manifest = previewWorkspaceConfiguration(plan.createInput).manifest;
+  const requestedCapabilities = [...new Set([
+    ...(manifest.capabilities ?? []),
+    ...Object.values(manifest.repositories ?? {}).flatMap((repository) => repository.capabilities ?? [])
+  ])].sort();
+  const authorityUrl = manifest.capabilityAuthority?.url
+    ?? manifest.repositories?.[manifest.leadRepository]?.url;
+  // Group selected refs by URL so duplicate repositories share one bounded advertisement. Only
+  // branch inference needs all heads; an explicit branch and capability authority need exact refs.
+  const requirements = new Map();
+  for (const repository of plan.repositories) {
+    const url = plan.createInput.repositories[repository.id].url;
+    const requirement = requirements.get(url) ?? { refs: new Set(), includeAllHeads: false };
+    if (plan.inferDefaultRepositories.includes(repository.id)) requirement.includeAllHeads = true;
+    else requirement.refs.add(`refs/heads/${repository.defaultBranch}`);
+    requirements.set(url, requirement);
+  }
+  if (requestedCapabilities.length && requirements.has(authorityUrl)) {
+    requirements.get(authorityUrl).refs.add('refs/heads/sflow/config');
+  }
+  // The final materialization boundary still performs its separate exact-ref freshness check
+  // through the branded validation receipt.
   const gitEnv = runCommand === run
     ? enterpriseGitEnvironment(env)
     // An injected deterministic probe is not a real Git installation and cannot answer system /
@@ -891,9 +913,12 @@ async function remotePreflight(plan, {
     plan.repositories, gitWorkerCount(plan.repositories.length, { env }), async (repository) => {
     const actualUrl = plan.createInput.repositories[repository.id].url;
     const inferDefault = plan.inferDefaultRepositories.includes(repository.id);
+    const requirement = requirements.get(actualUrl);
     const probe = runCommand === run
       ? await asynchronousRemoteProbe(actualUrl, {
-          branch: inferDefault ? null : repository.defaultBranch, env: gitEnv, session: remoteSession
+          branch: inferDefault ? null : repository.defaultBranch,
+          refs: [...requirement.refs], includeAllHeads: requirement.includeAllHeads,
+          env: gitEnv, session: remoteSession
         })
       : probeGitRemote(actualUrl, {
           branch: inferDefault ? null : repository.defaultBranch, runCommand, env: gitEnv
@@ -935,11 +960,6 @@ async function remotePreflight(plan, {
       }));
     }
   }
-  const manifest = previewWorkspaceConfiguration(plan.createInput).manifest;
-  const requestedCapabilities = [...new Set([
-    ...(manifest.capabilities ?? []),
-    ...Object.values(manifest.repositories ?? {}).flatMap((repository) => repository.capabilities ?? [])
-  ])].sort();
   if (requestedCapabilities.length) {
     try {
       const validation = await validateWorkspaceCapabilityRegistration(manifest, {
@@ -1230,8 +1250,10 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         steps: verifying.steps,
         result: { workspace: materialized.workspace, materialization: materialized.materialization ?? materialized.repair ?? [] }
       });
-      const status = materialized.status ?? await workspaceStatus(materialized.workspace.path);
       const checkoutDeferred = session.plan.checkout?.enabled === false;
+      const status = materialized.status ?? await workspaceStatus(materialized.workspace.path, {
+        level: checkoutDeferred ? 'readiness' : 'full', env: gitEnv
+      });
       await rememberWorkspace(workspaceRegistryFile(env, home), materialized.workspace, status);
       session = {
         ...session,

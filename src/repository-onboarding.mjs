@@ -149,7 +149,11 @@ async function usableClassificationCacheDirectory(file, { create = false } = {})
 }
 
 function cacheableClassification(state, configuration) {
-  return configuration?.status === 'current'
+  // A delivery locator needs no local configuration: its state marker is subject-bound and the
+  // absent configuration ref is part of the exact observed cache identity. If either ref changes,
+  // classification is read again before the separate lead mapping is verified.
+  return (configuration?.status === 'current'
+      || (configuration?.status === 'missing' && state?.kind === 'delivery-locator'))
     && configuration.validationError == null
     && (configuration.seedChanges?.length ?? 0) === 0
     && ['none', 'lifecycle-only', 'delivery-locator', 'configuration-mirror'].includes(state?.kind)
@@ -1297,10 +1301,13 @@ function flattenCapabilityNodes(nodes = []) {
   return nodes.flatMap((node) => [node, ...flattenCapabilityNodes(node.children ?? [])]);
 }
 
-async function verifyDeliveryLocator(repository, state) {
+async function verifyDeliveryLocator(repository, state, { refresh = false } = {}) {
   try {
     const { readOrganisation } = await import('./organisation.mjs');
-    const organisation = await readOrganisation(state.routing.leadUrl, { refresh: true });
+    // The organisation cache is selected only after a fresh advertisement confirms its exact
+    // configuration and state-source refs. A preview can reuse those verified bytes; an explicit
+    // refresh or apply still reads the authority again from its Git objects.
+    const organisation = await readOrganisation(state.routing.leadUrl, { refresh });
     const repositoryIds = Object.entries(organisation.repositories ?? {})
       .filter(([, declaration]) => sameGitRepository(declaration?.url, repository))
       .map(([repositoryId]) => repositoryId);
@@ -1750,7 +1757,7 @@ export async function inspectRepositoryOnboarding(remote, {
   });
   const classifiedState = state;
   if (state.kind === 'delivery-locator') {
-    state = await verifyDeliveryLocator(repository, state);
+    state = await verifyDeliveryLocator(repository, state, { refresh });
   } else if (state.kind === 'configuration-mirror' && state.repositoryBound !== true) {
     state = await proveLegacyMirrorBinding(repository, state, {
       env: gitEnv, runRemoteCommand, session, cleanupWarnings, cleanupQueueRoot: queueRoot
@@ -2624,7 +2631,7 @@ export async function applyRepositoryOnboarding(remote, {
   const gitEnv = enterpriseGitEnvironment(env);
   let plan = await inspectRepositoryOnboarding(requestedRepository, {
     mode: selectedMode, stateBranch, env: gitEnv, runRemoteCommand, cleanupQueueRoot,
-    useClassificationCache: false, classificationCacheBuildIdentity
+    refresh: true, useClassificationCache: false, classificationCacheBuildIdentity
   });
   if (plan.planId !== confirmation) {
     throw new SingularityFlowError(

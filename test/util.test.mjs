@@ -57,6 +57,38 @@ test('a command that reaches the network gets a bound, and a timeout is not a re
   assert.throws(() => run('sleep', ['30'], { timeoutMs: 250 }), (error) => error.code === 'SUBPROCESS_TIMEOUT');
 });
 
+test('a zero exit carrying a timeout or signal is normalized to failure', () => {
+  const timeout = run('git', ['--version'], {
+    allowFailure: true,
+    spawnSyncCommand() {
+      return {
+        status: 0,
+        stdout: Buffer.from('late answer'),
+        stderr: Buffer.alloc(0),
+        error: Object.assign(new Error('deadline elapsed'), { code: 'ETIMEDOUT' }),
+        signal: null
+      };
+    }
+  });
+  assert.notEqual(timeout.status, 0);
+  assert.equal(timeout.timedOut, true);
+
+  const signal = run('git', ['--version'], {
+    allowFailure: true,
+    spawnSyncCommand() {
+      return {
+        status: 0,
+        stdout: Buffer.from('late answer'),
+        stderr: Buffer.alloc(0),
+        error: undefined,
+        signal: 'SIGTERM'
+      };
+    }
+  });
+  assert.notEqual(signal.status, 0);
+  assert.equal(signal.signal, 'SIGTERM');
+});
+
 test('the no-network switch actually reaches the subprocess it names', () => {
   // `SINGULARITY_FLOW_NO_NETWORK` was set by `scripts/dx-benchmark.mjs`, asserted by the reference
   // fixture as `protocol.network: "disabled"`, refused by `assertBaselineCandidate` if absent — and

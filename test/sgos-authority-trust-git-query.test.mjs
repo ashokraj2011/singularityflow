@@ -58,7 +58,7 @@ test('SGOS sorts ambiguous configured remotes before refusing authority selectio
   });
 });
 
-test('SGOS local-head query selects only its two canonical refs and treats Git failure as empty', async (t) => {
+test('SGOS local-head query selects only its two canonical refs and refuses Git failure', async (t) => {
   const { root } = await repository(t);
   for (const ref of ['refs/heads/state', 'refs/heads/sflow/config', 'refs/heads/unrelated']) {
     run('git', ['update-ref', ref, 'HEAD'], { cwd: root });
@@ -75,9 +75,13 @@ test('SGOS local-head query selects only its two canonical refs and treats Git f
     argv: ['for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config', 'refs/heads/state'],
     allowFailure: true
   }]);
-  assert.deepEqual(executeGitQuery(root, 'sgos.local-authority-heads', {}, {
+  assert.throws(() => executeGitQuery(root, 'sgos.local-authority-heads', {}, {
     runner: () => ({ status: 1, stdout: 'refs/heads/sflow/config\n', stderr: 'failed' })
-  }), []);
+  }), (error) => {
+    assert.equal(error.code, 'GIT_QUERY_FAILED');
+    assert.match(error.message, /could not be observed safely/i);
+    return true;
+  });
   assert.equal(gitQueryDescriptor('sgos.local-authority-heads').dependency, 'mutable');
 });
 

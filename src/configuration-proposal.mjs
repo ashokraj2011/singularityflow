@@ -25,6 +25,7 @@ import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
 import { gitCommitIdentity } from './git.mjs';
+import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,
   frozenRemoteTransport, redactDiagnosticText, remoteFingerprint, sanitizeRemote
@@ -33,6 +34,7 @@ import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
 import { executeGitQuery } from './git-query.mjs';
+import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
@@ -241,14 +243,7 @@ function workflowChanges(root, base, proposal, env) {
 }
 
 function changedConfigurationFiles(root, base, proposal, env) {
-  const names = run('git', ['diff', '--name-only', `${base}..${proposal}`], { cwd: root, env })
-    .stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
-  const statuses = run('git', ['diff', '--name-status', `${base}..${proposal}`], { cwd: root, env })
-    .stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).map((entry) => {
-      const [status, ...paths] = entry.split('\t');
-      return { status, paths };
-    });
-  return { names, statuses };
+  return readGitNameStatusDiff(root, base, proposal, { env });
 }
 
 function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
@@ -271,9 +266,7 @@ function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
     );
   }
   const mergeBase = mergeBaseResult.stdout.trim();
-  const merged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
-    cwd: root, env, allowFailure: true
-  }).status === 0;
+  const merged = gitIsAncestor(root, ref, 'HEAD', { env });
   const reviewBase = merged ? proposalBase : mergeBase;
   const changed = changedConfigurationFiles(root, reviewBase, ref, env);
   const invalidFiles = changed.names.filter((file) => !isConfigurationReadPath(file));
@@ -384,10 +377,10 @@ export async function listWorkflowConfigurationProposals(root, {
     const proposals = [];
     for (const entry of branches) {
       const ref = `refs/remotes/origin/${entry.branch}`;
-      if (!includeMerged && run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
-        cwd: scratch, env: transport.env, allowFailure: true
-      }).status === 0) continue;
       try {
+        if (!includeMerged && gitIsAncestor(scratch, ref, 'HEAD', {
+          env: transport.env
+        })) continue;
         proposals.push(inspectWorkflowProposalCheckout(
           scratch, remote, entry.branch, ref, { includeDiff, env: transport.env }
         ));
@@ -448,16 +441,26 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
         { code: cloned.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE' }
       );
     }
-    const targetCommit = configurationRepositoryHead(scratch, transport.env);
-    const merged = run('git', ['merge-base', '--is-ancestor', proposalCommit, 'HEAD'], {
-      cwd: scratch, env: transport.env, allowFailure: true
-    }).status === 0;
     const proposalRef = `refs/heads/${branch}`;
     const observed = await remoteSession.observeAsync(remote, {
       refs: [proposalRef], includeHead: false, refresh: true
     });
     requireRemoteObservation(observed, `configuration proposal '${branch}'`);
     const branchCommit = observed.refs.get(proposalRef) ?? null;
+    if (branchCommit != null) {
+      const fetched = await runRemoteGitAsync([
+        'fetch', '--quiet', '--no-tags', '--', transport.remote,
+        `+${proposalRef}:refs/remotes/origin/${branch}`
+      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      if (fetched.status !== 0) throw new SingularityFlowError(
+        `Cannot read configuration proposal '${branch}'. ${fetched.failure?.advice ?? 'Git fetch failed.'}`,
+        { code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE' }
+      );
+    }
+    const targetCommit = configurationRepositoryHead(scratch, transport.env);
+    const merged = gitCommitObjectExists(scratch, proposalCommit, { env: transport.env })
+      ? gitIsAncestor(scratch, proposalCommit, 'HEAD', { env: transport.env })
+      : false;
     return {
       branch,
       proposalCommit,

@@ -82,6 +82,8 @@ import {
 } from './lead-repositories.mjs';
 import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 import { executeGitQuery } from './git-query.mjs';
+import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
+import { gitIsAncestor } from './git-ancestry.mjs';
 import {
   isRetiredPackagedAsset, RETIRED_PACKAGED_ASSET_SHA256
 } from './packaged-asset-history.mjs';
@@ -640,14 +642,7 @@ function capabilityProposalBranch(value) {
 }
 
 function proposalChangedFiles(root, base, proposal, { env = process.env } = {}) {
-  const names = run('git', ['diff', '--name-only', `${base}..${proposal}`], { cwd: root, env })
-    .stdout.split('\n').map((entry) => entry.trim()).filter(Boolean);
-  const statuses = run('git', ['diff', '--name-status', `${base}..${proposal}`], { cwd: root, env })
-    .stdout.split('\n').map((entry) => entry.trim()).filter(Boolean).map((entry) => {
-      const [status, ...paths] = entry.split('\t');
-      return { status, paths };
-    });
-  return { names, statuses };
+  return readGitNameStatusDiff(root, base, proposal, { env });
 }
 
 /** Paths whose final Git identities prove a squash/rebase applied this exact proposal content. */
@@ -780,9 +775,7 @@ async function recoverCapabilityActivationTarget(root, definition, {
     const recordedRemote = entry.payload?.remoteIdentity?.sha256 ?? null;
     if (!acceptedTarget || publishedTarget !== acceptedTarget
         || (recordedRemote && recordedRemote !== `sha256:${remoteFingerprint(remote)}`)
-        || run('git', ['merge-base', '--is-ancestor', acceptedTarget, currentAuthorityCommit], {
-          cwd: root, env, allowFailure: true
-        }).status !== 0) {
+        || !gitIsAncestor(root, acceptedTarget, currentAuthorityCommit, { env })) {
       throw activationRecoveryConflict(remote, proposalBranch, proposalCommit, {
         currentAuthorityCommit,
         recordedTargetCommit: acceptedTarget,
@@ -813,12 +806,9 @@ async function recoverCapabilityActivationTarget(root, definition, {
       reachedProposalBase = true;
       break;
     }
-    const candidateContains = run('git', [
-      'merge-base', '--is-ancestor', proposalCommit, candidate
-    ], { cwd: root, env, allowFailure: true }).status === 0;
-    const parentContains = parent != null && run('git', [
-      'merge-base', '--is-ancestor', proposalCommit, parent
-    ], { cwd: root, env, allowFailure: true }).status === 0;
+    const candidateContains = gitIsAncestor(root, proposalCommit, candidate, { env });
+    const parentContains = parent != null
+      && gitIsAncestor(root, proposalCommit, parent, { env });
     if (candidateContains && !parentContains) {
       candidates.push({
         commit: candidate, targetBefore: parent, evidence: 'commit-ancestry'
@@ -1289,9 +1279,7 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
   const available = () => run('git', ['cat-file', '-e', `${commit}^{commit}`], {
     cwd: root, env, allowFailure: true
   }).status === 0;
-  const contained = () => available() && run('git', [
-    'merge-base', '--is-ancestor', commit, 'HEAD'
-  ], { cwd: root, env, allowFailure: true }).status === 0;
+  const contained = () => available() && gitIsAncestor(root, commit, 'HEAD', { env });
   if (!available()) {
     // GitHub and many office providers retain a just-merged review commit after deleting its source
     // branch. Ask only for the caller-confirmed full object ID; if the server no longer exposes it,
@@ -4776,18 +4764,16 @@ export async function listCapabilityProposals(url, {
       for (const entry of page) {
         if (proposalLimit != null && proposalBudgetUsed >= proposalLimit) break outer;
         const ref = `refs/remotes/origin/${entry.branch}`;
-        let ancestryMerged = false;
-        if (!sharedFailure && !includeMerged) {
-          // The ordinary inbox excludes merged proposals. Determine that with ancestry before
-          // computing names, identities, and the full diff for a proposal the caller will discard.
-          ancestryMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
-            cwd: scratch, env: transport.env, allowFailure: true
-          }).status === 0;
-        }
         inspectedBranches += 1;
-        if (ancestryMerged) continue;
         try {
           if (sharedFailure) throw sharedFailure;
+          let ancestryMerged = false;
+          if (!includeMerged) {
+            // The ordinary inbox excludes merged proposals. Determine that with ancestry before
+            // computing names, identities, and the full diff for a proposal the caller will discard.
+            ancestryMerged = gitIsAncestor(scratch, ref, 'HEAD', { env: transport.env });
+          }
+          if (ancestryMerged) continue;
           const inspected = inspectCapabilityProposalCheckout(
             scratch, sanitizeRemote(remote), entry.branch, ref, {
               includeDiff, repositoryUrl: inspectedRepository, env: transport.env,
@@ -4909,9 +4895,8 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
   }
   const proposalBase = proposalBaseCommit(root, proposalBranch, ref, { env });
   const mergeBase = mergeBaseResult.stdout.trim();
-  const ancestryMerged = knownAncestryMerged ?? (run('git', [
-    'merge-base', '--is-ancestor', ref, 'HEAD'
-  ], { cwd: root, env, allowFailure: true }).status === 0);
+  const ancestryMerged = knownAncestryMerged
+    ?? gitIsAncestor(root, ref, 'HEAD', { env });
   const contentMerged = !ancestryMerged
     && proposalContentIsPresent(root, proposalBase, ref, 'HEAD', { env });
   const merged = ancestryMerged || contentMerged;
@@ -5941,9 +5926,7 @@ export async function activateCapabilityProposal(url, branch, {
           });
       }
       const proposalBase = proposalBaseCommit(root, proposalBranch, ref, { env });
-      const ancestryMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
-        cwd: root, env, allowFailure: true
-      }).status === 0;
+      const ancestryMerged = gitIsAncestor(root, ref, 'HEAD', { env });
       const contentMerged = !ancestryMerged
         && proposalContentIsPresent(root, proposalBase, ref, 'HEAD', { env });
       let alreadyMerged = ancestryMerged || contentMerged;

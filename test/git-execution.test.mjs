@@ -133,6 +133,35 @@ test('remote sessions refuse duplicate and malformed successful reference advert
   }
 });
 
+test('remote sessions never admit invalid UTF-8 authority bytes as replacement-character refs', async () => {
+  const invalid = Buffer.from([
+    ...Buffer.from(`${'1'.repeat(40)}\trefs/heads/`, 'ascii'),
+    0x80,
+    0x0a
+  ]);
+  const sync = new GitRemoteSession({
+    runCommand() {
+      return { status: 0, stdout: invalid, stderr: Buffer.alloc(0), timedOut: false };
+    }
+  }).observe('https://example.com/acme/invalid-sync.git', {
+    refs: ['refs/heads/main'], includeHead: false
+  });
+  assert.equal(sync.ok, false);
+  assert.equal(sync.failure.code, 'REMOTE_PROTOCOL_INVALID');
+  assert.equal(sync.refs.size, 0);
+
+  const async = await new GitRemoteSession({
+    async runAsyncCommand() {
+      return { status: 0, stdout: invalid, stderr: Buffer.alloc(0), timedOut: false };
+    }
+  }).observeAsync('https://example.com/acme/invalid-async.git', {
+    refs: ['refs/heads/main'], includeHead: false
+  });
+  assert.equal(async.ok, false);
+  assert.equal(async.failure.code, 'REMOTE_PROTOCOL_INVALID');
+  assert.equal(async.refs.size, 0);
+});
+
 test('local Git authorities retain a bounded configuration window instead of a network probe window', async () => {
   const env = {
     ...process.env,
@@ -474,6 +503,78 @@ test('remote execution is bounded, non-interactive, and classifies failures once
   assert.equal(result.failure.retryable, true);
 });
 
+test('zero-exit Git results are accepted only when every execution boundary is clean', async (t) => {
+  const oid = '7'.repeat(40);
+  const advertised = [
+    'ref: refs/heads/main\tHEAD',
+    `${oid}\tHEAD`,
+    `${oid}\trefs/heads/main`
+  ].join('\n');
+  const clean = {
+    status: 0,
+    stdout: advertised,
+    stderr: '',
+    error: undefined,
+    signal: null,
+    timedOut: false,
+    aborted: false,
+    outputOverflow: false,
+    blocked: false
+  };
+  const poisoned = [
+    ['error', { error: Object.assign(new Error('bounded execution failed'), { code: 'ETIMEDOUT' }) }],
+    ['signal', { signal: 'SIGTERM' }],
+    ['timedOut', { timedOut: true }],
+    ['aborted', { aborted: true }],
+    ['outputOverflow', { outputOverflow: true }],
+    ['blocked', { blocked: true }]
+  ];
+
+  await t.test('clean zero exit remains a reusable successful observation', () => {
+    const result = runRemoteGit(['ls-remote', 'origin'], {
+      runCommand: () => ({ ...clean })
+    });
+    assert.equal(result.failure, null);
+
+    let calls = 0;
+    const session = new GitRemoteSession({
+      runCommand() {
+        calls += 1;
+        return { ...clean };
+      }
+    });
+    const first = session.observe('https://example.com/acme/clean.git');
+    const second = session.observe('https://example.com/acme/clean.git');
+    assert.equal(first, second);
+    assert.equal(calls, 1);
+    assert.equal(first.ok, true);
+    assert.equal(first.defaultBranch, 'main');
+    assert.equal(first.refs.get('refs/heads/main'), oid);
+  });
+
+  for (const [name, poison] of poisoned) {
+    await t.test(name, () => {
+      const runCommand = () => ({ ...clean, ...poison });
+      const result = runRemoteGit(['ls-remote', 'origin'], { runCommand });
+      assert.ok(result.failure, `${name} must classify a zero-exit result as failed`);
+
+      assert.throws(() => runRemoteGit(['ls-remote', 'origin'], {
+        runCommand,
+        allowFailure: false
+      }), (error) => typeof error?.code === 'string' && error.code.startsWith('REMOTE_'));
+
+      const session = new GitRemoteSession({ runCommand });
+      const observed = session.observe(`https://example.com/acme/${name}.git`);
+      assert.equal(observed.ok, false);
+      assert.equal(observed.defaultBranch, null);
+      assert.equal(observed.refs.size, 0,
+        `${name} must not admit refs from an incomplete execution`);
+      assert.deepEqual(observed.branches, []);
+      assert.ok(observed.failure);
+    });
+  }
+});
+
 test('remote execution strips mixed-case repository selectors and hostile counted config', () => {
   let invocation;
   const result = runRemoteGit(['ls-remote', 'origin'], {
@@ -667,6 +768,78 @@ test('async Git executor preserves raw stdout only when Buffer mode is selected'
   const text = await execute('utf8');
   assert.equal(typeof text.stdout, 'string');
   assert.equal(text.stdout, bytes.toString('utf8'));
+});
+
+test('async Git text framing preserves split 2-, 3-, and 4-byte UTF-8 code points', async (t) => {
+  for (const character of ['é', '€', '😀']) {
+    const encoded = Buffer.from(character, 'utf8');
+    for (let boundary = 1; boundary < encoded.length; boundary += 1) {
+      await t.test(`${encoded.length}-byte code point at byte ${boundary}`, async () => {
+        const stdoutPrefix = Buffer.from('stdout:');
+        const stdoutSuffix = Buffer.from(':done\n');
+        const stderrPrefix = Buffer.from('stderr:');
+        const stderrSuffix = Buffer.from(':done\n');
+        const result = await runRemoteGitAsync(['--version'], {
+          operation: 'local-read',
+          timeoutMs: 5_000,
+          encoding: 'utf8',
+          spawnCommand() {
+            const child = new EventEmitter();
+            child.stdout = new PassThrough();
+            child.stderr = new PassThrough();
+            queueMicrotask(() => {
+              child.stdout.write(Buffer.concat([stdoutPrefix, encoded.subarray(0, boundary)]));
+              child.stdout.write(Buffer.concat([encoded.subarray(boundary), stdoutSuffix]));
+              child.stderr.write(Buffer.concat([stderrPrefix, encoded.subarray(0, boundary)]));
+              child.stderr.write(Buffer.concat([encoded.subarray(boundary), stderrSuffix]));
+              child.emit('close', 0, null);
+            });
+            return child;
+          }
+        });
+
+        assert.equal(result.status, 0);
+        assert.equal(result.stdout, `stdout:${character}:done\n`);
+        assert.equal(result.stderr, `stderr:${character}:done\n`);
+      });
+    }
+  }
+});
+
+test('async Git output ceiling is measured in exact bytes', async () => {
+  const output = Buffer.from('Aé€😀Z', 'utf8');
+  const execute = (maxBuffer) => runRemoteGitAsync(['--version'], {
+    operation: 'local-read',
+    timeoutMs: 5_000,
+    terminationGraceMs: 40,
+    maxBuffer,
+    encoding: 'utf8',
+    spawnCommand() {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      queueMicrotask(() => {
+        child.stdout.write(output.subarray(0, 3));
+        child.stdout.write(output.subarray(3));
+        if (output.byteLength <= maxBuffer) child.emit('close', 0, null);
+      });
+      return child;
+    },
+    terminateTree(child, signal) {
+      queueMicrotask(() => child.emit('close', null, signal));
+      return true;
+    }
+  });
+
+  const exact = await execute(output.byteLength);
+  assert.equal(exact.status, 0);
+  assert.equal(exact.outputOverflow, false);
+  assert.equal(exact.stdout, output.toString('utf8'));
+
+  const overflow = await execute(output.byteLength - 1);
+  assert.equal(overflow.status, 1);
+  assert.equal(overflow.outputOverflow, true);
+  assert.equal(overflow.failure.code, 'REMOTE_OUTPUT_LIMIT');
 });
 
 test('asynchronous remote execution resolves an absolute Git executable on Windows', async () => {

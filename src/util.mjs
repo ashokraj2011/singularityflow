@@ -12,6 +12,7 @@ import {
   resolveWindowsSystemTool
 } from './platform-process.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
+import { processResultSucceeded } from './process-result.mjs';
 
 export class SingularityFlowError extends Error {
   constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
@@ -660,7 +661,7 @@ export function run(command, args = [], {
     ? result.stderr : empty;
   // Node reports `status: null` when the child dies from a signal. That is a failed command, not a
   // successful one; treating it as zero made `run --repair-on-fault` silently discard crashes.
-  const status = result.status ?? (result.error || result.signal ? 1 : 0);
+  const reportedStatus = result.status ?? (result.error || result.signal ? 1 : 0);
   /**
    * A command that ran out of time did not answer, which is not the same as answering no.
    *
@@ -669,6 +670,19 @@ export function run(command, args = [], {
    * indistinguishable from a signed-out account in every disclosure downstream.
    */
   const timedOut = result.error?.code === 'ETIMEDOUT';
+  // `spawnSync` can retain a zero process exit after its own timeout/error boundary fired. Keep
+  // the execution facts, but normalize the public status so legacy status-only callers cannot
+  // mistake an unanswered command for success. Higher-level owners still apply the complete
+  // predicate before parsing or caching results from injected runners.
+  const candidate = {
+    status: reportedStatus,
+    error: result.error,
+    signal: result.signal ?? null,
+    timedOut,
+    blocked: false
+  };
+  const status = processResultSucceeded(candidate) ? 0
+    : reportedStatus === 0 ? 1 : reportedStatus;
   /**
    * A command that wrote more than the ceiling answered; we refused to hold the answer.
    *

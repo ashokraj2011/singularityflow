@@ -542,9 +542,9 @@
     },
     "src/configuration-proposal.mjs": {
       "counts": {
-        "command-run": 22
+        "command-run": 17
       },
-      "digest": "9f40e0a0842c351e57d92e1c3adb7ed52d8c5c0bcc95bfcc9b9a818d0a494893"
+      "digest": "396dd97b1fd3e09d7622dde56fb753e361f74144ce834144e79b0d2c69d858fb"
     },
     "src/context-history.mjs": {
       "counts": {
@@ -705,11 +705,23 @@
       },
       "digest": "9bf65d181c7ddb320bd82a634bc0c6bcca8c031a0b77d820577da26a0a60f5ff"
     },
+    "src/git-ancestry.mjs": {
+      "counts": {
+        "command-runCommand": 2
+      },
+      "digest": "0059b3c188fa7a986bea7db7f08a15da8deca81b81e4031140c66280f5ec56a8"
+    },
     "src/git-blob-batch.mjs": {
       "counts": {
         "command-runCommand": 3
       },
       "digest": "9da92ee0655cee1bf633f1b588ced38a2131e83fd4ac305baa2028b98ad41437"
+    },
+    "src/git-diff-name-status.mjs": {
+      "counts": {
+        "command-runCommand": 1
+      },
+      "digest": "783d88a975b69b55b49b24a13b2aaa2827f1f6a78d04d98e5279160e19315159"
     },
     "src/git-enterprise-environment.mjs": {
       "counts": {
@@ -887,9 +899,9 @@
     },
     "src/organisation.mjs": {
       "counts": {
-        "command-run": 89
+        "command-run": 80
       },
-      "digest": "9ce3f3487f7e2b0ee227588f6226ce28b724f9d878d6c8cbb4ad31b8e4147ec3"
+      "digest": "6c0d72cfaa57b842a0f79354d37f5d3bf5f80dc1986161756285d791279fe739"
     },
     "src/performance-doctor.mjs": {
       "counts": {
@@ -1288,7 +1300,7 @@
       "counts": {
         "package-script": 60
       },
-      "digest": "5f65dba386696afe02a906999985719b629d63774040093a81fb9601a6e1b9a8"
+      "digest": "783f0105ac8eddea885998299c0c9b86d10423eea9e3d2b095c665197a61d10b"
     },
     "apps/vscode/package.json": {
       "counts": {

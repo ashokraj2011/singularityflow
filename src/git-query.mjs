@@ -5,6 +5,7 @@ import { GAL_ASYNC_READ_DESCRIPTORS } from './gal-async-read.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { parseGitIndexStages, parsePorcelainV2Status } from './git-status-detail.mjs';
 import { parsePorcelainV2Revision } from './git-status-projection.mjs';
+import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 
 function freezeDeep(value) {
@@ -25,10 +26,8 @@ function text(result) {
  * empty streams, so status and output alone cannot prove absence.
  */
 function cleanNegativeResult(result) {
-  return result.status === 1 && !result.stdout && !result.stderr
-    && result.error == null && result.signal == null
-    && result.timedOut !== true && result.blocked !== true
-    && result.outputOverflow !== true;
+  return result.status === 1 && processResultCompleted(result)
+    && !result.stdout && !result.stderr;
 }
 
 function lines(result) {
@@ -185,7 +184,13 @@ const descriptors = [
   descriptor('repository.local-branch-exists', {
     argv: (params) => ['show-ref', '--verify', '--quiet', `refs/heads/${localBranchName(params)}`],
     allowFailure: true,
-    parser: (result) => result.status === 0
+    parser(result) {
+      if (processResultSucceeded(result)) return true;
+      if (cleanNegativeResult(result)) return false;
+      throw new SingularityFlowError('Local branch existence could not be observed safely.', {
+        code: 'GIT_QUERY_FAILED', details: { queryId: 'repository.local-branch-exists' }
+      });
+    }
   }),
   descriptor('repository.status', {
     argv(params) {
@@ -255,7 +260,14 @@ const descriptors = [
       'refs/heads/sflow/config', 'refs/heads/state'
     ],
     allowFailure: true,
-    parser: (result) => result.status === 0 ? [...lines(result)].sort() : []
+    parser(result) {
+      if (!processResultSucceeded(result)) throw new SingularityFlowError(
+        'Local SGOS authority refs could not be observed safely.', {
+          code: 'GIT_QUERY_FAILED', details: { queryId: 'sgos.local-authority-heads' }
+        }
+      );
+      return [...lines(result)].sort();
+    }
   }),
   descriptor('repository.remote-url', {
     argv(params) {
@@ -336,7 +348,10 @@ export function executeGitQuery(root, id, params = {}, { env = process.env, runn
   } finally {
     incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - started)));
   }
-  if (!entry.allowFailure && result.status !== 0) throw new SingularityFlowError(
+  // A zero process exit accompanied by any execution-boundary failure is never parseable, even
+  // for descriptors that intentionally interpret a documented non-zero exit themselves.
+  if (!processResultCompleted(result)
+      || (!entry.allowFailure && !processResultSucceeded(result))) throw new SingularityFlowError(
     `Git query '${id}' failed.`, { code: 'GIT_QUERY_FAILED', details: { queryId: id } }
   );
   return freezeDeep(entry.parser(result, validatedParams));

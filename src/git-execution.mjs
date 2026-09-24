@@ -14,7 +14,9 @@ import {
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import { resolvePlatformProcess } from './platform-process.mjs';
+import { processResultSucceeded } from './process-result.mjs';
 import {
   inheritEnterpriseGitEnvironment, remoteGitEnvironment
 } from './git-enterprise-environment.mjs';
@@ -110,7 +112,7 @@ function recordRemoteGitInvocation(args, operation) {
 function recordRemoteGitOutcome(result) {
   if (result?.timedOut === true) incrementCommandCounter('git.remote.outcome.timeout');
   if (result?.outputOverflow === true) incrementCommandCounter('git.remote.outcome.output-overflow');
-  if (result?.status !== 0 || result?.outputOverflow === true) {
+  if (!processResultSucceeded(result)) {
     incrementCommandCounter('git.remote.outcome.failure');
   }
 }
@@ -146,7 +148,8 @@ export function runRemoteGit(args, {
   timeoutMs = timeoutFor(operation, env),
   allowFailure = true,
   runCommand = run,
-  maxBuffer = undefined
+  maxBuffer = undefined,
+  encoding = 'utf8'
 } = {}) {
   recordRemoteGitInvocation(args, operation);
   const serviceStarted = performance.now();
@@ -178,18 +181,26 @@ export function runRemoteGit(args, {
       // This adapter owns the logical-request, physical-spawn and service-time counters. The shared
       // runner owns raw local Git calls; naming the owner prevents the two layers counting one child.
       recordGitTiming: false,
+      ...(encoding === 'buffer' ? { encoding: 'buffer' } : {}),
       ...(maxBuffer === undefined ? {} : { maxBuffer })
     });
   } finally {
     incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - serviceStarted)));
   }
-  const failure = result.status === 0 ? null : {
+  const succeeded = processResultSucceeded(result);
+  const failure = succeeded ? null : {
     ...classifyGitRemoteFailure(result, { cwdAvailable: workingDirectoryAvailable(cwd) }),
     evidence: failureEvidence(result)
   };
-  const observed = { ...result, failure, operation, timeoutMs };
+  const observed = {
+    ...result,
+    // Preserve the raw process exit in failure evidence, while ensuring legacy status-only
+    // consumers cannot admit a poisoned zero exit as success.
+    status: succeeded ? 0 : result.status === 0 ? 1 : result.status,
+    failure, operation, timeoutMs
+  };
   recordRemoteGitOutcome(observed);
-  if (result.status !== 0 && !allowFailure) throwRemoteFailure(observed);
+  if (!succeeded && !allowFailure) throwRemoteFailure(observed);
   return observed;
 }
 
@@ -258,6 +269,8 @@ export async function runRemoteGitAsync(args, {
     let stdout = encoding === 'buffer' ? Buffer.alloc(0) : '';
     const stdoutChunks = encoding === 'buffer' ? [] : null;
     let stderr = '';
+    const stdoutDecoder = encoding === 'buffer' ? null : new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
     let bytes = 0;
     let timedOut = false;
     let aborted = false;
@@ -295,6 +308,8 @@ export async function runRemoteGitAsync(args, {
       settled = true;
       cleanup();
       if (terminationReason) destroyPipes();
+      if (stdoutDecoder) stdout += stdoutDecoder.end();
+      stderr += stderrDecoder.end();
       // Once a boundary fired, a wrapper exiting zero in response to SIGTERM did not produce a
       // valid remote answer. Preserve failure even when that late exit reports code 0.
       const failedByBoundary = terminationReason != null || outputOverflow;
@@ -383,9 +398,9 @@ export async function runRemoteGitAsync(args, {
       }
       if (channel === 'stdout') {
         if (stdoutChunks) stdoutChunks.push(value);
-        else stdout += value.toString('utf8');
+        else stdout += stdoutDecoder.write(value);
       }
-      else stderr += value.toString('utf8');
+      else stderr += stderrDecoder.write(value);
     };
     const onStdout = (chunk) => append('stdout', chunk);
     const onStderr = (chunk) => append('stderr', chunk);
@@ -420,7 +435,8 @@ export async function runRemoteGitAsync(args, {
   const serviceMs = performance.now() - serviceStarted;
   incrementCommandCounter('git.service-ms', Math.max(0, Math.round(serviceMs)));
   if (probeStarted) recordSubprocessTiming('git', args, serviceMs);
-  const classified = result.status === 0 && !result.outputOverflow
+  const succeeded = processResultSucceeded(result);
+  const classified = succeeded
     ? null
     : {
         ...classifyGitRemoteFailure(result, { cwdAvailable: workingDirectoryAvailable(cwd) }),
@@ -439,12 +455,16 @@ export async function runRemoteGitAsync(args, {
           retryable: true,
           advice: 'Git produced more diagnostic or reference data than the bounded operation permits. Narrow the requested refs or inspect the provider outside SFlow.'
         }
-    : result.status === 0
+    : succeeded
     ? null
     : classified;
-  const observed = { ...result, failure, operation, timeoutMs };
+  const observed = {
+    ...result,
+    status: succeeded ? 0 : result.status === 0 ? 1 : result.status,
+    failure, operation, timeoutMs
+  };
   recordRemoteGitOutcome(observed);
-  if ((result.status !== 0 || result.outputOverflow) && !allowFailure) throwRemoteFailure(observed);
+  if (!succeeded && !allowFailure) throwRemoteFailure(observed);
   return observed;
 }
 
@@ -516,8 +536,20 @@ function observationPatternsCover(available, requested) {
     || (pattern.startsWith('refs/heads/') && pattern !== 'refs/heads/*' && held.has('refs/heads/*')));
 }
 
+function strictRemoteText(value) {
+  if (typeof value === 'string') return value;
+  if (!Buffer.isBuffer(value)) return null;
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(value); }
+  catch { return null; }
+}
+
 function remoteObservation(url, patterns, result) {
-  const advertisement = parseRemoteAdvertisement(result.stdout);
+  const succeeded = processResultSucceeded(result);
+  const stdout = succeeded ? strictRemoteText(result.stdout) : null;
+  // Failed/poisoned process output is diagnostic input, never an authority advertisement.
+  const advertisement = succeeded && stdout != null
+    ? parseRemoteAdvertisement(stdout)
+    : { refs: new Map(), symbolicRefs: new Map(), invalid: false };
   const refsByName = advertisement.refs;
   const symbolicRefs = advertisement.symbolicRefs;
   const unsupportedSymbolicAuthority = [...symbolicRefs.keys()]
@@ -529,7 +561,7 @@ function remoteObservation(url, patterns, result) {
     advice: 'The requested Git authority is a symbolic ref. Replace it with a direct branch ref before retrying.',
     evidence: result.failure?.evidence ?? failureEvidence(result)
   }) : null;
-  const protocolFailure = result.status === 0 && advertisement.invalid ? Object.freeze({
+  const protocolFailure = succeeded && (stdout == null || advertisement.invalid) ? Object.freeze({
     code: 'REMOTE_PROTOCOL_INVALID',
     classification: 'authority-invalid',
     retryable: false,
@@ -537,10 +569,10 @@ function remoteObservation(url, patterns, result) {
     evidence: result.failure?.evidence ?? failureEvidence(result)
   }) : null;
   return Object.freeze({
-    ok: result.status === 0 && !symbolicFailure && !protocolFailure,
+    ok: succeeded && !symbolicFailure && !protocolFailure,
     remote: sanitizeRemote(url),
-    defaultBranch: result.status === 0 && !symbolicFailure && !protocolFailure
-      ? symrefBranch(result.stdout) : null,
+    defaultBranch: succeeded && !symbolicFailure && !protocolFailure
+      ? symrefBranch(stdout) : null,
     refs: refsByName,
     branches: [...refsByName.keys()].filter((ref) => ref.startsWith('refs/heads/'))
       .map((ref) => ref.slice('refs/heads/'.length)).sort(),
@@ -630,7 +662,7 @@ export class GitRemoteSession {
     const transport = frozenRemoteTransport(url, { env: this.env });
     const result = runRemoteGit(['ls-remote', '--symref', '--', transport.remote, ...patterns], {
       cwd: this.cwd, operation: 'remote-probe', timeoutMs: effectiveTimeoutMs, env: transport.env,
-      runCommand: this.runCommand, allowFailure: true
+      runCommand: this.runCommand, allowFailure: true, encoding: 'buffer'
     });
     const observation = remoteObservation(url, patterns, result);
     if (this.observationGenerations.get(key) === generation) {
@@ -672,7 +704,7 @@ export class GitRemoteSession {
         {
           cwd: this.cwd, operation: 'remote-probe', timeoutMs: effectiveTimeoutMs,
           env: transport.env,
-          allowFailure: true, signal
+          allowFailure: true, signal, encoding: 'buffer'
         }
       );
       const observation = remoteObservation(url, patterns, result);

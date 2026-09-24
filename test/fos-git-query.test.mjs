@@ -353,6 +353,93 @@ test('registered branch observation is one bounded spawn and rejects deadline/pr
   }), (error) => error.code === 'GIT_QUERY_PARSE_FAILED');
 });
 
+test('registered Git queries reject poisoned zero exits before parsing or caching', async () => {
+  const poisonedResults = [
+    ['error', {
+      error: Object.assign(new Error('deadline expired'), { code: 'ETIMEDOUT' })
+    }],
+    ['signal', { signal: 'SIGTERM' }],
+    ['timedOut', { timedOut: true }],
+    ['aborted', { aborted: true }],
+    ['outputOverflow', { outputOverflow: true }],
+    ['blocked', { blocked: true }]
+  ];
+
+  for (const [label, poison] of poisonedResults) {
+    let calls = 0;
+    const context = new RepoContext('/tmp/registered-query-poison', {
+      execute(root, id, params) {
+        return executeGitQuery(root, id, params, {
+          runner() {
+            calls += 1;
+            return calls === 1
+              ? { status: 0, stdout: 'refs/heads/topic\n', stderr: '', ...poison }
+              : { status: 0, stdout: 'refs/heads/topic\n', stderr: '' };
+          }
+        });
+      }
+    });
+
+    await assert.rejects(context.observe('repository.branch'),
+      (error) => error.code === 'GIT_QUERY_FAILED', label);
+    assert.equal(await context.observe('repository.branch'), 'topic', label);
+    assert.equal(await context.observe('repository.branch'), 'topic', label);
+    assert.equal(calls, 2, `${label}: poisoned result was cached or clean result was not cached`);
+  }
+});
+
+test('allow-failure Git queries reject poisoned non-zero exits before parsing absence', () => {
+  const observeRoot = (result) => executeGitQuery('/tmp', 'repository.root', {}, {
+    runner: () => result
+  });
+
+  assert.equal(observeRoot({ status: 1, stdout: '', stderr: '' }), null);
+
+  const poisonedResults = [
+    ['error', {
+      error: Object.assign(new Error('spawn failed'), { code: 'EACCES' })
+    }],
+    ['signal', { signal: 'SIGTERM' }],
+    ['timeout', { timedOut: true }],
+    ['abort', { aborted: true }],
+    ['output overflow', { outputOverflow: true }],
+    ['blocked', { blocked: true }]
+  ];
+
+  for (const [label, poison] of poisonedResults) {
+    assert.throws(() => observeRoot({
+      status: 1, stdout: '', stderr: '', ...poison
+    }), (error) => error.code === 'GIT_QUERY_FAILED', label);
+  }
+});
+
+test('local branch existence accepts only complete Git presence and absence results', () => {
+  const observe = (result) => executeGitQuery('/tmp', 'repository.local-branch-exists', {
+    branch: 'topic'
+  }, { runner: () => result });
+
+  assert.equal(observe({ status: 0, stdout: '', stderr: '' }), true);
+  assert.equal(observe({ status: 1, stdout: '', stderr: '' }), false);
+
+  const refused = [
+    ['unexpected exit', { status: 128, stdout: '', stderr: '' }],
+    ['stderr diagnostic', { status: 1, stdout: '', stderr: 'fatal: cannot read refs\n' }],
+    ['stdout diagnostic', { status: 1, stdout: 'unexpected\n', stderr: '' }],
+    ['execution error', {
+      status: 1, stdout: '', stderr: '',
+      error: Object.assign(new Error('spawn failed'), { code: 'EACCES' })
+    }],
+    ['signal', { status: 1, stdout: '', stderr: '', signal: 'SIGTERM' }],
+    ['timeout', { status: 1, stdout: '', stderr: '', timedOut: true }],
+    ['abort', { status: 1, stdout: '', stderr: '', aborted: true }],
+    ['overflow', { status: 1, stdout: '', stderr: '', outputOverflow: true }],
+    ['blocked', { status: 1, stdout: '', stderr: '', blocked: true }]
+  ];
+  for (const [label, result] of refused) {
+    assert.throws(() => observe(result), (error) => error.code === 'GIT_QUERY_FAILED', label);
+  }
+});
+
 test('registered branch observation selects each linked worktree and preserves detached absence', async () => {
   const root = await repository();
   const linked = `${root}-branch-read-linked`;

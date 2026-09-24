@@ -5,6 +5,7 @@
  */
 import { failureEvidence } from './git-remote-diagnostics.mjs';
 import { gitQueryDescriptor } from './git-query.mjs';
+import { processResultSucceeded } from './process-result.mjs';
 
 const OPERATIONS = Object.freeze({
   status: Object.freeze({ id: 'gal.status-detail.v1', descriptor: 'repository.status-detail',
@@ -95,8 +96,7 @@ export function createGitStatusReadFacade(repository, execute, { signal = null }
       const result = await execute(descriptor.argv(params), {
         signal: controller.signal, maxBuffer: operation.maxBuffer
       });
-      if (result.status !== 0 || result.timedOut || result.aborted || result.outputOverflow
-          || result.error) return executionFailure(operation.id, subject, result);
+      if (!processResultSucceeded(result)) return executionFailure(operation.id, subject, result);
       if (!Buffer.isBuffer(result.stdout)) {
         return failure('GAL_PROTOCOL_INVALID', operation.id, subject, result);
       }

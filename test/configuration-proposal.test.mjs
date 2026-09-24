@@ -317,6 +317,24 @@ test('configuration save bounds long filename proposal refs and retains full-pat
       '--git-dir', item.remote, 'show-ref', '--verify', '--quiet', `refs/heads/${proposal.branch}`
     ], { allowFailure: true }).status, 0, 'the bounded proposal ref is published remotely');
 
+    const pendingStatus = spawnSync(process.execPath, [
+      cli, 'workflow', 'proposal-status', proposal.branch,
+      '--commit', proposal.commit, '--json'
+    ], {
+      cwd: item.story,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'test', NO_COLOR: '1',
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(item.base, 'workspaces.json'),
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(item.base, 'active-workspace.json')
+      }
+    });
+    assert.equal(pendingStatus.status, 0, `${pendingStatus.stderr}\n${pendingStatus.stdout}`);
+    const pending = JSON.parse(pendingStatus.stdout);
+    assert.equal(pending.merged, false);
+    assert.equal(pending.branchStatus, 'matching');
+
     // Model an external review system that fast-forwards the approved authority and immediately
     // deletes the source branch. Status must still prove the exact saved commit through ancestry.
     run('git', ['--git-dir', item.remote, 'update-ref', 'refs/heads/sflow/config', proposal.commit]);

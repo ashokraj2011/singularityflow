@@ -1671,7 +1671,7 @@ offline and must not be represented as remote publication proof.
           <span class="pill">interactive</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~739 body tokens</span>
+          <span class="pill">~751 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-map</code></dd></div>
@@ -1700,29 +1700,27 @@ disable-model-invocation: true
 ## One capability
 
 1. Ask the exact credential-free Git URL; preview `singularity-flow capability onboard &lt;GIT-URL&gt; --dry-run --json`.
-2. Relay the `repository-onboarding-plan/v1` effects, preserved data, `planId`, and Shell/Copilot actions. Use its status label; hide authority pins, SHAs, and cache leases.
-3. Never infer `--migrate`, `--recreate`, or `--reset-local`; preview its `--dry-run --json` form only after explicit choice.
-4. Confirm the exact effects and preserved data; run the exact Shell command returned by the plan once: `singularity-flow capability onboard &lt;GIT-URL&gt; --confirm-plan &lt;PLAN-ID&gt; --json`.
-5. Keep retry.
-6. Only when compatibility diagnostics are requested, run `singularity-flow capability inspect-repository &lt;GIT-URL&gt; --json`; it is available for one release and is not the normal front door. Status: `already-mapped`, `known-repository-unassigned`, `not-onboarded`, `ambiguous`, `unreachable`, `inconclusive`. `already-mapped`: without proposing a duplicate. `unreachable`: Do not reinterpret an unverified absence as a new repository.
-7. Continue only after an explicit request for a new mapping; then ask only for missing ID, name, kind, parent, and scope. Confirm:
+2. Relay `repository-onboarding-plan/v1` effects, preserved data, `planId`, status, and Shell/Copilot actions. Hide pins, SHAs, leases. Preview `--migrate`, `--recreate`, or `--reset-local` only after explicit choice.
+3. Confirm the exact effects and preserved data; run the exact Shell command returned by the plan once: `singularity-flow capability onboard &lt;GIT-URL&gt; --confirm-plan &lt;PLAN-ID&gt; --json`.
+4. On `configuration-review-required`, stop: repository setup uses `sflow/config-change/onboarding/`. Show reason, branch, full commit. Inspect `singularity-flow capability setup-proposal &lt;SETUP-BRANCH&gt; --lead &lt;GIT-URL&gt; --json`. After explicit approval run `singularity-flow capability setup-activate &lt;SETUP-BRANCH&gt; --lead &lt;GIT-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`. On `REPOSITORY_ONBOARDING_CONFIGURATION_UNPROTECTED`, ask separately before `--acknowledge-unprotected`, or use external review. Stop on other refusals; recheck. `singularity-flow capability proposals` excludes setup branches.
+5. Run `singularity-flow capability inspect-repository &lt;GIT-URL&gt; --json` only for compatibility diagnostics. Never duplicate `already-mapped` or treat `unreachable` as new.
+6. Continue only after an explicit request for a new mapping; then ask only for missing ID, name, kind, parent, scope. Confirm:
 
    `singularity-flow capability map &lt;ID&gt; --lead &lt;LEAD-URL&gt; --kind &lt;KIND&gt; --json`
 
    For `delivery`, add `--repository &lt;GIT-URL&gt;`; `collection` omits it.
 
-8. Show `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`. If the user explicitly approves, run `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`. On `CAPABILITY_CONFIGURATION_UNPROTECTED`, use `--acknowledge-unprotected` or external review; then run the same exact-hash `singularity-flow capability activate` command again. `singularity-flow capability publish` is a projection-repair command.
+7. Show `singularity-flow capability proposal &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --json`. After explicit approval run `singularity-flow capability activate &lt;REVIEW-BRANCH&gt; --lead &lt;LEAD-URL&gt; --confirm &lt;FULL-PROPOSAL-COMMIT&gt; --json`. On `CAPABILITY_CONFIGURATION_UNPROTECTED`, ask before `--acknowledge-unprotected`, or use external review. `singularity-flow capability publish` repairs projection only.
 
 ## Team onboarding
 
-1. Select at most 20 repositories; Never inspect a whole result page.
-2. Inspect the selected repositories **one at a time** (step 6 plus lead/proposals). Label **Will add**, **Will link**, **Needs a choice**, or **Left out**. Setting one repository aside must not discard eligible results.
-3. If any qualify, show the exact proposed tree and complete command before mutation:
+1. Select at most 20 repositories; inspect selected repos one at a time, never a whole result page. Label **Will add**, **Will link**, **Needs a choice**, or **Left out**. Set problem repos aside without blocking others.
+2. Show the exact proposed tree and command before mutation:
 
    `singularity-flow capability map-team &lt;TEAM-ID&gt; --lead &lt;LEAD-URL&gt; --name &lt;TEAM-NAME&gt; --member &lt;CHILD-ID&gt;=&lt;GIT-URL&gt; --json`
 
-   Run it exactly once after confirmation for one atomic proposal.
-4. Stop for explicit approval; use step 8. Offer `/sf-workspace`; do not invoke it.
+   Run once after confirmation for one atomic proposal.
+3. Stop for explicit approval; use step 7. Offer `/sf-workspace`; do not invoke it.
 </code></pre>
       </div>
     </details>

@@ -465,14 +465,26 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
   if (outcome?.status === 'configuration-review-required' && outcome.review) {
     const review = outcome.review;
     const conflict = review.status === 'proposal-conflict';
+    const reason = review.reason === 'guarded-source-refs'
+      ? 'The setup candidate was built from source branches that could change during a Git push. SFlow kept the candidate on a review branch so an unverified source cannot create sflow/config.'
+      : review.reason === 'remote-policy-rejected'
+        ? 'The remote rejected a direct creation of sflow/config under its repository policy. SFlow published the candidate as a review branch for the repository approval process.'
+        : 'The setup candidate is awaiting repository review before it becomes approved configuration.';
     return `<section class="plain repository-setup-card" data-repository-setup-status="${escape(outcome.status)}" aria-live="polite">
       <div class="card-head"><div><p class="eyebrow">Repository setup</p>
         <h3>${icon('warning')}${conflict ? 'Proposal conflict' : 'Review required'}</h3></div></div>
       <p>${conflict
-        ? 'An existing setup proposal differs from this candidate. It was preserved and must be resolved explicitly.'
-        : `The setup proposal <code>${escape(review.sourceBranch)}</code> is ready for review. Merge it into <code>sflow/config</code>, then check this repository again.`}</p>
+        ? 'An existing setup proposal differs from this candidate. Review the preserved proposal and resolve that difference before continuing.'
+        : 'Repository setup created a review proposal. The approved configuration branch is created or updated only after that proposal is reviewed and activated.'}</p>
+      <p>Review branch: <code>${escape(review.sourceBranch)}</code><br>
+        Exact commit: <code>${escape(review.proposalCommit)}</code><br>
+        Approved target: <code>${escape(review.targetBranch)}</code></p>
+      <p class="muted">${escape(reason)} ${review.published
+        ? 'The proposal branch was published. Its commit is waiting for review; repository setup has not approved it.'
+        : 'The existing proposal branch was preserved. Repository setup has not approved it.'}</p>
       ${outcomeCleanupWarnings}
-      <p><button type="button" data-repository-setup-primary="retryRepositorySetup">Check setup again</button>
+      <p><button type="button" data-repository-setup-primary="reviewRepositorySetup">Review setup proposal</button>
+        <button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">Check setup again</button>
         <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button></p>
     </section>`;

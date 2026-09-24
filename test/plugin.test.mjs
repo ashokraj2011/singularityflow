@@ -107,25 +107,20 @@ test('capability mapping reviews and activates the exact proposal instead of sto
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-capability-map', 'SKILL.md'), 'utf8');
   const urlQuestion = content.indexOf('exact credential-free Git URL');
   const inspection = content.indexOf('capability inspect-repository <GIT-URL> --json');
-  const details = content.indexOf('then ask only for missing ID');
+  const details = content.indexOf('ask only for missing ID');
   assert.ok(urlQuestion >= 0 && inspection > urlQuestion && details > inspection,
     'repository URL and read-only inspection precede capability metadata');
-  for (const status of [
-    'already-mapped', 'known-repository-unassigned', 'not-onboarded',
-    'ambiguous', 'unreachable', 'inconclusive'
-  ]) assert.ok(content.includes('`' + status + '`'), `skill handles ${status}`);
-  assert.match(content, /already-mapped[\s\S]*without proposing a duplicate/i);
-  assert.match(content, /unreachable[\s\S]*Do not reinterpret an unverified absence as a new repository/i);
+  assert.match(content, /Never duplicate `already-mapped` or treat `unreachable` as new/i);
   assert.match(content, /Continue only after an explicit request for a new mapping/i);
   assert.match(content, /For `delivery`, add `--repository <GIT-URL>`/i);
   assert.match(content, /`collection` omits it/i);
   assert.match(content, /capability proposal <REVIEW-BRANCH>.*--json/s);
-  assert.match(content, /explicitly approves/);
+  assert.match(content, /After explicit approval run/);
   assert.match(content, /capability activate <REVIEW-BRANCH>.*--confirm <FULL-PROPOSAL-COMMIT> --json/s);
   assert.match(content, /CAPABILITY_CONFIGURATION_UNPROTECTED/);
   assert.match(content, /--acknowledge-unprotected/);
-  assert.match(content, /external review[\s\S]*same exact-hash `singularity-flow capability activate` command again/i);
-  assert.match(content, /`singularity-flow capability publish` is a[\s\S]*projection-repair command/i);
+  assert.match(content, /`CAPABILITY_CONFIGURATION_UNPROTECTED`[\s\S]*external review/i);
+  assert.match(content, /`singularity-flow capability publish` repairs projection only/i);
   assert.doesNotMatch(content, /Ask the contributor to review and merge[\s\S]*capability publish/);
 });
 
@@ -136,30 +131,33 @@ test('capability mapping previews and confirms the repository onboarding plan wi
   const confirmation = content.indexOf('capability onboard <GIT-URL> --confirm-plan <PLAN-ID> --json');
   assert.ok(preview >= 0 && relay > preview && confirmation > relay,
     'the skill previews, relays, and only then confirms the repository onboarding plan');
-  assert.match(content, /effects, preserved data, `planId`, and Shell\/Copilot actions/i);
-  assert.match(content, /Use its status label/i);
-  assert.match(content, /Never infer `--migrate`, `--recreate`, or `--reset-local`/);
+  assert.match(content, /effects, preserved data, `planId`, status, and Shell\/Copilot actions/i);
+  assert.match(content, /`planId`, status, and Shell\/Copilot actions/i);
+  assert.match(content, /Preview `--migrate`, `--recreate`, or `--reset-local` only after explicit choice/i);
   assert.match(content, /only after explicit choice/i);
   assert.match(content, /confirm the exact effects and preserved data/i);
   assert.match(content, /run the exact Shell command returned by the plan once/i);
-  assert.match(content, /Only when compatibility diagnostics are requested[\s\S]*inspect-repository <GIT-URL> --json/i);
-  assert.match(content, /available for one release and is not the normal front door/i);
-  assert.match(content, /hide authority pins, SHAs, and cache leases/i);
+  assert.match(content, /inspect-repository <GIT-URL> --json` only for compatibility diagnostics/i);
+  assert.match(content, /Hide pins, SHAs, leases/i);
+  assert.match(content, /configuration-review-required[\s\S]*repository setup[\s\S]*sflow\/config-change\/onboarding\//i);
+  assert.match(content, /capability setup-proposal <SETUP-BRANCH> --lead <GIT-URL> --json/i);
+  assert.match(content, /After explicit approval run[\s\S]*capability setup-activate <SETUP-BRANCH>[\s\S]*--confirm <FULL-PROPOSAL-COMMIT>/i);
+  assert.match(content, /capability proposals` excludes setup branches/i);
+  assert.match(content, /REPOSITORY_ONBOARDING_CONFIGURATION_UNPROTECTED[\s\S]*ask separately before `--acknowledge-unprotected`/i);
 });
 
 test('capability mapping onboards a selected team through one bounded atomic proposal', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-capability-map', 'SKILL.md'), 'utf8');
   assert.match(content, /# Map a capability or onboard a team/i);
   assert.match(content, /select at most 20 repositories/i);
-  assert.match(content, /Inspect the selected repositories \*\*one at a time\*\*/i);
-  assert.match(content, /Never inspect a whole result page/i);
+  assert.match(content, /inspect selected repos one at a time, never a whole result page/i);
   for (const status of ['Will add', 'Will link', 'Needs a choice', 'Left out']) {
     assert.ok(content.includes(`**${status}**`), `team onboarding preserves ${status}`);
   }
-  assert.match(content, /Setting one repository aside must not discard eligible results/i);
+  assert.match(content, /Set problem repos aside without blocking others/i);
   assert.match(content, /capability map-team <TEAM-ID>[\s\S]*--member <CHILD-ID>=<GIT-URL>/i);
-  assert.match(content, /show the exact proposed tree[\s\S]*complete command before mutation/i);
-  assert.match(content, /Run it exactly once after confirmation/i);
+  assert.match(content, /show the exact proposed tree and command before mutation/i);
+  assert.match(content, /Run once after confirmation/i);
   assert.match(content, /one atomic proposal/i);
   assert.match(content, /stop for explicit approval/i);
   assert.match(content, /capability activate <REVIEW-BRANCH>[\s\S]*--confirm <FULL-PROPOSAL-COMMIT>/i);

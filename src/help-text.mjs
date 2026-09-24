@@ -849,6 +849,12 @@ Usage:
      ref-bound plan; migrate reconciles packaged seeds only in valid workflow-v2 configuration;
      offline reset-local clears only the capability lead registry and organisation cache, not
      workspace/session registrations or FOS pins)
+  singularity-flow capability setup-proposals [--lead URL] [--all] [--json]
+  singularity-flow capability setup-proposal <SETUP-BRANCH> [--lead URL] [--json]
+  singularity-flow capability setup-activate <SETUP-BRANCH> [--lead URL]
+    --confirm <FULL-COMMIT> [--acknowledge-unprotected] [--json]
+    (review and activate an exact repository setup proposal; the source plan and target ref are
+     rechecked, and direct push requires explicit acknowledgement. Protected refs use external review.)
   singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
     [--include-proposals] [--refresh] [--state-branch NAME] [--json]
     (read-only portable state-link/self-hosted lookup by default; registered-map search and proposal

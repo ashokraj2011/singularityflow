@@ -10353,6 +10353,10 @@ function capabilityRemovalDestination(options) {
 async function capabilityCommand(positionals, options) {
   const subcommandForWrite = positionals[1];
 
+  if (['setup-proposals', 'setup-proposal', 'setup-activate'].includes(subcommandForWrite)) {
+    return (await import('./commands/capability.mjs')).run([], { positionals, options });
+  }
+
   if (subcommandForWrite === 'inspect-repository') {
     const result = await inspectCapabilityRepository(
       requirePositional(positionals, 2, 'Git repository URL'), {

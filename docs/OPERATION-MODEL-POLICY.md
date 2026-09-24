@@ -125,6 +125,9 @@ Every public operation is classified before its implementation module is importe
 | capability.repair-proposal | mutation | never | — | — |
 | capability.repository | mutation | never | — | — |
 | capability.set | mutation | never | — | — |
+| capability.setup-activate | mutation | never | — | — |
+| capability.setup-proposal | read | never | — | — |
+| capability.setup-proposals | read | never | — | — |
 | capability.show | read | never | — | — |
 | capability.tree | read | never | — | — |
 | capability.world-model | read | never | — | — |

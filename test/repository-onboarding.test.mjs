@@ -9,7 +9,9 @@ import test from 'node:test';
 import YAML from 'yaml';
 
 import {
-  applyRepositoryOnboarding, inspectRepositoryOnboarding
+  activateRepositoryOnboardingProposal, applyRepositoryOnboarding,
+  inspectRepositoryOnboarding, inspectRepositoryOnboardingProposal,
+  listRepositoryOnboardingProposals
 } from '../src/repository-onboarding.mjs';
 import {
   CONFIGURATION_BRANCH, STATE_CONFIGURATION_FORMAT, STATE_CONFIGURATION_MANIFEST,
@@ -1739,6 +1741,383 @@ test('source-derived configuration creation publishes one leased review proposal
       'show-ref', '--verify', '--quiet', 'refs/heads/state'
     ], { cwd: fixture.remote, allowFailure: true }).status, 1);
     assert.deepEqual(await listLeadRepositories(), []);
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('a setup proposal is visible, reviewable, and activates only its exact reviewed commit', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      confirmPlan: plan.planId
+    });
+    assert.equal(applied.review.reason, 'guarded-source-refs');
+    assert.match(applied.review.inspectCommand, /setup-proposal/u);
+    const queue = await listRepositoryOnboardingProposals(fixture.remote);
+    assert.equal(queue.length, 1);
+    assert.equal(queue[0].branch, applied.proposal.branch);
+    assert.equal(queue[0].status, 'pending-review');
+    const cliQueue = run(process.execPath, [
+      path.resolve('bin/singularity-flow.mjs'), 'capability', 'setup-proposals',
+      '--lead', fixture.remote, '--json'
+    ], { cwd: process.cwd() });
+    assert.equal(JSON.parse(cliQueue.stdout).proposals[0].branch, applied.proposal.branch);
+    const detail = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch
+    );
+    const cliDetail = run(process.execPath, [
+      path.resolve('bin/singularity-flow.mjs'), 'capability', 'setup-proposal',
+      applied.proposal.branch, '--lead', fixture.remote, '--json'
+    ], { cwd: process.cwd() });
+    assert.equal(JSON.parse(cliDetail.stdout).proposalCommit, applied.proposal.commit);
+    assert.equal(detail.valid, true);
+    assert.equal(detail.sourceFresh, true);
+    assert.equal(detail.targetCommit, null);
+    assert.equal(detail.proposalCommit, applied.proposal.commit);
+    assert.ok(detail.changedFiles.some((file) =>
+      file.paths.includes('singularity/workflow.yml')));
+    await assert.rejects(() => activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { confirm: applied.proposal.commit }
+    ), { code: 'REPOSITORY_ONBOARDING_CONFIGURATION_UNPROTECTED' });
+    assert.equal(run('git', [
+      'show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`
+    ], { cwd: fixture.remote, allowFailure: true }).status, 1);
+    const cliActivation = run(process.execPath, [
+      path.resolve('bin/singularity-flow.mjs'), 'capability', 'setup-activate',
+      applied.proposal.branch, '--lead', fixture.remote,
+      '--confirm', applied.proposal.commit, '--acknowledge-unprotected', '--json'
+    ], { cwd: process.cwd() });
+    const activated = JSON.parse(cliActivation.stdout);
+    assert.equal(activated.activated, true);
+    assert.equal(activated.targetCommit, applied.proposal.commit);
+    const repeated = await activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { confirm: applied.proposal.commit }
+    );
+    assert.equal(repeated.alreadyMerged, true);
+    const recreatePlan = await inspectRepositoryOnboarding(fixture.remote, {
+      mode: 'recreate'
+    });
+    const recreated = await applyRepositoryOnboarding(fixture.remote, {
+      mode: 'recreate', confirmPlan: recreatePlan.planId
+    });
+    const laterProposal = await inspectRepositoryOnboardingProposal(
+      fixture.remote, recreated.proposal.branch, { includeDiff: false }
+    );
+    assert.equal(laterProposal.valid, true,
+      'an unchanged recovery receipt remains valid in later configuration proposals');
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('a moved source blocks activation of an earlier setup proposal', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      confirmPlan: plan.planId
+    });
+    await writeFile(path.join(fixture.source, 'LATER.md'), '# Later\n');
+    run('git', ['add', 'LATER.md'], { cwd: fixture.source });
+    run('git', ['commit', '-qm', 'Advance source'], { cwd: fixture.source });
+    run('git', ['push', '-q', fixture.remote, 'main:main'], { cwd: fixture.source });
+    const detail = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch
+    );
+    assert.equal(detail.valid, false);
+    assert.equal(detail.status, 'stale-source');
+    await assert.rejects(() => activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, {
+        confirm: applied.proposal.commit, acknowledgeUnprotected: true
+      }
+    ), { code: 'REPOSITORY_ONBOARDING_PROPOSAL_SOURCE_STALE' });
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('a protected setup target remains pending under repository review controls', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      confirmPlan: plan.planId
+    });
+    const protectedPush = async (args, options) => {
+      if (args[0] === 'push' && args.at(-1)?.endsWith(':refs/heads/sflow/config')) {
+        return {
+          status: 1, stdout: '', stderr: 'remote: protected branch: pull request required',
+          failure: {
+            classification: 'policy-rejected', code: 'REMOTE_POLICY_REJECTED',
+            retryable: false, advice: 'Use a pull request.'
+          }
+        };
+      }
+      return runRemoteGitAsync(args, options);
+    };
+    const result = await activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, {
+        confirm: applied.proposal.commit, acknowledgeUnprotected: true,
+        runRemoteCommand: protectedPush
+      }
+    );
+    assert.equal(result.activated, false);
+    assert.equal(result.status, 'review-required');
+    assert.equal(result.externalAction?.sourceBranch, applied.proposal.branch);
+    const networkFailure = async (args, options) => {
+      if (args[0] === 'push' && args.at(-1)?.endsWith(':refs/heads/sflow/config')) {
+        return {
+          status: 1, stdout: '',
+          stderr: 'remote: protected branch proxy page at https://name:secret@example.test/repo',
+          failure: {
+            classification: 'network-transient', code: 'REMOTE_NETWORK_TRANSIENT',
+            retryable: true, advice: 'Retry the network connection.'
+          }
+        };
+      }
+      return runRemoteGitAsync(args, options);
+    };
+    const network = await activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, {
+        confirm: applied.proposal.commit, acknowledgeUnprotected: true,
+        runRemoteCommand: networkFailure
+      }
+    );
+    assert.equal(network.status, 'activation-pending');
+    assert.equal(network.failure.classification, 'network-transient');
+    assert.doesNotMatch(network.failure.diagnostic, /name:secret/u);
+    assert.equal(run('git', [
+      'show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`
+    ], { cwd: fixture.remote, allowFailure: true }).status, 1);
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('an existing configuration setup proposal activates only from its exact base', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      mode: 'recreate', confirmPlan: plan.planId
+    });
+    assert.equal(applied.status, 'configuration-review-required');
+    const detail = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { includeDiff: false }
+    );
+    assert.equal(detail.valid, true);
+    assert.equal(detail.proposalBase, plan.configuration.commit);
+    const wrongSuffix = plan.configuration.commit.startsWith('f'.repeat(12))
+      ? 'e'.repeat(12) : 'f'.repeat(12);
+    const spoofedBranch = `sflow/config-change/onboarding/recreate-${wrongSuffix}`;
+    run('git', ['update-ref', `refs/heads/${spoofedBranch}`, applied.proposal.commit], {
+      cwd: fixture.remote
+    });
+    const spoofed = await inspectRepositoryOnboardingProposal(
+      fixture.remote, spoofedBranch, { includeDiff: false }
+    );
+    assert.equal(spoofed.valid, false);
+    assert.equal(spoofed.status, 'invalid');
+    const activated = await activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, {
+        confirm: applied.proposal.commit, acknowledgeUnprotected: true
+      }
+    );
+    assert.equal(activated.activated, true);
+    assert.equal(activated.targetCommit, applied.proposal.commit);
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('an advanced configuration target blocks a stale setup proposal', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      mode: 'recreate', confirmPlan: plan.planId
+    });
+    const maintainer = path.join(fixture.base, 'other-configuration');
+    run('git', ['clone', '-q', '--branch', CONFIGURATION_BRANCH, fixture.remote, maintainer], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Other Maintainer'], { cwd: maintainer });
+    run('git', ['config', 'user.email', 'maintainer@example.test'], { cwd: maintainer });
+    const workflowFile = path.join(maintainer, 'singularity', 'workflow.yml');
+    await writeFile(workflowFile, `${await readFile(workflowFile, 'utf8')}\n`);
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: maintainer });
+    run('git', ['commit', '-qm', 'Advance approved configuration'], { cwd: maintainer });
+    run('git', ['push', '-q', fixture.remote,
+      `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], { cwd: maintainer });
+    const detail = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { includeDiff: false }
+    );
+    assert.equal(detail.valid, false);
+    assert.equal(detail.status, 'stale-target');
+    await assert.rejects(() => activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, {
+        confirm: applied.proposal.commit, acknowledgeUnprotected: true
+      }
+    ), { code: 'REPOSITORY_ONBOARDING_PROPOSAL_TARGET_STALE' });
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('an externally merged setup proposal is recognized without another direct push', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      mode: 'recreate', confirmPlan: plan.planId
+    });
+    const reviewer = path.join(fixture.base, 'reviewer');
+    run('git', ['clone', '-q', '--branch', CONFIGURATION_BRANCH, fixture.remote, reviewer], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Setup Reviewer'], { cwd: reviewer });
+    run('git', ['config', 'user.email', 'reviewer@example.test'], { cwd: reviewer });
+    run('git', ['fetch', '-q', fixture.remote,
+      `${applied.proposal.branch}:refs/remotes/origin/setup-review`], { cwd: reviewer });
+    run('git', ['merge', '-q', '--no-ff', '--no-edit', 'refs/remotes/origin/setup-review'], {
+      cwd: reviewer
+    });
+    run('git', ['push', '-q', fixture.remote, `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+      cwd: reviewer
+    });
+    const detail = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { includeDiff: false }
+    );
+    assert.equal(detail.merged, true);
+    assert.equal(detail.valid, true);
+    const result = await activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { confirm: applied.proposal.commit }
+    );
+    assert.equal(result.alreadyMerged, true);
+    assert.equal(result.activated, true);
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('a concurrent external merge reconciles a refused direct setup update', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      mode: 'recreate', confirmPlan: plan.planId
+    });
+    const reviewer = path.join(fixture.base, 'concurrent-reviewer');
+    run('git', ['clone', '-q', '--branch', CONFIGURATION_BRANCH, fixture.remote, reviewer], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Setup Reviewer'], { cwd: reviewer });
+    run('git', ['config', 'user.email', 'reviewer@example.test'], { cwd: reviewer });
+    run('git', ['fetch', '-q', fixture.remote,
+      `${applied.proposal.branch}:refs/remotes/origin/setup-review`], { cwd: reviewer });
+    let externalMerged = false;
+    const mergeDuringPush = async (args, options) => {
+      if (args[0] === 'push' && args.at(-1)?.endsWith(':refs/heads/sflow/config')) {
+        run('git', ['merge', '-q', '--no-ff', '--no-edit', 'refs/remotes/origin/setup-review'], {
+          cwd: reviewer
+        });
+        run('git', ['push', '-q', fixture.remote,
+          `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], { cwd: reviewer });
+        externalMerged = true;
+        return {
+          status: 1, stdout: '', stderr: 'remote: protected branch: pull request required',
+          failure: {
+            classification: 'policy-rejected', code: 'REMOTE_POLICY_REJECTED',
+            retryable: false, advice: 'Use a pull request.'
+          }
+        };
+      }
+      return runRemoteGitAsync(args, options);
+    };
+    const result = await activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, {
+        confirm: applied.proposal.commit, acknowledgeUnprotected: true,
+        runRemoteCommand: mergeDuringPush
+      }
+    );
+    assert.equal(externalMerged, true);
+    assert.equal(result.activated, true);
+    assert.equal(result.alreadyMerged, true);
+    assert.notEqual(result.targetCommit, applied.proposal.commit);
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('a matching approved ref does not legitimize an invalid setup branch', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const applied = await applyRepositoryOnboarding(fixture.remote, {
+      confirmPlan: plan.planId
+    });
+    const reviewer = path.join(fixture.base, 'invalid-reviewer');
+    run('git', ['clone', '-q', '--branch', applied.proposal.branch, fixture.remote, reviewer], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Invalid Reviewer'], { cwd: reviewer });
+    run('git', ['config', 'user.email', 'reviewer@example.test'], { cwd: reviewer });
+    await writeFile(path.join(reviewer, 'README.md'), '# Unrelated work\n');
+    run('git', ['add', 'README.md'], { cwd: reviewer });
+    run('git', ['commit', '-qm', 'Add unrelated work'], { cwd: reviewer });
+    const invalidCommit = run('git', ['rev-parse', 'HEAD'], { cwd: reviewer }).stdout.trim();
+    run('git', ['push', '-q', fixture.remote,
+      `HEAD:refs/heads/${applied.proposal.branch}`], { cwd: reviewer });
+    run('git', ['push', '-q', fixture.remote,
+      `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], { cwd: reviewer });
+    const detail = await inspectRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { includeDiff: false }
+    );
+    assert.equal(detail.merged, true);
+    assert.equal(detail.valid, false);
+    assert.equal(detail.status, 'invalid');
+    assert.ok(detail.invalidFiles.includes('README.md'));
+    await assert.rejects(() => activateRepositoryOnboardingProposal(
+      fixture.remote, applied.proposal.branch, { confirm: invalidCommit }
+    ), { code: 'REPOSITORY_ONBOARDING_PROPOSAL_INVALID' });
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;

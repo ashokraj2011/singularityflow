@@ -11,7 +11,8 @@ let legacy = null;
 let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set([
-  'add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard'
+  'add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard',
+  'setup-proposals', 'setup-proposal', 'setup-activate'
 ]);
 
 /**
@@ -405,14 +406,88 @@ async function runOnboard(context) {
     console.log(`  changed: ${result.changed ? 'yes' : 'no'}`);
     if (result.proposal?.reviewRequired) {
       console.log(`  review branch: ${result.proposal.branch}`);
+      console.log(`Shell: ${result.review?.inspectCommand ?? result.nextActions?.shell}`);
     }
     if (result.stateRefresh?.pending) {
       console.log('  configuration is ready; state refresh is pending.');
     }
   }
   for (const warning of result.localCleanupWarnings ?? []) console.log(`Warning: ${warning}`);
-  if (result.nextActions?.shell) console.log(`Shell: ${result.nextActions.shell}`);
+  if (result.nextActions?.shell && !result.proposal?.reviewRequired) {
+    console.log(`Shell: ${result.nextActions.shell}`);
+  }
   if (result.nextActions?.copilot) console.log(`Copilot: ${result.nextActions.copilot}`);
+  return result;
+}
+
+async function setupLead(options) {
+  const lead = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+  if (!lead) throw new SingularityFlowError(
+    'No repository is known. Pass --lead <REPOSITORY-URL>.', {
+      code: 'REPOSITORY_ONBOARDING_REPOSITORY_REQUIRED'
+    }
+  );
+  return lead;
+}
+
+async function runSetupProposalCommand(subcommand, context) {
+  const options = context.options ?? {};
+  const repository = await setupLead(options);
+  const {
+    activateRepositoryOnboardingProposal, inspectRepositoryOnboardingProposal,
+    listRepositoryOnboardingProposals
+  } = await import('../repository-onboarding.mjs');
+  if (subcommand === 'setup-proposals') {
+    if ((context.positionals?.length ?? 0) !== 2) throw new SingularityFlowError(
+      'capability setup-proposals accepts no branch argument.', {
+        code: 'REPOSITORY_ONBOARDING_PROPOSAL_ARGUMENT_INVALID'
+      }
+    );
+    const proposals = await listRepositoryOnboardingProposals(repository, {
+      includeMerged: optionBoolean(options, 'all')
+    });
+    const result = { lead: repository, proposals };
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else if (!proposals.length) console.log('No pending repository setup proposals.');
+    else for (const proposal of proposals) {
+      console.log(`${proposal.branch}  ${proposal.proposalCommit?.slice(0, 12) ?? 'unreadable'}  ${proposal.status}`);
+      if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
+    }
+    return result;
+  }
+  if ((context.positionals?.length ?? 0) !== 3) throw new SingularityFlowError(
+    `capability ${subcommand} requires exactly one <SETUP-BRANCH>.`, {
+      code: 'REPOSITORY_ONBOARDING_PROPOSAL_ARGUMENT_INVALID'
+    }
+  );
+  const branch = required(context.positionals, 2, '<SETUP-BRANCH>');
+  const result = subcommand === 'setup-proposal'
+    ? await inspectRepositoryOnboardingProposal(repository, branch)
+    : await activateRepositoryOnboardingProposal(repository, branch, {
+      confirm: optionString(options, 'confirm'),
+      acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected')
+    });
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
+  console.log(`${result.branch} (${result.proposalCommit})`);
+  console.log(`  setup: ${result.status}`);
+  console.log(`  approved: ${result.targetBranch}@${result.targetCommit ?? '<missing>'}`);
+  for (const file of result.changedFiles) {
+    console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
+  }
+  if (result.failure?.message) console.log(`  reason: ${result.failure.message}`);
+  if (result.externalAction) {
+    console.log(`  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
+  }
+  if (subcommand === 'setup-proposal' && result.diff) console.log(result.diff);
+  if (subcommand === 'setup-proposal' && result.valid) {
+    console.log(`  after review: ${result.activateCommand}`);
+  }
+  if (subcommand === 'setup-activate' && result.activated) {
+    console.log(`  continue: ${result.nextAction}`);
+  }
   return result;
 }
 
@@ -656,6 +731,9 @@ function capabilityAutoOptions(options) {
 export async function run(argv, context = {}) {
   const subcommand = context.positionals?.[1] ?? 'show';
   if (subcommand === 'onboard') return runOnboard(context);
+  if (['setup-proposals', 'setup-proposal', 'setup-activate'].includes(subcommand)) {
+    return runSetupProposalCommand(subcommand, context);
+  }
   if (subcommand === 'map-team') return runMapTeam(context);
   if (subcommand === 'leads') {
     const leads = await listLeadRepositories();

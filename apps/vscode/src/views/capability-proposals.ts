@@ -1,11 +1,15 @@
-/** Pending capability proposals across every registered organisation lead repository. */
+/** Pending capability and repository-setup proposals across known repositories. */
 import * as vscode from 'vscode';
 import {
   brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter } from './messages.ts';
-import { screenGitRemotes } from './map-capability-form.ts';
+import { gitRemoteProblem, screenGitRemotes } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
+import { SetupProposalPanel } from './setup-proposal.ts';
+import {
+  forgetSetupReviewRepository, rememberSetupReviewRepository, setupReviewRepositories
+} from './setup-review-repositories.ts';
 
 interface LeadRepository { url: string }
 
@@ -29,6 +33,28 @@ interface CapabilityProposalSummary {
 }
 
 interface ProposalEntry extends CapabilityProposalSummary { lead: string }
+interface SetupProposalSummary {
+  branch: string;
+  proposalCommit: string;
+  changedFiles: Array<{ status: string; paths: string[] }>;
+  valid: boolean | null;
+  merged: boolean | null;
+  status?: string;
+}
+interface SetupProposalEntry extends SetupProposalSummary { lead: string }
+const MAX_MANUALLY_CHECKED_SETUP_REPOSITORIES = 100;
+
+function validSetupSummary(value: unknown): value is SetupProposalSummary {
+  if (!value || typeof value !== 'object') return false;
+  const proposal = value as Partial<SetupProposalSummary>;
+  return typeof proposal.branch === 'string'
+    && /^sflow\/config-change\/onboarding\/(?:create|restore|migrate|recreate)-[0-9a-f]{12}$/.test(proposal.branch)
+    && typeof proposal.proposalCommit === 'string'
+    && /^[0-9a-f]{40,64}$/i.test(proposal.proposalCommit)
+    && (proposal.valid === null || typeof proposal.valid === 'boolean')
+    && (proposal.merged === null || typeof proposal.merged === 'boolean')
+    && Array.isArray(proposal.changedFiles);
+}
 interface LeadFailure { lead: string; message: string }
 interface CapabilityFsckCheck {
   id: string; status: 'pass' | 'info' | 'warn' | 'fail'; summary: string;
@@ -63,12 +89,16 @@ function remediation(value: unknown): string {
   return `<p>Remediation: ${escape(text)}</p>`;
 }
 
-function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFailure[],
-  busy: boolean, includeMerged: boolean, integrity: LeadIntegrity[]): string {
-  const ready = entries.filter((entry) => entry.valid && !entry.merged).length;
-  const blocked = entries.filter((entry) => !entry.valid).length;
-  const merged = entries.filter((entry) => entry.merged).length;
-  const pending = entries.length - merged;
+function proposalsHtml(entries: ProposalEntry[], setupEntries: SetupProposalEntry[],
+  leads: number, failures: LeadFailure[],
+  busy: boolean, includeMerged: boolean, integrity: LeadIntegrity[],
+  staleSetupRepositories: string[], emptyCheckedSetupRepositories: string[]): string {
+  const allEntries = [...entries, ...setupEntries];
+  const ready = allEntries.filter((entry) => entry.valid === true && !entry.merged).length;
+  const needsInspection = allEntries.filter((entry) => entry.valid === null && !entry.merged).length;
+  const blocked = allEntries.filter((entry) => entry.valid === false).length;
+  const merged = allEntries.filter((entry) => entry.merged).length;
+  const pending = allEntries.length - merged;
   const grouped = new Map<string, Array<{ entry: ProposalEntry; index: number }>>();
   entries.forEach((entry, index) => {
     const rows = grouped.get(entry.lead) ?? [];
@@ -76,7 +106,7 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
     grouped.set(entry.lead, rows);
   });
   const groups = [...grouped.entries()].map(([lead, rows]) => `<section class="plain">
-    <div class="section-heading"><h2>${icon('repository')} ${escape(lead)}</h2>
+    <div class="section-heading"><h2>${icon('repository')} Capability proposals · ${escape(lead)}</h2>
       <span class="count-badge">${rows.length}</span></div>
     <div class="configuration-list">${rows.map(({ entry, index }) => `<div class="configuration-row-wrap"><button
         class="configuration-row secondary" data-review="${index}"
@@ -92,6 +122,25 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
         ${commandPair('Recovery', entry.failure?.nextAction)}
       </button>${entry.discardable ? `<button class="secondary" data-discard="${index}" aria-label="Discard stale proposal ${escape(shortName(entry.branch))}">${icon('remove')} Discard stale proposal</button>` : ''}</div>`).join('')}</div>
   </section>`).join('');
+  const setupGroups = new Map<string, Array<{ entry: SetupProposalEntry; index: number }>>();
+  setupEntries.forEach((entry, index) => {
+    const rows = setupGroups.get(entry.lead) ?? [];
+    rows.push({ entry, index });
+    setupGroups.set(entry.lead, rows);
+  });
+  const setupHtml = [...setupGroups.entries()].map(([lead, rows]) => `<section class="plain">
+    <div class="section-heading"><h2>${icon('configuration')} Repository setup proposals · ${escape(lead)}</h2>
+      <span class="count-badge">${rows.length}</span></div>
+    <div class="configuration-list">${rows.map(({ entry, index }) => `<button
+      class="configuration-row secondary" data-review-setup="${index}"
+      aria-label="Review repository setup proposal ${escape(entry.branch)}">
+      <span>${icon(entry.valid === false ? 'warning' : 'merge')}</span>
+      <strong>${escape(entry.branch)}</strong>
+      <small>${escape(entry.proposalCommit)} · ${entry.merged ? 'merged history' : entry.valid === null
+        ? 'open to inspect changed files and validation'
+        : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
+    </button>`).join('')}</div>
+  </section>`).join('');
   const integrityHtml = integrity.map((entry) => {
     if (entry.error) return `<div class="notice error"><p><strong>${escape(entry.lead)}</strong>: ${escape(entry.error)}</p></div>`;
     const issues = entry.result?.checks.filter((check) => check.status === 'fail' || check.status === 'warn') ?? [];
@@ -105,23 +154,28 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
   return `${brandLockup()}
     <header class="inbox-header">
       <p class="eyebrow">Governed configuration review</p>
-      <div class="section-heading"><h1>${icon('merge', { size: 24 })} Capability proposals</h1>
+      <div class="section-heading"><h1>${icon('merge', { size: 24 })} Review proposals</h1>
+        <button class="secondary" data-action="add-setup-repository" ${busy ? 'disabled' : ''}>${icon('repository')} Find setup proposal…</button>
         <button class="secondary" data-action="toggle-history" ${busy ? 'disabled' : ''}>${icon('git')} ${includeMerged ? 'Hide merged history' : 'Show merged history'}</button>
         <button class="secondary" data-action="fsck" ${busy ? 'disabled' : ''}>${icon('policy')} Check integrity</button>
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} ${busy ? 'Refreshing…' : 'Refresh'}</button></div>
-      <p class="meta">Review proposed capability-map changes across registered lead repositories, or inspect earlier merged revisions. Nothing is merged from this list.</p>
+      <p class="meta">Review capability-map and repository-setup changes across known repositories. If setup began on another laptop or before this extension was installed, check its Git clone URL here. Nothing is merged from this list.</p>
     </header>
     <div class="summary-grid">
-      <div class="summary-card"><strong>${leads}</strong><span>Lead repositories</span></div>
+      <div class="summary-card"><strong>${leads}</strong><span>Known repositories</span></div>
       <div class="summary-card important"><strong>${pending}</strong><span>Pending proposals</span></div>
       <div class="summary-card"><strong>${ready}</strong><span>Ready for review</span></div>
+      <div class="summary-card"><strong>${needsInspection}</strong><span>Needs inspection</span></div>
       <div class="summary-card${blocked ? ' governance-warning' : ''}"><strong>${includeMerged ? merged : blocked}</strong><span>${includeMerged ? 'Merged history' : 'Blocked'}</span></div>
     </div>
-    <div class="notice"><p>Opening a proposal shows its exact commit, changed files, and complete diff. Activation can attempt one exact leased update to <code>sflow/config</code>; server review controls and hooks remain authoritative, and the application default branch is never changed.</p></div>
+    <div class="notice"><p>Opening a proposal shows its exact commit, changed files, and complete diff. Approval attempts an exact update to <code>sflow/config</code>; repository review controls and hooks remain authoritative. Setup rows are brief ref summaries, so open one to verify validation and external merges. Setup proposals from another laptop appear here after its repository URL is used or registered on this laptop.</p></div>
     ${integrityHtml}
     ${failures.map((failure) => `<div class="notice error"><p><strong>${escape(failure.lead)}</strong>: ${escape(failure.message)}</p></div>`).join('')}
-    ${busy && !entries.length ? `<div class="empty">${icon('wait')} Reading registered lead repositories and pending proposals…</div>`
-      : groups || `<div class="empty"><h2>${icon('ok')} ${includeMerged ? 'No proposal history found' : 'No proposals waiting'}</h2><p>${includeMerged ? 'No retained capability proposal branches are available to inspect.' : 'No capability-map proposals require review. You can retry the capability change that brought you here.'}</p></div>`}`;
+    ${staleSetupRepositories.map((lead) => `<div class="notice"><p>No pending setup proposal remains in <code>${escape(lead)}</code>. Its local review shortcut was cleared after a fresh remote check.</p></div>`).join('')}
+    ${emptyCheckedSetupRepositories.map((lead) => `<div class="notice"><p>No setup proposal was found in <code>${escape(lead)}</code> during this check.</p></div>`).join('')}
+    ${busy && !allEntries.length ? `<div class="empty">${icon('wait')} Reading known repositories and pending proposals…</div>`
+      : setupHtml || groups ? `${setupHtml}${groups}`
+        : `<div class="empty"><h2>${icon('ok')} ${includeMerged ? 'No proposal history found' : 'No proposals waiting'}</h2><p>${includeMerged ? 'No retained proposal branches are available to inspect.' : 'No known repository has a proposal waiting for review.'}</p></div>`}`;
 }
 
 const SCRIPT = `
@@ -131,6 +185,8 @@ const SCRIPT = `
     if (discard) return vscode.postMessage({ type: 'discard', index: Number(discard.dataset.discard) });
     const review = event.target.closest('[data-review]');
     if (review) return vscode.postMessage({ type: 'review', index: Number(review.dataset.review) });
+    const setup = event.target.closest('[data-review-setup]');
+    if (setup) return vscode.postMessage({ type: 'review-setup', index: Number(setup.dataset.reviewSetup) });
     const action = event.target.closest('[data-action]');
     if (action && !action.disabled) vscode.postMessage({ type: action.dataset.action });
   });
@@ -141,6 +197,10 @@ export class CapabilityProposalsPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private entries: ProposalEntry[] = [];
+  private setupEntries: SetupProposalEntry[] = [];
+  private staleSetupRepositories: string[] = [];
+  private emptyCheckedSetupRepositories: string[] = [];
+  private readonly manuallyCheckedSetupRepositories = new Set<string>();
   private leadCount = 0;
   private failures: LeadFailure[] = [];
   private integrity: LeadIntegrity[] = [];
@@ -148,10 +208,10 @@ export class CapabilityProposalsPanel {
   private busy = false;
   private includeMerged = false;
 
-  private constructor(context: vscode.ExtensionContext, private readonly run: Run,
+  private constructor(private readonly context: vscode.ExtensionContext, private readonly run: Run,
     private readonly onReview: (lead: string, branch: string) => void) {
     this.panel = vscode.window.createWebviewPanel(
-      'singularityFlow.capabilityProposals', 'Capability proposals', vscode.ViewColumn.Active,
+      'singularityFlow.capabilityProposals', 'Review proposals', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
     );
@@ -163,6 +223,7 @@ export class CapabilityProposalsPanel {
      */
     const router = registerMessageRouter('singularityFlow.capabilityProposals', {
       refresh: () => { void this.load(); },
+      'add-setup-repository': () => { void this.addSetupRepository(); },
       'toggle-history': () => {
         this.includeMerged = !this.includeMerged;
         void this.load();
@@ -177,6 +238,12 @@ export class CapabilityProposalsPanel {
         const index = integerField(message, 'index');
         const entry = index === null ? null : this.entries[index];
         if (entry) this.onReview(entry.lead, entry.branch);
+      },
+      'review-setup': (message) => {
+        const index = integerField(message, 'index');
+        const entry = index === null ? null : this.setupEntries[index];
+        if (entry) SetupProposalPanel.show(this.context, entry.lead, entry.branch,
+          entry.proposalCommit, this.run, async () => { await this.load(); });
       }
     });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
@@ -204,45 +271,119 @@ export class CapabilityProposalsPanel {
 
   private render(): void {
     const token = nonce();
-    this.panel.webview.html = page('Capability proposals',
-      proposalsHtml(this.entries, this.leadCount, this.failures, this.busy, this.includeMerged, this.integrity),
+    this.panel.webview.html = page('Review proposals',
+      proposalsHtml(this.entries, this.setupEntries, this.leadCount,
+        this.failures, this.busy, this.includeMerged, this.integrity,
+        this.staleSetupRepositories, this.emptyCheckedSetupRepositories),
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 
   private async load(): Promise<void> {
     if (this.busy) return;
-    this.busy = true; this.failures = []; this.render();
+    this.busy = true; this.failures = []; this.staleSetupRepositories = [];
+    this.emptyCheckedSetupRepositories = []; this.render();
     const leadsResponse = await this.run(['capability', 'leads', '--json']);
-    if (leadsResponse.error) {
-      this.entries = []; this.leadCount = 0;
-      this.failures = [{ lead: 'Capability lead registry', message: leadsResponse.error }];
-      this.busy = false; this.render(); return;
-    }
     const rawLeads = Array.isArray(leadsResponse.result)
       ? (leadsResponse.result as LeadRepository[]).map((lead) => lead?.url) : [];
     const screened = screenGitRemotes(rawLeads, 'Registered capability-map repository');
+    const cachedSetupUrls = setupReviewRepositories(this.context.globalState);
     const leads = screened.accepted.map((url) => ({ url }));
+    const setupLeads = [...new Set([
+      ...screened.accepted, ...cachedSetupUrls, ...this.manuallyCheckedSetupRepositories
+    ])];
     const registryFailures: LeadFailure[] = screened.rejected.map((entry) => ({
       lead: `Rejected registry entry · sha256:${entry.fingerprint.slice(0, 12)}`,
       message: entry.message
     }));
+    if (leadsResponse.error) registryFailures.unshift({
+      lead: 'Capability lead registry', message: leadsResponse.error
+    });
     this.leadUrls = screened.accepted;
-    this.leadCount = leads.length;
-    const results = await Promise.all(leads.map(async (lead) => {
-      const response = await this.run([
-        'capability', 'proposals', '--lead', lead.url,
-        ...(this.includeMerged ? ['--all'] : []), '--json'
-      ]);
-      if (response.error) return { lead: lead.url, proposals: [], error: response.error };
-      const payload = response.result as { proposals?: CapabilityProposalSummary[] } | null;
-      return { lead: lead.url, proposals: Array.isArray(payload?.proposals) ? payload.proposals : [], error: null };
-    }));
+    this.leadCount = setupLeads.length;
+    const [results, setupResults] = await Promise.all([
+      Promise.all(leads.map(async (lead) => {
+        const response = await this.run([
+          'capability', 'proposals', '--lead', lead.url,
+          ...(this.includeMerged ? ['--all'] : []), '--json'
+        ]);
+        if (response.error) return { lead: lead.url, proposals: [], error: response.error };
+        const payload = response.result as { proposals?: CapabilityProposalSummary[] } | null;
+        return { lead: lead.url, proposals: Array.isArray(payload?.proposals) ? payload.proposals : [], error: null };
+      })),
+      Promise.all(setupLeads.map(async (lead) => {
+        const response = await this.run([
+          'capability', 'setup-proposals', '--lead', lead,
+          ...(this.includeMerged ? ['--all'] : []), '--json'
+        ]);
+        if (response.error) return { lead, proposals: [], error: response.error, complete: false };
+        const payload = response.result as { proposals?: SetupProposalSummary[] } | null;
+        if (!Array.isArray(payload?.proposals)) return {
+          lead, proposals: [], error: 'The CLI returned an incompatible setup proposal list.', complete: false
+        };
+        if (payload.proposals.some((proposal) => !validSetupSummary(proposal))) return {
+          lead, proposals: [], error: 'The CLI returned an unsupported setup proposal summary.', complete: false
+        };
+        return { lead, proposals: payload.proposals, error: null, complete: true };
+      }))
+    ]);
     this.entries = results.flatMap((result) => result.proposals
       .filter((proposal) => this.includeMerged || !proposal.merged)
       .map((proposal) => ({ ...proposal, lead: result.lead })));
+    this.setupEntries = setupResults.flatMap((result) => result.proposals
+      .filter((proposal) => this.includeMerged || !proposal.merged)
+      .map((proposal) => ({ ...proposal, lead: result.lead })));
     this.failures = [...registryFailures, ...results.filter((result) => result.error)
-      .map((result) => ({ lead: result.lead, message: result.error as string }))];
+      .map((result) => ({ lead: result.lead, message: result.error as string })),
+    ...setupResults.filter((result) => result.error)
+      .map((result) => ({ lead: result.lead, message: `Setup proposals: ${result.error}` }))];
+    this.staleSetupRepositories = setupResults.filter((result) => result.complete
+      && cachedSetupUrls.includes(result.lead)
+      && !result.proposals.some((proposal) => !proposal.merged))
+      .map((result) => result.lead);
+    this.emptyCheckedSetupRepositories = setupResults.filter((result) => result.complete
+      && this.manuallyCheckedSetupRepositories.has(result.lead)
+      && result.proposals.length === 0)
+      .map((result) => result.lead);
+    const discovered = setupResults.filter((result) => result.complete
+      && this.manuallyCheckedSetupRepositories.has(result.lead)
+      && result.proposals.some((proposal) => !proposal.merged))
+      .map((result) => result.lead);
+    const remembered = await Promise.allSettled(discovered
+      .map((lead) => rememberSetupReviewRepository(this.context.globalState, lead)));
+    remembered.forEach((result, index) => {
+      if (result.status === 'fulfilled') this.manuallyCheckedSetupRepositories.delete(discovered[index]!);
+    });
+    for (const lead of this.emptyCheckedSetupRepositories) {
+      this.manuallyCheckedSetupRepositories.delete(lead);
+    }
+    await Promise.allSettled(this.staleSetupRepositories
+      .map((lead) => forgetSetupReviewRepository(this.context.globalState, lead)));
     this.busy = false; this.render();
+  }
+
+  private async addSetupRepository(): Promise<void> {
+    if (this.busy) return;
+    const entered = await vscode.window.showInputBox({
+      title: 'Check repository setup proposals',
+      prompt: 'Paste the credential-free Git clone URL for the repository whose setup is pending review.',
+      placeHolder: 'https://git.example/team/service.git',
+      ignoreFocusOut: true,
+      validateInput: (value) => value.trim()
+        ? gitRemoteProblem(value.trim(), 'Repository')
+        : 'Enter a Git clone URL.'
+    });
+    if (entered == null) return;
+    const repository = entered.trim();
+    if (!repository || gitRemoteProblem(repository, 'Repository')) return;
+    if (!this.manuallyCheckedSetupRepositories.has(repository)
+      && this.manuallyCheckedSetupRepositories.size >= MAX_MANUALLY_CHECKED_SETUP_REPOSITORIES) {
+      void vscode.window.showWarningMessage(
+        'This review session has reached its 100-repository check limit. Reopen Review Proposals to start a fresh session.'
+      );
+      return;
+    }
+    this.manuallyCheckedSetupRepositories.add(repository);
+    await this.load();
   }
 
   private async fsck(): Promise<void> {

@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 16
+version: 17
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -93,11 +93,35 @@ configuration mirror can restore it, a verified delivery locator continues to it
 lifecycle-only state continues to capability mapping. A branch that merely happens to be named
 `state` is not proof and remains untouched.
 
+Repository setup and capability mapping have separate review branches. A setup proposal is under
+`sflow/config-change/onboarding/` and is **not** returned by `capability proposals`, which lists
+only `sflow/config-change/capability/`. If the new setup candidate uses mutable application or
+state refs, Git cannot atomically prove those refs stayed fixed while creating `sflow/config`;
+the candidate stays on a review branch instead. A server policy can also refuse direct authority
+creation. Neither case means the candidate was approved. Inspect the exact setup branch before
+activation:
+
+```bash
+singularity-flow capability setup-proposals --lead <REPOSITORY-URL> --json
+singularity-flow capability setup-proposal <SETUP-BRANCH> --lead <REPOSITORY-URL> --json
+singularity-flow capability setup-activate <SETUP-BRANCH> --lead <REPOSITORY-URL> --confirm <FULL-PROPOSAL-COMMIT> --json
+```
+
+Activation requires explicit approval. Git cannot attest whether branch protection is configured,
+so a direct update additionally requires `--acknowledge-unprotected`; it uses an exact lease and
+cannot bypass repository protection. If protection
+requires an external review, follow that path and then recheck setup. When `sflow/config` does not
+yet exist, an authorized maintainer may need to establish it from the reviewed candidate under
+the repository's policy. After approval, use **Check setup again** or run `capability onboard
+<REPOSITORY-URL> --dry-run --json`; only then proceed to the capability-map proposal.
+In VS Code, **Review proposals → Find setup proposal…** can discover an older pending setup branch
+from its Git clone URL even when the repository is not yet registered on this laptop.
+
 Confirmed application may return one of three resumable partial statuses:
 
 | Result status | What is already safe | Next action |
 | --- | --- | --- |
-| `configuration-review-required` | A leased review proposal was preserved; `sflow/config` is not ready | Review and merge the named proposal, then preview onboarding again |
+| `configuration-review-required` | A leased repository-setup proposal was preserved; `sflow/config` is not ready | Inspect and explicitly activate the named setup proposal (or use the repository's external review path), then preview onboarding again |
 | `local-registration-pending` | Completed remote writes are preserved; this machine did not record the lead | Follow the returned preview/confirmation without republishing configuration; also honor any nested state-refresh retry |
 | `ready-state-refresh-pending` | `sflow/config` is ready; only its portable state projection is pending | Run the returned `capability publish` retry; do not repeat configuration publication |
 
@@ -284,7 +308,7 @@ Organisation reads prefer the state mirror, fall back to `sflow/config`, and kee
 - If repository inspection returns `already-mapped`, use the returned capability rather than creating a duplicate. If it returns `ambiguous`, select one exact lead and inspect again.
 - If `pendingMatches` is non-empty, review or activate the named proposal instead of creating another one. If `proposalCoverage` is not `complete`, repair authority access or reduce the pending proposal backlog and inspect again.
 - If repository inspection is `unreachable` or `inconclusive`, repair access and retry with `--refresh`; a failed lookup is not evidence that the repository is new.
-- If onboarding reports `configuration-review-required`, merge or resolve the exact named proposal and preview again; configuration is not ready merely because the proposal was published.
+- If onboarding reports `configuration-review-required`, use `capability setup-proposal` for the exact named onboarding branch, explicitly activate or obtain external review, and preview again. `capability proposals` will not list it; configuration is not ready merely because the proposal was published.
 - If onboarding reports `local-registration-pending`, retry the returned onboarding preview/confirmation. Completed remote writes are preserved and are not republished; also follow any nested state-refresh retry.
 - If onboarding reports `ready-state-refresh-pending`, run the returned `capability publish` action. Do not recreate or migrate `sflow/config` again.
 - If onboarding refuses `REPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED`, reduce the selected branch snapshot below the documented file/byte quotas or repair a server that ignored filtering; do not bypass the limit.

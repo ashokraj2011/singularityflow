@@ -632,6 +632,21 @@ An applied plan may safely stop with a resumable partial result:
 | `local-registration-pending` | Completed remote writes are preserved, but this machine did not remember the lead. Follow the returned preview/confirmation without republishing configuration. |
 | `ready-state-refresh-pending` | Configuration is ready; run the returned `capability publish` retry without republishing configuration. |
 
+An onboarding proposal (`sflow/config-change/onboarding/...`) is **not** a capability-map proposal
+(`sflow/config-change/capability/...`). `capability proposals` lists only the latter. For a new
+repository, setup may leave `sflow/config` absent while a candidate derived from the application
+or state ref waits for exact review: Git cannot atomically create a new authority branch and prove
+that a separate source ref did not move. Repository policy can also reject direct creation. List
+pending setup branches with `capability setup-proposals --lead <URL> --json`, inspect the named
+branch and commit with `capability setup-proposal <BRANCH> --lead <URL> --json`,
+then explicitly approve it with `capability setup-activate <BRANCH> --lead <URL> --confirm
+<FULL-COMMIT> --json`. If direct-branch protection cannot be verified, the command refuses until
+you explicitly choose `--acknowledge-unprotected` or use external review. Activation uses an exact
+lease and cannot bypass server review controls; if those controls require an external merge, use
+the repository's normal review path. Recheck onboarding
+after approval before creating a capability-map proposal. A missing `sflow/config` target may need
+an authorized maintainer to establish the branch from the reviewed setup commit.
+
 Selected branch snapshots use depth-one, no-tags, blobless partial clones. Onboarding deletes and
 refuses a snapshot above 16,384 local files or 128 MiB before checkout or parsing, even if the
 server ignores filtering. Verified state mirrors are bounded further to 512 declared assets,
@@ -831,9 +846,14 @@ For explicit early code access, run `singularity-flow workspace repair
 
 #### VS Code and Copilot path
 
-- In VS Code, use **Configuration → Capabilities → Map capability**, then
-  **Review capability proposal**. **Merge and acknowledge** uses the same
+- In VS Code, use **Configuration → Capabilities → Map capability**. If repository
+  setup needs review first, open **Review setup proposal**, approve its exact
+  commit, and **Check setup again**. Once mapping creates a separate capability
+  proposal, open **Review capability proposal**. **Merge and acknowledge** uses
   exact-commit activation and cannot bypass branch protection.
+- If setup was proposed on another laptop or before this extension was installed,
+  open **Review proposals → Find setup proposal…** and enter that repository's
+  credential-free clone URL. The queue checks its setup branches directly.
 - Use **Workspaces → Create workspace**, review the preflight, resume it, then choose
   **Work here**. The selected workspace becomes the context for Lifecycle and
   Configuration.

@@ -277,6 +277,14 @@
         "published": { "type": "boolean" },
         "existing": { "type": "boolean" },
         "conflict": { "type": "boolean" },
+        "reason": { "enum": ["guarded-source-refs", "remote-policy-rejected", "normal-review"] },
+        "guardedSourceRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^refs/heads/" }
+        },
+        "inspectCommand": { "type": "string", "minLength": 1 },
+        "activateCommand": { "type": "string", "minLength": 1 },
         "recovery": { "$ref": "#/$defs/reviewRecovery" }
       }
     },

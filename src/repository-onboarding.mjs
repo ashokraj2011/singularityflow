@@ -27,7 +27,7 @@ import {
 } from './capability-authority-link.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport,
-  isPortableAbsoluteGitPath,
+  isPortableAbsoluteGitPath, redactDiagnosticText,
   remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
@@ -779,7 +779,7 @@ function publicFailure(failure) {
 }
 
 async function cloneFilteredSnapshot(remote, branch, expectedCommit, filter, {
-  transport, runRemoteCommand, prefix, queueRoot
+  transport, runRemoteCommand, prefix, queueRoot, depth = 1
 }) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), prefix));
   // The per-pass logical admission bound assumes the server honours the requested Git filter.
@@ -789,7 +789,7 @@ async function cloneFilteredSnapshot(remote, branch, expectedCommit, filter, {
   const cloned = await runRemoteCommand([
     '-c', 'core.autocrlf=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
     'clone', '--quiet', '--no-local', '--no-tags',
-    '--single-branch', '--depth', '1', filter,
+    '--single-branch', '--depth', String(depth), filter,
     '--no-checkout', '--origin', SNAPSHOT_REMOTE_NAME,
     '--branch', branch, transport.remote, scratch
   ], { cwd: path.dirname(scratch), operation: 'remote-configuration', env: transport.env });
@@ -845,7 +845,7 @@ async function removeSnapshotBeforeAdmissionRetry(directory, queueRoot) {
 
 async function cloneObservedBranch(remote, branch, expectedCommit, {
   env, runRemoteCommand = runRemoteGitAsync, prefix = 'sflow-repository-onboarding-',
-  checkout = true, cleanupQueueRoot = null
+  checkout = true, cleanupQueueRoot = null, depth = 1
 }) {
   const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   const transport = frozenRemoteTransport(remote, { env });
@@ -859,7 +859,7 @@ async function cloneObservedBranch(remote, branch, expectedCommit, {
     remote, branch, expectedCommit, '--filter=blob:none', {
       // Keep the existing owned-prefix shape so a Windows lock can use the same deferred-cleanup
       // validation and recovery path as every other disposable onboarding snapshot.
-      transport, runRemoteCommand, prefix, queueRoot
+      transport, runRemoteCommand, prefix, queueRoot, depth
     }
   );
   let admission;
@@ -875,7 +875,7 @@ async function cloneObservedBranch(remote, branch, expectedCommit, {
   while (true) {
     snapshot = await cloneFilteredSnapshot(
       remote, branch, expectedCommit, admitted.filter, {
-        transport, runRemoteCommand, prefix, queueRoot
+        transport, runRemoteCommand, prefix, queueRoot, depth
       }
     );
     let quota;
@@ -2448,8 +2448,12 @@ async function publishProposal(remote, plan, mutate, {
       `[configuration] ${plan.mode} repository setup`, {
         env: checkout.env, timestamp, commitIdentity: frozenCommitIdentity, commitSigning
       });
-    const branch = plan.proposalBranch
-      ?? `${ONBOARDING_REVIEW_PREFIX}${plan.mode}-${expectedConfigurationCommit.slice(0, 12)}`;
+    const branch = plan.proposalBranch;
+    if (!branch) throw new SingularityFlowError(
+      'Repository setup proposal branch was not bound to the confirmed plan.', {
+        code: 'REPOSITORY_ONBOARDING_REVIEW_REF_UNPLANNED'
+      }
+    );
     const ref = `refs/heads/${branch}`;
     const expectedProposal = plan.observedRefs[ref] ?? null;
     if (expectedProposal && expectedProposal !== commit) {
@@ -2552,6 +2556,9 @@ function appliedResult(plan, values = {}) {
 
 function reviewRequiredResult(plan, published, { receipt = null, omitted = null } = {}) {
   const proposal = published.proposal;
+  const reviewReason = published.guardedSourceRefs?.length
+    ? 'guarded-source-refs'
+    : published.directFailure ? 'remote-policy-rejected' : 'normal-review';
   const plannedProposal = plan.effects.find((effect) => effect.action === 'propose');
   const proposalEffect = plannedProposal ? {
     ...plannedProposal, target: proposal.branch
@@ -2566,6 +2573,18 @@ function reviewRequiredResult(plan, published, { receipt = null, omitted = null 
     published: proposal.published === true,
     existing: proposal.existing === true,
     conflict: proposal.conflict === true,
+    reason: reviewReason,
+    ...(published.guardedSourceRefs?.length ? {
+      guardedSourceRefs: Object.freeze([...published.guardedSourceRefs])
+    } : {}),
+    inspectCommand: renderPlatformCommand([
+      'singularity-flow', 'capability', 'setup-proposal', proposal.branch,
+      '--lead', plan.repository.url, '--json'
+    ]),
+    activateCommand: renderPlatformCommand([
+      'singularity-flow', 'capability', 'setup-activate', proposal.branch,
+      '--lead', plan.repository.url, '--confirm', proposal.commit, '--json'
+    ]),
     recovery: Object.freeze({
       action: proposal.conflict ? 'resolve-proposal-conflict' : 'merge-proposal',
       sourceBranch: proposal.branch,
@@ -2580,9 +2599,35 @@ function reviewRequiredResult(plan, published, { receipt = null, omitted = null 
     ...(receipt ? { receipt } : {}),
     ...(omitted ? { omitted } : {}),
     nextActions: Object.freeze({
-      shell: review.recovery.afterMerge, copilot: '/sf-capability-map'
+      shell: review.inspectCommand, copilot: '/sf-capability-map'
     })
   });
+}
+
+/** Recompute the original root-creation plan with its then-absent proposal ref. */
+export async function verifyRepositoryOnboardingProposalSource(remote, branch, receipt, {
+  env = process.env, runRemoteCommand = runRemoteGitAsync, cleanupQueueRoot = null
+} = {}) {
+  const stateBranch = receipt?.state?.branch;
+  if (!stateBranch || !REPOSITORY_ONBOARDING_MODES.includes(receipt?.mode)
+      || !/^sha256:[0-9a-f]{64}$/u.test(String(receipt?.planId ?? ''))) return false;
+  const plan = await inspectRepositoryOnboarding(remote, {
+    mode: receipt.mode, stateBranch, env, runRemoteCommand, cleanupQueueRoot,
+    refresh: true, useClassificationCache: false
+  });
+  const proposalRef = `refs/heads/${branch}`;
+  if (plan.proposalBranch !== branch || plan.configuration.commit != null
+      || !Object.hasOwn(plan.observedRefs, proposalRef)
+      || plan.observedRefs[proposalRef] == null
+      || plan.repository.identity !== receipt.repositoryIdentity
+      || plan.state.commit !== receipt.state.commit
+      || (plan.state.sourceCommit ?? null) !== (receipt.state.sourceCommit ?? null)) return false;
+  const identity = { ...plan, observedRefs: {
+    ...plan.observedRefs, [proposalRef]: null
+  } };
+  delete identity.planId;
+  delete identity.nextActions;
+  return withPlanId(identity).planId === receipt.planId;
 }
 
 async function finishWithRegistration(plan, target, values = {}) {
@@ -2880,4 +2925,384 @@ export async function onboardRepository(remote, {
   return dryRun
     ? inspectRepositoryOnboarding(remote, options)
     : applyRepositoryOnboarding(remote, { ...options, confirmPlan });
+}
+
+function setupProposalBranch(value) {
+  const branch = String(value ?? '').trim();
+  if (!/^sflow\/config-change\/onboarding\/(?:create|restore|migrate|recreate)-[0-9a-f]{12}$/u.test(branch)
+      || !isGitRefName(branch)) {
+    throw new SingularityFlowError(
+      `Repository setup proposal must be a branch beneath '${ONBOARDING_REVIEW_PREFIX}'.`, {
+        code: 'REPOSITORY_ONBOARDING_PROPOSAL_BRANCH_INVALID'
+      }
+    );
+  }
+  return branch;
+}
+
+function setupProposalCommand(action, remote, branch, commit = null, acknowledged = false) {
+  const argv = ['singularity-flow', 'capability', action, branch, '--lead', remote];
+  if (commit) argv.push('--confirm', commit);
+  if (acknowledged) argv.push('--acknowledge-unprotected');
+  argv.push('--json');
+  return renderPlatformCommand(argv);
+}
+
+function setupProposalFailure(code, message) {
+  return Object.freeze({ code, message });
+}
+
+function setupProposalChangedFiles(root, base, env) {
+  const args = base
+    ? ['diff-tree', '--no-commit-id', '--no-renames', '--name-status', '-r', base, 'HEAD']
+    : ['diff-tree', '--root', '--no-commit-id', '--no-renames', '--name-status', '-r', 'HEAD'];
+  const result = run('git', args, { cwd: root, env, allowFailure: true });
+  if (result.status !== 0) return null;
+  return result.stdout.split(/\r?\n/u).filter(Boolean).map((line) => {
+    const separator = line.indexOf('\t');
+    return {
+      status: line.slice(0, separator), paths: [line.slice(separator + 1)]
+    };
+  });
+}
+
+async function setupProposalSnapshot(remote, branch, expectedCommit, {
+  env, runRemoteCommand, cleanupQueueRoot
+}) {
+  return cloneObservedBranch(remote, branch, expectedCommit, {
+    env, runRemoteCommand, prefix: 'sflow-setup-proposal-', depth: 2,
+    cleanupQueueRoot
+  });
+}
+
+async function inspectSetupProposalSnapshot(remote, branch, expectedCommit, targetCommit, {
+  env, runRemoteCommand, cleanupQueueRoot, includeDiff
+}) {
+  const snapshot = await setupProposalSnapshot(remote, branch, expectedCommit, {
+    env, runRemoteCommand, cleanupQueueRoot
+  });
+  return withDisposableReadSnapshot(snapshot.scratch, async () => {
+    const root = snapshot.scratch;
+    const gitEnv = snapshot.env;
+    const rawCommit = run('git', ['cat-file', '-p', 'HEAD'], { cwd: root, env: gitEnv }).stdout;
+    const parents = [...rawCommit.matchAll(/^parent ([0-9a-f]{40,64})$/gmu)]
+      .map((match) => match[1]);
+    const proposalBase = parents.length === 1 ? parents[0] : null;
+    const rootProposal = parents.length === 0;
+    const parentShapeValid = parents.length <= 1;
+    const branchSourceMatches = rootProposal || (proposalBase != null
+      && proposalBase.startsWith(branch.slice(branch.lastIndexOf('-') + 1)));
+    const changedFiles = setupProposalChangedFiles(root, proposalBase, gitEnv);
+    const policy = configurationAssetPolicyFromRef(root, 'HEAD', { env: gitEnv });
+    const tree = run('git', [
+      'ls-tree', '-r', '-z', '--format=%(objectmode) %(path)', 'HEAD'
+    ], { cwd: root, env: gitEnv }).stdout.split('\0').filter(Boolean);
+    const invalidFiles = tree.flatMap((line) => {
+      const separator = line.indexOf(' ');
+      const mode = line.slice(0, separator);
+      const file = line.slice(separator + 1);
+      return (mode === '100644' || mode === '100755')
+          && (isConfigurationAsset(file, policy)
+            || file === CONFIGURATION_RECOVERY_RECEIPT)
+        ? [] : [file];
+    });
+    for (const changed of changedFiles ?? []) {
+      for (const file of changed.paths) {
+        if (!isConfigurationAsset(file, policy)
+            && !(rootProposal && file === CONFIGURATION_RECOVERY_RECEIPT)) {
+          invalidFiles.push(file);
+        }
+      }
+    }
+    let configurationError = null;
+    try {
+      const { validateEditorConfiguration } = await import('./editor.mjs');
+      await validateEditorConfiguration(root);
+    }
+    catch (error) { configurationError = error?.message ?? String(error); }
+    let receipt = null;
+    let sourceFresh = !rootProposal;
+    let receiptTrusted = false;
+    if (rootProposal) {
+      const receiptBytes = await readOptionalFile(root, CONFIGURATION_RECOVERY_RECEIPT);
+      if (receiptBytes) {
+        try {
+          receipt = readRecord('repository-configuration-recovery', receiptBytes).record;
+          receiptTrusted = receipt.repositoryIdentity
+            === repositoryBinding(remote, remote).identity;
+          sourceFresh = receiptTrusted && await verifyRepositoryOnboardingProposalSource(
+            remote, branch, receipt, { env, runRemoteCommand, cleanupQueueRoot }
+          );
+        } catch { sourceFresh = false; }
+      }
+    }
+    let merged = targetCommit === expectedCommit;
+    if (targetCommit && !merged) {
+      const target = await cloneObservedBranch(remote, CONFIGURATION_BRANCH, targetCommit, {
+        env, runRemoteCommand, prefix: 'sflow-setup-target-', depth: 50,
+        checkout: false, cleanupQueueRoot
+      });
+      merged = await withDisposableReadSnapshot(target.scratch, async () => {
+        const object = run('git', ['cat-file', '-e', `${expectedCommit}^{commit}`], {
+          cwd: target.scratch, env: target.env, allowFailure: true
+        });
+        if (object.status !== 0) return false;
+        return run('git', ['merge-base', '--is-ancestor', expectedCommit, 'HEAD'], {
+          cwd: target.scratch, env: target.env, allowFailure: true
+        }).status === 0;
+      }, { cleanupQueueRoot });
+    }
+    const baseMatches = rootProposal ? targetCommit == null : proposalBase === targetCommit;
+    const valid = parentShapeValid && branchSourceMatches
+      && changedFiles != null && changedFiles.length > 0
+      && invalidFiles.length === 0 && configurationError == null
+      && (merged ? (!rootProposal || receiptTrusted) : (baseMatches && sourceFresh));
+    let status = !parentShapeValid || !branchSourceMatches
+        || changedFiles == null || changedFiles.length === 0
+        || invalidFiles.length > 0 || configurationError != null ? 'invalid'
+      : merged && valid ? 'merged' : valid ? 'ready-for-review'
+      : !sourceFresh ? 'stale-source'
+        : !baseMatches ? 'stale-target' : 'invalid';
+    const failure = valid ? null : setupProposalFailure(
+      status === 'stale-source' ? 'REPOSITORY_ONBOARDING_PROPOSAL_SOURCE_STALE'
+        : status === 'stale-target' ? 'REPOSITORY_ONBOARDING_PROPOSAL_TARGET_STALE'
+          : 'REPOSITORY_ONBOARDING_PROPOSAL_INVALID',
+      !parentShapeValid
+        ? 'The setup proposal must have zero or one parent commit.'
+        : !branchSourceMatches
+          ? 'The setup proposal branch does not match its configuration base commit.'
+        : status === 'stale-source'
+        ? 'The source refs no longer match the confirmed setup plan, or its source receipt cannot be verified.'
+        : status === 'stale-target'
+          ? 'The approved configuration changed after this proposal was created.'
+          : configurationError ?? 'The proposal contains invalid or non-configuration work.'
+    );
+    let diff = null;
+    if (includeDiff && changedFiles != null) {
+      const diffResult = run('git', proposalBase
+        ? ['diff', '--no-ext-diff', '--unified=3', proposalBase, 'HEAD', '--']
+        : ['show', '--format=', '--no-ext-diff', '--unified=3', 'HEAD'], {
+        cwd: root, env: gitEnv, allowFailure: true
+      });
+      if (diffResult.status === 0) diff = diffResult.stdout.length > 200_000
+        ? `${diffResult.stdout.slice(0, 200_000)}\n… diff truncated …\n`
+        : diffResult.stdout;
+    }
+    return Object.freeze({
+      remote: sanitizeRemote(remote), branch, targetBranch: CONFIGURATION_BRANCH,
+      targetCommit, proposalCommit: expectedCommit, proposalBase, rootProposal,
+      merged, valid, status, sourceFresh, invalidFiles, configurationError,
+      changedFiles: changedFiles ?? [], diff, diffDeferred: diff == null,
+      ...(failure ? { failure } : {}),
+      inspectCommand: setupProposalCommand('setup-proposal', remote, branch),
+      activateCommand: setupProposalCommand('setup-activate', remote, branch, expectedCommit)
+    });
+  }, { cleanupQueueRoot });
+}
+
+/** Inspect one exact repository-setup review branch and its current configuration target. */
+export async function inspectRepositoryOnboardingProposal(remote, requestedBranch, {
+  env = process.env, runRemoteCommand = runRemoteGitAsync,
+  cleanupQueueRoot = null, includeDiff = true
+} = {}) {
+  const repository = await repositoryInputRemote(canonicalRepositoryLocator(remote), env);
+  const branch = setupProposalBranch(requestedBranch);
+  const gitEnv = enterpriseGitEnvironment(env);
+  const session = new GitRemoteSession({ env: gitEnv, runAsyncCommand: runRemoteCommand });
+  const proposalRef = `refs/heads/${branch}`;
+  const observed = await session.observeAsync(repository, {
+    refs: [proposalRef, CONFIGURATION_REF], includeHead: false, refresh: true
+  });
+  if (!observed.ok) throw new SingularityFlowError(
+    'Repository setup proposal refs could not be inspected safely.', {
+      code: 'REPOSITORY_ONBOARDING_PROPOSAL_OBSERVATION_FAILED',
+      details: { failure: publicFailure(observed.failure) }
+    }
+  );
+  const proposalCommit = observed.refs.get(proposalRef) ?? null;
+  if (!proposalCommit) throw new SingularityFlowError(
+    `Repository setup proposal '${branch}' is not present.`, {
+      code: 'REPOSITORY_ONBOARDING_PROPOSAL_NOT_FOUND'
+    }
+  );
+  return inspectSetupProposalSnapshot(repository, branch, proposalCommit,
+    observed.refs.get(CONFIGURATION_REF) ?? null, {
+      env: gitEnv, runRemoteCommand, cleanupQueueRoot, includeDiff
+    });
+}
+
+/** Include onboarding review branches in their own explicit, bounded queue. */
+export async function listRepositoryOnboardingProposals(remote, {
+  includeMerged = false, env = process.env,
+  runRemoteCommand = runRemoteGitAsync, cleanupQueueRoot = null
+} = {}) {
+  const repository = await repositoryInputRemote(canonicalRepositoryLocator(remote), env);
+  const gitEnv = enterpriseGitEnvironment(env);
+  const session = new GitRemoteSession({ env: gitEnv, runAsyncCommand: runRemoteCommand });
+  const observed = await session.observeAsync(repository, {
+    refs: [`refs/heads/${ONBOARDING_REVIEW_PREFIX}*`, CONFIGURATION_REF],
+    includeHead: false, refresh: true
+  });
+  if (!observed.ok) throw new SingularityFlowError(
+    'Repository setup proposal queue could not be inspected safely.', {
+      code: 'REPOSITORY_ONBOARDING_PROPOSALS_UNAVAILABLE',
+      details: { failure: publicFailure(observed.failure) }
+    }
+  );
+  const branches = [...observed.refs].filter(([ref]) =>
+    ref.startsWith(`refs/heads/${ONBOARDING_REVIEW_PREFIX}`))
+    .map(([ref]) => ref.slice('refs/heads/'.length)).sort();
+  if (branches.length > 100) throw new SingularityFlowError(
+    'Repository setup has more than 100 review branches; narrow or archive old proposals first.', {
+      code: 'REPOSITORY_ONBOARDING_PROPOSALS_LIMIT_EXCEEDED'
+    }
+  );
+  // The queue is an inbox, not a full review. One advertised-ref observation is enough to make
+  // every durable setup branch visible; opening a row performs the bounded snapshot and proof.
+  // An external merge commit needs the detailed inspection to prove ancestry, so only direct
+  // equality is filtered here. Unknown entries stay visible rather than disappearing as "none".
+  const targetCommit = observed.refs.get(CONFIGURATION_REF) ?? null;
+  return branches.flatMap((branch) => {
+    const proposalCommit = observed.refs.get(`refs/heads/${branch}`);
+    const merged = targetCommit === proposalCommit;
+    if (merged && !includeMerged) return [];
+    return [{
+      remote: sanitizeRemote(repository), branch, proposalCommit,
+      targetBranch: CONFIGURATION_BRANCH, targetCommit,
+      status: merged ? 'merged' : 'pending-review', merged,
+      valid: null, changedFiles: [], diff: null, diffDeferred: true,
+      inspectCommand: setupProposalCommand('setup-proposal', repository, branch)
+    }];
+  });
+}
+
+/** Activate only the exact reviewed commit, after an explicit direct-push acknowledgement. */
+export async function activateRepositoryOnboardingProposal(remote, requestedBranch, {
+  confirm = null, acknowledgeUnprotected = false,
+  env = process.env, runRemoteCommand = runRemoteGitAsync,
+  cleanupQueueRoot = null
+} = {}) {
+  const repository = await repositoryInputRemote(canonicalRepositoryLocator(remote), env);
+  const branch = setupProposalBranch(requestedBranch);
+  const reviewed = await inspectRepositoryOnboardingProposal(repository, branch, {
+    env, runRemoteCommand, cleanupQueueRoot, includeDiff: false
+  });
+  if (String(confirm ?? '').trim() !== reviewed.proposalCommit) throw new SingularityFlowError(
+    `Confirmation must be the full current setup proposal commit '${reviewed.proposalCommit}'. Nothing was changed.`, {
+      code: 'REPOSITORY_ONBOARDING_PROPOSAL_CONFIRMATION_MISMATCH',
+      details: { nextAction: reviewed.activateCommand }
+    }
+  );
+  if (!reviewed.valid) throw new SingularityFlowError(
+    `${reviewed.failure?.message ?? 'The setup proposal is not valid.'} Nothing was changed.`, {
+      code: reviewed.failure?.code ?? 'REPOSITORY_ONBOARDING_PROPOSAL_INVALID',
+      details: { proposal: reviewed }
+    }
+  );
+  if (reviewed.merged) return {
+    ...reviewed, status: 'activated', activated: true, alreadyMerged: true,
+    nextAction: onboardingCommand(repository)
+  };
+  if (!acknowledgeUnprotected) {
+    const nextAction = setupProposalCommand(
+      'setup-activate', repository, branch, reviewed.proposalCommit, true
+    );
+    throw new SingularityFlowError(
+      `Git cannot prove whether '${CONFIGURATION_BRANCH}' is protected before an update. `
+      + 'Review and merge the proposal through your repository controls, or explicitly acknowledge '
+      + `a direct-push attempt. Nothing was changed. Re-run: ${nextAction}`, {
+        code: 'REPOSITORY_ONBOARDING_CONFIGURATION_UNPROTECTED',
+        details: { nextAction }
+      }
+    );
+  }
+  const gitEnv = enterpriseGitEnvironment(env);
+  const session = new GitRemoteSession({ env: gitEnv, runAsyncCommand: runRemoteCommand });
+  const proposalRef = `refs/heads/${branch}`;
+  const transport = frozenRemoteTransport(repository, { push: true, env: gitEnv });
+  const checkout = await setupProposalSnapshot(repository, branch, reviewed.proposalCommit, {
+    env: gitEnv, runRemoteCommand, cleanupQueueRoot
+  });
+  return withDisposableMutationCheckout(checkout.scratch, async () => {
+    // Check after candidate checkout, immediately before the only remote write. The target lease
+    // protects sflow/config itself; the receipt supplies full source-ref freshness for root work.
+    const rechecked = await session.observeAsync(repository, {
+      refs: [proposalRef, CONFIGURATION_REF], includeHead: false, refresh: true
+    });
+    if (!rechecked.ok || rechecked.refs.get(proposalRef) !== reviewed.proposalCommit
+        || (rechecked.refs.get(CONFIGURATION_REF) ?? null) !== reviewed.targetCommit) {
+      throw new SingularityFlowError(
+        'The setup proposal or approved configuration moved after review. Nothing was changed.', {
+          code: 'REPOSITORY_ONBOARDING_PROPOSAL_STALE'
+        }
+      );
+    }
+    if (reviewed.rootProposal) {
+      const finalReview = await inspectRepositoryOnboardingProposal(repository, branch, {
+        env, runRemoteCommand, cleanupQueueRoot, includeDiff: false
+      });
+      if (!finalReview.valid || finalReview.proposalCommit !== reviewed.proposalCommit
+          || finalReview.targetCommit !== reviewed.targetCommit) throw new SingularityFlowError(
+        'The setup source refs moved before activation. Nothing was changed.', {
+          code: 'REPOSITORY_ONBOARDING_PROPOSAL_SOURCE_STALE'
+        }
+      );
+    }
+    const targetRef = CONFIGURATION_REF;
+    const pushed = await runRemoteCommand([
+      'push', '--porcelain',
+      `--force-with-lease=${targetRef}:${reviewed.targetCommit ?? ''}`,
+      '--', transport.remote, `${reviewed.proposalCommit}:${targetRef}`
+    ], { cwd: checkout.scratch, operation: 'remote-push', env: transport.env });
+    const after = await session.observeAsync(repository, {
+      refs: [targetRef], includeHead: false, refresh: true
+    });
+    const current = after.ok ? after.refs.get(targetRef) ?? null : null;
+    if (current === reviewed.proposalCommit) return {
+      ...reviewed, status: 'activated', activated: true, alreadyMerged: false,
+      targetCommit: current, nextAction: onboardingCommand(repository)
+    };
+    if (current) {
+      // A review platform may install a merge commit while our exact direct update is in flight.
+      // The target SHA alone is not merge evidence; prove ancestry and proposal validity again.
+      try {
+        const concurrent = await inspectRepositoryOnboardingProposal(repository, branch, {
+          env, runRemoteCommand, cleanupQueueRoot, includeDiff: false
+        });
+        if (concurrent.valid && concurrent.merged
+            && concurrent.proposalCommit === reviewed.proposalCommit
+            && concurrent.targetCommit === current) return {
+          ...concurrent, status: 'activated', activated: true, alreadyMerged: true,
+          nextAction: onboardingCommand(repository)
+        };
+      } catch { /* Preserve the classified push result when reconciliation is unavailable. */ }
+    }
+    const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
+    const protectedRefusal = pushed.status !== 0
+      && ['policy-rejected', 'authorization-denied', 'unknown']
+        .includes(pushed.failure?.classification ?? 'unknown')
+      && /protected branch|branch protection|review required|pull request|required reviews?/iu
+        .test(diagnostic);
+    return {
+      ...reviewed, status: protectedRefusal ? 'review-required' : 'activation-pending',
+      activated: false, targetCommit: current,
+      failure: {
+        code: protectedRefusal ? 'REPOSITORY_ONBOARDING_ACTIVATION_REVIEW_REQUIRED'
+          : pushed.failure?.code ?? 'REPOSITORY_ONBOARDING_ACTIVATION_FAILED',
+        classification: pushed.failure?.classification ?? 'unknown',
+        message: protectedRefusal
+          ? `Merge '${branch}' into '${CONFIGURATION_BRANCH}' through repository review controls.`
+          : redactDiagnosticText(
+            pushed.failure?.advice ?? 'The exact configuration update was not accepted.'
+          ),
+        diagnostic: redactDiagnosticText(diagnostic).trim().slice(0, 4096) || null
+      },
+      externalAction: protectedRefusal ? {
+        action: 'merge-proposal', sourceBranch: branch,
+        targetBranch: CONFIGURATION_BRANCH, proposalCommit: reviewed.proposalCommit
+      } : null,
+      nextAction: setupProposalCommand('setup-activate', repository, branch,
+        reviewed.proposalCommit, !protectedRefusal)
+    };
+  }, { cleanupQueueRoot });
 }

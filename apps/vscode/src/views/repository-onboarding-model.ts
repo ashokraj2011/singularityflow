@@ -140,6 +140,10 @@ export interface RepositoryOnboardingStateRefresh {
 
 export interface RepositoryOnboardingReview {
   status: 'review-required' | 'proposal-conflict';
+  reason?: 'guarded-source-refs' | 'remote-policy-rejected' | 'normal-review';
+  guardedSourceRefs?: string[];
+  inspectCommand?: string;
+  activateCommand?: string;
   configurationReady: false;
   sourceBranch: string;
   targetBranch: 'sflow/config';
@@ -326,7 +330,17 @@ function onboardingReview(value: unknown): RepositoryOnboardingReview | null {
   const recoverySource = text(recovery?.sourceBranch);
   const recoveryCommit = text(recovery?.proposalCommit);
   const afterMerge = text(recovery?.afterMerge);
+  const reason = candidate?.reason == null ? null : text(candidate.reason);
+  const guardedSourceRefs = candidate?.guardedSourceRefs == null
+    ? null : strictStringList(candidate.guardedSourceRefs);
+  const inspectCommand = candidate?.inspectCommand == null ? null : text(candidate.inspectCommand);
+  const activateCommand = candidate?.activateCommand == null ? null : text(candidate.activateCommand);
   if (!candidate || !['review-required', 'proposal-conflict'].includes(status ?? '')
+    || (candidate.reason != null && !['guarded-source-refs', 'remote-policy-rejected', 'normal-review'].includes(reason ?? ''))
+    || (candidate.guardedSourceRefs != null && (!guardedSourceRefs
+      || guardedSourceRefs.length > 32 || guardedSourceRefs.some((ref) => !safeObservedRef(ref))))
+    || (candidate.inspectCommand != null && (!inspectCommand || inspectCommand.length > 8192))
+    || (candidate.activateCommand != null && (!activateCommand || activateCommand.length > 8192))
     || candidate.configurationReady !== false || !sourceBranch || !safeStateBranch(sourceBranch)
     || candidate.targetBranch !== 'sflow/config' || !proposalCommit || !COMMIT.test(proposalCommit)
     || !candidateCommit || !COMMIT.test(candidateCommit)
@@ -338,6 +352,10 @@ function onboardingReview(value: unknown): RepositoryOnboardingReview | null {
     || recoveryCommit !== proposalCommit || !afterMerge) return null;
   return {
     status: status as RepositoryOnboardingReview['status'],
+    ...(reason ? { reason: reason as RepositoryOnboardingReview['reason'] } : {}),
+    ...(guardedSourceRefs ? { guardedSourceRefs } : {}),
+    ...(inspectCommand ? { inspectCommand } : {}),
+    ...(activateCommand ? { activateCommand } : {}),
     configurationReady: false,
     sourceBranch,
     targetBranch: 'sflow/config',

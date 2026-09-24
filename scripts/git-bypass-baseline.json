@@ -986,9 +986,9 @@
     },
     "src/repository-onboarding.mjs": {
       "counts": {
-        "command-run": 24
+        "command-run": 30
       },
-      "digest": "97ebfb0650cf6cf54373c3e20fb626141b6e061d30fc372133fecb033cd42492"
+      "digest": "813de1a0db245101c3629c61552b32e2906e14c320ddcb9d865b9ab6e11e92c9"
     },
     "src/repository-subject-index.mjs": {
       "counts": {

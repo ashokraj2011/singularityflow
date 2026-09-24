@@ -327,11 +327,12 @@ const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'repa
 const SESSION_SUBCOMMANDS = Object.freeze([...SESSION_READ_SUBCOMMANDS, ...SESSION_MUTATION_SUBCOMMANDS]);
 const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
   'tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads',
-  'inspect-repository'
+  'inspect-repository', 'setup-proposals', 'setup-proposal'
 ]);
 const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
   'add', 'protect', 'depend', 'adopt-managed', 'set', 'remove', 'map', 'map-team', 'edit', 'publish',
-  'activate', 'discard-proposal', 'repair-proposal', 'reconcile', 'repository'
+  'activate', 'discard-proposal', 'repair-proposal', 'reconcile', 'repository',
+  'setup-activate'
 ]);
 const CAPABILITY_PLAN_SUBCOMMANDS = Object.freeze(['onboard']);
 const CAPABILITY_SUBCOMMANDS = Object.freeze([

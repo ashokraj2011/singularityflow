@@ -9,6 +9,8 @@ import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { SetupProposalPanel } from './setup-proposal.ts';
+import { rememberSetupReviewRepository } from './setup-review-repositories.ts';
 import {
   CAPABILITY_KINDS, EMPTY_MAP_FORM, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems,
   MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type MapCapabilityOperation, type ParentChoice
@@ -1205,6 +1207,13 @@ export class BootstrapPanel {
     }
     this.repositorySetupResult = applied;
     this.form.repositorySetupResult = applied;
+    if (applied.status === 'configuration-review-required' && applied.review) {
+      try {
+        await rememberSetupReviewRepository(this.context.globalState, repositoryUrl);
+      } catch {
+        // The direct review action remains available even if the local queue cache cannot persist.
+      }
+    }
     if (applied.mode === 'reset-local') {
       this.update({
         repositorySetupApplying: false,
@@ -1538,6 +1547,20 @@ export class BootstrapPanel {
       await this.previewRepositorySetup(
         'auto', this.form.repositorySetupPlan?.state.branch ?? undefined
       );
+      return;
+    }
+
+    if (message?.type === 'reviewRepositorySetup') {
+      const review = this.form.repositorySetupResult?.review;
+      const repositoryUrl = this.form.repositoryUrl.trim();
+      if (this.form.repositorySetupResult?.status !== 'configuration-review-required'
+        || !review || !repositoryUrl || gitRemoteProblem(repositoryUrl, 'Repository')) return;
+      SetupProposalPanel.show(this.context, repositoryUrl, review.sourceBranch,
+        review.proposalCommit, this.run, async () => {
+          if (!this.disposed && this.form.repositoryUrl.trim() === repositoryUrl) {
+            await this.previewRepositorySetup('auto', this.form.repositorySetupPlan?.state.branch);
+          }
+        });
       return;
     }
 

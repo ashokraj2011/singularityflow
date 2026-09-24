@@ -98,7 +98,8 @@ const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
 ]);
 const REMOTE_CAPABILITY_OPERATIONS = new Set([
   'map', 'map-team', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'world-model', 'organisation',
-  'fsck', 'discard-proposal', 'repair-proposal'
+  'fsck', 'discard-proposal', 'repair-proposal',
+  'setup-proposals', 'setup-proposal', 'setup-activate'
 ]);
 
 function hasOption(args: string[], name: string): boolean {
@@ -212,7 +213,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
       return hasOption(args, 'confirm-plan') ? 'mutation'
         : enabledBooleanOption(args, 'dry-run') ? 'read' : 'unknown';
     }
-    return ['tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation',
+    return ['tree', 'show', 'of', 'proposals', 'proposal', 'setup-proposals', 'setup-proposal',
+      'fsck', 'world-model', 'organisation',
       'leads', 'inspect-repository']
       .includes(args[1] ?? 'tree') ? 'read' : 'mutation';
   }

@@ -235,7 +235,7 @@
       },
       {
         "command": "singularityFlow.reviewCapabilityProposals",
-        "title": "Singularity Flow: Review Capability Proposals",
+        "title": "Singularity Flow: Review Proposals",
         "icon": "$(git-merge)"
       },
       {

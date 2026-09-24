@@ -1188,8 +1188,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       tooltip: detail, icon: 'workspace', runCommand: recoveryCommand
     }, {
       kind: 'action', id: 'configuration:review-proposals',
-      label: 'Review capability proposals', description: 'inspect pending organisation changes',
-      tooltip: 'List pending capability-map proposals across every registered lead repository.',
+      label: 'Review proposals', description: 'inspect pending setup and capability changes',
+      tooltip: 'List pending setup and capability proposals across registered and locally reviewed repositories.',
       icon: 'merge', runCommand: 'singularityFlow.reviewCapabilityProposals'
     }, {
       kind: 'action', id: 'configuration:onboard-team',
@@ -2100,7 +2100,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, initial);
   }));
 
-  /** Reopen any pending capability proposal without finding its branch in a terminal. */
+  /** Reopen pending setup and capability proposals without finding their branches in a terminal. */
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.reviewCapabilityProposals',
     async () => {

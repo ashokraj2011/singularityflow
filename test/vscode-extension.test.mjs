@@ -429,6 +429,9 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--drop-local', '--dry-run']), 'read');
   assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--dry-run=false']), 'mutation');
   assert.equal(commandClass(['capability', 'inspect-repository', 'https://code.example/repo.git']), 'read');
+  assert.equal(commandClass(['capability', 'setup-proposals', '--lead', 'https://code.example/repo.git']), 'read');
+  assert.equal(commandClass(['capability', 'setup-proposal', 'sflow/config-change/onboarding/create-aaaaaaaaaaaa', '--lead', 'https://code.example/repo.git']), 'read');
+  assert.equal(commandClass(['capability', 'setup-activate', 'sflow/config-change/onboarding/create-aaaaaaaaaaaa', '--lead', 'https://code.example/repo.git', '--confirm', 'a'.repeat(40)]), 'mutation');
   assert.equal(commandClass([
     'capability', 'onboard', 'https://code.example/repo.git', '--dry-run', '--json'
   ]), 'read');
@@ -3825,6 +3828,10 @@ test('repository setup renders one primary action and keeps recovery choices und
     primaryAction: 'review-choices',
     review: {
       status: 'review-required', configurationReady: false,
+      reason: 'guarded-source-refs',
+      guardedSourceRefs: ['refs/heads/main'],
+      inspectCommand: `singularity-flow capability setup-proposal sflow/config-change/onboarding/create-aaaaaaaaaaaa --lead ${repositoryUrl} --json`,
+      activateCommand: `singularity-flow capability setup-activate sflow/config-change/onboarding/create-aaaaaaaaaaaa --lead ${repositoryUrl} --confirm ${'a'.repeat(40)} --json`,
       sourceBranch: 'sflow/config-change/onboarding/create-aaaaaaaaaaaa',
       targetBranch: 'sflow/config', proposalCommit: 'a'.repeat(40),
       candidateCommit: 'a'.repeat(40), published: true, existing: false, conflict: false,
@@ -3837,6 +3844,8 @@ test('repository setup renders one primary action and keeps recovery choices und
     }
   }, preview.planId);
   assert.ok(reviewResult);
+  assert.deepEqual(reviewResult.review.guardedSourceRefs, ['refs/heads/main']);
+  assert.match(reviewResult.review.inspectCommand, /capability setup-proposal/);
   const reviewHtml = mapCapabilityHtml({
     ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: plan,
     repositorySetupResult: reviewResult
@@ -3846,9 +3855,21 @@ test('repository setup renders one primary action and keeps recovery choices und
     'an early review-required outcome must not hide cleanup diagnostics carried by the result');
   assert.match(reviewHtml, /disposable snapshot cleanup is pending/);
   assert.match(reviewHtml, /sflow\/config-change\/onboarding\/create-aaaaaaaaaaaa/);
+  assert.match(reviewHtml, /Exact commit: <code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa<\/code>/);
+  assert.match(reviewHtml, /source branches that could change during a Git push/);
+  assert.match(reviewHtml, /data-repository-setup-primary="reviewRepositorySetup">Review setup proposal/);
   assert.match(reviewHtml, /data-repository-setup-primary="retryRepositorySetup"/);
   assert.doesNotMatch(reviewHtml, /data-repository-setup-primary="applyRepositorySetup"/,
     'a pending review cannot accidentally repeat or continue the remote mutation');
+  const policyReview = parseRepositoryOnboardingResult({
+    ...reviewResult,
+    review: { ...reviewResult.review, reason: 'remote-policy-rejected' }
+  }, preview.planId);
+  assert.ok(policyReview);
+  assert.match(mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: plan,
+    repositorySetupResult: policyReview
+  }), /remote rejected a direct creation of sflow\/config/);
 
   const localPendingResult = parseRepositoryOnboardingResult({
     ...result,

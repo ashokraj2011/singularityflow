@@ -982,6 +982,18 @@ failed after completed remote writes, or `ready-state-refresh-pending` when conf
 and only the returned `capability publish` retry remains. Follow the returned retry and do not
 repeat completed configuration publication.
 
+`configuration-review-required` refers to a **repository setup** branch under
+`sflow/config-change/onboarding/`; `capability proposals` only lists later capability-map changes
+under `sflow/config-change/capability/`. List pending setup branches with `capability
+setup-proposals --lead <URL> --json`, inspect one with `capability setup-proposal
+<BRANCH> --lead <URL> --json`, then explicitly approve its full commit with `capability
+setup-activate <BRANCH> --lead <URL> --confirm <FULL-COMMIT> --json`. New setup may remain on a
+proposal because a mutable source ref cannot be atomically guarded while creating `sflow/config`,
+or because the remote enforces review. Activation refuses direct writes unless you explicitly
+acknowledge unverified branch protection with `--acknowledge-unprotected`; it uses an exact lease
+and cannot bypass server review. If external review is required, obtain it through the Git host
+and recheck onboarding afterward.
+
 Selected branch snapshots are depth-one, no-tags, blobless partial clones. Onboarding deletes and
 refuses any snapshot above 16,384 local files or 128 MiB before checkout or parsing. State mirrors
 are bounded further to 512 declared assets, 64 KiB of aggregate path bytes, and 64 MiB of asset

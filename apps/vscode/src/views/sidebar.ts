@@ -124,7 +124,7 @@ const SECTION_META: Record<SidebarSection, {
        * a click of its own rather than a tab inside the Center.
        */
       { id: 'capability-map', label: 'Map a capability', icon: 'capability' },
-      { id: 'capability-proposals', label: 'Review capability proposals', icon: 'capability' },
+      { id: 'capability-proposals', label: 'Review proposals', icon: 'capability' },
       { id: 'flow-impact', label: 'Flow impact studies and reports', icon: 'impact' }
     ],
     empty: {

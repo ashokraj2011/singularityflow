@@ -3213,6 +3213,10 @@ const families = [
   }),
   family({ id: 'workspace-registry', currentVersion: 1, paths: [/^\$local\/workspaces\.json$/] }),
   family({
+    id: 'repository-onboarding-cleanup', currentVersion: 1,
+    paths: [/^\$local\/repository-onboarding-cleanup-v1\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
     id: 'repository-catalog-cursor', currentVersion: 1,
     paths: [/^\$local\/repository-catalog\/v1\/sessions\/[a-f0-9]{64}\.json$/]
   }),

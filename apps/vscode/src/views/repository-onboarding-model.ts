@@ -65,6 +65,7 @@ export interface RepositoryOnboardingPlan {
   observedRefs: Record<string, string | null>;
   effects: Array<{ kind: string; target: string; action: string }>;
   preserved: string[];
+  localCleanupWarnings?: string[];
   omitted: string[];
   choices: RepositoryOnboardingChoice[];
   /** Explicit alternate previews the engine permits for this exact observation. */
@@ -88,6 +89,7 @@ export interface RepositoryOnboardingResult {
   changed: boolean;
   effects: Array<{ kind: string; target: string; action: string }>;
   preserved: string[];
+  localCleanupWarnings?: string[];
   nextActions: { shell: string; copilot: string };
   routing: { leadUrl: string; capabilityIds: string[] } | null;
   organisation: unknown | null;
@@ -184,6 +186,13 @@ function text(value: unknown): string | null {
 function stringList(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) return null;
   return value.map((entry) => entry.trim()).filter(Boolean);
+}
+
+function strictStringList(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) return null;
+  const parsed = value.map((entry) => entry.trim());
+  if (parsed.some((entry) => !entry) || new Set(parsed).size !== parsed.length) return null;
+  return parsed;
 }
 
 function effects(value: unknown): Array<{ kind: string; target: string; action: string }> | null {
@@ -325,6 +334,8 @@ export function parseRepositoryOnboardingPlan(value: unknown): RepositoryOnboard
   const planId = text(candidate?.planId);
   const parsedEffects = effects(candidate?.effects);
   const preserved = stringList(candidate?.preserved);
+  const parsedCleanupWarnings = candidate?.localCleanupWarnings == null
+    ? null : strictStringList(candidate.localCleanupWarnings);
   const omitted = stringList(candidate?.omitted);
   const parsedNext = nextActions(candidate?.nextActions);
   const parsedRouting = routing(candidate?.routing);
@@ -361,6 +372,7 @@ export function parseRepositoryOnboardingPlan(value: unknown): RepositoryOnboard
     || !observedRefs || Object.entries(observedRefs).some(([ref, commit]) =>
       !safeObservedRef(ref) || (commit != null && (typeof commit !== 'string' || !COMMIT.test(commit))))
     || !parsedEffects || !preserved || !omitted || !parsedNext || !parsedChoices
+    || (candidate.localCleanupWarnings != null && !parsedCleanupWarnings)
     || !parsedAvailableModes
     || parsedChoices.some((choice) => !parsedAvailableModes.includes(choice.mode))
     || parsedRouting === undefined || typeof candidate.canApply !== 'boolean'
@@ -386,6 +398,7 @@ export function parseRepositoryOnboardingPlan(value: unknown): RepositoryOnboard
     observedRefs: Object.fromEntries(Object.entries(observedRefs) as Array<[string, string | null]>),
     effects: parsedEffects,
     preserved,
+    ...(parsedCleanupWarnings ? { localCleanupWarnings: parsedCleanupWarnings } : {}),
     omitted,
     choices: parsedChoices,
     availableModes: parsedAvailableModes,
@@ -410,6 +423,8 @@ export function parseRepositoryOnboardingResult(
   const primaryAction = text(candidate?.primaryAction);
   const parsedEffects = effects(candidate?.effects);
   const preserved = stringList(candidate?.preserved);
+  const parsedCleanupWarnings = candidate?.localCleanupWarnings == null
+    ? null : strictStringList(candidate.localCleanupWarnings);
   const parsedNext = nextActions(candidate?.nextActions);
   const parsedRouting = routing(candidate?.routing);
   const configuration = candidate?.configuration == null ? null : record(candidate.configuration);
@@ -426,6 +441,7 @@ export function parseRepositoryOnboardingResult(
     || !mode || !MODE_SET.has(mode) || !status || !RESULT_STATUS_SET.has(status)
     || !primaryAction || !ACTION_SET.has(primaryAction)
     || !parsedEffects || !preserved || !parsedNext || parsedRouting === undefined
+    || (candidate.localCleanupWarnings != null && !parsedCleanupWarnings)
     || (candidate.review != null && !parsedReview)
     || (candidate.localRegistration != null && !parsedLocalRegistration)
     || (candidate.stateRefresh != null && !parsedStateRefresh)
@@ -443,6 +459,7 @@ export function parseRepositoryOnboardingResult(
     changed: candidate.changed,
     effects: parsedEffects,
     preserved,
+    ...(parsedCleanupWarnings ? { localCleanupWarnings: parsedCleanupWarnings } : {}),
     nextActions: parsedNext,
     routing: parsedRouting,
     organisation: candidate.organisation ?? null,

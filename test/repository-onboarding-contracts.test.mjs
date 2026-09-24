@@ -173,6 +173,7 @@ const plan = {
     action: 'remember'
   }],
   preserved,
+  localCleanupWarnings: ['Temporary repository snapshot cleanup is pending.'],
   omitted: [],
   choices: [],
   availableModes: ['recreate', 'reset-local'],
@@ -192,6 +193,7 @@ const result = {
   changed: true,
   effects: plan.effects,
   preserved,
+  localCleanupWarnings: plan.localCleanupWarnings,
   availableModes: plan.availableModes,
   nextActions: {
     shell: 'singularity-flow capability onboard repository --dry-run --json',
@@ -376,6 +378,8 @@ test('repository onboarding schemas accept exact plan/result envelopes and rejec
     { ...plan, schemaVersion: 2 },
     { ...plan, kind: 'repository-onboarding-plan/v2' },
     { ...plan, unreviewedMutation: true },
+    { ...plan, localCleanupWarnings: 'not-an-array' },
+    { ...plan, warnings: ['An untyped warning must remain part of the governed contract.'] },
     { ...plan, planId: 'not-content-addressed' },
     { ...plan, state: { ...plan.state, branch: 'refs/heads/state' } }
   ]) assert.notDeepEqual(validate(planSchema, planSchema, candidate), []);
@@ -384,6 +388,8 @@ test('repository onboarding schemas accept exact plan/result envelopes and rejec
     { ...result, schemaVersion: 2 },
     { ...result, kind: 'repository-onboarding-result/v2' },
     { ...result, applied: false },
+    { ...result, localCleanupWarnings: [42] },
+    { ...result, warnings: ['An untyped warning must remain part of the governed contract.'] },
     { ...result, hiddenEffect: true }
   ]) assert.notDeepEqual(validate(resultSchema, resultSchema, candidate), []);
 });

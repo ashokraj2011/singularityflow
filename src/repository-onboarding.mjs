@@ -43,6 +43,10 @@ import {
   forgetLeadRepository, listLeadRepositoryRegistryRecords, rememberLeadRepository
 } from './lead-repositories.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
+import {
+  drainRepositoryOnboardingCleanup, enqueueRepositoryOnboardingCleanup,
+  repositoryOnboardingCleanupContention, repositoryOnboardingCleanupQueueRoot
+} from './repository-onboarding-cleanup.mjs';
 import { renderPlatformCommand } from './safe-command-guidance.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
@@ -71,9 +75,117 @@ const STATE_MIRROR_MAX_ASSET_BYTES = 64 * 1024 * 1024;
 const SNAPSHOT_MAX_FILES = 16 * 1024;
 const SNAPSHOT_MAX_BYTES = 128 * 1024 * 1024;
 const SNAPSHOT_TREE_LIST_MAX_BYTES = 16 * 1024 * 1024;
+const TEMPORARY_CLEANUP_WARNING =
+  'Repository inspection completed, but another process still has its disposable snapshot open. '
+  + 'The onboarding decision is valid; SFlow queued cleanup and will retry after the locking process exits.';
+const TEMPORARY_CLEANUP_UNQUEUED_WARNING =
+  'Repository inspection completed, but another process still has its disposable snapshot open. '
+  + 'The onboarding decision is valid; local recovery storage was unavailable, so cleanup could not be queued.';
+const TEMPORARY_CLEANUP_BACKLOG_WARNING =
+  'Previous repository-inspection cleanup is still pending; '
+  + 'SFlow will retry that machine-local cleanup without changing repository authority.';
+const TEMPORARY_CLEANUP_STORAGE_WARNING =
+  'Machine-local repository cleanup storage could not be inspected. '
+  + 'SFlow continued without deleting or trusting that storage.';
+const TEMPORARY_MUTATION_CLEANUP_WARNING =
+  'Repository setup completed, but another process still has its disposable checkout open. '
+  + 'The governed result is preserved; SFlow queued cleanup and will retry after the locking process exits.';
+const TEMPORARY_MUTATION_CLEANUP_UNQUEUED_WARNING =
+  'Repository setup completed, but SFlow could not remove its disposable checkout. '
+  + 'The governed result is preserved; local cleanup could not be queued.';
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function attachCleanupEvidence(primaryFailure, cleanupFailure) {
+  if (!primaryFailure || typeof primaryFailure !== 'object'
+      || !Object.isExtensible(primaryFailure)) return primaryFailure;
+  try {
+    const existing = primaryFailure.details && typeof primaryFailure.details === 'object'
+      ? primaryFailure.details : {};
+    primaryFailure.details = {
+      ...existing,
+      cleanup: Object.freeze({
+        completed: false,
+        code: String(cleanupFailure?.code ?? 'TEMPORARY_TREE_CLEANUP_FAILED')
+      })
+    };
+  } catch {
+    // Cleanup evidence is diagnostic only. A read-only/accessor-backed details property must
+    // never replace the operation's original typed failure.
+  }
+  return primaryFailure;
+}
+
+/**
+ * A disposable read checkout is not part of the governed decision. Once the read has completed,
+ * an external Windows scanner retaining the directory must not replace that decision with EBUSY.
+ * Likewise, cleanup can never hide the operation's original typed failure.
+ */
+async function withDisposableReadSnapshot(directory, operation, {
+  cleanupWarnings = [], cleanupQueueRoot = null,
+  preserveSuccessfulResult = false
+} = {}) {
+  let result;
+  let primaryFailure = null;
+  try {
+    result = await operation();
+  } catch (error) {
+    primaryFailure = error;
+  }
+  try {
+    await removeTemporaryTree(directory);
+  } catch (cleanupFailure) {
+    if (primaryFailure) {
+      if (repositoryOnboardingCleanupContention(cleanupFailure)) {
+        await enqueueRepositoryOnboardingCleanup(directory, { root: cleanupQueueRoot })
+          .catch(() => false);
+      }
+      throw attachCleanupEvidence(primaryFailure, cleanupFailure);
+    }
+    const contention = repositoryOnboardingCleanupContention(cleanupFailure);
+    if (!contention && !preserveSuccessfulResult) throw cleanupFailure;
+    let queued = false;
+    if (contention) {
+      try {
+        queued = await enqueueRepositoryOnboardingCleanup(directory, { root: cleanupQueueRoot });
+      } catch { /* Cleanup recovery is diagnostic and cannot replace a completed operation. */ }
+    }
+    const warning = preserveSuccessfulResult
+      ? queued ? TEMPORARY_MUTATION_CLEANUP_WARNING : TEMPORARY_MUTATION_CLEANUP_UNQUEUED_WARNING
+      : queued ? TEMPORARY_CLEANUP_WARNING : TEMPORARY_CLEANUP_UNQUEUED_WARNING;
+    if (!cleanupWarnings.includes(warning)) {
+      cleanupWarnings.push(warning);
+    }
+  }
+  if (primaryFailure) throw primaryFailure;
+  return result;
+}
+
+async function withDisposableMutationCheckout(directory, operation, context) {
+  const result = await withDisposableReadSnapshot(directory, operation, {
+    cleanupWarnings: context.cleanupWarnings,
+    cleanupQueueRoot: context.cleanupQueueRoot,
+    preserveSuccessfulResult: true
+  });
+  if (result?.kind !== REPOSITORY_ONBOARDING_RESULT_KIND) return result;
+  return Object.freeze({
+    ...result,
+    localCleanupWarnings: Object.freeze([...(context.cleanupWarnings ?? [])])
+  });
+}
+
+async function cleanupAfterFailure(directory, primaryFailure, cleanupQueueRoot = null) {
+  try { await removeTemporaryTree(directory); }
+  catch (cleanupFailure) {
+    attachCleanupEvidence(primaryFailure, cleanupFailure);
+    if (repositoryOnboardingCleanupContention(cleanupFailure)) {
+      await enqueueRepositoryOnboardingCleanup(directory, { root: cleanupQueueRoot })
+        .catch(() => false);
+    }
+  }
+  throw primaryFailure;
 }
 
 function repositorySubjectIdentity(remote) {
@@ -457,24 +569,25 @@ function publicFailure(failure) {
 
 async function cloneObservedBranch(remote, branch, expectedCommit, {
   env, runRemoteCommand = runRemoteGitAsync, prefix = 'sflow-repository-onboarding-',
-  checkout = true
+  checkout = true, cleanupQueueRoot = null
 }) {
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   const scratch = await mkdtemp(path.join(os.tmpdir(), prefix));
   const transport = frozenRemoteTransport(remote, { env });
   const cloned = await runRemoteCommand([
-    '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags',
+    '-c', 'core.autocrlf=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
+    'clone', '--quiet', '--no-local', '--no-tags',
     '--single-branch', '--depth', '1', '--filter=blob:none',
     '--no-checkout',
     '--branch', branch, transport.remote, scratch
   ], { cwd: path.dirname(scratch), operation: 'remote-configuration', env: transport.env });
   if (cloned.status !== 0) {
-    await removeTemporaryTree(scratch);
-    throw new SingularityFlowError(
+    return cleanupAfterFailure(scratch, new SingularityFlowError(
       `Could not read repository setup from '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`, {
         code: cloned.failure?.code ?? 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE',
         details: { failure: publicFailure(cloned.failure), branch }
       }
-    );
+    ), queueRoot);
   }
   let localQuota;
   try {
@@ -482,20 +595,18 @@ async function cloneObservedBranch(remote, branch, expectedCommit, {
     // the tree, then admit the complete tracked tree before any worktree path is materialized.
     localQuota = await assertSnapshotQuota(scratch);
   } catch (error) {
-    await removeTemporaryTree(scratch);
-    throw error;
+    return cleanupAfterFailure(scratch, error, queueRoot);
   }
   const commit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
     cwd: scratch, env: transport.env, allowFailure: true
   }).stdout.trim();
   if (commit !== expectedCommit) {
-    await removeTemporaryTree(scratch);
-    throw new SingularityFlowError(
+    return cleanupAfterFailure(scratch, new SingularityFlowError(
       `Repository setup branch '${branch}' changed while it was being inspected. Refresh and retry; nothing was changed.`, {
         code: 'REPOSITORY_ONBOARDING_OBSERVATION_CHANGED',
         details: { branch, expectedCommit, actualCommit: commit || null }
       }
-    );
+    ), queueRoot);
   }
   if (checkout) {
     try {
@@ -509,8 +620,7 @@ async function cloneObservedBranch(remote, branch, expectedCommit, {
       });
       await assertSnapshotQuota(scratch);
     } catch (error) {
-      await removeTemporaryTree(scratch);
-      throw error;
+      return cleanupAfterFailure(scratch, error, queueRoot);
     }
   }
   return { scratch, commit, env: transport.env };
@@ -719,9 +829,12 @@ export async function classifyRepositoryState(remote, {
   stateBranch = STATE_BRANCH_DEFAULT,
   observation,
   env = process.env,
-  runRemoteCommand = runRemoteGitAsync
+  runRemoteCommand = runRemoteGitAsync,
+  cleanupWarnings = null,
+  cleanupQueueRoot = null
 } = {}) {
   const repository = assertCredentialFreeRemote(remote);
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   const branch = stateBranchName(stateBranch);
   const ref = `refs/heads/${branch}`;
   if (!observation?.ok || !(observation.refs instanceof Map)) {
@@ -734,9 +847,11 @@ export async function classifyRepositoryState(remote, {
   const commit = observation.refs.get(ref) ?? null;
   if (!commit) return Object.freeze({ kind: 'none', branch, commit: null });
   const snapshot = await cloneObservedBranch(repository, branch, commit, {
-    env, runRemoteCommand, prefix: 'sflow-state-classifier-', checkout: false
+    env, runRemoteCommand, prefix: 'sflow-state-classifier-', checkout: false,
+    cleanupQueueRoot: queueRoot
   });
-  try {
+  const warnings = cleanupWarnings ?? [];
+  const result = await withDisposableReadSnapshot(snapshot.scratch, async () => {
     try {
       return await classifyStateObjectStore(
         snapshot.scratch, repository, branch, commit, snapshot.env, runRemoteCommand
@@ -748,14 +863,16 @@ export async function classifyRepositoryState(remote, {
         code: error?.code ?? 'REPOSITORY_STATE_MARKER_INVALID'
       });
     }
-  } finally {
-    await removeTemporaryTree(snapshot.scratch);
-  }
+  }, { cleanupWarnings: warnings, cleanupQueueRoot: queueRoot });
+  return cleanupWarnings == null && warnings.length
+    ? Object.freeze({ ...result, localCleanupWarnings: Object.freeze([...warnings]) })
+    : result;
 }
 
 async function inspectConfigurationSnapshot(remote, commit, {
-  env, runRemoteCommand = runRemoteGitAsync
+  env, runRemoteCommand = runRemoteGitAsync, cleanupWarnings = [], cleanupQueueRoot = null
 }) {
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   if (!commit) return Object.freeze({
     branch: CONFIGURATION_BRANCH, commit: null, status: 'missing',
     schemaVersion: null, currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
@@ -763,9 +880,9 @@ async function inspectConfigurationSnapshot(remote, commit, {
     seedChanges: Object.freeze([]), validationError: null
   });
   const snapshot = await cloneObservedBranch(remote, CONFIGURATION_BRANCH, commit, {
-    env, runRemoteCommand, prefix: 'sflow-configuration-classifier-'
+    env, runRemoteCommand, prefix: 'sflow-configuration-classifier-', cleanupQueueRoot: queueRoot
   });
-  try {
+  return withDisposableReadSnapshot(snapshot.scratch, async () => {
     const workflowBytes = await readOptionalFile(snapshot.scratch, 'singularity/workflow.yml');
     if (!workflowBytes) return Object.freeze({
       branch: CONFIGURATION_BRANCH, commit, status: 'invalid', schemaVersion: null,
@@ -836,9 +953,7 @@ async function inspectConfigurationSnapshot(remote, commit, {
       stateBranch: configuredStateBranch, stateProjectionEnabled,
       seedChanges: Object.freeze(seedChanges), validationError: null
     });
-  } finally {
-    await removeTemporaryTree(snapshot.scratch);
-  }
+  }, { cleanupWarnings, cleanupQueueRoot: queueRoot });
 }
 
 function observedRefObject(observation, refs) {
@@ -904,8 +1019,9 @@ async function verifyDeliveryLocator(repository, state) {
 }
 
 async function proveLegacyMirrorBinding(repository, state, {
-  env, runRemoteCommand, session
+  env, runRemoteCommand, session, cleanupWarnings = [], cleanupQueueRoot = null
 }) {
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   if (state.kind !== 'configuration-mirror' || state.subjectBound === true
       || !state.history?.branch || !state.history?.commit) return state;
   const ref = `refs/heads/${state.history.branch}`;
@@ -915,31 +1031,31 @@ async function proveLegacyMirrorBinding(repository, state, {
   if (!observed.ok || observed.refs.get(ref) !== state.history.commit) return state;
   const retained = await cloneObservedBranch(
     repository, state.history.branch, state.history.commit, {
-      env, runRemoteCommand, prefix: 'sflow-onboarding-legacy-proof-'
+      env, runRemoteCommand, prefix: 'sflow-onboarding-legacy-proof-', cleanupQueueRoot: queueRoot
     }
   );
-  try {
-    if (!await retainedHistoryMatchesMirror(retained.scratch, state, retained.env)) return state;
-    const portfolioFile = await regularFile(retained.scratch, 'singularity/portfolio.yml');
-    if (!portfolioFile) return state;
-    const portfolio = parseYaml(await readFile(portfolioFile), 'Retained portfolio');
-    const repositoryMatches = Object.values(portfolio?.repositories ?? {})
-      .filter((entry) => sameGitRepository(entry?.url, repository));
-    if (repositoryMatches.length !== 1) return state;
-    return Object.freeze({
-      ...state,
-      repositoryBound: true,
-      legacyBinding: Object.freeze({
-        method: 'retained-history-and-portfolio',
-        branch: state.history.branch,
-        commit: state.history.commit
-      })
-    });
-  } catch {
-    return state;
-  } finally {
-    await removeTemporaryTree(retained.scratch);
-  }
+  return withDisposableReadSnapshot(retained.scratch, async () => {
+    try {
+      if (!await retainedHistoryMatchesMirror(retained.scratch, state, retained.env)) return state;
+      const portfolioFile = await regularFile(retained.scratch, 'singularity/portfolio.yml');
+      if (!portfolioFile) return state;
+      const portfolio = parseYaml(await readFile(portfolioFile), 'Retained portfolio');
+      const repositoryMatches = Object.values(portfolio?.repositories ?? {})
+        .filter((entry) => sameGitRepository(entry?.url, repository));
+      if (repositoryMatches.length !== 1) return state;
+      return Object.freeze({
+        ...state,
+        repositoryBound: true,
+        legacyBinding: Object.freeze({
+          method: 'retained-history-and-portfolio',
+          branch: state.history.branch,
+          commit: state.history.commit
+        })
+      });
+    } catch {
+      return state;
+    }
+  }, { cleanupWarnings, cleanupQueueRoot: queueRoot });
 }
 
 function deriveAutomaticSetup(state, configuration) {
@@ -1180,6 +1296,9 @@ function withPlanId(core) {
   }
   if (identity.configuration) delete identity.configuration.validationError;
   if (identity.failure) delete identity.failure.advice;
+  // Local disposable-checkout cleanup is operational diagnostics, not repository authority.
+  // Excluding it keeps the exact same ref-bound decision confirmable after a transient lock clears.
+  delete identity.localCleanupWarnings;
   const planId = `sha256:${recordSha256(identity)}`;
   return Object.freeze({ ...core, planId });
 }
@@ -1194,13 +1313,15 @@ function nextActions(remote, mode, stateBranch, planId = null) {
 /** Inspect one repository and return a deterministic, ref-bound onboarding plan. */
 export async function inspectRepositoryOnboarding(remote, {
   mode = 'auto', stateBranch = STATE_BRANCH_DEFAULT, env = process.env,
-  remoteSession = null, runRemoteCommand = runRemoteGitAsync
+  remoteSession = null, runRemoteCommand = runRemoteGitAsync,
+  cleanupQueueRoot = null
 } = {}) {
   const requestedRepository = canonicalRepositoryLocator(remote);
   const repository = await repositoryInputRemote(requestedRepository, env);
   const selectedMode = onboardingMode(mode);
   const branch = stateBranchName(stateBranch);
   const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
 
   // Reset is a machine-local operation. It must remain usable while the laptop is offline and
   // must not turn a missing registry entry into a newly-written empty registry file.
@@ -1260,6 +1381,15 @@ export async function inspectRepositoryOnboarding(remote, {
   const session = remoteSession ?? new GitRemoteSession({
     env: gitEnv, runAsyncCommand: runRemoteCommand
   });
+  const cleanupWarnings = [];
+  let deferredCleanup;
+  try {
+    deferredCleanup = await drainRepositoryOnboardingCleanup({ env, root: queueRoot });
+  } catch {
+    deferredCleanup = Object.freeze({ processed: 0, removed: 0, retained: 0 });
+    cleanupWarnings.push(TEMPORARY_CLEANUP_STORAGE_WARNING);
+  }
+  if (deferredCleanup.retained > 0) cleanupWarnings.push(TEMPORARY_CLEANUP_BACKLOG_WARNING);
   const stateRef = `refs/heads/${branch}`;
   const observation = await session.observeAsync(repository, {
     includeHead: true, refs: [CONFIGURATION_REF, stateRef]
@@ -1279,6 +1409,7 @@ export async function inspectRepositoryOnboarding(remote, {
       }),
       observedRefs: Object.freeze({}), effects: Object.freeze([]), preserved: basePreserved(),
       omitted: Object.freeze([]), choices: Object.freeze([]),
+      localCleanupWarnings: Object.freeze([...cleanupWarnings]),
       availableModes: Object.freeze(['reset-local']), canApply: false, dryRun: true,
       failure: publicFailure(observation.failure)
     };
@@ -1286,18 +1417,19 @@ export async function inspectRepositoryOnboarding(remote, {
     return Object.freeze({ ...plan, nextActions: nextActions(requestedRepository, selectedMode, branch) });
   }
   let state = await classifyRepositoryState(repository, {
-    stateBranch: branch, observation, env: gitEnv, runRemoteCommand
+    stateBranch: branch, observation, env: gitEnv, runRemoteCommand, cleanupWarnings,
+    cleanupQueueRoot: queueRoot
   });
   if (state.kind === 'delivery-locator') {
     state = await verifyDeliveryLocator(repository, state);
   } else if (state.kind === 'configuration-mirror' && state.repositoryBound !== true) {
     state = await proveLegacyMirrorBinding(repository, state, {
-      env: gitEnv, runRemoteCommand, session
+      env: gitEnv, runRemoteCommand, session, cleanupWarnings, cleanupQueueRoot: queueRoot
     });
   }
   const configurationCommit = observation.refs.get(CONFIGURATION_REF) ?? null;
   const configuration = await inspectConfigurationSnapshot(repository, configurationCommit, {
-    env: gitEnv, runRemoteCommand
+    env: gitEnv, runRemoteCommand, cleanupWarnings, cleanupQueueRoot: queueRoot
   });
   const setup = deriveModeSetup(selectedMode, state, configuration);
   const relevantRefs = [CONFIGURATION_REF, stateRef];
@@ -1351,7 +1483,7 @@ export async function inspectRepositoryOnboarding(remote, {
   }
   const omitted = selectedMode === 'recreate' && setup.canApply
     ? await previewRecreateOmissions(repository, state, configuration, {
-      env: gitEnv, runRemoteCommand
+      env: gitEnv, runRemoteCommand, cleanupWarnings, cleanupQueueRoot: queueRoot
     })
     : [];
   const registrations = await listLeadRepositoryRegistryRecords();
@@ -1397,6 +1529,7 @@ export async function inspectRepositoryOnboarding(remote, {
     observedRefs: observedRefObject(planObservation, relevantRefs),
     effects: Object.freeze(effects.map((effect) => Object.freeze(effect))),
     preserved: basePreserved(), omitted: Object.freeze(omitted),
+    localCleanupWarnings: Object.freeze([...cleanupWarnings]),
     choices: Object.freeze(setup.choices), availableModes: applicableModes(state, configuration),
     canApply: setup.canApply, dryRun: true
   };
@@ -1511,8 +1644,10 @@ async function selectConfigurationStateBranch(root, branch, { enable = false } =
 
 async function createConfigurationRootCandidate(remote, plan, {
   env, runRemoteCommand, transform = null, commitIdentity,
-  initiatingRoot = process.cwd(), initiatingEnv = process.env
+  initiatingRoot = process.cwd(), initiatingEnv = process.env,
+  cleanupWarnings = [], cleanupQueueRoot = null
 }) {
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   const frozenCommitIdentity = commitIdentity
     ?? resolveGitCommitIdentity(initiatingRoot, { env: initiatingEnv });
   const candidate = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-candidate-'));
@@ -1529,11 +1664,16 @@ async function createConfigurationRootCandidate(remote, plan, {
   let source = null;
   let sourceEnvironment = env;
   let sourceTimestamp = '2000-01-01T00:00:00Z';
+  let built = null;
+  let primaryFailure = null;
   try {
     if (plan.state.kind === 'configuration-mirror') {
       source = await cloneObservedBranch(
         remote, plan.state.branch, plan.state.commit,
-        { env, runRemoteCommand, prefix: 'sflow-onboarding-source-' }
+        {
+          env, runRemoteCommand, prefix: 'sflow-onboarding-source-',
+          cleanupQueueRoot: queueRoot
+        }
       );
       sourceEnvironment = source.env;
       sourceTimestamp = commitTimestamp(source.scratch, 'HEAD', source.env);
@@ -1584,13 +1724,27 @@ async function createConfigurationRootCandidate(remote, plan, {
         code: 'REPOSITORY_ONBOARDING_CANDIDATE_INVALID'
       }
     );
-    return { candidate, commit, receipt };
+    built = { candidate, commit, receipt };
   } catch (error) {
-    await removeTemporaryTree(candidate);
-    throw error;
-  } finally {
-    if (source) await removeTemporaryTree(source.scratch);
+    primaryFailure = error;
   }
+  if (source) {
+    if (primaryFailure) {
+      try {
+        await withDisposableReadSnapshot(source.scratch, async () => { throw primaryFailure; }, {
+          cleanupWarnings, cleanupQueueRoot: queueRoot
+        });
+      } catch (error) {
+        primaryFailure = error;
+      }
+    } else {
+      await withDisposableMutationCheckout(source.scratch, async () => null, {
+        cleanupWarnings, cleanupQueueRoot: queueRoot
+      });
+    }
+  }
+  if (primaryFailure) return cleanupAfterFailure(candidate, primaryFailure, queueRoot);
+  return built;
 }
 
 function committedCandidatePaths(root, commit, env) {
@@ -1749,9 +1903,9 @@ async function restoreConfiguration(remote, plan, context) {
       && plan.observedRefs[`refs/heads/${historyBranch}`] === historyCommit) {
     const retained = await cloneObservedBranch(remote, historyBranch, historyCommit, {
       env: context.env, runRemoteCommand: context.runRemoteCommand,
-      prefix: 'sflow-onboarding-history-'
+      prefix: 'sflow-onboarding-history-', cleanupQueueRoot: context.cleanupQueueRoot
     });
-    try {
+    const restored = await withDisposableMutationCheckout(retained.scratch, async () => {
       if (await retainedHistoryMatchesMirror(
         retained.scratch, plan.state, retained.env
       )) {
@@ -1764,12 +1918,12 @@ async function restoreConfiguration(remote, plan, context) {
           receipt: null
         };
       }
-    } finally {
-      await removeTemporaryTree(retained.scratch);
-    }
+      return null;
+    }, context);
+    if (restored) return restored;
   }
   const built = await createConfigurationRootCandidate(remote, plan, context);
-  try {
+  return withDisposableMutationCheckout(built.candidate, async () => {
     const published = await publishCreatedConfiguration(
       remote, built.candidate, built.commit, context
     );
@@ -1777,16 +1931,14 @@ async function restoreConfiguration(remote, plan, context) {
       ...published, method: 'verified-mirror-reconstruction',
       sourceCommit: plan.state.sourceCommit, receipt: built.receipt
     };
-  } finally {
-    await removeTemporaryTree(built.candidate);
-  }
+  }, context);
 }
 
 async function remoteConfigurationClone(remote, expectedCommit, {
-  env, runRemoteCommand, prefix = 'sflow-onboarding-configuration-'
+  env, runRemoteCommand, prefix = 'sflow-onboarding-configuration-', cleanupQueueRoot = null
 }) {
   return cloneObservedBranch(remote, CONFIGURATION_BRANCH, expectedCommit, {
-    env, runRemoteCommand, prefix
+    env, runRemoteCommand, prefix, cleanupQueueRoot
   });
 }
 
@@ -1908,17 +2060,18 @@ async function configurationHashes(root, env = process.env) {
 
 /** Compute every configuration path whose exact bytes recreate will not carry forward. */
 async function previewRecreateOmissions(remote, state, configuration, {
-  env, runRemoteCommand
+  env, runRemoteCommand, cleanupWarnings = [], cleanupQueueRoot = null
 }) {
+  const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   const branch = configuration.commit ? CONFIGURATION_BRANCH
     : state.kind === 'configuration-mirror' ? state.branch : null;
   const commit = configuration.commit ?? (state.kind === 'configuration-mirror'
     ? state.commit : null);
   if (!branch || !commit) return [];
   const snapshot = await cloneObservedBranch(remote, branch, commit, {
-    env, runRemoteCommand, prefix: 'sflow-onboarding-recreate-preview-'
+    env, runRemoteCommand, prefix: 'sflow-onboarding-recreate-preview-', cleanupQueueRoot: queueRoot
   });
-  try {
+  return withDisposableReadSnapshot(snapshot.scratch, async () => {
     const before = await configurationHashes(snapshot.scratch, snapshot.env);
     await recreateConfigurationInPlace(snapshot.scratch, {
       sourceRoot: snapshot.scratch, env: snapshot.env, stateBranch: state.branch
@@ -1926,21 +2079,20 @@ async function previewRecreateOmissions(remote, state, configuration, {
     const after = await configurationHashes(snapshot.scratch, snapshot.env);
     return [...before].filter(([relative, digest]) => after.get(relative) !== digest)
       .map(([relative]) => relative).sort();
-  } finally {
-    await removeTemporaryTree(snapshot.scratch);
-  }
+  }, { cleanupWarnings, cleanupQueueRoot: queueRoot });
 }
 
 async function publishProposal(remote, plan, mutate, {
   env, runRemoteCommand, expectedConfigurationCommit, commitIdentity,
-  initiatingRoot = process.cwd(), initiatingEnv = process.env
+  initiatingRoot = process.cwd(), initiatingEnv = process.env,
+  cleanupWarnings = [], cleanupQueueRoot = null
 }) {
   const frozenCommitIdentity = commitIdentity
     ?? resolveGitCommitIdentity(initiatingRoot, { env: initiatingEnv });
   const checkout = await remoteConfigurationClone(remote, expectedConfigurationCommit, {
-    env, runRemoteCommand, prefix: 'sflow-onboarding-proposal-'
+    env, runRemoteCommand, prefix: 'sflow-onboarding-proposal-', cleanupQueueRoot
   });
-  try {
+  return withDisposableMutationCheckout(checkout.scratch, async () => {
     const result = await mutate(checkout.scratch, { env: checkout.env });
     const definition = await loadDefinition(checkout.scratch);
     const files = await changedConfigurationPaths(checkout.scratch, checkout.env);
@@ -1997,9 +2149,7 @@ async function publishProposal(remote, plan, mutate, {
       existing: false, conflict: false, published: true,
       reconciled: pushed.status !== 0, ...result
     };
-  } finally {
-    await removeTemporaryTree(checkout.scratch);
-  }
+  }, { cleanupWarnings, cleanupQueueRoot });
 }
 
 function stateProjectionRetry(remote, plan) {
@@ -2048,6 +2198,7 @@ function appliedResult(plan, values = {}) {
     planId: plan.planId, mode: plan.mode, status,
     applied: true, changed: values.changed === true,
     effects: plan.effects, preserved: plan.preserved,
+    localCleanupWarnings: Object.freeze([...(plan.localCleanupWarnings ?? [])]),
     availableModes: plan.availableModes,
     ...(plan.routing ? { routing: plan.routing } : {}),
     ...values,
@@ -2122,7 +2273,8 @@ async function finishWithRegistration(plan, target, values = {}) {
 /** Apply one exact onboarding plan after a final ref comparison. */
 export async function applyRepositoryOnboarding(remote, {
   mode = 'auto', stateBranch = STATE_BRANCH_DEFAULT, confirmPlan,
-  env = process.env, runRemoteCommand = runRemoteGitAsync
+  env = process.env, runRemoteCommand = runRemoteGitAsync,
+  cleanupQueueRoot = null
 } = {}) {
   const requestedRepository = canonicalRepositoryLocator(remote);
   const repository = await repositoryInputRemote(requestedRepository, env);
@@ -2136,8 +2288,8 @@ export async function applyRepositoryOnboarding(remote, {
     );
   }
   const gitEnv = enterpriseGitEnvironment(env);
-  const plan = await inspectRepositoryOnboarding(requestedRepository, {
-    mode: selectedMode, stateBranch, env: gitEnv, runRemoteCommand
+  let plan = await inspectRepositoryOnboarding(requestedRepository, {
+    mode: selectedMode, stateBranch, env: gitEnv, runRemoteCommand, cleanupQueueRoot
   });
   if (plan.planId !== confirmation) {
     throw new SingularityFlowError(
@@ -2187,12 +2339,20 @@ export async function applyRepositoryOnboarding(remote, {
     });
   }
 
+  const executionCleanupWarnings = [...(plan.localCleanupWarnings ?? [])];
+  plan = Object.freeze({ ...plan, localCleanupWarnings: executionCleanupWarnings });
+  const applyCleanupQueueRoot = repositoryOnboardingCleanupQueueRoot({
+    env, root: cleanupQueueRoot
+  });
+
   const applyCheck = await observePlanRefs(repository, plan, {
     env: gitEnv, runRemoteCommand
   });
   const context = {
     env: gitEnv, runRemoteCommand, session: applyCheck?.session ?? null,
-    initiatingRoot: process.cwd(), initiatingEnv: env, plan
+    initiatingRoot: process.cwd(), initiatingEnv: env, plan,
+    cleanupWarnings: executionCleanupWarnings,
+    cleanupQueueRoot: applyCleanupQueueRoot
   };
 
   if (selectedMode === 'auto') {
@@ -2245,7 +2405,7 @@ export async function applyRepositoryOnboarding(remote, {
         );
       }
       const built = await createConfigurationRootCandidate(repository, plan, context);
-      try {
+      return withDisposableMutationCheckout(built.candidate, async () => {
         const published = await publishCreatedConfiguration(
           repository, built.candidate, built.commit, context
         );
@@ -2262,9 +2422,7 @@ export async function applyRepositoryOnboarding(remote, {
           configuration: created, stateRefresh,
           receipt: { ...built.receipt, sourceBranch, sourceCommit }
         });
-      } finally {
-        await removeTemporaryTree(built.candidate);
-      }
+      }, context);
     }
   }
 
@@ -2337,7 +2495,7 @@ export async function applyRepositoryOnboarding(remote, {
           sourceRoot, env: candidateEnv, stateBranch: plan.state.branch
         })
     });
-    try {
+    return withDisposableMutationCheckout(built.candidate, async () => {
       const created = await publishCreatedConfiguration(
         repository, built.candidate, built.commit, context
       );
@@ -2349,9 +2507,7 @@ export async function applyRepositoryOnboarding(remote, {
         status: 'ready', primaryAction: 'continue', changed: true,
         configuration: created, stateRefresh, omitted: plan.omitted, receipt: built.receipt
       });
-    } finally {
-      await removeTemporaryTree(built.candidate);
-    }
+    }, context);
   }
 
   throw new SingularityFlowError(

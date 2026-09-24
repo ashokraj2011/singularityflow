@@ -41,6 +41,11 @@
     "observedRefs": { "$ref": "#/$defs/observedRefs" },
     "effects": { "$ref": "#/$defs/effects" },
     "preserved": { "$ref": "#/$defs/preserved" },
+    "localCleanupWarnings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
     "omitted": { "$ref": "#/$defs/paths" },
     "choices": {
       "type": "array",

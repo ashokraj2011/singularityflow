@@ -4,6 +4,7 @@ import {
 } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
@@ -36,6 +37,9 @@ export class SingularityFlowError extends Error {
 }
 
 const WINDOWS_RESERVED_PORTABLE_BASENAME = /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|(?:com|lpt)(?:[1-9]|[¹²³]))(?:\..*)?$/iu;
+const TEMPORARY_TREE_RETRYABLE_ERRORS = new Set([
+  'EACCES', 'EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM'
+]);
 
 /**
  * Validate one exact component of a durable repository-relative path.
@@ -813,13 +817,31 @@ export async function ensureDir(directory) {
  * errors, but it is disabled unless maxRetries is supplied. This helper is for already-resolved,
  * narrowly scoped temporary trees only—not user-owned repository deletion.
  */
-export async function removeTemporaryTree(directory) {
-  await rm(directory, {
-    recursive: true,
-    force: true,
-    maxRetries: 6,
-    retryDelay: 50
-  });
+export async function removeTemporaryTree(directory, {
+  attempts = process.platform === 'win32' ? 2 : 1,
+  maxRetries = 6,
+  retryDelay = 50,
+  outerRetryDelay = 100
+} = {}) {
+  // `fs.rm` retries its own directory walk, but Windows can keep the root directory handle open
+  // after that walk has finished (for example while Defender or a Git helper examines it). Give
+  // those external handles a second bounded window, with a longer allowance on Windows. The
+  // caller still receives the last error when the lock is not transient.
+  const totalAttempts = Math.max(1, Math.trunc(attempts));
+  for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+    try {
+      await rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: Math.max(0, Math.trunc(maxRetries)),
+        retryDelay: Math.max(0, Math.trunc(retryDelay))
+      });
+      return;
+    } catch (error) {
+      if (!TEMPORARY_TREE_RETRYABLE_ERRORS.has(error?.code) || attempt === totalAttempts) throw error;
+      await delay(Math.max(0, Math.trunc(outerRetryDelay)) * attempt);
+    }
+  }
 }
 
 export async function exists(filePath) {

@@ -403,6 +403,7 @@
   "repair-attempt": [{ "schemaVersion": 1 }],
   "local-work-journal": [{ "schemaVersion": 1 }],
   "workspace-registry": [{ "schemaVersion": 1 }],
+  "repository-onboarding-cleanup": [{ "schemaVersion": 1 }],
   "repository-catalog-cursor": [{ "schemaVersion": 1 }],
   "repository-catalog-cache-entry": [{ "schemaVersion": 1 }],
   "repository-catalog-epoch": [{ "schemaVersion": 1 }],

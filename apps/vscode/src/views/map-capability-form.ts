@@ -458,6 +458,9 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
   const plan = form.repositorySetupPlan;
   if (!plan) return '';
   const outcome = form.repositorySetupResult;
+  const outcomeCleanupWarnings = outcome?.localCleanupWarnings?.length
+    ? `<div class="notice warning"><strong>Local cleanup pending</strong><ul>${outcome.localCleanupWarnings
+      .map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul></div>` : '';
   if (outcome?.status === 'configuration-review-required' && outcome.review) {
     const review = outcome.review;
     const conflict = review.status === 'proposal-conflict';
@@ -467,6 +470,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
       <p>${conflict
         ? 'An existing setup proposal differs from this candidate. It was preserved and must be resolved explicitly.'
         : `The setup proposal <code>${escape(review.sourceBranch)}</code> is ready for review. Merge it into <code>sflow/config</code>, then check this repository again.`}</p>
+      ${outcomeCleanupWarnings}
       <p><button type="button" data-repository-setup-primary="retryRepositorySetup">Check setup again</button>
         <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button></p>
@@ -480,6 +484,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
       <p>Completed remote writes are preserved. This laptop could not remember the repository locally${projectionPending
         ? ', and the portable state projection also remains pending.'
         : '; preview again to retry only the local step.'}</p>
+      ${outcomeCleanupWarnings}
       <p><button type="button" data-repository-setup-primary="retryRepositorySetup">Retry local registration</button>
         <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>
@@ -497,6 +502,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
       <p>${pendingProjection
         ? 'Configuration is ready. The portable state projection can be retried without repeating configuration publication.'
         : 'Repository setup completed and the confirmed result is being reused without another full Git inspection.'}</p>
+      ${outcomeCleanupWarnings}
       <p><button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">${pendingProjection ? 'Prepare state-refresh retry' : 'Check setup again'}</button>
         ${pendingProjection ? `<button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy exact shell retry</button>
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>` : ''}</p>
@@ -518,6 +524,9 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
   const omitted = plan.mode === 'recreate' && plan.omitted.length
     ? `<div class="notice warning"><strong>Not carried forward</strong><ul>${plan.omitted
       .map((entry) => `<li><code>${escape(entry)}</code></li>`).join('')}</ul></div>` : '';
+  const warnings = plan.localCleanupWarnings?.length
+    ? `<div class="notice warning"><strong>Local cleanup pending</strong><ul>${plan.localCleanupWarnings
+      .map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul></div>` : '';
   const choiceModes = new Set(plan.choices.map((choice) => choice.mode));
   const modeLabels: Record<Exclude<RepositoryOnboardingMode, 'auto'>, string> = {
     migrate: 'Migrate configuration',
@@ -540,6 +549,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     <p>${escape(copy.message)}</p>
     ${plan.mode !== 'auto' ? `<p class="muted">Selected option: <strong>${escape(plan.mode === 'reset-local' ? 'reset local registration' : plan.mode)}</strong>.</p>` : ''}
     ${plan.effects.length ? `<p class="muted">${plan.effects.length} planned ${plan.effects.length === 1 ? 'change' : 'changes'}; ${plan.preserved.length} preserved ${plan.preserved.length === 1 ? 'item' : 'items'}.</p>` : ''}
+    ${warnings}
     ${omitted}
     ${form.repositorySetupNotice ? `<p class="ok-text">${icon('ok')}${escape(form.repositorySetupNotice)}</p>` : ''}
     <p><button type="button" data-repository-setup-primary="${escape(primary.message)}"

@@ -3637,6 +3637,26 @@ test('repository setup renders one primary action and keeps recovery choices und
   assert.doesNotMatch(html, new RegExp(preview.planId));
   assert.doesNotMatch(html, /refs\/heads/);
 
+  const cleanupWarning = 'Repository inspection completed; disposable snapshot cleanup is pending.';
+  const warnedPlan = parseRepositoryOnboardingPlan({
+    ...preview, localCleanupWarnings: [cleanupWarning]
+  });
+  assert.ok(warnedPlan);
+  const warnedHtml = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl,
+    repositorySetupPlan: warnedPlan
+  });
+  assert.match(warnedHtml, /Local cleanup pending/);
+  assert.match(warnedHtml, /disposable snapshot cleanup is pending/);
+  assert.equal(parseRepositoryOnboardingPlan({ ...preview, localCleanupWarnings: 'not-an-array' }), null,
+    'cleanup diagnostics remain a closed string-list contract');
+  assert.equal(parseRepositoryOnboardingPlan({ ...preview, localCleanupWarnings: [''] }), null,
+    'blank cleanup diagnostics fail closed');
+  assert.equal(parseRepositoryOnboardingPlan({
+    ...preview, localCleanupWarnings: [cleanupWarning, cleanupWarning]
+  }), null, 'duplicate cleanup diagnostics fail closed');
+
   const result = parseRepositoryOnboardingResult({
     schemaVersion: 1,
     kind: 'repository-onboarding-result/v1',
@@ -3648,12 +3668,20 @@ test('repository setup renders one primary action and keeps recovery choices und
     changed: true,
     effects: preview.effects,
     preserved: preview.preserved,
+    localCleanupWarnings: [cleanupWarning],
     nextActions: preview.nextActions,
     routing: null,
     organisation: null,
     receipt: { id: 'onboarding-receipt' }
   }, preview.planId);
   assert.ok(result);
+  assert.deepEqual(result.localCleanupWarnings, [cleanupWarning]);
+  assert.equal(parseRepositoryOnboardingResult({
+    ...result, localCleanupWarnings: ['   ']
+  }, preview.planId), null, 'blank result cleanup diagnostics fail closed');
+  assert.equal(parseRepositoryOnboardingResult({
+    ...result, localCleanupWarnings: [cleanupWarning, cleanupWarning]
+  }, preview.planId), null, 'duplicate result cleanup diagnostics fail closed');
   assert.equal(parseRepositoryOnboardingResult({ ...result, planId: `sha256:${'c'.repeat(64)}` }, preview.planId), null,
     'a result for another plan cannot authorize continuation');
   assert.equal(parseRepositoryOnboardingPlan({ ...preview, canApply: true, planId: 'not-a-plan' }), null,
@@ -3714,6 +3742,9 @@ test('repository setup renders one primary action and keeps recovery choices und
     repositorySetupResult: reviewResult
   });
   assert.match(reviewHtml, /Review required/);
+  assert.match(reviewHtml, /Local cleanup pending/,
+    'an early review-required outcome must not hide cleanup diagnostics carried by the result');
+  assert.match(reviewHtml, /disposable snapshot cleanup is pending/);
   assert.match(reviewHtml, /sflow\/config-change\/onboarding\/create-aaaaaaaaaaaa/);
   assert.match(reviewHtml, /data-repository-setup-primary="retryRepositorySetup"/);
   assert.doesNotMatch(reviewHtml, /data-repository-setup-primary="applyRepositorySetup"/,
@@ -3741,6 +3772,9 @@ test('repository setup renders one primary action and keeps recovery choices und
     repositorySetupResult: localPendingResult
   });
   assert.match(pendingHtml, /Local registration pending/);
+  assert.match(pendingHtml, /Local cleanup pending/,
+    'an early local-registration outcome must not hide cleanup diagnostics carried by the result');
+  assert.match(pendingHtml, /disposable snapshot cleanup is pending/);
   assert.match(pendingHtml, /Retry local registration/);
   assert.match(pendingHtml, /portable state projection also remains pending/);
   assert.match(pendingHtml, /Copy state-refresh retry/);

@@ -409,6 +409,7 @@ async function runOnboard(context) {
       console.log('  configuration is ready; state refresh is pending.');
     }
   }
+  for (const warning of result.localCleanupWarnings ?? []) console.log(`Warning: ${warning}`);
   if (result.nextActions?.shell) console.log(`Shell: ${result.nextActions.shell}`);
   if (result.nextActions?.copilot) console.log(`Copilot: ${result.nextActions.copilot}`);
   return result;

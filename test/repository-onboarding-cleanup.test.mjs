@@ -117,6 +117,19 @@ test('POSIX EPERM is not treated as Windows path contention', {
     'a real POSIX permission failure must remain fatal instead of being queued as a Windows lock');
 });
 
+test('workspace capability-map scratch trees qualify for exact deferred cleanup', async () => {
+  const owned = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-map-'));
+  const queue = await mkdtemp(path.join(os.tmpdir(), 'sflow-cleanup-queue-'));
+  try {
+    assert.equal(await enqueueRepositoryOnboardingCleanup(owned, { root: queue }), true);
+    const record = path.join(queue, cleanupRecordName(owned));
+    assert.equal(JSON.parse(await readFile(record, 'utf8')).path, path.resolve(owned));
+  } finally {
+    await rm(owned, { recursive: true, force: true });
+    await rm(queue, { recursive: true, force: true });
+  }
+});
+
 test('enqueue atomically replaces a symlink record without changing its target', async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-cleanup-record-safety-'));
   const queue = path.join(base, 'queue');

@@ -11,6 +11,8 @@ import {
   initiativeMilestoneReadiness,
   loadInitiativeBreakdown,
   materializeInitiative,
+  sameManagedCloneRoot,
+  sameRepositoryRemote,
   syncInitiativeRepositories,
   validateInitiativeBreakdown
 } from '../src/initiative-repositories.mjs';
@@ -25,6 +27,26 @@ import { readPendingPublication } from '../src/publication-pending.mjs';
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
 const ACTOR_EMAIL = 'initiative.owner@example.com';
+
+test('managed clone root comparison accepts Windows Git spelling without accepting nested roots', () => {
+  assert.equal(sameManagedCloneRoot('C:/Users/Ashok/Repos/Engine',
+    'c:\\users\\ashok\\repos\\engine', { platform: 'win32' }), true);
+  assert.equal(sameManagedCloneRoot('C:/Users/Ashok/Repos/Engine/src',
+    'c:\\users\\ashok\\repos\\engine', { platform: 'win32' }), false);
+  assert.equal(sameManagedCloneRoot('D:/Users/Ashok/Repos/Engine',
+    'c:\\users\\ashok\\repos\\engine', { platform: 'win32' }), false);
+});
+
+test('Initiative repository matching does not erase enterprise scheme or port', () => {
+  assert.equal(sameRepositoryRemote('https://git.internal.test:8443/team/rules.git',
+    'https://git.internal.test:8444/team/rules.git'), false);
+  assert.equal(sameRepositoryRemote('https://git.internal.test/team/rules.git',
+    'ssh://git@git.internal.test/team/rules.git'), false);
+  assert.equal(sameRepositoryRemote('https://git.internal.test/team/rules.git',
+    'https://git.internal.test/team/rules.git/'), true);
+  assert.equal(sameRepositoryRemote('https://user:secret@git.internal.test/team/rules.git',
+    'https://git.internal.test/team/rules.git'), false);
+});
 
 async function childRemote(base, name) {
   const remote = path.join(base, `${name}.git`);
@@ -328,6 +350,30 @@ test('repository sync observes child workflow milestones and all-blocking readin
   const readiness = initiativeMilestoneReadiness(initiative, 'construction');
   assert.equal(readiness.ready, false);
   assert.deepEqual(readiness.incomplete.map((story) => story.id).sort(), ['API-1', 'MOB-1']);
+});
+
+test('Initiative sync refuses a managed clone whose origin changed after materialization', async () => {
+  const { root, mobile } = await repository();
+  await materializeInitiative(root, 'INIT-MULTI', { confirmation: 'INIT-MULTI' });
+  const cache = await initiativeRepositoryClonePath(root, 'INIT-MULTI', 'api');
+  run('git', ['remote', 'set-url', 'origin', mobile], { cwd: cache });
+
+  const synchronized = await syncInitiativeRepositories(root, 'INIT-MULTI');
+  const api = synchronized.results.find((item) => item.storyId === 'API-1');
+  assert.equal(api.status, 'invalid-cache');
+  assert.match(api.error, /exact approved repository remote/);
+});
+
+test('Initiative sync keeps the pinned repository authority when the portfolio changes later', async () => {
+  const { root, mobile } = await repository();
+  await materializeInitiative(root, 'INIT-MULTI', { confirmation: 'INIT-MULTI' });
+  const file = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(file, 'utf8'));
+  portfolio.repositories.api.url = mobile;
+  await writeFile(file, YAML.stringify(portfolio));
+
+  const synchronized = await syncInitiativeRepositories(root, 'INIT-MULTI');
+  assert.equal(synchronized.results.find((item) => item.storyId === 'API-1').status, 'synchronized');
 });
 
 test('repository sync isolates malformed and identity-mismatched child workflow state', async () => {

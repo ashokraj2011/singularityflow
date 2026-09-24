@@ -1654,6 +1654,10 @@ export class BootstrapPanel {
         || this.form.inspectionCompleteness !== 'complete'
         || this.form.inspectionProposalCoverage !== 'complete'
         || !this.inspectionIsBound(this.form.repositoryUrl, this.form.lead)) return;
+      if (this.form.repositorySetupPlan && !this.form.repositorySetupResolved) {
+        this.update({ error: 'The existing capability can be attached now. To map another capability using this repository, complete repository setup first.' });
+        return;
+      }
       this.update({ inspectionComplete: true });
       return;
     }

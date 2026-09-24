@@ -41,7 +41,7 @@ import {
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import {
   admitGovernedPublication, assertClean, branch, changedFiles, changes, checkout, commit, head,
-  identity, refHead, remoteNames, remoteUrl, repoRoot
+  identity, refHead, remoteNames, repoRoot
 } from '../git.mjs';
 import { runAndRecordStoryChecks } from '../github-evidence.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
@@ -68,6 +68,9 @@ import {
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeBytes, writeJson, writeText } from '../util.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';
+import {
+  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport
+} from '../git-remote-diagnostics.mjs';
 import { acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval } from '../work-intervals.mjs';
 import { existsSync } from 'node:fs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
@@ -95,8 +98,11 @@ import {
 
 function repositoryRemoteName(root, expectedUrl) {
   return remoteNames(root).find((name) => {
-    const observed = remoteUrl(root, name);
-    return observed ? sameRepositoryRemote(observed, expectedUrl) : false;
+    try {
+      const observed = configuredRemoteIdentity(root, name, { direction: 'fetch' });
+      return observed.configured && !observed.ambiguous
+        && sameRepositoryRemote(observed.url, expectedUrl);
+    } catch { return false; }
   }) ?? null;
 }
 
@@ -298,10 +304,14 @@ export async function storyFetchCommand(positionals, options) {
   const target = path.resolve(explicitDirectory ?? leadRoot);
   if (!existsSync(target)) {
     await mkdir(path.dirname(target), { recursive: true });
-    const cloned = await runRemoteGitAsync(['clone', '--', repository.url, target], {
-      cwd: path.dirname(target), operation: 'remote-configuration'
+    const transport = frozenRemoteTransport(assertCredentialFreeRemote(repository.url));
+    const cloned = await runRemoteGitAsync(['clone', '--', transport.remote, target], {
+      cwd: path.dirname(target), operation: 'remote-configuration', env: transport.env
     });
-    if (cloned.status !== 0) throw new SingularityFlowError(`Unable to clone configured repository '${repositoryId}': ${(cloned.stderr || cloned.stdout).trim()}`);
+    if (cloned.status !== 0) throw new SingularityFlowError(
+      `Unable to clone configured repository '${repositoryId}'. ${cloned.failure?.advice ?? 'Inspect Git access and retry.'}`
+    );
+    run('git', ['remote', 'set-url', 'origin', '--', repository.url], { cwd: target });
   }
   const targetRoot = repoRoot(target);
   const [canonicalTarget, canonicalTargetRoot] = await Promise.all([

@@ -34,6 +34,7 @@ import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { classifyStoryGateFailures } from './gate-recovery.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference } from './git-remote-diagnostics.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { evaluateArchitectureIntentGate } from './architecture-intent-gate.mjs';
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
@@ -45,6 +46,24 @@ function traceabilitySources(workflow) {
 }
 
 export { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
+
+/** Compare terminal publication against the exact configured push authority, not a mutable name. */
+export async function terminalPublicationObservation(root, remote, publicationBranch) {
+  const identity = configuredRemoteIdentity(root, remote, { direction: 'push' });
+  if (!identity.configured || identity.ambiguous) {
+    return { published: false, reason: `${remote} has no unambiguous configured publication authority` };
+  }
+  const transport = frozenRemoteTransport(identity.url);
+  const observed = await runRemoteGitAsync([
+    'ls-remote', '--heads', '--', transport.remote, `refs/heads/${publicationBranch}`
+  ], { cwd: root, operation: 'remote-probe', env: transport.env });
+  if (observed.status !== 0) {
+    return { published: false, reason: safeGitDiagnosticReference(observed, 'Cannot verify published HEAD') };
+  }
+  const remoteHead = observed.stdout.trim().split(/\s+/)[0];
+  const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  return { published: remoteHead === localHead, reason: null };
+}
 
 export function generationAuthorship(phase, generation) {
   return [...(phase?.authorship ?? [])].reverse()
@@ -457,9 +476,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (config.git?.publish === 'required' && terminal) {
-    const remote = config.git.remote ?? 'origin'; const publicationBranch = workflowPublicationBranch(root, workflow); const remoteHead = (await runRemoteGitAsync(['ls-remote', remote, `refs/heads/${publicationBranch}`], { cwd: root, operation: 'remote-probe' })).stdout.trim().split(/\s+/)[0];
-    const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-    if (remoteHead !== localHead) errors.push(`terminal: local HEAD is not published to ${remote}/${publicationBranch}`);
+    const remote = config.git.remote ?? 'origin';
+    const publicationBranch = workflowPublicationBranch(root, workflow);
+    const observation = await terminalPublicationObservation(root, remote, publicationBranch);
+    if (!observation.published) errors.push(`terminal: ${observation.reason ?? `local HEAD is not published to ${remote}/${publicationBranch}`}`);
     else passes.push('remote publication');
   }
 

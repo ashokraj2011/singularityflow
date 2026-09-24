@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { runInitiativeGate } from '../src/initiative-governance.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -101,6 +102,27 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   assert.match(next[0].command, /initiative phase plan/);
   assert.match(git(root, ['log', '--format=%s']), /\[INIT-CLI\]\[initiative:define\]\[approve\] phase/);
   assert.match(git(root, ['ls-files']), /singularity\/initiatives\/INIT-CLI\/evidence\/files\//);
+});
+
+test('initiative publication gate checks the configured push destination', async () => {
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-PUSH-TARGET', '--title', 'Push target proof']);
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-gate-remotes-'));
+  const fetchRemote = path.join(parent, 'fetch.git');
+  const pushRemote = path.join(parent, 'push.git');
+  git(parent, ['init', '--bare', fetchRemote]);
+  git(parent, ['init', '--bare', pushRemote]);
+  git(root, ['remote', 'add', 'origin', fetchRemote]);
+  git(root, ['push', 'origin', 'INIT-PUSH-TARGET']);
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.git.publish = 'required';
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  const publishedToFetch = await runInitiativeGate(root, 'INIT-PUSH-TARGET');
+  assert.ok(publishedToFetch.passes.includes('remote publication'));
+  git(root, ['remote', 'set-url', '--push', 'origin', pushRemote]);
+  const unpublishedToPush = await runInitiativeGate(root, 'INIT-PUSH-TARGET');
+  assert.match(unpublishedToPush.errors.join('\n'), /local initiative HEAD is not published/);
 });
 
 test('Initiative start pins the refreshed configured-remote profile and world model', async () => {

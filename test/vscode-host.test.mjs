@@ -3581,6 +3581,10 @@ async function organisation() {
   const lead = await bare('platform.git');
 
   await mkdir(path.join(lead.seed, 'singularity'), { recursive: true });
+  // Session attachment reads the approved workflow from sflow/config. A capability-only authority
+  // cannot supply a governed session, even though capability inspection itself can read its map.
+  await writeFile(path.join(lead.seed, 'singularity/workflow.yml'),
+    await readFile(path.join(packageRoot, 'templates/workflow.yml')));
   await writeFile(path.join(lead.seed, 'singularity/capabilities.yml'), [
     'version: 1',
     'capabilities:',
@@ -6283,7 +6287,7 @@ test('a new laptop can find an already-onboarded repository through an explicit 
   // same attach affordance and exact authority identity.
   await panel.post({ type: 'inspectSelectedLead' });
   await until(() => registered.output
-    .filter((line) => String(line).includes('capability inspect-repository')).length >= 3
+    .filter((line) => String(line).includes('capability inspect-repository')).length >= 2
     && panel.webview.html.includes('This repository is already onboarded.')
     ? panel.webview.html : null);
   await panel.post({ type: 'attachExisting' });
@@ -6292,18 +6296,21 @@ test('a new laptop can find an already-onboarded repository through an explicit 
   const authorityCommit = run('git', ['rev-parse', 'refs/heads/sflow/config'], {
     cwd: org.lead
   }).stdout.trim();
-  assert.deepEqual(workspaceNavigation?.args, [{
-    capabilityIds: ['payments-api'],
-    authority: {
-      leadUrl: org.lead,
-      configurationBranch: 'sflow/config',
-      configurationCommit: authorityCommit
-    }
-  }], 'repository inspection passes the approved capability and its exact authority into Workspaces');
+  assert.deepEqual(workspaceNavigation?.args?.[0]?.capabilityIds, ['payments-api']);
+  assert.deepEqual(workspaceNavigation?.args?.[0]?.authority, {
+    leadUrl: org.lead,
+    configurationBranch: 'sflow/config',
+    configurationCommit: authorityCommit
+  }, 'repository inspection passes the exact approved authority into Workspaces');
+  assert.equal(workspaceNavigation?.args?.[0]?.repositorySetup?.plan?.status, 'not-set-up',
+    'the shipping repository setup preview is relayed without being mistaken for approval');
 
   await panel.post({ type: 'reuseRepository' });
-  await until(() => (!panel.webview.html.includes('data-map-details hidden')
-    ? panel.webview.html : null));
+  assert.match(panel.webview.html, /The existing capability can be attached now/);
+  assert.match(panel.webview.html, /data-map-details hidden/,
+    'the read-only lookup cannot bypass setup to propose another mapping');
+  // A retained pre-upgrade webview can still send the old checkbox message. Reinspect the newly
+  // selected authority rather than letting that stale UI message reuse the prior bound result.
   const inspectionsBeforeAuthorityChange = registered.output
     .filter((line) => String(line).includes('capability inspect-repository')).length;
   await panel.post({ type: 'useShippingRepository', checked: true });
@@ -6311,16 +6318,18 @@ test('a new laptop can find an already-onboarded repository through an explicit 
     const inspections = registered.output
       .filter((line) => String(line).includes('capability inspect-repository')).length;
     return inspections > inspectionsBeforeAuthorityChange
-      && panel.webview.html.includes('data-map-details hidden')
       && panel.webview.html.includes('This repository is already onboarded.')
       ? panel.webview.html : null;
   });
-  assert.match(reinspected, /This repository is already onboarded/,
-    'switching the map authority reruns ownership discovery instead of reusing a stale result');
+  assert.match(reinspected, /data-map-details hidden/);
   const lastInspection = registered.output
     .filter((line) => String(line).includes('capability inspect-repository')).at(-1);
   assert.match(lastInspection, new RegExp(`--lead ${org.lead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(lastInspection, new RegExp(`--lead ${org.api.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  await panel.post({ type: 'field', field: 'lead', value: org.api });
+  await panel.post({ type: 'redraw' });
+  assert.equal(panel.webview.html.includes('data-map-attach>'), false,
+    'changing authority revokes the exact inspected mapping before another action');
 });
 
 test('reopening a retained capability mapper refreshes leads and revokes stale discovery', async (t) => {
@@ -6338,7 +6347,11 @@ test('reopening a retained capability mapper refreshes leads and revokes stale d
   await panel.post({ type: 'inspectRepository' });
   await until(() => panel.webview.html.includes('Search 1 known authority')
     ? panel.webview.html : null);
-  assert.match(panel.webview.html, /Use this repository as the first capability map/);
+  await panel.post({ type: 'searchKnownAuthorities' });
+  await until(() => panel.webview.html.includes('This repository is already onboarded.')
+    ? panel.webview.html : null);
+  assert.equal(panel.webview.html.includes('data-map-attach>'), true,
+    'a complete registered-authority read enables the exact existing mapping');
 
   const secondLead = path.join(org.base, 'second-platform.git');
   run('git', ['init', '--quiet', '--bare', secondLead], { cwd: org.base });
@@ -6349,7 +6362,7 @@ test('reopening a retained capability mapper refreshes leads and revokes stale d
   assert.equal(registered.panels.filter((entry) =>
     entry.id === 'singularityFlow.mapCapability').length, 1,
     'the retained mapper is reused');
-  assert.doesNotMatch(panel.webview.html, /Use this repository as the first capability map/,
+  assert.equal(panel.webview.html.includes('data-map-attach>'), false,
     'a discovery made against the old lead set is revoked on reopen');
   assert.match(panel.webview.html, /Check repository/);
 
@@ -6436,7 +6449,7 @@ test('capability mapping refuses credential-bearing URLs before command logging'
 
   const output = registered.output.join('\n');
   assert.equal(registered.output
-    .filter((line) => String(line).includes('capability inspect-repository')).length, 2,
+    .filter((line) => String(line).includes('capability inspect-repository')).length, 1,
     'credential-bearing follow-up values never start another inspection command');
   assert.doesNotMatch(output, new RegExp(`${repositorySecret}|${authoritySecret}|${legacySecret}|token=hidden`));
 });
@@ -6628,11 +6641,19 @@ test('a workspace chosen while the views are already bound re-points them withou
   const root = await demoRepository();
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-repoint-'));
   const registryFile = path.join(base, 'registry.json');
-  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'here', '--base', path.join(base, 'ws'),
-    '--lead', 'lead', '--repository', `lead=${root}`, '--confirm', 'here', '--no-clone'], {
+    '--lead', 'lead', '--repository', `lead=${root}`, '--confirm', 'here', '--clone'], {
     encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
   });
+  assert.equal(created.status, 0, created.stderr);
+  const status = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'status', path.join(base, 'ws', 'here'), '--json'], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+  });
+  assert.equal(status.status, 0, status.stderr);
+  assert.equal(JSON.parse(status.stdout).repositories[0].state, 'ready',
+    'the no-reload guarantee applies to a selected checkout that is actually ready');
   // Set before activation: the workspace tree is populated once, when the extension starts.
   process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
 

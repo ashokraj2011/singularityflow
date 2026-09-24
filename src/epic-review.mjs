@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
-import { branch, gitDir, identity } from './git.mjs';
+import { branch, fetchRemote, gitDir, identity } from './git.mjs';
 import {
   approvePhase, commitAndPublish, loadConfig, loadWorkflow, rejectPhase
 } from './state-stores.mjs';
@@ -16,6 +16,9 @@ import { exists, run, SingularityFlowError } from './util.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import {
+  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport
+} from './git-remote-diagnostics.mjs';
 import { createArchitectureIntentStabilityGuard } from './architecture-intent-gate.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
@@ -33,42 +36,37 @@ function git(root, args, { allowFailure = false } = {}) {
   return result;
 }
 
-async function remoteGit(root, args) {
-  const result = await runRemoteGitAsync(args, {
-    cwd: root,
-    operation: args[0] === 'push' ? 'remote-push'
-      : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration'
-  });
-  if (result.status !== 0) {
-    throw new SingularityFlowError(`Git review checkout failed: ${(result.stderr || result.stdout).trim()}`);
-  }
-  return result;
-}
-
 function validateCloneRemote(clone, expected) {
-  const actual = git(clone, ['remote', 'get-url', 'origin']).stdout.trim();
-  if (actual !== expected) throw new SingularityFlowError(`Managed review checkout remote '${actual}' does not match '${expected}'.`);
+  const actual = configuredRemoteIdentity(clone, 'origin', { direction: 'fetch' });
+  if (!actual.configured || actual.ambiguous || actual.url !== expected) {
+    throw new SingularityFlowError('Managed review checkout origin differs from the approved repository URL.');
+  }
 }
 
 async function prepareReviewClone(root, initiative, story) {
   const repository = initiative.resolution.repositories?.[story.repository];
   if (!repository) throw new SingularityFlowError(`Story '${story.id}' references unknown repository '${story.repository}'.`);
+  const approvedUrl = assertCredentialFreeRemote(repository.url);
   const clone = reviewClone(root, initiative.initiative.id, story.repository);
   if (!(await exists(path.join(clone, '.git')))) {
     await mkdir(path.dirname(clone), { recursive: true });
-    const result = await runRemoteGitAsync(['clone', '--no-checkout', repository.url, clone], {
-      cwd: root, operation: 'remote-configuration'
+    const transport = frozenRemoteTransport(approvedUrl);
+    const result = await runRemoteGitAsync(['clone', '--no-checkout', '--', transport.remote, clone], {
+      cwd: root, operation: 'remote-configuration', env: transport.env
     });
-    if (result.status !== 0) throw new SingularityFlowError(`Unable to create isolated review checkout for '${story.repository}': ${(result.stderr || result.stdout).trim()}`);
+    if (result.status !== 0) throw new SingularityFlowError(
+      `Unable to create isolated review checkout for '${story.repository}'. ${result.failure?.advice ?? 'Inspect Git access and retry.'}`
+    );
+    git(clone, ['remote', 'set-url', 'origin', '--', approvedUrl]);
   }
-  validateCloneRemote(clone, repository.url);
+  validateCloneRemote(clone, approvedUrl);
   if (git(clone, ['status', '--porcelain']).stdout.trim()) {
     throw new SingularityFlowError(`Isolated review checkout for '${story.repository}' has local changes; inspect ${clone}.`);
   }
   const actor = identity(root);
   if (actor.name) git(clone, ['config', 'user.name', actor.name]);
   if (actor.email) git(clone, ['config', 'user.email', actor.email]);
-  await remoteGit(clone, ['fetch', '--prune', 'origin']);
+  await fetchRemote(clone, 'origin', { transportRemote: approvedUrl });
   return clone;
 }
 

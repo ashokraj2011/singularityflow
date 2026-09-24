@@ -461,6 +461,22 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
   }
   const plan = form.repositorySetupPlan;
   if (!plan) return '';
+  // A delivery repository can be mapped in a different lead repository without carrying its own
+  // sflow/config. Setup preview must not hide that existing authority behind "Set up SFlow". This
+  // is only a read route: neither a missing local registry nor an unconfigured shipping repository
+  // grants permission to create a new capability map.
+  const existingMapLookup = !form.repositorySetupResolved && !form.repositorySetupMaintenance
+    ? `<div class="notice" data-existing-capability-map-lookup>
+        <p><strong>Already onboarded elsewhere?</strong> Check the approved capability-map repository before setting up this one.</p>
+        <label class="field full"><span>Existing capability-map Git URL</span>
+          <input type="text" value="${escape(form.inspectionLeadUrl)}" data-map="inspectionLeadUrl"
+            placeholder="https://git.example.corp/acme/platform.git">
+          <small>Use this when another repository owns the organisation map.</small></label>
+        <p><button type="button" class="secondary" data-map-inspect-lead${form.inspectionLeadUrl.trim() ? '' : ' disabled'}>Check existing capability map</button>
+          ${form.leads.length
+            ? `<button type="button" class="secondary" data-map-search-known>Search ${form.leads.length} known ${form.leads.length === 1 ? 'authority' : 'authorities'}</button>`
+            : ''}</p>
+      </div>` : '';
   const inlineError = form.error ? `<p class="blockers" role="alert">${escape(form.error)}</p>` : '';
   const capabilityMapReady = form.repositorySetupResolved && form.inspectionComplete && form.loaded;
   const capabilityHandoff = capabilityMapReady
@@ -494,6 +510,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
         : 'The existing proposal branch was preserved. Repository setup has not approved it.'}</p>
       ${outcomeCleanupWarnings}
       ${inlineError}
+      ${existingMapLookup}
       <p><button type="button" data-repository-setup-primary="reviewRepositorySetup">Review setup proposal</button>
         <button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">Check setup again</button>
         <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
@@ -510,6 +527,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
         : '; preview again to retry only the local step.'}</p>
       ${outcomeCleanupWarnings}
       ${inlineError}
+      ${existingMapLookup}
       <p><button type="button" data-repository-setup-primary="retryRepositorySetup">Retry local registration</button>
         <button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy shell command</button>
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>
@@ -530,6 +548,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
       ${outcomeCleanupWarnings}
       ${inlineError}
       ${capabilityHandoff}
+      ${existingMapLookup}
       <p>${capabilityMapReady ? '' : '<button type="button" data-repository-setup-primary="continueRepositorySetup">Continue to capability mapping</button>'}
         <button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">${pendingProjection ? 'Prepare state-refresh retry' : 'Check setup again'}</button>
         ${pendingProjection ? `<button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy exact shell retry</button>
@@ -590,6 +609,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     ${form.repositorySetupNotice ? `<p class="ok-text">${icon('ok')}${escape(form.repositorySetupNotice)}</p>` : ''}
     ${inlineError}
     ${capabilityHandoff}
+    ${existingMapLookup}
     ${capabilityMapReady ? '' : `<p><button type="button" data-repository-setup-primary="${escape(primary.message)}"
       ${primary.disabled || form.repositorySetupApplying ? 'disabled' : ''}>${form.repositorySetupApplying ? 'Applying…' : escape(primary.label)}</button></p>`}
     ${primary.disabled ? '<p class="muted">This preview cannot be applied. Refresh it or open Diagnostics.</p>' : ''}
@@ -678,6 +698,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     : '<p class="muted">Replace the shown placeholders before running this command.</p>'}</div>`
                       : ''}
                     ${form.inspectionStatus === 'inconclusive' && form.inspectionCompleteness === 'no-authorities'
+                      && (!form.repositorySetupPlan || form.repositorySetupResolved)
                       ? `<div class="form-grid">
                           <label class="field full"><span>Existing capability-map Git URL</span>
                             <input type="text" value="${escape(form.inspectionLeadUrl)}" data-map="inspectionLeadUrl" placeholder="https://git.example.corp/acme/platform.git">
@@ -766,8 +787,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       <button type="button" class="secondary" data-map-collection>${form.collectionWithoutRepository ? 'Use a repository instead' : 'Map a collection without a repository'}</button>
     </p>
     ${setupHtml}
-    ${!form.repositorySetupPlan || form.repositorySetupResolved ? inspectionResult : ''}
-    ${form.repositorySetupPlan ? '' : inspectionScope}
+    ${!form.repositorySetupPlan || form.repositorySetupResolved || form.inspectionStatus !== 'idle'
+      ? inspectionResult : ''}
+    ${form.inspectionStatus !== 'idle' ? inspectionScope : ''}
   </section>
 
   <div id="map-capability-details" data-map-details${detailsVisible ? '' : ' hidden'}>

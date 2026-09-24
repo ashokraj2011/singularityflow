@@ -673,6 +673,31 @@ test('desktop resume fails closed when the immutable Story pin is missing or cor
   }
 });
 
+test('desktop resume restores the original branch when the requested agent is invalid', async (t) => {
+  const root = await repository({ configurationAuthority: true });
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  const id = 'WORK-INVALID-RESUME-AGENT';
+  await startStory(root, {
+    id,
+    source: manualStorySource(id, { title: 'Preserve checkout on failed handoff' }),
+    workType: 'feature',
+    baseBranch: 'main'
+  });
+  run('git', ['switch', 'main'], root);
+  const originalHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+
+  await assert.rejects(
+    () => startStory(root, { id, agent: 'not-a-governed-agent' }),
+    /no valid governed agent/u
+  );
+  assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), originalHead);
+  assert.equal(run('git', ['status', '--porcelain=v1'], root).stdout, '');
+});
+
 test('desktop Story intake never substitutes a local workflow for an unreadable authority', async (t) => {
   const root = await repository();
   t.after(() => Promise.all([

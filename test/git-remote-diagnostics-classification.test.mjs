@@ -12,6 +12,7 @@ import {
   sanitizeRemote
 } from '../src/git-remote-diagnostics.mjs';
 import { runRemoteGit, runRemoteGitAsync } from '../src/git-execution.mjs';
+import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
 
 const failed = (stderr, extra = {}) => ({
   status: 128,
@@ -34,6 +35,25 @@ test('nested SFlow transport freezing resolves its private alias exactly once', 
     }),
     (error) => error.code === 'BOOTSTRAP_REMOTE_FROZEN_ALIAS_INVALID'
   );
+});
+
+test('a full reviewed enterprise configuration still admits fetch and push frozen aliases', () => {
+  const systemRecords = Array.from({ length: 256 }, (_, index) =>
+    `http.office${index}.example.test.proxy\nhttp://proxy.example.test:8080\0`).join('');
+  const env = enterpriseGitEnvironment({}, {
+    runCommand(_command, args) {
+      return args.includes('--system')
+        ? { status: 0, stdout: systemRecords, stderr: '', timedOut: false }
+        : { status: 1, stdout: '', stderr: '', timedOut: false };
+    }
+  });
+  assert.equal(env.GIT_CONFIG_COUNT, '256');
+  const authority = 'https://git.example.test/team/repository.git';
+  const first = frozenRemoteTransport(authority, { push: true, env });
+  assert.equal(first.env.GIT_CONFIG_COUNT, '258');
+  const nested = frozenRemoteTransport(first.remote, { push: true, env: first.env });
+  assert.equal(nested.url, authority);
+  assert.equal(nested.env.GIT_CONFIG_COUNT, '260');
 });
 
 test('a failed pushurl read never inherits an otherwise valid fetch authority', () => {

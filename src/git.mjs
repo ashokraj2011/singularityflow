@@ -10,7 +10,8 @@ import { SingularityFlowError, invariant, run } from './util.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import {
-  classifyGitRemoteFailure, frozenRemoteTransport, safeGitDiagnosticReference
+  assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteAuthority,
+  configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference
 } from './git-remote-diagnostics.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { scopedReadSync } from './read-scope.mjs';
@@ -764,32 +765,73 @@ export function assertClean(root) {
 
 export function prepareRemoteBranchTracking(root, remote = 'origin', { env = process.env } = {}) {
   if (!hasRemote(root, remote, { env })) return false;
-  // Managed workspaces used to be cloned with --single-branch, leaving the configured fetch
-  // refspec pinned to main. A normal `git fetch origin` then never discovered Epic and Story
-  // branches created by another machine, so the desktop could create a conflicting local branch
-  // and only discover the collision when push was rejected. Broaden the named remote once and
-  // fetch its branch namespace. Persisting the refspec is important: Git will not recognize a
-  // fetched ref as a valid upstream if that ref is outside remote.<name>.fetch.
+  // Validate the tracking namespace without rewriting remote.<name>.fetch. Callers that need all
+  // branches pass an explicit one-shot refspec to fetch; a failed fetch must leave custom and
+  // single-branch Git configuration exactly as the contributor configured it.
   const trackingProbe = `refs/remotes/${remote}/singularity-flow-probe`;
   if (git(['check-ref-format', trackingProbe], { cwd: root, env, allowFailure: true }).status !== 0) {
     throw new SingularityFlowError(`Git remote '${remote}' cannot be used as a remote-tracking namespace.`);
   }
-  git(['remote', 'set-branches', remote, '*'], { cwd: root, env });
   return true;
 }
 
+export function safePruneRefspecs(root, remote, { env = process.env } = {}) {
+  const configured = git(['config', '--get-all', `remote.${remote}.fetch`], {
+    cwd: root, env: withoutGitProcessOverrides(env), allowFailure: true
+  });
+  if (configured.status === 1 && !configured.stdout.trim() && !configured.stderr.trim()) return [];
+  if (configured.status !== 0 || configured.stderr.trim()) return null;
+  const refspecs = configured.stdout.split(/\r?\n/u).filter(Boolean);
+  // Pruning with a one-shot wildcard alone can delete a user's separate tracking namespace.
+  // Include only simple, safe custom head mappings in Git's prune relation. Exotic/negative
+  // mappings disable pruning rather than risking deletion of a ref that SFlow does not own.
+  for (const spec of refspecs) {
+    const match = /^\+?(refs\/heads\/[A-Za-z0-9._/*-]+):(refs\/remotes\/[A-Za-z0-9._/*-]+)$/u.exec(spec);
+    if (!match || !match[2].startsWith(`refs/remotes/${remote}/`)) return null;
+  }
+  return refspecs;
+}
+
 export async function fetchRemote(root, remote = 'origin', options = {}) {
-  const transportRemote = options.transportRemote ?? remote;
-  if (!prepareRemoteBranchTracking(root, remote)) return;
-  const frozen = Object.hasOwn(options, 'transportRemote')
-    ? frozenRemoteTransport(transportRemote)
-    : null;
+  if (!prepareRemoteBranchTracking(root, remote)) {
+    if (Object.hasOwn(options, 'transportRemote')) {
+      throw new SingularityFlowError(
+        `Git remote '${remote}' disappeared after its fetch authority was selected. Nothing was fetched.`, {
+          code: 'GIT_REMOTE_AUTHORITY_CHANGED'
+        }
+      );
+    }
+    return;
+  }
+  const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+  if (!identity.configured || identity.ambiguous) {
+    throw new SingularityFlowError(`Git remote '${remote}' has no unambiguous fetch authority.`, {
+      code: 'GIT_REMOTE_CONFIG_INVALID'
+    });
+  }
+  const requestedTransport = Object.hasOwn(options, 'transportRemote')
+    ? assertCredentialFreeRemote(options.transportRemote)
+    : identity.url;
+  const effectiveTransport = Object.hasOwn(options, 'transportRemote')
+    ? configuredRemoteAuthority(root, remote, { direction: 'fetch' }).url
+    : identity.url;
+  if (requestedTransport !== identity.url && requestedTransport !== effectiveTransport) {
+    throw new SingularityFlowError(
+      `Git remote '${remote}' changed after its fetch authority was selected. Nothing was fetched.`, {
+        code: 'GIT_REMOTE_AUTHORITY_CHANGED'
+      }
+    );
+  }
+  // Even the ordinary fetch path uses the exact local authority resolved at the call boundary.
+  // Git must not re-read a mutable remote name after the permission/configuration check.
+  const frozen = frozenRemoteTransport(requestedTransport);
+  const pruneRefspecs = safePruneRefspecs(root, remote);
   const result = await runRemoteGitAsync([
-    'fetch', '--prune', frozen?.remote ?? transportRemote,
-    ...(frozen ? [`+refs/heads/*:refs/remotes/${remote}/*`] : [])
+    'fetch', ...(pruneRefspecs ? ['--prune'] : []), frozen.remote,
+    `+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])
   ], {
     cwd: root, operation: 'remote-configuration', allowFailure: false,
-    ...(frozen ? { env: frozen.env } : {})
+    env: frozen.env
   });
   if (result.status !== 0) {
     throw new SingularityFlowError(
@@ -820,11 +862,20 @@ export async function pullFastForward(root) {
 }
 
 function configureUpstream(root, name, remote) {
-  // `git branch --set-upstream-to origin/name` refuses a perfectly valid remote-tracking ref
-  // when the clone's original fetch refspec was --single-branch. Record the standard upstream
-  // pair directly so existing managed clones can be repaired without rewriting unrelated config.
+  // `git branch --set-upstream-to origin/name` refuses a fetched branch outside a narrow clone's
+  // configured fetch refspec. Record the upstream pair, then add only this branch's tracking
+  // refspec if Git still cannot resolve it. Fetch itself never rewrites a user's remote config.
   git(['config', '--local', `branch.${name}.remote`, remote], { cwd: root });
   git(['config', '--local', `branch.${name}.merge`, `refs/heads/${name}`], { cwd: root });
+  if (!hasUpstream(root)) {
+    const exact = `+refs/heads/${name}:refs/remotes/${remote}/${name}`;
+    const configured = git(['config', '--local', '--get-all', `remote.${remote}.fetch`], {
+      cwd: root, allowFailure: true
+    }).stdout.split(/\r?\n/u).filter(Boolean);
+    if (!configured.includes(exact)) {
+      git(['config', '--local', '--add', `remote.${remote}.fetch`, exact], { cwd: root });
+    }
+  }
 }
 
 export async function checkout(root, name, {

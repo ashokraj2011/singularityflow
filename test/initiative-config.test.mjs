@@ -47,6 +47,16 @@ test('starter portfolio resolves lite and enterprise profiles with generic phase
   assert.doesNotMatch(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'), /brokerage/i);
 });
 
+test('Initiative repository URLs refuse credentials and option-shaped Git operands at load time', async () => {
+  const root = await repository();
+  const portfolio = await loadPortfolio(root);
+  for (const url of ['https://operator:secret@git.example.invalid/team/app.git', '--upload-pack=helper']) {
+    const altered = structuredClone(portfolio);
+    altered.repositories.app = { url };
+    assert.throws(() => validatePortfolio(altered));
+  }
+});
+
 test('starter portfolio resolves Epic planning and pins storage and repository delivery policy', async () => {
   const root = await repository();
   const file = path.join(root, 'singularity/portfolio.yml');

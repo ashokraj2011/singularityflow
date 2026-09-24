@@ -510,6 +510,12 @@
       },
       "digest": "d2496c3e771e6d00bdbb08b51add5f941e1f86ebd5f832a18bbfbf8997c88bed"
     },
+    "src/commands/story.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "83e04e40ccca7789dcd091d61862c78bc4d59f945626e7d3ad178e18e5ba56ca"
+    },
     "src/comprehension/diff-preview.mjs": {
       "counts": {
         "command-run": 1
@@ -600,7 +606,7 @@
         "command-git": 8,
         "command-run": 1
       },
-      "digest": "5ae695870a8734d1eca24227244b711c1b6b6f8763dd8aa5d811baef69c4c485"
+      "digest": "17b418afff2476a53c7a9bb8cbed07ed1e6e1d5aa99adbc6142f6ef185691cbc"
     },
     "src/evidence-packet.mjs": {
       "counts": {
@@ -767,7 +773,7 @@
       "counts": {
         "command-run": 12
       },
-      "digest": "8b79b78fd308bb355ae2a1383ef50847ae544529b8c474e48c0baa567991e100"
+      "digest": "715d5cd73d967714913e6558aa50b531c5efc5223605dc3d7d1563f37d4fb52f"
     },
     "src/governed-goals.mjs": {
       "counts": {
@@ -778,9 +784,9 @@
     },
     "src/grounding.mjs": {
       "counts": {
-        "command-run": 24
+        "command-run": 23
       },
-      "digest": "0e4bc45c5e74011600af83654b81425e60b08e630357baef7f3de48bbe87b4cc"
+      "digest": "9bf269c6f7b65970c7e61d9649754cceadece6ae928f4d7104316558afb6fd03"
     },
     "src/harness-imports.mjs": {
       "counts": {
@@ -826,7 +832,7 @@
       "counts": {
         "command-run": 21
       },
-      "digest": "1a8ca193f1a85ff7995017e752a2133ab5152e4fdbf0bcd2ae14a5e5225a894b"
+      "digest": "acc9f296a68d3f80d8e950acbf12074eb01ef5860f2a920cbf6c2b53e37ece97"
     },
     "src/jira-initiative.mjs": {
       "counts": {
@@ -1233,10 +1239,10 @@
     "src/workspace.mjs": {
       "counts": {
         "command-git-literal": 1,
-        "command-run": 38,
+        "command-run": 36,
         "process-import": 1
       },
-      "digest": "f8995650a8a7452b6e245d671d0eb7cea1f1256e30e2bf676378531f977a6652"
+      "digest": "f093220a8731522ec15aaa95c5cd4ed9383267b4e8e85f043207346b6a59ba35"
     },
     "src/worktree-fingerprint.mjs": {
       "counts": {

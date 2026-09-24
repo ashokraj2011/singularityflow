@@ -13,6 +13,7 @@ import type { IconName } from './webview.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { COMMAND_GUIDANCE_COPY_SCRIPT, commandGuidanceHtml } from './command-guidance.ts';
+import { registerMessageRouter } from './messages.ts';
 
 const VERDICT_PILL: Record<string, { className: string; label: string; icon: IconName }> = {
   aligned: { className: 'ok', label: 'aligned', icon: 'ok' },
@@ -97,10 +98,13 @@ export class ReconciliationPanel {
     });
     // Nothing else on this page talks back, but the shared footer does, and a button that cannot
     // reach the extension is worse than no button.
-    this.panel.webview.onDidReceiveMessage((raw: unknown) => {
-      const navigation = navigationTarget(raw);
-      if (navigation) void navigateTo(navigation);
-    }, null, this.disposables);
+    const messages = registerMessageRouter('singularityFlow.reconciliation', {
+      navigate: (raw) => {
+        const navigation = navigationTarget(raw);
+        if (navigation) void navigateTo(navigation);
+      }
+    });
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => messages.route(raw), null, this.disposables);
     this.panel.onDidChangeViewState?.(({ webviewPanel }) => {
       if (webviewPanel.visible === false || !this.reloadPending) return;
       this.reloadPending = false;

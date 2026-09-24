@@ -16,6 +16,7 @@ import {
 } from './world-model-selection.mjs';
 import { worldModelStalenessDecision } from './world-model-policy.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { configuredRemoteIdentity, frozenRemoteTransport } from './git-remote-diagnostics.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
@@ -906,12 +907,19 @@ export async function resolveWorldModelSource(root, config, {
     ?? 10_000;
   const remoteRef = `refs/remotes/${remote}/${branch}`;
   const localRef = `refs/heads/${branch}`;
-  const remoteConfigured = run('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true }).status === 0;
+  const remoteIdentity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+  if (remoteIdentity.ambiguous) {
+    throw new SingularityFlowError('The configured World Model state remote has ambiguous Git authority.');
+  }
+  const remoteConfigured = remoteIdentity.configured;
   let refresh = remoteConfigured ? (refreshRemote ? 'refreshed' : 'cached') : 'no-remote';
   let fetchSucceeded = false;
   if (remoteConfigured && refreshRemote) {
-    const fetched = await runRemoteGitAsync(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
-      cwd: root, operation: 'remote-configuration', timeoutMs: stateFetchTimeoutMs
+    const transport = frozenRemoteTransport(remoteIdentity.url);
+    const fetched = await runRemoteGitAsync(['fetch', '--no-tags', '--', transport.remote,
+      `+refs/heads/${branch}:${remoteRef}`], {
+      cwd: root, operation: 'remote-configuration', timeoutMs: stateFetchTimeoutMs,
+      env: transport.env
     });
     const missingRemoteRef = fetched.status !== 0
       && /couldn.t find remote ref|remote ref does not exist/i.test(`${fetched.stderr}\n${fetched.stdout}`);

@@ -84,11 +84,12 @@ const realGit = ${JSON.stringify(realGit)};
 const initialFetchSeen = ${JSON.stringify(initialFetchSeen)};
 const raceApplied = ${JSON.stringify(raceApplied)};
 const broadRefspec = '+refs/heads/*:refs/remotes/origin/*';
-const initialStoryFetch = args[0] === 'fetch' && args[1] === '--prune'
-  && args[2] === 'origin' && !args.includes(broadRefspec);
+const storyFetch = args[0] === 'fetch' && args.includes(broadRefspec);
+// The transport is an invocation-local frozen alias, never the mutable name 'origin'.
+const initialStoryFetch = storyFetch && !fs.existsSync(initialFetchSeen);
+const postFreezeRefresh = storyFetch && !initialStoryFetch && fs.existsSync(initialFetchSeen)
+  && !fs.existsSync(raceApplied);
 if (initialStoryFetch) fs.writeFileSync(initialFetchSeen, 'yes');
-const postFreezeRefresh = args[0] === 'fetch' && args.includes(broadRefspec)
-  && fs.existsSync(initialFetchSeen) && !fs.existsSync(raceApplied);
 if (postFreezeRefresh) {
   const moved = spawnSync(realGit, [
     '--git-dir', ${JSON.stringify(remote)}, 'update-ref',
@@ -159,6 +160,82 @@ test('starting an existing durable Story routes to Resume without asking for ano
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'STORY-RESUME');
   assert.match(resumed.stdout, /STORY-RESUME/);
   assert.doesNotMatch(resumed.stderr, /--from-branch/);
+});
+
+test('Story start refuses a remote retarget between destination inspection and fetch', async () => {
+  const { base, root } = await repository();
+  const id = 'STORY-DESTINATION-RACE';
+  start(root, id);
+  git(root, 'switch', 'main');
+  git(root, 'branch', '-D', id);
+  const priorTrackingCommit = git(root, 'rev-parse', `refs/remotes/origin/${id}`).stdout.trim();
+  const alternate = path.join(base, 'alternate.git');
+  git(base, 'init', '--bare', '--initial-branch=main', alternate);
+  const realGit = run('which', ['git'], base).stdout.trim();
+  const wrapperDirectory = path.join(base, 'retarget-wrapper');
+  const wrapper = path.join(wrapperDirectory, 'git');
+  const retargeted = path.join(wrapperDirectory, 'retargeted');
+  await mkdir(wrapperDirectory);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+const result = spawnSync(${JSON.stringify(realGit)}, args, {
+  cwd: process.cwd(), env: process.env, encoding: 'utf8'
+});
+if (args[0] === 'ls-remote' && args.includes(${JSON.stringify(`refs/heads/${id}`)})
+    && !fs.existsSync(${JSON.stringify(retargeted)})) {
+  const changed = spawnSync(${JSON.stringify(realGit)}, [
+    'remote', 'set-url', 'origin', ${JSON.stringify(alternate)}
+  ], { cwd: process.cwd(), env: process.env, encoding: 'utf8' });
+  if (changed.status !== 0) {
+    process.stderr.write(changed.stderr || 'Could not set test remote');
+    process.exit(changed.status || 1);
+  }
+  fs.writeFileSync(${JSON.stringify(retargeted)}, 'yes');
+}
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+
+  const refused = flow(root, ['start', id, '--json'], {
+    allowFailure: true,
+    env: { PATH: `${wrapperDirectory}${path.delimiter}${process.env.PATH}` }
+  });
+  assert.equal(refused.status, 1);
+  assert.match(`${refused.stdout}\n${refused.stderr}`, /GIT_REMOTE_AUTHORITY_CHANGED/u);
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'rev-parse', `refs/remotes/origin/${id}`).stdout.trim(), priorTrackingCommit);
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${id}`], root, {
+    allowFailure: true
+  }).status, 1);
+});
+
+test('noninteractive start resumes a cached Story on the configured named remote', async () => {
+  const { root } = await repository();
+  git(root, 'remote', 'rename', 'origin', 'company');
+  const definitionFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
+  definition.git.remote = 'company';
+  await writeFile(definitionFile, YAML.stringify(definition));
+  git(root, 'add', 'singularity/workflow.yml');
+  git(root, 'commit', '-m', 'Use the named repository remote');
+  git(root, 'push', 'company', 'main');
+  const id = 'STORY-NAMED-RESUME';
+  flow(root, [
+    'start', id, '--json', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'Resume from named remote', '--description', 'Prove cached Story detection.'
+  ]);
+  git(root, 'switch', 'main');
+  git(root, 'branch', '-D', id);
+  assert.equal(git(root, 'show-ref', '--verify', '--quiet', `refs/remotes/company/${id}`).status, 0);
+
+  const resumed = JSON.parse(flow(root, ['start', id, '--json']).stdout);
+  assert.equal(resumed.outcome.status, 'succeeded');
+  assert.equal(resumed.subject.id, id);
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), id);
 });
 
 test('resume fetches once and fast-forwards from the exact refreshed remote ref without pulling', async () => {
@@ -650,6 +727,25 @@ test('workspace branch choices use approved configuration when application main 
   assert.equal(result.unreachable.length, 0);
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), headBefore);
   assert.equal(git(root, 'status', '--porcelain=v1').stdout, '');
+});
+
+test('new Story start ignores a malformed main workflow when sflow/config is approved', async () => {
+  const { root } = await repository();
+  git(root, 'push', 'origin', 'main:refs/heads/sflow/config');
+  const localWorkflowFile = path.join(root, 'singularity/workflow.yml');
+  await writeFile(localWorkflowFile, 'version: [invalid workflow\n');
+  git(root, 'add', 'singularity/workflow.yml');
+  git(root, 'commit', '-m', 'Application checkout carries a stale malformed workflow');
+  const mainBefore = git(root, 'rev-parse', 'HEAD').stdout.trim();
+
+  const started = JSON.parse(start(root, 'STORY-APPROVED-OVER-MAIN').stdout);
+
+  assert.equal(started.outcome.status, 'succeeded');
+  assert.equal(started.subject.id, 'STORY-APPROVED-OVER-MAIN');
+  assert.equal(git(root, 'rev-parse', 'main').stdout.trim(), mainBefore);
+  assert.equal(git(root, 'status', '--porcelain=v1').stdout, '');
+  assert.ok(YAML.parse(await readFile(localWorkflowFile, 'utf8')).workTypes.feature,
+    'the Story checkout uses the approved workflow instead of the malformed main bytes');
 });
 
 test('workspace intake and preflight prefer approved configuration over a divergent local workflow', async () => {

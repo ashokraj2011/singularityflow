@@ -26,6 +26,9 @@ import { resolveWorldModelGenerationRouting } from './world-model-generation-rou
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 import { listStoryStartJournals } from './story-start-journal.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import {
+  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, redactDiagnosticText
+} from './git-remote-diagnostics.mjs';
 
 function check(id, status, message, fix = null, details = {}) { return { id, status, message, fix, ...details }; }
 
@@ -462,22 +465,33 @@ export async function doctorSnapshot(root, {
     // which is what a bare repository created before its first push looks like — answers nothing for
     // HEAD, and probing for it reported a perfectly reachable remote as a network or authentication
     // failure, with a remedy about restoring credentials that had nothing to do with it.
-    const probe = await runRemoteGitAsync(['ls-remote', '--exit-code', remote], {
-      cwd: root, operation: 'remote-probe'
-    });
-    // Exit 2 is "reachable, but no refs at all" — a remote that exists and is empty, which is a
-    // different thing from one that cannot be reached and deserves a different sentence.
-    const empty = probe.status === 2;
-    checks.push(check(
-      'remote',
-      probe.status === 0 ? 'pass' : empty ? 'warn' : 'fail',
-      probe.status === 0 ? `Remote '${remote}' is reachable.`
-        : empty ? `Remote '${remote}' is reachable but has no branches yet.`
-          : `Remote '${remote}' could not be reached.`,
-      probe.status === 0 ? null
-        : empty ? 'Push a branch before relying on publication.'
-          : 'Restore Git authentication or network access, then run singularity-flow sync.'
-    ));
+    try {
+      const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+      if (!identity.configured || identity.ambiguous) {
+        throw new Error(`Git remote '${remote}' has no unambiguous fetch authority.`);
+      }
+      const authority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+      if (!authority.url) throw new Error(`Git remote '${remote}' is no longer configured.`);
+      const transport = frozenRemoteTransport(authority.url);
+      const probe = await runRemoteGitAsync(['ls-remote', '--exit-code', '--', transport.remote], {
+        cwd: root, operation: 'remote-probe', env: transport.env
+      });
+      // Exit 2 is "reachable, but no refs at all" — a remote that exists and is empty.
+      const empty = probe.status === 2;
+      checks.push(check(
+        'remote',
+        probe.status === 0 ? 'pass' : empty ? 'warn' : 'fail',
+        probe.status === 0 ? `Remote '${remote}' is reachable.`
+          : empty ? `Remote '${remote}' is reachable but has no branches yet.`
+            : `Remote '${remote}' could not be reached.`,
+        probe.status === 0 ? null
+          : empty ? 'Push a branch before relying on publication.'
+            : (probe.failure?.advice ?? 'Inspect Git access, then run singularity-flow sync.')
+      ));
+    } catch (error) {
+      checks.push(check('remote', 'fail', `Remote '${remote}' could not be checked.`,
+        redactDiagnosticText(error.message)));
+    }
   }
   checks.push(check('upstream', hasUpstream(root) ? 'pass' : 'warn', hasUpstream(root) ? `Branch '${currentBranch}' tracks an upstream.` : `Branch '${currentBranch}' has no upstream.`, hasUpstream(root) ? null : 'The first successful lifecycle publication will establish it.'));
   return summarize(root, checks, workflow, session, definition, activeSubject, performanceReport, schemaReport);

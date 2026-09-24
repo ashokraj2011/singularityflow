@@ -858,7 +858,10 @@ test('workspace doctor bounds independent async remote probes and preserves clas
   assert.equal(report.healthy, false);
   assert.ok(calls.every(({ args, options }) =>
     args[0] === 'ls-remote' && args.includes('--symref')
-    && options.timeoutMs === 111 && options.operation === 'remote-probe'
+    // The shared physical Git process may outlive this caller's 111 ms waiter deadline;
+    // each caller still returns at its own deadline while the process remains bounded.
+    && Number.isInteger(options.timeoutMs) && options.timeoutMs > 0
+    && options.timeoutMs <= 222 && options.operation === 'remote-probe'
     && options.env.GIT_DIR === undefined));
   assert.doesNotMatch(JSON.stringify(report), /provider-secret-must-not-leak/);
 });

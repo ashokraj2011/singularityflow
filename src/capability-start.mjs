@@ -25,7 +25,7 @@ import {
 } from './capability-branches.mjs';
 import {
   assertClean, branch as currentBranch, checkout, exactRemoteBranchObservationAsync, publicationPushOutcome,
-  gitCommonDir, refExists, refHead, repoRoot, validBranch
+  gitCommonDir, refExists, refHead, repoRoot, safePruneRefspecs, validBranch
 } from './git.mjs';
 import { workspaceRepositoryPath } from './workspace.mjs';
 import {
@@ -678,9 +678,10 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
     incrementCommandCounter('git.remote-fetch');
     const transport = frozenRemoteTransport(candidate.fetchAuthority.url);
+    const pruneRefspecs = safePruneRefspecs(candidate.root, remote);
     const result = await runGit([
-      'fetch', '--prune', transport.remote,
-      `+refs/heads/*:refs/remotes/${remote}/*`
+      'fetch', ...(pruneRefspecs ? ['--prune'] : []), transport.remote,
+      `+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])
     ], {
       cwd: candidate.root, operation: 'remote-configuration', allowFailure: true,
       env: transport.env

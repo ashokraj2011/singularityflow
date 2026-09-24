@@ -126,62 +126,68 @@ function assertSafeStoryId(id) {
 async function resumePinnedLocalStory(root, { id, agent = null } = {}) {
   const originalBranch = branch(root);
   assertClean(root);
-  const checkoutMode = await checkout(root, id, { existingOnly: true, fetch: false });
-  let definition;
-  let workflow;
   try {
-    const source = await readConfigurationSource(root, { verify: true });
-    if (!source) {
-      throw new SingularityFlowError('singularity/configuration-source.json is missing.');
-    }
-    definition = await loadDefinition(root);
-    validateId(definition, id);
-    workflow = await loadWorkflow(root, definition, id);
-    const pinned = workflow?.resolution?.configurationSource;
-    if (workflow?.workItem?.id !== id
-        || workflow?.workItem?.branch !== id
-        || workflow?.lineage?.canonicalBranch !== id
-        || pinned?.branch !== source.branch
-        || pinned?.repository !== source.repository
-        || pinned?.commit !== source.commit
-        || !pinned?.filesSha256
-        || pinned.filesSha256 !== source.filesSha256) {
+    const checkoutMode = await checkout(root, id, { existingOnly: true, fetch: false });
+    let definition;
+    let workflow;
+    try {
+      const source = await readConfigurationSource(root, { verify: true });
+      if (!source) {
+        throw new SingularityFlowError('singularity/configuration-source.json is missing.');
+      }
+      definition = await loadDefinition(root);
+      validateId(definition, id);
+      workflow = await loadWorkflow(root, definition, id);
+      const pinned = workflow?.resolution?.configurationSource;
+      if (workflow?.workItem?.id !== id
+          || workflow?.workItem?.branch !== id
+          || workflow?.lineage?.canonicalBranch !== id
+          || pinned?.branch !== source.branch
+          || pinned?.repository !== source.repository
+          || pinned?.commit !== source.commit
+          || !pinned?.filesSha256
+          || pinned.filesSha256 !== source.filesSha256) {
+        throw new SingularityFlowError(
+          'The local configuration source is not bound to this Story resolution.'
+        );
+      }
+    } catch (error) {
       throw new SingularityFlowError(
-        'The local configuration source is not bound to this Story resolution.'
+        `Story '${id}' has an invalid immutable configuration pin: ${error.message}`,
+        { code: 'STORY_CONFIGURATION_PIN_INVALID', cause: error }
       );
     }
+    const actor = identity(root);
+    const resumedAgent = agent || workflow.phases?.[workflow.currentPhase]?.defaultAgent;
+    if (!definition.agents?.[resumedAgent]) {
+      throw new SingularityFlowError(`Story phase '${workflow.currentPhase}' has no valid governed agent.`);
+    }
+    await setAgentSession(root, definition, actor, resumedAgent, id, {
+      phaseId: workflow.currentPhase,
+      source: agent ? 'explicit-override' : 'phase-default'
+    });
+    return {
+      workId: id,
+      resumed: true,
+      checkoutMode,
+      branch: id,
+      workflow
+    };
   } catch (error) {
-    if (originalBranch !== id) {
+    // A failed agent/session handoff is as much a failed resume as an invalid pin. Do not strand
+    // the user's original checkout on the Story branch after either refusal.
+    if (branch(root) !== originalBranch) {
       try { await checkout(root, originalBranch, { existingOnly: true, fetch: false }); }
       catch (restoreError) {
         throw new SingularityFlowError(
-          `Story '${id}' has an invalid immutable configuration pin: ${error.message} `
+          `Story '${id}' could not resume: ${error.message} `
           + `Restoring branch '${originalBranch}' also failed: ${restoreError.message}`,
-          { code: 'STORY_CONFIGURATION_PIN_INVALID', cause: error }
+          { code: 'STORY_RESUME_RESTORE_FAILED', cause: error }
         );
       }
     }
-    throw new SingularityFlowError(
-      `Story '${id}' has an invalid immutable configuration pin: ${error.message}`,
-      { code: 'STORY_CONFIGURATION_PIN_INVALID', cause: error }
-    );
+    throw error;
   }
-  const actor = identity(root);
-  const resumedAgent = agent || workflow.phases?.[workflow.currentPhase]?.defaultAgent;
-  if (!definition.agents?.[resumedAgent]) {
-    throw new SingularityFlowError(`Story phase '${workflow.currentPhase}' has no valid governed agent.`);
-  }
-  await setAgentSession(root, definition, actor, resumedAgent, id, {
-    phaseId: workflow.currentPhase,
-    source: agent ? 'explicit-override' : 'phase-default'
-  });
-  return {
-    workId: id,
-    resumed: true,
-    checkoutMode,
-    branch: id,
-    workflow
-  };
 }
 
 async function currentPinnedConfigurationRemote(root) {

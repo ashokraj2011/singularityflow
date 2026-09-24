@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { branch, gitDir, hasRemote, head, identity, refExists } from './git.mjs';
+import { branch, gitDir, hasRemote, head, identity, refExists, safePruneRefspecs } from './git.mjs';
 import { findOrCreateIssue } from './jira.mjs';
 import {
   loadInitiative, saveInitiativeDraft, secureInitiativePath
@@ -16,6 +16,11 @@ import {
 } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { sameGitRepository } from './git-repository-identity.mjs';
+import {
+  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport,
+  safeGitDiagnosticReference
+} from './git-remote-diagnostics.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
@@ -359,13 +364,15 @@ export async function initiativeBreakdownReview(root, initiativeId, { probe = fa
   for (const story of breakdown.stories) {
     if (repositories[story.repository]) continue;
     const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
-    const probeResult = probe ? await runRemoteGitAsync(['ls-remote', '--heads', repository.url], {
-      cwd: root, operation: 'remote-probe'
-    }) : null;
+    const transport = probe ? frozenRemoteTransport(repository.url) : null;
+    const probeResult = probe ? await runRemoteGitAsync([
+      'ls-remote', '--heads', '--', transport.remote
+    ], { cwd: root, operation: 'remote-probe', env: transport.env }) : null;
     repositories[story.repository] = {
       ...repository,
       reachable: probe ? probeResult.status === 0 : null,
-      error: probe && probeResult.status !== 0 ? (probeResult.stderr || probeResult.stdout).trim() : null
+      error: probe && probeResult.status !== 0
+        ? safeGitDiagnosticReference(probeResult, 'Repository probe failed') : null
     };
   }
   return {
@@ -394,6 +401,16 @@ export async function initiativeRepositoryClonePath(root, initiativeId, reposito
 
 const managedClonePath = initiativeRepositoryClonePath;
 
+export function sameManagedCloneRoot(left, right, { platform = process.platform } = {}) {
+  if (!left || !right) return false;
+  const platformPath = platform === 'win32' ? path.win32 : path;
+  const canonical = (value) => {
+    const resolved = platformPath.resolve(value);
+    return platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  return canonical(left) === canonical(right);
+}
+
 async function validateManagedClone(target, repositoryId) {
   const gitMetadata = await secureRepositoryPath(target, '.git', {
     label: `Managed clone Git metadata for '${repositoryId}'`,
@@ -401,10 +418,62 @@ async function validateManagedClone(target, repositoryId) {
     type: 'directory'
   });
   const discovered = run('git', ['rev-parse', '--show-toplevel'], { cwd: target, allowFailure: true });
-  if (discovered.status !== 0 || path.resolve(discovered.stdout.trim()) !== path.resolve(target)) {
+  const [canonicalDiscovered, canonicalTarget] = discovered.status === 0
+    ? await Promise.all([
+        realpath(discovered.stdout.trim()).catch(() => null),
+        realpath(target).catch(() => null)
+      ])
+    : [null, null];
+  const [discoveredStat, targetStat] = canonicalDiscovered && canonicalTarget
+    ? await Promise.all([
+        stat(canonicalDiscovered, { bigint: true }).catch(() => null),
+        stat(canonicalTarget, { bigint: true }).catch(() => null)
+      ])
+    : [null, null];
+  const sameDirectoryIdentity = discoveredStat && targetStat
+    && (discoveredStat.ino !== 0n
+      ? discoveredStat.dev === targetStat.dev && discoveredStat.ino === targetStat.ino
+      : canonicalDiscovered === canonicalTarget);
+  if (!sameDirectoryIdentity || !sameManagedCloneRoot(canonicalDiscovered, canonicalTarget)) {
     throw new SingularityFlowError(`Managed clone for '${repositoryId}' is not an independent Git repository.`);
   }
   return gitMetadata;
+}
+
+function assertManagedCloneRemote(target, repositoryUrl) {
+  const expected = assertCredentialFreeRemote(repositoryUrl);
+  const actual = configuredRemoteIdentity(target, 'origin', { direction: 'fetch' });
+  if (!actual.configured || actual.ambiguous || actual.url !== expected) {
+    throw new SingularityFlowError(
+      'The managed Initiative clone no longer has the exact approved repository remote. Nothing was fetched.', {
+        code: 'INITIATIVE_REPOSITORY_AUTHORITY_CHANGED'
+      }
+    );
+  }
+}
+
+async function cloneManagedRepository(root, repositoryUrl, target) {
+  const transport = frozenRemoteTransport(repositoryUrl);
+  const result = await runRemoteGitAsync(['clone', '--', transport.remote, target], {
+    cwd: root, operation: 'remote-configuration', env: transport.env
+  });
+  if (result.status === 0) {
+    // A one-use alias must never become the durable origin of the managed checkout.
+    run('git', ['remote', 'set-url', 'origin', '--', transport.url], {
+      cwd: target, env: transport.env
+    });
+  }
+  return result;
+}
+
+async function fetchManagedRepository(target, repositoryUrl) {
+  assertManagedCloneRemote(target, repositoryUrl);
+  const transport = frozenRemoteTransport(repositoryUrl);
+  const pruneRefspecs = safePruneRefspecs(target, 'origin');
+  return runRemoteGitAsync([
+    'fetch', ...(pruneRefspecs ? ['--prune'] : []), '--', transport.remote,
+    '+refs/heads/*:refs/remotes/origin/*', ...(pruneRefspecs ?? [])
+  ], { cwd: target, operation: 'remote-configuration', env: transport.env });
 }
 
 function configureCloneIdentity(clone, actor) {
@@ -412,39 +481,28 @@ function configureCloneIdentity(clone, actor) {
   run('git', ['config', 'user.email', actor.email], { cwd: clone });
 }
 
-// Two remote URLs refer to the same repository when they differ only by transport, credentials,
-// a .git suffix, or a trailing slash. Used to decide whether a story lives in the repository the
-// epic branch itself is in.
-function normalizeRemoteUrl(value) {
-  let text = String(value ?? '').trim();
-  if (!text) return '';
-  const scp = text.match(/^[^/@]+@([^:]+):(.+)$/);          // git@host:owner/repo
-  if (scp) text = `ssh://${scp[1]}/${scp[2]}`;
-  try {
-    const url = new URL(text);
-    text = `${url.hostname.toLowerCase()}${url.pathname}`;   // drop scheme, port, credentials
-  } catch { /* a local filesystem path stays as-is */ }
-  return text.replace(/\.git$/, '').replace(/\/+$/, '');
-}
-
 export function sameRepositoryRemote(left, right) {
-  const normalizedLeft = normalizeRemoteUrl(left);
-  return Boolean(normalizedLeft) && normalizedLeft === normalizeRemoteUrl(right);
+  // Only documented aliases are interchangeable. Dropping scheme or port confuses distinct
+  // enterprise authorities, and accepting credentials here could bless a poisoned clone.
+  return sameGitRepository(left, right);
 }
 
 // True when `repository` is the same repository the initiative (and so the epic branch) lives in.
 export function isLeadRepository(root, repository) {
   if (!hasRemote(root, 'origin')) return false;
-  const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true });
-  if (origin.status !== 0) return false;
-  return sameRepositoryRemote(origin.stdout, repository?.url);
+  const origin = configuredRemoteIdentity(root, 'origin', { direction: 'fetch' });
+  return origin.configured && !origin.ambiguous
+    && sameRepositoryRemote(origin.url, repository?.url);
 }
 
 async function remoteBranchHead(repositoryUrl, branchName, cwd) {
-  const result = await runRemoteGitAsync(['ls-remote', '--heads', repositoryUrl, `refs/heads/${branchName}`], {
-    cwd, operation: 'remote-probe'
-  });
-  if (result.status !== 0) throw new SingularityFlowError(`Unable to read ${repositoryUrl}: ${(result.stderr || result.stdout).trim()}`);
+  const transport = frozenRemoteTransport(repositoryUrl);
+  const result = await runRemoteGitAsync([
+    'ls-remote', '--heads', '--', transport.remote, `refs/heads/${branchName}`
+  ], { cwd, operation: 'remote-probe', env: transport.env });
+  if (result.status !== 0) throw new SingularityFlowError(
+    safeGitDiagnosticReference(result, 'Unable to read the repository branch')
+  );
   return result.stdout.trim().split(/\s+/)[0] || null;
 }
 
@@ -623,17 +681,19 @@ async function materializeStory(root, portfolio, initiative, story, actor, {
   const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
   const target = await managedClonePath(root, initiative.initiative.id, story.repository);
   if (!(await exists(path.join(target, '.git')))) {
-    const cloned = await runRemoteGitAsync(['clone', repository.url, target], {
-      cwd: root, operation: 'remote-configuration'
-    });
-    if (cloned.status !== 0) throw new SingularityFlowError(`Unable to clone ${story.repository}: ${(cloned.stderr || cloned.stdout).trim()}`);
+    const cloned = await cloneManagedRepository(root, repository.url, target);
+    if (cloned.status !== 0) throw new SingularityFlowError(
+      safeGitDiagnosticReference(cloned, `Unable to clone ${story.repository}`)
+    );
   }
   await validateManagedClone(target, story.repository);
+  assertManagedCloneRemote(target, repository.url);
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
   configureCloneIdentity(target, actor);
-  await runRemoteGitAsync(['fetch', '--prune', 'origin'], {
-    cwd: target, operation: 'remote-configuration', allowFailure: false
-  });
+  const fetched = await fetchManagedRepository(target, repository.url);
+  if (fetched.status !== 0) throw new SingularityFlowError(
+    safeGitDiagnosticReference(fetched, `Unable to fetch ${story.repository}`)
+  );
   const branchName = story.workId ?? story.id;
   const interrupted = await readPendingPublication(target, {
     kind: 'story', id: branchName, migrate: false
@@ -1014,15 +1074,12 @@ export async function initiativeMergeState(root, initiativeId) {
     const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
     const cache = await managedClonePath(root, initiativeId, story.repository);
     if (!(await exists(path.join(cache, '.git')))) {
-      if ((await runRemoteGitAsync(['clone', repository.url, cache], {
-        cwd: root, operation: 'remote-configuration'
-      })).status !== 0) {
+      if ((await cloneManagedRepository(root, repository.url, cache)).status !== 0) {
         unreachable.push(story.id); continue;
       }
     }
-    if ((await runRemoteGitAsync(['fetch', '--prune', 'origin'], {
-      cwd: cache, operation: 'remote-configuration'
-    })).status !== 0) {
+    await validateManagedClone(cache, story.repository);
+    if ((await fetchManagedRepository(cache, repository.url)).status !== 0) {
       unreachable.push(story.id); continue;
     }
     /**
@@ -1074,28 +1131,26 @@ export async function syncInitiativeRepositories(root, initiativeId) {
   const results = [];
   for (const story of breakdown.stories) {
     const workId = story.workId ?? story.id;
-    const repository = portfolio.repositories[story.repository];
+    const repository = initiative.resolution.repositories?.[story.repository]
+      ?? portfolio.repositories[story.repository];
     const cache = await managedClonePath(root, initiativeId, story.repository);
     if (!(await exists(path.join(cache, '.git')))) {
-      const cloned = await runRemoteGitAsync(['clone', repository.url, cache], {
-        cwd: root, operation: 'remote-configuration'
-      });
+      const cloned = await cloneManagedRepository(root, repository.url, cache);
       if (cloned.status !== 0) {
-        results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: (cloned.stderr || cloned.stdout).trim() });
+        results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: safeGitDiagnosticReference(cloned, 'Unable to clone the Initiative repository') });
         continue;
       }
     }
     try {
       await validateManagedClone(cache, story.repository);
+      assertManagedCloneRemote(cache, repository.url);
     } catch (error) {
       results.push({ storyId: story.id, repository: story.repository, status: 'invalid-cache', error: error.message });
       continue;
     }
-    const fetched = await runRemoteGitAsync(['fetch', '--prune', 'origin'], {
-      cwd: cache, operation: 'remote-configuration'
-    });
+    const fetched = await fetchManagedRepository(cache, repository.url);
     if (fetched.status !== 0) {
-      results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: (fetched.stderr || fetched.stdout).trim() });
+      results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: safeGitDiagnosticReference(fetched, 'Unable to fetch the Initiative repository') });
       continue;
     }
     const commit = run('git', ['rev-parse', `origin/${workId}`], { cwd: cache, allowFailure: true }).stdout.trim();

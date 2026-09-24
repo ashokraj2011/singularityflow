@@ -8,7 +8,7 @@ import {
 import { readRefTree as readRefTreeShared } from './git-ref-tree.mjs';
 import { scopedRead } from './read-scope.mjs';
 import {
-  defaultBranchName, gitCommitIdentityArgs,
+  defaultBranchName, fetchRemote, gitCommitIdentityArgs,
   gitCommitIdentityEnvironment, gitCommitSigningArgs, gitDir, hasRemote,
   refExists, resolveGitCommitIdentity, resolveGitCommitSigning, validateGitCommitIdentity,
   validateGitCommitSigning
@@ -2075,9 +2075,9 @@ export async function discoverLedgerIntents(root) {
  */
 async function remoteLedgerIntents(root, config, { offline = false } = {}) {
   if (!offline) {
-    await runRemoteGitAsync(['fetch', '--prune', config.remote], {
-      cwd: root, operation: 'remote-configuration'
-    });
+    // Reconciliation needs every published intent branch. Use the same frozen, bounded
+    // all-heads fetch as Story discovery; a failed fetch must not silently reconcile stale refs.
+    await fetchRemote(root, config.remote);
   }
   const refs = git(root, [
     'for-each-ref',

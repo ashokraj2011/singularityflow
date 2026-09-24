@@ -90,8 +90,11 @@ test('following a link is guarded, because three destinations register late', ()
   // while Help and Diagnostics are registered before that and can both be opened with no workspace
   // selected. Executing an unregistered command raises VS Code's raw "command not found", so the
   // destination is checked when it is followed rather than assumed when it is drawn.
-  const earlyReturn = extensionSource.indexOf('return unavailable(resolved.label');
-  assert.ok(earlyReturn > 0, 'expected the degraded-state early return to still exist');
+  const degraded = extensionSource.indexOf("if ('reason' in resolved)");
+  const earlyReturn = extensionSource.indexOf('return result;', degraded);
+  assert.ok(degraded > 0 && earlyReturn > degraded
+    && extensionSource.slice(degraded, earlyReturn).includes('unavailable(resolved.label'),
+    'expected the degraded-state early return to still exist');
 
   const late = Object.entries(NAV_COMMANDS).filter(([, command]) => {
     const at = extensionSource.indexOf(`registerCommand('${command}'`) >= 0

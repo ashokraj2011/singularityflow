@@ -228,6 +228,7 @@ export async function runRemoteGitAsync(args, {
   }
   recordRemoteGitInvocation(args, operation);
   const serviceStarted = performance.now();
+  const operationDeadlineAt = serviceStarted + positive(timeoutMs, timeoutFor(operation, env));
   const probeStarted = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? serviceStarted : 0;
   // Environment admission is a preflight boundary, not a child-process failure. Let its structured
   // GIT_ENTERPRISE_CONFIG_UNAVAILABLE refusal propagate intact instead of catching it below and
@@ -241,6 +242,11 @@ export async function runRemoteGitAsync(args, {
     // closed-vocabulary cancellation classification below is the complete public diagnosis; never
     // copy an arbitrary AbortSignal reason into a result, log, receipt, or JSON response.
     ? { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, aborted: true }
+    : performance.now() >= operationDeadlineAt
+      // System/global Git configuration is read synchronously. It cannot be pre-empted by an
+      // event-loop timer, but its elapsed time still consumes the operation budget: do not start a
+      // network child after that preflight has already exhausted the caller's deadline.
+      ? { status: 1, stdout: '', stderr: '', error: undefined, timedOut: true, aborted: false }
     : await new Promise((resolve) => {
     let child;
     try {
@@ -252,6 +258,10 @@ export async function runRemoteGitAsync(args, {
         lstatSyncCommand: platformLstatCommand,
         realpathSyncCommand: platformRealpathCommand
       });
+      if (performance.now() >= operationDeadlineAt) {
+        resolve({ status: 1, stdout: '', stderr: '', timedOut: true, aborted: false });
+        return;
+      }
       incrementCommandCounter('git.spawns');
       child = spawnCommand(launch.executable, launch.arguments, {
         cwd, env: executionEnvironment, ...launch.spawnOptions,
@@ -426,7 +436,10 @@ export async function runRemoteGitAsync(args, {
     child.stderr?.on('data', onStderr);
     child.on('error', onError);
     child.on('close', onClose);
-    deadlineTimer = setTimeout(() => terminate('timeout'), timeoutMs);
+    deadlineTimer = setTimeout(
+      () => terminate('timeout'),
+      Math.max(1, Math.ceil(operationDeadlineAt - performance.now()))
+    );
     // The signal may have changed after the pre-spawn check (an injected launcher can abort while
     // returning the child). Do not miss that narrow cancellation window.
     if (signal?.aborted) onAbort();
@@ -584,6 +597,24 @@ function remoteObservation(url, patterns, result) {
   });
 }
 
+function interruptedObservation(url, patterns, reason) {
+  // A shared Git process belongs to the session, not to any one caller. A waiter that reaches its
+  // own boundary receives an independent, content-free observation while other waiters may still
+  // use the physical result. Never include AbortSignal.reason in this result.
+  const result = {
+    status: 1, stdout: '', stderr: '', timedOut: reason === 'timeout',
+    aborted: reason === 'abort'
+  };
+  result.failure = reason === 'abort'
+    ? {
+        code: 'REMOTE_OPERATION_ABORTED', classification: 'cancelled', retryable: true,
+        advice: 'The Git operation was cancelled before it completed. Retry when ready.',
+        evidence: failureEvidence(result)
+      }
+    : { ...classifyGitRemoteFailure(result), evidence: failureEvidence(result) };
+  return remoteObservation(url, patterns, result);
+}
+
 /**
  * A per-operation observation cache. Mutations construct a fresh session and explicitly invalidate
  * it after a successful push; no remote fact is cached across CLI invocations or authority changes.
@@ -615,6 +646,7 @@ export class GitRemoteSession {
       try { [observedRemote, observedPatterns] = JSON.parse(key); } catch { continue; }
       if (observedRemote !== remoteIdentity
         || !observationPatternsCover(observedPatterns, patterns)) continue;
+      if (observation.timedOut || observation.result?.aborted) continue;
       // An exact waiter may share the exact classified failure it requested. A narrower request
       // must not inherit a failed broad inventory, however: providers can reject/overflow
       // `refs/heads/*` while still answering one exact ref successfully.
@@ -631,6 +663,58 @@ export class GitRemoteSession {
         && observationPatternsCover(pending.patterns, patterns)) return pending;
     }
     return null;
+  }
+
+  waitForPendingObservation(pending, { url, patterns, signal, deadlineAt }) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer = null;
+      const waiter = { deadlineAt };
+      const finish = (observation, error, ownBoundary = false) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        pending.waiters.delete(waiter);
+        if (pending.waiters.size === 0 && !pending.settled) {
+          // No caller may use or cache this result now. Reap the physical Git process, but do not
+          // make a cancelled caller wait for another caller's deadline or cleanup grace.
+          pending.invalidated = true;
+          if (this.observationGenerations.get(pending.key) === pending.generation) {
+            this.nextObservationGeneration(pending.key);
+          }
+          if (this.pendingObservations.get(pending.key) === pending) {
+            this.pendingObservations.delete(pending.key);
+          }
+          pending.controller.abort();
+        }
+        if (error) reject(error);
+        else resolve({ observation, ownBoundary });
+      };
+      const onAbort = () => finish(interruptedObservation(url, patterns, 'abort'), null, true);
+      pending.waiters.add(waiter);
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      const remainingMs = deadlineAt - performance.now();
+      if (remainingMs <= 0) {
+        finish(interruptedObservation(url, patterns, 'timeout'), null, true);
+        return;
+      }
+      timer = setTimeout(
+        () => finish(interruptedObservation(url, patterns, 'timeout'), null, true),
+        Math.ceil(remainingMs)
+      );
+      signal?.addEventListener('abort', onAbort, { once: true });
+      pending.promise.then((observation) => {
+        // Promise callbacks run before timers after an event-loop stall. Do not admit a late
+        // authority result merely because its overdue timeout callback has not run yet.
+        if (performance.now() >= deadlineAt) {
+          finish(interruptedObservation(url, patterns, 'timeout'), null, true);
+        } else finish(observation);
+      }, (error) => finish(null, error));
+    });
   }
 
   invalidatePendingRemote(remoteIdentity) {
@@ -677,34 +761,64 @@ export class GitRemoteSession {
     timeoutMs = null, signal = null
   } = {}) {
     const url = assertCredentialFreeRemote(remote);
-    const effectiveTimeoutMs = timeoutMs ?? gitRemoteProbeTimeout(url, this.env);
+    const effectiveTimeoutMs = positive(timeoutMs, gitRemoteProbeTimeout(url, this.env));
+    const deadlineAt = performance.now() + effectiveTimeoutMs;
     const patterns = observationPatterns({ refs, includeHead, includeAllHeads });
     const key = JSON.stringify([url, patterns]);
+    if (signal?.aborted) return interruptedObservation(url, patterns, 'abort');
     if (refresh) this.invalidate(url);
     else {
       const reusable = this.reusableObservation(url, patterns);
       if (reusable) return reusable;
       const pending = this.reusablePendingObservation(url, patterns);
-      if (pending) {
-        const observation = await pending.promise;
+      // The shared process has its own bounded reserve; a late or longer-lived waiter must not
+      // inherit an earlier caller's physical deadline. Start a separate probe in that case.
+      if (pending && pending.physicalDeadlineAt >= deadlineAt) {
+        const { observation, ownBoundary } = await this.waitForPendingObservation(pending, {
+          url, patterns, signal, deadlineAt
+        });
+        if (ownBoundary) return observation;
         const exact = JSON.stringify(pending.patterns) === JSON.stringify(patterns);
         if (exact || observation.ok) return observation;
         // The broad request failed. Retry the narrower shape instead of turning a provider's
         // all-heads limitation into a false absence for an exact authority ref.
       }
     }
+    if (signal?.aborted) return interruptedObservation(url, patterns, 'abort');
+    const remainingMs = deadlineAt - performance.now();
+    if (remainingMs <= 0) return interruptedObservation(url, patterns, 'timeout');
     const generation = this.nextObservationGeneration(key);
+    const physicalTimeoutMs = Math.min(2_147_483_647, Math.ceil(remainingMs * 2));
     const pendingState = {
-      remoteIdentity: url, patterns, promise: null, invalidated: false, generation
+      key, remoteIdentity: url, patterns, promise: null, invalidated: false, generation,
+      controller: new AbortController(), waiters: new Set(), settled: false,
+      physicalDeadlineAt: performance.now() + physicalTimeoutMs
     };
-    const pending = (async () => {
+    // Register the first waiter's timer and signal before entering synchronous enterprise-config
+    // preflight. That preflight still blocks the event loop, but once it returns we can refuse to
+    // start Git if every waiting caller's deadline expired while it ran.
+    const pending = Promise.resolve().then(async () => {
+      if (pendingState.controller.signal.aborted) {
+        return interruptedObservation(url, patterns, 'abort');
+      }
       const transport = frozenRemoteTransport(url, { env: this.env });
+      // Enterprise Git configuration is a synchronous preflight today. Count its elapsed time
+      // against the observation budget; never launch a remote process after it exhausted that
+      // budget, even though an event-loop timer cannot interrupt the preflight itself.
+      const now = performance.now();
+      const physicalRemainingMs = pendingState.physicalDeadlineAt - now;
+      if (physicalRemainingMs <= 0
+        || ![...pendingState.waiters].some((waiter) => waiter.deadlineAt > now)
+        || pendingState.controller.signal.aborted) {
+        return interruptedObservation(url, patterns,
+          pendingState.controller.signal.aborted ? 'abort' : 'timeout');
+      }
       const result = await this.runAsyncCommand(
         ['ls-remote', '--symref', '--', transport.remote, ...patterns],
         {
-          cwd: this.cwd, operation: 'remote-probe', timeoutMs: effectiveTimeoutMs,
+          cwd: this.cwd, operation: 'remote-probe', timeoutMs: Math.ceil(physicalRemainingMs),
           env: transport.env,
-          allowFailure: true, signal, encoding: 'buffer'
+          allowFailure: true, signal: pendingState.controller.signal, encoding: 'buffer'
         }
       );
       const observation = remoteObservation(url, patterns, result);
@@ -712,18 +826,26 @@ export class GitRemoteSession {
       // flight. The awaiting caller may use the result it explicitly requested, but that stale
       // result must never repopulate the operation cache after the mutation boundary.
       if (!pendingState.invalidated
+        && [...pendingState.waiters].some((waiter) => waiter.deadlineAt > performance.now())
+        && !observation.timedOut && !observation.result?.aborted
         && this.observationGenerations.get(key) === pendingState.generation) {
         this.observations.set(key, observation);
       }
       return observation;
-    })();
+    });
     pendingState.promise = pending;
     this.pendingObservations.set(key, pendingState);
-    try {
-      return await pending;
-    } finally {
-      if (this.pendingObservations.get(key)?.promise === pending) this.pendingObservations.delete(key);
-    }
+    pending.then(() => {
+      pendingState.settled = true;
+      if (this.pendingObservations.get(key) === pendingState) this.pendingObservations.delete(key);
+    }, () => {
+      pendingState.settled = true;
+      if (this.pendingObservations.get(key) === pendingState) this.pendingObservations.delete(key);
+    });
+    const { observation } = await this.waitForPendingObservation(pendingState, {
+      url, patterns, signal, deadlineAt
+    });
+    return observation;
   }
 
   invalidate(remote) {

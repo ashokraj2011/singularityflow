@@ -9,6 +9,7 @@ import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './u
 import { normalizeContextPolicy } from './context-policy.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
 import { effectiveWorldModelAssignmentViews } from './world-model-views.mjs';
+import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 
 export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 export const INITIATIVE_REQUIREMENTS = new Set(['must', 'optional', 'conditional']);
@@ -462,6 +463,7 @@ export function validatePortfolio(value) {
   for (const [id, repository] of Object.entries(portfolio.repositories)) {
     safeId(id, 'Repository ID'); object(repository, `Repository '${id}'`);
     if (typeof repository.url !== 'string' || !repository.url.trim()) throw new SingularityFlowError(`Repository '${id}' requires url.`);
+    repository.url = assertCredentialFreeRemote(repository.url);
     repository.defaultBranch ??= 'main';
     if (typeof repository.defaultBranch !== 'string' || !repository.defaultBranch.trim()) throw new SingularityFlowError(`Repository '${id}' defaultBranch is invalid.`);
     repository.branchCompletionPolicy ??= 'pr';

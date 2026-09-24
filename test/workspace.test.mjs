@@ -91,8 +91,8 @@ test('portable Windows drive and UNC authorities reach the bounded Git observati
 
   assert.deepEqual(calls.map((call) => call.remote), authorities.map(([remote]) => remote),
     'the exact portable path reaches Git through the frozen transport boundary');
-  assert.deepEqual(calls.map((call) => call.timeoutMs), [202, 202, 202],
-    'filesystem authorities retain the bounded local/configuration timeout');
+  assert.ok(calls.every((call) => call.timeoutMs > 0 && call.timeoutMs <= 404),
+    'each filesystem probe has a bounded physical Git timeout; the caller retains its 202 ms deadline');
 
   const invalidAuthorities = [
     'repository.git', '../repository.git', 'C:repository.git', '\\repository',
@@ -924,6 +924,8 @@ test('a retained exact catalog recreates a capability receipt across processes w
   const objectStoreDirectory = path.join(
     root, 'catalogs', 'catalog-bst_1234567890abcdef1234.git'
   );
+  const transientCatalog = await workspaceRemoteCapabilities(remote);
+  assert.equal(transientCatalog.commit, commit);
   const catalog = await workspaceRemoteCapabilities(remote, { objectStoreDirectory });
   const first = await validateWorkspaceCapabilityRegistration(manifest, {
     readCapabilities: async () => catalog

@@ -7,13 +7,14 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
-import { localBranches, prepareRemoteBranchTracking, remoteBranches } from './git.mjs';
+import { localBranches, prepareRemoteBranchTracking, remoteBranches, safePruneRefspecs } from './git.mjs';
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
 } from './repository-subject-index.mjs';
 import {
   gitWorkerCount, isGitRefName, mapLimit, portableIdentifier, SingularityFlowError, run
 } from './util.mjs';
+import { removeTemporaryTree } from './util.mjs';
 import {
   cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured,
   partialCloneFallbackDecision
@@ -30,6 +31,9 @@ import {
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
+import {
+  enqueueRepositoryOnboardingCleanup, repositoryOnboardingCleanupContention
+} from './repository-onboarding-cleanup.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
@@ -1149,7 +1153,7 @@ export async function workspaceRemoteCapabilities(url, {
     const authorityCommit = configured.refs.get(`refs/heads/${configurationBranch}`);
     const transport = frozenRemoteTransport(remote, { env: gitEnv });
     const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch,
+      'clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', '--branch', branch,
       transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
     if (cloned.status !== 0) {
@@ -1158,8 +1162,9 @@ export async function workspaceRemoteCapabilities(url, {
         { code: cloned.failure?.code ?? 'REMOTE_UNKNOWN' }
       );
     }
-    // This checkout is disposable and complete for the one shallow authority commit, so object
-    // reads cannot trigger a hidden promisor fetch through a different transport boundary.
+    // The shallow commit and trees are local. On filter-capable servers only selected YAML blobs
+    // are materialized below; each potentially lazy read uses the bounded remote Git boundary
+    // and the same frozen authority. Servers without filter support still supply the full commit.
     const clonedCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
     }).stdout.trim();
@@ -1173,18 +1178,38 @@ export async function workspaceRemoteCapabilities(url, {
       );
     }
 
-    const shown = run('git', ['show', `HEAD:${capabilitiesPath}`], {
-      cwd: scratch, env: transport.env, allowFailure: true
+    const capabilitiesObjectResult = run('git', ['rev-parse', '--verify', `HEAD:${capabilitiesPath}`], {
+      cwd: scratch, env: { ...transport.env, GIT_NO_LAZY_FETCH: '1' }, allowFailure: true
+    });
+    if (capabilitiesObjectResult.status !== 0) {
+      return { capabilities: null, deliveries: [], reason: `${remote} does not contain ${capabilitiesPath}.`, path: capabilitiesPath };
+    }
+    const shown = await runRemoteGitAsync(['show', `HEAD:${capabilitiesPath}`], {
+      cwd: scratch, operation: 'remote-configuration', env: transport.env
     });
     if (shown.status !== 0) {
-      return { capabilities: null, deliveries: [], reason: `${remote} does not contain ${capabilitiesPath}.`, path: capabilitiesPath };
+      throw new SingularityFlowError(
+        safeGitDiagnosticReference(shown, `Cannot read approved capability map blob '${capabilitiesPath}'`),
+        { code: shown.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
     }
 
     // The map names repository identifiers; the portfolio is what turns those into somewhere to
     // clone from. Read in the same fetch, because a capability you cannot clone is not a choice.
-    const portfolioText = run('git', ['show', `HEAD:${portfolioPath}`], {
-      cwd: scratch, env: transport.env, allowFailure: true
+    const portfolioObjectResult = run('git', ['rev-parse', '--verify', `HEAD:${portfolioPath}`], {
+      cwd: scratch, env: { ...transport.env, GIT_NO_LAZY_FETCH: '1' }, allowFailure: true
     });
+    const portfolioText = portfolioObjectResult.status === 0
+      ? await runRemoteGitAsync(['show', `HEAD:${portfolioPath}`], {
+          cwd: scratch, operation: 'remote-configuration', env: transport.env
+        })
+      : { status: 1, stdout: '' };
+    if (portfolioObjectResult.status === 0 && portfolioText.status !== 0) {
+      throw new SingularityFlowError(
+        safeGitDiagnosticReference(portfolioText, `Cannot read approved portfolio blob '${portfolioPath}'`),
+        { code: portfolioText.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
+    }
     const catalog = await capabilityCatalogFromText(
       shown.stdout, portfolioText.status === 0 ? portfolioText.stdout : null, {
         capabilitiesPath, branch, commit: authorityCommit
@@ -1193,13 +1218,9 @@ export async function workspaceRemoteCapabilities(url, {
     const objectFormat = executeGitQuery(scratch, 'repository.object-format', {}, {
       env: transport.env
     });
-    const capabilitiesObject = run('git', ['rev-parse', `HEAD:${capabilitiesPath}`], {
-      cwd: scratch, env: transport.env
-    }).stdout.trim();
+    const capabilitiesObject = capabilitiesObjectResult.stdout.trim();
     const portfolioObject = portfolioText.status === 0
-      ? run('git', ['rev-parse', `HEAD:${portfolioPath}`], {
-          cwd: scratch, env: transport.env
-        }).stdout.trim()
+      ? portfolioObjectResult.stdout.trim()
       : null;
     if (persistentStore) {
       // The invocation-only alias is deliberately unresolvable in another process. Persist the
@@ -1224,7 +1245,17 @@ export async function workspaceRemoteCapabilities(url, {
       } : null
     };
   } finally {
-    if (!persistentStore) await rm(scratch, { recursive: true, force: true });
+    if (!persistentStore) {
+      try {
+        await removeTemporaryTree(scratch);
+      } catch (error) {
+        if (!repositoryOnboardingCleanupContention(error)) throw error;
+        // Windows scanners can retain a handle after Git exits. A successful authority read
+        // remains valid; retry deletion of this exact owned scratch tree on a later inspection.
+        const queued = await enqueueRepositoryOnboardingCleanup(scratch).catch(() => false);
+        if (!queued) process.emitWarning('A temporary capability-map checkout could not be deleted or queued for cleanup.');
+      }
+    }
   }
 }
 
@@ -3268,8 +3299,10 @@ async function refreshStagedDropOrigin(repository, target, {
     );
   }
   const transport = frozenRemoteTransport(repository.url, { env });
+  const pruneRefspecs = safePruneRefspecs(target, 'origin', { env });
   const refreshed = await runRemoteGitAsync([
-    'fetch', '--prune', transport.remote, '+refs/heads/*:refs/remotes/origin/*'
+    'fetch', ...(pruneRefspecs ? ['--prune'] : []), transport.remote,
+    '+refs/heads/*:refs/remotes/origin/*', ...(pruneRefspecs ?? [])
   ], { cwd: target, operation: 'remote-configuration', env: transport.env });
   if (refreshed.status !== 0) {
     throw new SingularityFlowError(
@@ -4984,8 +5017,8 @@ export async function workspaceArchiveReadiness(workspacePath, {
     if (fetch) {
       try {
         // Legacy and explicitly single-branch clones otherwise keep fetching only their original
-        // branch. Persist the full branch refspec before the parallel network fetch so remote-only
-        // Stories remain visible to the archive safety check.
+        // branch. Validate the namespace; the fetch below uses a one-shot all-heads refspec so
+        // remote-only Stories are visible without rewriting custom tracking configuration.
         if (!prepareRemoteBranchTracking(repository.absolutePath, 'origin', { env })) {
           blockers.push(`Repository '${repository.id}' has no origin remote; repair it before archiving the workspace.`);
           return { record, blockers, activeStories };
@@ -4995,9 +5028,10 @@ export async function workspaceArchiveReadiness(workspacePath, {
         return { record, blockers, activeStories };
       }
       const transport = frozenRemoteTransport(repository.url, { env });
+      const pruneRefspecs = safePruneRefspecs(repository.absolutePath, 'origin', { env });
       const refreshed = await runRemoteGitAsync([
-        'fetch', '--prune', transport.remote,
-        '+refs/heads/*:refs/remotes/origin/*'
+        'fetch', ...(pruneRefspecs ? ['--prune'] : []), transport.remote,
+        '+refs/heads/*:refs/remotes/origin/*', ...(pruneRefspecs ?? [])
       ], {
         cwd: repository.absolutePath, operation: 'remote-configuration', env: transport.env
       });
@@ -5319,9 +5353,10 @@ export async function fetchWorkspace(workspacePath, { env = process.env } = {}) 
       return { repository: repository.id, status: 'skipped', reason: 'dirty' };
     }
     const transport = frozenRemoteTransport(repository.url, { env });
+    const pruneRefspecs = safePruneRefspecs(repository.absolutePath, 'origin', { env });
     const result = await runRemoteGitAsync([
-      'fetch', '--prune', transport.remote,
-      '+refs/heads/*:refs/remotes/origin/*'
+      'fetch', ...(pruneRefspecs ? ['--prune'] : []), transport.remote,
+      '+refs/heads/*:refs/remotes/origin/*', ...(pruneRefspecs ?? [])
     ], {
       cwd: repository.absolutePath, operation: 'remote-configuration', env: transport.env
     });

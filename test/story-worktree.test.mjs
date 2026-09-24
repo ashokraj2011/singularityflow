@@ -136,6 +136,26 @@ test('resume reuses the managed Story worktree without switching or cleaning the
   assert.equal(await readFile(path.join(root, 'unrelated-launch-work.txt'), 'utf8'), 'preserve me\n');
 });
 
+test('start of an existing Story enters its managed worktree instead of checking its branch out twice', async (t) => {
+  const { root } = await repository(t);
+  const id = 'ISO-START-AGAIN-1';
+  const first = JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Resume via Start',
+    '--description', 'The original launch clone must remain on main.'
+  ], root).stdout);
+  const worktree = first.data.repositoryPath;
+  const launchHead = git(root, ['rev-parse', 'HEAD']);
+
+  const second = JSON.parse(run(process.execPath, [cli, 'start', id, '--json'], root).stdout);
+  assert.equal(second.outcome.status, 'succeeded');
+  assert.equal(second.data.repositoryPath, worktree);
+  assert.equal(second.data.materialization, 'reused-managed-story-worktree');
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
+  assert.equal(git(root, ['rev-parse', 'HEAD']), launchHead);
+  assert.equal(git(worktree, ['branch', '--show-current']), id);
+});
+
 test('Story worktree path identity follows Windows drive and casing rules', () => {
   assert.equal(
     samePlatformPath('C:\\Work\\Repo\\.singularity-flow\\story-worktrees\\ABC',

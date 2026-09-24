@@ -1135,7 +1135,8 @@ function proposalRepositoryInspection(root, ref, repositoryUrl, {
     try { repositories = YAML.parse(portfolio.stdout)?.repositories ?? {}; }
     catch { return { complete: false, matches: [] }; }
     const entries = Object.entries(repositories)
-      .filter(([, declaration]) => declaration?.url === repositoryUrl);
+      .filter(([, declaration]) => declaration?.url === repositoryUrl
+        || sameGitRepository(declaration?.url, repositoryUrl));
     if (!entries.length) return { complete: true, matches: [] };
 
     const capabilities = run('git', ['show', `${candidate}:${CAPABILITIES_PATH}`], {
@@ -1181,7 +1182,8 @@ function proposalRepositoryInspection(root, ref, repositoryUrl, {
   for (const repositoryId of changedIds) {
     const after = proposedById.get(repositoryId);
     const before = baseById.get(repositoryId);
-    if (after?.repositoryUrl === before?.repositoryUrl
+    if ((after?.repositoryUrl === before?.repositoryUrl
+        || sameGitRepository(after?.repositoryUrl, before?.repositoryUrl))
       && canonicalJson(after?.capabilities ?? []) === canonicalJson(before?.capabilities ?? [])) continue;
     // A proposal that removes this URL (or moves the repository ID to another URL) is not a
     // pending claim on the inspected repository. Only the proposed side can establish one.
@@ -2162,9 +2164,14 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
   // source in the same bounded observation as sflow/config so an unchanged configuration tip can
   // never make a later state publication look current forever.
   const cachedSourceBranch = String(cached?.organisation?.sourceBranch ?? '').trim();
+  const cachedProjectionBranch = String(cached?.organisation?.stateProjection?.branch ?? '').trim();
   const observedBranches = new Set([CONFIGURATION_BRANCH, 'state']);
   if (isGitRefName(cachedSourceBranch) && cachedSourceBranch !== CONFIGURATION_BRANCH) {
     observedBranches.add(cachedSourceBranch);
+  }
+  if (isGitRefName(cachedProjectionBranch)
+      && cachedProjectionBranch !== CONFIGURATION_BRANCH) {
+    observedBranches.add(cachedProjectionBranch);
   }
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: [...observedBranches].map((name) => `refs/heads/${name}`)
@@ -2331,8 +2338,12 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
     || (isGitRefName(cachedSourceBranch)
       && configurationObservation.refs.get(`refs/heads/${cachedSourceBranch}`)
         === cached?.organisation?.sourceCommit);
+  const cachedProjectionStillCurrent = isGitRefName(cachedProjectionBranch)
+    && cachedProjectionBranch !== CONFIGURATION_BRANCH
+    && (configurationObservation.refs.get(`refs/heads/${cachedProjectionBranch}`) ?? null)
+      === (cached?.organisation?.stateProjection?.commit ?? null);
   if (!refresh && cached?.tipSha === tip.sha && cached.organisation?.stateProjection
-      && cachedSourceStillCurrent) {
+      && cachedSourceStillCurrent && cachedProjectionStillCurrent) {
     return {
       ...cached.organisation,
       // Older cache records did not expose the configuration authority separately from the state
@@ -3054,7 +3065,8 @@ export async function applyCapabilityReconciliation(repositoryUrl, canonicalLead
 
 function approvedRepositoryClaims(organisation, repository) {
   const repositoryIds = Object.entries(organisation.repositories ?? {})
-    .filter(([, declaration]) => declaration?.url === repository)
+    .filter(([, declaration]) => declaration?.url === repository
+      || sameGitRepository(declaration?.url, repository))
     .map(([repositoryId]) => repositoryId)
     .sort();
   const ids = new Set(repositoryIds);

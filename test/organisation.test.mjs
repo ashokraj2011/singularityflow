@@ -15,7 +15,7 @@ import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, symlink, writeFil
 import { existsSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -982,6 +982,25 @@ test('repository inspection blocks duplicate onboarding while an exact mapping a
   assert.match(displayed, new RegExp(proposed.branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
+test('repository inspection finds a pending proposal across equivalent file URL and path locators', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery',
+    repositoryUrl: pathToFileURL(org.service).href
+  });
+
+  const inspected = await inspectCapabilityRepository(org.service, {
+    leadUrl: org.platform, searchKnown: false, refresh: true
+  });
+  assert.equal(inspected.status, 'inconclusive');
+  assert.equal(inspected.proposalCoverage, 'complete');
+  assert.equal(inspected.pendingMatches.length, 1);
+  assert.equal(inspected.pendingMatches[0].proposalBranch, proposed.branch);
+  assert.equal(inspected.pendingMatches[0].repositoryUrl, pathToFileURL(org.service).href);
+  assert.deepEqual(inspected.pendingMatches[0].capabilities, ['calculator']);
+});
+
 test('a pending assignment takes precedence over an approved unassigned repository', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -1940,6 +1959,29 @@ test('stale delivery authority links retire through an exact one-path state CAS'
     'show', 'state:singularity/concurrent-state.json'
   ], { cwd: org.service }).stdout, '{"keep":2}\n');
   assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.service }).stdout.trim(), applicationMain);
+});
+
+test('retirement preserves an active link when the approved URL and supplied path are equivalent', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const mapped = await mapAndMerge(org.platform, {
+    capabilityId: 'portable-service', kind: 'delivery',
+    repositoryUrl: pathToFileURL(org.service).href
+  });
+  const activated = await activateCapabilityProposal(org.platform, mapped.branch, {
+    confirm: mapped.commit
+  });
+  assert.equal(activated.portability.portable, true);
+
+  await assert.rejects(
+    () => previewStaleCapabilityAuthorityLinkRetirement(org.service, org.platform),
+    (error) => {
+      assert.equal(error?.code, 'CAPABILITY_AUTHORITY_LINK_STILL_CLAIMED');
+      assert.deepEqual(error?.details?.claims?.repositoryIds, ['service']);
+      assert.deepEqual(error?.details?.claims?.capabilityIds, ['portable-service']);
+      return true;
+    }
+  );
 });
 
 test('repository inspection reports ambiguity across registered organisations', async () => {
@@ -5363,12 +5405,37 @@ test('organisation reads completely verify a configured non-default state branch
   } finally {
     await rm(checkout, { recursive: true, force: true });
   }
+  const beforePublication = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(beforePublication.sourceBranch, 'sflow/config');
+  assert.equal(beforePublication.stateProjection.status, 'missing');
+  assert.equal(beforePublication.stateProjection.branch, 'organisation-state');
+  assert.equal((await readOrganisation(org.platform)).cached, true);
+
   await publishOrganisationCapabilityMap(org.platform);
 
-  const organisation = await readOrganisation(org.platform, { refresh: true });
+  const organisation = await readOrganisation(org.platform);
+  assert.equal(organisation.cached, false,
+    'publishing the previously missing custom state ref invalidates the config-tip cache');
   assert.equal(organisation.sourceBranch, 'organisation-state');
   assert.equal(organisation.stateProjection.status, 'current');
   assert.equal(organisation.capabilities[0].id, 'commerce');
+  assert.equal((await readOrganisation(org.platform)).cached, true);
+
+  const stateAdvance = path.join(org.base, 'advance-organisation-state');
+  run('git', ['clone', '-q', '--branch', 'organisation-state', org.platform, stateAdvance], {
+    cwd: org.base
+  });
+  run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: stateAdvance });
+  run('git', ['config', 'user.name', 'Review User'], { cwd: stateAdvance });
+  run('git', ['commit', '--allow-empty', '-qm', 'Advance custom state receipt'], {
+    cwd: stateAdvance
+  });
+  run('git', ['push', '-q', 'origin', 'HEAD:organisation-state'], { cwd: stateAdvance });
+  const advanced = await readOrganisation(org.platform);
+  assert.equal(advanced.cached, false,
+    'a state-only publication on a custom branch invalidates the cache');
+  assert.equal(advanced.sourceCommit,
+    run('git', ['rev-parse', 'HEAD'], { cwd: stateAdvance }).stdout.trim());
 });
 
 test('organisation fsck rejects a self-consistent state mirror that diverges from its claimed source', async () => {

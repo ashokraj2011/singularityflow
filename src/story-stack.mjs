@@ -9,6 +9,9 @@ import { readStorySeed } from './pull-request.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import {
+  configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference
+} from './git-remote-diagnostics.mjs';
 
 export const STORY_STACK_SCHEMA_VERSION = currentSchemaVersion('story-stack');
 
@@ -113,9 +116,22 @@ export async function publishedStackForStory(root, config, workflow) {
   const file = storyStackPath(initiativeId);
   const remote = config.ledger?.remote ?? config.git?.remote ?? 'origin';
   const stateBranch = config.ledger?.branch ?? 'state';
-  await runRemoteGitAsync(['fetch', '--no-tags', remote, `+refs/heads/${stateBranch}:refs/remotes/${remote}/${stateBranch}`], {
-    cwd: root, operation: 'remote-configuration'
-  });
+  const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+  if (identity.ambiguous) {
+    throw new SingularityFlowError('The Story stack remote has ambiguous Git authority.');
+  }
+  if (identity.configured) {
+    const transport = frozenRemoteTransport(identity.url);
+    const fetched = await runRemoteGitAsync([
+      'fetch', '--no-tags', '--', transport.remote,
+      `+refs/heads/${stateBranch}:refs/remotes/${remote}/${stateBranch}`
+    ], { cwd: root, operation: 'remote-configuration', env: transport.env });
+    if (fetched.status !== 0) {
+      throw new SingularityFlowError(
+        safeGitDiagnosticReference(fetched, 'Cannot refresh the published Story stack')
+      );
+    }
+  }
   const stored = readAtRef(root, `${remote}/${stateBranch}`, file) ?? readAtRef(root, stateBranch, file);
   const stack = stored ? readRecord('story-stack', stored).record : null;
   if (!stack) {

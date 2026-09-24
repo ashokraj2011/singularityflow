@@ -4,17 +4,12 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, run, writeJson } from './util.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import {
+  configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
+} from './git-remote-diagnostics.mjs';
 
 function redactRemote(value) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    url.username = '';
-    url.password = '';
-    return url.toString();
-  } catch {
-    return value.replace(/\/\/[^/@]+@/, '//***@');
-  }
+  return value ? sanitizeRemote(value) : null;
 }
 
 function git(root, args) {
@@ -37,15 +32,27 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
   });
   const remote = git(root, ['remote', 'get-url', config.remote]);
   const remoteUrl = remote.status === 0 ? remote.stdout.trim() : null;
+  let transport = null;
+  let remoteConfigurationError = null;
+  if (remoteUrl) {
+    try {
+      const identity = configuredRemoteIdentity(root, config.remote, { direction: 'fetch' });
+      if (!identity.configured || identity.ambiguous) throw new Error('Git remote has no unambiguous fetch authority.');
+      transport = frozenRemoteTransport(remoteUrl);
+    }
+    catch (error) { remoteConfigurationError = error; }
+  }
   checks.push({
     id: 'remote-configured',
-    status: remoteUrl ? 'pass' : 'fail',
-    detail: remoteUrl ? `${config.remote}: ${redactRemote(remoteUrl)}` : `Git remote '${config.remote}' is not configured`
+    status: transport ? 'pass' : 'fail',
+    detail: transport ? `${config.remote}: ${redactRemote(remoteUrl)}`
+      : remoteConfigurationError ? `Git remote '${config.remote}' has an unsafe or invalid transport configuration`
+        : `Git remote '${config.remote}' is not configured`
   });
 
-  if (remoteUrl && !offline) {
-    const remoteRefs = await runRemoteGitAsync(['ls-remote', config.remote], {
-      cwd: root, operation: 'remote-probe'
+  if (transport && !offline) {
+    const remoteRefs = await runRemoteGitAsync(['ls-remote', '--', transport.remote], {
+      cwd: root, operation: 'remote-probe', env: transport.env
     });
     const advertisedRefs = remoteRefs.status === 0
       ? remoteRefs.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/, 2)[1]).filter(Boolean)
@@ -53,13 +60,15 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
     checks.push({
       id: 'remote-readable',
       status: remoteRefs.status === 0 ? 'pass' : 'fail',
-      detail: remoteRefs.status === 0 ? 'remote refs are readable with the current Git credentials' : (remoteRefs.stderr || remoteRefs.stdout).trim()
+      detail: remoteRefs.status === 0 ? 'remote refs are readable with the current Git credentials'
+        : (remoteRefs.failure?.advice ?? 'Git remote could not be read')
     });
     const branchPresent = advertisedRefs.includes(`refs/heads/${config.branch}`);
     checks.push({
       id: 'ledger-branch',
       status: branchPresent ? 'pass' : 'fail',
-      detail: branchPresent ? `${config.branch} exists on ${config.remote}` : `${config.branch} is not published on ${config.remote}`
+      detail: remoteRefs.status !== 0 ? 'ledger branch could not be checked because Git access failed'
+        : branchPresent ? `${config.branch} exists on ${config.remote}` : `${config.branch} is not published on ${config.remote}`
     });
     if (config.pinTransport !== 'none') {
       const prefix = config.pinTransport === 'refs'
@@ -70,7 +79,7 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
         status: remoteRefs.status === 0 ? 'pass' : 'fail',
         detail: remoteRefs.status === 0
           ? `${config.pinTransport} pin namespace is readable${pinsPresent ? '' : ' (no pins published yet)'}`
-          : (remoteRefs.stderr || remoteRefs.stdout).trim()
+          : (remoteRefs.failure?.advice ?? 'Git remote could not be read')
       });
     }
   } else if (offline) checks.push({ id: 'remote-readable', status: 'warn', detail: 'network checks skipped by --offline' });

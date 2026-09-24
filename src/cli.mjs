@@ -23,7 +23,7 @@ import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile }
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, prepareRemoteBranchTracking, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
@@ -140,7 +140,10 @@ import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, redact
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
-import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import {
+  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
+  redactDiagnosticText
+} from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
@@ -1710,7 +1713,11 @@ export async function startCommand(positionals, options) {
       || (!optionBoolean(options, 'allow-dirty') && changes(root).trim()))) {
     return startCommandInIsolatedWorktree(root, id, positionals, options);
   }
-  let config = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null;
+  // The launch checkout is not configuration authority for a new Story. It may carry a stale or
+  // malformed workflow while the approved sflow/config snapshot is healthy. Inspect local Story
+  // refs and cheap input errors first; load the local workflow only if authority discovery later
+  // proves there is no approved snapshot and the legacy branch-local fallback is needed.
+  let config = null;
   // At this point the command has not established whether this is new work or an existing Story
   // carrying an older pinned policy. Enforce the transport-safe shape now; the selected lifecycle
   // branch enforces its exact `idPattern` below, while genuinely new work uses current configuration.
@@ -1769,7 +1776,11 @@ export async function startCommand(positionals, options) {
         ?? fallback.branches[0]
         ?? 'main';
     }
-    return { authority, defaultBranch: defaultBranch ?? 'main' };
+    return {
+      authority,
+      defaultBranch: defaultBranch ?? 'main',
+      transportRemote: applicationRemote || null
+    };
   };
   let remote = config?.git?.remote ?? 'origin';
   const storySeedRelative = posix(path.join('singularity', 'seeds', `${id}.yml`));
@@ -1807,7 +1818,9 @@ export async function startCommand(positionals, options) {
     // but when `start ID` is invoked from application main it would otherwise ask today's origin
     // for approved configuration first. That defeats the offline/idempotent path above precisely
     // when the local Story already carries every governed configuration byte it needs.
-    if (branch(root) !== localStory.canonicalBranch) {
+    const { storyWorktreeForBranch } = await import('./story-worktree.mjs');
+    if (branch(root) !== localStory.canonicalBranch
+        && !storyWorktreeForBranch(root, localStory.canonicalBranch)) {
       await checkout(root, localStory.canonicalBranch, {
         base: localStory.state?.workItem?.baseBranch ?? 'main',
         fetch: false,
@@ -1843,10 +1856,14 @@ export async function startCommand(positionals, options) {
    * also exempt because they can identify an existing Story or carry the reviewed base choice.
    */
   const nonInteractive = optionBoolean(options, 'json') || optionBoolean(options, 'yes');
-  const cachedRemoteStoryRef = `refs/remotes/${remote}/${canonicalBranch}`;
+  // Configuration has not been selected yet. A locally cached Story ref under any configured
+  // remote is enough to defer the missing-base refusal until approved authority identifies the
+  // one that governs this Story. This inventory remains local-only.
+  const cachedRemoteStory = remoteNames(root).some((name) =>
+    refExists(root, `refs/remotes/${name}/${canonicalBranch}`));
   if (nonInteractive && !receiptToken && !explicitBase && fromBranch.length === 0
       && !jira && !githubReference
-      && !refExists(root, cachedRemoteStoryRef)) {
+      && !cachedRemoteStory) {
     const inspectCommand = `singularity-flow workspace branches --preflight-story ${id} --json`;
     throw new SingularityFlowError(
       `Choose the remote base branch explicitly with --from-branch <BRANCH>. No locally known `
@@ -1880,7 +1897,8 @@ export async function startCommand(positionals, options) {
     });
   let approvedConfigurationSnapshot = configurationHandoff?.snapshot
     ?? (configurationAuthority ? await loadStoryConfigurationSnapshot(configurationAuthority) : null);
-  if (approvedConfigurationSnapshot) config = approvedConfigurationSnapshot.definition;
+  config = approvedConfigurationSnapshot?.definition
+    ?? (existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null);
   if (!config) {
     throw new SingularityFlowError(
       `Missing ${WORKFLOW_PATH}. Neither an approved ${CONFIGURATION_BRANCH} branch nor a verified `
@@ -1901,12 +1919,14 @@ export async function startCommand(positionals, options) {
     );
   }
   const destination = await observeStoryDestination(remote);
+  const fetchObservedStoryDestination = () => fetchRemote(root, remote,
+    destination.transportRemote ? { transportRemote: destination.transportRemote } : {});
   const applicationDefault = destination.defaultBranch;
   let remoteStoryRef = `refs/remotes/${remote}/${canonicalBranch}`;
   const approvedRemoteStoryExists = destination.authority?.ok === true
     && destination.authority.refs.has(advertisedStoryRef);
   if (approvedRemoteStoryExists) {
-    await fetchRemote(root, remote);
+    await fetchObservedStoryDestination();
     const remoteStory = await durableStoryAtRef(remoteStoryRef, canonicalBranch);
     if (remoteStory) {
       if (referenceRequests.length) {
@@ -2034,7 +2054,7 @@ export async function startCommand(positionals, options) {
   // refs before choosing a base or checking out a branch, then attach to the existing Story.
   const requestedExternalSource = await externalSource();
   if (requestedExternalSource?.stableId) {
-    await fetchRemote(root, remote);
+    await fetchObservedStoryDestination();
     const refs = [
       ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
       ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
@@ -9137,7 +9157,13 @@ function definitionAtRef(root, ref) {
  */
 async function sessionRepositoryAuthority(root) {
   if (!root) return null;
-  if (existsSync(path.join(root, WORKFLOW_PATH))) return { source: 'working-tree', remote: null };
+  const workingTreeDefinition = existsSync(path.join(root, WORKFLOW_PATH));
+  // An active Story carries its own immutable configuration source. Application branches can
+  // retain an old workflow file, but that file must not shadow a current approved sflow/config.
+  if (workingTreeDefinition && existsSync(path.join(root, CONFIGURATION_SOURCE_PATH))) {
+    return { source: 'working-tree', remote: null };
+  }
+  let localLifecycle = null;
   for (const remote of sessionRepositoryRemotes(root)) {
     const configurationRef = `refs/remotes/${remote}/${CONFIGURATION_BRANCH}`;
     if (refExists(root, configurationRef)) {
@@ -9146,19 +9172,26 @@ async function sessionRepositoryAuthority(root) {
     const storyRef = remoteBranches(root, remote)
       .map((branchName) => `${remote}/${branchName}`)
       .find((ref) => fileAtRef(root, ref, WORKFLOW_PATH) !== null);
-    if (storyRef) return { source: 'lifecycle-branch', remote, ref: storyRef };
+    if (storyRef && !localLifecycle) {
+      localLifecycle = { source: 'lifecycle-branch', remote, ref: storyRef };
+    }
   }
   // A --single-branch clone may not have fetched the configuration namespace yet. The session
   // operation is remote-backed anyway, so prove the authority without changing the checkout.
   for (const remote of sessionRepositoryRemotes(root)) {
-    const available = await runRemoteGitAsync(['ls-remote', '--heads', remote, `refs/heads/${CONFIGURATION_BRANCH}`], {
-      cwd: root, operation: 'remote-probe'
+    const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+    if (!identity.configured || identity.ambiguous) continue;
+    const transport = frozenRemoteTransport(identity.url);
+    const available = await runRemoteGitAsync([
+      'ls-remote', '--heads', '--', transport.remote, `refs/heads/${CONFIGURATION_BRANCH}`
+    ], {
+      cwd: root, operation: 'remote-probe', env: transport.env
     });
     if (available.status === 0 && available.stdout.trim()) {
       return { source: 'configuration-remote', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };
     }
   }
-  return null;
+  return localLifecycle ?? (workingTreeDefinition ? { source: 'working-tree', remote: null } : null);
 }
 
 async function sessionDiscoveryConfiguration(root, authority = null, { storyBootstrap = false } = {}) {
@@ -9171,7 +9204,7 @@ async function sessionDiscoveryConfiguration(root, authority = null, { storyBoot
       source: 'approved-configuration-overlay'
     };
   }
-  if (existsSync(path.join(root, WORKFLOW_PATH))) {
+  if (authority?.source === 'working-tree') {
     const definition = await loadConfig(root, { storyBootstrap });
     return { definition, remote: definition.git?.remote ?? 'origin', source: 'working-tree' };
   }
@@ -9181,32 +9214,36 @@ async function sessionDiscoveryConfiguration(root, authority = null, { storyBoot
       { code: 'SESSION_REPOSITORY_NOT_GOVERNED' }
     );
   }
-  const localCandidates = [
-    authority.ref,
-    `${authority.remote}/${CONFIGURATION_BRANCH}`,
-    ...localBranches(root),
-    branch(root)
-  ].filter(Boolean);
-  for (const ref of [...new Set(localCandidates)]) {
+  const approvedRef = `${authority.remote}/${CONFIGURATION_BRANCH}`;
+  if (refExists(root, `refs/remotes/${approvedRef}`)) {
+    const definition = definitionAtRef(root, approvedRef);
+    if (!definition) {
+      throw new SingularityFlowError(
+        `Approved ${CONFIGURATION_BRANCH} is missing ${WORKFLOW_PATH}; refresh or repair its review proposal.`,
+        { code: 'SESSION_CONFIGURATION_UNAVAILABLE' }
+      );
+    }
+    return { definition, remote: definition.git?.remote ?? authority.remote, source: approvedRef };
+  }
+  if (authority.source === 'configuration-remote') {
+    await fetchRemote(root, authority.remote);
+    const definition = definitionAtRef(root, approvedRef);
+    if (!definition) {
+      throw new SingularityFlowError(
+        `Approved ${CONFIGURATION_BRANCH} is missing ${WORKFLOW_PATH}; refresh or repair its review proposal.`,
+        { code: 'SESSION_CONFIGURATION_UNAVAILABLE' }
+      );
+    }
+    return { definition, remote: definition.git?.remote ?? authority.remote, source: approvedRef };
+  }
+  // Legacy branch-local workflows remain readable only when no approved configuration was found.
+  // They must not replace a known, malformed sflow/config with an unrelated lifecycle definition.
+  const legacyCandidates = [authority.ref, ...localBranches(root), branch(root)].filter(Boolean);
+  for (const ref of [...new Set(legacyCandidates)]) {
     try {
       const definition = definitionAtRef(root, ref);
       if (definition) return { definition, remote: authority.remote, source: ref };
-    } catch { /* Try another local authority before requiring the network. */ }
-  }
-  if (prepareRemoteBranchTracking(root, authority.remote)) {
-    await runRemoteGitAsync(['fetch', '--prune', authority.remote], {
-      cwd: root, operation: 'remote-configuration', allowFailure: false
-    });
-  }
-  const remoteCandidates = [
-    `${authority.remote}/${CONFIGURATION_BRANCH}`,
-    ...remoteBranches(root, authority.remote).map((branchName) => `${authority.remote}/${branchName}`)
-  ];
-  for (const ref of [...new Set(remoteCandidates)]) {
-    try {
-      const definition = definitionAtRef(root, ref);
-      if (definition) return { definition, remote: authority.remote, source: ref };
-    } catch { /* Try another published ref; attachment validates the selected Story strictly. */ }
+    } catch { /* Try another legacy lifecycle ref; attachment validates the selected Story strictly. */ }
   }
   throw new SingularityFlowError(
     `Remote '${authority.remote}' has no readable governed definition on ${CONFIGURATION_BRANCH} or a lifecycle branch.`,

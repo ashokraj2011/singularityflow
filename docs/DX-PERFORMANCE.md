@@ -299,6 +299,12 @@ pass. The release script runs this gate even when local tests are skipped in fav
 signed verification receipt. Bundle and module ceilings may be lowered after accepted evidence;
 they must not be raised merely to admit a regression.
 
+The Git authority and bounded-transport hardening adds reviewed modules to the shared CLI closure
+used by the extension. Its eight-entry build measures 28,573,333 JavaScript bytes; the revised
+28,900,000-byte total ceiling leaves under 1.2% headroom, with similarly narrow per-entry limits.
+This is an intentional shipping-graph change, not an exemption: missing entries, new entries,
+and further growth beyond those ceilings still fail the gate.
+
 The reviewed TKR-preview closure contains 31,288,784 JavaScript bytes in an isolated clean build at
 `main@f8278a42` plus the candidate change. Against the same clean pre-change dependency closure,
 the dynamic composer selector and fail-closed production guard add 7,984 bytes and zero source

@@ -5,9 +5,11 @@ import { loadInitiative } from './state-stores.mjs';
 import { verifyInitiativeContext } from './initiative-context.mjs';
 import { verifyEpicSources } from './epic-sources.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
-import { run } from './util.mjs';
 import { classifyInitiativeGateFailures } from './gate-recovery.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import {
+  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, redactDiagnosticText
+} from './git-remote-diagnostics.mjs';
 
 export async function runInitiativeGate(root, initiativeId, { terminal = false } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
@@ -61,11 +63,30 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
   }
   if ((portfolio.git?.publish ?? 'required') === 'required') {
     const remote = portfolio.git?.remote ?? 'origin';
-    const remoteHead = (await runRemoteGitAsync(['ls-remote', remote, `refs/heads/${initiative.initiative.branch}`], {
-      cwd: root, operation: 'remote-probe'
-    })).stdout.trim().split(/\s+/)[0];
-    if (remoteHead !== head(root)) errors.push(`local initiative HEAD is not published to ${remote}/${initiative.initiative.branch}`);
-    else passes.push('remote publication');
+    try {
+      const identity = configuredRemoteIdentity(root, remote, { direction: 'push' });
+      if (!identity.configured || identity.ambiguous) {
+        throw new Error(`Git remote '${remote}' has no unambiguous push authority.`);
+      }
+      const authority = configuredRemoteAuthority(root, remote, { direction: 'push' });
+      if (!authority.url) {
+        errors.push(`remote publication could not be checked: Git remote '${remote}' is not configured`);
+      } else {
+        const transport = frozenRemoteTransport(authority.url);
+        const observed = await runRemoteGitAsync([
+          'ls-remote', '--heads', '--', transport.remote, `refs/heads/${initiative.initiative.branch}`
+        ], { cwd: root, operation: 'remote-probe', env: transport.env });
+        if (observed.status !== 0) {
+          errors.push(`remote publication could not be checked: ${observed.failure?.advice ?? 'Inspect Git access and retry.'}`);
+        } else {
+          const remoteHead = observed.stdout.trim().split(/\s+/)[0];
+          if (remoteHead !== head(root)) errors.push(`local initiative HEAD is not published to ${remote}/${initiative.initiative.branch}`);
+          else passes.push('remote publication');
+        }
+      }
+    } catch (error) {
+      errors.push(`remote publication could not be checked: ${redactDiagnosticText(error.message)}`);
+    }
   }
   return {
     valid: errors.length === 0,

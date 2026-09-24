@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildStoryStack } from '../src/story-stack.mjs';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { buildStoryStack, publishedStackForStory } from '../src/story-stack.mjs';
 
 const breakdown = {
   stories: [
@@ -40,4 +44,22 @@ test('stack advances after the preceding Story is merged', () => {
   assert.equal(stack.nextToMerge, 'WEB-2');
   assert.deepEqual(stack.stories[1].mergeBlockedBy, []);
   assert.deepEqual(stack.stories[2].mergeBlockedBy, ['WEB-2']);
+});
+
+test('a failed Story-stack refresh never falls back to a stale local state ref', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-stack-remote-'));
+  const git = (...args) => {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git('init', '-b', 'main');
+  git('remote', 'add', 'origin', path.join(root, 'missing-remote.git'));
+  await mkdir(path.join(root, 'singularity', 'seeds'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'seeds', 'STORY-1.yml'),
+    'initiative:\n  id: EPIC-1\n');
+  await assert.rejects(
+    publishedStackForStory(root, { git: { remote: 'origin' }, ledger: { branch: 'state' } },
+      { workItem: { id: 'STORY-1' } }),
+    /Cannot refresh the published Story stack|Git remote/i
+  );
 });

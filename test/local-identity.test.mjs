@@ -282,10 +282,67 @@ test('fetching repairs an existing single-branch workspace clone', async () => {
   run('git', ['clone', '--branch', 'main', '--single-branch', remote, clone], { cwd: base });
 
   assert.equal(refExists(clone, 'refs/remotes/origin/KAN-8'), false);
+  const fetchRefspecBefore = run('git', ['config', '--get-all', 'remote.origin.fetch'], {
+    cwd: clone
+  }).stdout;
   await fetchRemote(clone);
+  assert.equal(run('git', ['config', '--get-all', 'remote.origin.fetch'], { cwd: clone }).stdout,
+    fetchRefspecBefore, 'all-heads discovery must not rewrite the single-branch clone');
   assert.equal(refExists(clone, 'refs/remotes/origin/KAN-8'), true);
   assert.equal(await checkout(clone, 'KAN-8', { fetch: true, existingOnly: true }), 'tracked-remote');
   assert.equal(hasUpstream(clone), true);
+});
+
+test('failed remote fetch preserves custom Git fetch refspecs', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-fetch-refspec-'));
+  const source = path.join(base, 'source');
+  const remote = path.join(base, 'origin.git');
+  const clone = path.join(base, 'clone');
+  run('git', ['init', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Planner'], { cwd: source });
+  run('git', ['config', 'user.email', 'planner@example.com'], { cwd: source });
+  await writeFile(path.join(source, 'README.md'), '# Fetch policy\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'Initial'], { cwd: source });
+  run('git', ['clone', '--bare', source, remote], { cwd: base });
+  run('git', ['clone', remote, clone], { cwd: base });
+  run('git', ['config', '--unset-all', 'remote.origin.fetch'], { cwd: clone });
+  run('git', ['config', '--add', 'remote.origin.fetch',
+    '+refs/heads/main:refs/remotes/origin/main'], { cwd: clone });
+  run('git', ['config', '--add', 'remote.origin.fetch',
+    '+refs/heads/release/*:refs/remotes/origin/releases/*'], { cwd: clone });
+  run('git', ['switch', '-c', 'release/x'], { cwd: source });
+  run('git', ['push', remote, 'release/x'], { cwd: source });
+  run('git', ['fetch', 'origin'], { cwd: clone });
+  assert.equal(refExists(clone, 'refs/remotes/origin/releases/x'), true);
+  const before = run('git', ['config', '--get-all', 'remote.origin.fetch'], { cwd: clone }).stdout;
+  await fetchRemote(clone);
+  assert.equal(run('git', ['config', '--get-all', 'remote.origin.fetch'], { cwd: clone }).stdout,
+    before, 'successful all-heads discovery preserves custom refspecs');
+  assert.equal(refExists(clone, 'refs/remotes/origin/releases/x'), true,
+    'one-shot all-heads discovery must not prune a separate user tracking namespace');
+  run('git', ['switch', '-c', 'obsolete'], { cwd: source });
+  run('git', ['push', remote, 'obsolete'], { cwd: source });
+  await fetchRemote(clone);
+  assert.equal(refExists(clone, 'refs/remotes/origin/obsolete'), true);
+  run('git', ['push', remote, ':refs/heads/obsolete'], { cwd: source });
+  await fetchRemote(clone);
+  assert.equal(refExists(clone, 'refs/remotes/origin/obsolete'), false,
+    'a deleted standard remote branch must not remain selectable as an existing Story');
+  assert.equal(refExists(clone, 'refs/remotes/origin/releases/x'), true,
+    'pruning a deleted standard branch must preserve the custom tracking namespace');
+  run('git', ['remote', 'set-url', 'origin', path.join(base, 'missing.git')], { cwd: clone });
+
+  await assert.rejects(() => fetchRemote(clone, 'origin', { transportRemote: remote }), {
+    code: 'GIT_REMOTE_AUTHORITY_CHANGED'
+  });
+  await assert.rejects(() => fetchRemote(clone), /Git configuration failed|Git fetch from 'origin' failed/u);
+  assert.equal(run('git', ['config', '--get-all', 'remote.origin.fetch'], { cwd: clone }).stdout,
+    before);
+  run('git', ['remote', 'remove', 'origin'], { cwd: clone });
+  await assert.rejects(() => fetchRemote(clone, 'origin', { transportRemote: remote }), {
+    code: 'GIT_REMOTE_AUTHORITY_CHANGED'
+  });
 });
 
 test('exact checkout refuses a divergent local branch instead of resolving a mutable ref', async () => {

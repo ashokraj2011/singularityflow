@@ -182,7 +182,8 @@ test('local Git authorities retain a bounded configuration window instead of a n
     }
   });
   await session.observeAsync('/tmp/repository.git');
-  assert.equal(calls[0].timeoutMs, 202);
+  assert.ok(calls[0].timeoutMs >= 202 && calls[0].timeoutMs <= 404,
+    'the shared process has a bounded reserve while each caller keeps its own 202 ms deadline');
 });
 
 test('an all-heads observation satisfies later head subsets without another remote process', () => {
@@ -280,6 +281,152 @@ test('one remote session coalesces exact async observations while distinct remot
   assert.equal(calls.length, 2, 'the completed exact observation remains operation-scoped cached');
 });
 
+test('a cancelled first waiter does not cancel a shared remote observation for another caller', async () => {
+  let release;
+  let physicalAborts = 0;
+  let calls = 0;
+  const controller = new AbortController();
+  const session = new GitRemoteSession({
+    runAsyncCommand: (_args, { signal }) => new Promise((resolve) => {
+      calls += 1;
+      signal.addEventListener('abort', () => { physicalAborts += 1; }, { once: true });
+      release = () => resolve({
+        status: 0, stdout: `${'a'.repeat(40)}\trefs/heads/main\n`, stderr: '',
+        timedOut: false, failure: null
+      });
+    })
+  });
+  const remote = 'https://git.example.test/team/shared.git';
+  const first = session.observeAsync(remote, { signal: controller.signal, timeoutMs: 500 });
+  const second = session.observeAsync(remote, { timeoutMs: 500 });
+  controller.abort({ credential: 'must-not-escape' });
+  const cancelled = await first;
+  assert.equal(cancelled.failure.code, 'REMOTE_OPERATION_ABORTED');
+  assert.equal(JSON.stringify(cancelled).includes('must-not-escape'), false);
+  assert.equal(physicalAborts, 0);
+  release();
+  const observed = await second;
+  assert.equal(observed.ok, true);
+  assert.equal(calls, 1);
+  assert.equal(await session.observeAsync(remote), observed);
+});
+
+test('a cancelled follower does not poison a shared first waiter or its cache', async () => {
+  let release;
+  let physicalAborts = 0;
+  let calls = 0;
+  const controller = new AbortController();
+  const session = new GitRemoteSession({
+    runAsyncCommand: (_args, { signal }) => new Promise((resolve) => {
+      calls += 1;
+      signal.addEventListener('abort', () => { physicalAborts += 1; }, { once: true });
+      release = () => resolve({
+        status: 0, stdout: `${'b'.repeat(40)}\trefs/heads/main\n`, stderr: '',
+        timedOut: false, failure: null
+      });
+    })
+  });
+  const remote = 'https://git.example.test/team/follower.git';
+  const first = session.observeAsync(remote, { timeoutMs: 500 });
+  const second = session.observeAsync(remote, { signal: controller.signal, timeoutMs: 500 });
+  controller.abort();
+  assert.equal((await second).failure.code, 'REMOTE_OPERATION_ABORTED');
+  assert.equal(physicalAborts, 0);
+  release();
+  const observed = await first;
+  assert.equal(observed.ok, true);
+  assert.equal(calls, 1);
+  assert.equal(await session.observeAsync(remote), observed);
+});
+
+test('each shared waiter keeps its own deadline and the live waiter may still succeed', async () => {
+  let release;
+  let calls = 0;
+  let physicalAborts = 0;
+  const session = new GitRemoteSession({
+    runAsyncCommand: (_args, { signal }) => new Promise((resolve) => {
+      calls += 1;
+      signal.addEventListener('abort', () => { physicalAborts += 1; }, { once: true });
+      release = () => resolve({
+        status: 0, stdout: `${'c'.repeat(40)}\trefs/heads/main\n`, stderr: '',
+        timedOut: false, failure: null
+      });
+    })
+  });
+  const remote = 'https://git.example.test/team/deadline.git';
+  const longer = session.observeAsync(remote, { timeoutMs: 500 });
+  const shorter = session.observeAsync(remote, { timeoutMs: 25 });
+  const timedOut = await shorter;
+  assert.equal(timedOut.timedOut, true);
+  assert.equal(timedOut.failure.code, 'REMOTE_NETWORK_TRANSIENT');
+  assert.equal(physicalAborts, 0);
+  release();
+  assert.equal((await longer).ok, true);
+  assert.equal(calls, 1);
+});
+
+test('an overdue waiter refuses a completed probe after an event-loop stall', async () => {
+  // Attest configuration before the timed observation so this exercises a stalled probe, not
+  // the synchronous enterprise-config preflight. Promise callbacks can precede overdue timers.
+  const env = enterpriseGitEnvironment();
+  let calls = 0;
+  const session = new GitRemoteSession({
+    env,
+    runAsyncCommand: async () => {
+      calls += 1;
+      const blockedUntil = performance.now() + 150;
+      while (performance.now() < blockedUntil) { /* deliberately block the timer queue */ }
+      return {
+        status: 0, stdout: `${'d'.repeat(40)}\trefs/heads/main\n`, stderr: '',
+        timedOut: false, failure: null
+      };
+    }
+  });
+  const remote = 'https://git.example.test/team/late-success.git';
+  const observed = await session.observeAsync(remote, {
+    includeHead: false, refs: ['refs/heads/main'], timeoutMs: 100
+  });
+  assert.equal(calls, 1);
+  assert.equal(observed.ok, false);
+  assert.equal(observed.timedOut, true);
+  assert.equal(observed.failure.code, 'REMOTE_NETWORK_TRANSIENT');
+  assert.equal(session.observations.size, 0, 'late authority must not enter the session cache');
+});
+
+test('when every waiter cancels, the shared physical probe is aborted and not cached', async () => {
+  const controllers = [new AbortController(), new AbortController()];
+  let physicalAborts = 0;
+  let calls = 0;
+  const session = new GitRemoteSession({
+    runAsyncCommand: (_args, { signal }) => new Promise((resolve) => {
+      calls += 1;
+      signal.addEventListener('abort', () => {
+        physicalAborts += 1;
+        resolve({
+          status: 1, stdout: '', stderr: '', aborted: true, timedOut: false,
+          failure: { code: 'REMOTE_OPERATION_ABORTED', classification: 'cancelled', retryable: true }
+        });
+      }, { once: true });
+    })
+  });
+  const remote = 'https://git.example.test/team/all-cancel.git';
+  const first = session.observeAsync(remote, { signal: controllers[0].signal, timeoutMs: 500 });
+  const second = session.observeAsync(remote, { signal: controllers[1].signal, timeoutMs: 500 });
+  await Promise.resolve();
+  controllers[0].abort();
+  controllers[1].abort();
+  assert.equal((await first).failure.code, 'REMOTE_OPERATION_ABORTED');
+  assert.equal((await second).failure.code, 'REMOTE_OPERATION_ABORTED');
+  assert.equal(physicalAborts, 1);
+  assert.equal(session.observations.size, 0);
+  const nextController = new AbortController();
+  const next = session.observeAsync(remote, { signal: nextController.signal, timeoutMs: 500 });
+  await Promise.resolve();
+  assert.equal(calls, 2);
+  nextController.abort();
+  await next;
+});
+
 test('a pending all-heads observation coalesces concurrent subset requests', async () => {
   let release;
   let calls = 0;
@@ -299,6 +446,7 @@ test('a pending all-heads observation coalesces concurrent subset requests', asy
     includeHead: false, refs: ['refs/heads/main']
   });
 
+  await Promise.resolve();
   assert.equal(calls, 1);
   release();
   const [all, main] = await Promise.all([broad, subset]);
@@ -361,6 +509,7 @@ test('a narrow waiter retries after its pending broad observation fails', async 
   const narrow = session.observeAsync(remote, {
     includeHead: false, refs: ['refs/heads/main']
   });
+  await Promise.resolve();
   assert.equal(calls, 1);
   releaseBroad();
 
@@ -407,11 +556,13 @@ test('invalidating a remote prevents its older in-flight observation from repopu
   });
   const remote = 'https://example.com/acme/repository.git';
   const stale = session.observeAsync(remote);
+  await Promise.resolve();
   session.invalidate(remote);
   releases.shift()();
   await stale;
 
   const fresh = session.observeAsync(remote);
+  await Promise.resolve();
   assert.equal(calls, 2, 'invalidation forces a new observation after the stale request completes');
   releases.shift()();
   await fresh;
@@ -433,6 +584,7 @@ test('out-of-order refreshed observations never replace the newest requested gen
   const remote = 'https://example.com/acme/refresh-order.git';
   const older = session.observeAsync(remote, { refresh: true });
   const newer = session.observeAsync(remote, { refresh: true });
+  await Promise.resolve();
   releases[1]();
   const newestObservation = await newer;
   releases[0]();
@@ -458,6 +610,7 @@ test('a synchronous observation supersedes an older asynchronous request', async
   });
   const remote = 'https://example.com/acme/sync-wins.git';
   const older = session.observeAsync(remote);
+  await Promise.resolve();
   const newest = session.observe(remote, { refresh: true });
   release();
   await older;
@@ -911,6 +1064,32 @@ test('asynchronous remote execution refuses Windows PATH resolution failure befo
   assert.equal(result.status, 1);
   assert.equal(result.failure.classification, 'git-unavailable');
   assert.equal(result.failure.code, 'REMOTE_GIT_UNAVAILABLE');
+});
+
+test('synchronous Git launcher preflight consumes the async operation deadline', async () => {
+  let spawned = false;
+  const result = await runRemoteGitAsync(['ls-remote', 'origin'], {
+    platform: 'win32',
+    cwd: 'C:\\workspaces\\repository',
+    env: {
+      SystemRoot: 'C:\\Windows', PATH: 'C:\\Program Files\\Git\\cmd', PATHEXT: '.EXE'
+    },
+    timeoutMs: 10,
+    platformLookupCommand() {
+      const until = performance.now() + 20;
+      while (performance.now() < until) { /* model a synchronous enterprise launcher */ }
+      return {
+        status: 0, stdout: 'C:\\Program Files\\Git\\cmd\\git.exe\r\n', stderr: ''
+      };
+    },
+    spawnCommand() {
+      spawned = true;
+      throw new Error('expired preflight must not start a remote child');
+    }
+  });
+  assert.equal(spawned, false);
+  assert.equal(result.timedOut, true);
+  assert.equal(result.failure.code, 'REMOTE_NETWORK_TRANSIENT');
 });
 
 test('asynchronous remote execution terminates a command at its operation deadline', async () => {

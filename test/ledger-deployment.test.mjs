@@ -73,3 +73,22 @@ test('bare confirmation flags never prove a high-trust server policy', async () 
   assert.equal(result.confirmation, null);
   assert.equal(result.checks.find((check) => check.id === 'protected-branch-policy').status, 'fail');
 });
+
+test('deployment validation refuses credentialed remote URLs without exposing them', async () => {
+  const { root } = await repository();
+  run('git', ['remote', 'set-url', 'origin', 'https://operator:office-secret@corp.invalid/ledger.git'], { cwd: root });
+  const result = await validateLedgerDeployment(root, tier0);
+  assert.equal(result.valid, false);
+  assert.equal(result.checks.find((check) => check.id === 'remote-configured').status, 'fail');
+  assert.equal(result.checks.some((check) => check.id === 'remote-readable'), false);
+  assert.doesNotMatch(JSON.stringify(result), /office-secret|operator/);
+});
+
+test('deployment validation distinguishes inaccessible authority from an unpublished ledger branch', async () => {
+  const { root } = await repository();
+  run('git', ['remote', 'set-url', 'origin', path.join(root, 'nonexistent.git')], { cwd: root });
+  const result = await validateLedgerDeployment(root, tier0);
+  assert.equal(result.valid, false);
+  assert.equal(result.checks.find((check) => check.id === 'remote-readable').status, 'fail');
+  assert.match(result.checks.find((check) => check.id === 'ledger-branch').detail, /could not be checked/);
+});

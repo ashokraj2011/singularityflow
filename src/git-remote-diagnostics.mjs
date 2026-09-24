@@ -489,6 +489,12 @@ function environmentValue(env, name) {
   return values.length === 1 ? values[0] : null;
 }
 
+// The enterprise snapshot admits up to 256 reviewed system/global entries. A frozen fetch/push
+// transport appends one or two invocation-local aliases, and a bounded number of re-freezes may
+// retain earlier aliases in the same attested environment. The alias reader must not reject the
+// first valid push at count 258, but it must still have a finite scan ceiling.
+const MAX_FROZEN_CONFIG_ENTRIES = 272;
+
 function resolveSflowFrozenRemote(remote, env, push) {
   let current = assertCredentialFreeRemote(remote);
   const visited = new Set();
@@ -503,7 +509,7 @@ function resolveSflowFrozenRemote(remote, env, push) {
     visited.add(current);
     const countText = environmentValue(env, 'GIT_CONFIG_COUNT');
     const count = Number(countText);
-    if (!Number.isSafeInteger(count) || count < 1 || count > 256) {
+    if (!Number.isSafeInteger(count) || count < 1 || count > MAX_FROZEN_CONFIG_ENTRIES) {
       throw new SingularityFlowError(
         'The invocation-local Git authority alias has no bounded transport mapping.', {
           code: 'BOOTSTRAP_REMOTE_FROZEN_ALIAS_INVALID'
@@ -562,11 +568,21 @@ export function frozenRemoteTransport(remote, { push = false, env = process.env 
   const url = resolveSflowFrozenRemote(remote, enterpriseEnv, push);
   const alias = `sflow-frozen-${randomUUID()}:`;
   const inheritedCount = Number(enterpriseEnv.GIT_CONFIG_COUNT ?? 0);
-  const start = Number.isInteger(inheritedCount) && inheritedCount >= 0 ? inheritedCount : 0;
+  if (!Number.isSafeInteger(inheritedCount) || inheritedCount < 0) {
+    throw new SingularityFlowError('The invocation-local Git transport configuration is invalid.', {
+      code: 'BOOTSTRAP_REMOTE_FROZEN_ALIAS_INVALID'
+    });
+  }
+  const start = inheritedCount;
   const entries = [
     [`url.${url}.insteadOf`, alias],
     ...(push ? [[`url.${url}.pushInsteadOf`, alias]] : [])
   ];
+  if (start + entries.length > MAX_FROZEN_CONFIG_ENTRIES) {
+    throw new SingularityFlowError('The invocation-local Git transport configuration is full.', {
+      code: 'BOOTSTRAP_REMOTE_FROZEN_ALIAS_INVALID'
+    });
+  }
   const transportEnv = { ...enterpriseEnv, GIT_CONFIG_COUNT: String(start + entries.length) };
   for (let index = 0; index < entries.length; index += 1) {
     transportEnv[`GIT_CONFIG_KEY_${start + index}`] = entries[index][0];

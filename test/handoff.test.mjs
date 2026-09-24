@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -211,8 +211,14 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   });
   assert.equal(started.status, 0);
   assert.match(JSON.parse(started.stdout).additionalContext, /work-item selection is required/);
+  // An older application checkout may contain a malformed workflow copy. Session discovery must
+  // use the approved sflow/config ref instead of treating that working-tree file as authority.
+  await mkdir(path.join(second, 'singularity'));
+  await writeFile(path.join(second, 'singularity', 'workflow.yml'), 'workflow: [unfinished\n');
   const candidates = JSON.parse(run(process.execPath, [bin, 'session', 'candidates', '--json'], second, isolated).stdout);
   assert.ok(candidates.some((item) => item.id === 'BOOT-101'));
+  await unlink(path.join(second, 'singularity', 'workflow.yml'));
+  await rmdir(path.join(second, 'singularity'));
   assert.match(run(process.execPath, [bin, 'resume', 'BOOT-101', '--fetch'], second, isolated).stdout, /BOOT-101/);
   run('git', ['switch', 'main'], second);
   run('git', ['remote', 'set-url', 'origin', path.join(base, 'temporarily-offline.git')], second);

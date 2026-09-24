@@ -780,7 +780,7 @@ Proceed only when the capability is present in the active tree, every delivery
 repository resolves, and the configuration/state authorities are ready. A proposal
 branch by itself is not an onboarded capability.
 
-#### 6. Prepare and materialize the workspace
+#### 6. Register the workspace
 
 ```bash
 singularity-flow workspace prepare \
@@ -790,7 +790,6 @@ singularity-flow workspace prepare \
   --capability payments-api \
   --lead-capability payments-api \
   --base "/approved/workspaces" \
-  --initialize \
   --json
 ```
 
@@ -804,11 +803,13 @@ singularity-flow workspace bootstrap resume "<BOOTSTRAP-ID>" \
   --json
 ```
 
-Selecting a collection includes its descendants. Selecting a delivery includes all
-repositories it ships from. `--lead-capability` identifies the repository used as
-the workspace's default governed context; it must be one of the selected delivery
-capabilities. Interrupted setup is resumed with the same bootstrap ID rather than
-starting another clone transaction.
+The normal resume registers the workspace and its repository bindings without
+cloning application code. Selecting a collection includes its descendants.
+Selecting a delivery includes all repositories it ships from. `--lead-capability`
+identifies the repository used as the workspace's default governed context; it
+must be one of the selected delivery capabilities. Interrupted setup is resumed
+with the same bootstrap ID. Use explicit `--clone` for a checkout now, or
+`--initialize` to check out and initialize its state branch immediately.
 
 #### 7. Select and verify the workspace
 
@@ -818,9 +819,15 @@ singularity-flow workspace current --json
 singularity-flow workspace list --json
 ```
 
-The current result must name the workspace, lead repository, selected repository,
-and local repository path. Work can then start with `/sf-start` in Copilot or the
-Lifecycle **Start work** action in VS Code.
+The current result names the workspace, lead repository, selected repository,
+and planned local repository path. A newly registered repository may be marked
+`missing` until work needs its files. `/sf-start` in Copilot and Lifecycle
+**Start work** in VS Code materialize the repositories needed by an unambiguous
+Story capability before reading workflow policy or starting the Story. If intake
+has no exact capability binding, VS Code prepares the required workspace set
+rather than guessing; unrelated repositories otherwise remain planned.
+For explicit early code access, run `singularity-flow workspace repair
+<WORKSPACE-DIRECTORY> --repository <REPOSITORY-ID>`.
 
 #### VS Code and Copilot path
 

@@ -8443,7 +8443,7 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~734 body tokens</span>
+          <span class="pill">~789 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-start</code></dd></div>
@@ -8469,15 +8469,15 @@ argument-hint: &quot;&lt;WORK-ID&gt; [--jira | manual story details] [documents 
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Require a work ID and opened Git root, else use the verified `repositoryPath`. Run `singularity-flow version` and `git status --short`; stop on failure or dirt.
+1. Require a work ID. Read `singularity-flow workspace current --json`. If its selected repository is planned (`missing` or `empty`), run `singularity-flow workspace repair &lt;WORKSPACE-PATH&gt; --repository &lt;REPOSITORY-ID&gt; --level readiness --json` at this Start Work boundary. Re-read the selection; use only a ready `repositoryPath`, else the opened Git root. Run `singularity-flow version` and `git status --short`; stop on failure or dirt.
 2. Run `singularity-flow session candidates --json`. If the ID exists, route to `/sf-session` or `singularity-flow resume &lt;WORK-ID&gt;`; never restart it.
-3. Run `singularity-flow workspace branches --json --intake`. With approved remote configuration, a code-only application branch is valid. On authority failure show Shell `singularity-flow workspace reinitialize --dry-run --json` and Copilot `/sf-admin`; never run `init` merely because `singularity/workflow.yml` is absent locally.
-4. Never infer or preselect. Choose one base and one workflow: choose `&lt;BASE&gt;`; run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt;` without `--work-type`; choose `&lt;WORKFLOW&gt;` only from its exact-base `intake.storyWorkflows`.
+3. Run `singularity-flow workspace branches --json --intake`. Its `repositories` are required. Check `singularity-flow workspace status &lt;WORKSPACE-PATH&gt; --level readiness --json`; repair each required `missing`/`empty` member with `singularity-flow workspace repair &lt;WORKSPACE-PATH&gt; --repository &lt;REPOSITORY-ID&gt; --level readiness --json` before preflight. Leave others planned. On authority failure show Shell `singularity-flow workspace reinitialize --dry-run --json` and Copilot `/sf-admin`; never run `init` for an absent local workflow file.
+4. Never preselect. Choose `&lt;BASE&gt;`; run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt;` without `--work-type`. Choose `&lt;WORKFLOW&gt;` from its exact-base `intake.storyWorkflows`.
 5. With `ask_user`, collect Jira or manual `desiredOutcome`, `acceptanceCriteria`, scope, risks, and documents. A read-only reference needs ID, credential-free URL, and branch; pair `--reference-repository ID=URL --reference-branch ID=BRANCH`. Never search the workspace, home directory, filesystem root, or temporary directories. Pass `--jira`/`--story-file` and documents.
-6. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt;`. World Model, AST, model-provider, telemetry, and Copilot availability are advisory. On missing/stale repository readiness, stop before worktree creation and show `/sf-ready` plus `singularity-flow precheck --run --scope dependency-test --json`. Never apply a persistent configuration upgrade from this skill.
-7. Start with the same base/workflow; never ask for, infer, or accept a second workflow choice. Start recomputes the same readiness immediately before mutation. `poc-workflow` needs `--target-url`; the phase-default governed agent is automatic. If `ask_user` is unavailable or disabled, use step 8 or stop.
-8. Without `ask_user`, require pinned configuration. Run `singularity-flow choices begin start &lt;WORK-ID&gt; --json`, then `singularity-flow choices answer &lt;TOKEN&gt;` and pass `--selection-receipt &lt;TOKEN&gt;`; it lasts 15 minutes and the command consumes the receipt exactly once.
-9. Report readiness, exact base, receipt, and next action. Enrollment occurs only after the read-only publication preflight succeeds. Offer `/sf-next` and `/sf-phase`.
+6. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt;`. World Model, AST, model, telemetry, and Copilot availability are advisory. On missing/stale readiness, stop and show `/sf-ready` plus `singularity-flow precheck --run --scope dependency-test --json`. Never apply a persistent configuration upgrade here.
+7. Start with the same base/workflow; never change the workflow choice. Start recomputes readiness before mutation. `poc-workflow` needs `--target-url`; the phase-default agent is automatic. If `ask_user` is unavailable, use step 8 or stop.
+8. Without `ask_user`, require pinned configuration: `singularity-flow choices begin start &lt;WORK-ID&gt; --json`, `singularity-flow choices answer &lt;TOKEN&gt;`, then pass `--selection-receipt &lt;TOKEN&gt;` (15-minute, single-use).
+9. Report readiness, base, receipt, and next action. Enroll only after preflight passes. Offer `/sf-next` and `/sf-phase`.
 </code></pre>
       </div>
     </details>
@@ -9434,7 +9434,7 @@ stale plan, invalid bundle, or configuration-authority refusal.
           <span class="pill">interactive</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~736 body tokens</span>
+          <span class="pill">~756 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workspace</code></dd></div>
@@ -9469,8 +9469,8 @@ disable-model-invocation: true
 
    `singularity-flow workspace use &lt;WORKSPACE-ID&gt; --repository &lt;REPOSITORY-ID&gt; [--story &lt;STORY-ID&gt;] --json`
 
-8. Reproduce the returned `prompt`, workspace, repository, path, branch, and Story in the visible response. Treat the returned repository path as the working directory for subsequent shell commands in this Copilot session.
-9. Do not launch a nested Copilot process from inside Copilot. Explain that a new terminal session can start directly in this context with `singularity-flow workspace copilot`; its Copilot session name contains the workspace and Story.
+8. Reproduce the returned `prompt`, workspace, repository, path, `repositoryState`, branch, and Story. A planned `missing` checkout is selectable but not a shell cwd. Use a ready `repositoryPath` for later shell commands.
+9. Do not launch nested Copilot. A new terminal session can start with `singularity-flow workspace copilot` in a ready checkout. For a planned checkout, use `/sf-start` or `singularity-flow workspace repair &lt;WORKSPACE-PATH&gt; --repository &lt;REPOSITORY-ID&gt;` first. The Copilot session name contains workspace and Story.
 10. Be explicit that GitHub Copilot does not support replacing its native `&gt;` input marker. The Singularity Flow context label is a session banner/name and governed prompt context, not a modification of Copilot&#39;s built-in UI.
 </code></pre>
       </div>

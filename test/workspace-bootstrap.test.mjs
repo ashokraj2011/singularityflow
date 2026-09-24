@@ -176,6 +176,7 @@ test('the public CLI prepares and reads the same durable bootstrap receipt', asy
   assert.equal(prepared.status, 'waiting-user');
   assert.equal(prepared.preflight.ready, true);
   assert.equal(prepared.scope.kind, 'workspace-bootstrap');
+  assert.equal(prepared.plan.checkout.enabled, false);
   assert.match(prepared.planHash, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(prepared.attemptBudget, { used: 0, maximum: 3 });
 
@@ -184,6 +185,27 @@ test('the public CLI prepares and reads the same durable bootstrap receipt', asy
   ], { cwd: fixture.root, env }).stdout);
   assert.equal(status.integrity.sha256, prepared.integrity.sha256);
   assert.equal(status.plan.workspace.confirmation, 'cli-demo');
+  const registered = JSON.parse(run(process.execPath, [
+    cli, 'workspace', 'bootstrap', 'resume', prepared.bootstrapId,
+    '--confirm', 'cli-demo', '--json'
+  ], { cwd: fixture.root, env }).stdout);
+  assert.equal(registered.status, 'registered');
+  assert.equal(registered.result.status.repositories[0].state, 'missing');
+  const refused = run(process.execPath, [
+    cli, 'workspace', 'prepare', fixture.remote,
+    '--id', 'invalid-initialize', '--base', path.join(fixture.root, 'workspaces'),
+    '--no-clone', '--initialize', '--json'
+  ], { cwd: fixture.root, env, allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /--no-clone cannot be combined with --initialize/);
+  const explicitInitialization = JSON.parse(run(process.execPath, [
+    cli, 'workspace', 'prepare', fixture.remote,
+    '--id', 'explicit-initialize', '--base', path.join(fixture.root, 'workspaces'),
+    '--initialize', '--json'
+  ], { cwd: fixture.root, env }).stdout);
+  assert.equal(explicitInitialization.plan.checkout.enabled, true,
+    'the explicit legacy initialization request still plans a checkout');
+  assert.equal(explicitInitialization.plan.initialization.enabled, true);
 });
 
 test('prepare persists a resumable plan before destination mutation and resume links the clone journal', async () => {
@@ -221,6 +243,33 @@ test('prepare persists a resumable plan before destination mutation and resume l
   }).stdout.trim(), 'trunk');
   const registry = JSON.parse(await readFile(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, 'utf8'));
   assert.equal(registry.workspaces.length, 1);
+});
+
+test('deferred bootstrap registers the workspace without cloning application code', async () => {
+  const fixture = await remoteFixture('trunk');
+  const env = environment(fixture.root);
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'remote', reference: fixture.remote },
+    createInput: input(fixture.root, fixture.remote),
+    inferDefaultRepositories: ['application'],
+    checkout: false
+  }, { env });
+  assert.equal(prepared.plan.checkout.enabled, false);
+  const resumed = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+    confirmation: 'demo', env
+  });
+  assert.equal(resumed.status, 'registered');
+  assert.equal(resumed.result.status.healthy, false);
+  assert.equal(resumed.result.status.repositories[0].state, 'missing');
+  assert.equal(await stat(path.join(resumed.result.workspace.path, 'repos', 'application'))
+    .catch(() => null), null);
+  assert.match(resumed.nextAction.label, /checkout is deferred/);
+  assert.equal((await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+    confirmation: 'demo', env
+  })).status, 'registered');
+  await assert.rejects(() => abandonWorkspaceBootstrap(prepared.bootstrapId, {
+    reason: 'registered', env
+  }), /cannot be abandoned/);
 });
 
 test('bootstrap preflight observes each unique remote once even when multiple repositories share it', async () => {

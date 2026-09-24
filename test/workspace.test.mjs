@@ -395,6 +395,115 @@ async function remoteRepository(base, name) {
   return bare;
 }
 
+test('Story entry materializes only the selected capability repository closure', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-deferred-story-entry-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const platform = await remoteRepository(root, 'platform');
+  const analytics = await remoteRepository(root, 'analytics');
+  const docs = await remoteRepository(root, 'docs');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' },
+    analytics: { url: analytics, defaultBranch: 'main', required: true, path: 'repos/analytics' },
+    docs: { url: docs, defaultBranch: 'main', required: true, path: 'repos/docs' }
+  }), { confirmation: 'PAY-100', clone: false });
+  // This routing test supplies the local capability closure directly; approved map validation is
+  // exercised by Story start, after this checkout entry has materialized its requested members.
+  const manifestFile = path.join(created.workspace.path, 'workspace.json');
+  const manifest = await readWorkspace(created.workspace.path);
+  manifest.capabilities = ['payments', 'docs'];
+  manifest.repositories.platform.capabilities = ['payments'];
+  manifest.repositories.analytics.capabilities = ['payments'];
+  manifest.repositories.docs.capabilities = ['docs'];
+  await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'selection.json');
+  await rememberWorkspace(registry, created.workspace, created.status);
+  await activateWorkspaceContext(registry, selection, created.workspace.path, {
+    repositoryId: 'platform'
+  });
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry
+  };
+  const platformPath = path.join(created.workspace.path, 'repos', 'platform');
+  const docsPath = path.join(created.workspace.path, 'repos', 'docs');
+  assert.equal(await stat(platformPath).catch(() => null), null);
+  await assert.rejects(() => activeWorkspaceRepositoryRoot('status', { env }),
+    (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE');
+  await assert.rejects(() => activeWorkspaceRepositoryRoot('start', {
+    env, options: { 'dry-run': true }
+  }), (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE');
+  assert.equal(await stat(platformPath).catch(() => null), null,
+    'read and preview routes cannot cause a checkout');
+
+  assert.equal(await activeWorkspaceRepositoryRoot('start', { env }), platformPath);
+  assert.equal(await activeWorkspaceRepositoryRoot('start', { env }), platformPath,
+    'a second entry reuses the ready checkout');
+  assert.equal((await workspaceStatus(created.workspace.path, { level: 'readiness' }))
+    .repositories.find((repository) => repository.id === 'platform')?.state, 'ready');
+  assert.equal((await workspaceStatus(created.workspace.path, { level: 'readiness' }))
+    .repositories.find((repository) => repository.id === 'analytics')?.state, 'ready',
+    'Story start materializes every member of the selected capability');
+  assert.equal(await stat(docsPath).catch(() => null), null,
+    'unrelated capability repositories remain unmaterialized');
+
+  const ambiguous = await readWorkspace(created.workspace.path);
+  ambiguous.repositories.platform.capabilities = ['docs', 'payments'];
+  await writeFile(manifestFile, `${JSON.stringify(ambiguous, null, 2)}\n`);
+  await activateWorkspaceContext(registry, selection, created.workspace.path, {
+    repositoryId: 'platform'
+  });
+  await assert.rejects(() => activeWorkspaceRepositoryRoot('start', { env }),
+    (error) => error.code === 'CAPABILITY_SELECTION_REQUIRED');
+  assert.equal(await activeWorkspaceRepositoryRoot('start', {
+    env, options: { capability: 'payments' }
+  }), platformPath, 'an explicit capability selects only its closure');
+  assert.equal(await stat(docsPath).catch(() => null), null);
+
+  await activateWorkspaceContext(registry, selection, created.workspace.path, {
+    repositoryId: 'docs'
+  });
+  await writeFile(docsPath, 'unrelated local data\n');
+  await assert.rejects(() => activeWorkspaceRepositoryRoot('start', { env }),
+    (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE');
+  assert.equal(await readFile(docsPath, 'utf8'), 'unrelated local data\n',
+    'an occupied target is preserved for manual review');
+});
+
+test('rootless CLI Story start materializes a deferred selection after read-only intake does not', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-rootless-deferred-start-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = await remoteRepository(root, 'delivery');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: remote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  }), { confirmation: 'PAY-100', clone: false });
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'selection.json');
+  await rememberWorkspace(registry, created.workspace, created.status);
+  await activateWorkspaceContext(registry, selection, created.workspace.path);
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry
+  };
+  const target = path.join(created.workspace.path, 'repos', 'platform');
+  const intake = spawnSync(process.execPath, [cli, 'workspace', 'branches', '--json', '--intake'], {
+    cwd: root, env, encoding: 'utf8', timeout: 15_000
+  });
+  assert.notEqual(intake.status, 0,
+    'the present checkout-bound intake route cannot answer from a neutral directory');
+  assert.equal(await stat(target).catch(() => null), null,
+    'an intake read does not clone the selected repository');
+  const started = spawnSync(process.execPath, [cli, 'start', 'DEFERRED-1', '--json'], {
+    cwd: root, env, encoding: 'utf8', timeout: 30_000
+  });
+  assert.notEqual(started.status, 0,
+    'the fixture has no workflow and cannot complete a governed Story start');
+  assert.ok(await stat(path.join(target, '.git')),
+    `the CLI entry must materialize before the Story handler runs: ${started.stderr}`);
+});
+
 async function approveCapabilityAuthority(base, leadRemote, capabilities, repositories) {
   await ensureConfigurationBranch(leadRemote);
   const checkout = await mkdtemp(path.join(base, 'capability-authority-'));

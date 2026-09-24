@@ -42,6 +42,27 @@ const { renderReworkRollForwardPreview } = await import(source('views/rework-rol
 const { verifyCapabilityAuthorityLease } = await import(source('views/workspaces-model.ts'));
 const { unavailableCapabilityAuthorityMessage } =
   await import(source('views/capability-authority-diagnostics.ts'));
+const { deferredWorkspaceRepositories } = await import(source('views/workspace-start.ts'));
+
+test('deferred Start Work checks out only an exact selected capability closure', () => {
+  const repositories = [
+    { id: 'lead', state: 'missing', required: true, capabilities: ['orders'] },
+    { id: 'worker', state: 'missing', required: true, capabilities: ['orders'] },
+    { id: 'billing', state: 'missing', required: true, capabilities: ['billing'] },
+    { id: 'optional', state: 'missing', required: false, capabilities: ['support'] }
+  ];
+  const selected = { repositoryId: 'lead', repositoryCapabilities: ['orders'] };
+  assert.deepEqual(deferredWorkspaceRepositories(repositories, selected).map((entry) => entry.id),
+    ['lead', 'worker']);
+  assert.deepEqual(deferredWorkspaceRepositories(repositories, selected, 'billing').map((entry) => entry.id),
+    ['lead', 'billing'], 'an explicit wizard delivery keeps the selected lead available');
+  assert.deepEqual(deferredWorkspaceRepositories(repositories, {
+    repositoryId: 'lead', repositoryCapabilities: ['orders', 'billing']
+  }).map((entry) => entry.id), ['lead', 'worker', 'billing'],
+  'ambiguous bindings retain the full required set');
+  assert.deepEqual(deferredWorkspaceRepositories(repositories, selected, 'collection').map((entry) => entry.id),
+    ['lead', 'worker', 'billing'], 'collection binding cannot be inferred from leaf deliveries');
+});
 
 test('capability attachment upgrades an exact legacy state lease without accepting drift', () => {
   const configurationCommit = 'a'.repeat(40);
@@ -3009,9 +3030,11 @@ test('the VS Code workspace form prepares and preflights before it materializes'
   ]);
   assert.match(command.join(' '), /--id checkout-platform --base \/work/);
   assert.match(command.join(' '), /--capability payments --capability storefront/);
-  assert.match(command.join(' '), /--initialize --state-branch state/);
+  assert.doesNotMatch(command.join(' '), /--initialize|--clone/,
+    'workspace registration defers application checkout and state initialization');
   assert.doesNotMatch(command.join(' '), /--confirm/,
     'preflight must persist before the editor asks for materialization confirmation');
+  assert.match(workspaceFormHtml(withMap(['payments'])), /without downloading application code/);
 });
 
 test('an organisation read but nothing chosen from cannot be created', () => {
@@ -3076,7 +3099,7 @@ test('capabilities are picked from a dropdown, and each pick shows what it drags
 test('the state branch is stated as a consequence, not asked for as a field', () => {
   const html = workspaceFormHtml(withMap(['payments']));
   assert.doesNotMatch(html, /data-draft="state-branch"/);
-  assert.match(html, /orphan\s+<code>state<\/code> branch is created\s+in <code>api<\/code> and pushed/);
+  assert.match(html, /<code>api<\/code>\) is checked out when work starts/);
 });
 
 test('the workspace form asks for a directory, an organisation and capabilities — no repositories', () => {
@@ -3114,7 +3137,7 @@ test('a form still missing something disables the button and lists why', () => {
 
   const ready = workspaceFormHtml(withMap(['payments']));
   assert.match(ready, /1 repository is included for <code>\/work\/checkout-platform<\/code>/);
-  assert.match(ready, /preflight will prove which checkouts are cloned or reused/);
+  assert.match(ready, /without downloading application code/);
   assert.match(ready, /led by <code>Payments API<\/code>/);
   assert.match(ready, /<button data-submit="create" >/);
 });

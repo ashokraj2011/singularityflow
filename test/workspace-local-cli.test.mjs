@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -99,6 +99,28 @@ test('a workspace can be created with no tracker at all', async () => {
   const status = JSON.parse(cli(['workspace', 'status', path.join(workspaces, 'demo-team'), '--json'], env).stdout);
   assert.equal(status.repositories.length, 1);
   assert.equal(status.repositories[0].id, 'app');
+  assert.equal(status.repositories[0].state, 'missing',
+    'workspace creation records the repository without downloading application code');
+  assert.equal(await stat(path.join(workspaces, 'demo-team', 'repos', 'app')).catch(() => null), null);
+});
+
+test('workspace create can explicitly clone and targeted repair materializes only the requested repository', async () => {
+  const { base, source, env } = await environment();
+  const workspaces = path.join(base, 'workspaces-on-demand');
+  const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'deferred',
+    '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
+    '--confirm', 'deferred', '--json'], env).stdout);
+  assert.equal(created.status.repositories[0].state, 'missing');
+  const repaired = JSON.parse(cli(['workspace', 'repair', created.workspace.path,
+    '--repository', 'app', '--level', 'readiness', '--json'], env).stdout);
+  assert.deepEqual(repaired.repaired.map((entry) => entry.repository), ['app']);
+  assert.equal(repaired.status.level, 'readiness');
+  assert.equal(repaired.status.repositories[0].state, 'ready');
+
+  const cloned = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'immediate',
+    '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
+    '--confirm', 'immediate', '--clone', '--json'], env).stdout);
+  assert.equal(cloned.status.repositories[0].state, 'ready');
 });
 
 test('workspace create still refuses an ambiguous invocation', async () => {
@@ -185,7 +207,8 @@ test('archive and restore round-trip, and archiving demands exact confirmation',
   const { base, source, env } = await environment();
   const workspaces = path.join(base, 'workspaces');
   cli(['workspace', 'create', '--local', '--id', 'demo-team',
-    '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`, '--confirm', 'demo-team'], env);
+    '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
+    '--confirm', 'demo-team', '--clone'], env);
   const directory = path.join(workspaces, 'demo-team');
 
   const refused = cli(['workspace', 'archive', directory, '--confirm', 'wrong'], env, { allowFailure: true });

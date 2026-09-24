@@ -279,7 +279,7 @@ export function formCommand(form: WorkspaceForm): string[] {
 export function formPrepareCommand(form: WorkspaceForm): string[] {
   const args = [
     'workspace', 'prepare', form.organisation ?? '', '--json',
-    '--id', form.id.trim(), '--base', form.base ?? '', '--initialize', '--state-branch', 'state'
+    '--id', form.id.trim(), '--base', form.base ?? ''
   ];
   if (form.name.trim()) args.push('--name', form.name.trim());
   for (const id of form.selected) args.push('--capability', id);
@@ -396,11 +396,9 @@ function leadHtml(form: WorkspaceForm): string {
         ${shipping.map((capability) => `<option value="${escape(capability.id)}"${capability.id === lead?.id ? ' selected' : ''}>${escape(capability.name)} (${escape(capability.repository ?? '')}${capability.repositories.length > 1 ? ` + ${capability.repositories.length - 1} more` : ''})</option>`).join('')}
       </select></label>
     </p>
-    <p class="muted">The workspace's centre of gravity. When the workspace is initialised, the orphan
-      <code>state</code> branch is created
-      ${lead ? `in <code>${escape(lead.repository ?? '')}</code>` : 'in its repository'} and pushed,
-      if it is not there already. It shares no ancestry with any code branch and is never merged into
-      one, so a rebase of the work cannot rewrite the record of it.</p>`;
+    <p class="muted">The workspace's centre of gravity. Its repository
+      ${lead ? `(<code>${escape(lead.repository ?? '')}</code>)` : ''} is checked out when work starts.
+      The governed <code>state</code> branch is initialized then if needed.</p>`;
 }
 
 function repositoryRows(form: WorkspaceForm): string {
@@ -483,8 +481,8 @@ export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgr
 
   <section>
     <h2>${icon('git')}Repositories</h2>
-    <p class="question">What the chosen capabilities ship from. A new target clones them; a matching
-      managed workspace reuses valid checkouts and repairs or clones only what is missing.</p>
+    <p class="question">What the chosen capabilities ship from. Creating this workspace records the
+      repository choices. The needed checkouts are created when work starts.</p>
     <p><button class="secondary" data-open="repository">${icon('repository')}Choose another repository to map…</button></p>
     <table>
       <thead><tr><th></th><th>Identifier</th><th>Origin</th><th>Branch</th><th>Clone strategy</th></tr></thead>
@@ -495,7 +493,7 @@ export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgr
   <section>
     ${problems.length
     ? `<h2>${icon('bad')}Before this can be created</h2><ul class="blockers">${problems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
-    : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${repositories.length} ${repositories.length === 1 ? 'repository is' : 'repositories are'} included for <code>${escape(form.base ?? '')}/${escape(form.id.trim())}</code>, led by <code>${escape(lead?.name ?? '')}</code>. For a new target, ${repositories.length} ${repositories.length === 1 ? 'repository will' : 'repositories will'} be cloned. A matching managed workspace may reuse valid checkouts. The materialization preflight will prove which checkouts are cloned or reused; missing or invalid managed checkouts may be repaired.</p>`}
+    : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${repositories.length} ${repositories.length === 1 ? 'repository is' : 'repositories are'} included for <code>${escape(form.base ?? '')}/${escape(form.id.trim())}</code>, led by <code>${escape(lead?.name ?? '')}</code>. Creating this workspace records the selection without downloading application code. Existing managed checkouts remain available; missing ones are created when work starts.</p>`}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
     <p>
       <button data-submit="create" ${problems.length || form.busy ? 'disabled' : ''}>

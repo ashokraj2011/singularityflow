@@ -21,6 +21,13 @@ cross-check.
 
 The optimized paths preserve exact-ref authority and mutation preflights:
 
+- normal workspace creation registers a manifest and planned checkouts; it does not clone
+  application repositories. Start Work materializes the repositories required for the selected
+  Story capability when unambiguous; explicit materialization can clone one repository when its files are needed. An explicit
+  `--clone` request retains immediate materialization;
+- repeated capability inspection reobserves the governing remote refs and reuses a locally
+  verified authority snapshot only when the exact commits still match. Creating a capability
+  review proposal still needs a temporary configuration checkout to form its Git commit;
 - delivery-repository capability links use a bounded, machine-private bare object cache keyed by
   credential-free repository identity and observed state-branch commit. The remote ref is still
   observed on every operation; a warm cache never authorizes offline work. Set

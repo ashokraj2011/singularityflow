@@ -5105,12 +5105,13 @@ export async function repairWorkspace(workspacePath, {
   adoptionOperation = verifyAdoptionOperation,
   recoverCapabilityDrops = true,
   repositoryIds = null,
-  expectedMissingRepositoryIds = []
+  expectedMissingRepositoryIds = [],
+  statusLevel = 'full'
 } = {}) {
   // Finish or roll back a hash-bound local-drop transaction before classifying missing clones.
   // Recovery uses the same manifest lease as detach, so repair cannot race a live transition.
   if (recoverCapabilityDrops) await recoverWorkspaceCapabilityDropTransactions(workspacePath);
-  const status = await workspaceStatus(workspacePath);
+  const status = await workspaceStatus(workspacePath, { level: statusLevel, env });
   const sourceManifestSha256 = workspaceCapabilityChangeSha256(status.workspace);
   const selectedRepositoryIds = repositoryIds == null
     ? null : new Set(repositoryIds.map((id) => String(id)));
@@ -5296,7 +5297,7 @@ export async function repairWorkspace(workspacePath, {
       .filter((stagedResult) => !claimedStagedResults.has(stagedResult))
       .map(discardStagedWorkspaceClone));
   }
-  return { repaired, status: await workspaceStatus(workspacePath) };
+  return { repaired, status: await workspaceStatus(workspacePath, { level: statusLevel, env }) };
 }
 
 export async function fetchWorkspace(workspacePath, { env = process.env } = {}) {

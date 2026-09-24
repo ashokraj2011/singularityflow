@@ -21,6 +21,6 @@ disable-model-invocation: true
 
    `singularity-flow workspace use <WORKSPACE-ID> --repository <REPOSITORY-ID> [--story <STORY-ID>] --json`
 
-8. Reproduce the returned `prompt`, workspace, repository, path, branch, and Story in the visible response. Treat the returned repository path as the working directory for subsequent shell commands in this Copilot session.
-9. Do not launch a nested Copilot process from inside Copilot. Explain that a new terminal session can start directly in this context with `singularity-flow workspace copilot`; its Copilot session name contains the workspace and Story.
+8. Reproduce the returned `prompt`, workspace, repository, path, `repositoryState`, branch, and Story. A planned `missing` checkout is selectable but not a shell cwd. Use a ready `repositoryPath` for later shell commands.
+9. Do not launch nested Copilot. A new terminal session can start with `singularity-flow workspace copilot` in a ready checkout. For a planned checkout, use `/sf-start` or `singularity-flow workspace repair <WORKSPACE-PATH> --repository <REPOSITORY-ID>` first. The Copilot session name contains workspace and Story.
 10. Be explicit that GitHub Copilot does not support replacing its native `>` input marker. The Singularity Flow context label is a session banner/name and governed prompt context, not a modification of Copilot's built-in UI.

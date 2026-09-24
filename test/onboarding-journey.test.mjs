@@ -183,7 +183,7 @@ test('capability review through workspace creation reaches a governed first Stor
       '--base', path.join(base, 'workspaces'),
       '--capability', 'payments-api',
       '--lead-capability', 'payments-api',
-      '--initialize'
+      '--clone', '--initialize'
     ]);
     assert.equal(prepared.status, 'waiting-user');
     assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));

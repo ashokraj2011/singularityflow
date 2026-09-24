@@ -39,6 +39,7 @@ import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { BUILD_INFO } from './build-info.mjs';
 import {
   forgetLeadRepository, listLeadRepositoryRegistryRecords, rememberLeadRepository
 } from './lead-repositories.mjs';
@@ -49,8 +50,9 @@ import {
 } from './repository-onboarding-cleanup.mjs';
 import { renderPlatformCommand } from './safe-command-guidance.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { workspaceRegistryFile } from './workspace-context.mjs';
 import {
-  isGitRefName, removeTemporaryTree, run, SingularityFlowError
+  isGitRefName, removeTemporaryTree, run, SingularityFlowError, writeAtomic
 } from './util.mjs';
 
 export const REPOSITORY_ONBOARDING_PLAN_KIND = 'repository-onboarding-plan/v1';
@@ -77,6 +79,7 @@ const SNAPSHOT_MAX_BYTES = 128 * 1024 * 1024;
 const SNAPSHOT_MAX_ADMISSION_WORK_BYTES = 2 * SNAPSHOT_MAX_BYTES;
 const SNAPSHOT_REMOTE_NAME = 'sflow-snapshot';
 const SNAPSHOT_TREE_LIST_MAX_BYTES = 16 * 1024 * 1024;
+const CLASSIFICATION_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 const TEMPORARY_CLEANUP_WARNING =
   'Repository inspection completed, but another process still has its disposable snapshot open. '
   + 'The onboarding decision is valid; SFlow queued cleanup and will retry after the locking process exits.';
@@ -98,6 +101,96 @@ const TEMPORARY_MUTATION_CLEANUP_UNQUEUED_WARNING =
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function classificationBuildIdentity() {
+  if (/^[0-9a-f]{64}$/u.test(String(BUILD_INFO.sourceSha256 ?? ''))) {
+    return `source:${BUILD_INFO.sourceSha256}`;
+  }
+  if (BUILD_INFO.dirty === false && /^[0-9a-f]{40,64}$/u.test(String(BUILD_INFO.commit ?? ''))) {
+    return `commit:${BUILD_INFO.commit}`;
+  }
+  // A development checkout or a dirty commit stamp does not identify its actual code bytes.
+  return null;
+}
+
+function classificationCacheIdentity(repository, branch, observation, buildIdentity) {
+  if (!/^(?:source:[0-9a-f]{64}|commit:[0-9a-f]{40,64})$/u.test(String(buildIdentity ?? ''))) {
+    return null;
+  }
+  return {
+    repositoryFingerprint: remoteFingerprint(repository),
+    stateBranch: branch,
+    stateCommit: observation.refs.get(`refs/heads/${branch}`) ?? null,
+    configurationCommit: observation.refs.get(CONFIGURATION_REF) ?? null,
+    buildIdentity
+  };
+}
+
+function classificationCacheFile(identity, env) {
+  const root = path.join(path.dirname(workspaceRegistryFile(env)),
+    'repository-onboarding-classification-v1');
+  return path.join(root, `${sha256(JSON.stringify([
+    identity.repositoryFingerprint, identity.stateBranch
+  ]))}.json`);
+}
+
+async function usableClassificationCacheDirectory(file, { create = false } = {}) {
+  const directory = path.dirname(file);
+  let info = await lstat(directory).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!info && create) {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    info = await lstat(directory);
+  }
+  return info?.isDirectory() === true && !info.isSymbolicLink();
+}
+
+function cacheableClassification(state, configuration) {
+  return configuration?.status === 'current'
+    && configuration.validationError == null
+    && (configuration.seedChanges?.length ?? 0) === 0
+    && ['none', 'lifecycle-only', 'delivery-locator', 'configuration-mirror'].includes(state?.kind)
+    && (state.kind !== 'configuration-mirror'
+      || (state.repositoryBound === true && state.compatibility === 'current'
+        && state.validationError == null && (state.seedChanges?.length ?? 0) === 0));
+}
+
+async function readClassificationCache(identity, env) {
+  if (!identity) return null;
+  try {
+    const file = classificationCacheFile(identity, env);
+    if (!await usableClassificationCacheDirectory(file)) return null;
+    const info = await lstat(file);
+    if (!info.isFile() || info.isSymbolicLink()
+        || info.size > CLASSIFICATION_CACHE_MAX_BYTES) return null;
+    const stored = JSON.parse(await readFile(file, 'utf8'));
+    const { digest, ...record } = stored;
+    if (digest !== `sha256:${recordSha256(record)}`
+        || JSON.stringify(record.identity) !== JSON.stringify(identity)
+        || !cacheableClassification(record.state, record.configuration)) return null;
+    return { state: record.state, configuration: record.configuration };
+  } catch {
+    // A cache miss, interrupted write, or inaccessible machine-local file never blocks a fresh
+    // authority read. Only immutable observed Git refs can select reusable classification data.
+    return null;
+  }
+}
+
+async function writeClassificationCache(identity, state, configuration, env) {
+  if (!identity || !cacheableClassification(state, configuration)) return;
+  const record = { identity, state, configuration };
+  const bytes = JSON.stringify({ ...record, digest: `sha256:${recordSha256(record)}` });
+  if (Buffer.byteLength(bytes) > CLASSIFICATION_CACHE_MAX_BYTES) return;
+  try {
+    const file = classificationCacheFile(identity, env);
+    if (!await usableClassificationCacheDirectory(file, { create: true })) return;
+    await writeAtomic(file, bytes, { mode: 0o600 });
+  } catch {
+    // This is only an acceleration layer. Its failure cannot change the inspection decision.
+  }
 }
 
 function attachCleanupEvidence(primaryFailure, cleanupFailure) {
@@ -1542,7 +1635,8 @@ function nextActions(remote, mode, stateBranch, planId = null) {
 export async function inspectRepositoryOnboarding(remote, {
   mode = 'auto', stateBranch = STATE_BRANCH_DEFAULT, env = process.env,
   remoteSession = null, runRemoteCommand = runRemoteGitAsync,
-  cleanupQueueRoot = null
+  cleanupQueueRoot = null, refresh = false, useClassificationCache = true,
+  classificationCacheBuildIdentity = classificationBuildIdentity()
 } = {}) {
   const requestedRepository = canonicalRepositoryLocator(remote);
   const repository = await repositoryInputRemote(requestedRepository, env);
@@ -1644,10 +1738,17 @@ export async function inspectRepositoryOnboarding(remote, {
     const plan = withPlanId(core);
     return Object.freeze({ ...plan, nextActions: nextActions(requestedRepository, selectedMode, branch) });
   }
-  let state = await classifyRepositoryState(repository, {
+  const cacheIdentity = selectedMode === 'auto' && !refresh && useClassificationCache
+    ? classificationCacheIdentity(
+        repository, branch, observation, classificationCacheBuildIdentity
+      )
+    : null;
+  const cachedClassification = await readClassificationCache(cacheIdentity, env);
+  let state = cachedClassification?.state ?? await classifyRepositoryState(repository, {
     stateBranch: branch, observation, env: gitEnv, runRemoteCommand, cleanupWarnings,
     cleanupQueueRoot: queueRoot
   });
+  const classifiedState = state;
   if (state.kind === 'delivery-locator') {
     state = await verifyDeliveryLocator(repository, state);
   } else if (state.kind === 'configuration-mirror' && state.repositoryBound !== true) {
@@ -1656,9 +1757,13 @@ export async function inspectRepositoryOnboarding(remote, {
     });
   }
   const configurationCommit = observation.refs.get(CONFIGURATION_REF) ?? null;
-  const configuration = await inspectConfigurationSnapshot(repository, configurationCommit, {
+  const configuration = cachedClassification?.configuration
+    ?? await inspectConfigurationSnapshot(repository, configurationCommit, {
     env: gitEnv, runRemoteCommand, cleanupWarnings, cleanupQueueRoot: queueRoot
   });
+  if (!cachedClassification && cacheIdentity) {
+    await writeClassificationCache(cacheIdentity, classifiedState, configuration, env);
+  }
   const setup = deriveModeSetup(selectedMode, state, configuration);
   const relevantRefs = [CONFIGURATION_REF, stateRef];
   const supplementalRefs = [];
@@ -2502,7 +2607,8 @@ async function finishWithRegistration(plan, target, values = {}) {
 export async function applyRepositoryOnboarding(remote, {
   mode = 'auto', stateBranch = STATE_BRANCH_DEFAULT, confirmPlan,
   env = process.env, runRemoteCommand = runRemoteGitAsync,
-  cleanupQueueRoot = null
+  cleanupQueueRoot = null,
+  classificationCacheBuildIdentity = classificationBuildIdentity()
 } = {}) {
   const requestedRepository = canonicalRepositoryLocator(remote);
   const repository = await repositoryInputRemote(requestedRepository, env);
@@ -2517,7 +2623,8 @@ export async function applyRepositoryOnboarding(remote, {
   }
   const gitEnv = enterpriseGitEnvironment(env);
   let plan = await inspectRepositoryOnboarding(requestedRepository, {
-    mode: selectedMode, stateBranch, env: gitEnv, runRemoteCommand, cleanupQueueRoot
+    mode: selectedMode, stateBranch, env: gitEnv, runRemoteCommand, cleanupQueueRoot,
+    useClassificationCache: false, classificationCacheBuildIdentity
   });
   if (plan.planId !== confirmation) {
     throw new SingularityFlowError(

@@ -50,7 +50,8 @@ test('goal CLI uses durable active-workspace state from outside a repository', a
   const workspaceBase = path.join(base, 'workspaces');
   cli([
     'workspace', 'create', '--local', '--id', 'goal-team', '--name', 'Goal team',
-    '--base', workspaceBase, '--lead', 'app', '--repository', `app=${source}`, '--confirm', 'goal-team'
+    '--base', workspaceBase, '--lead', 'app', '--repository', `app=${source}`, '--clone',
+    '--confirm', 'goal-team'
   ], env, base);
   cli(['workspace', 'use', 'goal-team'], env, base);
 
@@ -92,7 +93,7 @@ test('goal sync reports a killed pre-commit creation as recovered instead of not
   const workspaceBase = path.join(base, 'workspaces');
   cli([
     'workspace', 'create', '--local', '--id', 'goal-recovery', '--name', 'Goal recovery',
-    '--base', workspaceBase, '--lead', 'app', '--repository', `app=${source}`,
+    '--base', workspaceBase, '--lead', 'app', '--repository', `app=${source}`, '--clone',
     '--confirm', 'goal-recovery'
   ], env, base);
   cli(['workspace', 'use', 'goal-recovery'], env, base);

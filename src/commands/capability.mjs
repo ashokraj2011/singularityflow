@@ -378,6 +378,7 @@ async function runOnboard(context) {
     dryRun,
     confirmPlan,
     mode,
+    refresh: optionBoolean(options, 'refresh'),
     stateBranch: optionString(options, 'state-branch', 'state')
   });
   if (optionBoolean(options, 'json')) {

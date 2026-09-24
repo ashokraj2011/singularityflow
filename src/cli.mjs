@@ -12646,6 +12646,9 @@ async function secretsCommand(positionals, options) {
 
 function renderWorkspaceBootstrap(session) {
   console.log(`\nWorkspace bootstrap ${session.bootstrapId} · ${session.status}`);
+  if (session.status === 'registered') {
+    console.log('Application checkouts are deferred until work starts. The workspace is registered locally.');
+  }
   console.log(`Workspace: ${session.plan?.workspace?.name ?? session.request?.workspaceName ?? 'unresolved'} (${session.plan?.workspace?.id ?? 'unresolved'})`);
   if (session.plan?.workspace?.targetPath) console.log(`Target: ${session.plan.workspace.targetPath}`);
   if (session.preflight) {
@@ -12799,9 +12802,19 @@ async function workspaceCommand(positionals, options) {
     const source = requirePositional(positionals, 2, 'repository URL or workspace manifest');
     const input = await workspaceBootstrapInput(source, options);
     const { prepareWorkspaceBootstrap } = await import('./workspace-bootstrap.mjs');
+    const initialize = optionBoolean(options, 'initialize');
+    // Preserve the existing explicit --initialize contract: state initialization requires a
+    // checkout, so it opts into cloning unless the caller explicitly forbids it.
+    const checkout = optionBoolean(options, 'clone', initialize);
+    if (initialize && !checkout) {
+      throw new SingularityFlowError('workspace prepare --no-clone cannot be combined with --initialize. Omit --initialize to register without a checkout.', {
+        code: 'WORKSPACE_INITIALIZATION_CHECKOUT_REQUIRED'
+      });
+    }
     const session = await prepareWorkspaceBootstrap({
       ...input,
-      initialize: optionBoolean(options, 'initialize'),
+      initialize,
+      checkout,
       stateBranch: optionString(options, 'state-branch', 'state')
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(session, null, 2));
@@ -13433,7 +13446,7 @@ async function workspaceCommand(positionals, options) {
       try {
         localResult = await createWorkspaceConfiguration(localInput, {
           confirmation: optionString(options, 'confirm'),
-          clone: optionBoolean(options, 'clone', true)
+          clone: optionBoolean(options, 'clone', false)
         });
       } catch (error) {
         // A required clone can fail after the recoverable workspace shell and journal exist. Keep
@@ -13461,7 +13474,7 @@ async function workspaceCommand(positionals, options) {
       // editor cannot drift into creating it in different places — or, as the editor did, quietly
       // skipping it for a repository that was not governed yet.
       let state = null;
-      if (optionBoolean(options, 'clone', true) && localResult.workspace.leadRepository) {
+      if (optionBoolean(options, 'clone', false) && localResult.workspace.leadRepository) {
         const lead = localResult.workspace.repositories?.[localResult.workspace.leadRepository];
         try {
           state = await initializeWorkspaceState(lead
@@ -13478,6 +13491,9 @@ async function workspaceCommand(positionals, options) {
 
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...localResult, state }, null, 2));
       console.log(`Workspace ${localResult.created ? 'created' : 'resumed'} at ${localResult.workspace.path}.`);
+      if (!optionBoolean(options, 'clone', false)) {
+        console.log('Application checkout is deferred until work starts. Use --clone to create it now.');
+      }
       if (state?.error) console.log(`  the ${optionString(options, 'state-branch', 'state')} branch was not created: ${state.error}`);
       else if (state?.created) console.log(`  created the ${state.branch} branch in ${localResult.workspace.leadRepository}`);
       else if (state) console.log(`  the ${state.branch} branch is already in ${localResult.workspace.leadRepository}`);
@@ -13541,7 +13557,7 @@ async function workspaceCommand(positionals, options) {
     const confirmation = optionString(options, 'confirm');
     let result;
     try {
-      result = await createWorkspace(input, { confirmation, clone: optionBoolean(options, 'clone', true) });
+      result = await createWorkspace(input, { confirmation, clone: optionBoolean(options, 'clone', false) });
     } catch (error) {
       try {
         const retained = await readWorkspace(preview.root);
@@ -13561,6 +13577,9 @@ async function workspaceCommand(positionals, options) {
     await rememberWorkspace(registry, result.workspace, result.status);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Workspace ${result.created ? 'created' : 'resumed'} at ${result.workspace.path}.`);
+    if (!optionBoolean(options, 'clone', false)) {
+      console.log('Application checkout is deferred until work starts. Use --clone to create it now.');
+    }
     renderWorkspaceMaterialization(result);
     return renderWorkspaceStatus(result.status);
   }
@@ -13818,7 +13837,7 @@ async function workspaceCommand(positionals, options) {
       id: newId,
       name: optionString(options, 'name'),
       baseDirectory: optionString(options, 'base')
-    }, { clone: optionBoolean(options, 'clone', true) });
+    }, { clone: optionBoolean(options, 'clone', false) });
     await rememberWorkspace(registry, copied.workspace, copied.status);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(copied, null, 2));
     console.log(`Workspace ${newId} copied from ${sourcePath} to ${copied.workspace.path}.`);
@@ -13872,7 +13891,9 @@ async function workspaceCommand(positionals, options) {
     return renderWorkspaceStatus(updated.status);
   }
   if (subcommand === 'status') {
-    const status = await workspaceStatus(workspacePath);
+    const status = await workspaceStatus(workspacePath, {
+      level: optionString(options, 'level', 'full')
+    });
     if (optionBoolean(options, 'archive-readiness')) {
       const fetchReadiness = optionBoolean(options, 'fetch', true);
       try {
@@ -13907,7 +13928,11 @@ async function workspaceCommand(positionals, options) {
     return;
   }
   if (subcommand === 'repair') {
-    const result = await repairWorkspace(workspacePath);
+    const repositoryIds = optionStrings(options, 'repository');
+    const result = await repairWorkspace(workspacePath, {
+      repositoryIds: repositoryIds.length ? repositoryIds : null,
+      statusLevel: optionString(options, 'level', 'full')
+    });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     result.repaired.forEach((item) => console.log(`${item.repository}: ${item.status}`));
     return renderWorkspaceStatus(result.status);

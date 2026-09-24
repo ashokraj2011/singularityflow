@@ -2212,6 +2212,25 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
     );
   }
   if (!tip.exists) {
+    // A missing movable configuration ref does not invalidate a previously verified, complete
+    // state mirror when that mirror's own ref is still the exact cached commit. In this recovery
+    // case the cache was already keyed by the state commit below. Reuse it after the fresh ref
+    // advertisement instead of cloning the same mirror for every capability inspection. An
+    // explicit refresh still revalidates the mirror bytes and operational definition.
+    const stateCommit = configurationObservation.refs.get('refs/heads/state') ?? null;
+    if (!refresh && stateCommit && cached?.tipSha === stateCommit
+        && cached.organisation?.governed === true
+        && cached.organisation?.recoveryAvailable === true
+        && cached.organisation?.configurationCommit === null
+        && cached.organisation?.sourceBranch === 'state'
+        && cached.organisation?.sourceCommit === stateCommit
+        && cached.organisation?.stateProjection?.status === 'recoverable'
+        && cached.organisation?.stateProjection?.commit === stateCommit) {
+      return {
+        ...cached.organisation, cached: true, stale: false,
+        cacheAgeMs: cacheAgeMs(cached), remoteError: null
+      };
+    }
     // A complete, verified state mirror is sufficient recovery authority even when the movable
     // sflow/config name is missing. Story start has used this rule for a long time; capability
     // discovery must not turn the same repository into an empty organisation merely because it is

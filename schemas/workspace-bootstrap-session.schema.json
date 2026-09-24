@@ -35,6 +35,7 @@
         "verifying",
         "initializing",
         "ready",
+        "registered",
         "degraded",
         "failed",
         "abandoned"

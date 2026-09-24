@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { commandDefinition, operationById, resolveOperation } from './command-registry.mjs';
 import {
@@ -236,17 +236,120 @@ export async function activeWorkspaceRepositoryRoot(command, {
       { code: 'ACTIVE_WORKSPACE_REPOSITORY_MISSING', details: { workspaceId: context.workspaceId } }
     );
   }
+  let selectedRoot = null;
   try {
-    return repoRoot(selectedPath);
+    const root = repoRoot(selectedPath);
+    // A planned checkout can be an empty directory inside some other Git repository. Git then
+    // reports that ancestor as the root; it is not the workspace member the person selected.
+    if (sameWorkspaceRepositoryPath(root, selectedPath)) selectedRoot = root;
   } catch {
+    // Story start is the first operation that needs application code. A selected, planned member
+    // may be materialized below after its registry, manifest, and local target are rechecked.
+  }
+  if (command === 'start' && !optionBoolean(options, 'dry-run')) {
+    const materialized = await materializeSelectedStoryRepositories(context, {
+      env, home, selectedPath, options
+    });
+    if (materialized) return materialized;
+  }
+  if (selectedRoot) return selectedRoot;
+  throw new SingularityFlowError(
+    `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. Repair the workspace or run 'singularity-flow workspace use <WORKSPACE>'.`,
+    {
+      code: 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE',
+      details: { workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: selectedPath }
+    }
+  );
+}
+
+function sameWorkspaceRepositoryPath(left, right) {
+  const canonical = (value) => {
+    const resolved = path.resolve(value);
+    // Git and the workspace registry may spell the same existing checkout through different
+    // system aliases (notably macOS /var versus /private/var). Never accept an ancestor repo
+    // merely because a planned target lies beneath it, but compare existing roots canonically.
+    let actual;
+    try { actual = realpathSync.native(resolved); }
+    catch { actual = resolved; }
+    return process.platform === 'win32' ? actual.toLowerCase() : actual;
+  };
+  return canonical(left) === canonical(right);
+}
+
+async function materializeSelectedStoryRepositories(context, { env, home, selectedPath, options }) {
+  // A selected Story points at a specific checkout. Never replace a missing Story worktree with
+  // the canonical repository, even if that repository could be cloned or repaired independently.
+  if (context.storyId || context.requestedStoryId || context.selectionStatus === 'stale'
+      || !context.workspacePath || !context.repositoryId) return null;
+  const { resolveWorkspaceReference, workspaceRegistryFile } = await import('./workspace-context.mjs');
+  const { readWorkspace, repairWorkspace, workspaceRepositoryPath, workspaceStatus } =
+    await import('./workspace.mjs');
+  const registered = await resolveWorkspaceReference(
+    workspaceRegistryFile(env, home), context.workspacePath
+  );
+  if (registered.id !== context.workspaceId) return null;
+  const workspace = await readWorkspace(registered.path);
+  const repository = workspace.repositories[context.repositoryId];
+  if (workspace.id !== context.workspaceId || !repository) return null;
+  const expectedPath = workspaceRepositoryPath(workspace, repository);
+  if (!sameWorkspaceRepositoryPath(expectedPath, selectedPath)) return null;
+  const requestedCapability = Array.isArray(options.capability)
+    ? options.capability.at(-1) : options.capability;
+  const explicitCapability = String(requestedCapability ?? '').trim();
+  const memberCapabilities = repository.capabilities ?? [];
+  if (explicitCapability && !memberCapabilities.includes(explicitCapability)) {
     throw new SingularityFlowError(
-      `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. Repair the workspace or run 'singularity-flow workspace use <WORKSPACE>'.`,
-      {
-        code: 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE',
-        details: { workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: selectedPath }
-      }
+      `Selected repository '${repository.id}' does not belong to capability '${explicitCapability}'. Choose one of its mapped capabilities before starting.`,
+      { code: 'CAPABILITY_BRANCH_INVALID' }
     );
   }
+  if (!explicitCapability && memberCapabilities.length > 1) {
+    throw new SingularityFlowError(
+      `Selected repository '${repository.id}' belongs to multiple capabilities. Choose one with --capability before starting so only its repositories are cloned.`,
+      { code: 'CAPABILITY_SELECTION_REQUIRED' }
+    );
+  }
+  const capability = explicitCapability || memberCapabilities[0] || null;
+  const requiredRepositories = capability
+    ? (await import('./capability-branches.mjs'))
+      .capabilityRepositories(workspace, capability)
+    : [repository];
+  const requiredIds = [...new Set(requiredRepositories.map((item) => item.id))];
+  const before = await workspaceStatus(workspace.path, { level: 'readiness', env });
+  const pending = requiredIds.filter((id) => before.repositories
+    .find((item) => item.id === id)?.state !== 'ready');
+  if (pending.some((id) => !['missing', 'empty'].includes(before.repositories
+    .find((item) => item.id === id)?.state))) return null;
+  if (pending.length) {
+    try {
+      // Root routing precedes the ordinary Start handler's operation context. Materializing a
+      // checkout is nevertheless a mutation, so keep this preparatory step inside its registered
+      // workspace.repair boundary instead of running Git under an unclassified dispatch probe.
+      await withOperationContext({
+        operation: operationById('workspace.repair'),
+        modelMode: { enabled: false },
+        root: null,
+        command: 'workspace',
+        startedAt: new Date().toISOString()
+      }, () => repairWorkspace(workspace.path, {
+        repositoryIds: pending,
+        recoverCapabilityDrops: false,
+        statusLevel: 'readiness',
+        env
+      }));
+    } catch (error) {
+      // Another Story launch may have claimed the same staged clones first. A fresh readiness
+      // check can prove that this launch can continue; other failures retain their exact cause.
+      const raced = await workspaceStatus(workspace.path, { level: 'readiness', env });
+      if (!requiredIds.every((id) => raced.repositories
+        .find((item) => item.id === id)?.state === 'ready')) throw error;
+    }
+  }
+  const after = await workspaceStatus(workspace.path, { level: 'readiness', env });
+  if (!requiredIds.every((id) => after.repositories
+    .find((item) => item.id === id)?.state === 'ready')) return null;
+  const root = repoRoot(expectedPath);
+  return sameWorkspaceRepositoryPath(root, expectedPath) ? root : null;
 }
 
 /**

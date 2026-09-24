@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  chmod, cp, mkdir, mkdtemp, readFile, rename, rm, symlink, truncate, writeFile
+  chmod, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, truncate, writeFile
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -163,6 +163,154 @@ async function prepareConfigurationProposalMode(fixture, mode) {
     new RegExp(`^sflow/config-change/onboarding/${mode}-[0-9a-f]{12}$`, 'u'));
   return plan;
 }
+
+test('repeat onboarding preview reuses exact-ref metadata while refresh and apply revalidate', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    await publishStateMirror(fixture);
+    const env = {
+      ...process.env,
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(fixture.base, 'local', 'workspaces.json')
+    };
+    let clones = 0;
+    let advertisements = 0;
+    const observeGit = async (args, options) => {
+      if (args.includes('clone')) clones += 1;
+      if (args.includes('ls-remote')) advertisements += 1;
+      return runRemoteGitAsync(args, options);
+    };
+    const options = {
+      env, runRemoteCommand: observeGit,
+      classificationCacheBuildIdentity: `source:${'a'.repeat(64)}`
+    };
+    const first = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(first.status, 'ready');
+    assert.equal(first.configuration.status, 'current');
+    assert.equal(first.state.kind, 'configuration-mirror');
+    const initialClones = clones;
+    const initialAdvertisements = advertisements;
+    assert.ok(initialClones > 0);
+
+    const repeated = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(repeated.planId, first.planId);
+    assert.equal(clones, initialClones, 'unchanged metadata must not be cloned again');
+    assert.ok(advertisements > initialAdvertisements, 'every preview checks live Git refs');
+
+    const cacheDirectory = path.join(fixture.base, 'local',
+      'repository-onboarding-classification-v1');
+    const [cacheName] = await readdir(cacheDirectory);
+    const cacheFile = path.join(cacheDirectory, cacheName);
+    const cacheBytes = await readFile(cacheFile, 'utf8');
+    assert.equal(cacheBytes.includes(fixture.remote), false,
+      'the cache identifies the credential-free repository by fingerprint');
+    await assert.rejects(
+      inspectRepositoryOnboarding('https://cache-user:cache-secret@internal.invalid/team/app.git', options),
+      /credential|user.?info|secret|token/iu
+    );
+    assert.equal((await readFile(cacheFile, 'utf8')).includes('cache-secret'), false,
+      'a credentialed locator is refused before cache lookup or writing');
+
+    await writeFile(cacheFile, '{ interrupted cache write');
+    const beforeCorruptCache = clones;
+    await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.ok(clones > beforeCorruptCache, 'malformed cache data falls back to live inspection');
+    if (process.platform !== 'win32') {
+      const symlinkTarget = path.join(fixture.base, 'unrelated-local-file');
+      await writeFile(symlinkTarget, 'preserve this file');
+      await rm(cacheFile);
+      await symlink(symlinkTarget, cacheFile);
+      const beforeSymlink = clones;
+      await inspectRepositoryOnboarding(fixture.remote, options);
+      assert.ok(clones > beforeSymlink, 'a cache-file symlink is never trusted');
+      assert.equal(await readFile(symlinkTarget, 'utf8'), 'preserve this file');
+
+      const unrelatedDirectory = path.join(fixture.base, 'unrelated-local-directory');
+      await mkdir(unrelatedDirectory);
+      await rm(cacheDirectory, { recursive: true });
+      await symlink(unrelatedDirectory, cacheDirectory);
+      const beforeDirectorySymlink = clones;
+      await inspectRepositoryOnboarding(fixture.remote, options);
+      assert.ok(clones > beforeDirectorySymlink,
+        'a cache-directory symlink also falls back to live inspection');
+      assert.deepEqual(await readdir(unrelatedDirectory), [],
+        'the symlink target is never used as cache storage');
+      await rm(cacheDirectory);
+    }
+
+    const beforeRefresh = clones;
+    await inspectRepositoryOnboarding(fixture.remote, { ...options, refresh: true });
+    assert.ok(clones > beforeRefresh, 'explicit refresh bypasses the classifier cache');
+    const afterRefresh = clones;
+
+    await inspectRepositoryOnboarding(fixture.remote, {
+      ...options, classificationCacheBuildIdentity: `source:${'b'.repeat(64)}`
+    });
+    assert.ok(clones > afterRefresh, 'a new executable build revalidates unchanged refs');
+    const afterNewBuild = clones;
+
+    await assert.rejects(applyRepositoryOnboarding(fixture.remote, {
+      ...options, confirmPlan: `sha256:${'0'.repeat(64)}`
+    }), (error) => error.code === 'REPOSITORY_ONBOARDING_CONFIRMATION_MISMATCH');
+    assert.ok(clones > afterNewBuild, 'apply deeply revalidates before checking the plan ID');
+    const beforeMove = clones;
+
+    const editor = path.join(fixture.base, 'advance-configuration');
+    run('git', ['clone', '-q', '--branch', CONFIGURATION_BRANCH, fixture.remote, editor], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Onboarding Tester'], { cwd: editor });
+    run('git', ['config', 'user.email', 'onboarding@example.test'], { cwd: editor });
+    run('git', ['commit', '--allow-empty', '-qm', 'Advance configuration ref'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', `HEAD:${CONFIGURATION_BRANCH}`], { cwd: editor });
+    const advanced = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.notEqual(advanced.configuration.commit, first.configuration.commit);
+    assert.ok(clones > beforeMove, 'a changed configuration ref invalidates the cache');
+    const beforeStateMove = clones;
+
+    const stateEditor = path.join(fixture.base, 'advance-state');
+    run('git', ['clone', '-q', '--branch', 'state', fixture.remote, stateEditor], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Onboarding Tester'], { cwd: stateEditor });
+    run('git', ['config', 'user.email', 'onboarding@example.test'], { cwd: stateEditor });
+    run('git', ['commit', '--allow-empty', '-qm', 'Advance state ref'], { cwd: stateEditor });
+    run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateEditor });
+    const stateAdvanced = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.notEqual(stateAdvanced.state.commit, advanced.state.commit);
+    assert.ok(clones > beforeStateMove, 'a changed state ref invalidates the cache');
+  } finally {
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('invalid state classification is never reused from the onboarding preview cache', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    await publishStateFiles(fixture, { 'unrelated.json': '{"not":"sflow"}\n' });
+    const env = {
+      ...process.env,
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(fixture.base, 'local', 'workspaces.json')
+    };
+    let clones = 0;
+    const runRemoteCommand = async (args, options) => {
+      if (args.includes('clone')) clones += 1;
+      return runRemoteGitAsync(args, options);
+    };
+    const options = {
+      env, runRemoteCommand, classificationCacheBuildIdentity: `source:${'a'.repeat(64)}`
+    };
+    const first = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(first.state.kind, 'invalid');
+    const firstClones = clones;
+    const second = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(second.state.kind, 'invalid');
+    assert.ok(clones > firstClones, 'an invalid classifier result must be checked again');
+  } finally {
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
 
 test('an ordinary state branch is never treated as SFlow setup proof', async () => {
   const fixture = await repositoryFixture();

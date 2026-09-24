@@ -353,11 +353,11 @@ export class WorkspacePanel {
         repository: this.form.base ?? '',
         onOutput: (text) => this.output.append(text)
       });
-      const cloning = derivedRepositories(this.form).length;
+      const repositories = derivedRepositories(this.form).length;
       const prepared = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Checking workspace and ${cloning} ${cloning === 1 ? 'remote' : 'remotes'}…`
+          title: `Checking workspace and ${repositories} ${repositories === 1 ? 'remote' : 'remotes'}…`
         },
         () => client.run<BootstrapSession>(args));
 
@@ -384,18 +384,18 @@ export class WorkspacePanel {
             .then(() => true, () => false)
           : false;
         const disposition = matchingManagedWorkspace
-          ? (checkoutExists ? 'Reuse/repair managed checkout' : 'Clone missing checkout')
-          : 'Clone into new workspace';
+          ? (checkoutExists ? 'Keep managed checkout' : 'Checkout deferred until work starts')
+          : 'Checkout deferred until work starts';
         return `${repository.id}: ${disposition} · ${repository.defaultBranch} → ${repository.targetPath}`;
       }))).join('\n');
       const workspaceDisposition = matchingManagedWorkspace
-        ? 'The matching managed workspace will be reused. Existing repository directories are validated and repaired; missing ones are cloned.'
-        : 'The target does not exist. Every listed repository will be cloned into the new managed workspace.';
+        ? 'The matching managed workspace will be reused. Existing checkouts are preserved and missing checkouts remain pending.'
+        : 'The workspace manifest and local registration will be created. Application code will be downloaded when work starts.';
       const confirmed = await vscode.window.showInformationMessage(
         `Create workspace ${prepared.plan.workspace.name}?`,
         {
           modal: true,
-          detail: `Target: ${prepared.plan.workspace.targetPath}\n${workspaceDisposition}\n\nRepositories:\n${repositoryPlan}\n\nSFlow will recheck every repository immediately before materialization.`
+          detail: `Target: ${prepared.plan.workspace.targetPath}\n${workspaceDisposition}\n\nRepositories:\n${repositoryPlan}\n\nSFlow will recheck each required repository before work starts.`
         },
         'Create workspace'
       );
@@ -417,8 +417,8 @@ export class WorkspacePanel {
         {
           location: vscode.ProgressLocation.Notification,
           title: matchingManagedWorkspace
-            ? `Reusing workspace and validating ${cloning} ${cloning === 1 ? 'repository' : 'repositories'}…`
-            : `Creating workspace and cloning ${cloning} ${cloning === 1 ? 'repository' : 'repositories'}…`
+            ? 'Reusing registered workspace…'
+            : 'Registering workspace…'
         },
         () => client.run<BootstrapSession>(resumeArgs));
 
@@ -426,7 +426,7 @@ export class WorkspacePanel {
       if (!directory) {
         const next = commandGuidanceText(result.nextAction);
         throw new Error(
-          `${result.fault?.message ?? 'The workspace was not materialized.'} Setup ${result.bootstrapId} remains resumable.${next ? `\n${next}` : ''}`.trim()
+          `${result.fault?.message ?? 'The workspace was not registered.'} Setup ${result.bootstrapId} remains resumable.${next ? `\n${next}` : ''}`.trim()
         );
       }
 

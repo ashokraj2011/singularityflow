@@ -28,9 +28,9 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 export const WORKSPACE_BOOTSTRAP_SCHEMA_VERSION = currentSchemaVersion('workspace-bootstrap');
 export const WORKSPACE_BOOTSTRAP_STATUSES = Object.freeze([
   'planned', 'preflighting', 'waiting-user', 'materializing', 'verifying', 'initializing',
-  'ready', 'degraded', 'failed', 'abandoned'
+  'ready', 'registered', 'degraded', 'failed', 'abandoned'
 ]);
-const TERMINAL = new Set(['ready', 'abandoned']);
+const TERMINAL = new Set(['ready', 'registered', 'abandoned']);
 const ACTIVE = new Set(WORKSPACE_BOOTSTRAP_STATUSES.filter((status) => !TERMINAL.has(status)));
 const MIN_DISK_BYTES = 1024 * 1024 * 1024;
 const LEASE_STALE_MS = 5 * 60 * 1000;
@@ -97,7 +97,8 @@ function planHashFor(plan) {
       clonePolicySource: repository.clonePolicySource ?? null,
       capabilities: [...(plan.createInput.repositories?.[repository.id]?.capabilities ?? [])].sort()
     })),
-    initialization: plan.initialization
+    initialization: plan.initialization,
+    ...(plan.checkout ? { checkout: plan.checkout } : {})
   };
   return `sha256:${createHash('sha256').update(canonical(projection)).digest('hex')}`;
 }
@@ -457,7 +458,9 @@ function probeCredentialFree(url) {
   assertCredentialFreeRemote(url);
 }
 
-function planFromInput(input, { initialize = false, stateBranch = 'state', inferDefaultRepositories = [] } = {}) {
+function planFromInput(input, {
+  initialize = false, stateBranch = 'state', inferDefaultRepositories = [], checkout = true
+} = {}) {
   const { createInput, preview } = normalizeCreateInput(input);
   return {
     workspace: {
@@ -480,7 +483,8 @@ function planFromInput(input, { initialize = false, stateBranch = 'state', infer
     })),
     createInput,
     inferDefaultRepositories: [...new Set(inferDefaultRepositories)],
-    initialization: { enabled: initialize === true, stateBranch: String(stateBranch || 'state') }
+    initialization: { enabled: initialize === true, stateBranch: String(stateBranch || 'state') },
+    checkout: { enabled: checkout === true }
   };
 }
 
@@ -489,11 +493,17 @@ export async function prepareWorkspaceBootstrap({
   createInput,
   initialize = false,
   stateBranch = 'state',
-  inferDefaultRepositories = []
+  inferDefaultRepositories = [],
+  checkout = true
 }, { env = process.env, home = os.homedir(), runCommand = run } = {}) {
+  if (initialize && !checkout) {
+    throw new SingularityFlowError('State initialization requires an application checkout. Use --clone with --initialize, or initialize when work starts.', {
+      code: 'WORKSPACE_INITIALIZATION_CHECKOUT_REQUIRED'
+    });
+  }
   const root = workspaceBootstrapRoot(env, home);
   await assertStateRoot(root);
-  const plan = planFromInput(createInput, { initialize, stateBranch, inferDefaultRepositories });
+  const plan = planFromInput(createInput, { initialize, stateBranch, inferDefaultRepositories, checkout });
   const bootstrapId = `bst_${randomUUID()}`;
   const createdAt = nowIso();
   const record = await writeSession(root, {
@@ -829,7 +839,8 @@ function rebuiltPlan(plan, branchUpdates) {
   return planFromInput(input, {
     initialize: plan.initialization.enabled,
     stateBranch: plan.initialization.stateBranch,
-    inferDefaultRepositories: []
+    inferDefaultRepositories: [],
+    checkout: plan.checkout?.enabled ?? true
   });
 }
 
@@ -1105,7 +1116,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
   runCommand = run
 } = {}) {
   let session = await preflightWorkspaceBootstrap(bootstrapId, { env, home, runCommand });
-  if (session.status === 'ready') return session;
+  if (session.status === 'ready' || session.status === 'registered') return session;
   if (session.status === 'abandoned') {
     throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' was abandoned and cannot be resumed.`, {
       code: 'BOOTSTRAP_ABANDONED', details: { bootstrapId, nextAction: bootstrapStatusAction(bootstrapId) }
@@ -1196,7 +1207,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
       }
       const materialized = await createWorkspaceConfiguration(session.plan.createInput, {
         confirmation: session.plan.workspace.confirmation,
-        clone: true,
+        clone: session.plan.checkout?.enabled ?? true,
         bootstrapId,
         env: gitEnv,
         capabilityValidation
@@ -1220,6 +1231,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         result: { workspace: materialized.workspace, materialization: materialized.materialization ?? materialized.repair ?? [] }
       });
       const status = materialized.status ?? await workspaceStatus(materialized.workspace.path);
+      const checkoutDeferred = session.plan.checkout?.enabled === false;
       await rememberWorkspace(workspaceRegistryFile(env, home), materialized.workspace, status);
       session = {
         ...session,
@@ -1230,7 +1242,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
               ?.filter((repository) => repository.required !== false)
               .every((repository) => repository.state === 'ready') ?? false
           },
-          result: status.healthy === true ? 'succeeded' : 'degraded'
+          result: status.healthy === true || checkoutDeferred ? 'succeeded' : 'degraded'
         })
       };
 
@@ -1293,8 +1305,10 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         }
       }
 
-      const finalStatus = initialization?.error || !status.healthy ? 'degraded' : 'ready';
-      if (finalStatus === 'ready') {
+      const finalStatus = initialization?.error ? 'degraded'
+        : checkoutDeferred ? 'registered'
+          : status.healthy ? 'ready' : 'degraded';
+      if (TERMINAL.has(finalStatus)) {
         await rm(catalogStorePath(root, bootstrapId), { recursive: true, force: true });
       }
       const completedAt = nowIso();
@@ -1305,7 +1319,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         ? (initialization.publicationIntent?.intentId
           ? { id: 'recover-push', label: 'Recover exact state publication', command: `singularity-flow push status ${initialization.publicationIntent.intentId}`, skill: '/sf-push' }
           : bootstrapResumeAction(session))
-        : { id: 'select', label: 'Select the ready workspace', command: `singularity-flow workspace use ${session.plan.workspace.id} --json`, skill: '/sf-workspace' };
+        : { id: 'select', label: checkoutDeferred ? 'Select the registered workspace; checkout is deferred until work starts' : 'Select the ready workspace', command: `singularity-flow workspace use ${session.plan.workspace.id} --json`, skill: '/sf-workspace' };
       return writeSession(root, {
         ...session,
         status: finalStatus,
@@ -1396,8 +1410,8 @@ export async function retryWorkspaceBootstrap(bootstrapId, {
   const root = workspaceBootstrapRoot(env, home);
   return withLease(root, bootstrapId, async () => {
     const session = await readWorkspaceBootstrap(bootstrapId, { env, home });
-    if (session.status === 'ready') {
-      throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' is already ready.`, {
+    if (TERMINAL.has(session.status) && session.status !== 'abandoned') {
+      throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' is already complete.`, {
         code: 'BOOTSTRAP_ALREADY_READY', details: { bootstrapId, nextAction: session.nextAction }
       });
     }
@@ -1494,8 +1508,8 @@ export async function abandonWorkspaceBootstrap(bootstrapId, {
   const root = workspaceBootstrapRoot(env, home);
   return withLease(root, bootstrapId, async () => {
     const session = await readWorkspaceBootstrap(bootstrapId, { env, home });
-    if (session.status === 'ready') {
-      throw new SingularityFlowError(`Ready workspace bootstrap '${bootstrapId}' cannot be abandoned. Forget or archive the workspace instead.`, {
+    if (TERMINAL.has(session.status) && session.status !== 'abandoned') {
+      throw new SingularityFlowError(`Completed workspace bootstrap '${bootstrapId}' cannot be abandoned. Forget or archive the workspace instead.`, {
         code: 'BOOTSTRAP_ALREADY_READY'
       });
     }

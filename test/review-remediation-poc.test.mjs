@@ -469,7 +469,7 @@ test('FIX:AC-605 complete public review-remediation path survives a second check
   const prepared = invokeJson(env, operator, [
     'workspace', 'prepare', authority.remote, '--id', 'review-remediation-poc',
     '--name', 'Review Remediation POC', '--base', path.join(base, 'workspaces'),
-    '--capability', 'poc-service', '--lead-capability', 'poc-service', '--initialize'
+    '--capability', 'poc-service', '--lead-capability', 'poc-service', '--clone', '--initialize'
   ]);
   assert.equal(prepared.status, 'waiting-user');
   const bootstrapped = invokeJson(env, operator, [

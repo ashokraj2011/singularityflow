@@ -771,17 +771,19 @@ Usage:
   singularity-flow story finalize [--json]
   singularity-flow finalize [--json]
   singularity-flow workspace create --jira KEY --base DIRECTORY --lead REPOSITORY
-    --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
+    --repository ID=URL [--repository ID=URL] [--confirm KEY] [--clone]
   singularity-flow workspace create --local --id ID [--name TEXT]
     --organisation LEAD-URL --capability ID [--capability ID] [--lead-capability ID]
-    [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
+    [--base DIRECTORY] [--confirm ID] [--clone] [--dry-run]
   singularity-flow workspace create --local --id ID --lead REPOSITORY --repository ID=URL
-    [--base DIRECTORY] [--confirm ID] [--no-clone]        (no capability map yet)
+    [--base DIRECTORY] [--confirm ID] [--clone]           (no capability map yet)
   singularity-flow workspace prepare <REMOTE-OR-MANIFEST> --id ID [--name TEXT] [--base DIRECTORY]
     [--branch BRANCH] [--repository-id ID] [--clone-mode full|blobless|blobless-sparse]
-    [--sparse-cone PATH]... [--clone-fallback refuse|full] [--initialize] [--state-branch NAME] [--json]
+    [--sparse-cone PATH]... [--clone-fallback refuse|full] [--clone] [--initialize] [--state-branch NAME] [--json]
   singularity-flow workspace prepare <LEAD-URL> --id ID --capability ID...
-    [--lead-capability ID] [--base DIRECTORY] [--initialize] [--json]
+    [--lead-capability ID] [--base DIRECTORY] [--clone] [--initialize] [--json]
+    (default: register approved repository paths without cloning application code;
+     --clone checks out now; --initialize implies a checkout and initializes state)
   singularity-flow workspace bootstrap status [BOOTSTRAP-ID] [--json]
   singularity-flow workspace bootstrap resume <BOOTSTRAP-ID> --confirm WORKSPACE-ID [--json]
   singularity-flow workspace bootstrap retry <BOOTSTRAP-ID> --confirm WORKSPACE-ID --reason TEXT [--json]
@@ -804,7 +806,7 @@ Usage:
     [--confirm-dirty SHA256] [--confirm ID] [--dry-run] [--json]
   singularity-flow workspace capabilities <LEAD-URL> [--json]
   singularity-flow workspace duplicate <DIRECTORY> --id NEW-ID [--name TEXT] [--base DIRECTORY]
-    [--no-clone] [--json]
+    [--clone] [--json]
   singularity-flow capability [tree] [--json]
   singularity-flow capability show [PATH] [--verbose] [--git-shadow] [--json]
   singularity-flow why [PATH] [--verbose] [--json]
@@ -839,7 +841,7 @@ Usage:
      one atomic review proposal and never implicitly reparents an existing capability. Native hosts
      use the bounded, closed request file so valid team data never exceeds Windows process argv;
      the individual flags remain available for small manual invocations.)
-  singularity-flow capability onboard <REPOSITORY-URL> --dry-run [--state-branch NAME]
+  singularity-flow capability onboard <REPOSITORY-URL> --dry-run [--refresh] [--state-branch NAME]
     [--migrate | --recreate | --reset-local] [--json]
   singularity-flow capability onboard <REPOSITORY-URL> --confirm-plan sha256:<PLAN>
     [--state-branch NAME] [--migrate | --recreate | --reset-local] [--json]
@@ -937,9 +939,9 @@ Usage:
     [--repository ID] [--story ID] [--mode interactive|plan] [--dry-run]
   singularity-flow workspace prompt [--json]
   singularity-flow workspace open <DIRECTORY> [--json]
-  singularity-flow workspace status <DIRECTORY> [--json]
+  singularity-flow workspace status <DIRECTORY> [--level full|summary|readiness] [--json]
   singularity-flow workspace sync <DIRECTORY> [--json]
-  singularity-flow workspace repair <DIRECTORY> [--json]
+  singularity-flow workspace repair <DIRECTORY> [--repository ID]... [--level full|summary|readiness] [--json]
   singularity-flow workspace documents <DIRECTORY> [--json]
   singularity-flow workspace documents import <DIRECTORY> <FILE...> [--json]
   singularity-flow workspace impact analyze <DIRECTORY> --description TEXT

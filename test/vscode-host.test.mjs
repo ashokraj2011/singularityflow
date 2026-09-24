@@ -958,7 +958,7 @@ test('My Work resolves an active workspace when no editor folder is open', async
     'workspace', 'create', '--local', '--json', '--id', 'active-home',
     '--base', path.join(base, 'workspaces'), '--lead', 'lead',
     '--repository', `lead=${root}`, '--default-branch', 'lead=STORY-ACTIVE',
-    '--confirm', 'active-home'], {
+    '--confirm', 'active-home', '--clone'], {
     encoding: 'utf8', env
   });
   assert.equal(create.status, 0, create.stderr);
@@ -1661,7 +1661,7 @@ test('@sflow previews only a verified local file in the exact selected Story che
     'workspace', 'create', '--local', '--json', '--id', 'other-chat-checkout',
     '--base', path.join(machine, 'workspaces'), '--lead', 'lead',
     '--repository', `lead=${root}`, '--default-branch', 'lead=INIT-CHECKOUT',
-    '--confirm', 'other-chat-checkout'], { encoding: 'utf8', env: process.env });
+    '--confirm', 'other-chat-checkout', '--clone'], { encoding: 'utf8', env: process.env });
   assert.equal(create.status, 0, create.stderr);
   const use = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'use', 'other-chat-checkout', '--json'], { encoding: 'utf8', env: process.env });
@@ -2074,7 +2074,7 @@ test('AST Intelligence selects one repository from a multi-repository workspace 
     '--base', path.join(base, 'workspaces'), '--lead', 'api',
     '--repository', `api=${apiSource}`, '--repository', `web=${webSource}`,
     '--default-branch', 'api=INIT-CHECKOUT', '--default-branch', 'web=INIT-CHECKOUT',
-    '--confirm', 'multi-repo'], { encoding: 'utf8', env });
+    '--confirm', 'multi-repo', '--clone'], { encoding: 'utf8', env });
   assert.equal(create.status, 0, create.stderr);
   const use = spawnSync(process.execPath, [cli, 'workspace', 'use', 'multi-repo', '--json'],
     { encoding: 'utf8', env });
@@ -3506,9 +3506,11 @@ test('the capability editor delegates creation to the mapping form that accepts 
     'the creation path has an explicit place for a new Git repository URL');
   await mapping.post({ type: 'field', field: 'repositoryUrl', value: remote });
   await mapping.post({ type: 'inspectRepository' });
-  await until(() => /<option value="product" selected>/.test(mapping.webview.html) || null);
-  assert.match(mapping.webview.html, /<option value="product" selected>/,
-    'Add one inside carries the selected capability into the governed mapping form');
+  await until(() => /data-repository-setup-status=/.test(mapping.webview.html) || null);
+  assert.match(mapping.webview.html, /data-repository-setup-primary=/,
+    'repository inspection exposes its explicit setup decision before capability mapping');
+  assert.doesNotMatch(mapping.webview.html, /<option value="product" selected>/,
+    'Add one inside does not bypass repository setup before exposing the mapping form');
   assert.doesNotMatch(panel.webview.html, /New capability/,
     'the editor no longer exposes the duplicate repository-ID-only creation form');
   assert.equal(await readFile(capabilitiesFile, 'utf8'), before,
@@ -3682,12 +3684,13 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   assert.doesNotMatch(panel.webview.html, new RegExp(escapeRegExp(org.web)),
     'storefront was not chosen, so its repository is not cloned');
 
-  // One shipping capability, so the lead is settled without being asked, and the state branch is
-  // stated as the consequence it is.
+  // One shipping capability, so the lead is settled without being asked. Governance initialization
+  // is deferred until work starts, alongside the checkout.
   assert.match(panel.webview.html, /Lead capability/);
   assert.match(panel.webview.html, /<option value="payments-api" selected>/);
   assert.doesNotMatch(panel.webview.html, /data-draft="state-branch"/);
-  assert.match(panel.webview.html, /orphan\s+<code>state<\/code> branch is created\s+in <code>api<\/code> and pushed/);
+  assert.match(panel.webview.html, /\(<code>api<\/code>\) is checked out when work starts/);
+  assert.match(panel.webview.html, /governed <code>state<\/code> branch is initialized then if needed/);
 
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
@@ -3695,7 +3698,8 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
   await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
   await settle();
-  assert.match(panel.webview.html, /1 repository will be cloned/, 'what payments ships, and only that');
+  assert.match(panel.webview.html, /1 repository is included/, 'what payments ships, and only that');
+  assert.match(panel.webview.html, /without downloading application code/);
   assert.match(panel.webview.html, /led by <code>Payments API<\/code>/);
   assert.match(panel.webview.html, /<button data-submit="create" >/, 'nothing outstanding');
 });
@@ -3719,11 +3723,11 @@ test('when several capabilities ship, one of them is named the lead', async (t) 
   assert.match(html, /<option value="storefront-web"[^>]*>Storefront Web \(web\)/);
   // Defaulted rather than demanded, so the form is never blocked on it.
   assert.match(html, /<option value="payments-api" selected>/);
-  assert.match(html, /in <code>api<\/code>/);
+  assert.match(html, /\(<code>api<\/code>\) is checked out when work starts/);
 
   await panel.post({ type: 'field', field: 'lead-capability', value: 'storefront-web' });
   assert.match(panel.webview.html, /<option value="storefront-web" selected>/);
-  assert.match(panel.webview.html, /in <code>web<\/code>/);
+  assert.match(panel.webview.html, /\(<code>web<\/code>\) is checked out when work starts/);
 
   // A grouping cannot lead: leading means carrying the state branch, and it has no repository.
   await panel.post({ type: 'field', field: 'lead-capability', value: 'commerce' });
@@ -3782,26 +3786,16 @@ test('an organisation that has not described what it builds says so, and where t
   assert.match(capabilityPanel.webview.html, /data-map-details hidden/);
   await capabilityPanel.post({ type: 'field', field: 'repositoryUrl', value: origin });
   await capabilityPanel.post({ type: 'inspectRepository' });
-  await until(() => (capabilityPanel.webview.html.includes('0 capabilities available as parents')
-    ? capabilityPanel.webview.html : null));
-  await capabilityPanel.post({ type: 'field', field: 'capabilityId', value: 'payments-api' });
-  await capabilityPanel.post({ type: 'field', field: 'name', value: 'Payments API' });
-  await capabilityPanel.post({ type: 'field', field: 'kind', value: 'delivery' });
-  await capabilityPanel.post({ type: 'map' });
-
-  // Mapping is a review proposal: the retained workspace form must not see it until the proposal
-  // reaches the remote's approved configuration branch through normal review controls.
-  await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/config-change/capability/map-payments-api-*'], { cwd: origin }).stdout.trim() || null,
-  { attempts: 200 });
-  mergeCapabilityProposal(origin, 'map-payments-api');
-  await registered.commands.get('singularityFlow.createWorkspace')();
-
-  const refreshed = await until(() =>
-    (panel.webview.html.includes('<option value="payments-api"') ? panel.webview.html : null),
-  { attempts: 200 });
-  assert.match(refreshed, /value="rules-workspace"/, 'the workspace draft survived capability setup');
-  assert.match(refreshed, /Payments API/, 'the reviewed capability is selectable after refreshing the form');
+  const setup = await until(() => capabilityPanel.webview.html.includes('data-repository-setup-status=')
+    ? capabilityPanel.webview.html : null, { attempts: 100 });
+  assert.match(setup, /data-repository-setup-primary="applyRepositorySetup"/,
+    'a fresh repository must be set up explicitly before a capability can be mapped');
+  assert.match(setup, /data-map-details hidden/);
+  assert.doesNotMatch(setup, /0 capabilities available as parents/,
+    'the capability map must not be offered before configuration is established');
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/capability/map-payments-api-*'], { cwd: origin }).stdout.trim(), '',
+  'repository inspection alone does not create a capability proposal');
 });
 
 test('with no organisation mapped at all, the form offers the screen that maps one', async (t) => {
@@ -3849,7 +3843,8 @@ test('creating a workspace asks nothing through a prompt', async (t) => {
   await panel.post({ type: 'capability', id: 'payments', selected: true });
   await settle();
   assert.match(panel.webview.html, /<button data-submit="create" >/);
-  assert.match(panel.webview.html, /orphan\s+<code>state<\/code> branch is created\s+in <code>api<\/code> and pushed/);
+  assert.match(panel.webview.html, /\(<code>api<\/code>\) is checked out when work starts/);
+  assert.match(panel.webview.html, /governed <code>state<\/code> branch is initialized then if needed/);
 
   // Not one input box, from opening the panel to being ready to create.
   assert.equal(registered.inputBoxes.length, 0,
@@ -4094,7 +4089,7 @@ test('Attach existing offers only workspaces from the inspected capability autho
     authority: { ...authority(other), configurationCommit: 'f'.repeat(40) }
   });
   assert.ok(registered.warnings.some((message) =>
-    /capability authority changed after repository inspection/i.test(message)),
+    /repository setup changed; review the refreshed result/i.test(message)),
   `expected stale-authority warning, got: ${registered.warnings.join(' | ')}`);
   assert.match(panel.webview.html, /No matching local workspaces are available/);
   assert.doesNotMatch(panel.webview.html, /<td><a[^>]*>first-authority<\/a>/,
@@ -4174,7 +4169,7 @@ test('Attach existing rejects a preview whose authority moved after repository i
   const workspaceRoot = path.join(await realpath(workspaces), 'authority-preview');
   await panel.post({ type: 'capability-attach', path: workspaceRoot, id: 'payments-api' });
 
-  assert.match(panel.webview.html, /capability authority changed after repository inspection/i);
+  assert.match(panel.webview.html, /repository setup changed; review the refreshed result/i);
   assert.equal(confirmationCount, 0, 'a mismatched authority is rejected before confirmation');
   const capabilityCommands = registered.output.filter((line) =>
     String(line).includes('workspace attach-capability'));
@@ -4320,7 +4315,7 @@ test('Manage can detach and safely drop an exact non-lead capability checkout', 
   const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'drop-web', '--base', workspaces,
     '--organisation', org.lead, '--capability', 'payments', '--capability', 'storefront',
-    '--lead-capability', 'payments-api', '--confirm', 'drop-web'], {
+    '--lead-capability', 'payments-api', '--confirm', 'drop-web', '--clone'], {
     encoding: 'utf8', env: process.env
   });
   assert.equal(created.status, 0, created.stderr);
@@ -4393,7 +4388,7 @@ test('a partial capability attachment refreshes details and reports repair witho
   });
   const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'partial', '--base', workspaces,
-    '--organisation', org.lead, '--capability', 'payments', '--confirm', 'partial'], {
+    '--organisation', org.lead, '--capability', 'payments', '--confirm', 'partial', '--clone'], {
     encoding: 'utf8', env: process.env
   });
   assert.equal(created.status, 0, created.stderr);
@@ -4579,7 +4574,7 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
     created.set(id, JSON.parse(cli([
       'workspace', 'create', '--local', '--json', '--id', id, '--base', workspaces,
       '--lead', 'lead', '--repository', `lead=${source}`,
-      '--default-branch', 'lead=INIT-CHECKOUT', '--confirm', id
+      '--default-branch', 'lead=INIT-CHECKOUT', '--confirm', id, '--clone'
     ])));
   }
   const alpha = created.get('alpha');
@@ -4991,7 +4986,7 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'commerce',
     '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
-    '--repository', `platform=${org.lead}`, '--confirm', 'commerce'], {
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--clone'], {
     encoding: 'utf8', env: process.env
   });
 
@@ -5059,7 +5054,7 @@ test('the Copilot handoff switches this window to the governed repository before
   const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'commerce',
     '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
-    '--repository', `platform=${org.lead}`, '--confirm', 'commerce'], {
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--clone'], {
     encoding: 'utf8', env: process.env
   });
   assert.equal(created.status, 0, created.stderr);
@@ -5105,7 +5100,7 @@ test('a command-palette action attaches Copilot to any saved workspace', async (
   const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'commerce',
     '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
-    '--repository', `platform=${org.lead}`, '--confirm', 'commerce'], {
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--clone'], {
     encoding: 'utf8', env: process.env
   });
   assert.equal(created.status, 0, created.stderr);
@@ -5282,7 +5277,7 @@ test('opening a workspace directory works: its lead repository is what gets gove
     // pretending otherwise would test the fixture rather than the resolution.
     'workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
     '--lead', 'platform', '--repository', `platform=${org.lead}`,
-    '--confirm', 'commerce'], {
+    '--confirm', 'commerce', '--clone'], {
     encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(org.base, 'r.json') }
   });
 
@@ -5747,12 +5742,10 @@ test('capability review does not infer repairability from MCP-shaped error prose
   panelController.dispose();
 });
 
-test('a window with nothing open can map a capability from scratch', async (t) => {
+test('a window with nothing open requires explicit repository setup before first capability mapping', async (t) => {
   if (!requireBundle(t)) return;
-  // The product's one chicken-and-egg problem, in the worst possible place: to use the tool you
-  // needed a governed repository, and to get one you needed the tool. This drives the whole way out
-  // of it — empty window, a URL, a capability, a map the rest of the product can read. Nothing is
-  // checked out: the lead is borrowed for the length of the edit and given back.
+  // A fresh repository now crosses an explicit, reviewable setup gate before capability mapping.
+  // Inspection alone must not write either a configuration proposal or a local checkout.
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-boot-'));
   const bare = path.join(base, 'acme-platform.git');
   await mkdir(bare);
@@ -5786,85 +5779,20 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   assert.doesNotMatch(panel.webview.html, /Where the map lives|Read the map/,
     'repository selection is part of the capability form rather than a separate setup step');
 
-  // With no registered map, the first shipping repository is the only possible candidate and is
-  // selected in place. There is no second URL field or button to press.
+  // With no registered map, checking the URL yields a setup preview, not a capability form.
   await panel.post({ type: 'redraw' });
   await panel.post({ type: 'field', field: 'repositoryUrl', value: bare });
   await panel.post({ type: 'inspectRepository' });
-  await until(() => (panel.webview.html.includes('Use this repository as the first capability map')
-    ? panel.webview.html : null));
-  await panel.post({ type: 'useFirstAuthority' });
-  await until(() => (panel.webview.html.includes('0 capabilities available as parents')
-    ? panel.webview.html : null));
-  assert.match(panel.webview.html, /data-use-shipping-repository checked/,
-    'the first shipping repository also holds the capability map by default');
-
-  // Continue with a grouping capability to prove that changing kind does not forget the selected
-  // map even though a Collection correctly clears the shipping property.
-  await panel.post({ type: 'field', field: 'kind', value: 'collection' });
-  await panel.post({ type: 'redraw' });
-
-  await panel.post({ type: 'field', field: 'capabilityId', value: 'commerce' });
-  await panel.post({ type: 'field', field: 'name', value: 'Commerce' });
-  await panel.post({ type: 'field', field: 'kind', value: 'collection' });
-  await panel.post({ type: 'map' });
-
-  // The map reaches a review branch. Approved configuration remains untouched until normal review
-  // controls merge that proposal into sflow/config.
-  await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/config-change/capability/map-commerce-*'], { cwd: bare }).stdout.trim() || null,
-  { attempts: 200 });
-  const firstReview = mergeCapabilityProposal(bare, 'map-commerce-');
-  assert.match(firstReview, /^sflow\/config-change\/capability\/map-commerce-/);
-
-  // Once reviewed, the first capability governs the repository it was mapped into: the whole
-  // singularity/ folder is there, which is the circular dependency this breaks.
-  assert.ok(run('git', ['show', 'sflow/config:singularity/workflow.yml'], { cwd: bare }).stdout.includes('phases'));
-  assert.match(run('git', ['show', 'sflow/config:singularity/workflow.yml'], { cwd: bare }).stdout,
-    /branch: state/, 'the orphan branch is named, and made when a workspace is initialised');
-  // A grouping ships from nothing, so it names no repository. Giving one to a capability that does
-  // not have one is how a portfolio fills up with repositories nobody clones.
-  assert.doesNotMatch(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: bare }).stdout,
-    /repository:/);
-
-  // A capability that ships names its repository, and that is what puts one in the portfolio. The
-  // panel closes on a successful map, so this is a second visit to the screen — which is also the
-  // real shape of mapping an organisation: one capability at a time.
-  await registered.commands.get('singularityFlow.mapCapability')();
-  const second = registered.panels.filter((entry) => entry.id === 'singularityFlow.mapCapability').at(-1);
-  assert.notEqual(second, panel, 'the screen reopened rather than reusing a disposed panel');
-  assert.match(second.webview.html, /data-map-details hidden/,
-    'a known map is still not read until the repository URL is checked');
-  const organisationReadsBeforeInspection = registered.output
-    .filter((line) => String(line).includes('capability organisation')).length;
-  await second.post({ type: 'field', field: 'repositoryUrl', value: bare });
-  await second.post({ type: 'inspectRepository' });
-  // The repository is already declared by the first authority, but no delivery capability uses it
-  // yet. Inspection selects that exact map and only then loads possible parents.
-  const reloaded = await until(() =>
-    (second.webview.html.includes('<option value="commerce"') ? second.webview.html : null));
-  assert.ok(reloaded, 'the map was read back, with the capability just mapped in it');
-  assert.equal(registered.output
-    .filter((line) => String(line).includes('capability organisation')).length,
-    organisationReadsBeforeInspection,
-    'the exact-revision organisation returned by inspection is reused in the same form');
-  assert.match(reloaded, /known, but is not assigned to a capability/);
-
-  const panel2 = second;
-  await panel2.post({ type: 'field', field: 'capabilityId', value: 'platform-api' });
-  await panel2.post({ type: 'field', field: 'name', value: 'Platform API' });
-  await panel2.post({ type: 'field', field: 'kind', value: 'delivery' });
-  await panel2.post({ type: 'field', field: 'parent', value: 'commerce' });
-  await panel2.post({ type: 'map' });
-
-  await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/config-change/capability/map-platform-api-*'], { cwd: bare }).stdout.trim() || null,
-  { attempts: 200 });
-  mergeCapabilityProposal(bare, 'map-platform-api-');
-  const map = run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: bare }).stdout;
-  assert.ok(map, 'the second capability reached the remote');
-  const portfolio = run('git', ['show', 'sflow/config:singularity/portfolio.yml'], { cwd: bare }).stdout;
-  assert.match(map, /parent: commerce/, 'and it was placed under the capability chosen as its parent');
+  const setup = await until(() => panel.webview.html.includes('data-repository-setup-status=')
+    ? panel.webview.html : null, { attempts: 100 });
+  assert.match(setup, /data-repository-setup-primary="applyRepositorySetup"/);
+  assert.match(setup, /data-map-details hidden/);
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/capability/map-*'], { cwd: bare }).stdout.trim(), '',
+  'inspection cannot bypass repository setup by writing a capability proposal');
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config'], { cwd: bare }).stdout.trim(), '',
+  'inspection does not create approved configuration');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
@@ -6415,7 +6343,7 @@ test('Git URL maintenance can reach an open repository when its old workspace ma
   });
   const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'damaged-url-recovery', '--base', workspaces,
-    '--organisation', org.lead, '--capability', 'payments-api', '--confirm', 'damaged-url-recovery'],
+    '--organisation', org.lead, '--capability', 'payments-api', '--confirm', 'damaged-url-recovery', '--clone'],
   { encoding: 'utf8', env: process.env });
   assert.equal(created.status, 0, created.stderr);
   const workspaceRoot = path.join(await realpath(workspaces), 'damaged-url-recovery');

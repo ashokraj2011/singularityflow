@@ -15,7 +15,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 3
+version: 4
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -40,6 +40,16 @@ Use this topic when the current goal matches **workspaces and sessions**. Start 
 For a large delivery repository, configure its clone strategy while mapping the capability. `blobless` keeps the full checkout but fetches historical file bytes on demand. `blobless-sparse` also materializes only the declared cone directories; Singularity Flow automatically includes `singularity/` and `.github/agents/`. The default fallback is `refuse`: a server that ignores `filter=blob:none` cannot silently turn a planned partial clone into a full monorepo download. Choose the explicit `full` fallback only when that cost is acceptable.
 
 Before any workspace exists, use `sflow workspace prepare <REMOTE> --id <ID> --base <DIRECTORY>` to record and preflight a resumable setup. It creates no destination. Continue only with the returned `workspace bootstrap resume` command and exact workspace-ID confirmation. An interrupted setup remains addressable by its `bst_…` ID.
+
+Workspace registration normally records the approved capability bindings and planned repository
+paths without cloning application code. `workspace use` can select that workspace and reports the
+repository as `missing` until files are needed. Starting work materializes the repositories
+required by an unambiguous Story capability; generic intake prepares the required workspace set
+when no exact binding is known. If files are needed earlier, run
+`sflow workspace repair <WORKSPACE-DIRECTORY> --repository <REPOSITORY-ID>`.
+`workspace prepare --initialize` explicitly requests an immediate checkout and state
+initialization; `--no-clone --initialize` is contradictory and refused. Mapping a capability reads
+governed configuration, not application source.
 
 To use a clone already on the machine, run `sflow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY> --dry-run --json`. Review its canonical path, origin, branch, worktrees, submodules, SFlow configuration, changed paths, and preservation list. A dirty clone requires the exact content-aware hash returned by the preview in `--confirm-dirty`; changing file bytes invalidates it. Adoption creates a separate workspace shell and never fetches, checks out, stashes, commits, resets, cleans, or edits the clone remote.
 

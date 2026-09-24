@@ -5227,6 +5227,41 @@ test('organisation reads prefer the state mirror and reuse a SHA-validated durab
     'the CLI refresh flag bypasses a same-tip durable cache entry');
 });
 
+test('capability inspection reuses an exact state-mirror cache when configuration ref is absent', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
+  const proposal = await mapCapability(org.platform, {
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
+  });
+  await mergeProposal(org.platform, proposal);
+  await publishOrganisationCapabilityMap(org.platform);
+  run('git', ['--git-dir', org.platform, 'update-ref', '-d', 'refs/heads/sflow/config']);
+
+  const first = await readOrganisation(org.platform);
+  assert.equal(first.recoveryAvailable, true);
+  assert.equal(first.sourceBranch, 'state');
+  assert.equal(first.cached, false);
+
+  const second = await readOrganisation(org.platform);
+  assert.equal(second.cached, true);
+  assert.equal(second.sourceCommit, first.sourceCommit);
+  assert.deepEqual(second.capabilities, first.capabilities);
+
+  const forced = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(forced.cached, false, 'explicit refresh revalidates the authority bytes');
+
+  const state = path.join(org.base, 'advance-recovery-state');
+  run('git', ['clone', '-q', '--branch', 'state', org.platform, state], { cwd: org.base });
+  run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: state });
+  run('git', ['config', 'user.name', 'Review User'], { cwd: state });
+  run('git', ['commit', '--allow-empty', '-qm', 'Advance state recovery receipt'], { cwd: state });
+  run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: state });
+  const advanced = await readOrganisation(org.platform);
+  assert.equal(advanced.cached, false, 'a changed state ref invalidates the cached mirror');
+  assert.notEqual(advanced.sourceCommit, first.sourceCommit);
+});
+
 test('malformed organisation cache bytes and shapes never block authoritative Git reads', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -5945,8 +5980,9 @@ test('choosing a workspace is what scopes the rest', async () => {
     extension.indexOf("registerCommand('singularityFlow.openWorkspace'"));
   assert.doesNotMatch(selecting, /vscode\.openFolder/,
     'selecting a workspace never opens a folder or creates another window');
-  assert.match(selecting, /if \(!workspaceSelected\.length\)[\s\S]*reloadWindow/,
-    'the first selection reloads the same window only when repository services were never created');
+  assert.match(selecting,
+    /if \(forceReload \|\| !workspaceSelected\.length \|\| selected\.repositoryState !== 'ready'\)[\s\S]*reloadWindow/,
+    'a first selection or deferred checkout reloads this window so repository services use the new state');
 
   // Resolution consults the active workspace before the open folder, not after it.
   const active = extension.indexOf('const active = await activeWorkspaceRepository(context, output);');

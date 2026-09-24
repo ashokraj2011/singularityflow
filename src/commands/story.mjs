@@ -511,31 +511,33 @@ export async function storyCommand(positionals, options) {
   }
   if (subcommand === 'inbox') return storyInboxCommand(options);
   if (subcommand === 'fetch') return storyFetchCommand(positionals, options);
+  // A provisional reference probe pins a remote branch; it does not consume the
+  // delivery repository's workflow authority or require SFlow in the source repo.
+  if (subcommand === 'references' && positionals[2] === 'inspect') {
+    const requests = parseReferenceRepositoryOptions(
+      optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
+    );
+    if (!requests.length) {
+      throw new SingularityFlowError(
+        'story references inspect requires paired --reference-repository ID=URL and --reference-branch ID=BRANCH options.'
+      );
+    }
+    const repositories = await resolveReferenceRepositoryPins(requests);
+    const result = {
+      status: 'ready', immutable: false, provisional: true,
+      deliveryRepositoriesChanged: false, repositories
+    };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log('Reference repository preflight (read-only, provisional)');
+    for (const entry of repositories) {
+      console.log(`✓ ${entry.id} · ${entry.requestedBranch} @ ${entry.commit.slice(0, 12)}`);
+    }
+    console.log('Story start resolves every branch again and records the final immutable pins.');
+    return;
+  }
   const config = await loadConfig(root);
   if (subcommand === 'references') {
     const action = positionals[2] ?? 'list';
-    if (action === 'inspect') {
-      const requests = parseReferenceRepositoryOptions(
-        optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
-      );
-      if (!requests.length) {
-        throw new SingularityFlowError(
-          'story references inspect requires paired --reference-repository ID=URL and --reference-branch ID=BRANCH options.'
-        );
-      }
-      const repositories = await resolveReferenceRepositoryPins(requests);
-      const result = {
-        status: 'ready', immutable: false, provisional: true,
-        deliveryRepositoriesChanged: false, repositories
-      };
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log('Reference repository preflight (read-only, provisional)');
-      for (const entry of repositories) {
-        console.log(`✓ ${entry.id} · ${entry.requestedBranch} @ ${entry.commit.slice(0, 12)}`);
-      }
-      console.log('Story start resolves every branch again and records the final immutable pins.');
-      return;
-    }
     const workId = positionals[3] ?? optionString(options, 'work-id');
     const workflow = await loadStoryAggregate(root, config, workId);
     const references = await storyReferenceRepositories(root, config, workflow);

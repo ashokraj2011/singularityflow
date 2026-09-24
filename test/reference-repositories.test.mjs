@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
@@ -101,6 +103,34 @@ test('reference repository intake requires paired explicit IDs, URLs, and branch
   assert.throws(() => parseReferenceRepositoryOptions(
     ['rules=https://user:secret@example.test/rules.git'], ['rules=main']
   ), /credential/i);
+});
+
+test('reference inspection from a delivery checkout without local workflow configuration stays provisional', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  try {
+    const before = git(fixture.target, ['status', '--porcelain=v1']).stdout;
+    const referenceCommit = git(fixture.source, ['rev-parse', 'HEAD']).stdout.trim();
+    const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+    const inspected = spawnSync(process.execPath, [
+      cli, 'story', 'references', 'inspect',
+      '--reference-repository', `java-rule-engine=${fixture.remote}`,
+      '--reference-branch', 'java-rule-engine=main', '--json'
+    ], { cwd: fixture.target, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+
+    assert.equal(inspected.status, 0, inspected.stderr || inspected.stdout);
+    const result = JSON.parse(inspected.stdout);
+    assert.equal(result.status, 'ready');
+    assert.equal(result.provisional, true);
+    assert.equal(result.immutable, false);
+    assert.equal(result.deliveryRepositoriesChanged, false);
+    assert.equal(result.repositories.length, 1);
+    assert.equal(result.repositories[0].id, 'java-rule-engine');
+    assert.equal(result.repositories[0].requestedBranch, 'main');
+    assert.equal(result.repositories[0].commit, referenceCommit);
+    assert.equal(git(fixture.target, ['status', '--porcelain=v1']).stdout, before);
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
 });
 
 test('reference branches are pinned, detached, ignored, reproducible, and never silently repaired', async () => {

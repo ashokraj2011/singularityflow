@@ -15,7 +15,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 4
+version: 5
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -47,6 +47,9 @@ repository as `missing` until files are needed. Starting work materializes the r
 required by an unambiguous Story capability; generic intake prepares the required workspace set
 when no exact binding is known. If files are needed earlier, run
 `sflow workspace repair <WORKSPACE-DIRECTORY> --repository <REPOSITORY-ID>`.
+From inside a saved workspace or one of its subdirectories, `sflow workspace status` and
+`sflow workspace repair --repository <REPOSITORY-ID>` infer that workspace. Outside it, pass
+the exact workspace directory; the last selected workspace is never repaired implicitly.
 `workspace prepare --initialize` explicitly requests an immediate checkout and state
 initialization; `--no-clone --initialize` is contradictory and refused. Mapping a capability reads
 governed configuration, not application source.

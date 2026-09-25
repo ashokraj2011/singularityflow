@@ -6,7 +6,7 @@ import {
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from '../workspace-context.mjs';
 import { optionBoolean, optionString, table } from '../util.mjs';
-import { renderChangeDirectoryCommand } from '../safe-command-guidance.mjs';
+import { renderChangeDirectoryCommand, renderPlatformCommand } from '../safe-command-guidance.mjs';
 
 const HOT_ACTIONS = new Set(['list', 'current', 'prompt', 'use', 'switch']);
 let legacy = null;
@@ -51,6 +51,17 @@ export async function run(argv, context = {}) {
     console.log(`Repository: ${activeContext.repositoryPath}`);
     if (activeContext.repositoryState !== 'ready') {
       console.log(`Repository state: ${activeContext.repositoryState}. Run workspace repair before starting Copilot.`);
+      const repairArgv = ['singularity-flow', 'workspace', 'repair', activeContext.workspacePath,
+        ...(activeContext.repositoryId ? ['--repository', activeContext.repositoryId] : [])];
+      const repairLines = actionCommandLines({
+        command: renderPlatformCommand(repairArgv, process.platform === 'win32' ? 'linux' : process.platform),
+        skill: '/sf-workspace'
+      }, 'Repair');
+      if (process.platform === 'win32') {
+        repairLines[1] = repairLines[1].replace(/^Shell:/u, 'Shell (Git Bash):');
+        repairLines.splice(2, 0, `Shell (PowerShell): ${renderPlatformCommand(repairArgv, 'win32')}`);
+      }
+      for (const line of repairLines) console.log(line);
     }
     for (const line of actionCommandLines(copilotAction({
       command: 'singularity-flow workspace copilot'

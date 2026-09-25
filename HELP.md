@@ -936,6 +936,9 @@ singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode set --paren
 singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode remove --reparent-children-to <PARENT-ID>
 singularity-flow capability proposals --lead <URL>
 singularity-flow capability proposal <REVIEW-BRANCH> --lead <URL>
+singularity-flow capability rebase-proposal <REVIEW-BRANCH> --lead <URL> --json
+singularity-flow capability rebase-proposal <REVIEW-BRANCH> --lead <URL> \
+  --confirm <FULL-SOURCE-COMMIT> --confirm-plan <PLAN-ID> --json
 singularity-flow capability repair-proposal <REVIEW-BRANCH> --lead <URL> \
   --confirm <FULL-COMMIT> --json
 singularity-flow capability fsck --lead <URL> [--json]
@@ -945,7 +948,8 @@ singularity-flow capability activate <REVIEW-BRANCH> --lead <URL> --confirm <FUL
 singularity-flow capability publish --lead <URL>
 singularity-flow capability organisation [LEAD-URL] [--refresh] [--json]
 singularity-flow capability world-model <CAPABILITY-ID> --json
-singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <CAPABILITY-ID>
+singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <CAPABILITY-ID> --dry-run --json
+singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <CAPABILITY-ID> --confirm <ID> [--clone] [--json]
 singularity-flow workspace list --json
 singularity-flow workspace use <ID|NAME|DIRECTORY>
 singularity-flow workspace current --json
@@ -954,6 +958,17 @@ singularity-flow workspace archive-status <DIRECTORY> --fetch
 singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
 singularity-flow workspace restore <DIRECTORY>
 ```
+
+Workspace creation requires an exact confirmation: `--confirm <ID>` for a local
+workspace or `--confirm <JIRA-KEY>` for a Jira-anchored workspace. Preview with
+`--dry-run --json`, review the selected capabilities, repositories, and directory,
+then repeat the intended create command with that confirmation. Without `--clone`,
+the workspace is registered but its application checkouts are deferred. Use
+`workspace status <DIRECTORY>` to inspect it and `workspace repair <DIRECTORY>`
+to materialize missing checkouts explicitly; Story start also materializes the
+selected capability repositories on demand. When using `--json`, failures are a
+single structured refusal on stderr, with `error.code`; successful results are on
+stdout.
 
 Start repository onboarding with its exact credential-free Git URL and run `capability onboard
 <REPOSITORY-URL> --dry-run --json`. It returns a `repository-onboarding-plan/v1` with one status,
@@ -1166,9 +1181,9 @@ singularity-flow session workspace <ID|NAME|JIRA|DIRECTORY> [--repository ID] [-
 singularity-flow workspace current
 singularity-flow workspace prompt
 singularity-flow workspace copilot [WORKSPACE] [--repository ID] [--story STORY] [--mode plan]
-singularity-flow workspace status <DIRECTORY>
+singularity-flow workspace status [DIRECTORY]
 singularity-flow workspace sync <DIRECTORY>
-singularity-flow workspace repair <DIRECTORY>
+singularity-flow workspace repair [DIRECTORY]
 singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
 singularity-flow workspace documents <DIRECTORY>
 singularity-flow workspace impact analyze <DIRECTORY> --description "<PROPOSED CHANGE>"

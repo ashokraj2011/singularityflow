@@ -34,7 +34,7 @@ import {
 } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
-import { renderChangeDirectoryCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import {
@@ -255,7 +255,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, repairCapabilityProposal, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, rebaseCapabilityProposal, repairCapabilityProposal, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -311,7 +311,9 @@ import { HELP } from './help-text.mjs';
  */
 function printCommandRoutes(command, { skill = null, indent = '', label = null } = {}) {
   if (label) console.log(`${indent}${label}:`);
-  const guidance = safeCommandGuidance({ command, skill });
+  const guidance = safeCommandGuidance(typeof command === 'string'
+    ? { command, skill }
+    : { ...command, skill });
   if (!guidance) {
     console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
     console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
@@ -10742,6 +10744,40 @@ async function capabilityCommand(positionals, options) {
     return result;
   }
 
+  if (subcommandForWrite === 'rebase-proposal') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const branch = requirePositional(positionals, 2, 'capability proposal branch');
+    const result = await rebaseCapabilityProposal(leadUrl, branch, {
+      confirm: optionString(options, 'confirm'),
+      confirmPlan: optionString(options, 'confirm-plan')
+    });
+    if (result.status !== 'preview') await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (result.status === 'preview') {
+      console.log(`Rebase preview for ${result.plan.branch}@${result.plan.sourceCommit}.`);
+      console.log(`  current authority: ${result.plan.targetBranch}@${result.plan.targetCommit}`);
+      console.log(`  proposed review branch: ${result.plan.reviewBranch}`);
+      console.log(`  added capability: ${result.plan.capabilityId}`);
+      console.log(`  added repositories: ${result.plan.addedRepositoryIds.join(', ') || 'none'}`);
+      console.log('  approved configuration and source proposal remain unchanged.');
+      printCommandRoutes(result.nextAction.command, {
+        skill: result.nextAction.skill, indent: '  ', label: 'After review'
+      });
+      return result;
+    }
+    console.log(`Rebased capability proposal ${result.branch}@${result.commit}.`);
+    console.log(`  source proposal preserved: ${result.supersedes.branch}@${result.supersedes.commit}`);
+    console.log('  approved configuration and application branches were not changed.');
+    printCommandRoutes(result.nextAction.command, {
+      skill: result.nextAction.skill, indent: '  ', label: 'Review'
+    });
+    printCommandRoutes(result.activationAction.command, {
+      skill: result.activationAction.skill, indent: '  ', label: 'After review'
+    });
+    return result;
+  }
+
   if (subcommandForWrite === 'repair-proposal') {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
@@ -10796,7 +10832,15 @@ async function capabilityCommand(positionals, options) {
     if (!proposals.length) return console.log('No pending capability proposals.');
     for (const proposal of proposals) {
       console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
-        + `${proposal.merged ? 'merged' : proposal.valid ? 'ready for review' : proposal.status ?? 'invalid'}`);
+        + `${proposal.merged ? 'merged' : proposal.valid && proposal.mergeable === false
+          ? 'conflicting — rebase or discard' : proposal.valid && proposal.mergeable === true
+            ? 'ready for review' : proposal.valid ? 'mergeability not verified — review before activation'
+              : proposal.status ?? 'invalid'}`);
+      if (proposal.valid && proposal.mergeable === false) {
+        printCommandRoutes(proposal.rebaseAction.command, {
+          skill: proposal.rebaseAction.skill, indent: '  ', label: 'Preview recovery'
+        });
+      }
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
       if (proposal.failure?.diagnosticAction?.command) {
         printCommandRoutes(proposal.failure.diagnosticAction.command, {
@@ -10819,7 +10863,17 @@ async function capabilityCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(proposal, null, 2));
     console.log(`${proposal.branch} (${proposal.proposalCommit})`);
     console.log(`  target: ${proposal.targetBranch}@${proposal.targetCommit}`);
-    console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid ? 'ready for review' : 'invalid'}`);
+    console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid && proposal.mergeable === false
+      ? 'conflicting — rebase or discard' : proposal.valid && proposal.mergeable === true
+        ? 'ready for review' : proposal.valid ? 'mergeability not verified — review before activation'
+          : 'invalid'}`);
+    if (proposal.valid && proposal.mergeable === false) {
+      console.log(`  authority: ${proposal.targetCommit}`);
+      console.log(`  possible conflict files: ${proposal.conflictFiles.join(', ') || 'not determined'}`);
+      printCommandRoutes(proposal.rebaseAction.command, {
+        skill: proposal.rebaseAction.skill, indent: '  ', label: 'Preview recovery'
+      });
+    }
     for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
     if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);
     if (proposal.configurationError) console.log(`  configuration: ${proposal.configurationError}`);
@@ -12836,6 +12890,55 @@ async function workspaceBootstrapInput(source, options) {
   };
 }
 
+function directoryIsWithinWorkspace(directory, workspacePath) {
+  const relative = path.relative(workspacePath, directory);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative));
+}
+
+async function workspaceDirectoryFromCwd(registry, selectionFile, action) {
+  const cwd = await realpath(process.cwd()).catch(() => path.resolve(process.cwd()));
+  const saved = await Promise.all((await readWorkspaceRegistry(registry))
+    .filter((entry) => !entry.archivedAt)
+    .map(async (entry) => ({ ...entry,
+      physicalPath: await realpath(entry.path).catch(() => path.resolve(entry.path))
+    })));
+  // Choose the nearest registered workspace if a workspace itself is nested under another one.
+  // Compare physical paths so a symlink under repos/ cannot redirect repair outside its owner.
+  const enclosing = saved.filter((entry) => directoryIsWithinWorkspace(cwd, entry.physicalPath))
+    .sort((left, right) => right.physicalPath.length - left.physicalPath.length);
+  if (enclosing.length) return enclosing[0].physicalPath;
+
+  // A selection in another VS Code window is a useful hint, not authority to repair a workspace
+  // unrelated to this shell's cwd. Require its exact directory as an explicit argument instead.
+  const selected = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false })
+    .catch(() => null);
+  const selectedPath = selected?.workspacePath
+    ? await realpath(selected.workspacePath).catch(() => path.resolve(selected.workspacePath))
+    : null;
+  const selectedEntry = saved.find((entry) => entry.physicalPath === selectedPath);
+  const commandArgv = selectedEntry
+    ? ['singularity-flow', 'workspace', action, selectedEntry.path] : null;
+  const nextCommand = selectedEntry
+    ? renderPlatformCommand(commandArgv, process.platform === 'win32' ? 'linux' : process.platform)
+    : `singularity-flow workspace ${action} <WORKSPACE-DIRECTORY>`;
+  const repairCommand = selectedEntry
+    ? renderPlatformCommand(['singularity-flow', 'workspace', 'repair', selectedEntry.path],
+      process.platform === 'win32' ? 'linux' : process.platform)
+    : null;
+  const shellRoute = process.platform === 'win32' && selectedEntry
+    ? ` Git Bash: ${nextCommand}. PowerShell: ${renderPlatformCommand(commandArgv, 'win32')}.`
+    : ` Run ${nextCommand}.`;
+  throw new SingularityFlowError(
+    `No saved workspace contains the current directory '${cwd}'. `
+      + (selectedEntry
+        ? `The selected workspace is '${selectedEntry.path}'.${shellRoute}`
+          + (action === 'status' ? ` Repair if needed with ${repairCommand}${process.platform === 'win32' ? ' (Git Bash)' : ''}.` : '')
+        : `Open a saved workspace directory or pass its exact path: ${nextCommand}. Run singularity-flow workspace list to find it.`),
+    { code: 'WORKSPACE_DIRECTORY_REQUIRED', details: { cwd, selectedWorkspacePath: selectedEntry?.path ?? null, nextCommand } }
+  );
+}
+
 async function workspaceCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'list';
   const registry = workspaceRegistryFile();
@@ -13376,7 +13479,8 @@ async function workspaceCommand(positionals, options) {
     console.log(`Repository: ${context.repositoryPath}`);
     if (context.repositoryState !== 'ready') {
       console.log(`Repository state: ${context.repositoryState}. Repair it before starting Copilot.`);
-      printCommandRoutes('singularity-flow workspace repair <WORKSPACE>', { label: 'Repair' });
+      printCommandRoutes({ executable: 'singularity-flow', argv: ['workspace', 'repair', context.workspacePath,
+        ...(context.repositoryId ? ['--repository', context.repositoryId] : [])] }, { label: 'Repair' });
     }
     printCommandRoutes('singularity-flow workspace copilot', { label: 'Start Copilot here' });
     console.log(`Shell directory: ${renderChangeDirectoryCommand(context.repositoryPath)}`);
@@ -13712,7 +13816,10 @@ async function workspaceCommand(positionals, options) {
     }
     throw new SingularityFlowError(`Unknown workspace impact action '${action}'.`);
   }
-  const workspacePath = positionals[subcommand === 'documents' && positionals[2] === 'import' ? 3 : 2];
+  const workspacePath = positionals[subcommand === 'documents' && positionals[2] === 'import' ? 3 : 2]
+    ?? (['status', 'repair'].includes(subcommand)
+      ? await workspaceDirectoryFromCwd(registry, selectionFile, subcommand)
+      : null);
   if (!workspacePath) throw new SingularityFlowError(`workspace ${subcommand} requires a workspace directory.`);
   if (subcommand === 'attach-capability' || subcommand === 'detach-capability') {
     const capabilityId = requirePositional(positionals, 3, 'capability ID');

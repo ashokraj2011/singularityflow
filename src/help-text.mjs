@@ -890,9 +890,16 @@ Usage:
      previews and then exact-CAS deletes only its obsolete state-branch authority-link file)
   singularity-flow capability proposals [--lead URL] [--all] [--json]
   singularity-flow capability proposal <REVIEW-BRANCH> [--lead URL] [--json]
+  singularity-flow capability rebase-proposal <REVIEW-BRANCH> [--lead URL] [--json]
+    (preview a typed additive map proposal against the exact current authority; no write)
+  singularity-flow capability rebase-proposal <REVIEW-BRANCH> [--lead URL]
+    --confirm <FULL-SOURCE-COMMIT> --confirm-plan <PLAN-ID> [--json]
+    (create a new review branch from the current authority; retain the original proposal,
+     never activate or rewrite approved configuration automatically)
   singularity-flow capability discard-proposal <REVIEW-BRANCH> [--lead URL]
     --confirm <FULL-COMMIT> --reason TEXT [--json]
-    (deletes only a provably unrelated-history proposal at the exact current remote commit)
+    (deletes only an invalid, unrelated-history, or proven unmergeable proposal at the exact
+     current remote commit; requires a reason and never changes approved configuration)
   singularity-flow capability repair-proposal <REVIEW-BRANCH> [--lead URL]
     --confirm <FULL-COMMIT> [--json]
     (advances only the retained review branch with byte-exact recognized packaged-asset upgrades;
@@ -945,9 +952,9 @@ Usage:
     [--repository ID] [--story ID] [--mode interactive|plan] [--dry-run]
   singularity-flow workspace prompt [--json]
   singularity-flow workspace open <DIRECTORY> [--json]
-  singularity-flow workspace status <DIRECTORY> [--level full|summary|readiness] [--json]
+  singularity-flow workspace status [DIRECTORY] [--level full|summary|readiness] [--json]
   singularity-flow workspace sync <DIRECTORY> [--json]
-  singularity-flow workspace repair <DIRECTORY> [--repository ID]... [--level full|summary|readiness] [--json]
+  singularity-flow workspace repair [DIRECTORY] [--repository ID]... [--level full|summary|readiness] [--json]
   singularity-flow workspace documents <DIRECTORY> [--json]
   singularity-flow workspace documents import <DIRECTORY> <FILE...> [--json]
   singularity-flow workspace impact analyze <DIRECTORY> --description TEXT

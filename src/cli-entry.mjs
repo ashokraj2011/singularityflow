@@ -48,6 +48,7 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
  */
 export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
   'map', 'map-team', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'discard-proposal',
+  'rebase-proposal',
   'world-model', 'organisation', 'leads', 'inspect-repository', 'fsck', 'reconcile',
   'repository', 'repair-proposal', 'adopt-managed', 'onboard',
   'setup-proposals', 'setup-proposal', 'setup-activate'

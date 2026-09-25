@@ -34,12 +34,14 @@ import {
   organisationCacheFile, previewCapabilityReconciliation,
   previewManagedCapabilityAdoption, previewStaleCapabilityAuthorityLinkRetirement,
   proposeProgressiveCapabilityChange, repositoryIdOf,
-  publishOrganisationCapabilityMap, repairCapabilityProposal, resolveWorkspacePlan
+  publishOrganisationCapabilityMap, rebaseCapabilityProposal, repairCapabilityProposal,
+  resolveWorkspacePlan
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { readConfigurationSource } from '../src/configuration-branch.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
+import { proposalGitMergeProbe } from '../src/git.mjs';
 import {
   createCapabilityAuthorityLink, publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
 } from '../src/capability-authority-link.mjs';
@@ -112,6 +114,339 @@ async function mapAndMerge(remote, options) {
   await mergeProposal(remote, proposal);
   return proposal;
 }
+
+test('conflicting map proposals remain reviewable, rebase into new refs, and can be discarded exactly', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'first-service', kind: 'collection'
+  });
+  const second = await mapCapability(org.platform, {
+    capabilityId: 'second-service', kind: 'collection'
+  });
+  const third = await mapCapability(org.platform, {
+    capabilityId: 'third-service', kind: 'collection'
+  });
+  await mergeProposal(org.platform, first);
+
+  const pending = await listCapabilityProposals(org.platform, { includeDiff: false });
+  for (const original of [second, third]) {
+    const proposal = pending.find((entry) => entry.branch === original.branch);
+    assert.equal(proposal.valid, true);
+    assert.equal(proposal.mergeable, false);
+    assert.equal(proposal.mergeability.proposalCommit, original.commit);
+    assert.equal(proposal.discardable, true);
+    assert.ok(proposal.conflictFiles.includes('singularity/capabilities.yml'));
+  }
+  await assert.rejects(activateCapabilityProposal(org.platform, second.branch, {
+    confirm: second.commit
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_UNMERGEABLE'
+      && /rebase-proposal/.test(error.details?.nextAction?.command ?? ''));
+
+  const preview = await rebaseCapabilityProposal(org.platform, second.branch);
+  assert.equal(preview.status, 'preview');
+  assert.equal(preview.plan.sourceCommit, second.commit);
+  await assert.rejects(rebaseCapabilityProposal(org.platform, second.branch, {
+    confirm: second.commit, confirmPlan: 'wrong-plan'
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_REBASE_CONFIRMATION_MISMATCH');
+  const rebased = await rebaseCapabilityProposal(org.platform, second.branch, {
+    confirm: second.commit, confirmPlan: preview.plan.planId
+  });
+  assert.equal(rebased.sourceProposalPreserved, true);
+  assert.equal(rebased.supersedes.branch, second.branch);
+  assert.notEqual(rebased.branch, second.branch);
+  assert.equal((await inspectCapabilityProposal(org.platform, rebased.branch)).mergeable, true);
+  assert.ok(proposalRefs(org.platform).some((entry) =>
+    entry.startsWith(`refs/heads/${second.branch} `)));
+  const parents = run('git', ['rev-list', '--parents', '-n', '1', rebased.commit], {
+    cwd: org.platform
+  }).stdout.trim().split(' ');
+  assert.deepEqual(parents.slice(1), [preview.plan.targetCommit, second.commit]);
+  const discarded = await discardStaleCapabilityProposal(org.platform, second.branch, {
+    confirm: second.commit, reason: 'Rebased review proposal superseded this conflict'
+  });
+  assert.equal(discarded.status, 'discarded');
+  assert.ok(!proposalRefs(org.platform).some((entry) =>
+    entry.startsWith(`refs/heads/${second.branch} `)));
+  await mergeProposal(org.platform, rebased);
+
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const thirdPreview = JSON.parse(execFileSync(process.execPath, [
+    cli, 'capability', 'rebase-proposal', third.branch, '--lead', org.platform, '--json'
+  ], { encoding: 'utf8' }));
+  assert.equal(thirdPreview.status, 'preview');
+  assert.equal(thirdPreview.nextAction.skill, '/sf-capability-map');
+  assert.match(thirdPreview.nextAction.command, /capability rebase-proposal/);
+  const thirdRebased = JSON.parse(execFileSync(process.execPath, [
+    cli, 'capability', 'rebase-proposal', third.branch, '--lead', org.platform,
+    '--confirm', third.commit, '--confirm-plan', thirdPreview.plan.planId, '--json'
+  ], { encoding: 'utf8' }));
+  assert.equal(thirdRebased.sourceProposalPreserved, true);
+  await mergeProposal(org.platform, thirdRebased);
+  const approved = YAML.parse(run('git', [
+    'show', 'sflow/config:singularity/capabilities.yml'
+  ], { cwd: org.platform }).stdout).capabilities;
+  for (const id of ['first-service', 'second-service', 'third-service']) {
+    assert.ok(approved[id]);
+  }
+  const history = await listCapabilityProposals(org.platform, { includeMerged: true, includeDiff: false });
+  assert.equal(history.find((entry) => entry.branch === third.branch)?.merged, true);
+  const active = await listCapabilityProposals(org.platform, { includeDiff: false });
+  assert.ok(!active.some((entry) => entry.branch === third.branch));
+  const retry = await mapCapability(org.platform, {
+    capabilityId: 'third-service', kind: 'collection'
+  });
+  assert.equal(retry.status, 'already-mapped');
+});
+
+test('rebase refuses a bootstrap proposal with workflow assets and preserves its review ref', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'first-seed', kind: 'collection'
+  });
+  const second = await mapCapability(org.platform, {
+    capabilityId: 'second-seed', kind: 'collection'
+  });
+  await mergeProposal(org.platform, first);
+  const before = proposalRefs(org.platform);
+  await assert.rejects(rebaseCapabilityProposal(org.platform, second.branch), (error) =>
+    error.code === 'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED');
+  assert.deepEqual(proposalRefs(org.platform), before);
+});
+
+test('a typed rebased map can be safely rebased again after another approved map advances', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'pending-service', kind: 'collection'
+  });
+  await mapAndMerge(org.platform, { capabilityId: 'first-service', kind: 'collection' });
+  const firstPreview = await rebaseCapabilityProposal(org.platform, pending.branch);
+  const firstRebase = await rebaseCapabilityProposal(org.platform, pending.branch, {
+    confirm: pending.commit, confirmPlan: firstPreview.plan.planId
+  });
+  await mapAndMerge(org.platform, { capabilityId: 'later-service', kind: 'collection' });
+  const conflicted = await inspectCapabilityProposal(org.platform, firstRebase.branch);
+  assert.equal(conflicted.valid, true);
+  assert.equal(conflicted.mergeable, false);
+  await assert.rejects(activateCapabilityProposal(org.platform, firstRebase.branch, {
+    confirm: firstRebase.commit
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_UNMERGEABLE'
+    && error.details?.nextAction?.command.includes('rebase-proposal'));
+
+  const secondPreview = await rebaseCapabilityProposal(org.platform, firstRebase.branch);
+  assert.equal(secondPreview.plan.capabilityId, 'pending-service');
+  assert.equal(secondPreview.plan.sourceCommit, firstRebase.commit);
+  const secondRebase = await rebaseCapabilityProposal(org.platform, firstRebase.branch, {
+    confirm: firstRebase.commit, confirmPlan: secondPreview.plan.planId
+  });
+  const parents = run('git', ['rev-list', '--parents', '-n', '1', secondRebase.commit], {
+    cwd: org.platform
+  }).stdout.trim().split(' ');
+  assert.deepEqual(parents.slice(1), [secondPreview.plan.targetCommit, firstRebase.commit]);
+  assert.equal((await inspectCapabilityProposal(org.platform, secondRebase.branch)).mergeable, true);
+  await mergeProposal(org.platform, secondRebase);
+  const original = await inspectCapabilityProposal(org.platform, pending.branch);
+  const first = await inspectCapabilityProposal(org.platform, firstRebase.branch);
+  assert.equal(original.merged, true);
+  assert.equal(first.merged, true);
+  const approved = YAML.parse(run('git', [
+    'show', 'sflow/config:singularity/capabilities.yml'
+  ], { cwd: org.platform }).stdout).capabilities;
+  for (const id of ['first-service', 'later-service', 'pending-service']) {
+    assert.ok(approved[id]);
+  }
+});
+
+test('minimum-supported Git fallback proves both clean and conflicting capability merges', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'pending-service', kind: 'collection'
+  });
+  assert.equal(proposalGitMergeProbe(org.platform, 'sflow/config', pending.branch, {
+    forceLegacyProbe: true
+  }), true);
+  await mapAndMerge(org.platform, { capabilityId: 'first-service', kind: 'collection' });
+  assert.equal(proposalGitMergeProbe(org.platform, 'sflow/config', pending.branch, {
+    forceLegacyProbe: true
+  }), false);
+});
+
+test('rebase confirmations are bound to the current authority revision', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'pending-service', kind: 'collection'
+  });
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'first-service', kind: 'collection'
+  });
+  await mergeProposal(org.platform, first);
+  const preview = await rebaseCapabilityProposal(org.platform, pending.branch);
+  const later = await mapCapability(org.platform, {
+    capabilityId: 'later-service', kind: 'collection'
+  });
+  await mergeProposal(org.platform, later);
+  const before = proposalRefs(org.platform);
+  await assert.rejects(rebaseCapabilityProposal(org.platform, pending.branch, {
+    confirm: pending.commit, confirmPlan: preview.plan.planId
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_REBASE_CONFIRMATION_MISMATCH'
+    && error.details?.plan?.targetCommit !== preview.plan.targetCommit);
+  assert.deepEqual(proposalRefs(org.platform), before);
+});
+
+test('rebase confirmations are bound to the exact source proposal commit', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'pending-service', kind: 'collection'
+  });
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'first-service', kind: 'collection'
+  });
+  await mergeProposal(org.platform, first);
+  const preview = await rebaseCapabilityProposal(org.platform, pending.branch);
+  const advance = await mkdtemp(path.join(os.tmpdir(), 'sflow-moved-proposal-'));
+  try {
+    run('git', ['clone', '-q', '--branch', pending.branch, org.platform, advance]);
+    run('git', ['config', 'user.email', 'reviewer@example.test'], { cwd: advance });
+    run('git', ['config', 'user.name', 'Review User'], { cwd: advance });
+    const file = path.join(advance, 'singularity/capabilities.yml');
+    await writeFile(file, `${await readFile(file, 'utf8')}\n# Reviewed proposal note\n`, 'utf8');
+    run('git', ['add', '--', 'singularity/capabilities.yml'], { cwd: advance });
+    run('git', ['commit', '-qm', 'Advance proposal review'], { cwd: advance });
+    run('git', ['push', '-q', 'origin', `HEAD:${pending.branch}`], { cwd: advance });
+  } finally {
+    await rm(advance, { recursive: true, force: true });
+  }
+  const before = proposalRefs(org.platform);
+  await assert.rejects(rebaseCapabilityProposal(org.platform, pending.branch, {
+    confirm: pending.commit, confirmPlan: preview.plan.planId
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_REBASE_CONFIRMATION_MISMATCH'
+    && error.details?.plan?.sourceCommit !== preview.plan.sourceCommit);
+  assert.deepEqual(proposalRefs(org.platform), before);
+});
+
+test('rebase push atomically guards the exact source review ref', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'pending-service', kind: 'collection'
+  });
+  await mapAndMerge(org.platform, { capabilityId: 'first-service', kind: 'collection' });
+  const preview = await rebaseCapabilityProposal(org.platform, pending.branch);
+  const realGit = run('which', ['git']).stdout.trim();
+  const wrappers = path.join(org.base, 'rebase-source-race-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  const sentinel = path.join(org.base, 'rebase-source-race-fired');
+  await mkdir(wrappers);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+const rebasePush = args[0] === 'push'
+  && args.some((arg) => String(arg).includes(${JSON.stringify(`:refs/heads/${preview.plan.reviewBranch}`)}));
+if (rebasePush && !fs.existsSync(${JSON.stringify(sentinel)})) {
+  const moved = spawnSync(realGit, [
+    '--git-dir', ${JSON.stringify(org.platform)}, 'update-ref',
+    ${JSON.stringify(`refs/heads/${pending.branch}`)},
+    ${JSON.stringify(preview.plan.targetCommit)}, ${JSON.stringify(pending.commit)}
+  ], { encoding: 'utf8' });
+  if (moved.status !== 0) process.exit(moved.status || 1);
+  fs.writeFileSync(${JSON.stringify(sentinel)}, JSON.stringify(args));
+}
+const result = spawnSync(realGit, args, {
+  cwd: process.cwd(), env: process.env, stdio: 'inherit'
+});
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${wrappers}${path.delimiter}${previousPath}`;
+  try {
+    await assert.rejects(rebaseCapabilityProposal(org.platform, pending.branch, {
+      confirm: pending.commit, confirmPlan: preview.plan.planId
+    }), (error) => error.code === 'CAPABILITY_PROPOSAL_REBASE_PLAN_STALE');
+  } finally {
+    process.env.PATH = previousPath;
+  }
+  const attemptedArgs = JSON.parse(await readFile(sentinel, 'utf8'));
+  assert.ok(attemptedArgs.includes('--atomic'));
+  assert.ok(attemptedArgs.includes(
+    `--force-with-lease=refs/heads/${pending.branch}:${pending.commit}`));
+  assert.ok(attemptedArgs.includes(
+    `${pending.commit}:refs/heads/${pending.branch}`));
+  assert.ok(!proposalRefs(org.platform).some((entry) =>
+    entry.startsWith(`refs/heads/${preview.plan.reviewBranch} `)));
+  assert.equal(run('git', ['rev-parse', pending.branch], { cwd: org.platform }).stdout.trim(),
+    preview.plan.targetCommit);
+});
+
+test('rebase refuses a concurrent capability record with the same ID', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'contended-service', name: 'Original', kind: 'collection'
+  });
+  const advance = await mkdtemp(path.join(os.tmpdir(), 'sflow-contending-map-'));
+  try {
+    run('git', ['clone', '-q', '--branch', 'sflow/config', org.platform, advance]);
+    run('git', ['config', 'user.email', 'reviewer@example.test'], { cwd: advance });
+    run('git', ['config', 'user.name', 'Review User'], { cwd: advance });
+    const file = path.join(advance, 'singularity/capabilities.yml');
+    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    document.setIn(['capabilities', 'contended-service'], document.createNode({
+      name: 'Competing', kind: 'collection', parent: null
+    }));
+    await writeFile(file, document.toString(), 'utf8');
+    run('git', ['add', '--', 'singularity/capabilities.yml'], { cwd: advance });
+    run('git', ['commit', '-qm', 'Competing approved map'], { cwd: advance });
+    run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: advance });
+  } finally {
+    await rm(advance, { recursive: true, force: true });
+  }
+  const before = proposalRefs(org.platform);
+  await assert.rejects(rebaseCapabilityProposal(org.platform, pending.branch), (error) =>
+    error.code === 'CAPABILITY_PROPOSAL_RECORD_CONFLICT'
+    && error.details?.conflictingIds?.includes('contended-service'));
+  assert.deepEqual(proposalRefs(org.platform), before);
+});
+
+test('rebase carries only the selected delivery repository record into the new review', async () => {
+  const org = await remotes('platform', 'service', 'worker');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'service-api', kind: 'delivery', repositoryUrl: org.service
+  });
+  const second = await mapCapability(org.platform, {
+    capabilityId: 'worker-api', kind: 'delivery', repositoryUrl: org.worker
+  });
+  await mergeProposal(org.platform, first);
+  const preview = await rebaseCapabilityProposal(org.platform, second.branch);
+  assert.deepEqual(preview.plan.addedRepositoryIds, ['worker']);
+  const rebased = await rebaseCapabilityProposal(org.platform, second.branch, {
+    confirm: second.commit, confirmPlan: preview.plan.planId
+  });
+  const portfolio = YAML.parse(run('git', [
+    'show', `${rebased.branch}:singularity/portfolio.yml`
+  ], { cwd: org.platform }).stdout).repositories;
+  assert.equal(portfolio.service.url, org.service);
+  assert.equal(portfolio.worker.url, org.worker);
+  assert.equal((await inspectCapabilityProposal(org.platform, rebased.branch)).valid, true);
+});
 
 async function publishHistoricalPackagedAgents(remote, proposal, names = [
   'product-designer.agent.md', 'qa.agent.md'

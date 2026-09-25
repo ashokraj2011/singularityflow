@@ -38,7 +38,8 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   defaultBranchName, gitCommitIdentity, gitCommitIdentityArgs,
   gitCommitIdentityEnvironment, gitCommitSigningArgs, head, identity, preflightGitCommitIdentity,
-  resolveGitCommitIdentity, resolveGitCommitSigning
+  proposalGitChangedPaths, proposalGitFile, proposalGitLineageCommit, proposalGitMergeProbe,
+  proposalGitRef, proposalGitStatus, resolveGitCommitIdentity, resolveGitCommitSigning
 } from './git.mjs';
 import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition } from './config.mjs';
 import {
@@ -645,6 +646,41 @@ function proposalChangedFiles(root, base, proposal, { env = process.env } = {}) 
   return readGitNameStatusDiff(root, base, proposal, { env });
 }
 
+/** A revision-bound Git merge probe, never an authorization to activate a later authority tip. */
+function capabilityProposalMergeability(root, proposalRef, proposalBase, targetCommit, {
+  env = process.env, valid = true, merged = false
+} = {}) {
+  const proposalCommit = proposalGitRef(root, proposalRef, { env });
+  const common = {
+    proposalCommit, targetCommit,
+    conflictFiles: []
+  };
+  if (merged) return { ...common, mergeable: true, status: 'merged' };
+  if (!valid) return { ...common, mergeable: null, status: 'invalid' };
+  if (proposalBase === targetCommit) {
+    return { ...common, mergeable: true, status: 'mergeable' };
+  }
+  // Git 2.25 remains supported. Its merge-tree lacks --write-tree; unknown is safer than claiming
+  // either a clean merge or a conflict from merely overlapping path names.
+  const probe = proposalGitMergeProbe(root, targetCommit, proposalRef, { env });
+  if (probe === true) {
+    return { ...common, mergeable: true, status: 'mergeable' };
+  }
+  if (probe !== false) {
+    return { ...common, mergeable: null, status: 'unknown' };
+  }
+  const targetPaths = new Set(proposalContentPaths(root, proposalBase, targetCommit, { env }));
+  const proposalPaths = proposalContentPaths(root, proposalBase, proposalRef, { env });
+  const intersection = proposalPaths.filter((file) => targetPaths.has(file));
+  return {
+    ...common, mergeable: false, status: 'conflicting',
+    // Git's exit status proves a conflict; this is a bounded candidate path list, not a parser of
+    // its human-readable diagnostic stream. Include every proposal path if a rename has no direct
+    // same-name intersection.
+    conflictFiles: [...new Set(intersection.length ? intersection : proposalPaths)].sort()
+  };
+}
+
 /** Paths whose final Git identities prove a squash/rebase applied this exact proposal content. */
 function proposalContentPaths(root, base, proposal, { env = process.env } = {}) {
   return run('git', [
@@ -849,6 +885,9 @@ async function recoverCapabilityActivationTarget(root, definition, {
 /** Resolve the immutable proposal base encoded in every generated review-branch name. */
 function proposalBaseCommit(root, proposalBranch, ref, { env = process.env } = {}) {
   const prefix = proposalBranch.match(/-([0-9a-f]{8})$/)?.[1] ?? null;
+  const rebaseLineage = proposalBranch.match(
+    /^sflow\/config-change\/capability\/rebase-map-[a-z0-9-]+-([0-9a-f]{8})-([0-9a-f]{8})$/
+  );
   const revision = run('git', ['rev-list', '--parents', '-n', '1', ref], {
     cwd: root, env, allowFailure: true
   }).stdout.trim().split(/\s+/);
@@ -856,7 +895,11 @@ function proposalBaseCommit(root, proposalBranch, ref, { env = process.env } = {
     ? run('git', ['rev-list', '--first-parent', ref], { cwd: root, env, allowFailure: true })
         .stdout.split('\n').map((entry) => entry.trim()).filter((entry) => entry.startsWith(prefix))
     : [];
-  if (revision.length !== 2 || history.length !== 1 || history[0] === revision[0]) {
+  const parentShapeValid = revision.length === 2
+    || (rebaseLineage && revision.length === 3
+      && revision[1] === history[0]
+      && revision[2].startsWith(rebaseLineage[1]));
+  if (!parentShapeValid || history.length !== 1 || history[0] === revision[0]) {
     throw new SingularityFlowError(
       `Capability proposal '${proposalBranch}' no longer has the exact configuration base encoded by its review branch.`, {
         code: 'CAPABILITY_PROPOSAL_HISTORY_INVALID'
@@ -1531,7 +1574,7 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
  */
 async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   remoteSession = null, authorityObservation = null, fullHistory = false,
-  bindProposalToBase = false, authorIdentity = null,
+  bindProposalToBase = false, authorIdentity = null, lineageParent = null,
   cleanupTemporaryTree = removeTemporaryTree,
   runRemoteCommand = runRemoteGitAsync
 } = {}) {
@@ -1634,6 +1677,36 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const baseCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
     }).stdout.trim();
+    if (lineageParent) {
+      // A rebased review commit retains the original proposal as a second parent. Fetch and
+      // verify that exact remote source before constructing any new proposal object; this makes
+      // supersession durable through ordinary Git ancestry without deleting the source branch.
+      const sourceRef = `refs/heads/${capabilityProposalBranch(lineageParent.branch)}`;
+      const fetchedSource = await runRemoteCommand([
+        'fetch', '--quiet', '--no-tags', 'origin',
+        `${sourceRef}:refs/remotes/origin/${lineageParent.branch}`
+      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      const sourceCommit = fetchedSource.status === 0
+        ? proposalGitRef(scratch, `refs/remotes/origin/${lineageParent.branch}`, {
+            env: transport.env
+          }) : null;
+      if (sourceCommit !== lineageParent.commit) {
+        throw new SingularityFlowError(
+          'Source proposal changed while preparing its rebase. Refresh the exact preview; nothing was published.', {
+            code: 'CAPABILITY_PROPOSAL_REBASE_PLAN_STALE',
+            details: {
+              ...capabilityRecovery({
+                stage: 'rebase', state: 'source-advanced', remote,
+                branch: lineageParent.branch,
+                preserved: ['source-proposal', 'approved-configuration', 'application-branches']
+              }),
+              expectedSourceCommit: lineageParent.commit,
+              currentSourceCommit: sourceCommit
+            }
+          }
+        );
+      }
+    }
     // Capability work is also a safe compatibility edge.  A configuration authority created by
     // an older SFlow release may contain byte-exact historical packaged agents; initializeDefinition
     // upgrades only those proven package revisions and preserves every customized byte.  Any such
@@ -1694,26 +1767,39 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     run('git', ['-c', `user.name=${proposalAuthor.name}`,
       '-c', `user.email=${proposalAuthor.email}`,
       'commit', '-m', message], { cwd: scratch, env: transport.env });
-    const commit = run('git', ['rev-parse', 'HEAD'], {
+    let commit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
     }).stdout.trim();
+    if (lineageParent) {
+      commit = proposalGitLineageCommit(scratch, {
+        baseCommit, sourceCommit: lineageParent.commit, message,
+        author: proposalAuthor, env: transport.env
+      });
+    }
 
     // Pushed here rather than left for later: the temporary checkout is about to be deleted, so a
     // commit that is not pushed is a commit that never existed. This deliberately targets only a
     // new review branch. The approved configuration and orphan state branches remain unchanged.
     const reviewRef = `refs/heads/${reviewBranch}`;
     const baseRef = `refs/heads/${baseBranch}`;
+    const sourceRef = lineageParent
+      ? `refs/heads/${capabilityProposalBranch(lineageParent.branch)}` : null;
     const pushed = await runRemoteCommand([
       'push', '--porcelain',
       ...(bindProposalToBase ? [
         '--atomic', `--force-with-lease=${baseRef}:${baseCommit}`
       ] : []),
+      ...(sourceRef ? [`--force-with-lease=${sourceRef}:${lineageParent.commit}`] : []),
       `--force-with-lease=${reviewRef}:`, 'origin',
       `HEAD:${reviewRef}`,
       // Creating the proposal and proving its reviewed base are one remote ref transaction. If the
       // approved configuration advances after the last observation, this no-op base refspec becomes
       // a stale leased update and --atomic prevents the proposal branch from appearing alone.
-      ...(bindProposalToBase ? [`${baseCommit}:${baseRef}`] : [])
+      ...(bindProposalToBase ? [`${baseCommit}:${baseRef}`] : []),
+      // A rebased proposal claims an exact source review revision. Guard that ref in the same
+      // atomic transaction as review creation, so a reviewer cannot be handed a proposal whose
+      // named source moved or disappeared after the earlier fetch.
+      ...(sourceRef ? [`${lineageParent.commit}:${sourceRef}`] : [])
     ], { cwd: scratch, operation: 'remote-push', env: transport.env });
     const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
     const duplicateProposal = () => new SingularityFlowError(
@@ -1740,15 +1826,33 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
       // the exact destination before deleting the only local checkout that contains this commit.
       operationSession.invalidate(remote);
       const current = await operationSession.observeAsync(remote, {
-        includeHead: false, refs: bindProposalToBase ? [reviewRef, baseRef] : [reviewRef],
+        includeHead: false, refs: [reviewRef,
+          ...(bindProposalToBase ? [baseRef] : []), ...(sourceRef ? [sourceRef] : [])],
         refresh: true
       });
       const observedProposal = current.ok ? current.refs.get(reviewRef) ?? null : null;
       const observedBase = current.ok ? current.refs.get(baseRef) ?? null : null;
+      const observedSource = current.ok && sourceRef
+        ? current.refs.get(sourceRef) ?? null : null;
       if (observedProposal === commit) {
         pushReconciled = true;
       } else if (observedProposal) {
         throw duplicateProposal();
+      } else if (sourceRef && observedSource !== lineageParent.commit) {
+        throw new SingularityFlowError(
+          `Source proposal '${lineageParent.branch}' changed during the exact rebase push. No new review ref was published; refresh the preview.`, {
+            code: 'CAPABILITY_PROPOSAL_REBASE_PLAN_STALE',
+            details: {
+              ...capabilityRecovery({
+                stage: 'rebase', state: 'source-advanced', remote,
+                branch: lineageParent.branch,
+                preserved: ['approved-configuration', 'application-branches', 'existing-proposals']
+              }),
+              expectedSourceCommit: lineageParent.commit,
+              currentSourceCommit: observedSource
+            }
+          }
+        );
       } else if (bindProposalToBase && observedBase && observedBase !== baseCommit) {
         throw new SingularityFlowError(
           `Approved configuration advanced from ${baseCommit} to ${observedBase} while the capability proposal was being created. No proposal ref was published; retry against the current map.`, {
@@ -1780,8 +1884,10 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
             ...(bindProposalToBase ? [
               '--atomic', `--force-with-lease=${baseRef}:${baseCommit}`
             ] : []),
+            ...(sourceRef ? [`--force-with-lease=${sourceRef}:${lineageParent.commit}`] : []),
             `--force-with-lease=${reviewRef}:`, 'origin', `${commit}:${reviewRef}`,
-            ...(bindProposalToBase ? [`${baseCommit}:${baseRef}`] : [])
+            ...(bindProposalToBase ? [`${baseCommit}:${baseRef}`] : []),
+            ...(sourceRef ? [`${lineageParent.commit}:${sourceRef}`] : [])
           ]
         };
         let retainedRecovery = null;
@@ -4976,6 +5082,9 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
     catch (error) { configurationError = redactDiagnosticText(error?.message ?? String(error)); }
   }
   const valid = invalidFiles.length === 0 && changed.names.length > 0 && !configurationError;
+  const mergeability = capabilityProposalMergeability(
+    root, ref, proposalBase, targetCommit, { env, valid, merged }
+  );
   const repositoryInspection = proposalRepositoryInspection(
     root, ref, repositoryUrl, { baseRef: reviewBase, env }
   );
@@ -4995,7 +5104,15 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
     merged,
     mergeEvidence: ancestryMerged ? 'commit-ancestry' : contentMerged ? 'content-equivalent' : null,
     valid,
-    discardable: !merged && !valid,
+    mergeable: mergeability.mergeable,
+    mergeability,
+    conflictFiles: mergeability.conflictFiles,
+    rebaseAction: !merged && mergeability.mergeable === false ? {
+      command: capabilityCommand('rebase-proposal', {
+        remote, branch: proposalBranch
+      }), skill: '/sf-capability-map'
+    } : null,
+    discardable: !merged && (!valid || mergeability.mergeable === false),
     status: merged ? 'merged' : valid ? 'pending-review' : 'invalid',
     configurationError,
     invalidFiles,
@@ -5383,6 +5500,25 @@ export async function capabilityFsck(url, {
             'The retained proposal is already contained by approved configuration.',
             { branch: proposal.branch, commit: proposal.proposalCommit }
           ));
+        } else if (proposal.valid && proposal.mergeable === false) {
+          checks.push(capabilityFsckCheck(
+            `proposal:${proposal.branch}`, 'fail',
+            `A structurally valid proposal conflicts with the current '${CONFIGURATION_BRANCH}' revision. Preview a typed record rebase or discard this exact unmergeable proposal with a reason.`,
+            {
+              branch: proposal.branch, commit: proposal.proposalCommit,
+              remediation: capabilityCommand('rebase-proposal', {
+                remote, branch: proposal.branch
+              }),
+              details: {
+                targetCommit: proposal.targetCommit,
+                conflictFiles: proposal.conflictFiles,
+                discardAction: capabilityCommand('discard-proposal', {
+                  remote, branch: proposal.branch, commit: proposal.proposalCommit,
+                  reason: '<WHY THIS CONFLICTING PROPOSAL IS NO LONGER NEEDED>'
+                })
+              }
+            }
+          ));
         } else if (proposal.valid) {
           checks.push(capabilityFsckCheck(
             `proposal:${proposal.branch}`, 'info', 'A valid capability proposal is waiting for review.',
@@ -5448,6 +5584,8 @@ export async function capabilityFsck(url, {
       proposalCommit: proposal.proposalCommit,
       merged: proposal.merged,
       valid: proposal.valid,
+      mergeable: proposal.mergeable ?? null,
+      mergeability: proposal.mergeability ?? null,
       status: proposal.status ?? (proposal.merged ? 'merged' : proposal.valid ? 'pending-review' : 'invalid'),
       discardable: proposal.discardable === true
     }))
@@ -5618,6 +5756,288 @@ export async function discardStaleCapabilityProposal(url, branch, {
     discardedAt: new Date().toISOString(),
     preserved: ['approved-configuration', 'state-projection', 'application-branches', 'other-proposal-branches'],
     nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' }
+  };
+}
+
+function capabilityRebaseRefusal(message, code, remote, branch, extra = {}) {
+  throw new SingularityFlowError(`${message} Nothing was changed.`, {
+    code,
+    details: {
+      ...capabilityRecovery({
+        stage: 'rebase', state: 'proposal-rebase-refused', remote, branch,
+        nextAction: {
+          command: capabilityCommand('proposal', { remote, branch }),
+          skill: '/sf-capability-map'
+        },
+        preserved: ['source-proposal', 'approved-configuration', 'application-branches']
+      }),
+      ...extra
+    }
+  });
+}
+
+function proposalYamlAt(root, ref, file, { env = process.env } = {}) {
+  const shown = proposalGitFile(root, ref, file, { env });
+  if (shown == null) return null;
+  try { return YAML.parse(shown) ?? {}; }
+  catch {
+    throw new SingularityFlowError(`Proposal cannot rebase an unreadable '${file}'.`, {
+      code: 'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED'
+    });
+  }
+}
+
+function pureAdditionDelta(before, after, field, remote, branch) {
+  const beforeRecords = before?.[field] ?? {};
+  const afterRecords = after?.[field] ?? {};
+  const beforeHeader = { ...before, [field]: undefined };
+  const afterHeader = { ...after, [field]: undefined };
+  if (canonicalJson(beforeHeader) !== canonicalJson(afterHeader)
+      || !beforeRecords || !afterRecords
+      || typeof beforeRecords !== 'object' || typeof afterRecords !== 'object'
+      || Array.isArray(beforeRecords) || Array.isArray(afterRecords)) {
+    capabilityRebaseRefusal(
+      `The proposal changes '${field}' metadata outside independently added records. Rebase requires a new reviewed proposal for this change.`,
+      'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', remote, branch
+    );
+  }
+  for (const [id, record] of Object.entries(beforeRecords)) {
+    if (canonicalJson(afterRecords[id]) !== canonicalJson(record)) {
+      capabilityRebaseRefusal(
+        `The proposal modifies existing '${field}' record '${id}'. Automatic record rebase is not supported.`,
+        'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', remote, branch, { recordId: id }
+      );
+    }
+  }
+  return Object.fromEntries(Object.entries(afterRecords)
+    .filter(([id]) => !Object.hasOwn(beforeRecords, id)));
+}
+
+async function inspectCapabilityRebase(url, branch) {
+  return withCapabilityProposalCheckout(url, branch, async (
+    root, remote, proposalBranch, ref, { env }
+  ) => {
+    const sourceCommit = proposalGitRef(root, ref, { env });
+    const targetCommit = proposalGitRef(root, 'HEAD', { env });
+    const sourceBaseCommit = proposalBaseCommit(root, proposalBranch, ref, { env });
+    const inspected = await validateInspectedCapabilityProposal(root,
+      inspectCapabilityProposalCheckout(root, sanitizeRemote(remote), proposalBranch, ref, {
+        includeDiff: false, env, targetCommit, proposalBase: sourceBaseCommit
+      }), ref, { env });
+    if (inspected.merged || !inspected.valid) {
+      capabilityRebaseRefusal(
+        inspected.merged
+          ? 'The proposal is already present in approved configuration.'
+          : 'The proposal is not a valid reviewable configuration change.',
+        'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', remote, proposalBranch,
+        { sourceCommit, targetCommit, configurationError: inspected.configurationError ?? null }
+      );
+    }
+    // A review proposal reconstructed from an earlier conflict is still a typed additive map.
+    // Its validated first-parent base and exact second-parent source preserve the same record
+    // boundary, so it may be rebased again if the authority advances before review completes.
+    const typed = proposalBranch.match(
+      /^sflow\/config-change\/capability\/map-([a-z0-9]+(?:-[a-z0-9]+)*)-([0-9a-f]{8})$/
+    ) ?? proposalBranch.match(
+      /^sflow\/config-change\/capability\/rebase-map-([a-z0-9]+(?:-[a-z0-9]+)*)-[0-9a-f]{8}-([0-9a-f]{8})$/
+    );
+    const changed = proposalChangedFiles(root, sourceBaseCommit, ref, { env }).names;
+    if (!typed || !changed.includes(CAPABILITIES_PATH)
+        || changed.some((file) => ![CAPABILITIES_PATH, PORTFOLIO_PATH].includes(file))) {
+      capabilityRebaseRefusal(
+        'Only a typed, single-capability map or previously rebased map proposal changing capabilities.yml and optionally portfolio.yml can be rebased safely. Team, managed-receipt, bootstrap, and workflow changes require a fresh review proposal.',
+        'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', remote, proposalBranch,
+        { sourceCommit, targetCommit, changedFiles: changed }
+      );
+    }
+    const beforeCapabilities = proposalYamlAt(root, sourceBaseCommit, CAPABILITIES_PATH, { env });
+    const proposedCapabilities = proposalYamlAt(root, ref, CAPABILITIES_PATH, { env });
+    const currentCapabilities = proposalYamlAt(root, 'HEAD', CAPABILITIES_PATH, { env });
+    const beforePortfolio = proposalYamlAt(root, sourceBaseCommit, PORTFOLIO_PATH, { env });
+    const proposedPortfolio = proposalYamlAt(root, ref, PORTFOLIO_PATH, { env });
+    const currentPortfolio = proposalYamlAt(root, 'HEAD', PORTFOLIO_PATH, { env });
+    if (!beforeCapabilities || !proposedCapabilities || !currentCapabilities
+        || !beforePortfolio || !proposedPortfolio || !currentPortfolio
+        || currentCapabilities.version !== beforeCapabilities.version
+        || canonicalJson(currentCapabilities.management ?? null)
+          !== canonicalJson(beforeCapabilities.management ?? null)) {
+      capabilityRebaseRefusal(
+        'The approved map format changed or required configuration records are unavailable; record rebase is not safe.',
+        'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', remote, proposalBranch
+      );
+    }
+    const addedCapabilities = pureAdditionDelta(
+      beforeCapabilities, proposedCapabilities, 'capabilities', remote, proposalBranch
+    );
+    const capabilityIds = Object.keys(addedCapabilities);
+    if (capabilityIds.length !== 1 || capabilityIds[0] !== typed[1]) {
+      capabilityRebaseRefusal(
+        'The map proposal does not add exactly the capability ID named by its branch.',
+        'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', remote, proposalBranch,
+        { addedCapabilityIds: capabilityIds }
+      );
+    }
+    const addedRepositories = pureAdditionDelta(
+      beforePortfolio, proposedPortfolio, 'repositories', remote, proposalBranch
+    );
+    const conflictingIds = [
+      ...(Object.hasOwn(currentCapabilities.capabilities ?? {}, typed[1]) ? [typed[1]] : []),
+      ...Object.keys(addedRepositories).filter((id) =>
+        Object.hasOwn(currentPortfolio.repositories ?? {}, id)
+        && canonicalJson(currentPortfolio.repositories[id])
+          !== canonicalJson(addedRepositories[id]))
+    ];
+    if (conflictingIds.length) {
+      capabilityRebaseRefusal(
+        `The current authority already has a differing record for ${conflictingIds.join(', ')}. Review the competing mapping explicitly.`,
+        'CAPABILITY_PROPOSAL_RECORD_CONFLICT', remote, proposalBranch,
+        { conflictingIds, sourceCommit, targetCommit }
+      );
+    }
+    // A mergeable proposal needs no reconstruction; retaining it avoids unnecessary parallel
+    // review branches. The rebase command is a recovery path for an observed conflict only.
+    if (inspected.mergeable === true || sourceBaseCommit === targetCommit) {
+      capabilityRebaseRefusal(
+        'This proposal can already be reviewed and activated against the current authority.',
+        'CAPABILITY_PROPOSAL_REBASE_NOT_REQUIRED', remote, proposalBranch,
+        { mergeability: inspected.mergeability }
+      );
+    }
+    const capabilityId = typed[1];
+    const reviewBranch = `${CAPABILITY_PROPOSAL_PREFIX}rebase-map-${capabilityId}-${sourceCommit.slice(0, 8)}-${targetCommit.slice(0, 8)}`;
+    const core = {
+      schemaVersion: 1, kind: 'capability-proposal-rebase-plan',
+      lead: sanitizeRemote(remote), branch: proposalBranch,
+      sourceCommit, sourceBaseCommit, targetBranch: CONFIGURATION_BRANCH,
+      targetCommit, reviewBranch, capabilityId,
+      addedRepositoryIds: Object.keys(addedRepositories).sort(),
+      changedFiles: [...changed].sort(),
+      deltaSha256: `sha256:${recordSha256({ addedCapabilities, addedRepositories })}`,
+      preserved: ['source-proposal', 'approved-configuration', 'application-branches']
+    };
+    return {
+      plan: { ...core, planId: `cprb-${recordSha256(core).slice(0, 24)}` },
+      capabilityRecord: addedCapabilities[capabilityId], addedRepositories
+    };
+  });
+}
+
+/** Preview or propose one additive map rebased onto the exact current approved revision. */
+export async function rebaseCapabilityProposal(url, branch, {
+  confirm = null, confirmPlan = null, initiatingRoot = process.cwd(),
+  initiatingEnv = process.env
+} = {}) {
+  const preview = await inspectCapabilityRebase(url, branch);
+  const { plan } = preview;
+  if (!confirmPlan) {
+    return {
+      status: 'preview', plan, reviewRequired: true,
+      nextAction: {
+        command: `${capabilityCommand('rebase-proposal', {
+          remote: url, branch, commit: plan.sourceCommit
+        }).replace(/ --json$/, '')} --confirm-plan ${quoted(plan.planId)} --json`,
+        skill: '/sf-capability-map'
+      }
+    };
+  }
+  if (String(confirm ?? '').trim() !== plan.sourceCommit
+      || String(confirmPlan).trim() !== plan.planId) {
+    capabilityRebaseRefusal(
+      'Rebase confirmation must match the exact source commit and current preview plan.',
+      'CAPABILITY_PROPOSAL_REBASE_CONFIRMATION_MISMATCH', url, branch,
+      { plan }
+    );
+  }
+  const oldRef = `refs/heads/${plan.branch}`;
+  const authorIdentity = requireCapabilityProposalAuthor(
+    await captureCapabilityProposalAuthor(initiatingRoot, initiatingEnv)
+  );
+  const rebased = await withLeadCheckout(url, `Rebase capability ${plan.capabilityId}`,
+    `capability/rebase-map-${plan.capabilityId}-${plan.sourceCommit.slice(0, 8)}`,
+    async (root, _baseBranch, session, _observation, _author, baseCommit) => {
+      if (baseCommit !== plan.targetCommit) {
+        capabilityRebaseRefusal(
+          'Approved configuration changed after the rebase preview. Refresh the preview.',
+          'CAPABILITY_PROPOSAL_REBASE_PLAN_STALE', url, branch,
+          { expectedTargetCommit: plan.targetCommit, currentTargetCommit: baseCommit }
+        );
+      }
+      const observed = await session.observeAsync(url, {
+        includeHead: false, refs: [oldRef], refresh: true
+      });
+      requireRemoteObservation(observed, 'source capability proposal');
+      if (observed.refs.get(oldRef) !== plan.sourceCommit) {
+        capabilityRebaseRefusal(
+          'Source proposal changed after the rebase preview. Refresh the preview.',
+          'CAPABILITY_PROPOSAL_REBASE_PLAN_STALE', url, branch,
+          { expectedSourceCommit: plan.sourceCommit, currentSourceCommit: observed.refs.get(oldRef) ?? null }
+        );
+      }
+      const preexistingChanges = proposalGitStatus(root, { env: session.env });
+      if (preexistingChanges) {
+        capabilityRebaseRefusal(
+          'The authority checkout requires unrelated packaged configuration migration; rebase will not combine it with this proposal.',
+          'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', url, branch,
+          { changedFiles: preexistingChanges.split('\0').filter(Boolean)
+            .map((entry) => entry.slice(3)) }
+        );
+      }
+      const capabilityFile = path.join(root, CAPABILITIES_PATH);
+      const capabilityDocument = YAML.parseDocument(await readFile(capabilityFile, 'utf8'));
+      if (capabilityDocument.hasIn(['capabilities', plan.capabilityId])) {
+        capabilityRebaseRefusal(
+          `Capability '${plan.capabilityId}' was added while rebase was prepared.`,
+          'CAPABILITY_PROPOSAL_RECORD_CONFLICT', url, branch,
+          { conflictingIds: [plan.capabilityId] }
+        );
+      }
+      capabilityDocument.setIn(['capabilities', plan.capabilityId],
+        capabilityDocument.createNode(preview.capabilityRecord));
+      const portfolioFile = path.join(root, PORTFOLIO_PATH);
+      const portfolioDocument = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
+      for (const [id, record] of Object.entries(preview.addedRepositories)) {
+        const existing = portfolioDocument.getIn(['repositories', id], true)?.toJSON?.();
+        if (existing && canonicalJson(existing) !== canonicalJson(record)) {
+          capabilityRebaseRefusal(
+            `Repository '${id}' changed while rebase was prepared.`,
+            'CAPABILITY_PROPOSAL_RECORD_CONFLICT', url, branch,
+            { conflictingIds: [id] }
+          );
+        }
+        if (!existing) portfolioDocument.setIn(['repositories', id], portfolioDocument.createNode(record));
+      }
+      validateCapabilities(capabilityDocument.toJS(), portfolioDocument.toJS());
+      await writeFile(capabilityFile, capabilityDocument.toString(YAML_OUTPUT), 'utf8');
+      await writeFile(portfolioFile, portfolioDocument.toString(YAML_OUTPUT), 'utf8');
+      const changedPaths = proposalGitChangedPaths(root, { env: session.env });
+      if (changedPaths.some((file) => ![CAPABILITIES_PATH, PORTFOLIO_PATH].includes(file))) {
+        capabilityRebaseRefusal(
+          'Rebased proposal changed a path outside the approved record delta.',
+          'CAPABILITY_PROPOSAL_REBASE_UNSUPPORTED', url, branch,
+          { changedFiles: changedPaths }
+        );
+      }
+      return {
+        status: 'proposed', capabilityId: plan.capabilityId,
+        supersedes: { branch: plan.branch, commit: plan.sourceCommit },
+        preserved: plan.preserved
+      };
+    }, {
+      bindProposalToBase: true, fullHistory: true, authorIdentity,
+      lineageParent: { branch: plan.branch, commit: plan.sourceCommit }
+    });
+  return {
+    ...rebased, plan, sourceProposalPreserved: true,
+    nextAction: {
+      command: capabilityCommand('proposal', { remote: url, branch: rebased.branch }),
+      skill: '/sf-capability-map'
+    },
+    activationAction: {
+      command: capabilityCommand('activate', {
+        remote: url, branch: rebased.branch, commit: rebased.commit
+      }),
+      skill: '/sf-capability-map'
+    }
   };
 }
 
@@ -6104,6 +6524,39 @@ export async function activateCapabilityProposal(url, branch, {
         // authority, not from the older proposal tip that was loaded above.
         definition = await loadDefinition(root);
       }
+      // A provider may have squash-merged this proposal and then advanced the same file again.
+      // Its current tree can conflict with the source even though an exact accepted transition is
+      // recoverable from history or the activation ledger. Resolve that history before refusing a
+      // fresh merge; otherwise an already accepted proposal becomes a false conflict dead end.
+      const currentMergeability = capabilityProposalMergeability(
+        root, ref, proposalBase, targetBefore, { env, valid: true, merged: alreadyMerged }
+      );
+      if (!alreadyMerged && currentMergeability.mergeable === false) {
+        const nextAction = {
+          command: capabilityCommand('rebase-proposal', {
+            remote, branch: proposalBranch
+          }), skill: '/sf-capability-map'
+        };
+        throw new SingularityFlowError(
+          `Capability proposal cannot be merged cleanly into '${CONFIGURATION_BRANCH}' at ${targetBefore}. Preview a safe rebase or discard the exact unmergeable review branch; nothing was changed.`, {
+            code: 'CAPABILITY_PROPOSAL_UNMERGEABLE',
+            details: {
+              ...capabilityRecovery({
+                stage: 'activation', state: 'proposal-conflicted', remote,
+                branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              }),
+              mergeability: currentMergeability,
+              discardAction: {
+                command: capabilityCommand('discard-proposal', {
+                  remote, branch: proposalBranch, commit: proposalCommit,
+                  reason: '<WHY THIS CONFLICTING PROPOSAL IS NO LONGER NEEDED>'
+                }), skill: '/sf-capability-map'
+              }
+            }
+          }
+        );
+      }
       // Approval/account policy and commit presentation are intentionally different values. The
       // former was frozen from the initiating repository and remains the actor recorded in the
       // audit; it never supplies author metadata or claims an external merge was performed by the
@@ -6161,11 +6614,13 @@ export async function activateCapabilityProposal(url, branch, {
         });
         if (merged.status !== 0) {
           run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
-          const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
+          const nextAction = { command: capabilityCommand('rebase-proposal', {
+            remote, branch: proposalBranch
+          }), skill: '/sf-capability-map' };
           throw new SingularityFlowError(
             `Capability proposal cannot be merged cleanly into '${CONFIGURATION_BRANCH}'. `
-            + `The proposal remains on '${proposalBranch}' for review. Rebase or replace it against the current approved configuration.`, {
-              code: 'CAPABILITY_PROPOSAL_CONFLICT',
+            + `The proposal remains on '${proposalBranch}' for review. Preview a safe rebase or discard the exact unmergeable branch.`, {
+              code: 'CAPABILITY_PROPOSAL_UNMERGEABLE',
               details: capabilityRecovery({
                 stage: 'activation', state: 'proposal-conflicted', remote,
                 branch: proposalBranch, commit: proposalCommit, nextAction,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, stat, symlink, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -35,8 +35,8 @@ async function environment() {
   };
 }
 
-function cli(args, env, { allowFailure = false } = {}) {
-  const result = spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8', env });
+function cli(args, env, { allowFailure = false, cwd } = {}) {
+  const result = spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8', env, cwd });
   if (!allowFailure) assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
 }
@@ -90,6 +90,19 @@ test('a workspace can be created with no tracker at all', async () => {
   // not create a workspace once the desktop is out of the picture.
   const { base, source, env } = await environment();
   const workspaces = path.join(base, 'workspaces');
+  const preview = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'demo-team',
+    '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
+    '--dry-run', '--json'], env).stdout);
+  assert.equal(preview.manifest.anchor.key, 'demo-team');
+  const unconfirmed = cli(['workspace', 'create', '--local', '--id', 'demo-team',
+    '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`, '--json'],
+  env, { allowFailure: true });
+  assert.notEqual(unconfirmed.status, 0);
+  assert.equal(unconfirmed.stdout, '');
+  const refusal = JSON.parse(unconfirmed.stderr);
+  assert.equal(refusal.resultType, 'sflow-refusal-plan');
+  assert.match(refusal.error.message, /exact workspace-ID confirmation 'demo-team'/);
+  assert.equal(await stat(path.join(workspaces, 'demo-team')).catch(() => null), null);
   cli(['workspace', 'create', '--local', '--id', 'demo-team', '--name', 'Demo team',
     '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`, '--confirm', 'demo-team'], env);
 
@@ -121,6 +134,66 @@ test('workspace create can explicitly clone and targeted repair materializes onl
     '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
     '--confirm', 'immediate', '--clone', '--json'], env).stdout);
   assert.equal(cloned.status.repositories[0].state, 'ready');
+});
+
+test('workspace status and targeted repair resolve the saved workspace from its current directory', async () => {
+  const { base, source, env } = await environment();
+  const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'deferred',
+    '--base', path.join(base, 'workspaces'), '--lead', 'app', '--repository', `app=${source}`,
+    '--confirm', 'deferred', '--json'], env).stdout);
+  const workspacePath = created.workspace.path;
+  const nested = path.join(workspacePath, 'repos');
+  await mkdir(nested, { recursive: true });
+
+  const atRoot = JSON.parse(cli(['workspace', 'status', '--level', 'readiness', '--json'], env,
+    { cwd: workspacePath }).stdout);
+  const atNested = JSON.parse(cli(['workspace', 'status', '--level', 'readiness', '--json'], env,
+    { cwd: nested }).stdout);
+  assert.equal(atRoot.workspace.path, workspacePath);
+  assert.equal(atNested.workspace.path, workspacePath);
+  assert.equal(atNested.repositories[0].state, 'missing');
+
+  const selected = cli(['workspace', 'use', workspacePath], env);
+  assert.match(selected.stdout, /Repair:/);
+  assert.ok(selected.stdout.includes(workspacePath), 'the repair route should name this exact workspace');
+  const outside = cli(['workspace', 'status', '--json'], env, { cwd: base, allowFailure: true });
+  assert.notEqual(outside.status, 0);
+  const refusal = JSON.parse(outside.stderr);
+  assert.equal(refusal.error.code, 'WORKSPACE_DIRECTORY_REQUIRED');
+  assert.ok(refusal.error.message.includes(workspacePath), 'a different cwd must not silently use the selection');
+  assert.match(refusal.error.message, /'workspace' 'repair'/);
+  const outsideRepair = cli(['workspace', 'repair', '--json'], env, { cwd: base, allowFailure: true });
+  assert.notEqual(outsideRepair.status, 0);
+  assert.equal(JSON.parse(outsideRepair.stderr).error.code, 'WORKSPACE_DIRECTORY_REQUIRED');
+  assert.equal(await stat(path.join(workspacePath, 'repos', 'app')).catch(() => null), null,
+    'the selected workspace must not be repaired implicitly from a different cwd');
+
+  const repaired = JSON.parse(cli(['workspace', 'repair', '--repository', 'app',
+    '--level', 'readiness', '--json'], env, { cwd: nested }).stdout);
+  assert.deepEqual(repaired.repaired.map((entry) => entry.repository), ['app']);
+  assert.equal(repaired.status.repositories[0].state, 'ready');
+});
+
+test('workspace cwd inference follows physical directories and refuses a symlink escape', async (t) => {
+  if (process.platform === 'win32') t.skip('creating directory symlinks can require Windows developer mode');
+  const { base, source, env } = await environment();
+  const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'physical',
+    '--base', path.join(base, 'workspaces'), '--lead', 'app', '--repository', `app=${source}`,
+    '--confirm', 'physical', '--json'], env).stdout);
+  const alias = path.join(base, 'workspace-alias');
+  await symlink(created.workspace.path, alias, 'dir');
+  const viaAlias = JSON.parse(cli(['workspace', 'status', '--json'], env, { cwd: alias }).stdout);
+  assert.equal(viaAlias.workspace.path, created.workspace.path);
+
+  const outside = path.join(base, 'outside');
+  await mkdir(outside);
+  const escape = path.join(created.workspace.path, 'escape');
+  await symlink(outside, escape, 'dir');
+  const refusal = cli(['workspace', 'repair', '--json'], env, { cwd: escape, allowFailure: true });
+  assert.notEqual(refusal.status, 0);
+  assert.equal(JSON.parse(refusal.stderr).error.code, 'WORKSPACE_DIRECTORY_REQUIRED');
+  assert.equal(await stat(path.join(created.workspace.path, 'repos', 'app')).catch(() => null), null,
+    'an escaped cwd must not materialize a repository');
 });
 
 test('workspace create still refuses an ambiguous invocation', async () => {

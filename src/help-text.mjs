@@ -889,6 +889,10 @@ Usage:
     (after the current approved lead proves it no longer claims the exact delivery repository,
      previews and then exact-CAS deletes only its obsolete state-branch authority-link file)
   singularity-flow capability proposals [--lead URL] [--all] [--json]
+  singularity-flow capability map <CAPABILITY-ID> [--lead URL]
+    [--supersede-branch REVIEW-BRANCH --supersede-commit FULL-COMMIT] [--json]
+    (replace only the exact prior pending mapping of this same capability in one atomic push;
+     an unrelated proposal is never cancelled by ID or repository guess)
   singularity-flow capability proposal <REVIEW-BRANCH> [--lead URL] [--json]
   singularity-flow capability rebase-proposal <REVIEW-BRANCH> [--lead URL] [--json]
     (preview a typed additive map proposal against the exact current authority; no write)
@@ -900,6 +904,10 @@ Usage:
     --confirm <FULL-COMMIT> --reason TEXT [--json]
     (deletes only an invalid, unrelated-history, or proven unmergeable proposal at the exact
      current remote commit; requires a reason and never changes approved configuration)
+  singularity-flow capability cancel-proposal <REVIEW-BRANCH> [--lead URL]
+    --confirm <FULL-COMMIT> --reason TEXT [--json]
+    (explicitly cancels one Git-proven unmerged proposal at its exact current remote commit;
+     never changes approved configuration or another proposal)
   singularity-flow capability repair-proposal <REVIEW-BRANCH> [--lead URL]
     --confirm <FULL-COMMIT> [--json]
     (advances only the retained review branch with byte-exact recognized packaged-asset upgrades;

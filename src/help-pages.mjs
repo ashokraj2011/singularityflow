@@ -1688,6 +1688,8 @@ const PAGES = Object.freeze({
       'branch. The original proposal remains intact; team, managed-receipt, bootstrap, and workflow',
       'deltas are not silently rewritten. `discard-proposal` removes only an invalid or proven',
       'unmergeable proposal ref after its full current commit and a reason are supplied.',
+      '`cancel-proposal` explicitly removes one Git-proven unmerged proposal with the same exact',
+      'commit confirmation and a reason. Neither command changes approved configuration.',
       '',
       'Activation is staged. `CAPABILITY_ACTIVATION_AUDIT_PENDING` means configuration is already',
       'active and the returned exact activation repairs only its missing audit. Projection- or',
@@ -1701,9 +1703,10 @@ const PAGES = Object.freeze({
       ['--migrate | --recreate | --reset-local', 'Choose one explicit recovery mode: current-v2 packaged-seed reconciliation, recreation, or lead-registry/organisation-cache reset. Preview it separately before confirmation.'],
       ['--state-branch NAME', 'Inspect an explicitly selected SFlow state branch; an unrecognized branch is never overwritten.'],
       ['--request JSON-FILE', 'For map-team native hosts: one bounded, closed JSON request; cannot be combined with mapping flags.'],
-      ['--confirm FULL-COMMIT', 'For stale discard, the complete proposal commit reported by a current fsck.'],
+      ['--supersede-branch BRANCH and --supersede-commit FULL-COMMIT', 'For map, atomically replace only the exact previous pending proposal for the same capability.'],
+      ['--confirm FULL-COMMIT', 'For cancellation or stale discard, the complete current proposal commit.'],
       ['--confirm-plan PLAN-ID', 'For rebase-proposal, apply only the exact current source/target-bound preview.'],
-      ['--reason TEXT', 'Required explanation for discarding an invalid or proven unmergeable proposal.'],
+      ['--reason TEXT', 'Required explanation for cancelling or discarding an exact proposal.'],
       ['--json', 'Emit structured checks, exact refs, and remediation commands.']
     ],
     examples: [
@@ -1724,6 +1727,7 @@ const PAGES = Object.freeze({
       ['singularity-flow capability organisation --refresh', 'Refresh the approved organisation map.'],
       ['singularity-flow capability fsck --lead <URL>', 'Detect stale projections and broken proposal history without changing a ref.'],
       ['singularity-flow capability discard-proposal <BRANCH> --lead <URL> --confirm <FULL-COMMIT> --reason "configuration authority was re-created"', 'Discard only the exact stale proposal identified by fsck.'],
+      ['singularity-flow capability cancel-proposal <BRANCH> --lead <URL> --confirm <FULL-COMMIT> --reason "replace this mapping"', 'Cancel one exact Git-proven unmerged proposal without changing the approved map.'],
       ['singularity-flow capability tree', 'The capability map as a tree.']
     ],
     seeAlso: ['capabilities', 'workspace', 'bootstrap']

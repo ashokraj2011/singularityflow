@@ -895,10 +895,19 @@ function proposalBaseCommit(root, proposalBranch, ref, { env = process.env } = {
     ? run('git', ['rev-list', '--first-parent', ref], { cwd: root, env, allowFailure: true })
         .stdout.split('\n').map((entry) => entry.trim()).filter((entry) => entry.startsWith(prefix))
     : [];
+  const supersession = !rebaseLineage && revision.length === 3
+    ? run('git', ['show', '-s', '--format=%B', ref], { cwd: root, env, allowFailure: true })
+        .stdout.match(/^Supersedes: (sflow\/config-change\/capability\/map-([a-z0-9-]+)-[0-9a-f]{8})@([0-9a-f]{40,64})$/m)
+    : null;
+  const currentMapId = proposalBranch.match(
+    /^sflow\/config-change\/capability\/map-([a-z0-9-]+)-[0-9a-f]{8}$/
+  )?.[1] ?? null;
   const parentShapeValid = revision.length === 2
     || (rebaseLineage && revision.length === 3
       && revision[1] === history[0]
-      && revision[2].startsWith(rebaseLineage[1]));
+      && revision[2].startsWith(rebaseLineage[1]))
+    || (supersession && currentMapId === supersession[2]
+      && revision[1] === history[0] && revision[2] === supersession[3]);
   if (!parentShapeValid || history.length !== 1 || history[0] === revision[0]) {
     throw new SingularityFlowError(
       `Capability proposal '${proposalBranch}' no longer has the exact configuration base encoded by its review branch.`, {
@@ -1747,6 +1756,23 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     if (!run('git', ['diff', '--cached', '--name-only'], {
       cwd: scratch, env: transport.env
     }).stdout.trim()) {
+      if (result?.supersedeProposals?.length) {
+        const previous = result.supersedeProposals[0];
+        throw new SingularityFlowError(
+          'The requested map already matches approved configuration, so there is no replacement proposal to publish. Cancel the exact pending review separately; nothing was changed.', {
+            code: 'CAPABILITY_PROPOSAL_SUPERSESSION_NO_CHANGE',
+            details: {
+              nextAction: {
+                command: capabilityCommand('cancel-proposal', {
+                  remote, branch: previous.branch, commit: previous.commit,
+                  reason: '<WHY THIS PENDING REVIEW IS WITHDRAWN>'
+                }),
+                skill: '/sf-capability-map'
+              }
+            }
+          }
+        );
+      }
       confirmedRemoteOutcome = {
         ...result, changed: false, pushed: false, commit: null,
         branch: null, baseBranch, baseCommit, reviewRequired: false
@@ -1775,6 +1801,15 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
         baseCommit, sourceCommit: lineageParent.commit, message,
         author: proposalAuthor, env: transport.env
       });
+    } else if (result?.supersedeProposals?.length === 1) {
+      // The old review ref will be deleted or replaced atomically below. Keep its exact commit
+      // reachable as the new review commit's second parent so cancellation remains auditable in
+      // Git even after the superseded branch name is gone.
+      commit = proposalGitLineageCommit(scratch, {
+        baseCommit, sourceCommit: result.supersedeProposals[0].commit,
+        message: `${message}\n\nSupersedes: ${result.supersedeProposals[0].branch}@${result.supersedeProposals[0].commit}`,
+        author: proposalAuthor, env: transport.env
+      });
     }
 
     // Pushed here rather than left for later: the temporary checkout is about to be deleted, so a
@@ -1784,14 +1819,33 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const baseRef = `refs/heads/${baseBranch}`;
     const sourceRef = lineageParent
       ? `refs/heads/${capabilityProposalBranch(lineageParent.branch)}` : null;
+    // Mapping a replacement is one atomic remote transaction. A new review ref must not appear
+    // unless every superseded same-ID ref still names the exact commit inspected above. The
+    // current-base branch is replaced with a leased update; older-base branches are leased deletes.
+    const superseded = Array.isArray(result?.supersedeProposals)
+      ? result.supersedeProposals.map(({ branch, commit: oldCommit }) => ({
+          branch: capabilityProposalBranch(branch), commit: String(oldCommit ?? '')
+        })) : [];
+    if (superseded.some(({ commit: oldCommit }) => !/^[0-9a-f]{40,64}$/i.test(oldCommit))) {
+      throw new SingularityFlowError('A superseded capability proposal lacks an exact commit.', {
+        code: 'CAPABILITY_PROPOSAL_SUPERSESSION_INVALID'
+      });
+    }
+    const expectedReviewCommit = superseded.find(({ branch }) =>
+      `refs/heads/${branch}` === reviewRef)?.commit ?? null;
+    const obsolete = superseded.filter(({ branch }) => `refs/heads/${branch}` !== reviewRef);
+    const supersedeLeases = superseded.map(({ branch, commit: oldCommit }) =>
+      `--force-with-lease=refs/heads/${branch}:${oldCommit}`);
+    const supersedeDeletes = obsolete.map(({ branch }) => `:refs/heads/${branch}`);
     const pushed = await runRemoteCommand([
       'push', '--porcelain',
-      ...(bindProposalToBase ? [
+      ...(bindProposalToBase || superseded.length ? [
         '--atomic', `--force-with-lease=${baseRef}:${baseCommit}`
       ] : []),
       ...(sourceRef ? [`--force-with-lease=${sourceRef}:${lineageParent.commit}`] : []),
-      `--force-with-lease=${reviewRef}:`, 'origin',
-      `HEAD:${reviewRef}`,
+      ...supersedeLeases,
+      ...(!expectedReviewCommit ? [`--force-with-lease=${reviewRef}:`] : []), 'origin',
+      `${expectedReviewCommit ? '+' : ''}HEAD:${reviewRef}`,
       // Creating the proposal and proving its reviewed base are one remote ref transaction. If the
       // approved configuration advances after the last observation, this no-op base refspec becomes
       // a stale leased update and --atomic prevents the proposal branch from appearing alone.
@@ -1799,7 +1853,8 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
       // A rebased proposal claims an exact source review revision. Guard that ref in the same
       // atomic transaction as review creation, so a reviewer cannot be handed a proposal whose
       // named source moved or disappeared after the earlier fetch.
-      ...(sourceRef ? [`${lineageParent.commit}:${sourceRef}`] : [])
+      ...(sourceRef ? [`${lineageParent.commit}:${sourceRef}`] : []),
+      ...supersedeDeletes
     ], { cwd: scratch, operation: 'remote-push', env: transport.env });
     const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
     const duplicateProposal = () => new SingularityFlowError(
@@ -1827,16 +1882,19 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
       operationSession.invalidate(remote);
       const current = await operationSession.observeAsync(remote, {
         includeHead: false, refs: [reviewRef,
-          ...(bindProposalToBase ? [baseRef] : []), ...(sourceRef ? [sourceRef] : [])],
+          ...(bindProposalToBase ? [baseRef] : []), ...(sourceRef ? [sourceRef] : []),
+          ...obsolete.map(({ branch }) => `refs/heads/${branch}`)],
         refresh: true
       });
       const observedProposal = current.ok ? current.refs.get(reviewRef) ?? null : null;
       const observedBase = current.ok ? current.refs.get(baseRef) ?? null : null;
       const observedSource = current.ok && sourceRef
         ? current.refs.get(sourceRef) ?? null : null;
-      if (observedProposal === commit) {
+      const supersededGone = obsolete.every(({ branch }) =>
+        !current.refs.has(`refs/heads/${branch}`));
+      if (observedProposal === commit && supersededGone) {
         pushReconciled = true;
-      } else if (observedProposal) {
+      } else if (observedProposal && observedProposal !== expectedReviewCommit) {
         throw duplicateProposal();
       } else if (sourceRef && observedSource !== lineageParent.commit) {
         throw new SingularityFlowError(
@@ -1881,13 +1939,16 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
           program: 'git',
           args: [
             'push', '--porcelain',
-            ...(bindProposalToBase ? [
+            ...(bindProposalToBase || superseded.length ? [
               '--atomic', `--force-with-lease=${baseRef}:${baseCommit}`
             ] : []),
             ...(sourceRef ? [`--force-with-lease=${sourceRef}:${lineageParent.commit}`] : []),
-            `--force-with-lease=${reviewRef}:`, 'origin', `${commit}:${reviewRef}`,
+            ...supersedeLeases,
+            ...(!expectedReviewCommit ? [`--force-with-lease=${reviewRef}:`] : []),
+            'origin', `${expectedReviewCommit ? '+' : ''}${commit}:${reviewRef}`,
             ...(bindProposalToBase ? [`${baseCommit}:${baseRef}`] : []),
-            ...(sourceRef ? [`${lineageParent.commit}:${sourceRef}`] : [])
+            ...(sourceRef ? [`${lineageParent.commit}:${sourceRef}`] : []),
+            ...supersedeDeletes
           ]
         };
         let retainedRecovery = null;
@@ -1969,7 +2030,10 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     confirmedRemoteOutcome = {
       ...result, changed: true, pushed: true, commit,
       branch: reviewBranch, baseBranch, baseCommit, reviewRequired: true,
-      pushReconciled
+      pushReconciled,
+      supersededProposals: superseded.map(({ branch, commit: oldCommit }) => ({
+        branch, commit: oldCommit
+      }))
     };
     return confirmedRemoteOutcome;
   } catch (error) {
@@ -3454,6 +3518,8 @@ export async function mapCapability(leadUrl, {
   clone = null,
   jiraProject = null,
   teams = [],
+  supersedeBranch = null,
+  supersedeCommit = null,
   initiatingRoot = process.cwd(),
   initiatingEnv = process.env,
   cleanupTemporaryTree = removeTemporaryTree,
@@ -3484,6 +3550,11 @@ export async function mapCapability(leadUrl, {
       nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-doctor' }
     })
   });
+  if ((supersedeBranch == null) !== (supersedeCommit == null)) {
+    throw new SingularityFlowError('Remapping must identify both the previous proposal branch and its full commit. Nothing was changed.', {
+      code: 'CAPABILITY_PROPOSAL_SUPERSESSION_CONFIRMATION_REQUIRED'
+    });
+  }
   validateCapabilityMapRequest({
     leadUrl, capabilityId, name, kind, type, parent, repositoryUrl, repositoryUrls,
     leadRepositoryUrl, metadata, documentation, resources, sourceRoots, sharedRoots,
@@ -3509,6 +3580,15 @@ export async function mapCapability(leadUrl, {
   const remoteSession = new GitRemoteSession({ env: enterpriseGitEnvironment() });
   const leadKey = assertCredentialFreeRemote(leadUrl);
   const proposalBranchPrefix = `${CAPABILITY_PROPOSAL_PREFIX}map-${capabilityId}-`;
+  const exactSupersedeBranch = supersedeBranch == null ? null
+    : capabilityProposalBranch(supersedeBranch);
+  if (exactSupersedeBranch && (!exactSupersedeBranch.startsWith(proposalBranchPrefix)
+      || !/^[0-9a-f]{8}$/i.test(exactSupersedeBranch.slice(proposalBranchPrefix.length))
+      || !/^[0-9a-f]{40,64}$/i.test(String(supersedeCommit)))) {
+    throw new SingularityFlowError('Remapping may supersede only one exact prior mapping of the same capability. Nothing was changed.', {
+      code: 'CAPABILITY_PROPOSAL_SUPERSESSION_INVALID'
+    });
+  }
   const authorityObservation = await remoteSession.observeAsync(leadKey, {
     includeHead: true,
     // One advertisement covers both exact-ID recovery and the orphaned-proposal guard needed when
@@ -3611,10 +3691,20 @@ export async function mapCapability(leadUrl, {
     const proposalHistory = await classifyMatchingCapabilityProposals(
       root, leadKey, boundaryProposalRefs, { env: leadRemoteSession.env }
     );
-    if (proposalHistory.blocking.length) {
+    const prior = proposalHistory.blocking.find((proposal) =>
+      proposal.branch === exactSupersedeBranch
+      && proposal.proposalCommit === supersedeCommit
+      && proposal.valid === true && !proposal.merged);
+    if (proposalHistory.blocking.length
+        && (!prior || proposalHistory.blocking.length !== 1)) {
       throw unresolvedCapabilityProposalError(
         leadKey, capabilityId, proposalHistory.blocking, proposalHistory.historical
       );
+    }
+    if (exactSupersedeBranch && !prior) {
+      throw new SingularityFlowError('The exact previous mapping proposal is no longer pending at the confirmed commit. Refresh it before remapping; nothing was changed.', {
+        code: 'CAPABILITY_PROPOSAL_SUPERSESSION_STALE'
+      });
     }
     // The first capability governs the repository it is mapped into.
     //
@@ -3743,6 +3833,7 @@ export async function mapCapability(leadUrl, {
         type: existingCapability.type ?? null,
         status: 'already-mapped',
         alreadyMapped: true,
+        supersedeProposals: prior ? [{ branch: prior.branch, commit: prior.proposalCommit }] : [],
         state: { published: true, reason: 'already present in approved configuration' }
       };
     }
@@ -3811,6 +3902,7 @@ export async function mapCapability(leadUrl, {
     return {
       capabilityId, repositoryId, repositoryIds, leadRepositoryId, type: type ?? null,
       parent: parent || null,
+      supersedeProposals: prior ? [{ branch: prior.branch, commit: prior.proposalCommit }] : [],
       state: { published: false, reason: 'awaiting review and merge' }
     };
   }, {
@@ -4984,6 +5076,7 @@ export async function listCapabilityProposals(url, {
             merged: false, valid: false, invalidFiles: [], changedFiles: [], diff: '',
             status: 'unreadable',
             discardable: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID',
+            cancelable: false,
             repositoryMatches: repositoryInspection.matches,
             repositoryInspectionComplete: repositoryInspection.complete,
             failure: {
@@ -5113,6 +5206,7 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
       }), skill: '/sf-capability-map'
     } : null,
     discardable: !merged && (!valid || mergeability.mergeable === false),
+    cancelable: !merged && valid,
     status: merged ? 'merged' : valid ? 'pending-review' : 'invalid',
     configurationError,
     invalidFiles,
@@ -5144,6 +5238,10 @@ async function validateInspectedCapabilityProposal(root, inspected, ref, {
       valid: false,
       status: 'invalid',
       discardable: false,
+      // The exact branch, base, and unmerged status were already proven by inspection above.
+      // A broken joined workflow is reason to refuse activation, not to trap this review ref
+      // forever when its author explicitly withdraws the exact commit.
+      cancelable: !inspected.merged,
       configurationError: redactDiagnosticText(error?.message ?? String(error)),
       configurationErrorCode: error?.code ?? 'CONFIGURATION_INVALID',
       repairable,
@@ -5587,16 +5685,19 @@ export async function capabilityFsck(url, {
       mergeable: proposal.mergeable ?? null,
       mergeability: proposal.mergeability ?? null,
       status: proposal.status ?? (proposal.merged ? 'merged' : proposal.valid ? 'pending-review' : 'invalid'),
-      discardable: proposal.discardable === true
+      discardable: proposal.discardable === true,
+      cancelable: proposal.cancelable === true
     }))
   };
 }
 
-/** Delete one provably stale proposal branch with an exact remote-SHA lease. */
-export async function discardStaleCapabilityProposal(url, branch, {
+/** Delete one explicitly selected proposal branch with an exact remote-SHA lease. */
+async function deleteCapabilityProposal(url, branch, {
   confirm = null, reason = null,
+  allowReviewable = false,
   remoteSession = null, deleteRemoteCommand = runRemoteGitAsync
 } = {}) {
+  const commandAction = allowReviewable ? 'cancel-proposal' : 'discard-proposal';
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED'
@@ -5604,7 +5705,7 @@ export async function discardStaleCapabilityProposal(url, branch, {
   const proposalBranch = capabilityProposalBranch(branch);
   const explanation = String(reason ?? '').trim();
   if (!explanation) {
-    throw new SingularityFlowError('Discarding a stale capability proposal requires --reason <TEXT>. Nothing was changed.', {
+    throw new SingularityFlowError('Cancelling or discarding a capability proposal requires --reason <TEXT>. Nothing was changed.', {
       code: 'CAPABILITY_PROPOSAL_DISCARD_REASON_REQUIRED'
     });
   }
@@ -5616,9 +5717,22 @@ export async function discardStaleCapabilityProposal(url, branch, {
   const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment();
   const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
-  const proposals = await listCapabilityProposals(remote, {
-    includeMerged: true, includeDiff: false, env: gitEnv, remoteSession: session
-  });
+  let proposals;
+  try {
+    proposals = await listCapabilityProposals(remote, {
+      includeMerged: true, includeDiff: false, env: gitEnv, remoteSession: session
+    });
+  } catch (error) {
+    if (!allowReviewable || error?.code !== 'CAPABILITY_CONFIGURATION_BRANCH_MISSING') throw error;
+    throw new SingularityFlowError(
+      'The approved configuration branch is absent, so a proposal cannot be proven unmerged throughout deletion. The review branch was preserved. Restore or recreate configuration authority, then inspect and cancel the exact proposal.', {
+        code: 'CAPABILITY_PROPOSAL_CANCEL_AUTHORITY_REQUIRED',
+        details: { lead: sanitizeRemote(remote), proposalBranch,
+          nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' },
+          preserved: ['proposal-branch', 'application-branches'] }
+      }
+    );
+  }
   const proposal = proposals.find((entry) => entry.branch === proposalBranch);
   if (!proposal) {
     throw new SingularityFlowError(
@@ -5635,7 +5749,7 @@ export async function discardStaleCapabilityProposal(url, branch, {
         details: {
           lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
           nextAction: {
-            command: capabilityCommand('discard-proposal', {
+            command: capabilityCommand(commandAction, {
               remote, branch: proposalBranch, commit: expected, reason: explanation
             }),
             skill: '/sf-capability-map'
@@ -5644,10 +5758,10 @@ export async function discardStaleCapabilityProposal(url, branch, {
       }
     );
   }
-  if (!proposal.discardable) {
+  if (!proposal.discardable && !(allowReviewable && proposal.cancelable === true && !proposal.merged)) {
     throw new SingularityFlowError(
-      `Capability proposal '${proposalBranch}' is reviewable and cannot be discarded as stale. Review or activate it instead; nothing was changed.`, {
-        code: 'CAPABILITY_PROPOSAL_DISCARD_NOT_STALE',
+      `Capability proposal '${proposalBranch}' cannot be cancelled from its inspected state. Review it before retrying; nothing was changed.`, {
+        code: allowReviewable ? 'CAPABILITY_PROPOSAL_CANCEL_UNSAFE' : 'CAPABILITY_PROPOSAL_DISCARD_NOT_STALE',
         details: {
           lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
           nextAction: {
@@ -5660,12 +5774,13 @@ export async function discardStaleCapabilityProposal(url, branch, {
   }
 
   const targetRef = `refs/heads/${proposalBranch}`;
+  const authorityRef = `refs/heads/${CONFIGURATION_BRANCH}`;
   // Refresh the one destination immediately before mutation. GitRemoteSession requests `--symref`
   // and rejects every non-HEAD symbolic advertisement, so a dereferenced object ID can never
   // authorize deleting an alias.
   session.invalidate(remote);
   const beforeDelete = await session.observeAsync(remote, {
-    includeHead: false, refs: [targetRef], refresh: true
+    includeHead: false, refs: [targetRef, authorityRef], refresh: true
   });
   if (!beforeDelete.ok) {
     throw new SingularityFlowError(
@@ -5682,6 +5797,18 @@ export async function discardStaleCapabilityProposal(url, branch, {
     );
   }
   const refreshedCommit = beforeDelete.refs.get(targetRef) ?? null;
+  const authorityCommit = beforeDelete.refs.get(authorityRef) ?? null;
+  if (!authorityCommit
+      || (proposal.targetCommit && authorityCommit !== proposal.targetCommit)) {
+    throw new SingularityFlowError(
+      'Approved configuration changed after proposal inspection. The review branch was preserved; inspect it again before cancellation.', {
+        code: 'CAPABILITY_PROPOSAL_CANCEL_AUTHORITY_CHANGED',
+        details: { lead: sanitizeRemote(remote), proposalBranch,
+          inspectedAuthorityCommit: proposal.targetCommit ?? null,
+          currentAuthorityCommit: authorityCommit }
+      }
+    );
+  }
   if (refreshedCommit !== expected) {
     throw new SingularityFlowError(
       `Confirmation no longer equals the exact direct proposal ref '${refreshedCommit ?? '(absent)'}'. Nothing was changed.`, {
@@ -5696,8 +5823,11 @@ export async function discardStaleCapabilityProposal(url, branch, {
     );
   }
   const deleted = await deleteRemoteCommand([
-    'push', '--porcelain', `--force-with-lease=${targetRef}:${expected}`,
-    transport.remote, `:${targetRef}`
+    'push', '--porcelain', '--atomic',
+    `--force-with-lease=${targetRef}:${expected}`,
+    ...(authorityCommit ? [`--force-with-lease=${authorityRef}:${authorityCommit}`] : []),
+    transport.remote, `:${targetRef}`,
+    ...(authorityCommit ? [`${authorityCommit}:${authorityRef}`] : [])
   ], { operation: 'remote-push', env: transport.env });
   // A timeout or lost receive-pack response does not prove that the exact leased deletion failed.
   // Re-read only the destination ref before reporting an outcome. Absence reconciles a lost ACK;
@@ -5744,19 +5874,32 @@ export async function discardStaleCapabilityProposal(url, branch, {
       }
     );
   }
+  const completedAt = new Date().toISOString();
   return {
     schemaVersion: 1,
-    status: 'discarded',
+    status: allowReviewable ? 'cancelled' : 'discarded',
     discarded: true,
+    cancelled: allowReviewable,
     lead: sanitizeRemote(remote),
     branch: proposalBranch,
     proposalCommit: expected,
     discardReconciled: deleted.status !== 0,
     reason: explanation,
-    discardedAt: new Date().toISOString(),
+    discardedAt: completedAt,
+    ...(allowReviewable ? { cancelledAt: completedAt } : {}),
     preserved: ['approved-configuration', 'state-projection', 'application-branches', 'other-proposal-branches'],
     nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-doctor' }
   };
+}
+
+/** Explicitly cancel a healthy, unmerged proposal without changing approved configuration. */
+export async function cancelCapabilityProposal(url, branch, options = {}) {
+  return deleteCapabilityProposal(url, branch, { ...options, allowReviewable: true });
+}
+
+/** Stale-only compatibility command; a healthy review branch still requires explicit cancellation. */
+export async function discardStaleCapabilityProposal(url, branch, options = {}) {
+  return deleteCapabilityProposal(url, branch, { ...options, allowReviewable: false });
 }
 
 function capabilityRebaseRefusal(message, code, remote, branch, extra = {}) {

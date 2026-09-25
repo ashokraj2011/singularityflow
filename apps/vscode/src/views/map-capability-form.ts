@@ -82,7 +82,14 @@ export interface ParentChoice { id: string; name: string; depth: number; ships: 
 
 export type RepositoryInspectionStatus =
   | 'idle' | 'checking' | 'not-onboarded' | 'known-repository-unassigned'
-  | 'already-mapped' | 'ambiguous' | 'unreachable' | 'inconclusive';
+  | 'already-mapped' | 'ambiguous' | 'unreachable' | 'inconclusive' | 'pending-replacement';
+
+export interface PendingMapReplacement {
+  lead: string;
+  capabilityId: string;
+  branch: string;
+  commit: string;
+}
 
 export interface RepositoryInspectionMatch {
   lead?: string;
@@ -159,6 +166,7 @@ export interface MapCapabilityForm {
   inspectionStatus: RepositoryInspectionStatus;
   inspectionMatches: RepositoryInspectionMatch[];
   inspectionPendingMatches: RepositoryInspectionPendingMatch[];
+  replacement: PendingMapReplacement | null;
   inspectionMessage: string | null;
   inspectionRecoveryCommand: string | null;
   inspectionRecoveryCopilotCommand: string | null;
@@ -196,6 +204,7 @@ export interface MapCapabilityForm {
   loaded: boolean;
   busy: boolean;
   operation: MapCapabilityOperation | null;
+  otherOperations: MapCapabilityOperation[];
   notice: string | null;
   error: string | null;
 }
@@ -204,6 +213,7 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'delivery',
   parent: '', parents: [], repositoryUrl: '', sourceRoots: '', sharedRoots: '',
   inspectionStatus: 'idle', inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null,
+  replacement: null,
   inspectionRecoveryCommand: null, inspectionRecoveryCopilotCommand: null,
   inspectionFailures: [],
   inspectionCompleteness: null, inspectionAuthorityScope: null, inspectionCheckedLeadCount: 0,
@@ -217,7 +227,7 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
   repositorySetupMaintenance: false, repositorySetupApplying: false, repositorySetupNotice: null,
   collectionWithoutRepository: false,
   cloneMode: 'blobless', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', teams: '',
-  loaded: false, busy: false, operation: null, notice: null, error: null
+  loaded: false, busy: false, operation: null, otherOperations: [], notice: null, error: null
 };
 
 /**
@@ -320,12 +330,8 @@ export function capabilityIdentifierProblem(form: MapCapabilityForm): string | n
 
 export function mapProblems(form: MapCapabilityForm): string[] {
   const problems: string[] = [];
-  if (form.operation) {
-    problems.push(form.operation.status === 'proposal-ready'
-      ? 'The previous mapping already produced a review proposal. Open it before starting another mapping.'
-      : form.operation.status === 'already-active'
-        ? 'The previous mapping is already active. Clear its completed operation before starting another mapping.'
-        : 'A previous mapping has not been reconciled. Inspect it, then resume its proposal or retry the exact request.');
+  if (form.operation && ['running', 'inspecting', 'cancelling'].includes(form.operation.status)) {
+    problems.push('A mapping command is still running or stopping. Let it finish before starting another mapping.');
     return problems;
   }
   if (!form.collectionWithoutRepository && !form.repositoryUrl.trim()) {
@@ -350,6 +356,10 @@ export function mapProblems(form: MapCapabilityForm): string[] {
     problems.push(message);
   }
   if (problems.length) return problems;
+  if (form.replacement && (form.replacement.capabilityId !== form.capabilityId.trim()
+    || form.replacement.lead !== form.lead.trim())) {
+    problems.push('The selected pending proposal is for a different capability or map authority. Check the repository again before replacing it.');
+  }
   if (!form.lead.trim()) problems.push('Choose which repository stores the capability map.');
   else if (gitRemoteProblem(form.lead, 'Capability-map repository')) {
     problems.push(gitRemoteProblem(form.lead, 'Capability-map repository') as string);
@@ -647,12 +657,21 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       ? ` <button type="button" class="secondary" data-map-inspect-authority="${escape(lead)}">Check this capability map</button>`
       : ''}</li>`;
   }).join('');
-  const pendingInspectionMatches = form.inspectionPendingMatches.map((match) => {
+  const pendingInspectionMatches = form.inspectionPendingMatches.map((match, index) => {
     const capabilities = match.capabilities?.length
       ? ` for ${match.capabilities.join(', ')}` : '';
     const branch = match.proposalBranch ?? 'an unmerged capability proposal';
     const lead = match.lead ? ` in ${match.lead}` : '';
-    return `<li><code>${escape(branch)}</code>${escape(`${capabilities}${lead}`)}</li>`;
+    const capabilityId = match.capabilities?.length === 1 ? match.capabilities[0] : null;
+    const prefix = capabilityId ? `sflow/config-change/capability/map-${capabilityId}-` : '';
+    const individuallyCancelable = Boolean(prefix && branch.startsWith(prefix)
+      && /^[0-9a-f]{8}$/i.test(branch.slice(prefix.length))
+      && /^[0-9a-f]{40,64}$/i.test(match.proposalCommit ?? '')
+      && match.lead && !gitRemoteProblem(match.lead, 'Capability-map repository'));
+    return `<li><code>${escape(branch)}</code>${escape(`${capabilities}${lead}`)}
+      ${individuallyCancelable
+        ? `<button type="button" class="secondary" data-map-pending-cancel="${index}">Cancel this pending mapping</button>
+          <button type="button" data-map-pending-replace="${index}">Replace this pending mapping</button>` : ''}</li>`;
   }).join('');
   const proposalScope = form.inspectionProposalCoverage === 'complete'
     ? ` Pending review coverage is complete (${form.inspectionProposalInspected}/${form.inspectionProposalTotal} inspected).`
@@ -670,6 +689,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     ? `<p class="muted">${icon('waiting')}Finding its authority and reading the approved capability map…</p>`
     : form.inspectionStatus === 'not-onboarded'
       ? `<p class="ok-text">${icon('ok')}This repository was not found in the capability maps checked. Describe its first capability below.</p>`
+      : form.inspectionStatus === 'pending-replacement' && form.replacement
+        ? `<p class="warning-text">${icon('warning')}Replacing the exact pending proposal <code>${escape(form.replacement.branch)}@${escape(form.replacement.commit.slice(0, 12))}</code>. The new mapping will replace it atomically; if the new proposal is refused, the old review remains.</p>`
       : form.inspectionStatus === 'known-repository-unassigned'
         ? `<p class="ok-text">${icon('ok')}This repository is known, but is not assigned to a capability yet.</p>`
         : form.inspectionStatus === 'already-mapped'
@@ -689,7 +710,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
                     ? 'No approved capability-map authority is registered on this laptop.'
                     : 'Repository ownership could not be determined safely.'))}${form.inspectionFailures.length
                     ? `<ul>${form.inspectionFailures.map((failure) => `<li>${escape(failure)}</li>`).join('')}</ul>` : ''}
-                    ${pendingInspectionMatches ? `<ul>${pendingInspectionMatches}</ul>` : ''}
+                    ${pendingInspectionMatches ? `<ul>${pendingInspectionMatches}</ul>
+                      <p><button type="button" class="secondary" data-map-review-pending>Review all pending proposals</button></p>` : ''}
                     ${inspectionRecovery
                       ? `<div class="command-pair"><p>Shell: <code>${escape(inspectionRecovery.command)}</code></p>
                           <p>Copilot: <code>${escape(inspectionRecovery.copilotCommand)}</code></p>
@@ -725,12 +747,14 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
         ${escape(operation.capabilityId)}</h2></div><span class="grow"></span>
       <span class="count-badge">attempt ${operation.attempt}</span></div>
     <p>${escape(operation.message)}</p>
+    ${['needs-inspection', 'retry-ready', 'proposal-ready'].includes(operation.status)
+      ? '<p class="muted">You can cancel this pending mapping now. A replacement for the same capability and repository must first settle its exact pending Git review; an unrelated new mapping leaves this proposal untouched. If the outcome cannot be verified, no proposal is deleted.</p>' : ''}
     <p class="muted">Capability-map authority: <code>${escape(operation.lead)}</code></p>
     <p class="muted"><code>${escape(operation.id)}</code> · last updated ${escape(operation.updatedAt)}</p>
     ${operation.proposalBranch ? `<p><code>${escape(operation.proposalBranch)}${operation.proposalCommit ? `@${escape(operation.proposalCommit.slice(0, 12))}` : ''}</code></p>` : ''}
     <p>
       ${operation.status === 'running' || operation.status === 'inspecting' || operation.status === 'cancelling'
-        ? `<button type="button" class="secondary" data-map-operation-cancel${operation.status === 'cancelling' ? ' disabled' : ''}>${operation.status === 'cancelling' ? 'Stopping…' : 'Cancel safely'}</button>` : ''}
+        ? `<button type="button" class="secondary" data-map-operation-cancel${operation.status === 'cancelling' ? ' disabled' : ''}>${operation.status === 'cancelling' ? 'Stopping…' : 'Stop current attempt'}</button>` : ''}
       ${operation.status === 'needs-inspection'
         ? '<button type="button" data-map-operation-inspect>Inspect remote outcome</button>' : ''}
       ${operation.status === 'inspecting'
@@ -739,10 +763,19 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
         ? '<button type="button" data-map-operation-retry>Retry exact request</button>' : ''}
       ${operation.status === 'proposal-ready'
         ? '<button type="button" data-map-operation-review>Open existing review proposal</button>' : ''}
+      ${['needs-inspection', 'retry-ready', 'proposal-ready'].includes(operation.status)
+        ? '<button type="button" class="secondary" data-map-operation-abandon>Cancel pending mapping</button>' : ''}
       ${operation.status === 'already-active'
         ? '<button type="button" class="secondary" data-map-operation-clear>Clear completed operation</button>' : ''}
     </p>
   </section>` : '';
+  const otherOperationsHtml = form.otherOperations.length
+    ? `<section class="plain"><h2>Other pending mapping operations</h2>
+      <p class="muted">Each saved attempt remains available independently. Selecting one does not cancel another proposal.</p>
+      <ul>${form.otherOperations.map((saved) => `<li><code>${escape(saved.capabilityId)}</code>
+        in <code>${escape(saved.lead)}</code> · ${escape(saved.status)}
+        <button type="button" class="secondary" data-map-operation-select="${escape(saved.id)}">Inspect or cancel</button></li>`).join('')}</ul>
+      </section>` : '';
   const setupHtml = repositorySetupHtml(form);
   if (form.repositorySetupMaintenance) {
     return `<header>
@@ -771,6 +804,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
   </header>
 
   ${operationHtml}
+  ${otherOperationsHtml}
 
   <section>
     <h2>${icon('git')}Git repository</h2>
@@ -968,6 +1002,12 @@ export const MAP_CAPABILITY_SCRIPT = `
     if (inspectAuthority) return vscode.postMessage({ type: 'inspectAuthority', value: inspectAuthority.dataset.mapInspectAuthority });
     const searchKnown = event.target.closest('[data-map-search-known]');
     if (searchKnown) return vscode.postMessage({ type: 'searchKnownAuthorities' });
+    const pendingCancel = event.target.closest('[data-map-pending-cancel]');
+    if (pendingCancel) return vscode.postMessage({ type: 'cancelInspectedMapping', index: Number(pendingCancel.dataset.mapPendingCancel) });
+    const pendingReplace = event.target.closest('[data-map-pending-replace]');
+    if (pendingReplace) return vscode.postMessage({ type: 'replaceInspectedMapping', index: Number(pendingReplace.dataset.mapPendingReplace) });
+    const pendingReview = event.target.closest('[data-map-review-pending]');
+    if (pendingReview) return vscode.postMessage({ type: 'reviewPendingMappings' });
     const copyCommand = event.target.closest('[data-map-copy-command]');
     if (copyCommand) return vscode.postMessage({ type: 'copyCommand', value: copyCommand.dataset.mapCopyCommand });
     const copyCopilot = event.target.closest('[data-map-copy-copilot]');
@@ -986,8 +1026,12 @@ export const MAP_CAPABILITY_SCRIPT = `
     if (retryOperation) return vscode.postMessage({ type: 'retryMapOperation' });
     const reviewOperation = event.target.closest('[data-map-operation-review]');
     if (reviewOperation) return vscode.postMessage({ type: 'reviewMapOperation' });
+    const abandonOperation = event.target.closest('[data-map-operation-abandon]');
+    if (abandonOperation) return vscode.postMessage({ type: 'cancelPendingMapping' });
     const clearOperation = event.target.closest('[data-map-operation-clear]');
     if (clearOperation) return vscode.postMessage({ type: 'clearMapOperation' });
+    const selectOperation = event.target.closest('[data-map-operation-select]');
+    if (selectOperation) return vscode.postMessage({ type: 'selectMapOperation', id: selectOperation.dataset.mapOperationSelect });
   });
   const report = (event) => {
     const field = event.target.dataset?.map;

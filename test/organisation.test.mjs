@@ -26,7 +26,7 @@ import {
   applyCapabilityReconciliation,
   CAPABILITY_MAP_INPUT_LIMITS, CAPABILITY_PROPOSAL_FETCH_ARGV_LIMIT_BYTES,
   applyStaleCapabilityAuthorityLinkRetirement,
-  capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
+  cancelCapabilityProposal, capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
   capabilityPushRecoveryDirectory, cleanupCapabilityPushRecoveries,
   editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability,
@@ -2059,6 +2059,230 @@ test('a mapping retry after unrelated configuration advances preserves the origi
     'a later configuration base cannot create a competing mapping proposal');
 });
 
+test('explicit cancellation removes only the exact pending proposal and preserves approved authority', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const obsolete = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Old calculator', kind: 'collection'
+  });
+  const unrelated = await mapCapability(org.platform, {
+    capabilityId: 'documentation', kind: 'collection'
+  });
+  const authority = run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim();
+  const listed = await listCapabilityProposals(org.platform);
+  assert.equal(listed.find((entry) => entry.branch === obsolete.branch).cancelable, true);
+  await assert.rejects(cancelCapabilityProposal(org.platform, obsolete.branch, {
+    confirm: obsolete.commit.slice(0, 12), reason: 'remap'
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_DISCARD_CONFIRMATION_MISMATCH');
+  const cancelled = await cancelCapabilityProposal(org.platform, obsolete.branch, {
+    confirm: obsolete.commit, reason: 'replace the previous mapping'
+  });
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.cancelled, true);
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), authority);
+  assert.deepEqual((await listCapabilityProposals(org.platform)).map((entry) => entry.branch),
+    [unrelated.branch]);
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const fromCli = JSON.parse(execFileSync(process.execPath, [
+    cli, 'capability', 'cancel-proposal', unrelated.branch,
+    '--lead', org.platform, '--confirm', unrelated.commit,
+    '--reason', 'withdraw this draft', '--json'
+  ], { encoding: 'utf8' }));
+  assert.equal(fromCli.status, 'cancelled');
+  assert.equal((await listCapabilityProposals(org.platform)).length, 0);
+});
+
+test('explicit remap atomically supersedes one exact same-ID proposal, never another capability', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const obsolete = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Old calculator', kind: 'collection'
+  });
+  const unrelated = await mapCapability(org.platform, {
+    capabilityId: 'documentation', kind: 'collection'
+  });
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const remapped = JSON.parse(execFileSync(process.execPath, [
+    cli, 'capability', 'map', 'calculator', '--lead', org.platform,
+    '--name', 'New calculator', '--kind', 'collection',
+    '--supersede-branch', obsolete.branch, '--supersede-commit', obsolete.commit, '--json'
+  ], { encoding: 'utf8' }));
+  assert.deepEqual(remapped.supersededProposals,
+    [{ branch: obsolete.branch, commit: obsolete.commit }]);
+  assert.deepEqual(run('git', ['rev-list', '--parents', '-n', '1', remapped.commit], {
+    cwd: org.platform
+  }).stdout.trim().split(' ').slice(1), [remapped.baseCommit, obsolete.commit],
+  'the superseded review commit remains reachable as Git lineage');
+  const pending = await listCapabilityProposals(org.platform);
+  assert.equal(pending.find((entry) => entry.branch === remapped.branch)?.valid, true,
+    JSON.stringify(pending.find((entry) => entry.branch === remapped.branch)));
+  assert.equal(pending.some((entry) => entry.branch === unrelated.branch), true);
+  assert.equal(pending.some((entry) => entry.branch === obsolete.branch
+    && entry.proposalCommit === obsolete.commit), false);
+  await assert.rejects(mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Third calculator', kind: 'collection',
+    supersedeBranch: obsolete.branch, supersedeCommit: obsolete.commit
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_ALREADY_EXISTS'
+    || error.code === 'CAPABILITY_PROPOSAL_SUPERSESSION_STALE');
+});
+
+test('an atomic remap push refusal preserves the old review and creates no new review branch', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const obsolete = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Old calculator', kind: 'collection'
+  });
+  await mapAndMerge(org.platform, { capabilityId: 'documentation', kind: 'collection' });
+  const before = proposalRefs(org.platform);
+  run('git', ['config', 'receive.denyDeletes', 'true'], { cwd: org.platform });
+  await assert.rejects(mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'New calculator', kind: 'collection',
+    supersedeBranch: obsolete.branch, supersedeCommit: obsolete.commit
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_PUSH_FAILED');
+  assert.deepEqual(proposalRefs(org.platform), before,
+    'server-side refusal of leased deletion must roll back the new review creation');
+  run('git', ['config', '--unset', 'receive.denyDeletes'], { cwd: org.platform });
+  const remapped = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'New calculator', kind: 'collection',
+    supersedeBranch: obsolete.branch, supersedeCommit: obsolete.commit
+  });
+  assert.notEqual(remapped.branch, obsolete.branch);
+  assert.equal(proposalRefs(org.platform).some((entry) =>
+    entry.startsWith(`refs/heads/${obsolete.branch} `)), false);
+  assert.equal((await listCapabilityProposals(org.platform)).some((entry) =>
+    entry.branch === remapped.branch && entry.valid), true);
+});
+
+test('cancellation refuses a merged proposal and a changed exact ref', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const merged = await mapAndMerge(org.platform, {
+    capabilityId: 'finished', kind: 'collection'
+  });
+  await assert.rejects(cancelCapabilityProposal(org.platform, merged.branch, {
+    confirm: merged.commit, reason: 'already accepted'
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_CANCEL_UNSAFE');
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-cancel-advanced-'));
+  try {
+    run('git', ['clone', '-q', '--branch', pending.branch, org.platform, checkout]);
+    run('git', ['config', 'user.email', 'reviewer@example.invalid'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'Review User'], { cwd: checkout });
+    await writeFile(path.join(checkout, 'NOTE.txt'), 'new revision\n');
+    run('git', ['add', 'NOTE.txt'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'Advance proposal'], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', `HEAD:${pending.branch}`], { cwd: checkout });
+  } finally { await rm(checkout, { recursive: true, force: true }); }
+  await assert.rejects(cancelCapabilityProposal(org.platform, pending.branch, {
+    confirm: pending.commit, reason: 'old revision only'
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_DISCARD_CONFIRMATION_MISMATCH');
+});
+
+test('cancellation reconciles a lost deletion acknowledgement and refuses a concurrent ref advance', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'collection'
+  });
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-cancel-race-'));
+  try {
+    run('git', ['clone', '-q', '--branch', pending.branch, org.platform, checkout]);
+    run('git', ['config', 'user.email', 'reviewer@example.invalid'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'Review User'], { cwd: checkout });
+    await assert.rejects(cancelCapabilityProposal(org.platform, pending.branch, {
+      confirm: pending.commit, reason: 'replace mapping',
+      deleteRemoteCommand: async (args, options) => {
+        await writeFile(path.join(checkout, 'NOTE.txt'), 'new revision\n');
+        run('git', ['add', 'NOTE.txt'], { cwd: checkout });
+        run('git', ['commit', '-qm', 'Advance during cancellation'], { cwd: checkout });
+        run('git', ['push', '-q', 'origin', `HEAD:${pending.branch}`], { cwd: checkout });
+        return runRemoteGitAsync(args, options);
+      }
+    }), (error) => error.code === 'CAPABILITY_PROPOSAL_DISCARD_REVISION_MOVED');
+  } finally { await rm(checkout, { recursive: true, force: true }); }
+  const advanced = (await listCapabilityProposals(org.platform)).find((entry) =>
+    entry.branch === pending.branch);
+  assert.ok(advanced?.proposalCommit && advanced.proposalCommit !== pending.commit);
+  const cancelled = await cancelCapabilityProposal(org.platform, pending.branch, {
+    confirm: advanced.proposalCommit, reason: 'replace mapping',
+    deleteRemoteCommand: async (args, options) => {
+      const actual = await runRemoteGitAsync(args, options);
+      assert.equal(actual.status, 0);
+      return { ...actual, status: 1, failure: { advice: 'acknowledgement lost' } };
+    }
+  });
+  assert.equal(cancelled.cancelled, true);
+  assert.equal(cancelled.discardReconciled, true);
+  assert.equal((await listCapabilityProposals(org.platform)).length, 0);
+});
+
+test('an orphaned first-map review is preserved until configuration authority can be guarded', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'collection'
+  });
+  const target = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  run('git', ['update-ref', '-d', 'refs/heads/sflow/config', target], {
+    cwd: org.platform
+  });
+  await assert.rejects(cancelCapabilityProposal(org.platform, pending.branch, {
+    confirm: pending.commit, reason: 'abandon orphaned first mapping'
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_CANCEL_AUTHORITY_REQUIRED');
+  assert.ok(proposalRefs(org.platform).some((entry) =>
+    entry.startsWith(`refs/heads/${pending.branch} ${pending.commit}`)));
+  assert.notEqual(run('git', ['show-ref', '--verify', 'refs/heads/sflow/config'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 0);
+});
+
+test('cancellation preserves the exact proposal when its remote cannot be reached', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'collection'
+  });
+  const hidden = path.join(org.base, 'platform-hidden.git');
+  await rename(org.platform, hidden);
+  try {
+    await assert.rejects(cancelCapabilityProposal(org.platform, pending.branch, {
+      confirm: pending.commit, reason: 'withdraw inaccessible proposal'
+    }));
+  } finally { await rename(hidden, org.platform); }
+  assert.ok(proposalRefs(org.platform).some((entry) =>
+    entry.startsWith(`refs/heads/${pending.branch} ${pending.commit}`)));
+});
+
+test('cancellation refuses a proposal merged after inspection but before the atomic delete', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'collection'
+  });
+  await assert.rejects(cancelCapabilityProposal(org.platform, pending.branch, {
+    confirm: pending.commit, reason: 'withdraw pending review',
+    deleteRemoteCommand: async (args, options) => {
+      await mergeProposal(org.platform, pending);
+      return runRemoteGitAsync(args, options);
+    }
+  }), (error) => error.code === 'CAPABILITY_PROPOSAL_DISCARD_FAILED');
+  const after = (await listCapabilityProposals(org.platform, {
+    includeMerged: true
+  })).find((entry) => entry.branch === pending.branch);
+  assert.equal(after?.merged, true);
+  assert.equal(after?.proposalCommit, pending.commit);
+});
+
 test('a longer capability identifier is not mistaken for the same-ID proposal history', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -2747,6 +2971,8 @@ test('review repairs an exact historical agent/MCP mismatch on the proposal bran
     'the proposal list applies the same complete workflow/agent/MCP validation as review');
   assert.equal(incompatibleSummary.configurationErrorCode, 'MCP_AGENT_TOOLS_MISMATCH');
   assert.equal(incompatibleSummary.repairable, true);
+  assert.equal(incompatibleSummary.cancelable, true,
+    'an unmerged review with a proven Git lineage may be explicitly withdrawn even when invalid');
   assert.match(incompatibleSummary.repairAction.command, new RegExp(incompatibleCommit));
   assert.equal(incompatibleSummary.diff, null, 'summary validation does not force diff rendering');
   const integrity = await capabilityFsck(org.platform);

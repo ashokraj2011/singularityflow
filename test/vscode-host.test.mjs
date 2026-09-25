@@ -5384,7 +5384,7 @@ test('an interrupted map operation is recovered for inspection before any retry'
   panel.dispose();
 });
 
-test('retry reconciles an existing same-ID proposal instead of publishing a duplicate', async (t) => {
+test('interrupted mapping never claims an unproven same-ID proposal as its own', async (t) => {
   if (!requireBundle(t)) return;
   const org = await organisation();
   const key = 'singularityFlow.mapCapability.operation.v1';
@@ -5424,9 +5424,12 @@ test('retry reconciles an existing same-ID proposal instead of publishing a dupl
   assert.ok(panel, 'the recovery panel opened');
 
   await panel.post({ type: 'retryMapOperation' });
-  await until(() => values.get(durableKey)?.status === 'proposal-ready');
-  assert.equal(values.get(durableKey).proposalBranch, proposalBranch);
-  assert.match(panel.webview.html, /Open existing review proposal/);
+  await until(() => /ownership by this interrupted request is unproven/.test(values.get(durableKey)?.message ?? ''));
+  assert.equal(values.get(durableKey).status, 'needs-inspection');
+  assert.equal(values.get(durableKey).proposalBranch, undefined,
+    'same-ID branch matching does not become automatic replacement authorization');
+  assert.match(panel.webview.html, /Review proposals or explicitly cancel/);
+  assert.doesNotMatch(panel.webview.html, /Open existing review proposal/);
   const branches = run('git', ['for-each-ref', '--format=%(refname:short)',
     'refs/heads/sflow/config-change/capability/map-interrupted-capability-*'], { cwd: org.lead })
     .stdout.trim().split('\n').filter(Boolean);
@@ -5584,6 +5587,12 @@ test('overlapping map receipts in separate windows update and clear only their o
   await until(() => values.get(secondKey)?.status === 'needs-inspection');
   assert.equal(values.get(firstKey), first, 'cancellation recovery did not overwrite the other window receipt');
   assert.match(panel.webview.html, /second-platform\.git/);
+  assert.match(panel.webview.html, /Other pending mapping operations/);
+  assert.match(panel.webview.html, /data-map-operation-select="map_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/);
+  await panel.post({ type: 'selectMapOperation', id: first.id });
+  await until(() => /The first operation completed/.test(panel.webview.html));
+  assert.match(panel.webview.html, /first-platform\.git/,
+    'an older receipt is selectable for its own inspect or clear action');
   panel.dispose();
 
   values.set(secondKey, { ...values.get(secondKey), status: 'already-active',
@@ -5609,6 +5618,139 @@ test('overlapping map receipts in separate windows update and clear only their o
   assert.match(panel.webview.html, /first-platform\.git/,
     'the other window receipt remained discoverable with its authority explicit');
   panel.dispose();
+});
+
+test('mapping another capability leaves an unrelated pending review and receipt untouched', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { BootstrapPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/platform.git';
+  const old = {
+    schemaVersion: 1, id: 'map_aaaaaaaaaaaaaaaa', status: 'proposal-ready',
+    capabilityId: 'old-capability', lead, repositoryUrl: '',
+    argv: ['capability', 'map', 'old-capability', '--lead', lead, '--kind', 'collection', '--json'],
+    attempt: 1, startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:01:00.000Z', message: 'Old review pending.',
+    proposalBranch: 'sflow/config-change/capability/map-old-capability-12345678',
+    proposalCommit: 'a'.repeat(40)
+  };
+  const key = `singularityFlow.mapCapability.operation.v2.${old.id}`;
+  const values = new Map([[key, old]]);
+  const calls = [];
+  const controller = BootstrapPanel.show(context(values), [], async (argv) => {
+    calls.push([...argv]);
+    if (argv[1] !== 'map') return { result: null, error: `Unexpected command: ${argv.join(' ')}` };
+    return { result: {
+      capabilityId: 'new-capability', lead, branch: 'sflow/config-change/capability/map-new-capability-87654321',
+      commit: 'b'.repeat(40), reviewRequired: true, pushed: true
+    }, error: null };
+  }, async () => {});
+  Object.assign(controller.form, {
+    lead, capabilityId: 'new-capability', name: 'New capability', kind: 'collection',
+    collectionWithoutRepository: true, loaded: true
+  });
+  controller.render();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.match(panel.webview.html, /Old review pending/);
+  await panel.post({ type: 'map' });
+  await until(() => calls.length === 1 && controller.disposed);
+  assert.equal(calls[0][1], 'map');
+  assert.equal(calls[0].includes('--supersede-branch'), false);
+  assert.equal(values.get(key), old, 'the unrelated pending Git review remains selectable');
+});
+
+test('same-ID remapping uses atomic exact supersession and clears only proven old receipt', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { BootstrapPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/platform.git';
+  const branch = 'sflow/config-change/capability/map-payments-12345678';
+  const commit = 'a'.repeat(40);
+  const old = {
+    schemaVersion: 1, id: 'map_bbbbbbbbbbbbbbbb', status: 'proposal-ready',
+    capabilityId: 'payments', lead, repositoryUrl: '',
+    argv: ['capability', 'map', 'payments', '--lead', lead, '--kind', 'collection', '--json'],
+    attempt: 1, startedAt: '2026-09-12T08:00:00.000Z',
+    updatedAt: '2026-09-12T08:01:00.000Z', message: 'Prior review pending.',
+    proposalBranch: branch, proposalCommit: commit
+  };
+  const key = `singularityFlow.mapCapability.operation.v2.${old.id}`;
+  const values = new Map([[key, old]]);
+  const calls = [];
+  const controller = BootstrapPanel.show(context(values), [], async (argv) => {
+    calls.push([...argv]);
+    if (argv[1] !== 'map') return { result: null, error: `Unexpected command: ${argv.join(' ')}` };
+    return { result: {
+      capabilityId: 'payments', lead, branch, commit: 'b'.repeat(40),
+      reviewRequired: true, pushed: true,
+      supersededProposals: [{ branch, commit }]
+    }, error: null };
+  }, async () => {});
+  Object.assign(controller.form, {
+    lead, capabilityId: 'payments', name: 'Corrected payments', kind: 'collection',
+    collectionWithoutRepository: true, loaded: true
+  });
+  controller.render();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  await panel.post({ type: 'map' });
+  await until(() => calls.length === 1 && controller.disposed && values.get(key) === undefined);
+  assert.deepEqual(calls[0].slice(-4), ['--supersede-branch', branch, '--supersede-commit', commit]);
+  assert.equal(values.get(key), undefined, 'exact engine supersession proof permits local receipt cleanup');
+});
+
+test('a pending mapping from another laptop can be selected for exact atomic replacement', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { BootstrapPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/platform.git';
+  const repositoryUrl = 'https://git.example/payments.git';
+  const branch = 'sflow/config-change/capability/map-payments-12345678';
+  const commit = 'a'.repeat(40);
+  const calls = [];
+  const controller = BootstrapPanel.show(context(), [], async (argv) => {
+    calls.push([...argv]);
+    if (argv[1] === 'proposals') return { result: { proposals: [
+      { branch, proposalCommit: commit, merged: false, cancelable: true }
+    ] }, error: null };
+    if (argv[1] === 'organisation') return { result: {
+      governed: true, capabilities: [], repositories: {}
+    }, error: null };
+    if (argv[1] === 'map') return { result: {
+      capabilityId: 'payments', lead, branch, commit: 'b'.repeat(40),
+      pushed: true, reviewRequired: true,
+      supersededProposals: [{ branch, commit }]
+    }, error: null };
+    return { result: null, error: `Unexpected command: ${argv.join(' ')}` };
+  }, async () => {});
+  Object.assign(controller.form, {
+    repositoryUrl, inspectionStatus: 'inconclusive', inspectionComplete: false,
+    inspectionPendingMatches: [{ lead, repositoryUrl, capabilities: ['payments'],
+      proposalBranch: branch, proposalCommit: commit }]
+  });
+  controller.render();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.match(panel.webview.html, /data-map-pending-replace="0"/);
+  await panel.post({ type: 'replaceInspectedMapping', index: 0 });
+  await until(() => controller.form.loaded && controller.form.inspectionStatus === 'pending-replacement');
+  assert.match(panel.webview.html, /Replacing the exact pending proposal/);
+  assert.doesNotMatch(panel.webview.html, /data-map-details hidden/,
+    'pending inspection may enter a reviewable replacement form');
+  controller.form.name = 'Corrected payments';
+  await panel.post({ type: 'map' });
+  await until(() => calls.some((argv) => argv[1] === 'map') && controller.disposed);
+  const map = calls.find((argv) => argv[1] === 'map');
+  assert.deepEqual(map.slice(-4), ['--supersede-branch', branch, '--supersede-commit', commit]);
+  assert.equal(calls.some((argv) => argv[1] === 'cancel-proposal'), false,
+    'the old proposal is not deleted before the replacement is accepted');
 });
 
 test('capability review presents only an engine-proven exact compatibility repair', async (t) => {

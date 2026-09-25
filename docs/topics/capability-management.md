@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 18
+version: 19
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -213,6 +213,20 @@ The remote-SHA lease refuses a branch that moved. A valid proposal is never elig
 for stale discard, and approved configuration, state, application branches, and other
 proposal branches are preserved.
 
+To abandon a valid, unmerged mapping proposal, use the separate cancellation action:
+
+```bash
+singularity-flow capability cancel-proposal <REVIEW-BRANCH> --lead <URL> \
+  --confirm <FULL-COMMIT> --reason "mapping replaced" --json
+```
+
+Cancellation deletes only that exact review ref after a fresh authority check. It refuses a
+moved, merged, unreadable, or ambiguous proposal; it never removes an approved capability or
+another proposal. In VS Code, **Map a capability → Cancel pending mapping** and the proposal
+review queue expose this action. For a replacement of the same capability, the exact leased
+deletion and new proposal creation use one atomic remote transaction. If Git cannot prove the
+old outcome, the replacement does not start and the recovery receipt remains available.
+
 For a delivery in a large monorepo, **Map a capability** also records two independent boundaries. **World-model application/shared roots** decide which paths can ground this capability. **Clone strategy/sparse checkout directories** decide which bytes a new workspace materializes. Prefer `blobless-sparse` with `fallback: refuse`; Flow always includes its governed configuration and agent contracts. These settings are reviewed and activated with the rest of the capability proposal rather than stored as an ungoverned developer preference.
 
 In VS Code, select a capability to navigate its direct parent and children. **Add child** opens the mapping form with the selected parent prefilled. To move an existing capability, change **Linked under** and save; the engine stores one canonical parent link and derives the parent's child list from it, so both views update together.
@@ -296,11 +310,14 @@ the 64 active/unreadable-proposal budget. Each explicit Git fetch stops at eithe
 prioritized before that ceiling is applied. If the whole authority cannot be covered, the result is
 `partial` and Map remains disabled; the ceiling is never treated as proof that no proposal exists.
 
-VS Code persists the exact validated Map argv before it launches Git. **Cancel safely**, closing the
-panel, or an interrupted CLI result moves the operation to **Inspect remote outcome**. That read can
-open the existing same-ID proposal, recognize an already-approved capability, or enable **Retry
-exact request** only after neither is found. A late authority change remains an engine-level
-conflict; the UI does not overwrite it.
+VS Code persists the exact validated Map argv before it launches Git. **Stop current attempt** stops a
+running process; **Cancel pending mapping** then inspects its remote outcome and removes only a
+proven exact pending review ref before clearing the local receipt. Closing the panel or an
+interrupted CLI result moves the operation to **Inspect remote outcome**. That read can open the
+existing same-ID proposal, recognize an already-approved capability, or enable **Retry exact
+request** only after neither is found. A replacement mapping uses the exact atomic supersede
+boundary automatically. A late authority change remains an engine-level conflict; the UI does
+not overwrite or silently forget it.
 
 Organisation reads prefer the state mirror, fall back to `sflow/config`, and keep a derived cache keyed to the exact observed configuration commit. Read-only screens may reuse that cache; operations that clone, attach, detach, or otherwise mutate state force a fresh authoritative Git read. When the remote is unavailable, a cached result is marked `stale` and carries its age and remote error. `--refresh` bypasses a current cache entry; it cannot manufacture connectivity.
 

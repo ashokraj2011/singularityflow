@@ -21,6 +21,7 @@ interface CapabilityProposalSummary {
   merged?: boolean;
   status?: string;
   discardable?: boolean;
+  cancelable?: boolean;
   configurationError?: string | null;
   configurationErrorCode?: string | null;
   repairable?: boolean;
@@ -120,7 +121,9 @@ function proposalsHtml(entries: ProposalEntry[], setupEntries: SetupProposalEntr
         ${entry.failure?.message ? `<small class="error-text">${escape(entry.failure.message)}</small>` : ''}
         ${commandPair('Diagnostic', entry.failure?.diagnosticAction)}
         ${commandPair('Recovery', entry.failure?.nextAction)}
-      </button>${entry.discardable ? `<button class="secondary" data-discard="${index}" aria-label="Discard stale proposal ${escape(shortName(entry.branch))}">${icon('remove')} Discard stale proposal</button>` : ''}</div>`).join('')}</div>
+      </button>${entry.cancelable && !entry.merged
+        ? `<button class="secondary" data-cancel="${index}" aria-label="Cancel pending mapping ${escape(shortName(entry.branch))}">${icon('remove')} Cancel pending mapping</button>`
+        : entry.discardable ? `<button class="secondary" data-discard="${index}" aria-label="Discard stale proposal ${escape(shortName(entry.branch))}">${icon('remove')} Discard stale proposal</button>` : ''}</div>`).join('')}</div>
   </section>`).join('');
   const setupGroups = new Map<string, Array<{ entry: SetupProposalEntry; index: number }>>();
   setupEntries.forEach((entry, index) => {
@@ -181,6 +184,8 @@ function proposalsHtml(entries: ProposalEntry[], setupEntries: SetupProposalEntr
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    const cancel = event.target.closest('[data-cancel]');
+    if (cancel) return vscode.postMessage({ type: 'cancel', index: Number(cancel.dataset.cancel) });
     const discard = event.target.closest('[data-discard]');
     if (discard) return vscode.postMessage({ type: 'discard', index: Number(discard.dataset.discard) });
     const review = event.target.closest('[data-review]');
@@ -229,6 +234,11 @@ export class CapabilityProposalsPanel {
         void this.load();
       },
       fsck: () => { void this.fsck(); },
+      cancel: (message) => {
+        const index = integerField(message, 'index');
+        const entry = index === null ? null : this.entries[index];
+        if (entry?.cancelable && !entry.merged) void this.cancel(entry);
+      },
       discard: (message) => {
         const index = integerField(message, 'index');
         const entry = index === null ? null : this.entries[index];
@@ -433,6 +443,43 @@ export class CapabilityProposalsPanel {
     }
     void vscode.window.showInformationMessage(
       `Discarded stale capability proposal ${shortName(entry.branch)}; approved configuration was preserved.`);
+    await this.load();
+  }
+
+  private async cancel(entry: ProposalEntry): Promise<void> {
+    if (this.busy || !entry.cancelable || entry.merged) return;
+    const reason = await vscode.window.showInputBox({
+      title: 'Cancel pending capability mapping',
+      prompt: 'Why should this unmerged mapping proposal be cancelled?',
+      placeHolder: 'Replaced by a corrected capability mapping',
+      validateInput: (value) => value.trim() && value.trim().length <= 500
+        ? null : 'Enter a reason of 500 characters or fewer.',
+      ignoreFocusOut: true
+    });
+    if (!reason?.trim() || reason.trim().length > 500) return;
+    const confirmation = 'Cancel exact pending mapping';
+    const accepted = await vscode.window.showWarningMessage(
+      `Cancel ${entry.branch}@${entry.proposalCommit.slice(0, 12)}?`,
+      { modal: true, detail: 'Only this exact unmerged Git review branch is deleted. If the branch moved or was merged, cancellation refuses. Approved configuration, state, application branches, and other proposals are preserved.' },
+      confirmation
+    );
+    if (accepted !== confirmation) return;
+    this.busy = true; this.render();
+    const response = await this.run([
+      'capability', 'cancel-proposal', entry.branch,
+      '--lead', entry.lead, '--confirm', entry.proposalCommit,
+      '--reason', reason.trim(), '--json'
+    ]);
+    this.busy = false;
+    if (response.error || (response.result as { status?: string } | null)?.status !== 'cancelled') {
+      this.failures = [{ lead: entry.lead,
+        message: response.error ?? 'The engine did not confirm cancellation; the proposal remains pending until rechecked.' },
+      ...this.failures];
+      this.render();
+      return;
+    }
+    void vscode.window.showInformationMessage(
+      `Cancelled pending mapping ${shortName(entry.branch)}; approved configuration was preserved.`);
     await this.load();
   }
 

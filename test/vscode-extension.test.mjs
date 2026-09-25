@@ -4452,15 +4452,20 @@ test('mapping operations expose durable recovery, cancellation, retry, and propo
   };
   const recovering = { ...EMPTY_MAP_FORM, operation };
 
-  assert.match(mapProblems(recovering)[0], /previous mapping has not been reconciled/);
+  assert.doesNotMatch(mapProblems(recovering).join(' '), /previous mapping has not been reconciled/,
+    'a settled receipt cannot blanket-block an unrelated new mapping');
   assert.match(mapCapabilityHtml(recovering), /Durable mapping operation/);
   assert.match(mapCapabilityHtml(recovering), /map_18db34408ab63e12/);
   assert.match(mapCapabilityHtml(recovering), /data-map-operation-inspect/);
+  assert.match(mapCapabilityHtml(recovering), /data-map-operation-abandon/);
+  assert.match(mapCapabilityHtml(recovering), /Cancel pending mapping/);
 
   const running = mapCapabilityHtml({ ...EMPTY_MAP_FORM,
     operation: { ...operation, status: 'running', message: 'Publishing the review proposal.' } });
   assert.match(running, /data-map-operation-cancel/);
-  assert.match(running, /Cancel safely/);
+  assert.match(running, /Stop current attempt/);
+  assert.match(mapProblems({ ...EMPTY_MAP_FORM, operation: { ...operation, status: 'running' } })[0],
+    /mapping command is still running/);
 
   const retry = mapCapabilityHtml({ ...EMPTY_MAP_FORM,
     operation: { ...operation, status: 'retry-ready', message: 'No remote result exists.' } });
@@ -4475,12 +4480,37 @@ test('mapping operations expose durable recovery, cancellation, retry, and propo
     message: 'The existing review proposal is ready.'
   } });
   assert.match(proposed, /Open existing review proposal/);
+  assert.match(proposed, /data-map-operation-abandon/);
   assert.match(proposed, /map-payments-api-deadbeef@0123456789ab/);
 
   for (const type of ['cancelMapOperation', 'inspectMapOperation', 'retryMapOperation',
-    'reviewMapOperation', 'clearMapOperation']) {
+    'reviewMapOperation', 'clearMapOperation', 'cancelPendingMapping']) {
     assert.match(MAP_CAPABILITY_SCRIPT, new RegExp(`type: '${type}'`));
   }
+});
+
+test('pending mapping found on another laptop offers exact cancel or atomic replacement', () => {
+  const branch = 'sflow/config-change/capability/map-payments-api-deadbeef';
+  const form = { ...EMPTY_MAP_FORM, repositoryUrl: 'https://git.example/payments.git',
+    inspectionStatus: 'inconclusive', inspectionPendingMatches: [{
+      lead: 'https://git.example/platform.git', repositoryUrl: 'https://git.example/payments.git',
+      capabilities: ['payments-api'], proposalBranch: branch,
+      proposalCommit: 'a'.repeat(40), proposalValid: true
+    }] };
+  const html = mapCapabilityHtml(form);
+  assert.match(html, /data-map-pending-cancel="0"/);
+  assert.match(html, /data-map-pending-replace="0"/);
+  assert.match(html, /Review all pending proposals/);
+  assert.match(MAP_CAPABILITY_SCRIPT, /type: 'cancelInspectedMapping'/);
+  assert.match(MAP_CAPABILITY_SCRIPT, /type: 'replaceInspectedMapping'/);
+  const replacement = mapCapabilityHtml({ ...form, loaded: true, lead: 'https://git.example/platform.git',
+    capabilityId: 'payments-api', inspectionStatus: 'pending-replacement', inspectionComplete: true,
+    inspectionBoundRepositoryUrl: form.repositoryUrl,
+    inspectionBoundLeadUrl: 'https://git.example/platform.git',
+    replacement: { lead: 'https://git.example/platform.git', capabilityId: 'payments-api',
+      branch, commit: 'a'.repeat(40) } });
+  assert.match(replacement, /Replacing the exact pending proposal/);
+  assert.match(replacement, /replaces? it atomically|replace it atomically/i);
 });
 
 test('guided capability mapping is visibly the first step', () => {
@@ -7449,6 +7479,8 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the dashboard runs the read-only authority and proposal integrity check');
   assert.match(dashboard, /Discard stale proposal/);
   assert.match(dashboard, /capability', 'discard-proposal'/);
+  assert.match(dashboard, /Cancel pending mapping/);
+  assert.match(dashboard, /capability', 'cancel-proposal'/);
   assert.match(dashboard, /--confirm', entry\.proposalCommit/,
     'stale deletion is bound to the full proposal commit loaded by the dashboard');
   assert.match(dashboard, /--reason', reason\.trim\(\)/,

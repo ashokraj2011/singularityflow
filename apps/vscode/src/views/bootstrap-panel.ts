@@ -13,7 +13,8 @@ import { SetupProposalPanel } from './setup-proposal.ts';
 import { rememberSetupReviewRepository } from './setup-review-repositories.ts';
 import {
   CAPABILITY_KINDS, EMPTY_MAP_FORM, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems,
-  MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type MapCapabilityOperation, type ParentChoice
+  MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type MapCapabilityOperation,
+  type PendingMapReplacement, type ParentChoice
 } from './map-capability-form.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
@@ -21,7 +22,7 @@ import { commandGuidance } from '../copilot-command.ts';
 import { sameGitRepository } from '../repository-refresh-model.ts';
 import {
   clearMapCapabilityOperation, LEGACY_MAP_CAPABILITY_OPERATION_KEY,
-  migrateLegacyMapCapabilityOperation, readMapCapabilityOperations,
+  mapCapabilityOperationKey, migrateLegacyMapCapabilityOperation, readMapCapabilityOperations,
   writeMapCapabilityOperation
 } from './map-capability-operation-store.ts';
 import {
@@ -131,6 +132,8 @@ export interface Mapped {
   baseBranch: string;
   commit: string | null;
   reviewRequired: boolean;
+  pushed?: boolean;
+  supersededProposals?: Array<{ branch: string; commit: string }>;
 }
 
 export interface MapCapabilityLaunch {
@@ -151,6 +154,8 @@ interface CapabilityProposalSummary {
   branch?: string;
   proposalCommit?: string;
   merged?: boolean;
+  cancelable?: boolean;
+  discardable?: boolean;
 }
 
 interface SavedMapRequest {
@@ -173,7 +178,8 @@ interface SavedMapRequest {
 
 const MAP_SINGLE_VALUE_OPTIONS = new Set([
   '--lead', '--kind', '--name', '--parent', '--repository', '--source-roots', '--shared-roots',
-  '--clone-mode', '--clone-fallback', '--sparse-cone', '--jira-project', '--teams'
+  '--clone-mode', '--clone-fallback', '--sparse-cone', '--jira-project', '--teams',
+  '--supersede-branch', '--supersede-commit'
 ]);
 
 function normalizedList(values: string[]): string[] {
@@ -215,6 +221,14 @@ function savedMapRequest(operation: Pick<MapCapabilityOperation, 'argv' | 'capab
     || (!operation.repositoryUrl && repositoryValues.length)) return null;
   const kind = values.get('--kind')![0]!;
   if ((kind === 'delivery') !== Boolean(operation.repositoryUrl)) return null;
+  const supersedeBranch = values.get('--supersede-branch')?.[0] ?? null;
+  const supersedeCommit = values.get('--supersede-commit')?.[0] ?? null;
+  if (Boolean(supersedeBranch) !== Boolean(supersedeCommit)
+    || (supersedeBranch != null && (!supersedeBranch.startsWith(
+      `sflow/config-change/capability/map-${operation.capabilityId}-`)
+      || !/^[0-9a-f]{8}$/i.test(supersedeBranch.slice(
+        `sflow/config-change/capability/map-${operation.capabilityId}-`.length))))
+    || (supersedeCommit != null && !/^[0-9a-f]{40,64}$/i.test(supersedeCommit))) return null;
 
   const cloneMode = values.get('--clone-mode')?.[0] ?? null;
   const cloneFallback = values.get('--clone-fallback')?.[0] ?? null;
@@ -569,6 +583,9 @@ export class BootstrapPanel {
 
   private render(): void {
     if (this.disposed) return;
+    this.form.otherOperations = readMapCapabilityOperations(
+      this.context.globalState, restoreMapCapabilityOperation
+    ).map((entry) => entry.operation).filter((entry) => entry.id !== this.form.operation?.id);
     const token = nonce();
     this.panel.webview.html = page(
       this.form.repositorySetupMaintenance
@@ -586,7 +603,7 @@ export class BootstrapPanel {
   }
 
   /** Preserve this panel's status order even when cancellation settles the CLI concurrently. */
-  private queueOperationStorage(action: () => Promise<void>): Promise<void> {
+  private queueOperationStorage<T>(action: () => Promise<T>): Promise<T> {
     const result = this.operationStorageQueue.then(action, action);
     this.operationStorageQueue = result.then(() => undefined, () => undefined);
     return result;
@@ -594,19 +611,23 @@ export class BootstrapPanel {
 
   private async storeOperation(operation: MapCapabilityOperation | null): Promise<void> {
     const previous = this.form.operation;
+    if (!operation) {
+      if (!previous) return;
+      const cleared = await this.queueOperationStorage(() => clearMapCapabilityOperation(
+        this.context.globalState, previous.id, restoreMapCapabilityOperation, previous
+      ));
+      if (!cleared) throw new Error('The pending mapping receipt changed in another window. Reopen this screen and inspect its current outcome.');
+      if (this.form.operation?.id === previous.id) {
+        this.form = { ...this.form, operation: null };
+        this.render();
+      }
+      return;
+    }
     this.form = { ...this.form, operation };
     this.render();
-    if (operation) {
-      await this.queueOperationStorage(() => writeMapCapabilityOperation(
-        this.context.globalState, operation, restoreMapCapabilityOperation
-      ));
-    } else if (previous) {
-      await this.queueOperationStorage(async () => {
-        await clearMapCapabilityOperation(
-          this.context.globalState, previous.id, restoreMapCapabilityOperation
-        );
-      });
-    }
+    await this.queueOperationStorage(() => writeMapCapabilityOperation(
+      this.context.globalState, operation, restoreMapCapabilityOperation
+    ));
   }
 
   private newOperation(argv: string[]): MapCapabilityOperation {
@@ -628,7 +649,20 @@ export class BootstrapPanel {
     };
   }
 
-  private async finishOperation(operation: MapCapabilityOperation, mapped: Mapped): Promise<void> {
+  private async finishOperation(operation: MapCapabilityOperation, mapped: Mapped,
+    replacement: PendingMapReplacement | null = null,
+    superseded: MapCapabilityOperation | null = null): Promise<void> {
+    if (replacement && (!mapped.pushed || !mapped.reviewRequired || !mapped.branch || !mapped.commit
+      || mapped.supersededProposals?.length !== 1
+      || mapped.supersededProposals[0]?.branch !== replacement.branch
+      || mapped.supersededProposals[0]?.commit !== replacement.commit)) {
+      await this.storeOperation({ ...operation, status: 'needs-inspection',
+        updatedAt: new Date().toISOString(),
+        message: 'The engine did not prove that the exact prior proposal was atomically replaced. Inspect remote proposals before any retry.' });
+      this.update({ busy: false,
+        error: 'Replacement result lacks exact supersession proof. The prior local receipt was retained; inspect both review refs before retrying.' });
+      return;
+    }
     await this.storeOperation({
       ...operation,
       status: mapped.reviewRequired && mapped.branch ? 'proposal-ready' : 'already-active',
@@ -645,10 +679,17 @@ export class BootstrapPanel {
       await clearMapCapabilityOperation(
         this.context.globalState, operation.id, restoreMapCapabilityOperation
       );
+      if (superseded) {
+        await clearMapCapabilityOperation(
+          this.context.globalState, superseded.id, restoreMapCapabilityOperation, superseded
+        );
+      }
     });
   }
 
-  private async runMapOperation(operation: MapCapabilityOperation): Promise<void> {
+  private async runMapOperation(operation: MapCapabilityOperation,
+    replacement: PendingMapReplacement | null = null,
+    superseded: MapCapabilityOperation | null = null): Promise<void> {
     const controller = new AbortController();
     this.activeMapController = controller;
     await this.storeOperation({
@@ -673,12 +714,12 @@ export class BootstrapPanel {
       this.update({ busy: false, error: null });
       return;
     }
-    await this.finishOperation(this.form.operation ?? operation, result as Mapped);
+    await this.finishOperation(this.form.operation ?? operation, result as Mapped, replacement, superseded);
   }
 
   private async inspectMapOperation(retryWhenAbsent = false): Promise<void> {
     const operation = this.form.operation;
-    if (!operation || !['needs-inspection', 'retry-ready'].includes(operation.status)) return;
+    if (!operation || this.form.busy || !['needs-inspection', 'retry-ready'].includes(operation.status)) return;
     const controller = new AbortController();
     this.activeMapController = controller;
     await this.storeOperation({ ...operation, status: 'inspecting', updatedAt: new Date().toISOString(),
@@ -708,17 +749,28 @@ export class BootstrapPanel {
     }
     const proposals = proposalsPayload as CapabilityProposalSummary[];
     const prefix = `sflow/config-change/capability/map-${operation.capabilityId}-`;
+    const supersedeBranchIndex = operation.argv.indexOf('--supersede-branch');
+    const supersedeCommitIndex = operation.argv.indexOf('--supersede-commit');
+    const supersedeBranch = supersedeBranchIndex < 0 ? null : operation.argv[supersedeBranchIndex + 1] ?? null;
+    const supersedeCommit = supersedeCommitIndex < 0 ? null : operation.argv[supersedeCommitIndex + 1] ?? null;
     const existing = proposals.find((proposal) => proposal.merged !== true
       && proposal.branch?.startsWith(prefix)
       && /^[0-9a-f]{8}$/i.test(proposal.branch.slice(prefix.length))
-      && Boolean(proposal.proposalCommit));
+      && Boolean(proposal.proposalCommit)
+      // A failed atomic replacement leaves this exact old ref in place. It is not evidence that
+      // the replacement succeeded; only a moved/new proposal commit can reconcile this attempt.
+      && !(proposal.branch === supersedeBranch && proposal.proposalCommit === supersedeCommit));
     if (existing?.branch && existing.proposalCommit) {
       if (this.activeMapController === controller) this.activeMapController = null;
-      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'proposal-ready',
+      // A same-ID branch is not proof that this interrupted request created it. Another
+      // laptop may have proposed the same capability while our outcome was unknown.
+      // Only the exact branch/commit returned by this operation may authorize automatic
+      // supersession; let the user inspect or explicitly cancel an unproven proposal.
+      await this.storeOperation({ ...(this.form.operation ?? operation), status: 'needs-inspection',
         updatedAt: new Date().toISOString(),
-        message: 'The existing remote proposal was found. Open that exact review; no duplicate was created.',
-        proposalBranch: existing.branch, proposalCommit: existing.proposalCommit });
-      this.update({ busy: false });
+        message: `An unmerged same-ID proposal exists at ${existing.branch}@${existing.proposalCommit.slice(0, 12)}, but its ownership by this interrupted request is unproven. Review or explicitly cancel that exact proposal; it will not be replaced automatically.` });
+      this.update({ busy: false,
+        error: 'A same-ID pending proposal was found, but cannot be tied to this interrupted mapping. Open Review proposals or explicitly cancel it before remapping.' });
       return;
     }
     const approvedRead = await this.run([
@@ -770,6 +822,230 @@ export class BootstrapPanel {
     }
   }
 
+  /** A new request may replace only the exact old review ref recorded by this panel. */
+  private async cancelPendingMapping(automatic: boolean): Promise<boolean> {
+    const operation = this.form.operation;
+    if (!operation) return true;
+    if (this.form.busy || this.activeMapController
+      || ['running', 'inspecting', 'cancelling'].includes(operation.status)) {
+      this.update({ error: 'Stop the active mapping attempt and inspect its remote outcome before cancelling it.' });
+      return false;
+    }
+    this.update({ busy: true, error: null });
+    try {
+      await this.operationStorageQueue;
+      const stored = restoreMapCapabilityOperation(
+        this.context.globalState.get<unknown>(mapCapabilityOperationKey(operation.id))
+      );
+      if (!stored || stored.status !== operation.status || stored.updatedAt !== operation.updatedAt
+        || stored.proposalBranch !== operation.proposalBranch
+        || stored.proposalCommit !== operation.proposalCommit) {
+        this.update({ error: 'The saved mapping changed in another window. Reopen this screen before cancelling it.' });
+        return false;
+      }
+      const response = await this.run(['capability', 'proposals', '--lead', operation.lead, '--json']);
+      if (response.error) {
+        this.update({ error: `The pending Git review branches could not be verified: ${response.error}` });
+        return false;
+      }
+      const listed = (response.result as { proposals?: unknown } | null)?.proposals;
+      if (!Array.isArray(listed)) {
+        this.update({ error: 'The engine returned an incompatible proposal list. The old mapping was kept; update the bundled CLI before retrying.' });
+        return false;
+      }
+      const prefix = `sflow/config-change/capability/map-${operation.capabilityId}-`;
+      const candidates = (listed as CapabilityProposalSummary[]).filter((proposal) =>
+        proposal.merged !== true && typeof proposal.branch === 'string'
+        && proposal.branch.startsWith(prefix)
+        && /^[0-9a-f]{8}$/i.test(proposal.branch.slice(prefix.length)));
+      let proposal: CapabilityProposalSummary | undefined;
+      if (operation.proposalBranch) {
+        proposal = candidates.find((entry) => entry.branch === operation.proposalBranch);
+        if (proposal && proposal.proposalCommit !== operation.proposalCommit) {
+          this.update({ error: 'The pending review branch moved after this mapping receipt was saved. Open Review proposals and inspect its current exact commit; nothing was cancelled.' });
+          return false;
+        }
+      } else if (candidates.length) {
+        if (automatic) {
+          this.update({ error: 'The interrupted mapping did not record an exact review branch. Use Cancel pending mapping to review the current proposal before remapping.' });
+          return false;
+        }
+        if (candidates.length !== 1) {
+          this.update({ error: 'More than one same-ID proposal exists. Open Review proposals and cancel the intended exact branch; no proposal was deleted.' });
+          return false;
+        }
+        proposal = candidates[0];
+      }
+      if (proposal) {
+        if (!proposal.branch || !proposal.proposalCommit
+          || !/^[0-9a-f]{40,64}$/i.test(proposal.proposalCommit)
+          || (!proposal.cancelable && !proposal.discardable)) {
+          this.update({ error: 'The pending proposal is not safe to cancel from this screen. Open Review proposals for its recovery action.' });
+          return false;
+        }
+        const reason = automatic
+          ? `Superseded by a new capability mapping request for ${this.form.capabilityId.trim()}`
+          : await vscode.window.showInputBox({
+            title: 'Cancel pending capability mapping',
+            prompt: 'Why should this exact unmerged Git review proposal be cancelled?',
+            placeHolder: 'Replaced by a corrected mapping',
+            validateInput: (value) => value.trim() && value.trim().length <= 500
+              ? null : 'Enter a reason of 500 characters or fewer.',
+            ignoreFocusOut: true
+          });
+        if (!reason?.trim() || reason.trim().length > 500) return false;
+        if (!automatic || !operation.proposalBranch) {
+          const confirmation = 'Cancel exact pending mapping';
+          const accepted = await vscode.window.showWarningMessage(
+            `Cancel ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
+            { modal: true, detail: `${operation.proposalBranch
+              ? 'This is the branch recorded by the earlier mapping.'
+              : 'The interrupted operation did not record a branch. This same-ID proposal may belong to another attempt; verify its exact branch and commit before choosing cancellation.'} The exact unmerged Git review branch will be deleted. A moved or merged branch is refused. Approved configuration, state, application branches, and other proposals remain unchanged.` },
+            confirmation
+          );
+          if (accepted !== confirmation) return false;
+        }
+        const cancelled = await this.run([
+          'capability', 'cancel-proposal', proposal.branch,
+          '--lead', operation.lead, '--confirm', proposal.proposalCommit,
+          '--reason', reason.trim(), '--json'
+        ]);
+        const result = cancelled.result as { status?: string; branch?: string; proposalCommit?: string } | null;
+        if (cancelled.error || result?.status !== 'cancelled'
+          || result.branch !== proposal.branch || result.proposalCommit !== proposal.proposalCommit) {
+          this.update({ error: cancelled.error
+            ?? 'The engine did not confirm exact cancellation. The mapping receipt was kept; refresh Review proposals before retrying.' });
+          return false;
+        }
+      }
+      // A complete fresh proposal list with no matching ref also proves this old request no longer
+      // has a pending Git review. Do not clear the receipt after an unavailable or partial read.
+      await this.storeOperation(null);
+      this.update({ notice: proposal
+        ? 'The exact pending Git review proposal was cancelled. Approved configuration was preserved.'
+        : 'No pending review proposal remains for this saved mapping. Its local receipt was cleared.' });
+      return true;
+    } catch (error) {
+      this.update({ error: `The pending mapping could not be cancelled safely: ${(error as Error).message}` });
+      return false;
+    } finally {
+      this.update({ busy: false });
+    }
+  }
+
+  /** Cancel one exact proposal surfaced by repository inspection, including another laptop's. */
+  private async cancelInspectedMapping(index: number): Promise<void> {
+    const match = this.form.inspectionPendingMatches[index];
+    if (!match || this.form.busy || !['inconclusive', 'ambiguous'].includes(this.form.inspectionStatus)) return;
+    const capabilityId = match.capabilities?.length === 1 ? match.capabilities[0] : null;
+    const prefix = capabilityId ? `sflow/config-change/capability/map-${capabilityId}-` : '';
+    const branch = match.proposalBranch ?? '';
+    const commit = match.proposalCommit ?? '';
+    const lead = match.lead?.trim() ?? '';
+    if (!prefix || !branch.startsWith(prefix)
+      || !/^[0-9a-f]{8}$/i.test(branch.slice(prefix.length))
+      || !/^[0-9a-f]{40,64}$/i.test(commit)
+      || !lead || gitRemoteProblem(lead, 'Capability-map repository')) return;
+    this.update({ busy: true, error: null });
+    let cancelled = false;
+    try {
+      const listed = await this.run(['capability', 'proposals', '--lead', lead, '--json']);
+      const proposals = (listed.result as { proposals?: unknown } | null)?.proposals;
+      if (listed.error || !Array.isArray(proposals)) {
+        this.update({ error: listed.error ?? 'Pending proposal coverage could not be verified. No review branch was deleted.' });
+        return;
+      }
+      const exact = (proposals as CapabilityProposalSummary[]).find((proposal) => proposal.branch === branch);
+      if (!exact || exact.merged || exact.proposalCommit !== commit
+        || (!exact.cancelable && !exact.discardable)) {
+        this.update({ error: 'This pending review branch moved or is no longer safely cancellable. Refresh repository inspection and review its exact current state.' });
+        return;
+      }
+      const reason = await vscode.window.showInputBox({
+        title: 'Cancel pending capability mapping',
+        prompt: 'Why should this exact unmerged mapping proposal be cancelled?',
+        placeHolder: 'Replaced by a corrected capability mapping',
+        validateInput: (value) => value.trim() && value.trim().length <= 500
+          ? null : 'Enter a reason of 500 characters or fewer.',
+        ignoreFocusOut: true
+      });
+      if (!reason?.trim() || reason.trim().length > 500) return;
+      const confirmation = 'Cancel exact pending mapping';
+      const accepted = await vscode.window.showWarningMessage(
+        `Cancel ${branch}@${commit.slice(0, 12)}?`,
+        { modal: true, detail: 'This exact unmerged Git review branch will be deleted. If it moved or was merged, cancellation refuses. Approved configuration, state, application branches, and other proposals remain unchanged.' },
+        confirmation
+      );
+      if (accepted !== confirmation) return;
+      const response = await this.run([
+        'capability', 'cancel-proposal', branch, '--lead', lead,
+        '--confirm', commit, '--reason', reason.trim(), '--json'
+      ]);
+      const result = response.result as { status?: string; branch?: string; proposalCommit?: string } | null;
+      if (response.error || result?.status !== 'cancelled'
+        || result.branch !== branch || result.proposalCommit !== commit) {
+        this.update({ error: response.error ?? 'The engine did not confirm exact cancellation. The proposal remains pending until rechecked.' });
+        return;
+      }
+      const operation = this.form.operation;
+      if (operation?.proposalBranch === branch && operation.proposalCommit === commit) {
+        try { await this.storeOperation(null); }
+        catch (error) {
+          this.update({ error: `The Git proposal was cancelled, but its local receipt changed: ${(error as Error).message}` });
+          return;
+        }
+      }
+      cancelled = true;
+      this.update({ notice: 'The exact pending review proposal was cancelled. Approved configuration was preserved.' });
+    } finally {
+      this.update({ busy: false });
+      if (cancelled) await this.inspectRepository(lead, { includeKnownAuthorities: true });
+    }
+  }
+
+  /** Explicitly select another laptop's exact pending review as the replacement target. */
+  private async replaceInspectedMapping(index: number): Promise<void> {
+    const match = this.form.inspectionPendingMatches[index];
+    if (!match || this.form.busy || !['inconclusive', 'ambiguous'].includes(this.form.inspectionStatus)) return;
+    const capabilityId = match.capabilities?.length === 1 ? match.capabilities[0] : null;
+    const prefix = capabilityId ? `sflow/config-change/capability/map-${capabilityId}-` : '';
+    const branch = match.proposalBranch ?? '';
+    const commit = match.proposalCommit ?? '';
+    const lead = match.lead?.trim() ?? '';
+    const repositoryUrl = this.form.repositoryUrl.trim();
+    if (!prefix || !branch.startsWith(prefix)
+      || !/^[0-9a-f]{8}$/i.test(branch.slice(prefix.length))
+      || !/^[0-9a-f]{40,64}$/i.test(commit)
+      || !lead || gitRemoteProblem(lead, 'Capability-map repository')
+      || !repositoryUrl || !match.repositoryUrl
+      || !sameGitRepository(match.repositoryUrl, repositoryUrl)) return;
+    this.update({ busy: true, error: null });
+    const listed = await this.run(['capability', 'proposals', '--lead', lead, '--json']);
+    const proposals = (listed.result as { proposals?: unknown } | null)?.proposals;
+    if (listed.error || !Array.isArray(proposals)) {
+      this.update({ busy: false,
+        error: listed.error ?? 'The exact pending proposal could not be verified. Nothing was selected for replacement.' });
+      return;
+    }
+    const exact = (proposals as CapabilityProposalSummary[]).find((proposal) => proposal.branch === branch);
+    if (!exact || exact.merged || exact.proposalCommit !== commit || exact.cancelable !== true) {
+      this.update({ busy: false,
+        error: 'The pending proposal moved or is not safely replaceable. Check this repository again before remapping.' });
+      return;
+    }
+    const replacement: PendingMapReplacement = { lead, capabilityId: capabilityId!, branch, commit };
+    this.form = { ...this.form,
+      replacement, lead, leads: [...new Set([...this.form.leads, lead])],
+      capabilityId: capabilityId!, kind: 'delivery', collectionWithoutRepository: false,
+      inspectionStatus: 'pending-replacement', inspectionComplete: true,
+      inspectionBoundRepositoryUrl: repositoryUrl, inspectionBoundLeadUrl: lead,
+      loaded: false, parents: [], parent: '', busy: false, error: null,
+      notice: 'Review the proposed capability details below. Saving replaces only the exact pending review branch.'
+    };
+    this.render();
+    await this.loadSelectedMap();
+  }
+
   /** Revoke every result whose repository/setup pair may no longer match the form. */
   private invalidateInspection(preserveRepositorySetup = false): void {
     this.inspectionRevision++;
@@ -778,6 +1054,7 @@ export class BootstrapPanel {
     this.form.inspectionComplete = false;
     this.form.inspectionMatches = [];
     this.form.inspectionPendingMatches = [];
+    this.form.replacement = null;
     this.form.inspectionMessage = null;
     this.form.inspectionRecoveryCommand = null;
     this.form.inspectionRecoveryCopilotCommand = null;
@@ -1339,7 +1616,7 @@ export class BootstrapPanel {
     }
     const revision = ++this.inspectionRevision;
     this.update({ inspectionStatus: 'checking', inspectionComplete: false,
-      inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null,
+      inspectionMatches: [], inspectionPendingMatches: [], replacement: null, inspectionMessage: null,
       inspectionRecoveryCommand: null, inspectionRecoveryCopilotCommand: null, inspectionFailures: [],
       inspectionCompleteness: null, inspectionAuthorityScope: null, inspectionCheckedLeadCount: 0,
       inspectionProposalCoverage: null, inspectionProposalTotal: 0, inspectionProposalInspected: 0,
@@ -1405,6 +1682,7 @@ export class BootstrapPanel {
         : null;
     this.form = { ...this.form, leads: availableLeads,
       inspectionStatus: status, inspectionMatches: matches, inspectionPendingMatches: pendingMatches,
+      replacement: null,
       inspectionMessage: null, inspectionFailures: failures,
       inspectionRecoveryCommand: recoveryGuidance?.command ?? null,
       inspectionRecoveryCopilotCommand: recoveryGuidance?.copilotCommand ?? null,
@@ -1515,6 +1793,7 @@ export class BootstrapPanel {
           this.form.inspectionComplete = true;
           this.form.inspectionMatches = [];
           this.form.inspectionPendingMatches = [];
+          this.form.replacement = null;
           this.form.inspectionMessage = null;
           this.form.inspectionFailures = [];
           this.form.inspectionCompleteness = null;
@@ -1618,6 +1897,21 @@ export class BootstrapPanel {
 
     if (message?.type === 'searchKnownAuthorities') {
       await this.inspectRepository(null, { includeKnownAuthorities: true });
+      return;
+    }
+
+    if (message?.type === 'cancelInspectedMapping' && Number.isInteger(message.index)) {
+      await this.cancelInspectedMapping(message.index as number);
+      return;
+    }
+
+    if (message?.type === 'replaceInspectedMapping' && Number.isInteger(message.index)) {
+      await this.replaceInspectedMapping(message.index as number);
+      return;
+    }
+
+    if (message?.type === 'reviewPendingMappings') {
+      await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
       return;
     }
 
@@ -1744,6 +2038,7 @@ export class BootstrapPanel {
       this.update({ collectionWithoutRepository: enabled, kind: enabled ? 'collection' : 'delivery',
         repositoryUrl: enabled ? '' : this.form.repositoryUrl,
         inspectionStatus: 'idle', inspectionComplete: enabled, inspectionMatches: [], inspectionPendingMatches: [],
+        replacement: null,
         inspectionMessage: null, inspectionFailures: [], inspectionCompleteness: null,
         inspectionAuthorityScope: null, inspectionProposalCoverage: null,
         inspectionProposalTotal: 0, inspectionProposalInspected: 0,
@@ -1846,9 +2141,72 @@ export class BootstrapPanel {
       return;
     }
 
+    if (message?.type === 'cancelPendingMapping') {
+      await this.cancelPendingMapping(false);
+      return;
+    }
+
+    if (message?.type === 'selectMapOperation'
+      && typeof (message as { id?: unknown }).id === 'string') {
+      const operationId = (message as { id: string }).id;
+      if (this.form.busy || this.activeMapController) return;
+      await this.operationStorageQueue;
+      const selected = readMapCapabilityOperations(
+        this.context.globalState, restoreMapCapabilityOperation
+      ).find((entry) => entry.operation.id === operationId)?.operation;
+      if (!selected) {
+        this.update({ error: 'That saved mapping changed or was cleared in another window. Reload the Map screen.' });
+        return;
+      }
+      if (['running', 'inspecting', 'cancelling'].includes(selected.status)) {
+        this.update({ error: 'This mapping may still be running in another window. Stop it there or close that window, then reopen Map a capability to inspect its remote outcome.' });
+        return;
+      }
+      this.update({ operation: selected, error: null });
+      return;
+    }
+
     if (message?.type === 'map') {
       if (mapProblems(this.form).length || this.form.busy) return;
-      const operation = this.newOperation(mapCommand(this.form));
+      const prior = this.form.operation;
+      const selectedReplacement = this.form.replacement;
+      const sameMapping = prior?.capabilityId === this.form.capabilityId.trim()
+        && sameGitRepository(prior.lead, this.form.lead.trim());
+      const exactSupersede = !selectedReplacement && sameMapping && prior?.status === 'proposal-ready'
+        && Boolean(prior.proposalBranch && prior.proposalCommit);
+      if (exactSupersede && prior) {
+        await this.operationStorageQueue;
+        const stored = restoreMapCapabilityOperation(
+          this.context.globalState.get<unknown>(mapCapabilityOperationKey(prior.id))
+        );
+        if (!stored || stored.status !== prior.status || stored.updatedAt !== prior.updatedAt
+          || stored.proposalBranch !== prior.proposalBranch
+          || stored.proposalCommit !== prior.proposalCommit) {
+          this.update({ error: 'The prior mapping changed in another window. Reopen this screen before replacing its exact review proposal.' });
+          return;
+        }
+      } else if (sameMapping && !selectedReplacement) {
+        if (!await this.cancelPendingMapping(true)) return;
+        // Removing an exact old review ref changes the answer to repository inspection. Rebind
+        // the new request to the fresh authority before any replacement proposal is published.
+        if (!this.form.collectionWithoutRepository && this.form.repositoryUrl.trim()) {
+          await this.inspectCapabilityMapping(this.form.lead.trim() || null);
+        }
+        if (mapProblems(this.form).length || this.form.busy) return;
+      }
+      // A different capability/authority is independent: its pending Git proposal and local
+      // receipt remain available for exact review. Never silently delete it to unblock this form.
+      const replacement: PendingMapReplacement | null = selectedReplacement
+        ?? (exactSupersede && prior?.proposalBranch && prior.proposalCommit
+          ? { lead: prior.lead, capabilityId: prior.capabilityId,
+            branch: prior.proposalBranch, commit: prior.proposalCommit } : null);
+      const argv = mapCommand(this.form);
+      if (replacement) {
+        argv.push(
+          '--supersede-branch', replacement.branch,
+          '--supersede-commit', replacement.commit);
+      }
+      const operation = this.newOperation(argv);
       try {
         // Refuse to begin the remote mutation unless its recovery identity is durable first.
         await this.storeOperation(operation);
@@ -1858,7 +2216,9 @@ export class BootstrapPanel {
           error: `The mapping operation could not be saved before it started: ${(error as Error).message}` });
         return;
       }
-      await this.runMapOperation(operation);
+      const replacedReceipt = prior?.proposalBranch === replacement?.branch
+        && prior?.proposalCommit === replacement?.commit ? prior : null;
+      await this.runMapOperation(operation, replacement, replacedReceipt);
     }
   }
 

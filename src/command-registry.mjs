@@ -331,7 +331,7 @@ const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
 ]);
 const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
   'add', 'protect', 'depend', 'adopt-managed', 'set', 'remove', 'map', 'map-team', 'edit', 'publish',
-  'activate', 'discard-proposal', 'rebase-proposal', 'repair-proposal', 'reconcile', 'repository',
+  'activate', 'cancel-proposal', 'discard-proposal', 'rebase-proposal', 'repair-proposal', 'reconcile', 'repository',
   'setup-activate'
 ]);
 const CAPABILITY_PLAN_SUBCOMMANDS = Object.freeze(['onboard']);

@@ -64,11 +64,15 @@ export async function writeMapCapabilityOperation(
 export async function clearMapCapabilityOperation(
   state: MapCapabilityOperationState,
   operationId: string,
-  restore: Restore
+  restore: Restore,
+  expected?: Pick<MapCapabilityOperation, 'status' | 'updatedAt' | 'proposalBranch' | 'proposalCommit'>
 ): Promise<boolean> {
   const key = mapCapabilityOperationKey(operationId);
   const current = restore(state.get<unknown>(key));
   if (!current || current.id !== operationId) return false;
+  if (expected && (current.status !== expected.status || current.updatedAt !== expected.updatedAt
+    || (current.proposalBranch ?? null) !== (expected.proposalBranch ?? null)
+    || (current.proposalCommit ?? null) !== (expected.proposalCommit ?? null))) return false;
   await state.update(key, undefined);
   return true;
 }

@@ -255,7 +255,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, rebaseCapabilityProposal, repairCapabilityProposal, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, cancelCapabilityProposal, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, rebaseCapabilityProposal, repairCapabilityProposal, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -10646,7 +10646,9 @@ async function capabilityCommand(positionals, options) {
           fallback: optionString(options, 'clone-fallback', 'refuse')
         } : null,
       jiraProject: optionString(options, 'jira-project'),
-      teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean)
+      teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean),
+      supersedeBranch: optionString(options, 'supersede-branch'),
+      supersedeCommit: optionString(options, 'supersede-commit')
     });
     try {
       await rememberLeadRepository(leadUrl);
@@ -10799,17 +10801,19 @@ async function capabilityCommand(positionals, options) {
     return result;
   }
 
-  if (subcommandForWrite === 'discard-proposal') {
+  if (subcommandForWrite === 'cancel-proposal' || subcommandForWrite === 'discard-proposal') {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
-    const branch = requirePositional(positionals, 2, 'stale capability proposal branch');
-    const result = await discardStaleCapabilityProposal(leadUrl, branch, {
+    const branch = requirePositional(positionals, 2, 'capability proposal branch');
+    const action = subcommandForWrite === 'cancel-proposal'
+      ? cancelCapabilityProposal : discardStaleCapabilityProposal;
+    const result = await action(leadUrl, branch, {
       confirm: optionString(options, 'confirm'),
       reason: optionString(options, 'reason')
     });
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Discarded stale capability proposal ${result.branch}@${result.proposalCommit}.`);
+    console.log(`${result.cancelled ? 'Cancelled' : 'Discarded stale'} capability proposal ${result.branch}@${result.proposalCommit}.`);
     console.log(`  reason: ${result.reason}`);
     console.log(`  preserved: ${result.preserved.join(', ')}`);
     printCommandRoutes(result.nextAction.command, {

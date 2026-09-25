@@ -104,6 +104,7 @@ Every public operation is classified before its implementation module is importe
 | capability.activate | mutation | never | — | — |
 | capability.add | mutation | never | — | — |
 | capability.adopt-managed | mutation | never | — | — |
+| capability.cancel-proposal | mutation | never | — | — |
 | capability.depend | mutation | never | — | — |
 | capability.discard-proposal | mutation | never | — | — |
 | capability.edit | mutation | never | — | — |

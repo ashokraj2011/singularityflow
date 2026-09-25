@@ -119,7 +119,10 @@ test('Story start cuts from the selected remote base and publishes only its own 
   const { root } = await repository();
   const baseBefore = git(root, 'ls-remote', 'origin', 'refs/heads/release/24.3').stdout.split(/\s+/)[0];
 
-  const result = JSON.parse(start(root, 'STORY-42').stdout);
+  const started = start(root, 'STORY-42', ['--timings']);
+  const result = JSON.parse(started.stdout);
+  assert.match(started.stderr, /spans:.*start\.authority=/u);
+  assert.match(started.stderr, /start\.destination=/u);
 
   const localHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
   const remoteStory = git(root, 'ls-remote', 'origin', 'refs/heads/STORY-42').stdout.split(/\s+/)[0];

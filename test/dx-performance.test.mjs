@@ -8,7 +8,7 @@ import test from 'node:test';
 import { evaluateLatency, summarizeSamples } from '../src/dx-performance.mjs';
 import {
   commandTimer, commandTimingDirectory, incrementCommandCounter, recordCommandTiming,
-  withCommandTiming
+  measureCommandSpan, withCommandTiming
 } from '../src/dx-command-timing.mjs';
 import { withRepositoryResetBarrier } from '../src/subject-lock.mjs';
 
@@ -460,6 +460,23 @@ test('command timing counters refuse content-shaped keys and invalid values', ()
   const timer = commandTimer('status', { commandClass: 'read' });
   assert.throws(() => timer.increment('/Users/person/repository'), /counter names/);
   assert.throws(() => timer.increment('git.fetch', -1), /non-negative/);
+});
+
+test('nested command spans expose Story-start costs without changing sequential stages', async () => {
+  let now = 0n;
+  const timer = commandTimer('start', { clock: () => now, wallClock: () => 0 });
+  const result = await withCommandTiming(timer, () => measureCommandSpan('start.configuration', async () => {
+    now = 1_000_000n;
+    return 'verified';
+  }));
+  assert.equal(result, 'verified');
+  await assert.rejects(timer.measure('/private/path', () => null), /span names/);
+  now = 2_000_000n;
+  timer.stage('execute');
+  const event = timer.finish();
+  assert.equal(event.spans['start.configuration'], 1);
+  assert.equal(event.stages.execute, 2);
+  await assert.rejects(timer.measure('/private/path', () => null), /already terminal/);
 });
 
 test('operation counters follow asynchronous command execution without becoming global', async () => {

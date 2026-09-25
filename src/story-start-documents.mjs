@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   addDocuments, admitStoryDocumentResource, createStoryDocumentBudget,
-  documentMimeType, STORY_DOCUMENT_RESOURCE_LIMITS, validateDocumentUrl
+  documentMimeType, STORY_DOCUMENT_RESOURCE_LIMITS, validateDocumentUrl,
+  verifyFrozenStoryDocumentEvidence
 } from './documents.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { commitAndPublish } from './state-stores.mjs';
@@ -23,6 +24,7 @@ const RETIRED_CAPTURE_NAME = new RegExp(`^retired-(capture-${UUID_SOURCE})-(${UU
 // This binding is deliberately module-private. Callers may describe Story evidence, but only this
 // module can attest that a file path names the private bytes captured before Story mutation.
 const CAPTURE_BINDINGS = Symbol('singularity-flow.story-document-capture-bindings');
+const CAPTURE_METADATA = Symbol('singularity-flow.story-document-capture-metadata');
 
 export function storyDocumentCaptureStorePath(root) {
   return path.join(gitCommonDir(root), 'singularity-flow', 'story-document-captures');
@@ -285,6 +287,7 @@ async function captureRegularFile(source, destination, {
 async function captureDocumentPath(
   source, destination, policy, evidence, displayPath = source, requireNonEmpty = true, depth = 0
 ) {
+  policy.budget.observedDepth = Math.max(policy.budget.observedDepth, depth);
   admitStoryDocumentResource(policy.budget, { depth, label: displayPath });
   const info = await lstat(source, { bigint: true }).catch(() => null);
   if (!info || info.isSymbolicLink()) {
@@ -359,12 +362,24 @@ export async function preflightInitialStoryDocuments(inputs = [], {
   maxTotalBytes = STORY_DOCUMENT_RESOURCE_LIMITS.maxTotalBytes,
   maxDepth = STORY_DOCUMENT_RESOURCE_LIMITS.maxDepth,
   allowedMimeTypes = null,
+  priorCapture = null,
   beforeFileOpen = null,
   beforeDirectoryRead = null
 } = {}) {
-  if (!inputs.length) return Object.freeze({ inputs: [], evidence: [], dispose: async () => {} });
   if (!Number.isInteger(maxFileBytes) || maxFileBytes < 1) {
     throw new SingularityFlowError('Story document byte limit must be a positive integer.');
+  }
+  const priorMetadata = priorCapture?.[CAPTURE_METADATA] ?? null;
+  if (priorCapture && (!priorMetadata || priorMetadata.isDisposed())) {
+    throw new SingularityFlowError('Frozen Story document capture is unavailable.', {
+      code: 'STORY_DOCUMENT_CAPTURE_INVALID'
+    });
+  }
+  const resolvedRoot = repositoryRoot == null ? null : path.resolve(repositoryRoot);
+  if (priorMetadata && priorMetadata.repositoryRoot !== resolvedRoot) {
+    throw new SingularityFlowError('Frozen Story documents belong to a different repository.', {
+      code: 'STORY_DOCUMENT_CAPTURE_INVALID'
+    });
   }
   const hasLocalFiles = inputs.some((rawInput) => {
     const input = rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)
@@ -380,15 +395,44 @@ export async function preflightInitialStoryDocuments(inputs = [], {
   }
   const allowlist = allowedMimeTypes == null ? null : [...new Set(allowedMimeTypes.map(String))];
   const budget = createStoryDocumentBudget({ maxFiles, maxTotalBytes, maxDepth });
+  budget.observedDepth = 0;
+  if (priorMetadata) {
+    if (priorMetadata.budget.files > maxFiles || priorMetadata.budget.totalBytes > maxTotalBytes
+        || priorMetadata.budget.observedDepth > maxDepth) {
+      throw new SingularityFlowError('Frozen Story documents exceed the selected aggregate limit.', {
+        code: 'STORY_DOCUMENT_LIMIT_EXCEEDED'
+      });
+    }
+    budget.files = priorMetadata.budget.files;
+    budget.totalBytes = priorMetadata.budget.totalBytes;
+    budget.observedDepth = priorMetadata.budget.observedDepth;
+    for (const record of priorCapture.evidence) {
+      if (record.size > maxFileBytes) {
+        throw new SingularityFlowError(
+          `Document exceeds the ${maxFileBytes} byte limit: ${record.source}`
+        );
+      }
+      if (allowlist && !allowlist.includes(record.mimeType)) {
+        throw new SingularityFlowError(
+          `Capability does not allow MIME type '${record.mimeType}' for ${record.source}.`
+        );
+      }
+    }
+    // The older second capture reread these private bytes before automatic enrollment. Retain
+    // that early integrity proof without writing another complete copy of each attachment.
+    await verifyFrozenStoryDocumentEvidence(priorCapture.evidence);
+    if (!inputs.length) return priorCapture;
+  }
   const capture = hasLocalFiles ? await createStoryDocumentCapture(repositoryRoot) : null;
   const captureRoot = capture?.data ?? null;
-  const prepared = [];
-  const evidence = [];
+  const prepared = priorCapture ? [...priorCapture.inputs] : [];
+  const evidence = priorCapture ? [...priorCapture.evidence] : [];
   let disposed = false;
   const dispose = async () => {
     if (disposed) return;
     disposed = true;
-    await capture?.dispose();
+    try { await capture?.dispose(); }
+    finally { await priorCapture?.dispose(); }
   };
   try {
     for (const [inputIndex, rawInput] of inputs.entries()) {
@@ -437,11 +481,18 @@ export async function preflightInitialStoryDocuments(inputs = [], {
     return Object.freeze({
       inputs: Object.freeze(prepared),
       evidence: Object.freeze(evidence),
-      captureDirectory: capture?.directory ?? null,
-      dispose
+      captureDirectory: capture?.directory ?? priorCapture?.captureDirectory ?? null,
+      dispose,
+      [CAPTURE_METADATA]: Object.freeze({
+        repositoryRoot: resolvedRoot,
+        budget: Object.freeze({ ...budget }),
+        isDisposed: () => disposed
+      })
     });
   } catch (error) {
-    await dispose().catch(() => {});
+    // A failed extension must not retire the earlier, still-valid snapshot. The caller owns it
+    // until a combined capture is returned successfully and disposed in its finalizer.
+    await capture?.dispose().catch(() => {});
     throw error;
   }
 }

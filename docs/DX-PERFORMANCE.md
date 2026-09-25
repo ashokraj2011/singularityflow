@@ -448,6 +448,14 @@ still fetched and resumed. The regression test enables the subprocess probe and 
 `git ls-remote` and fetch calls on the missing-base path, so office latency cannot be paid before
 this deterministic input refusal.
 
+An isolated new Story can reuse the launch checkout's all-heads fetch in its linked worktree only
+after a fresh exact-ref observation proves the same base and Story destination, Git common directory,
+transport, and remote identity. Any mismatch or failed probe takes the normal fetch path. When
+automatic identity enrollment is already a no-op, Story start checks the live `sflow/config` tip
+against its pinned commit without cloning that branch again; an actual enrollment edit still uses
+the normal clone-and-publish transaction. Initial document bytes are captured once and rehashed
+against the final intake policy before any shared enrollment mutation.
+
 `npm run release`, `npm run release:dry`, and `npm run poc:release-gate` run the enforcing form
 automatically. This repository intentionally carries no hosted workflow; the local release gate is
 the authoritative enforcement path and always checks absolute budgets. The relative 20-percent
@@ -461,6 +469,11 @@ Pass `--timings` to see root-dispatch, module-load, and execution stages:
 ```bash
 singularity-flow status WORK-123 --timings
 ```
+
+Story start also reports `start.*` spans for authority selection, approved configuration loading,
+destination observation, Git fetch, repository preflight, readiness, documents, enrollment,
+local worktree creation, and publication when those steps apply. These spans sit inside `execute`
+and must not be added to it; they identify which part of a slow start deserves investigation.
 
 The timing line also names the resolved operation and counts remote Git work by closed-vocabulary
 category (`probe`, `configuration`, `push`, and Git verb). It never records arguments, repository

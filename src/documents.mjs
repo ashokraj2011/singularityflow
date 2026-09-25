@@ -236,6 +236,12 @@ async function readFrozenDocument(source, expected) {
   }
 }
 
+/** Recheck private intake bytes before any shared Story-start mutation, without copying them again. */
+export async function verifyFrozenStoryDocumentEvidence(records) {
+  const evidence = frozenEvidenceMap(records);
+  for (const [source, expected] of evidence) await readFrozenDocument(source, expected);
+}
+
 async function readStableDocument(source, maximumBytes) {
   let handle;
   try {

@@ -8,14 +8,14 @@ import YAML from 'yaml';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import {
-  CONFIGURATION_BRANCH, resolveConfigurationRemote
+  CONFIGURATION_BRANCH, configurationBranchHead, resolveConfigurationRemote
 } from './configuration-branch.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { identity } from './git.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
-import { runRemoteGitAsync } from './git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
 const INDIVIDUAL_TARGET = /^(story|initiative):([a-z0-9]+(?:-[a-z0-9]+)*)$/;
@@ -218,11 +218,42 @@ export async function publishCurrentIdentityToConfiguration(root, {
   // expected source commit: it must compare the live authority even when the frozen snapshot says
   // no edit is needed, otherwise a concurrent policy advance can be silently ignored.
   if (snapshotResult && expectedSourceCommit == null) return snapshotResult;
-  const remoteUrl = await resolveConfigurationRemote(root);
+  // Resolution already makes a fresh exact-ref observation. Keep its per-invocation session so
+  // the no-op comparison can use that same authority result instead of another network round trip.
+  const remoteSession = new GitRemoteSession({ cwd: root });
+  const remoteUrl = await resolveConfigurationRemote(root, 'origin', { session: remoteSession });
   if (!remoteUrl) {
     throw new SingularityFlowError(
       `No approved '${CONFIGURATION_BRANCH}' branch is available. Initialize or refresh the workspace configuration authority first.`
     );
+  }
+
+  if (snapshotResult) {
+    // Story start must recheck the live authority after intake, but a verified no-op needs only
+    // its exact ref, not another transfer and checkout of every configuration asset. The fresh
+    // resolution above rejects symbolic/malformed refs and transport failures; no local tracking
+    // ref or earlier snapshot is allowed to stand in for the current remote tip.
+    const head = await configurationBranchHead(remoteUrl, { session: remoteSession });
+    if (!head.reachable) {
+      throw new SingularityFlowError(
+        `Cannot read approved configuration: ${head.error}`,
+        { code: head.observation?.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
+    }
+    if (head.sha !== expectedSourceCommit) {
+      throw new SingularityFlowError(
+        'Approved configuration changed after Story choices were frozen. Refresh Story intake and retry; no enrollment was published.',
+        {
+          code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+          details: { selectedCommit: expectedSourceCommit, currentCommit: head.sha }
+        }
+      );
+    }
+    return {
+      ...snapshotResult,
+      commit: head.sha,
+      source: 'verified-current-configuration-snapshot'
+    };
   }
 
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-configuration-people-'));
@@ -245,13 +276,6 @@ export async function publishCurrentIdentityToConfiguration(root, {
           details: { selectedCommit: expectedSourceCommit, currentCommit: previousCommit }
         }
       );
-    }
-    if (snapshotResult) {
-      return {
-        ...snapshotResult,
-        commit: previousCommit,
-        source: 'verified-current-configuration-snapshot'
-      };
     }
     const workflowText = await readFile(path.join(scratch, WORKFLOW_PATH), 'utf8').catch(() => null);
     if (workflowText == null) throw new SingularityFlowError(`${CONFIGURATION_BRANCH} does not contain ${WORKFLOW_PATH}.`);

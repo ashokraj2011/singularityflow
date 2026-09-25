@@ -12,6 +12,12 @@ export function incrementCommandCounter(name, amount = 1) {
   return commandTimingContext.getStore()?.increment(name, amount) ?? null;
 }
 
+/** Record an operation-specific span without moving the command's sequential stage clock. */
+export function measureCommandSpan(name, action) {
+  const timer = commandTimingContext.getStore();
+  return timer ? timer.measure(name, action) : action();
+}
+
 export function markCommandFeedback() {
   return commandTimingContext.getStore()?.feedback() ?? null;
 }

@@ -31,6 +31,7 @@ import {
 import { approvedConfigurationMaterializations } from '../src/configuration-materialization.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 import { publishCurrentIdentityToConfiguration } from '../src/configuration-people.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { run } from '../src/util.mjs';
 import {
   createWorkspaceConfiguration, rememberWorkspace, workspaceRepositoryPath
@@ -1738,11 +1739,74 @@ test('automatic identity enrollment obeys the approved configuration switch', as
     assert.equal(result.skipped, 'automatic-enrollment-disabled');
     assert.equal(result.commit, snapshot.sourceCommit);
 
+    const timer = commandTimer('story-identity-enrollment-no-op', { commandClass: 'write' });
+    const pinnedResult = await withCommandTiming(timer, () => publishCurrentIdentityToConfiguration(checkout, {
+      automatic: true, configurationSnapshot: snapshot, expectedSourceCommit: snapshot.sourceCommit
+    }));
+    const timing = timer.finish();
+    assert.equal(pinnedResult.source, 'verified-current-configuration-snapshot');
+    assert.equal(pinnedResult.commit, snapshot.sourceCommit);
+    assert.equal(timing.counters['git.remote.command.clone'] ?? 0, 0,
+      'a pinned Story no-op must verify the live ref without cloning its configuration tree');
+    assert.equal(timing.counters['git.remote.command.ls-remote'], 1,
+      'authority resolution and the no-op comparison must share one exact remote observation');
+
     const after = YAML.parse(run('git', [
       'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
     ], { cwd: fixture.remote }).stdout);
     assert.ok(Object.values(after.approvalAuthorities).every((authority) =>
       !authority.members.some((member) => member.email === 'unlisted@example.com')));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('pinned no-op identity enrollment refuses a stale or unreachable configuration authority', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const approved = path.join(fixture.root, 'approved-no-op-enrollment');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, approved], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Configuration Tester'], { cwd: approved });
+    run('git', ['config', 'user.email', 'configuration@example.com'], { cwd: approved });
+    const workflowFile = path.join(approved, 'singularity/workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.approvalSecurity.autoEnrollNewIdentities = false;
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: approved });
+    run('git', ['commit', '-qm', 'disable automatic identity enrollment'], { cwd: approved });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: approved });
+
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    const snapshot = await loadStoryConfigurationSnapshot(authority);
+    const checkout = path.join(fixture.root, 'pinned-no-op-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Unlisted Developer'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'unlisted@example.com'], { cwd: checkout });
+
+    await writeFile(workflowFile, `${await readFile(workflowFile, 'utf8')}\n# concurrent authority advance\n`);
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: approved });
+    run('git', ['commit', '-qm', 'advance approved configuration'], { cwd: approved });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: approved });
+    const advancedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: approved }).stdout.trim();
+    await assert.rejects(
+      publishCurrentIdentityToConfiguration(checkout, {
+        automatic: true, configurationSnapshot: snapshot, expectedSourceCommit: snapshot.sourceCommit
+      }),
+      (error) => error?.code === 'STORY_CONFIGURATION_AUTHORITY_STALE'
+        && error?.details?.currentCommit === advancedCommit
+    );
+
+    run('git', ['remote', 'set-url', 'origin', path.join(fixture.root, 'unreachable.git')], {
+      cwd: checkout
+    });
+    await assert.rejects(
+      publishCurrentIdentityToConfiguration(checkout, {
+        automatic: true, configurationSnapshot: snapshot, expectedSourceCommit: snapshot.sourceCommit
+      }),
+      (error) => error?.code?.startsWith('REMOTE_')
+        && /Cannot (reach|read) repository remote/.test(error.message)
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

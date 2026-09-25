@@ -3,7 +3,9 @@ import { appendFile, chmod, mkdir, readdir, rename, stat, unlink } from 'node:fs
 import path from 'node:path';
 import { gitDir } from './git.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
-export { incrementCommandCounter, markCommandFeedback, withCommandTiming } from './dx-timing-context.mjs';
+export {
+  incrementCommandCounter, markCommandFeedback, measureCommandSpan, withCommandTiming
+} from './dx-timing-context.mjs';
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RETENTION_DAYS = 90;
@@ -22,6 +24,7 @@ export function commandTimer(command, input = {}) {
   const invocationId = options.invocationId ?? randomUUID();
   const startedAt = new Date(wallClock() - (Number(created - started) / 1e6)).toISOString();
   const stages = {};
+  const spans = {};
   const counters = {};
   let checkpoint = started;
   let firstFeedbackMs = null;
@@ -60,6 +63,18 @@ export function commandTimer(command, input = {}) {
       const now = clock();
       stages[name] = (stages[name] ?? 0) + (Number(now - checkpoint) / 1e6);
       checkpoint = now;
+    },
+    async measure(name, action) {
+      if (finished) throw new Error('Command timing is already terminal.');
+      if (!/^[a-z][a-z0-9.-]{0,63}$/.test(String(name ?? ''))) {
+        throw new TypeError('Timing span names must use lower-case dotted or kebab-case identifiers.');
+      }
+      const spanStarted = clock();
+      try {
+        return await action();
+      } finally {
+        spans[name] = (spans[name] ?? 0) + (Number(clock() - spanStarted) / 1e6);
+      }
     },
     /**
      * Count bounded operation facts without recording arguments, paths, remotes, or content.
@@ -103,6 +118,7 @@ export function commandTimer(command, input = {}) {
         durationMs: Number(ended - started) / 1e6,
         firstFeedbackMs,
         stages,
+        spans,
         counters,
         ...summarizedCounters(),
         outcome: 'success',
@@ -144,12 +160,14 @@ export function interruptedCommandTimings(events, { observedAt = new Date().toIS
 export function writeCommandTimings(event) {
   const stages = Object.entries(event.stages ?? {})
     .map(([name, durationMs]) => `${name}=${durationMs.toFixed(1)}ms`).join(' ');
+  const spans = Object.entries(event.spans ?? {})
+    .map(([name, durationMs]) => `${name}=${durationMs.toFixed(1)}ms`).join(' ');
   const counters = Object.entries(event.counters ?? {})
     .map(([name, count]) => `${name}=${count}`).join(' ');
   const operation = event.operationId ? ` operation=${event.operationId}` : '';
   const feedback = Number.isFinite(event.firstFeedbackMs)
     ? ` first-feedback=${event.firstFeedbackMs.toFixed(1)}ms` : '';
-  process.stderr.write(`[sflow timing] ${event.command}${operation} class=${event.commandClass} outcome=${event.outcome} total=${event.durationMs.toFixed(1)}ms${feedback}${stages ? ` ${stages}` : ''}${counters ? ` ${counters}` : ''}\n`);
+  process.stderr.write(`[sflow timing] ${event.command}${operation} class=${event.commandClass} outcome=${event.outcome} total=${event.durationMs.toFixed(1)}ms${feedback}${stages ? ` ${stages}` : ''}${spans ? ` spans:${spans}` : ''}${counters ? ` ${counters}` : ''}\n`);
 }
 
 export function commandTimingDirectory(root) {

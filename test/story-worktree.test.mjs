@@ -271,6 +271,14 @@ test('isolated Story start fetches the configured remote before pinning its base
   assert.equal(workflow.workItem.baseCommit, remoteBase);
   assert.equal(git(root, ['rev-parse', 'refs/remotes/company/main']), remoteBase);
   assert.equal(git(root, ['branch', '--show-current']), 'main');
+  const timings = (await readFile(path.join(root, '.git/singularity-flow/dx/timings.jsonl'), 'utf8'))
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  const startTiming = timings.findLast((event) => event.event === 'dx.command-timing'
+    && event.command === 'start');
+  assert.equal(startTiming?.fetches, 1,
+    'the exact base observation must avoid repeating the source all-heads fetch in the child');
 });
 
 test('required repository readiness refuses before an isolated Story worktree is created', async (t) => {

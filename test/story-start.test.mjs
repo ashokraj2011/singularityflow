@@ -175,6 +175,102 @@ test('Story document preflight bounds aggregate files, bytes, depth, and private
   }
 });
 
+test('Story document preflight extends frozen inputs without rereading prior sources', async (t) => {
+  const root = await captureRepository(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-extend-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const firstSource = path.join(directory, 'first.md');
+  const laterSource = path.join(directory, 'later.md');
+  await writeFile(firstSource, '# Reviewed before human intake\n');
+  await writeFile(laterSource, '# Added during human intake\n');
+
+  const initial = await preflightInitialStoryDocuments([{ files: [firstSource] }], {
+    repositoryRoot: root
+  });
+  t.after(() => initial.dispose());
+  const firstSnapshot = initial.inputs[0].files[0];
+  const firstDirectory = initial.captureDirectory;
+  await rm(firstSource);
+
+  const combined = await preflightInitialStoryDocuments([{ files: [laterSource] }], {
+    repositoryRoot: root, priorCapture: initial
+  });
+  t.after(() => combined.dispose());
+  assert.equal(combined.inputs[0], initial.inputs[0]);
+  assert.equal(combined.inputs.length, 2);
+  assert.equal(await readFile(firstSnapshot, 'utf8'), '# Reviewed before human intake\n');
+  assert.equal(await readFile(combined.inputs[1].files[0], 'utf8'), '# Added during human intake\n');
+  assert.equal(combined.evidence.length, 2);
+  await combined.dispose();
+  await assert.rejects(stat(firstDirectory), (error) => error?.code === 'ENOENT');
+  await assert.rejects(stat(combined.captureDirectory), (error) => error?.code === 'ENOENT');
+});
+
+test('Story document preflight rechecks final policy and aggregate budget on extension', async (t) => {
+  const root = await captureRepository(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-extend-policy-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const firstSource = path.join(directory, 'first.md');
+  const laterSource = path.join(directory, 'later.md');
+  await writeFile(firstSource, '1234');
+  await writeFile(laterSource, '5678');
+  const initial = await preflightInitialStoryDocuments([{ files: [firstSource] }], {
+    repositoryRoot: root
+  });
+  t.after(() => initial.dispose());
+
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([], {
+      repositoryRoot: root, priorCapture: initial, maxFileBytes: 3
+    }),
+    (error) => /3 byte limit/u.test(error?.message ?? '')
+  );
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([], {
+      repositoryRoot: root, priorCapture: initial, allowedMimeTypes: ['image/png']
+    }),
+    (error) => /does not allow MIME type/u.test(error?.message ?? '')
+  );
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([{ files: [laterSource] }], {
+      repositoryRoot: root, priorCapture: initial, maxFiles: 1
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_LIMIT_EXCEEDED'
+  );
+  assert.equal(await readFile(initial.inputs[0].files[0], 'utf8'), '1234',
+    'a failed extension must retain the earlier frozen input');
+  const combined = await preflightInitialStoryDocuments([{ files: [laterSource] }], {
+    repositoryRoot: root, priorCapture: initial, maxFiles: 2, maxTotalBytes: 8
+  });
+  t.after(() => combined.dispose());
+  assert.equal(combined.evidence.length, 2);
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([], {
+      repositoryRoot: root, priorCapture: combined, maxTotalBytes: 7
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_LIMIT_EXCEEDED'
+  );
+});
+
+test('Story document preflight rejects a changed frozen input before shared mutation', async (t) => {
+  const root = await captureRepository(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-extend-tamper-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, 'brief.md');
+  await writeFile(source, '# Original evidence\n');
+  const initial = await preflightInitialStoryDocuments([{ files: [source] }], {
+    repositoryRoot: root
+  });
+  t.after(() => initial.dispose());
+  await writeFile(initial.inputs[0].files[0], '# Changed evidence\n');
+  await assert.rejects(
+    () => preflightInitialStoryDocuments([], {
+      repositoryRoot: root, priorCapture: initial
+    }),
+    (error) => error?.code === 'STORY_DOCUMENT_CHANGED'
+  );
+});
+
 test('Story document capture scavenges a dead process lease without retaining source paths', async (t) => {
   const root = await captureRepository(t);
   const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-dead-document-capture-'));

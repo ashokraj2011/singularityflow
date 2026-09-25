@@ -631,7 +631,7 @@ export const REPOSITORY_ONBOARDING_COPY: Record<RepositoryOnboardingStatus, Repo
   },
   'not-set-up': {
     title: 'Not set up',
-    message: 'This repository has no recognized SFlow setup yet.',
+    message: 'This repository has no recognized SFlow setup yet. Set up SFlow creates sflow/config directly; if repository policy rejects that write, a review proposal is offered.',
     action: 'Set up SFlow'
   },
   'state-branch-not-recognized': {

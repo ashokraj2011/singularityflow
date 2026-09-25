@@ -633,10 +633,11 @@ An applied plan may safely stop with a resumable partial result:
 | `ready-state-refresh-pending` | Configuration is ready; run the returned `capability publish` retry without republishing configuration. |
 
 An onboarding proposal (`sflow/config-change/onboarding/...`) is **not** a capability-map proposal
-(`sflow/config-change/capability/...`). `capability proposals` lists only the latter. For a new
-repository, setup may leave `sflow/config` absent while a candidate derived from the application
-or state ref waits for exact review: Git cannot atomically create a new authority branch and prove
-that a separate source ref did not move. Repository policy can also reject direct creation. List
+(`sflow/config-change/capability/...`). `capability proposals` lists only the latter. Fresh setup
+creates `sflow/config` directly from installed defaults with an exact create lease. A restore or
+recreate derived from another ref still needs review because Git cannot atomically prove that
+source ref stayed fixed while creating a new authority branch. Repository policy can also reject
+direct creation. If setup returns a proposal, list
 pending setup branches with `capability setup-proposals --lead <URL> --json`, inspect the named
 branch and commit with `capability setup-proposal <BRANCH> --lead <URL> --json`,
 then explicitly approve it with `capability setup-activate <BRANCH> --lead <URL> --confirm
@@ -846,9 +847,11 @@ For explicit early code access, run `singularity-flow workspace repair
 
 #### VS Code and Copilot path
 
-- In VS Code, use **Configuration → Capabilities → Map capability**. If repository
-  setup needs review first, open **Review setup proposal**, approve its exact
-  commit, and **Check setup again**. Once mapping creates a separate capability
+- In VS Code, use **Configuration → Capabilities → Map capability**. For a new
+  repository, **Set up SFlow** creates `sflow/config` directly from the installed
+  defaults after the exact plan check; it needs no separate setup approval.
+  If branch policy rejects direct creation, open **Review setup proposal**,
+  approve its exact commit, and **Check setup again**. Capability mapping still creates a separate
   proposal, open **Review capability proposal**. **Merge and acknowledge** uses
   exact-commit activation and cannot bypass branch protection.
 - If setup was proposed on another laptop or before this extension was installed,
@@ -913,11 +916,12 @@ In VS Code, **Configuration → Review proposals** lists pending changes across 
 registered lead repositories and works without an active workspace. Select a row
 to inspect the exact diff and activate the reviewed commit.
 
-The first capability mapped into a repository creates `sflow/config` if needed,
-imports any existing reusable configuration as its seed, declares the repository,
-and names the orphan `state` proof branch. Existing configuration files are
-preserved; runtime state, evidence, telemetry, and world-model output are not
-imported into shared configuration.
+Fresh repository setup creates `sflow/config` from installed defaults with an
+exact create lease, without changing the application branch. It falls back to a
+review proposal if remote branch policy rejects direct creation. Restoring or
+migrating existing configuration remains a separate reviewed operation; reusable
+configuration is preserved, while runtime state, evidence, telemetry, and
+world-model output are not imported into shared configuration.
 
 Map publication is retry-safe across timeouts and dropped connections. Before any remote write,
 SFlow requires an explicit Git-configured `user.name` and `user.email`; it never attributes a

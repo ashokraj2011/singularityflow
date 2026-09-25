@@ -888,10 +888,18 @@ async function remotePreflight(plan, {
   ])].sort();
   const authorityUrl = manifest.capabilityAuthority?.url
     ?? manifest.repositories?.[manifest.leadRepository]?.url;
+  // A registered workspace is only a local capability selection. Its application repositories
+  // are checked when work first needs a checkout, where the clone performs the authoritative
+  // transport and branch check. Probing every delivery here made a no-clone workspace wait for
+  // each office Git server, and made an unrelated inaccessible delivery block the whole setup.
+  // Branch inference remains an exception: an unconfigured default cannot be safely invented.
+  const checkoutDeferred = plan.checkout?.enabled === false;
+  const repositoriesToProbe = plan.repositories.filter((repository) =>
+    !checkoutDeferred || plan.inferDefaultRepositories.includes(repository.id));
   // Group selected refs by URL so duplicate repositories share one bounded advertisement. Only
   // branch inference needs all heads; an explicit branch and capability authority need exact refs.
   const requirements = new Map();
-  for (const repository of plan.repositories) {
+  for (const repository of repositoriesToProbe) {
     const url = plan.createInput.repositories[repository.id].url;
     const requirement = requirements.get(url) ?? { refs: new Set(), includeAllHeads: false };
     if (plan.inferDefaultRepositories.includes(repository.id)) requirement.includeAllHeads = true;
@@ -903,14 +911,15 @@ async function remotePreflight(plan, {
   }
   // The final materialization boundary still performs its separate exact-ref freshness check
   // through the branded validation receipt.
-  const gitEnv = runCommand === run
+  const needsRemoteGit = repositoriesToProbe.length > 0 || requestedCapabilities.length > 0;
+  const gitEnv = !needsRemoteGit ? env : runCommand === run
     ? enterpriseGitEnvironment(env)
     // An injected deterministic probe is not a real Git installation and cannot answer system /
     // global config queries. It still receives the executable-free half of the boundary.
     : withoutGitProcessOverrides(env);
   const remoteSession = new GitRemoteSession({ env: gitEnv });
   const observations = await mapLimit(
-    plan.repositories, gitWorkerCount(plan.repositories.length, { env }), async (repository) => {
+    repositoriesToProbe, gitWorkerCount(repositoriesToProbe.length, { env }), async (repository) => {
     const actualUrl = plan.createInput.repositories[repository.id].url;
     const inferDefault = plan.inferDefaultRepositories.includes(repository.id);
     const requirement = requirements.get(actualUrl);
@@ -959,6 +968,22 @@ async function remotePreflight(plan, {
         evidence: failure.evidence ?? null
       }));
     }
+  }
+  for (const repository of plan.repositories) {
+    if (repositoriesToProbe.includes(repository)) continue;
+    const url = plan.createInput.repositories[repository.id].url;
+    checks.push({
+      id: `remote:${repository.id}`,
+      repository: repository.id,
+      status: 'deferred',
+      remote: sanitizeRemote(url),
+      remoteFingerprint: remoteFingerprint(url),
+      defaultBranch: null,
+      selectedBranch: repository.defaultBranch,
+      branchCount: 0,
+      classification: null,
+      reason: 'Application checkout and remote branch verification are deferred until work starts.'
+    });
   }
   if (requestedCapabilities.length) {
     try {

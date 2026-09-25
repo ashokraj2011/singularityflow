@@ -422,6 +422,7 @@ test('current configuration rebuilds its projection without deleting lifecycle s
     await publishStateFiles(fixture, { 'ledger/head.json': head });
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.status, 'ready');
+    assert.equal(plan.configuration.hasRepositoryMappings, true);
     assert.deepEqual(plan.effects, [
       { kind: 'state-projection', target: 'state', action: 'refresh' },
       { kind: 'local-registration', target: fixture.remote, action: 'remember' }
@@ -1199,15 +1200,16 @@ test('a selected alternate state branch never mutates an unrelated default state
     const result = await applyRepositoryOnboarding(fixture.remote, {
       stateBranch: 'sflow-state', confirmPlan: plan.planId
     });
-    assert.equal(result.status, 'configuration-review-required');
+    assert.equal(result.status, 'ready');
     assert.equal(run('git', ['rev-parse', 'refs/heads/state'], {
       cwd: fixture.remote
     }).stdout.trim(), defaultState);
     assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/sflow-state'], {
       cwd: fixture.remote, allowFailure: true
-    }).status, 1);
+    }).status, 1,
+    'empty seeded configuration defers state publication until a capability is mapped');
     assert.match(run('git', [
-      'show', `${result.proposal.branch}:singularity/workflow.yml`
+      'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
     ], { cwd: fixture.remote }).stdout, /branch: sflow-state/);
     assert.equal(run('git', [
       'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-history/'
@@ -1230,7 +1232,7 @@ test('an existing clone resolves its one configured origin before inspection', a
     assert.equal(plan.status, 'not-set-up');
     assert.match(plan.nextActions.shell, /office-laptop-clone/u);
     const result = await applyRepositoryOnboarding(clone, { confirmPlan: plan.planId });
-    assert.equal(result.status, 'configuration-review-required',
+    assert.equal(result.status, 'ready',
       'the exact local-clone preview remains valid when its returned plan is applied');
   } finally {
     await rm(fixture.base, { recursive: true, force: true });
@@ -1253,7 +1255,7 @@ test('a relative local repository locator is frozen before temporary Git work be
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId
     });
-    assert.equal(result.status, 'configuration-review-required');
+    assert.equal(result.status, 'ready');
   } finally {
     await rm(fixture.base, { recursive: true, force: true });
   }
@@ -1592,11 +1594,11 @@ test('fresh setup preserves a SHA-256 application repository object format', asy
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId
     });
-    assert.equal(result.status, 'configuration-review-required');
-    assert.equal(result.proposal.commit.length, 64);
+    assert.equal(result.status, 'ready');
+    assert.equal(result.configuration.commit.length, 64);
     assert.equal(run('git', [
       'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
-    ], { cwd: fixture.remote, allowFailure: true }).status, 1);
+    ], { cwd: fixture.remote, allowFailure: true }).status, 0);
   } finally {
     await rm(fixture.base, { recursive: true, force: true });
   }
@@ -1623,10 +1625,69 @@ test('a moved observed ref refuses a confirmed plan without overwriting it', asy
   }
 });
 
+test('fresh setup directly creates configuration despite a later application-only move', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    let configurationPushes = 0;
+    let proposalPushes = 0;
+    let remoteObservations = 0;
+    const raceAtPublication = async (args, options) => {
+      if (args[0] === 'ls-remote') remoteObservations += 1;
+      if (args[0] === 'push') {
+        const destination = args.at(-1) ?? '';
+        if (destination.endsWith(`:refs/heads/${CONFIGURATION_BRANCH}`)) {
+          configurationPushes += 1;
+          await writeFile(path.join(fixture.source, 'LATER.md'), '# application-only move\n');
+          run('git', ['add', 'LATER.md'], { cwd: fixture.source });
+          run('git', ['commit', '-qm', 'Advance application after setup preview'], {
+            cwd: fixture.source
+          });
+          run('git', ['push', '-q', fixture.remote, 'main:main'], {
+            cwd: fixture.source
+          });
+        } else if (destination.includes(':refs/heads/sflow/config-change/onboarding/')) {
+          proposalPushes += 1;
+        }
+      }
+      return runRemoteGitAsync(args, options);
+    };
+    const plan = await inspectRepositoryOnboarding(fixture.remote, {
+      runRemoteCommand: raceAtPublication
+    });
+    assert.equal(remoteObservations, 1,
+      'fresh preview observes HEAD, state, and configuration in one advertisement');
+    const result = await applyRepositoryOnboarding(fixture.remote, {
+      confirmPlan: plan.planId, runRemoteCommand: raceAtPublication
+    });
+    assert.equal(result.status, 'ready');
+    assert.equal(configurationPushes, 1);
+    assert.equal(proposalPushes, 0);
+    assert.equal(remoteObservations, 3,
+      'one preview, one confirmation, and one post-push reconciliation; no redundant probes');
+    assert.equal(run('git', [
+      'show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`
+    ], { cwd: fixture.remote, allowFailure: true }).status, 0);
+    assert.equal(run('git', [
+      'show-ref', '--verify', '--quiet', 'refs/heads/state'
+    ], { cwd: fixture.remote, allowFailure: true }).status, 1,
+    'no repository mapping exists yet, so fresh setup performs no state projection');
+    const repeated = await inspectRepositoryOnboarding(fixture.remote);
+    assert.equal(repeated.status, 'ready');
+    assert.equal(repeated.configuration.hasRepositoryMappings, false);
+    assert.equal(repeated.stateRefresh, undefined);
+    assert.equal(repeated.effects.some((effect) => effect.kind === 'state-projection'), false);
+    assert.equal(run('git', [
+      'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-change/onboarding/'
+    ], { cwd: fixture.remote }).stdout.trim(), '');
+  } finally {
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test('source refs are re-observed after candidate construction and before configuration creation', async () => {
   const fixture = await repositoryFixture();
   try {
-    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
     let observations = 0;
     let advanced = false;
     const racingRemoteCommand = async (args, options) => {
@@ -1642,7 +1703,7 @@ test('source refs are re-observed after candidate construction and before config
       return runRemoteGitAsync(args, options);
     };
     await assert.rejects(applyRepositoryOnboarding(fixture.remote, {
-      confirmPlan: plan.planId, runRemoteCommand: racingRemoteCommand
+      mode: 'recreate', confirmPlan: plan.planId, runRemoteCommand: racingRemoteCommand
     }), { code: 'REPOSITORY_ONBOARDING_PLAN_STALE' });
     assert.equal(advanced, true, 'fixture must advance only at the final pre-push observation');
     assert.equal(run('git', [
@@ -1656,7 +1717,7 @@ test('source refs are re-observed after candidate construction and before config
 test('a source move after final observation can publish only a review proposal', async () => {
   const fixture = await repositoryFixture();
   try {
-    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
     let raced = false;
     let configurationPushes = 0;
     let proposalPushes = 0;
@@ -1690,7 +1751,7 @@ test('a source move after final observation can publish only a review proposal',
     };
 
     const result = await applyRepositoryOnboarding(fixture.remote, {
-      confirmPlan: plan.planId, runRemoteCommand: raceAtPublication
+      mode: 'recreate', confirmPlan: plan.planId, runRemoteCommand: raceAtPublication
     });
     assert.equal(raced, true,
       'fixture must advance the source after the final observation and at publication');
@@ -1713,7 +1774,7 @@ test('a source move after final observation can publish only a review proposal',
   }
 });
 
-test('source-derived configuration creation publishes one leased review proposal and never claims readiness', async () => {
+test('protected fresh setup falls back to one leased review proposal and never claims readiness', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
@@ -1722,7 +1783,7 @@ test('source-derived configuration creation publishes one leased review proposal
     assert.match(plan.proposalBranch, /^sflow\/config-change\/onboarding\/create-/u);
     assert.equal(plan.observedRefs[`refs/heads/${plan.proposalBranch}`], null);
     assert.ok(plan.effects.some((effect) =>
-      effect.target === plan.proposalBranch && effect.action === 'propose'));
+      effect.target === CONFIGURATION_BRANCH && effect.action === 'create'));
     let protectedPushes = 0;
     const protectedConfiguration = async (args, options) => {
       if (args[0] === 'push' && args.at(-1)?.endsWith(':refs/heads/sflow/config')) {
@@ -1740,13 +1801,14 @@ test('source-derived configuration creation publishes one leased review proposal
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: plan.planId, runRemoteCommand: protectedConfiguration
     });
-    assert.equal(protectedPushes, 0,
-      'mutable source refs cannot be atomically guarded by a vanilla Git config-create push');
+    assert.equal(protectedPushes, 1,
+      'fresh setup attempts the exact create lease before using the review fallback');
     assert.equal(result.status, 'configuration-review-required');
     assert.equal(result.primaryAction, 'review-choices');
     assert.equal(result.changed, true);
     assert.equal(result.review.configurationReady, false);
     assert.equal(result.review.published, true);
+    assert.equal(result.review.reason, 'remote-policy-rejected');
     assert.equal(result.review.targetBranch, CONFIGURATION_BRANCH);
     assert.equal(result.proposal.branch, plan.proposalBranch);
     assert.equal(result.proposal.commit, result.proposal.candidateCommit);
@@ -1772,9 +1834,9 @@ test('a setup proposal is visible, reviewable, and activates only its exact revi
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
   try {
-    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
     const applied = await applyRepositoryOnboarding(fixture.remote, {
-      confirmPlan: plan.planId
+      mode: 'recreate', confirmPlan: plan.planId
     });
     assert.equal(applied.review.reason, 'guarded-source-refs');
     assert.match(applied.review.inspectCommand, /setup-proposal/u);
@@ -1842,9 +1904,9 @@ test('a moved source blocks activation of an earlier setup proposal', async () =
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
   try {
-    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
     const applied = await applyRepositoryOnboarding(fixture.remote, {
-      confirmPlan: plan.planId
+      mode: 'recreate', confirmPlan: plan.planId
     });
     await writeFile(path.join(fixture.source, 'LATER.md'), '# Later\n');
     run('git', ['add', 'LATER.md'], { cwd: fixture.source });
@@ -1872,9 +1934,9 @@ test('a protected setup target remains pending under repository review controls'
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
   try {
-    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
     const applied = await applyRepositoryOnboarding(fixture.remote, {
-      confirmPlan: plan.planId
+      mode: 'recreate', confirmPlan: plan.planId
     });
     const protectedPush = async (args, options) => {
       if (args[0] === 'push' && args.at(-1)?.endsWith(':refs/heads/sflow/config')) {
@@ -2109,9 +2171,9 @@ test('a matching approved ref does not legitimize an invalid setup branch', asyn
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
   try {
-    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    const plan = await inspectRepositoryOnboarding(fixture.remote, { mode: 'recreate' });
     const applied = await applyRepositoryOnboarding(fixture.remote, {
-      confirmPlan: plan.planId
+      mode: 'recreate', confirmPlan: plan.planId
     });
     const reviewer = path.join(fixture.base, 'invalid-reviewer');
     run('git', ['clone', '-q', '--branch', applied.proposal.branch, fixture.remote, reviewer], {
@@ -2154,7 +2216,8 @@ test('a pre-existing onboarding review ref is preserved and never adopted or ove
     run('git', ['update-ref', `refs/heads/${branch}`, sourceCommit], { cwd: fixture.remote });
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.proposalBranch, branch);
-    assert.equal(plan.observedRefs[`refs/heads/${branch}`], sourceCommit);
+    assert.equal(plan.observedRefs[`refs/heads/${branch}`], null,
+      'normal fresh setup does not pay an extra network probe for its fallback ref');
     let proposalPushes = 0;
     const protectedConfiguration = async (args, options) => {
       if (args[0] === 'push' && args.at(-1)?.endsWith(':refs/heads/sflow/config')) {
@@ -2180,7 +2243,8 @@ test('a pre-existing onboarding review ref is preserved and never adopted or ove
     assert.equal(result.proposal.conflict, true);
     assert.equal(result.review.recovery.action, 'resolve-proposal-conflict');
     assert.notEqual(result.proposal.candidateCommit, sourceCommit);
-    assert.equal(proposalPushes, 0);
+    assert.equal(proposalPushes, 1,
+      'the exact create lease detects the pre-existing review ref without overwriting it');
     assert.equal(run('git', ['rev-parse', `refs/heads/${branch}`], {
       cwd: fixture.remote
     }).stdout.trim(), sourceCommit);

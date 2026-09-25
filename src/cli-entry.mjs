@@ -316,37 +316,37 @@ async function materializeSelectedStoryRepositories(context, { env, home, select
       .capabilityRepositories(workspace, capability)
     : [repository];
   const requiredIds = [...new Set(requiredRepositories.map((item) => item.id))];
-  const before = await workspaceStatus(workspace.path, { level: 'readiness', env });
-  const pending = requiredIds.filter((id) => before.repositories
-    .find((item) => item.id === id)?.state !== 'ready');
-  if (pending.some((id) => !['missing', 'empty'].includes(before.repositories
-    .find((item) => item.id === id)?.state))) return null;
-  if (pending.length) {
-    try {
-      // Root routing precedes the ordinary Start handler's operation context. Materializing a
-      // checkout is nevertheless a mutation, so keep this preparatory step inside its registered
-      // workspace.repair boundary instead of running Git under an unclassified dispatch probe.
-      await withOperationContext({
-        operation: operationById('workspace.repair'),
-        modelMode: { enabled: false },
-        root: null,
-        command: 'workspace',
-        startedAt: new Date().toISOString()
-      }, () => repairWorkspace(workspace.path, {
-        repositoryIds: pending,
-        recoverCapabilityDrops: false,
-        statusLevel: 'readiness',
-        env
-      }));
-    } catch (error) {
-      // Another Story launch may have claimed the same staged clones first. A fresh readiness
-      // check can prove that this launch can continue; other failures retain their exact cause.
-      const raced = await workspaceStatus(workspace.path, { level: 'readiness', env });
-      if (!requiredIds.every((id) => raced.repositories
-        .find((item) => item.id === id)?.state === 'ready')) throw error;
-    }
+  let after;
+  try {
+    // Repair owns the one initial readiness scan and, if cloning was necessary, its final scan.
+    // Scanning here before and after repair used to multiply local Git status commands across
+    // every member of a large workspace, even though only this capability's repositories matter.
+    // A fully ready selection returns from repair before touching its journal.
+    const result = await withOperationContext({
+      operation: operationById('workspace.repair'),
+      modelMode: { enabled: false },
+      root: null,
+      command: 'workspace',
+      startedAt: new Date().toISOString()
+    }, () => repairWorkspace(workspace.path, {
+      repositoryIds: requiredIds,
+      recoverCapabilityDrops: false,
+      returnIfSelectedReady: true,
+      statusLevel: 'readiness',
+      env
+    }));
+    after = result.status;
+  } catch (error) {
+    // Another Story launch may have claimed the same staged clones first. A fresh readiness
+    // check can prove that this launch can continue. An occupied/unsafe target retains the
+    // existing routing refusal rather than being mistaken for a clonable missing checkout.
+    const raced = await workspaceStatus(workspace.path, { level: 'readiness', env });
+    const states = requiredIds.map((id) => raced.repositories
+      .find((item) => item.id === id)?.state);
+    if (states.some((state) => !['ready', 'missing', 'empty'].includes(state))) return null;
+    if (!states.every((state) => state === 'ready')) throw error;
+    after = raced;
   }
-  const after = await workspaceStatus(workspace.path, { level: 'readiness', env });
   if (!requiredIds.every((id) => after.repositories
     .find((item) => item.id === id)?.state === 'ready')) return null;
   const root = repoRoot(expectedPath);

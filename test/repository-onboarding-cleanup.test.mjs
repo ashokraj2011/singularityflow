@@ -613,7 +613,7 @@ test('cleanup contention never replaces the original typed Git failure', async (
   }
 });
 
-test('post-publication candidate EBUSY preserves the review result and queues cleanup', async () => {
+test('post-publication candidate EBUSY preserves the direct setup result and queues cleanup', async () => {
   const fixture = await configuredRepositoryFixture({ initializeConfiguration: false });
   const { queue } = cleanupQueueFixture(fixture);
   const preview = await inspectRepositoryOnboarding(fixture.remote, { cleanupQueueRoot: queue });
@@ -635,16 +635,16 @@ test('post-publication candidate EBUSY preserves the review result and queues cl
     const result = await applyRepositoryOnboarding(fixture.remote, {
       confirmPlan: preview.planId, cleanupQueueRoot: queue
     });
-    assert.equal(result.status, 'configuration-review-required');
+    assert.equal(result.status, 'ready');
     assert.equal(result.changed, true);
-    assert.equal(result.proposal.published, true);
+    assert.equal(result.configuration.created, true);
     assert.ok(result.localCleanupWarnings.some((warning) =>
       /Repository setup completed[\s\S]*queued cleanup/u.test(warning)));
     assert.ok(candidate, 'the apply must reach candidate cleanup after publication');
     assert.equal(run('git', [
-      'rev-parse', `refs/heads/${result.proposal.branch}`
-    ], { cwd: fixture.remote }).stdout.trim(), result.proposal.commit,
-    'cleanup contention must not hide the exact proposal that was already published');
+      'rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`
+    ], { cwd: fixture.remote }).stdout.trim(), result.configuration.commit,
+    'cleanup contention must not hide the configuration branch that was already published');
     assert.ok((await lstat(path.join(queue, cleanupRecordName(candidate)))).isFile(),
       'the exact locked candidate must be durably queued');
   } finally {

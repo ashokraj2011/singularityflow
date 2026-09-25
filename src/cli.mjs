@@ -13096,7 +13096,17 @@ async function workspaceCommand(positionals, options) {
         } : null;
       const storyId = optionString(options, 'preflight-story');
       const selectedBaseValues = optionStrings(options, 'from-branch');
-      const catalog = await storyBaseCatalog(root, {
+      // The editor already loaded the complete branch catalog before a person selected a base.
+      // Its readiness request needs a fresh fetch of that selected base, not another all-heads
+      // ls-remote from every capability repository. Keep the ordinary command's complete choices
+      // unchanged; the opt-in response below explicitly marks its choices as selected-only.
+      const selectedBaseOnly = optionBoolean(options, 'selected-base-only');
+      if (selectedBaseOnly && (!storyId || !selectedBaseValues.length)) {
+        throw new SingularityFlowError(
+          '--selected-base-only requires --preflight-story and --from-branch.'
+        );
+      }
+      let catalog = selectedBaseOnly ? null : await storyBaseCatalog(root, {
         remote: definition.git?.remote ?? 'origin',
         defaultBranch: definition.defaultBaseBranch,
         capabilityId: optionString(options, 'capability'),
@@ -13116,8 +13126,9 @@ async function workspaceCommand(positionals, options) {
           defaultBranch: definition.defaultBaseBranch,
           capabilityId: optionString(options, 'capability'),
           configurationSnapshot: approvedConfigurationSnapshot,
-          catalog
+          ...(catalog ? { catalog } : {})
         });
+        if (selectedBaseOnly) catalog = selected;
         let legacyBaseConfigurationCommit = null;
         let legacyCapabilityEvidence = null;
         if (!approvedConfigurationSnapshot) {
@@ -13275,6 +13286,7 @@ async function workspaceCommand(positionals, options) {
       const result = {
         resultType: 'capability-branches',
         schemaVersion: 2,
+        choicesComplete: !selectedBaseOnly,
         scope: catalog.scope,
         selectionRequired: true,
         remote: catalog.remote,

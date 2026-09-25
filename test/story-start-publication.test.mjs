@@ -556,6 +556,27 @@ test('workspace branch preflight proves the exact destination without creating i
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-PREVIEW').stdout.trim(), '');
 });
 
+test('selected-base Story preflight reuses the earlier UI choice without another remote inventory', async () => {
+  const { root } = await repository();
+  const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  const preview = flow(root, [
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-FAST-PREVIEW',
+    '--from-branch', 'release/24.3', '--selected-base-only', '--work-type', 'feature', '--timings'
+  ]);
+  const result = JSON.parse(preview.stdout);
+
+  assert.equal(result.choicesComplete, false);
+  assert.deepEqual(result.choices.map((choice) => choice.branch), ['release/24.3']);
+  assert.equal(result.preflight.passed, true);
+  assert.equal(result.preflight.repositories[0].baseBranch, 'release/24.3');
+  assert.equal(result.preflight.readiness.ready, true);
+  assert.doesNotMatch(preview.stderr, /git\.remote-inventory=/,
+    'the selected base is proven by the fresh preflight fetch, without a second all-heads probe');
+  assert.match(preview.stderr, /git\.remote-fetch=1(?:\s|$)/);
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
+});
+
 test('workspace preflight derives publication policy from the exact selected legacy base', async () => {
   const { root } = await repository();
   const workflowFile = path.join(root, 'singularity/workflow.yml');

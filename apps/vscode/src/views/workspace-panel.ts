@@ -14,7 +14,7 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import { booleanField, registerMessageRouter, stringField } from './messages.ts';
 import {
-  capabilityChoices, derivedRepositories, effectiveLead, EMPTY_WORKSPACE_FORM, formPrepareCommand,
+  capabilityChoices, effectiveLead, EMPTY_WORKSPACE_FORM, formPrepareCommand,
   formProblems, shippingCapabilities, WORKSPACE_PROFILE_ROLES,
   workspaceFormHtml, WORKSPACE_FORM_SCRIPT,
   type CapabilityChoice, type RemoteCapability, type WorkspaceForm
@@ -353,11 +353,10 @@ export class WorkspacePanel {
         repository: this.form.base ?? '',
         onOutput: (text) => this.output.append(text)
       });
-      const repositories = derivedRepositories(this.form).length;
       const prepared = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Checking workspace and ${repositories} ${repositories === 1 ? 'remote' : 'remotes'}…`
+          title: 'Checking workspace configuration…'
         },
         () => client.run<BootstrapSession>(args));
 

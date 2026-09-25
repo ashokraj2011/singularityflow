@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 17
+version: 18
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -93,10 +93,11 @@ configuration mirror can restore it, a verified delivery locator continues to it
 lifecycle-only state continues to capability mapping. A branch that merely happens to be named
 `state` is not proof and remains untouched.
 
-Repository setup and capability mapping have separate review branches. A setup proposal is under
+Fresh setup creates `sflow/config` directly from installed defaults under an exact create lease.
+Repository setup and capability mapping have separate review branches when review is required. A setup proposal is under
 `sflow/config-change/onboarding/` and is **not** returned by `capability proposals`, which lists
-only `sflow/config-change/capability/`. If the new setup candidate uses mutable application or
-state refs, Git cannot atomically prove those refs stayed fixed while creating `sflow/config`;
+only `sflow/config-change/capability/`. If a restore or recreate candidate uses mutable application
+or state refs, Git cannot atomically prove those refs stayed fixed while creating `sflow/config`;
 the candidate stays on a review branch instead. A server policy can also refuse direct authority
 creation. Neither case means the candidate was approved. Inspect the exact setup branch before
 activation:

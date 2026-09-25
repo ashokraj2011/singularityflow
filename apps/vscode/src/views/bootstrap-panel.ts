@@ -1169,19 +1169,25 @@ export class BootstrapPanel {
     const repositoryUrl = this.form.repositoryUrl.trim();
     const revision = this.inspectionRevision;
     if (!plan || !plan.canApply || !repositoryUrl || this.form.repositorySetupApplying) return;
-    const confirmationLabel = plan.mode === 'reset-local'
-      ? 'Reset local registration' : 'Apply and continue';
-    const confirmed = await vscode.window.showInformationMessage(
-      'Apply this repository setup plan?',
-      {
-        modal: true,
-        detail: `${plan.effects.length} planned ${plan.effects.length === 1 ? 'change' : 'changes'}; `
-          + `${plan.preserved.length} preserved ${plan.preserved.length === 1 ? 'item' : 'items'}.`
-          + (plan.omitted.length ? `\n\nNot carried forward:\n${plan.omitted.join('\n')}` : '')
-      },
-      confirmationLabel
-    );
-    if (confirmed !== confirmationLabel) return;
+    // The fresh, auto-mode setup button already confirms the exact ref-bound plan shown in the
+    // form. It creates the first sflow/config directly, so a second modal approval adds a click
+    // without protecting a different decision. Repair, migration, recreation and local reset keep
+    // their separate confirmation because they may replace or discard an existing selection.
+    if (!(plan.mode === 'auto' && plan.status === 'not-set-up')) {
+      const confirmationLabel = plan.mode === 'reset-local'
+        ? 'Reset local registration' : 'Apply and continue';
+      const confirmed = await vscode.window.showInformationMessage(
+        'Apply this repository setup plan?',
+        {
+          modal: true,
+          detail: `${plan.effects.length} planned ${plan.effects.length === 1 ? 'change' : 'changes'}; `
+            + `${plan.preserved.length} preserved ${plan.preserved.length === 1 ? 'item' : 'items'}.`
+            + (plan.omitted.length ? `\n\nNot carried forward:\n${plan.omitted.join('\n')}` : '')
+        },
+        confirmationLabel
+      );
+      if (confirmed !== confirmationLabel) return;
+    }
     if (revision !== this.inspectionRevision
       || this.form.repositorySetupPlan?.planId !== plan.planId
       || this.form.repositoryUrl.trim() !== repositoryUrl) return;

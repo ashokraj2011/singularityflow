@@ -439,8 +439,12 @@ test('Story entry materializes only the selected capability repository closure',
     'read and preview routes cannot cause a checkout');
 
   assert.equal(await activeWorkspaceRepositoryRoot('start', { env }), platformPath);
+  const repairJournal = path.join(created.workspace.path, 'logs', 'workspace-materialization.json');
+  const journalAfterClone = await readFile(repairJournal, 'utf8');
   assert.equal(await activeWorkspaceRepositoryRoot('start', { env }), platformPath,
     'a second entry reuses the ready checkout');
+  assert.equal(await readFile(repairJournal, 'utf8'), journalAfterClone,
+    'a ready Story entry does not rewrite the repair journal');
   assert.equal((await workspaceStatus(created.workspace.path, { level: 'readiness' }))
     .repositories.find((repository) => repository.id === 'platform')?.state, 'ready');
   assert.equal((await workspaceStatus(created.workspace.path, { level: 'readiness' }))

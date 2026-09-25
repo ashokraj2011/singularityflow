@@ -166,6 +166,7 @@
           ]
         },
         "stateProjectionEnabled": { "type": "boolean" },
+        "hasRepositoryMappings": { "type": "boolean" },
         "seedChanges": { "$ref": "#/$defs/paths" },
         "validationError": {
           "anyOf": [

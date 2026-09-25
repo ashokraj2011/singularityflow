@@ -21,6 +21,9 @@ import {
   stateConfigurationHistoryBranch
 } from './configuration-branch.mjs';
 import { DEFAULT_CONFIGURATION_ASSET_POLICY } from './configuration-assets.mjs';
+import {
+  capabilityTree, flattenCapabilityTree, loadCapabilities
+} from './capabilities.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
 import {
   CAPABILITY_AUTHORITY_LINK_PATH, validateCapabilityAuthorityLink
@@ -1267,6 +1270,10 @@ async function inspectConfigurationSnapshot(remote, commit, {
     }
     const wrote = await initializeDefinition(snapshot.scratch);
     await loadDefinition(snapshot.scratch);
+    const capabilityDefinition = await loadCapabilities(snapshot.scratch);
+    const hasRepositoryMappings = capabilityDefinition != null
+      && flattenCapabilityTree(capabilityTree(capabilityDefinition))
+        .some((capability) => capability.repositories.length > 0);
     const changed = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
       cwd: snapshot.scratch, env: snapshot.env
     }).stdout.split(/\r?\n/u).filter(Boolean).map((line) => line.slice(3)).sort();
@@ -1275,7 +1282,7 @@ async function inspectConfigurationSnapshot(remote, commit, {
       branch: CONFIGURATION_BRANCH, commit,
       status: seedChanges.length ? 'migration-required' : 'current',
       schemaVersion: workflowVersion, currentSchemaVersion: CURRENT_WORKFLOW_FORMAT_VERSION,
-      stateBranch: configuredStateBranch, stateProjectionEnabled,
+      stateBranch: configuredStateBranch, stateProjectionEnabled, hasRepositoryMappings,
       seedChanges: Object.freeze(seedChanges), validationError: null
     });
   }, { cleanupWarnings, cleanupQueueRoot: queueRoot });
@@ -1422,6 +1429,7 @@ function deriveAutomaticSetup(state, configuration) {
         'Build current configuration while preserving portable organisation data.', 'recreate')]
     };
     if (configuration.stateProjectionEnabled
+        && !(state.kind === 'none' && configuration.hasRepositoryMappings === false)
         && (['none', 'lifecycle-only'].includes(state.kind)
           || (state.kind === 'configuration-mirror'
             && (state.sourceCommit !== configuration.commit
@@ -1475,7 +1483,6 @@ function deriveAutomaticSetup(state, configuration) {
     status: 'not-set-up', primaryAction: 'set-up-sflow', canApply: true,
     effects: [
       { kind: 'configuration-recreate', target: CONFIGURATION_BRANCH, action: 'create' },
-      { kind: 'state-projection', target: state.branch, action: 'refresh' },
       { kind: 'local-registration', target: 'lead-registry', action: 'remember' }
     ],
     choices: []
@@ -1801,7 +1808,12 @@ export async function inspectRepositoryOnboarding(remote, {
   if (proposalBranch) {
     const proposalRef = `refs/heads/${proposalBranch}`;
     relevantRefs.push(proposalRef);
-    supplementalRefs.push(proposalRef);
+    // A fresh setup is generated entirely from installed defaults. The review ref is only a
+    // fallback if the remote protects sflow/config; its exact-create lease can detect a
+    // pre-existing proposal without another network round trip during the normal path.
+    if (!(selectedMode === 'auto' && state.kind === 'none')) {
+      supplementalRefs.push(proposalRef);
+    }
   }
   let planObservation = observation;
   if (supplementalRefs.length) {
@@ -1830,7 +1842,7 @@ export async function inspectRepositoryOnboarding(remote, {
   const effects = exactEffects(setup.effects, repository, state).filter((effect) =>
     effect.kind !== 'local-registration' || effect.action !== 'remember'
       || !registeredLocally(registrations, effect.target));
-  if (!configurationCommit && proposalBranch
+  if (!configurationCommit && proposalBranch && state.kind !== 'none'
       && effects.some((effect) => effect.target === CONFIGURATION_BRANCH
         && effect.action === 'create')) {
     const source = effects.find((effect) => effect.target === CONFIGURATION_BRANCH
@@ -2146,14 +2158,23 @@ async function publishConfigurationCreationProposal(remote, root, commit, plan, 
 async function publishCreatedConfiguration(remote, root, commit, {
   env, runRemoteCommand, session = null, plan = null
 }) {
+  // Initial setup has no application-derived configuration bytes. Its root commit is made from
+  // installed defaults, and an exact create lease on sflow/config is the only remote condition
+  // needed to publish it safely. HEAD/state are recorded for the preview, but moving either
+  // cannot change the generated configuration. Restores still depend on their source and keep
+  // the reviewed proposal path below.
+  const independentFreshSetup = plan?.mode === 'auto'
+    && plan?.state?.kind === 'none' && plan?.configuration?.commit == null;
   // Candidate construction may perform bounded clones and validation. Re-read every source ref
   // from the confirmed plan after that work and immediately before the first remote mutation.
-  if (plan) await observePlanRefs(remote, plan, { env, runRemoteCommand });
+  if (plan && !independentFreshSetup) {
+    await observePlanRefs(remote, plan, { env, runRemoteCommand });
+  }
   const proposalRef = plan?.proposalBranch
     ? `refs/heads/${plan.proposalBranch}` : null;
   const mutableSourceRefs = Object.keys(plan?.observedRefs ?? {}).filter((ref) =>
     ref !== CONFIGURATION_REF && ref !== proposalRef);
-  if (mutableSourceRefs.length) {
+  if (mutableSourceRefs.length && !independentFreshSetup) {
     // Vanilla Git cannot make creation of one ref conditional on unchanged values of other refs.
     // In particular, `git push --atomic <old>:<same-ref>` is not a guard: the client elides that
     // no-op before receive-pack. A candidate derived from mutable source refs therefore remains on
@@ -2172,7 +2193,9 @@ async function publishCreatedConfiguration(remote, root, commit, {
     'push', '--porcelain', `--force-with-lease=${CONFIGURATION_REF}:`, '--',
     transport.remote, `${commit}:${CONFIGURATION_REF}`
   ], { cwd: root, operation: 'remote-push', env: transport.env });
-  const observer = session ?? new GitRemoteSession({ env });
+  const observer = session ?? new GitRemoteSession({
+    env, runAsyncCommand: runRemoteCommand
+  });
   observer.invalidate(remote);
   const after = await observer.observeAsync(remote, {
     refs: [CONFIGURATION_REF], includeHead: false, refresh: true
@@ -2560,9 +2583,9 @@ function reviewRequiredResult(plan, published, { receipt = null, omitted = null 
     ? 'guarded-source-refs'
     : published.directFailure ? 'remote-policy-rejected' : 'normal-review';
   const plannedProposal = plan.effects.find((effect) => effect.action === 'propose');
-  const proposalEffect = plannedProposal ? {
-    ...plannedProposal, target: proposal.branch
-  } : null;
+  const proposalEffect = plannedProposal
+    ? { ...plannedProposal, target: proposal.branch }
+    : { kind: 'configuration-recreate', target: proposal.branch, action: 'propose' };
   const review = Object.freeze({
     status: proposal.conflict ? 'proposal-conflict' : 'review-required',
     configurationReady: false,
@@ -2732,9 +2755,13 @@ export async function applyRepositoryOnboarding(remote, {
     env, root: cleanupQueueRoot
   });
 
-  const applyCheck = await observePlanRefs(repository, plan, {
-    env: gitEnv, runRemoteCommand
-  });
+  // The confirmed fresh preview already re-observed the remote. Its only authoritative write
+  // uses a create lease, so a second pre-candidate ls-remote cannot add safety.
+  const applyCheck = selectedMode === 'auto' && plan.status === 'not-set-up'
+    && plan.state.kind === 'none'
+    ? null : await observePlanRefs(repository, plan, {
+      env: gitEnv, runRemoteCommand
+    });
   const context = {
     env: gitEnv, runRemoteCommand, session: applyCheck?.session ?? null,
     initiatingRoot: process.cwd(), initiatingEnv: env, plan,
@@ -2803,10 +2830,9 @@ export async function applyRepositoryOnboarding(remote, {
           branch: CONFIGURATION_BRANCH, created: true,
           importedFrom: sourceBranch, ...published
         };
-        const stateRefresh = await refreshStateProjection(repository, created.commit, context);
         return finishWithRegistration(plan, repository, {
           status: 'ready', primaryAction: 'continue', changed: true,
-          configuration: created, stateRefresh,
+          configuration: created,
           receipt: { ...built.receipt, sourceBranch, sourceCommit }
         });
       }, context);

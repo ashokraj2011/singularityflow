@@ -4665,6 +4665,8 @@ export async function listCapabilityProposals(url, {
       }
     );
   }
+  let screenedUnrelated = 0;
+  let definitionMaterializations = 0;
   const finish = (proposals, total = proposals.length, inspected = proposals.length) => withCoverage
     ? {
         proposals,
@@ -4672,7 +4674,9 @@ export async function listCapabilityProposals(url, {
           status: inspected < total ? 'partial' : 'complete',
           total,
           inspected,
-          limit: proposalLimit
+          limit: proposalLimit,
+          screenedUnrelated,
+          definitionMaterializations
         }
       }
     : proposals;
@@ -4805,16 +4809,38 @@ export async function listCapabilityProposals(url, {
             ancestryMerged = gitIsAncestor(scratch, ref, 'HEAD', { env: transport.env });
           }
           if (ancestryMerged) continue;
+          let screenedProposalBase = null;
+          if (inspectedRepository) {
+            // Repository-first inspection needs to know whether this proposal introduces a claim
+            // on one exact URL, not to validate every unrelated proposal on the lead. The base
+            // encoded in the proposal branch must be provable before comparing portfolio and
+            // capability bytes. Only a complete, empty base-to-tip delta can be skipped; corrupt,
+            // missing, or ambiguous evidence continues through the full fail-closed review path.
+            screenedProposalBase = proposalBaseCommit(scratch, entry.branch, ref, {
+              env: transport.env
+            });
+            const repositoryClaim = proposalRepositoryInspection(
+              scratch, ref, inspectedRepository, {
+                baseRef: screenedProposalBase, env: transport.env
+              }
+            );
+            if (repositoryClaim.complete && repositoryClaim.matches.length === 0) {
+              screenedUnrelated += 1;
+              continue;
+            }
+          }
           const inspected = inspectCapabilityProposalCheckout(
             scratch, sanitizeRemote(remote), entry.branch, ref, {
               includeDiff, repositoryUrl: inspectedRepository, env: transport.env,
-              targetCommit, ...(!includeMerged ? { ancestryMerged: false } : {})
+              targetCommit, proposalBase: screenedProposalBase,
+              ...(!includeMerged ? { ancestryMerged: false } : {})
             }
           );
           // Reuse the fetched object database to validate the complete workflow/agent/MCP join.
           // The validator materializes a bounded temporary worktree, not another remote clone, so
           // the inbox cannot call a proposal reviewable that the detail screen would immediately
           // refuse while network work remains one clone plus the bounded proposal fetch pages.
+          if (!inspected.configurationError) definitionMaterializations += 1;
           const proposal = await validateInspectedCapabilityProposal(
             scratch, inspected, ref, { env: transport.env }
           );
@@ -4905,7 +4931,8 @@ export async function listCapabilityProposals(url, {
 
 function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
   includeDiff = true, repositoryUrl = null, env = process.env,
-  targetCommit: knownTargetCommit = null, ancestryMerged: knownAncestryMerged = null
+  targetCommit: knownTargetCommit = null, ancestryMerged: knownAncestryMerged = null,
+  proposalBase: knownProposalBase = null
 } = {}) {
   const targetCommit = knownTargetCommit
     ?? run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
@@ -4924,7 +4951,8 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
         })
       });
   }
-  const proposalBase = proposalBaseCommit(root, proposalBranch, ref, { env });
+  const proposalBase = knownProposalBase
+    ?? proposalBaseCommit(root, proposalBranch, ref, { env });
   const mergeBase = mergeBaseResult.stdout.trim();
   const ancestryMerged = knownAncestryMerged
     ?? gitIsAncestor(root, ref, 'HEAD', { env });

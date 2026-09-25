@@ -431,7 +431,7 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
   if (form.shape !== 'story' || !identifier || !form.baseBranch) return null;
   return [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier,
-    '--from-branch', form.baseBranch,
+    '--from-branch', form.baseBranch, '--selected-base-only',
     ...(form.workType ? ['--work-type', form.workType] : [])
   ];
 }

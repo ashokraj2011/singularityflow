@@ -982,6 +982,63 @@ test('repository inspection blocks duplicate onboarding while an exact mapping a
   assert.match(displayed, new RegExp(proposed.branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
+test('repository-filtered proposal scan validates only proposals claiming that repository', async () => {
+  const org = await remotes('platform', 'service', 'other-service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapCapability(org.platform, {
+    capabilityId: 'other-api', kind: 'delivery', repositoryUrl: org['other-service']
+  });
+  const matching = await mapCapability(org.platform, {
+    capabilityId: 'service-api', kind: 'delivery', repositoryUrl: org.service
+  });
+
+  const catalog = await listCapabilityProposals(org.platform, {
+    repositoryUrl: org.service, includeDiff: false, withCoverage: true
+  });
+  assert.deepEqual(catalog.proposals.map((proposal) => proposal.branch), [matching.branch]);
+  assert.deepEqual(catalog.coverage, {
+    status: 'complete', total: 2, inspected: 2, limit: null,
+    screenedUnrelated: 1, definitionMaterializations: 1
+  }, 'the unrelated exact delta avoids a full definition/worktree validation');
+
+  const inspection = await inspectCapabilityRepository(org.service, {
+    leadUrl: org.platform, searchKnown: false, refresh: true
+  });
+  assert.equal(inspection.status, 'inconclusive');
+  assert.equal(inspection.proposalCoverage, 'complete');
+  assert.deepEqual(inspection.pendingMatches.map((match) => match.proposalBranch),
+    [matching.branch], 'the matching pending claim still blocks duplicate onboarding');
+});
+
+test('repository-filtered proposal scan keeps an unparseable claim in fail-closed coverage', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'docs', kind: 'collection'
+  });
+  const editor = path.join(org.base, 'unparseable-proposal');
+  run('git', ['clone', '-q', '--branch', proposed.branch, org.platform, editor]);
+  run('git', ['config', 'user.email', 'proposal@example.invalid'], { cwd: editor });
+  run('git', ['config', 'user.name', 'Proposal Author'], { cwd: editor });
+  await writeFile(path.join(editor, 'singularity/portfolio.yml'), 'repositories: [broken\n');
+  run('git', ['add', 'singularity/portfolio.yml'], { cwd: editor });
+  run('git', ['commit', '-qm', 'Corrupt portfolio'], { cwd: editor });
+  run('git', ['push', '-q', 'origin', `HEAD:${proposed.branch}`], { cwd: editor });
+
+  const catalog = await listCapabilityProposals(org.platform, {
+    repositoryUrl: org.service, includeDiff: false, withCoverage: true
+  });
+  assert.equal(catalog.coverage.screenedUnrelated, 0);
+  assert.equal(catalog.proposals.length, 1);
+  assert.equal(catalog.proposals[0].repositoryInspectionComplete, false);
+
+  const inspection = await inspectCapabilityRepository(org.service, {
+    leadUrl: org.platform, searchKnown: false, refresh: true
+  });
+  assert.equal(inspection.proposalCoverage, 'partial');
+  assert.equal(inspection.status, 'inconclusive');
+});
+
 test('repository inspection finds a pending proposal across equivalent file URL and path locators', async () => {
   const org = await remotes('platform', 'service');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -1135,9 +1192,11 @@ test('an unreadable proposal without a provable base does not claim repositories
     cwd: org.platform
   });
 
-  const catalog = await listCapabilityProposals(org.platform, {
-    includeDiff: false, repositoryUrl: org.service
+  const { proposals: catalog, coverage } = await listCapabilityProposals(org.platform, {
+    includeDiff: false, repositoryUrl: org.service, withCoverage: true
   });
+  assert.equal(coverage.screenedUnrelated, 0,
+    'an unprovable base cannot enter the unrelated-proposal fast path');
   assert.equal(catalog.length, 1);
   assert.equal(catalog[0].status, 'unreadable');
   assert.equal(catalog[0].repositoryInspectionComplete, false);
@@ -1170,7 +1229,10 @@ test('bounded proposal lookup marks truncated coverage incomplete', async () => 
     maximumProposals: 1,
     withCoverage: true
   });
-  assert.deepEqual(result.coverage, { status: 'partial', total: 2, inspected: 1, limit: 1 });
+  assert.deepEqual(result.coverage, {
+    status: 'partial', total: 2, inspected: 1, limit: 1,
+    screenedUnrelated: 0, definitionMaterializations: 1
+  });
   assert.equal(result.proposals.length, 1);
 });
 
@@ -1231,7 +1293,8 @@ test('bounded proposal lookup pages past retained merged refs to the current pro
 
   assert.deepEqual(result.proposals.map((proposal) => proposal.branch), [pending.branch]);
   assert.deepEqual(result.coverage, {
-    status: 'complete', total: 72, inspected: 72, limit: 64
+    status: 'complete', total: 72, inspected: 72, limit: 64,
+    screenedUnrelated: 0, definitionMaterializations: 1
   });
   const fetches = commands.filter((args) => args[0] === 'fetch');
   assert.equal(fetches.length, 2, 'retained history is traversed in bounded refspec pages');
@@ -1272,7 +1335,8 @@ test('bounded proposal lookup splits long refs before the conservative Windows a
 
   assert.deepEqual(result.proposals.map((proposal) => proposal.branch), [pending.branch]);
   assert.deepEqual(result.coverage, {
-    status: 'complete', total: 32, inspected: 32, limit: 64
+    status: 'complete', total: 32, inspected: 32, limit: 64,
+    screenedUnrelated: 0, definitionMaterializations: 1
   });
   const fetches = commands.filter((args) => args[0] === 'fetch');
   assert.ok(fetches.length > 1,

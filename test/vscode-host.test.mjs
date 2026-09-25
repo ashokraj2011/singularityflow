@@ -6011,6 +6011,52 @@ test('Map capability retains Reset local registration confirmation after the Git
   controller.dispose();
 });
 
+test('fresh repository setup applies the reviewed plan without a second approval modal', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { BootstrapPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const remote = 'https://git.example/new-service.git';
+  const planId = `sha256:${'a'.repeat(64)}`;
+  const plan = {
+    schemaVersion: 1, kind: 'repository-onboarding-plan/v1', dryRun: true,
+    repository: { url: remote, identity: `sha256:${'d'.repeat(64)}` },
+    mode: 'auto', status: 'not-set-up', primaryAction: 'set-up-sflow', canApply: true, planId,
+    state: { kind: 'none', branch: 'state', commit: null },
+    configuration: { branch: 'sflow/config', status: 'missing', commit: null,
+      schemaVersion: null, currentSchemaVersion: 2 },
+    observedRefs: { 'refs/heads/sflow/config': null, 'refs/heads/state': null },
+    routing: null, organisation: null, choices: [], availableModes: [],
+    effects: [{ kind: 'configuration', target: 'sflow/config', action: 'create' }],
+    preserved: ['application-working-tree'], omitted: [],
+    nextActions: { shell: 'singularity-flow capability onboard <repo>', copilot: '/sf-capability-map' }
+  };
+  const calls = [];
+  const controller = BootstrapPanel.show(context(), [], async (argv) => {
+    calls.push([...argv]);
+    return { result: {
+      schemaVersion: 1, kind: 'repository-onboarding-result/v1',
+      planId, mode: 'auto', status: 'ready', primaryAction: 'continue',
+      applied: true, changed: true, effects: plan.effects, preserved: plan.preserved,
+      nextActions: { shell: 'singularity-flow capability onboard <repo>', copilot: '/sf-capability-map' },
+      routing: null, organisation: null, receipt: null,
+      configuration: { commit: 'c'.repeat(40) }
+    }, error: null };
+  }, async () => {}, { maintenance: true });
+  controller.form.repositoryUrl = remote;
+  controller.form.repositorySetupPlan = plan;
+  controller.render();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  await panel.post({ type: 'applyRepositorySetup' });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].slice(0, 3), ['capability', 'onboard', remote]);
+  assert.equal(registered.infos.some((message) => message === 'Apply this repository setup plan?'), false);
+  assert.match(panel.webview.html, /data-repository-setup-status="ready"/);
+  controller.dispose();
+});
+
 test('setup review shows an unavailable diff as a blocked inspection', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();
@@ -6197,38 +6243,15 @@ test('capability mapping from VS Code preserves the opened repository local Git 
   await panel.post({ type: 'inspectRepository' });
   await until(() => panel.webview.html.includes('data-repository-setup-primary="applyRepositorySetup"')
     ? panel.webview.html : null, { attempts: 200 });
-  registered.informationAnswer = 'Apply and continue';
   await panel.post({ type: 'applyRepositorySetup' });
-  const pendingSetup = await until(() => panel.webview.html.includes(
-    'data-repository-setup-status="configuration-review-required"'
-  ) ? panel.webview.html : null, { attempts: 400 });
-  assert.match(pendingSetup, /Review setup proposal/);
-  assert.equal(run('git', ['for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/config'], { cwd: remote }).stdout.trim(), '',
-  'the first setup apply publishes a review branch before approved configuration exists');
-  const setupBranch = run('git', ['for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/config-change/onboarding/create-*'], { cwd: remote }).stdout.trim();
-  assert.match(setupBranch, /^sflow\/config-change\/onboarding\/create-[0-9a-f]{12}$/);
-  await panel.post({ type: 'reviewRepositorySetup' });
-  const setupReview = await until(() => registered.panels.find((entry) =>
-    entry.id === 'singularityFlow.setupProposal'), { attempts: 100 });
-  await until(() => setupReview.webview.html.includes('Approve setup proposal')
-    ? setupReview.webview.html : null, { attempts: 400 });
-  assert.match(setupReview.webview.html, /sflow\/config has not been created/);
-  registered.warningAnswers.push('Approve exact setup', 'Acknowledge unprotected branch');
-  await setupReview.post({ type: 'activate' });
   await until(() => run('git', ['for-each-ref', '--format=%(objectname)',
     'refs/heads/sflow/config'], { cwd: remote }).stdout.trim() || null,
   { attempts: 400 });
-  const readySetup = await until(() => panel.webview.html.includes(
-    'data-repository-setup-status="ready"'
-  ) ? panel.webview.html : null, { attempts: 400 });
-  if (readySetup.includes('data-repository-setup-primary="applyRepositorySetup"')) {
-    await panel.post({ type: 'applyRepositorySetup' });
-  } else {
-    assert.match(readySetup, /data-repository-setup-primary="continueRepositorySetup"/);
-    await panel.post({ type: 'continueRepositorySetup' });
-  }
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/onboarding/create-*'], { cwd: remote }).stdout.trim(), '',
+  'fresh setup creates sflow/config directly without a review proposal');
+  assert.equal(registered.infos.includes('Apply this repository setup plan?'), false,
+    'the explicit Set up SFlow action needs no second approval modal');
   await until(() => panel.webview.html.includes('Use this repository as the first capability map')
     || panel.webview.html.includes('0 capabilities available as parents')
       ? panel.webview.html : null, { attempts: 400 });

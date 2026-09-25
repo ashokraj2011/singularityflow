@@ -273,6 +273,72 @@ test('deferred bootstrap registers the workspace without cloning application cod
   }), /cannot be abandoned/);
 });
 
+test('deferred workspace creation does not probe unrelated delivery remotes with explicit branches', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-deferred-remote-'));
+  const env = environment(root);
+  const unavailable = path.join(root, 'temporarily-unavailable.git');
+  const createInput = input(root, unavailable, 'trunk');
+  createInput.repositories.secondary = {
+    url: path.join(root, 'another-unavailable.git'),
+    defaultBranch: 'release', required: true, path: 'repos/secondary'
+  };
+  const timer = commandTimer('deferred-workspace-preflight', { commandClass: 'read' });
+  const prepared = await withCommandTiming(timer, () => prepareWorkspaceBootstrap({
+    source: { kind: 'remote', reference: unavailable },
+    createInput,
+    checkout: false
+  }, { env }));
+  assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+  const remoteChecks = prepared.preflight.checks.filter((entry) => entry.id.startsWith('remote:'));
+  assert.deepEqual(remoteChecks.map((entry) => [entry.status, entry.selectedBranch]), [
+    ['deferred', 'trunk'], ['deferred', 'release']
+  ]);
+  assert.equal(timer.finish().counters['git.remote.command.ls-remote'] ?? 0, 0);
+
+  const registered = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+    confirmation: prepared.plan.workspace.confirmation, env
+  });
+  assert.equal(registered.status, 'registered');
+  assert.deepEqual(registered.result.status.repositories.map((entry) => entry.state), [
+    'missing', 'missing'
+  ]);
+  assert.equal(await stat(path.join(registered.result.workspace.path, 'repos', 'application'))
+    .catch(() => null), null);
+});
+
+test('deferred capability workspace still verifies the approved map while skipping delivery probes', async () => {
+  const fixture = await remoteFixture('trunk');
+  await ensureConfigurationBranch(fixture.remote, {
+    capability: {
+      capabilityId: 'declared-capability', capabilityName: 'Declared capability',
+      kind: 'delivery', repositoryId: 'application', jiraProject: null, teams: []
+    }
+  });
+  const env = environment(fixture.root);
+  const createInput = input(fixture.root, fixture.remote, 'trunk');
+  createInput.capabilities = ['declared-capability'];
+  createInput.repositories.application.capabilities = ['declared-capability'];
+  createInput.repositories.optional = {
+    url: path.join(fixture.root, 'offline-optional.git'),
+    defaultBranch: 'main', required: false, path: 'repos/optional'
+  };
+  const timer = commandTimer('deferred-capability-preflight', { commandClass: 'read' });
+  const prepared = await withCommandTiming(timer, () => prepareWorkspaceBootstrap({
+    source: { kind: 'manifest', reference: fixture.remote },
+    createInput, checkout: false
+  }, { env }));
+  assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+  assert.equal(prepared.preflight.checks.find((entry) =>
+    entry.id === 'configuration:capability-catalog')?.status, 'pass');
+  assert.ok(prepared.preflight.checks.filter((entry) => entry.id.startsWith('remote:'))
+    .every((entry) => entry.status === 'deferred'));
+  const counters = timer.finish().counters;
+  assert.equal(counters['git.remote.command.ls-remote'], 1,
+    'the sole advertisement must be for the approved map, not each delivery');
+  assert.equal(counters['git.remote.command.clone'], 1,
+    'only the small approved configuration catalog is transferred');
+});
+
 test('bootstrap preflight observes each unique remote once even when multiple repositories share it', async () => {
   const fixture = await remoteFixture('trunk');
   for (const branch of ['release', 'unrelated']) {

@@ -1153,7 +1153,7 @@ export async function workspaceRemoteCapabilities(url, {
     const authorityCommit = configured.refs.get(`refs/heads/${configurationBranch}`);
     const transport = frozenRemoteTransport(remote, { env: gitEnv });
     const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', '--branch', branch,
+      'clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-tags', '--no-checkout', '--branch', branch,
       transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
     if (cloned.status !== 0) {
@@ -5148,6 +5148,7 @@ export async function repairWorkspace(workspacePath, {
   recoverCapabilityDrops = true,
   repositoryIds = null,
   expectedMissingRepositoryIds = [],
+  returnIfSelectedReady = false,
   statusLevel = 'full'
 } = {}) {
   // Finish or roll back a hash-bound local-drop transaction before classifying missing clones.
@@ -5175,6 +5176,15 @@ export async function repairWorkspace(workspacePath, {
       `A local checkout appeared before SFlow could materialize ${unexpectedlyPresent.map((repository) => repository.id).join(', ')}. It was not adopted or claimed by this workspace; inspect or move it before retrying.`,
       { code: 'WORKSPACE_CAPABILITY_TARGET_EXISTS' }
     );
+  }
+  // Story routing may ask repair to materialize a selected capability even when another process
+  // has just completed the checkout. Its initial readiness scan is already authoritative for the
+  // no-op case; do not read/rewrite the repair journal or perform a second all-repository scan.
+  // General repair keeps its journal reconciliation behavior unchanged.
+  if (returnIfSelectedReady && selectedRepositoryIds
+      && status.repositories.filter((repository) => selectedRepositoryIds.has(repository.id))
+        .every((repository) => repository.state === 'ready')) {
+    return { repaired: [], status };
   }
   const journal = await readRepairJournal(status.workspace, status.repositories);
   const repaired = [];

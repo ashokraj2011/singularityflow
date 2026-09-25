@@ -25,15 +25,18 @@ The optimized paths preserve exact-ref authority and mutation preflights:
   application repositories. Start Work materializes the repositories required for the selected
   Story capability when unambiguous; explicit materialization can clone one repository when its files are needed. An explicit
   `--clone` request retains immediate materialization;
+- fresh repository setup builds `sflow/config` from installed defaults and publishes it with an
+  exact create lease. It does not need a setup-review branch unless remote branch policy rejects
+  the direct write. Capability-map proposals retain their separate review boundary;
 - repeated capability inspection reobserves the governing remote refs and reuses a locally
   verified authority snapshot only when the exact commits still match. Creating a capability
   review proposal still needs a temporary configuration checkout to form its Git commit;
 - delivery-locator previews and capability-based workspace preparation may reuse that same
   exact-ref-validated lead snapshot. Explicit refresh and mutation still reread authority; an
   unreachable remote never turns a stale cached map into workspace-creation authority;
-- workspace bootstrap probes the selected branch and capability configuration ref rather than
-  listing every branch when the branch is already known. Branch inference still requests the
-  full head inventory, and preflight retains its durable configuration object proof;
+- deferred workspace bootstrap skips delivery-repository probes when the branch is declared;
+  it still verifies the selected capability configuration authority. Explicit cloning and branch
+  inference retain remote checks, and preflight retains its durable configuration object proof;
 - register-only workspace creation uses readiness status instead of scanning World Model and
   document details. Guided Start Work prepares its selected checkout before one window reload;
 - delivery-repository capability links use a bounded, machine-private bare object cache keyed by
@@ -42,12 +45,18 @@ The optimized paths preserve exact-ref authority and mutation preflights:
   `SINGULARITY_FLOW_AUTHORITY_CACHE=off` to disable it or
   `SINGULARITY_FLOW_AUTHORITY_CACHE_MAX_BYTES` to a value from 1 MiB through 2 GiB to bound each
   derived object store (the default is 256 MiB);
-- capability proposals read the approved and proposed workflow, portfolio, and capability map in
-  one bounded `git cat-file --batch` operation per proposal;
+- capability proposals that need full validation read the approved and proposed workflow,
+  portfolio, and capability map in one bounded `git cat-file --batch` operation. Repository-specific discovery first
+  screens a complete, exact base-to-tip claim delta and skips full definition/worktree validation
+  only for proposals proven unrelated; incomplete or ambiguous deltas stay in the fail-closed path;
 - publication secret admission and SGOS Candidate reconstruction batch exact retained blob IDs,
   while retaining both independent admission scans and verify-time reconstruction;
 - an explicit Story base skips the broad branch advertisement, but the mutation preflight still
   prune-fetches and proves the selected branch and dry-run push in every required repository;
+- VS Code Story intake lists remote branch choices once. After a base is selected, its preflight
+  skips repeating that list but still performs the fresh fetch and dry-run publication checks;
+- selected Story materialization reuses the repair status instead of scanning every workspace
+  repository before and after the repair a second time;
 - automatic identity enrollment uses the hash-verified configuration snapshot to prove a no-op and
   opens a push checkout only when a change is actually required;
 - `workspace current` asks for readiness rather than a full dirty-path inventory and bounds
@@ -58,6 +67,21 @@ The optimized paths preserve exact-ref authority and mutation preflights:
   comma-separated `--sparse-cone`, and `--clone-fallback` override. The resulting plan records
   whether clone policy was `portfolio-declared` or `workspace-override` without rewriting the
   organisation policy.
+
+The focused local fixtures make the avoided work explicit. These are Git-call counts, not claims
+about an office network's wall-clock latency:
+
+| Journey | Avoided work | Still checked before a write |
+| --- | --- | --- |
+| Fresh `Set up SFlow` | Four remote calls across preview and apply instead of eight, plus no empty `state` publication | Fresh confirmation, exact `sflow/config` create lease, and post-push reconciliation |
+| Mapping with two pending proposals, one unrelated | One full proposal definition/worktree materialization instead of two | Exact base proof and claim-delta inspection for both; matching or unclear proposals retain full validation |
+| Deferred workspace with two explicit delivery branches | Zero delivery `ls-remote` probes instead of two | Approved capability-map authority; selected branch at first checkout |
+| VS Code Story preflight after selecting a base | One fewer all-heads advertisement per selected repository | Fresh selected-ref fetch, publication dry run, and Story-start validation |
+| Start Work on a selected capability | One readiness scan when already present, or two when materializing instead of four | Checkout identity and readiness for the selected closure |
+
+Protected configuration branches still require their server's review path. A pending capability
+proposal is still checked before proposing a potentially duplicate mapping; incomplete coverage
+never means the repository is safe to map.
 
 Short-lived configuration clones now fetch the one required shallow commit completely whenever a
 working tree is consumed, rather than advertising `blob:none` and immediately negotiating the same

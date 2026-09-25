@@ -34,7 +34,8 @@ import {
 } from './views/submission-presentation.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
-import { buildInboxTree } from './views/inbox-model.ts';
+import { buildInboxTree, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
+import { discoverWorkspaceStoryRows, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
 import type { DesignerMessage } from './views/designer.ts';
@@ -2024,6 +2025,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * thing every other command needs, so requiring one would be the whole chicken-and-egg problem
    * written into the extension.
    */
+  let refreshStoriesAfterMapping: (() => Promise<void>) | null = null;
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.mapCapability',
     async (
@@ -2089,6 +2091,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!mapped.reviewRequired || !mapped.branch) {
         void vscode.window.showInformationMessage(`${mapped.capabilityId} is already active on ${mapped.baseBranch}.`);
         if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
+        if (refreshStoriesAfterMapping) void refreshStoriesAfterMapping().catch((error) => {
+          output.appendLine(`Story discovery after capability mapping needs attention: ${(error as Error).message}`);
+        });
         return;
       }
       const { CapabilityProposalPanel } = lazyPanels();
@@ -2096,6 +2101,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A retained workspace form contains the user's unsaved directory and identity choices.
         // Refresh that form only after activation, when the capability is genuinely selectable.
         if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
+        if (refreshStoriesAfterMapping) void refreshStoriesAfterMapping().catch((error) => {
+          output.appendLine(`Story discovery after capability activation needs attention: ${(error as Error).message}`);
+        });
       });
     }, initial);
   }));
@@ -2630,6 +2638,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               'Capability attached, but a repository still needs repair. Open the workspace and choose Repair workspace.'
             );
             return null;
+          }
+          if (action === 'attach' && refreshStoriesAfterMapping) {
+            void refreshStoriesAfterMapping().catch((error) => {
+              output.appendLine(`Story discovery after capability attachment needs attention: ${(error as Error).message}`);
+            });
           }
           if (applied.retained?.length) {
             const recovery = commandGuidanceText(applied.repairCommand);
@@ -4450,6 +4463,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // configuration. Read it after the local snapshot so Configuration renders immediately and then
   // gains the remote status without delaying activation when VPN access is unavailable.
   let readiness: CapabilityReadiness = {};
+  let workspaceStoryCatalog: WorkspaceStoryCatalogRow[] = [];
+  let workspaceStoryCatalogIssue: string | null = null;
   let configurationTree: LifecycleTreeProvider | null = null;
   const refreshReadiness = async (force = false): Promise<void> => {
     // Readiness is a remote projection of an approved capability map. A plain governed repository
@@ -4484,13 +4499,94 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(new ConfigurationValidator(client));
 
   const tree = new LifecycleTreeProvider(store);
-  const inboxTree = new LifecycleTreeProvider(store, [], buildInboxTree);
+  const inboxTree = new LifecycleTreeProvider(store, [], (snapshot, error) =>
+    buildInboxTree(snapshot, error, workspaceStoryCatalog, repository, workspaceStoryCatalogIssue));
   configurationTree = new LifecycleTreeProvider(
     store, [], (snapshot, error) => buildConfigurationTree(snapshot, error, readiness));
   context.subscriptions.push(tree, inboxTree, configurationTree);
   sidebar.bind('lifecycle', tree);
   sidebar.bind('inbox', inboxTree);
   sidebar.bind('configuration', configurationTree);
+  const storyRefreshGate = new StoryRefreshGate();
+  const refreshRemoteStories = (afterCurrent = false): Promise<void> => {
+    const scope = repositoryEpoch.capture();
+    return storyRefreshGate.run(scope.epoch, async (): Promise<void> => {
+      let issue: string | null = null;
+      try {
+        const current = await activeSelectionClient.run<{
+          active?: boolean; workspacePath?: string; repositoryId?: string; repositoryPath?: string;
+        }>(['workspace', 'current', '--json']);
+        const selectedHere = current.active && current.repositoryPath
+          && path.resolve(current.repositoryPath) === path.resolve(scope.repository);
+        // The active workspace file is machine-wide. Another window may have selected B while
+        // this window still renders A; never join B's inventory to A's repository path.
+        if (current.active && !selectedHere) {
+          throw new Error('Workspace selection changed in another window. Refresh after this window follows the new selection.');
+        }
+        let repositories: StoryRepository[];
+        if (current.active && current.workspacePath) {
+          const status = await activeSelectionClient.run<WorkspaceStatus>([
+            'workspace', 'status', current.workspacePath, '--level', 'readiness', '--json'
+          ]);
+          repositories = status.repositories.map((entry) => ({
+            id: entry.id,
+            absolutePath: entry.id === current.repositoryId
+              ? scope.repository : entry.absolutePath ?? '',
+            state: entry.state ?? 'unknown',
+            url: entry.url ?? null,
+            configurationUrl: status.workspace.capabilityAuthority?.url
+              ?? status.repositories.find((candidate) => candidate.id === status.workspace.leadRepository)?.url
+              ?? null
+          }));
+        } else {
+          repositories = [{
+            id: activeRepositoryContext()?.repositoryId ?? path.basename(scope.repository),
+            absolutePath: scope.repository,
+            state: 'ready'
+          }];
+        }
+        const catalog = await discoverWorkspaceStoryRows(repositories, async (entry) => {
+          if (entry.state !== 'ready' && entry.url) {
+            return activeSelectionClient.run<{
+              items: Array<{ id: string; title: string; status: string; phase: string | null; branch: string | null }>;
+              unavailableCount: number;
+            }>(['session', 'candidates', '--repository-url', entry.url,
+              ...(entry.configurationUrl && entry.configurationUrl !== entry.url
+                ? ['--configuration-url', entry.configurationUrl] : []),
+              '--json', '--diagnostics']);
+          }
+          const verifiedRoot = await validateRepositoryDirectory(entry.absolutePath, {
+            signal: extensionLifetime.signal
+          });
+          const reader = new SingularityFlowClient({
+            location: client.location,
+            repository: verifiedRoot,
+            environment: cliEnvironment,
+            onOutput: (value) => output.append(value)
+          });
+          return reader.run<{
+            items: Array<{ id: string; title: string; status: string; phase: string | null; branch: string | null }>;
+            unavailableCount: number;
+          }>(['session', 'candidates', '--json', '--diagnostics']);
+        });
+        if (!repositoryEpoch.isCurrent(scope)) return;
+        workspaceStoryCatalog = catalog.stories;
+        if (catalog.issues.length) issue = `Story discovery is incomplete: ${catalog.issues.map((entry) =>
+          `${entry.repositoryId}: ${entry.message}`).join(' | ')}`;
+      } catch (error) {
+        issue = `Story discovery is incomplete: ${(error as Error).message}`;
+      }
+      if (!repositoryEpoch.isCurrent(scope)) return;
+      workspaceStoryCatalogIssue = issue;
+      // Even when remote discovery is offline, Refresh still updates the ordinary local Inbox.
+      await store.refresh();
+      if (!repositoryEpoch.isCurrent(scope)) return;
+      inboxTree.refresh();
+      lazyPanels().InboxPanel.refreshCurrent();
+      if (issue) throw new Error(issue);
+    }, afterCurrent);
+  };
+  refreshStoriesAfterMapping = () => refreshRemoteStories(true);
   // Readiness may touch a remote and logs load a second legacy CLI process. Neither may compete
   // with the initial snapshot that establishes which repository and Story this window represents.
   // A failed initial read leaves these deferred; the first later confirmed snapshot starts them.
@@ -4504,6 +4600,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     auxiliaryEpoch = scope.epoch;
     void refreshReadiness(forceReadiness);
     void refreshWorkspaceLogsTree();
+    void refreshRemoteStories().catch((error) => {
+      if (repositoryEpoch.isCurrent(scope)) {
+        output.appendLine(`Story discovery needs attention: ${(error as Error).message}`);
+      }
+    });
   };
   context.subscriptions.push(store.onDidChange((state, change) => {
     if (change.kind !== 'snapshot' || state.stale || state.error || !state.snapshot) return;
@@ -4694,6 +4795,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     repositoryEpoch.moved(canonicalTarget);
     repository = canonicalTarget;
+    workspaceStoryCatalog = [];
+    workspaceStoryCatalogIssue = null;
     resultPanelRepositoryChanged(canonicalTarget);
     client.useRepository(canonicalTarget);
     watchGovernedRepository(canonicalTarget, targetGitCommonDirectory);
@@ -4712,6 +4815,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Publish B's cache only after every repository-aware closure points at B. Store listeners may
     // render synchronously; none of them may observe B data through A's gateway/session context.
     store.repositoryChanged();
+    inboxTree.refresh();
+    lazyPanels().InboxPanel.refreshCurrent();
     await store.refresh();
     diagnosticHasRepository = true;
     diagnosticClient.useRepository(canonicalTarget);
@@ -4877,9 +4982,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (argv[0] === 'session' && argv[1] === 'attach') {
       try {
         const args = argv.includes('--json') ? argv : [...argv, '--json'];
+        // A workspace Inbox may list Stories from another mapped delivery repository. Bind the
+        // attach command to the exact verified repository the user selected, not the current tab.
+        const attachmentRoot = node.openPath
+          ? await validateRepositoryDirectory(node.openPath, { signal: extensionLifetime.signal })
+          : repository;
+        const attachmentClient = attachmentRoot === repository ? client : new SingularityFlowClient({
+          location: client.location, repository: attachmentRoot, environment: cliEnvironment,
+          onOutput: (value) => output.append(value)
+        });
         const attached = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: `Attaching ${argv[2] ?? 'Story'}…` },
-          () => client.run<{
+          () => attachmentClient.run<{
             workId?: string; repositoryPath?: string; branch?: string; phase?: string; status?: string;
           }>(args)
         );
@@ -5485,10 +5599,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** The inbox reuses the exact approval transaction and adds all-phase document navigation. */
   const onInboxMessage = async (message: InboxMessage): Promise<void> => {
+    if (message.type === 'refresh-stories') {
+      await reconcileActiveWorkspaceSelection();
+      return refreshRemoteStories();
+    }
     if (message.type === 'attach-story') {
       return runNode({
         kind: 'story', id: `inbox:active-story:${message.workId}`, label: message.workId,
-        command: ['session', 'attach', message.workId]
+        command: ['session', 'attach', message.workId], openPath: message.repositoryPath
       });
     }
     if (message.type === 'open-artifact') {
@@ -6159,7 +6277,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openInbox':
       async () => {
         const { InboxPanel } = lazyPanels();
-        return InboxPanel.show(context, store, (message) => { void onInboxMessage(message); });
+        return InboxPanel.show(context, store, onInboxMessage,
+          () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue);
       },
     // Backward-compatible command ID for old keybindings and links; it never opens a second home.
     'singularityFlow.openDeveloperHome': async () =>
@@ -6249,8 +6368,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.detachEvidence': detachEvidence as never,
     'singularityFlow.addSource': addSource,
     'singularityFlow.refresh': async () => {
-      const repositoryChanged = await reconcileActiveWorkspaceSelection();
-      if (!repositoryChanged) await store.refresh();
+      await reconcileActiveWorkspaceSelection();
+      try {
+        await refreshRemoteStories();
+      } catch (error) {
+        output.appendLine(`Story refresh failed: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not refresh every workspace Story' });
+      }
       void refreshReadiness(true);
       void refreshWorkspaceLogsTree();
     },

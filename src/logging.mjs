@@ -112,8 +112,8 @@ function isSecretOptionKey(value) {
   const key = String(value).replace(/^--/, '');
   return SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization)/i.test(key);
 }
-const REMOTE_OPTION = /^--(?:repository|repository-url|reference-repository|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
-const REMOTE_FIELD = /^(?:remote|url|repository(?:url)?|repository-url|lead(?:repository|url)?|lead-repository|organisation|origin|target-url|output-url|document-url|jira-url|source-remote)$/i;
+const REMOTE_OPTION = /^--(?:repository|repository-url|configuration-url|reference-repository|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
+const REMOTE_FIELD = /^(?:remote|url|repository(?:url)?|repository-url|configuration-url|lead(?:repository|url)?|lead-repository|organisation|origin|target-url|output-url|document-url|jira-url|source-remote)$/i;
 const CAPABILITY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DISPLAYABLE_REMOTE_PROTOCOLS = new Set([
   'http:', 'https:', 'ssh:', 'git+ssh:', 'ssh+git:', 'git:', 'file:', 'ftp:', 'ftps:'

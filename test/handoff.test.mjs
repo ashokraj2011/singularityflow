@@ -71,8 +71,22 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   flow(first, ['approve', '--yes']);
   assert.equal(JSON.parse(flow(first, ['inbox', '--json']).stdout).count, 0);
 
+  // An unreadable published branch must be reported without hiding the valid Story.
+  run('git', ['switch', '-c', 'invalid-story'], first);
+  const invalidPath = path.join(first, 'singularity', 'work-items', 'BROKEN', 'workflow.json');
+  await mkdir(path.dirname(invalidPath), { recursive: true });
+  await writeFile(invalidPath, '{broken json\n');
+  run('git', ['add', 'singularity/work-items/BROKEN/workflow.json'], first);
+  run('git', ['commit', '-m', 'add unreadable Story state'], first);
+  run('git', ['push', '-u', 'origin', 'invalid-story'], first);
+  run('git', ['switch', 'story/HAND-101-delivery'], first);
+
   run('git', ['clone', '--no-hardlinks', remote, second], base);
   identity(second, 'Second Contributor');
+  // A single-branch fetch setting and dirty checkout must not conceal remote Story refs.
+  run('git', ['config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main'], second);
+  const localNote = path.join(second, 'local-note.txt');
+  await writeFile(localNote, 'keep local work\n');
   const started = spawnSync(process.execPath, [bin, 'hook', 'session-start'], {
     cwd: second, encoding: 'utf8', input: JSON.stringify({ cwd: second, sessionId: 'copilot-second-1', source: 'startup' }),
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Second Contributor' }
@@ -81,6 +95,15 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   assert.match(JSON.parse(started.stdout).additionalContext, /work-item selection is required/);
   const candidates = JSON.parse(flow(second, ['session', 'candidates', '--json']).stdout);
   assert.ok(candidates.some((item) => item.id === 'HAND-101' && item.phase === 'requirements'));
+  const discovered = JSON.parse(flow(second, ['session', 'candidates', '--json', '--diagnostics']).stdout);
+  assert.ok(discovered.items.some((item) => item.id === 'HAND-101'));
+  assert.ok(discovered.unavailable.some((entry) => entry.claimedId === 'BROKEN'));
+  assert.equal(discovered.fetched, true);
+  assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'main');
+  assert.equal(run('git', ['config', '--get', 'remote.origin.fetch'], second).stdout.trim(),
+    '+refs/heads/main:refs/remotes/origin/main');
+  assert.equal(await readFile(localNote, 'utf8'), 'keep local work\n');
+  await unlink(localNote);
   assert.match(flow(second, ['session', 'attach', 'HAND-101']).stdout, /Attached to HAND-101 from origin\/story\/HAND-101-delivery/);
   assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'story/HAND-101-delivery');
 
@@ -196,6 +219,79 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
     'start', 'BOOT-101', '--from-branch', 'main', '--title', 'Bootstrap handoff', '--work-type', 'feature'
   ]);
 
+  const bootBranch = run('git', ['branch', '--show-current'], boot.root).stdout.trim();
+  run('git', ['switch', '-c', 'malformed-url-discovery'], boot.root);
+  const brokenRemoteState = path.join(boot.root, 'singularity', 'work-items', 'BROKEN', 'workflow.json');
+  await mkdir(path.dirname(brokenRemoteState), { recursive: true });
+  await writeFile(brokenRemoteState, '{broken json\n');
+  run('git', ['add', 'singularity/work-items/BROKEN/workflow.json'], boot.root);
+  run('git', ['commit', '-m', 'add malformed Story metadata'], boot.root);
+  run('git', ['push', '-u', 'origin', 'malformed-url-discovery'], boot.root);
+  run('git', ['switch', bootBranch], boot.root);
+
+  // A capability can expose published Stories before its delivery repository is cloned locally.
+  run('git', ['config', 'uploadpack.allowFilter', 'true'], remote);
+  const remoteOnly = spawnSync(process.execPath, [
+    bin, 'session', 'candidates', '--repository-url', `file://${remote}`,
+    '--json', '--diagnostics'
+  ], {
+    cwd: base, encoding: 'utf8', env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'unselected-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'unselected-workspace.json')
+    }
+  });
+  assert.equal(remoteOnly.status, 0, remoteOnly.stderr);
+  const remoteDiscovery = JSON.parse(remoteOnly.stdout);
+  assert.equal(remoteDiscovery.source, 'remote-url');
+  assert.equal(remoteDiscovery.repositoryPath, null);
+  assert.ok(remoteDiscovery.items.some((item) => item.id === 'BOOT-101'));
+  assert.ok(remoteDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'));
+
+  // A mapped delivery repository may publish Stories while the lead repository alone owns
+  // approved configuration. Both URL authorities must be explicit before a local clone exists.
+  const delivery = path.join(base, 'delivery.git');
+  run('git', ['init', '--bare', delivery], base);
+  run('git', [
+    'push', delivery,
+    `refs/heads/${bootBranch}:refs/heads/${bootBranch}`,
+    'refs/heads/malformed-url-discovery:refs/heads/malformed-url-discovery'
+  ], remote);
+  run('git', ['config', 'uploadpack.allowFilter', 'true'], delivery);
+  const withoutLead = spawnSync(process.execPath, [
+    bin, 'session', 'candidates', '--repository-url', `file://${delivery}`,
+    '--json', '--diagnostics'
+  ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  assert.equal(withoutLead.status, 1);
+  assert.match(withoutLead.stderr, /SESSION_REMOTE_CONFIGURATION_REQUIRED/);
+  const separateLead = spawnSync(process.execPath, [
+    bin, 'session', 'candidates', '--repository-url', `file://${delivery}`,
+    '--configuration-url', `file://${remote}`, '--json', '--diagnostics'
+  ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  assert.equal(separateLead.status, 0, separateLead.stderr);
+  const separateDiscovery = JSON.parse(separateLead.stdout);
+  assert.equal(separateDiscovery.source, 'remote-url');
+  assert.equal(separateDiscovery.repositoryPath, null);
+  assert.ok(separateDiscovery.items.some((item) => item.id === 'BOOT-101'));
+  assert.ok(separateDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'));
+  run('git', ['config', 'uploadpack.allowFilter', 'false'], delivery);
+  const unsupportedDelivery = spawnSync(process.execPath, [
+    bin, 'session', 'candidates', '--repository-url', `file://${delivery}`,
+    '--configuration-url', `file://${remote}`, '--json', '--diagnostics'
+  ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  assert.equal(unsupportedDelivery.status, 1);
+  assert.match(unsupportedDelivery.stderr, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
+  run('git', ['config', 'uploadpack.allowFilter', 'true'], delivery);
+  run('git', ['config', 'uploadpack.allowFilter', 'false'], remote);
+  const unsupportedFilter = spawnSync(process.execPath, [
+    bin, 'session', 'candidates', '--repository-url', `file://${remote}`,
+    '--json', '--diagnostics'
+  ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  assert.equal(unsupportedFilter.status, 1);
+  assert.match(unsupportedFilter.stderr, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
+  assert.equal(unsupportedFilter.stdout.trim(), '');
+  run('git', ['config', 'uploadpack.allowFilter', 'true'], remote);
+
   run('git', ['clone', '--no-hardlinks', remote, second], base);
   identity(second, 'Second Bootstrap Contributor');
   const isolated = {
@@ -222,6 +318,12 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   assert.match(run(process.execPath, [bin, 'resume', 'BOOT-101', '--fetch'], second, isolated).stdout, /BOOT-101/);
   run('git', ['switch', 'main'], second);
   run('git', ['remote', 'set-url', 'origin', path.join(base, 'temporarily-offline.git')], second);
+  const unavailable = spawnSync(process.execPath,
+    [bin, 'session', 'candidates', '--json', '--diagnostics'],
+    { cwd: second, encoding: 'utf8', env: isolated });
+  assert.equal(unavailable.status, 1);
+  assert.match(unavailable.stderr, /REMOTE_REMOTE_NOT_FOUND/);
+  assert.equal(unavailable.stdout.trim(), '');
   assert.match(run(process.execPath, [bin, 'start', 'BOOT-101'], second, isolated).stdout, /BOOT-101/);
   run('git', ['remote', 'set-url', 'origin', remote], second);
   run('git', ['switch', 'main'], second);
@@ -287,4 +389,15 @@ test('session attach fails non-zero when no governed repository can be resolved'
   });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Cannot attach a Story because no governed repository is active/);
+  const discovery = spawnSync(process.execPath,
+    [bin, 'session', 'candidates', '--json', '--diagnostics'], {
+      cwd: root, encoding: 'utf8', env: {
+        ...process.env,
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, 'workspaces.json'),
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, 'active-workspace.json')
+      }
+    });
+  assert.equal(discovery.status, 1);
+  assert.match(discovery.stderr, /SESSION_REPOSITORY_REQUIRED/);
+  assert.equal(discovery.stdout.trim(), '');
 });

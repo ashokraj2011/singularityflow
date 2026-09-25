@@ -186,6 +186,19 @@ that host. Attestation is machine-local readiness evidence, not design approval.
 
 Inbox answers **what needs attention?**
 
+- **Refresh Stories** fetches published Story branches for the mapped repositories in
+  the selected workspace, then updates the Story list and local Inbox snapshot. The
+  Navigator's Inbox refresh uses the same action. Attaching a mapped capability
+  or selecting its workspace starts a Story inventory refresh; mapping by itself
+  does not attach it to a workspace. Git metadata reads do not switch branches,
+  discard local edits, approve work, or create a Story.
+- The Story list includes in-progress and completed/cancelled Stories. A Story found
+  only by remote URL is visible but cannot be attached until its delivery repository
+  is materialized or repaired locally. Unpublished changes on another laptop are
+  not discoverable; that laptop must push the Story branch first.
+- If a repository or branch cannot be verified, Inbox reports incomplete coverage
+  and offers **Retry Story refresh**. Verified Stories from other repositories stay
+  visible; an error is never presented as proof that no Stories exist.
 - Review generated Markdown, JSON, YAML, images, and registered evidence.
 - Filter submissions and approvals by workspace, capability, repository, work ID,
   phase, status, and age.
@@ -256,6 +269,9 @@ Git is the shared state-transfer mechanism. The extension refreshes from revisio
 CLI snapshots and watches governed files so a terminal or another user can change
 the branch without leaving the visual state permanently stale. Normal Git
 fast-forward rules prevent one terminal from overwriting another decision.
+Ordinary local snapshot reads do not fetch. The explicit **Refresh Stories** action
+and capability/workspace onboarding discovery contact Git remotes to update the
+cross-laptop Story inventory; neither checks out a Story or changes local files.
 
 ## Installation
 

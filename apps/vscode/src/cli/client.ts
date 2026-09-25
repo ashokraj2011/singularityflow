@@ -564,6 +564,12 @@ export class SingularityFlowClient {
         || (args[0] === 'capability' && args[1] === 'onboard')) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
+    // URL-only Story discovery can inspect thousands of small remote metadata blobs. Each Git
+    // operation is independently bounded by the engine; do not impose the ordinary two-minute
+    // host deadline over the whole sequence and misreport a slow enterprise remote as empty.
+    if (args[0] === 'session' && args[1] === 'candidates' && hasOption(args, 'repository-url')) {
+      return CAPABILITY_AUTHORITY_TIMEOUT_MS;
+    }
     // Workflow Designer proposals clone the approved configuration authority and publish an exact
     // review ref. Office Git proxies can make that bounded remote transaction slower than an
     // ordinary local CLI action, so it gets the same ceiling as capability authority changes. A

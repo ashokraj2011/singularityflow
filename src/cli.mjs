@@ -25,6 +25,8 @@ import YAML from 'yaml';
 import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
+import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from './session-story-discovery.mjs';
+import { discoverRemoteStoryCandidatesByUrl } from './session-remote-url-discovery.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import {
@@ -9251,21 +9253,6 @@ async function sessionDiscoveryConfiguration(root, authority = null, { storyBoot
   );
 }
 
-function validatedRemoteStoryDefinition(root, remoteRef, subject) {
-  const definition = definitionAtRef(root, remoteRef);
-  if (!definition) throw new Error(`missing ${WORKFLOW_PATH}`);
-  validateId(definition, subject.id);
-  const expectedPath = posix(path.join(
-    definition.workItemRoot ?? 'singularity/work-items', subject.id, 'workflow.json'
-  ));
-  if (subject.location.path !== expectedPath) {
-    throw new Error(`state path '${subject.location.path}' does not match pinned root '${expectedPath}'`);
-  }
-  const workflow = JSON.parse(fileAtRef(root, remoteRef, expectedPath) ?? 'null');
-  if (workflow?.workItem?.id !== subject.id) throw new Error('identity mismatch');
-  return { definition, workflow, itemPath: expectedPath };
-}
-
 async function resolveSessionRepository() {
   const governed = (candidate) => sessionRepositoryAuthority(candidate);
 
@@ -9315,6 +9302,28 @@ async function resolveSessionRepository() {
 
 async function sessionCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
+  const repositoryUrl = optionString(options, 'repository-url');
+  const configurationUrl = optionString(options, 'configuration-url');
+  if (configurationUrl != null && repositoryUrl == null) throw new SingularityFlowError(
+    '--configuration-url requires --repository-url for session candidates.',
+    { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
+  );
+  if (repositoryUrl != null) {
+    if (subcommand !== 'candidates') throw new SingularityFlowError(
+      '--repository-url is available only for session candidates.',
+      { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
+    );
+    const discovered = await discoverRemoteStoryCandidatesByUrl(repositoryUrl, { configurationUrl });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
+      optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
+    ));
+    if (!discovered.items.length) return console.log('No remote Singularity Flow work-item branches were found.');
+    return console.log(table(discovered.items, [
+      { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' },
+      { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
+      { key: 'commit', label: 'REMOTE COMMIT' }
+    ]));
+  }
   if (subcommand === 'workspace') {
     const registry = workspaceRegistryFile();
     const selectionFile = activeWorkspaceFile();
@@ -9584,9 +9593,11 @@ async function sessionCommand(positionals, options) {
   const resolved = await resolveSessionRepository();
   const root = resolved.root;
   if (!root) {
-    if (subcommand === 'attach') {
+    if (subcommand === 'attach' || subcommand === 'candidates') {
       throw new SingularityFlowError(
-        `Cannot attach a Story because no governed repository is active. ${resolved.detail}`,
+        subcommand === 'attach'
+          ? `Cannot attach a Story because no governed repository is active. ${resolved.detail}`
+          : `Cannot discover Stories because no governed delivery repository is active. ${resolved.detail}`,
         { code: 'SESSION_REPOSITORY_REQUIRED' }
       );
     }
@@ -9658,21 +9669,12 @@ async function sessionCommand(positionals, options) {
     return;
   }
   if (subcommand === 'candidates') {
-    const remote = discovery.remote;
-    await fetchRemote(root, remote);
-    const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
-    const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
-    const candidates = [];
-    for (const subject of subjectIndex.list('story')) {
-      try {
-        const workflow = subject.state;
-        validatedRemoteStoryDefinition(root, subject.location.ref, subject);
-        candidates.push({ id: subject.id, branch: subject.canonicalBranch, title: workflow.workItem.title, status: workflow.status, phase: workflow.currentPhase, commit: subject.location.commit?.slice(0, 8) ?? '' });
-      } catch { /* A malformed remote workflow is not selectable. */ }
-    }
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(candidates, null, 2));
-    if (!candidates.length) return console.log(`No remote Singularity Flow work-item branches were found on ${remote}.`);
-    return console.log(table(candidates, [
+    const discovered = await discoverRemoteStoryCandidates(root, config, { remote: discovery.remote });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
+      optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
+    ));
+    if (!discovered.items.length) return console.log(`No remote Singularity Flow work-item branches were found on ${discovered.remote}.`);
+    return console.log(table(discovered.items, [
       { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
       { key: 'commit', label: 'REMOTE COMMIT' }
     ]));

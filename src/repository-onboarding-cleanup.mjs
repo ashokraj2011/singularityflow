@@ -28,7 +28,8 @@ const OWNED_PREFIXES = Object.freeze([
   'sflow-onboarding-proposal-',
   'sflow-onboarding-configuration-',
   'sflow-onboarding-candidate-',
-  'sflow-lead-map-'
+  'sflow-lead-map-',
+  'sflow-story-discovery-'
 ]);
 const RECORD_NAME = /^[0-9a-f]{64}\.json$/u;
 const MAX_RECORD_BYTES = 8 * 1024;

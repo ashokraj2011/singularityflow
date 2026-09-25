@@ -36,6 +36,12 @@ Open the Singularity Flow activity-bar icon and expand **Workspaces**.
 Clicking a workspace marks it **working here** and refreshes Lifecycle, Inbox, and
 Configuration in the current window. It does not open another VS Code instance.
 Opening a repository folder is a separate explicit command.
+The Story inventory also checks the mapped repositories for published remote Story
+branches. Use **Inbox → Refresh Stories** to repeat that check after work was pushed
+from another laptop. A repository that has not been cloned may contribute a
+remote-only Story listing, but that Story cannot be attached until the repository
+is materialized or repaired locally. A failed remote check is reported as partial
+coverage, not as an empty Story list.
 
 Expand the selected workspace or open its details page to see:
 
@@ -70,6 +76,9 @@ When **Map a capability** recognizes a Git URL that is already onboarded, choose
 capability to a workspace**. Select a workspace and use its Attach menu; the existing checkout is
 reused, or the approved URL is cloned again if it was previously dropped. Mapping is not repeated
 and the application main branch is never changed.
+Mapping or attaching refreshes the selected workspace's Story inventory without
+switching a worktree branch. The other laptop must have pushed its Story branch:
+uncommitted or unpushed Story state cannot be recovered from the remote.
 
 Name edits remain separate from capability transitions. An edit cannot silently move a workspace
 or change a clone URL. Choose **Copy workspace** when the directory itself must change.

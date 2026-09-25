@@ -359,16 +359,19 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     }, ...(active ? [active] : []), ...(archived ? [archived] : []), ...(cancelled ? [cancelled] : []), workspaceImpact];
   }
 
-  // Workflow selection belongs to intake. Once work exists, Lifecycle shows only that work and its
-  // phases; showing every other configured workflow beside it made Configuration and Lifecycle look
-  // like duplicate workflow browsers.
+  // Workflow selection belongs to intake. Lifecycle keeps the selected Initiative or Epic and its
+  // phases in focus while retaining direct access to Stories from sibling branches.
+  const active = activeStoryArchive(snapshot);
+  const cancelled = cancelledStoryArchive(snapshot);
   if (initiative.state.status === 'complete') {
     const completed = completedInitiativeNode(initiative);
     const stories = completedStorySummaries(snapshot);
-    return [completedFolder([completed, ...stories], countArtifacts(completed)), workspaceImpact];
+    return [completedFolder([completed, ...stories], countArtifacts(completed)),
+      ...(active ? [active] : []), ...(cancelled ? [cancelled] : []), workspaceImpact];
   }
   const archived = completedStoryArchive(snapshot);
-  return [initiativeNode(initiative), ...(archived ? [archived] : []), workspaceImpact];
+  return [initiativeNode(initiative), ...(active ? [active] : []),
+    ...(archived ? [archived] : []), ...(cancelled ? [cancelled] : []), workspaceImpact];
 }
 
 /** Active sibling Stories stay selectable even though only one checkout can supply full artifacts. */

@@ -39,12 +39,32 @@ export interface InboxWorkItem {
   groups: Array<{ phase: string; label: string; artifacts: InboxArtifact[] }>;
 }
 
-/** A live Story checkout available from this workspace, including siblings of the selected Story. */
-export interface InboxActiveStory {
+/** A Story discovered in one of the workspace's mapped delivery repositories. */
+export interface WorkspaceStoryCatalogRow {
+  repositoryId: string;
+  repositoryPath: string;
+  /** Original mapped remote when this repository has not been materialized locally. */
+  repositoryUrl?: string | null;
+  id: string;
+  title: string;
+  status: string;
+  currentPhase: string | null;
+  branch: string | null;
+}
+
+/** A Story checkout available from a mapped workspace repository. */
+export interface InboxStory {
   workId: string;
   title: string;
   phase: string;
+  status: string;
+  terminal: boolean;
   current: boolean;
+  repositoryId: string;
+  repositoryPath: string;
+  repositoryUrl: string | null;
+  attachable: boolean;
+  branch: string | null;
 }
 
 export interface Inbox {
@@ -54,8 +74,10 @@ export interface Inbox {
   artifacts: InboxArtifact[];
   /** Generated artifacts grouped by their owning Work ID, then by lifecycle phase. */
   workItems: InboxWorkItem[];
-  /** Every non-terminal Story so the full Inbox can switch checkout without returning to the tree. */
-  activeStories: InboxActiveStory[];
+  /** All discovered Stories, including completed and cancelled work. */
+  stories: InboxStory[];
+  /** Non-terminal Stories retained for consumers needing only work in progress. */
+  activeStories: InboxStory[];
   /** Flattened phase groups retained for callers that only render the active subject. */
   groups: Array<{ phase: string; label: string; artifacts: InboxArtifact[] }>;
   empty: string | null;
@@ -153,12 +175,72 @@ function phaseGroups(
     }));
 }
 
-export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
+const TERMINAL_STORY_STATUSES = new Set(['complete', 'completed', 'cancelled', 'invalid']);
+
+function storiesOf(
+  snapshot: RepositorySnapshot | null,
+  catalog: readonly WorkspaceStoryCatalogRow[],
+  currentRepositoryPath: string
+): InboxStory[] {
+  const selectedWorkId = snapshot?.selectedWorkId ?? snapshot?.workflow?.workItem.id ?? null;
+  const currentCatalog = currentRepositoryPath
+    ? catalog.filter((row) => row.repositoryPath === currentRepositoryPath)
+    : [];
+  const byRepositoryAndId = new Map<string, InboxStory>();
+  const key = (repositoryPath: string, workId: string, repositoryUrl?: string | null, repositoryId?: string) =>
+    `${repositoryPath ? `path:${repositoryPath}` : `remote:${repositoryUrl || repositoryId || ''}`}\u0000${workId}`;
+  for (const item of snapshot?.workItems ?? []) {
+    const catalogRow = currentCatalog.find((row) => row.id === item.id);
+    byRepositoryAndId.set(key(currentRepositoryPath, item.id), {
+      workId: item.id,
+      title: item.title ?? catalogRow?.title ?? item.id,
+      phase: String(item.currentPhase ?? item.status ?? 'active').replaceAll('_', ' '),
+      status: String(item.status ?? 'active').replaceAll('_', ' '),
+      terminal: TERMINAL_STORY_STATUSES.has(String(item.status)),
+      current: item.id === selectedWorkId,
+      repositoryId: catalogRow?.repositoryId ?? 'Current repository',
+      repositoryPath: currentRepositoryPath,
+      repositoryUrl: catalogRow?.repositoryUrl ?? null,
+      attachable: true,
+      branch: catalogRow?.branch ?? item.branch ?? null
+    });
+  }
+  for (const row of catalog) {
+    if (!row.id) continue;
+    const identity = key(row.repositoryPath, row.id, row.repositoryUrl, row.repositoryId);
+    if (byRepositoryAndId.has(identity)) continue;
+    byRepositoryAndId.set(identity, {
+      workId: row.id,
+      title: row.title || row.id,
+      phase: String(row.currentPhase || row.status || 'active').replaceAll('_', ' '),
+      status: String(row.status || 'active').replaceAll('_', ' '),
+      terminal: TERMINAL_STORY_STATUSES.has(String(row.status)),
+      current: Boolean(row.repositoryPath) && row.repositoryPath === currentRepositoryPath && row.id === selectedWorkId,
+      repositoryId: row.repositoryId || row.repositoryPath || row.repositoryUrl || 'Mapped repository',
+      repositoryPath: row.repositoryPath,
+      repositoryUrl: row.repositoryUrl ?? null,
+      attachable: Boolean(row.repositoryPath),
+      branch: row.branch
+    });
+  }
+  return [...byRepositoryAndId.values()].sort((left, right) => Number(left.terminal) - Number(right.terminal)
+    || Number(right.current) - Number(left.current)
+    || left.repositoryId.localeCompare(right.repositoryId)
+    || left.workId.localeCompare(right.workId));
+}
+
+export function buildInbox(
+  snapshot: RepositorySnapshot | null,
+  catalog: readonly WorkspaceStoryCatalogRow[] = [],
+  currentRepositoryPath = ''
+): Inbox {
   const approvals = buildApprovals(snapshot);
+  const stories = storiesOf(snapshot, catalog, currentRepositoryPath);
+  const activeStories = stories.filter((story) => !story.terminal);
   if (!snapshot) {
     return {
-      subjectId: '', subjectLabel: '', approvals, artifacts: [], workItems: [], activeStories: [], groups: [],
-      empty: 'Reading the repository…'
+      subjectId: '', subjectLabel: '', approvals, artifacts: [], workItems: [], stories, activeStories, groups: [],
+      empty: stories.length ? null : 'Reading the repository…'
     };
   }
 
@@ -209,16 +291,6 @@ export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
 
   const subjectId = initiativeId || storyId;
   const subjectLabel = initiativeId ? initiativeLabel : storyLabel;
-  const activeStories = (snapshot.workItems ?? [])
-    .filter((item) => !['complete', 'completed', 'cancelled', 'invalid'].includes(String(item.status)))
-    .map((item): InboxActiveStory => ({
-      workId: item.id,
-      title: item.title ?? item.id,
-      phase: String(item.currentPhase ?? item.status ?? 'active').replaceAll('_', ' '),
-      current: item.id === (snapshot.selectedWorkId ?? snapshot.workflow?.workItem.id)
-    }))
-    .sort((left, right) => Number(right.current) - Number(left.current)
-      || left.workId.localeCompare(right.workId));
   const workItems = [...byWorkId.entries()].map(([workId, entries]): InboxWorkItem => {
     const source = entries[0]?.source ?? 'story';
     return {
@@ -246,49 +318,75 @@ export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
     approvals,
     artifacts,
     workItems,
+    stories,
     activeStories,
     groups,
-    empty: subjectId || artifacts.length || approvals.pending.length || activeStories.length
+    empty: subjectId || artifacts.length || approvals.pending.length || stories.length
       ? null
       : 'Nothing governed is checked out on this branch.'
   };
 }
 
 /** A compact sidebar index. The full card-and-document view opens from its first row. */
-export function buildInboxTree(snapshot: RepositorySnapshot | null, error?: Error | null): TreeNode[] {
+export function buildInboxTree(
+  snapshot: RepositorySnapshot | null,
+  error?: Error | null,
+  catalog: readonly WorkspaceStoryCatalogRow[] = [],
+  currentRepositoryPath = '',
+  catalogIssue: string | null = null
+): TreeNode[] {
+  const refreshStories: TreeNode = {
+    kind: 'action', id: 'inbox:refresh-stories', label: 'Refresh Stories',
+    description: 'fetch remote Story branches', icon: 'refresh', runCommand: 'singularityFlow.refresh'
+  };
+  const discoveryWarning: TreeNode[] = catalogIssue ? [{
+    kind: 'message', id: 'inbox:story-discovery-issue', label: 'Story list may be incomplete',
+    description: catalogIssue, icon: 'warning',
+    tooltip: `${catalogIssue}\nUse Refresh Stories to retry discovery.`
+  }] : [];
   if (error) return [{
     kind: 'message', id: 'inbox:error', label: error.message, icon: 'error',
     tooltip: 'The inbox could not read the governed repository.'
-  }];
-  const inbox = buildInbox(snapshot);
-  if (!snapshot) return [{ kind: 'message', id: 'inbox:loading', label: 'Reading the inbox…', icon: 'loading~spin' }];
+  }, ...discoveryWarning, refreshStories];
+  const inbox = buildInbox(snapshot, catalog, currentRepositoryPath);
+  if (!snapshot && !inbox.stories.length) {
+    return catalogIssue
+      ? [...discoveryWarning, refreshStories]
+      : [{ kind: 'message', id: 'inbox:loading', label: 'Reading the inbox…', icon: 'loading~spin' }];
+  }
+  if (inbox.empty && catalogIssue) return [...discoveryWarning, refreshStories];
   if (inbox.empty) return [{
     kind: 'action', id: 'inbox:empty', label: inbox.empty, description: 'start intake first',
     icon: 'inbox', runCommand: 'singularityFlow.startWork'
-  }];
+  }, refreshStories];
 
   const yours = inbox.approvals.pending.filter((approval) => approval.standing === 'yours').length;
-  const activeStories = (snapshot.workItems ?? [])
-    .filter((item) => !['complete', 'completed', 'cancelled', 'invalid'].includes(String(item.status)))
-    .sort((left, right) => left.id.localeCompare(right.id));
-  return [{
+  const stories = inbox.stories;
+  return [...discoveryWarning, {
     kind: 'action', id: 'inbox:open', label: 'Open business inbox',
     description: `${yours} waiting · ${inbox.artifacts.length} generated`,
     tooltip: 'Review decisions and every generated artifact in one place.',
     icon: yours ? 'bell-dot' : 'inbox', runCommand: 'singularityFlow.openInbox'
-  }, ...(activeStories.length ? [{
-    kind: 'group' as const, id: 'inbox:active-stories', label: 'Active Stories',
-    description: String(activeStories.length), icon: 'list-tree',
-    tooltip: 'Select a Story to open its isolated checkout and load its generated artifacts.',
-    children: activeStories.map((item) => ({
-      kind: 'story' as const, id: `inbox:active-story:${item.id}`, label: item.id,
-      description: item.id === snapshot.selectedWorkId
-        ? `${item.currentPhase ?? item.status ?? 'active'} · current`
-        : String(item.currentPhase ?? item.status ?? 'active').replaceAll('_', ' '),
-      tooltip: `${item.title ?? item.id}\nSelect to synchronize and open this Story checkout.`,
-      icon: item.id === snapshot.selectedWorkId ? 'check' : 'statusCurrent',
-      command: ['session', 'attach', item.id], runCommand: 'singularityFlow.runAction',
-      contextValue: 'sflow.story.active.summary'
+  }, ...(stories.length ? [{
+    kind: 'group' as const, id: 'inbox:active-stories', label: 'Workspace Stories',
+    description: String(stories.length), icon: 'list-tree',
+    tooltip: 'Open a materialized Story checkout. Remote-only Stories need their repository materialized first.',
+    children: stories.map((item) => ({
+      kind: 'story' as const,
+      id: item.attachable && item.repositoryPath === currentRepositoryPath
+        ? `inbox:active-story:${item.workId}`
+        : `inbox:active-story:${encodeURIComponent(item.repositoryPath || item.repositoryUrl || item.repositoryId)}:${item.workId}`,
+      label: item.workId,
+      description: `${item.repositoryId} · ${item.phase}${item.terminal ? ` · ${item.status}` : ''}${item.current ? ' · current' : ''}${item.attachable ? '' : ' · materialize to open'}`,
+      tooltip: `${item.title}\n${item.repositoryPath || item.repositoryUrl || item.repositoryId}\n${item.status}\n${item.attachable
+        ? 'Select to synchronize and open this Story checkout.'
+        : 'Materialize repository to open this Story.'}`,
+      icon: item.attachable ? item.current ? 'check' : 'statusCurrent' : 'warning',
+      ...(item.attachable ? {
+        command: ['session', 'attach', item.workId], runCommand: 'singularityFlow.runAction',
+        ...(item.repositoryPath !== currentRepositoryPath ? { openPath: item.repositoryPath } : {}),
+        contextValue: 'sflow.story.active.summary'
+      } : { contextValue: 'sflow.story.remote-only' })
     }))
   }] : []), {
     kind: 'group', id: 'inbox:generated', label: 'Generated artifacts',
@@ -309,5 +407,5 @@ export function buildInboxTree(snapshot: RepositorySnapshot | null, error?: Erro
         }))
       }))
     }))
-  }];
+  }, refreshStories];
 }

@@ -2203,6 +2203,30 @@ test('active sibling Stories remain visible and attach to their isolated checkou
   assert.equal(sibling.runCommand, 'singularityFlow.runAction');
 });
 
+test('Stories remain selectable while an Initiative or Epic is checked out', () => {
+  for (const initiativeStatus of ['in_progress', 'complete']) {
+    const selected = structuredClone(snapshot);
+    selected.initiative.state.status = initiativeStatus;
+    selected.workItems = [
+      { id: 'STORY-ACTIVE', title: 'Continue on the other laptop', status: 'in_progress',
+        currentPhase: 'build', branch: 'STORY-ACTIVE' },
+      { id: 'STORY-DONE', title: 'Delivered change', status: 'complete', branch: 'STORY-DONE' },
+      { id: 'STORY-CANCELLED', title: 'Withdrawn change', status: 'cancelled', branch: 'STORY-CANCELLED' }
+    ];
+
+    const tree = buildTree(selected);
+    const active = find(tree, 'active-story-summary:STORY-ACTIVE');
+    assert.equal(find(tree, 'active-stories').description, '1 Story');
+    assert.equal(active.description, 'build · in progress');
+    assert.deepEqual(active.command, ['session', 'attach', 'STORY-ACTIVE']);
+    assert.equal(active.runCommand, 'singularityFlow.runAction');
+    assert.deepEqual(find(tree, 'completed-story-summary:STORY-DONE').command,
+      ['session', 'attach', 'STORY-DONE']);
+    assert.deepEqual(find(tree, 'archived-story-summary:STORY-CANCELLED').command,
+      ['session', 'attach', 'STORY-CANCELLED']);
+  }
+});
+
 test('a completed Initiative is archived with its generated outputs, not active actions', () => {
   const done = structuredClone(snapshot);
   done.initiative.state.status = 'complete';
@@ -3418,7 +3442,7 @@ test('the sidebar and full inbox list active Stories without mixing their artifa
     ['STORY-42', true], ['CFA-STORY', false]
   ]);
   const surface = await readFile(source('views/inbox.ts'), 'utf8');
-  assert.match(surface, /Active Stories/);
+  assert.match(surface, /Workspace Stories/);
   assert.match(surface, /data-story=/);
   assert.match(surface, /aria-current="page"/);
   assert.match(surface, /Open checkout/);

@@ -1,6 +1,8 @@
 /** The business inbox: work needing a decision and every generated artifact. */
 import * as vscode from 'vscode';
-import { buildInbox, type Inbox, type InboxArtifact } from './inbox-model.ts';
+import {
+  buildInbox, type Inbox, type InboxArtifact, type WorkspaceStoryCatalogRow
+} from './inbox-model.ts';
 import { buildApprovals, type PendingApproval } from './approvals-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
@@ -51,26 +53,43 @@ function decisionCards(inbox: Inbox): string {
     </article>`).join('')}</div>`;
 }
 
-function activeStoryCards(inbox: Inbox): string {
-  if (!inbox.activeStories.length) return '';
+function storyCards(inbox: Inbox): string {
+  if (!inbox.stories.length) return '';
   return `<section class="active-story-switcher" aria-labelledby="active-stories-heading">
-    <div class="section-heading"><div><h2 id="active-stories-heading">${icon('story')}Active Stories</h2>
-      <p class="muted">Switching opens the Story's isolated checkout in this window. It does not change another Story.</p></div>
-      <span class="count-badge">${inbox.activeStories.length}</span></div>
-    <div class="active-story-grid">${inbox.activeStories.map((story) => `
+    <div class="section-heading"><div><h2 id="active-stories-heading">${icon('story')}Workspace Stories</h2>
+      <p class="muted">Open a materialized Story's isolated checkout in this window. Remote-only Stories need their repository materialized first.</p></div>
+      <span class="count-badge">${inbox.stories.length}</span></div>
+    <div class="active-story-grid">${inbox.stories.map((story) => `
       <button type="button" class="active-story-card${story.current ? ' current' : ''}"
-        data-story="${escape(story.workId)}"${story.current ? ' aria-current="page"' : ''}>
+        data-story="${escape(story.workId)}" data-repository-path="${escape(story.repositoryPath)}"${story.current ? ' aria-current="page"' : ''}${story.attachable ? '' : ' disabled aria-disabled="true"'}>
         <span class="active-story-title">${icon(story.current ? 'statusCurrent' : 'story')}${escape(story.workId)}</span>
-        <span class="active-story-phase">${escape(story.phase)}</span>
+        <span class="active-story-phase">${escape(story.repositoryId)} · ${escape(story.phase)}${story.terminal ? ` · ${escape(story.status)}` : ''}</span>
         <small>${escape(story.title)}</small>
-        <span class="active-story-action">${story.current ? 'Current checkout' : 'Open checkout'}${icon('next')}</span>
+        ${story.attachable
+    ? `<span class="active-story-action">${story.current ? 'Current checkout' : 'Open checkout'}${icon('next')}</span>`
+    : '<small>Materialize repository to open</small>'}
       </button>`).join('')}</div>
   </section>`;
 }
 
-export function inboxHtml(inbox: Inbox): string {
+export interface InboxRefreshState {
+  refreshing: boolean;
+  error: string | null;
+}
+
+function refreshStoriesControl({ refreshing, error }: InboxRefreshState): string {
+  return `<div class="inbox-refresh">
+    <button type="button" class="secondary" data-refresh-stories${refreshing ? ' disabled aria-busy="true"' : ''}>
+      ${icon('refresh')}${refreshing ? 'Checking for Stories…' : error ? 'Retry Story refresh' : 'Refresh Stories'}
+    </button>
+    ${error ? `<p class="warning-text" role="alert">Story list may be incomplete: ${escape(error)}</p>` : ''}
+  </div>`;
+}
+
+export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshing: false, error: null }): string {
   if (inbox.empty) return `<div class="brand-lockup"><strong>SINGULARITY</strong><span>FLOW</span></div>
-    <header><h1>${icon('approval', { size: 20 })}Inbox</h1></header><div class="empty"><p>${escape(inbox.empty)}</p></div>`;
+    <header class="inbox-header"><h1>${icon('approval', { size: 20 })}Inbox</h1>${refreshStoriesControl(refresh)}</header>
+    <div class="empty"><p>${refresh.error ? 'No Stories are confirmed yet. Use Refresh Stories to retry discovery.' : escape(inbox.empty)}</p></div>`;
   const yours = inbox.approvals.pending.filter((approval) => approval.standing === 'yours').length;
   const other = inbox.approvals.pending.length - yours;
   const approved = inbox.artifacts.filter((artifact) => artifact.status === 'approved').length;
@@ -79,6 +98,7 @@ export function inboxHtml(inbox: Inbox): string {
     <header class="inbox-header">
       <div><span class="eyebrow">BUSINESS WORKSPACE</span><h1>${icon('approval', { size: 20 })}Inbox</h1>
       <p class="meta">${escape(inbox.subjectId)}${inbox.subjectLabel && inbox.subjectLabel !== inbox.subjectId ? ` · ${escape(inbox.subjectLabel)}` : ''}</p></div>
+      ${refreshStoriesControl(refresh)}
     </header>
     <div class="summary-grid">
       <div class="summary-card important"><strong>${yours}</strong><span>Waiting for you</span></div>
@@ -86,7 +106,7 @@ export function inboxHtml(inbox: Inbox): string {
       <div class="summary-card"><strong>${approved}</strong><span>Approved</span></div>
       <div class="summary-card"><strong>${other}</strong><span>With other reviewers</span></div>
     </div>
-    ${activeStoryCards(inbox)}
+    ${storyCards(inbox)}
     <section><div class="section-heading"><h2>${icon('approval')}Needs your attention</h2><span class="count-badge">${yours}</span></div>${decisionCards(inbox)}</section>
     <section><div class="section-heading"><h2>${icon('document')}Everything generated</h2><span class="count-badge">${inbox.artifacts.length}</span></div>
       <p class="muted">Every existing governed output across every phase. Open any card to inspect the exact committed file.</p>${artifactRows(inbox)}</section>`;
@@ -95,9 +115,12 @@ export function inboxHtml(inbox: Inbox): string {
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-story],[data-artifact],[data-approve],[data-reject],[data-open-approval]');
+    const target = event.target.closest('[data-refresh-stories],[data-story],[data-artifact],[data-approve],[data-reject],[data-open-approval]');
     if (!target) return;
-    if (target.dataset.story) vscode.postMessage({ type: 'attach-story', id: target.dataset.story });
+    if (target.hasAttribute('data-refresh-stories')) vscode.postMessage({ type: 'refresh-stories' });
+    else if (target.dataset.story) vscode.postMessage({
+      type: 'attach-story', id: target.dataset.story, repositoryPath: target.dataset.repositoryPath || ''
+    });
     else if (target.dataset.artifact) vscode.postMessage({ type: 'open-artifact', id: target.dataset.artifact });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.reject) vscode.postMessage({ type: 'reject', id: target.dataset.reject });
@@ -106,7 +129,8 @@ const SCRIPT = `
 `;
 
 export type InboxMessage =
-  | { type: 'attach-story'; workId: string }
+  | { type: 'refresh-stories' }
+  | { type: 'attach-story'; workId: string; repositoryPath: string }
   | { type: 'open-artifact'; artifact: InboxArtifact }
   | { type: 'approve'; approval: PendingApproval }
   | { type: 'reject'; approval: PendingApproval }
@@ -114,18 +138,33 @@ export type InboxMessage =
 
 export class InboxPanel {
   private static current: InboxPanel | null = null;
+  private readonly panel: vscode.WebviewPanel;
+  private readonly store: WorkspaceStore;
+  private readonly storyCatalog: () => readonly WorkspaceStoryCatalogRow[];
+  private readonly repositoryPath: () => string | null;
+  private readonly catalogIssue: () => string | null;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
+  private refreshingStories = false;
+  private refreshError: string | null = null;
 
   private constructor(
-    private readonly panel: vscode.WebviewPanel,
-    private readonly store: WorkspaceStore,
-    onMessage: (message: InboxMessage) => void
+    panel: vscode.WebviewPanel,
+    store: WorkspaceStore,
+    onMessage: (message: InboxMessage) => Promise<void> | void,
+    storyCatalog: () => readonly WorkspaceStoryCatalogRow[],
+    repositoryPath: () => string | null,
+    catalogIssue: () => string | null
   ) {
+    this.panel = panel;
+    this.store = store;
+    this.storyCatalog = storyCatalog;
+    this.repositoryPath = repositoryPath;
+    this.catalogIssue = catalogIssue;
     this.subscription = store.onDidChange(() => this.render());
     /**
-     * The four messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     * The messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
      *
      * Both lookups are unchanged: the page names an id and the snapshot says which artifact or
      * approval that is. Note they are *different* collections keyed by the same field name — an id
@@ -137,10 +176,28 @@ export class InboxPanel {
       return id ? buildApprovals(store.current.snapshot).pending.find((item) => item.id === id) ?? null : null;
     };
     const router = registerMessageRouter('singularityFlow.inbox', {
+      'refresh-stories': () => {
+        if (this.refreshingStories) return;
+        this.refreshingStories = true;
+        this.refreshError = null;
+        this.render();
+        void Promise.resolve().then(() => onMessage({ type: 'refresh-stories' })).then(() => {
+          if (this.disposed) return;
+          this.refreshingStories = false;
+          this.render();
+        }).catch((error: unknown) => {
+          if (this.disposed) return;
+          this.refreshingStories = false;
+          this.refreshError = error instanceof Error ? error.message : String(error);
+          this.render();
+        });
+      },
       'attach-story': (message) => {
         const workId = stringField(message, 'id');
-        const exists = buildInbox(store.current.snapshot).activeStories.some((item) => item.workId === workId);
-        if (workId && exists) onMessage({ type: 'attach-story', workId });
+        const repositoryPath = typeof message.repositoryPath === 'string' ? message.repositoryPath : '';
+        const exists = this.currentInbox().stories.some((item) =>
+          item.workId === workId && item.repositoryPath === repositoryPath && item.attachable);
+        if (workId && exists) onMessage({ type: 'attach-story', workId, repositoryPath });
       },
       'open-artifact': (message) => {
         const id = stringField(message, 'id');
@@ -165,7 +222,14 @@ export class InboxPanel {
     this.render();
   }
 
-  static show(context: vscode.ExtensionContext, store: WorkspaceStore, onMessage: (message: InboxMessage) => void): InboxPanel {
+  static show(
+    context: vscode.ExtensionContext,
+    store: WorkspaceStore,
+    onMessage: (message: InboxMessage) => Promise<void> | void,
+    storyCatalog: () => readonly WorkspaceStoryCatalogRow[] = () => [],
+    repositoryPath: () => string | null = () => null,
+    catalogIssue: () => string | null = () => null
+  ): InboxPanel {
     if (InboxPanel.current) {
       InboxPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return InboxPanel.current;
@@ -174,13 +238,29 @@ export class InboxPanel {
       enableScripts: true, retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
     });
-    InboxPanel.current = new InboxPanel(panel, store, onMessage);
+    InboxPanel.current = new InboxPanel(panel, store, onMessage, storyCatalog, repositoryPath, catalogIssue);
     return InboxPanel.current;
+  }
+
+  static refreshCurrent(): void {
+    const current = InboxPanel.current;
+    if (!current) return;
+    // This method is called after catalog discovery, including automatic runs. A newly confirmed
+    // complete catalog clears an older explicit-refresh error even if the user did not click Retry.
+    if (!current.catalogIssue()) current.refreshError = null;
+    current.render();
+  }
+
+  private currentInbox(): Inbox {
+    return buildInbox(this.store.current.snapshot, this.storyCatalog(), this.repositoryPath() ?? '');
   }
 
   private render(): void {
     const token = nonce();
-    this.panel.webview.html = page('Inbox', inboxHtml(buildInbox(this.store.current.snapshot)),
+    this.panel.webview.html = page('Inbox', inboxHtml(this.currentInbox(), {
+      refreshing: this.refreshingStories,
+      error: this.refreshError ?? this.catalogIssue()
+    }),
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 

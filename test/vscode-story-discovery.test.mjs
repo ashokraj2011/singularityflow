@@ -62,7 +62,7 @@ test('Story discovery reports malformed workspace inventory instead of silently 
   assert.match(result.issues[0].message, /no stable ID, local path, or remote URL/);
 });
 
-test('deferred repository Stories are visible from approved remote metadata but not attachable yet', async () => {
+test('deferred repository Stories retain their mapped URL for explicit attach and materialization', async () => {
   let observedConfigurationUrl = null;
   const result = await discoverWorkspaceStoryRows([
     { id: 'deferred', absolutePath: '/workspace/repos/deferred', state: 'missing',

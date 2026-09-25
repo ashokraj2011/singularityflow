@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { bootstrapRepository } from '../src/bootstrap.mjs';
+import { createWorkspaceConfiguration, rememberWorkspace } from '../src/workspace.mjs';
 import { isStoryDiscoveryBranch } from '../src/session-remote-url-discovery.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -320,6 +321,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   });
   assert.equal(partialCandidates.status, 0, partialCandidates.stderr);
   const partialDiscovery = JSON.parse(partialCandidates.stdout);
+  assert.equal(partialDiscovery.source, 'materialized-metadata-recovery');
   assert.ok(partialDiscovery.items.some((item) => item.id === 'BOOT-101'));
   assert.equal(partialDiscovery.unavailable.some((item) => item.branch?.startsWith('sflow/')), false);
   assert.equal(run('git', ['rev-parse', 'HEAD'], partial).stdout.trim(), partialHead);
@@ -327,6 +329,89 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   assert.notEqual(spawnSync('git', ['cat-file', '-e', 'HEAD:README.md'], {
     cwd: partial, encoding: 'utf8', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }
   }).status, 0, 'Story metadata discovery must not fetch the application README blob');
+
+  // The same metadata-only candidate must be attachable. Attach admits the exact pinned Story
+  // blobs before switching, rather than treating a partial local index as "no governed Story".
+  // --no-checkout deliberately left the worktree unpopulated (and therefore dirty). Materialize
+  // only the governed sparse cone so attach's ordinary clean-tree protection can remain strict.
+  run('git', ['sparse-checkout', 'init', '--cone'], partial);
+  run('git', ['sparse-checkout', 'set', 'singularity'], partial);
+  run('git', ['restore', '--source=HEAD', '--staged', '--worktree', '--', 'README.md'], partial);
+  identity(partial, 'Partial Clone Contributor');
+  const partialAttached = JSON.parse(run(process.execPath, [
+    bin, 'session', 'attach', 'BOOT-101', '--json'
+  ], partial, {
+    ...process.env, NODE_ENV: 'test',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Partial Clone Contributor',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'partial-workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'partial-selection.json')
+  }).stdout);
+  assert.equal(partialAttached.workId, 'BOOT-101');
+  assert.equal(run('git', ['branch', '--show-current'], partial).stdout.trim(), 'BOOT-101');
+  assert.equal(partialAttached.commit, run('git', ['rev-parse', 'HEAD'], partial).stdout.trim());
+
+  // An explicitly selected deferred workspace repository is discoverable without a clone. An
+  // unknown Story must not clone it; the exact published Story may materialize only that member.
+  const deferred = await createWorkspaceConfiguration({
+    baseDirectory: path.join(base, 'deferred-workspaces'),
+    id: 'handoff-workspace', name: 'Handoff workspace', leadRepository: 'application',
+    repositories: {
+      application: {
+        url: pathToFileURL(remote).href, defaultBranch: 'main',
+        path: 'repos/application', required: true
+      },
+      reference: {
+        url: pathToFileURL(remote).href, defaultBranch: 'main',
+        path: 'repos/reference', required: false
+      }
+    }, capabilities: []
+  }, { confirmation: 'handoff-workspace', clone: false });
+  const deferredRegistry = path.join(base, 'deferred-registry.json');
+  await rememberWorkspace(deferredRegistry, deferred.workspace, deferred.status);
+  const deferredEnv = {
+    ...process.env, NODE_ENV: 'test',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Deferred Workspace Contributor',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: deferredRegistry,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'deferred-selection.json')
+  };
+  const selector = [
+    '--workspace', deferred.workspace.path, '--repository', 'application'
+  ];
+  const deferredRepository = path.join(deferred.workspace.path, 'repos/application');
+  const unselectedRepository = path.join(deferred.workspace.path, 'repos/reference');
+  const ambiguousSelector = spawnSync(process.execPath, [bin,
+    'session', 'candidates', '--workspace', deferred.workspace.path, '--json'
+  ], { cwd: base, encoding: 'utf8', env: deferredEnv });
+  assert.notEqual(ambiguousSelector.status, 0);
+  assert.match(ambiguousSelector.stderr, /--repository <ID>/);
+  const deferredCandidates = JSON.parse(run(process.execPath, [bin,
+    'session', 'candidates', ...selector, '--json', '--diagnostics'
+  ], base, deferredEnv).stdout);
+  assert.equal(deferredCandidates.source, 'remote-url');
+  assert.ok(deferredCandidates.items.some((item) => item.id === 'BOOT-101'));
+  const unknownDeferred = spawnSync(process.execPath, [bin,
+    'session', 'attach', 'NOT-A-STORY', ...selector, '--json'
+  ], { cwd: base, encoding: 'utf8', env: deferredEnv });
+  assert.notEqual(unknownDeferred.status, 0);
+  assert.equal(spawnSync('git', ['-C', deferredRepository, 'rev-parse', '--is-inside-work-tree'], {
+    cwd: base, encoding: 'utf8'
+  }).status, 128, 'an unknown Story must not materialize the selected repository');
+  const malformedDeferred = spawnSync(process.execPath, [bin,
+    'session', 'attach', 'BROKEN', ...selector, '--json'
+  ], { cwd: base, encoding: 'utf8', env: deferredEnv });
+  assert.notEqual(malformedDeferred.status, 0);
+  assert.equal(spawnSync('git', ['-C', deferredRepository, 'rev-parse', '--is-inside-work-tree'], {
+    cwd: base, encoding: 'utf8'
+  }).status, 128, 'a malformed Story must not materialize the selected repository');
+  const deferredAttached = JSON.parse(run(process.execPath, [bin,
+    'session', 'attach', 'BOOT-101', ...selector, '--json'
+  ], base, deferredEnv).stdout);
+  assert.equal(deferredAttached.workId, 'BOOT-101');
+  assert.equal(deferredAttached.repositoryPath, deferredRepository);
+  assert.equal(run('git', ['branch', '--show-current'], deferredRepository).stdout.trim(), 'BOOT-101');
+  assert.equal(spawnSync('git', ['-C', unselectedRepository, 'rev-parse', '--is-inside-work-tree'], {
+    cwd: base, encoding: 'utf8'
+  }).status, 128, 'attaching application must not clone another mapped repository');
 
   run('git', ['clone', '--no-hardlinks', remote, second], base);
   identity(second, 'Second Bootstrap Contributor');

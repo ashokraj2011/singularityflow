@@ -550,6 +550,12 @@ export class SingularityFlowClient {
         || (args[0] === 'workspace' && args[1] === 'branches' && hasOption(args, 'preflight-story'))) {
       return WORK_START_TIMEOUT_MS;
     }
+    // An exact workspace Story attach may materialize one deferred repository before creating or
+    // reusing its isolated checkout. Give the governed clone and Git credential negotiation the
+    // same host budget as other workspace mutations; the engine still bounds each Git operation.
+    if (args[0] === 'session' && args[1] === 'attach' && hasOption(args, 'workspace')) {
+      return WORKSPACE_MUTATION_TIMEOUT_MS;
+    }
     // Validated workspace deletion can move large monorepo checkouts into rollback staging before
     // it commits the reset. The ordinary two-minute UI timeout must not kill that transaction in
     // the middle; the CLI still owns rollback and the panel remains non-shelling.

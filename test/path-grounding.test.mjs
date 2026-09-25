@@ -120,6 +120,7 @@ test('every generated skill boundary forbids home search and uses only its decla
       assert.match(declared, /no Story required; cwd=opened Git root or verified `repositoryPath`/, name);
       assert.match(declared, /from `singularity-flow workspace current --json`/, name);
       assert.match(declared, /refuse if neither resolves/, name);
+      if (name === 'sflow-session') assert.match(declared, /exact selected workspace\/repository is also valid before checkout exists/, name);
       assert.doesNotMatch(declared, /session current|ready.*workId/, name);
     } else if (executionBoundary === 'organisation') {
       assert.match(declared, /no Story or repository required; use only the selected lead URL/, name);

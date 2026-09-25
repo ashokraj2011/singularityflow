@@ -126,20 +126,24 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   assert.match(panel.webview.html, /STORY-9[\s\S]*?completed/);
   assert.match(panel.webview.html, /STORY-10[\s\S]*?cancelled/);
   assert.equal([...panel.webview.html.matchAll(/data-story="STORY-11"/g)].length, 2);
-  assert.match(panel.webview.html, /data-story="STORY-11" data-repository-path="" disabled aria-disabled="true"/);
-  assert.match(panel.webview.html, /Materialize repository to open/);
+  assert.match(panel.webview.html, /data-story="STORY-11" data-repository-id="shipping"/);
+  assert.match(panel.webview.html, /Materialize &amp; open|Materialize & open/);
   assert.ok(panel.webview.html.indexOf('data-story="STORY-8"')
     < panel.webview.html.indexOf('data-story="STORY-9"'),
   'active Stories precede terminal ones');
   click({ target: { closest: () => ({ hasAttribute: () => false,
-    dataset: { story: 'STORY-8', repositoryPath: '/repo/b' } }) } });
-  assert.deepEqual(attached, [{ type: 'attach-story', workId: 'STORY-8', repositoryPath: '/repo/b' }]);
+    dataset: { story: 'STORY-8', repositoryId: 'payments' } }) } });
+  assert.deepEqual(attached, [{ type: 'attach-story', workId: 'STORY-8', repositoryId: 'payments' }]);
   click({ target: { closest: () => ({ hasAttribute: () => false,
-    dataset: { story: 'STORY-8', repositoryPath: '/repo/unknown' } }) } });
+    dataset: { story: 'STORY-8', repositoryId: 'unknown' } }) } });
   assert.equal(attached.length, 1, 'a forged repository route cannot attach a Story');
   click({ target: { closest: () => ({ hasAttribute: () => false,
-    dataset: { story: 'STORY-11', repositoryPath: '' } }) } });
-  assert.equal(attached.length, 1, 'a remote-only Story cannot be attached through a forged message');
+    dataset: { story: 'STORY-11', repositoryId: 'shipping' } }) } });
+  assert.deepEqual(attached[1], { type: 'attach-story', workId: 'STORY-11', repositoryId: 'shipping' },
+    'a known remote-only Story routes through its mapped repository identity');
+  click({ target: { closest: () => ({ hasAttribute: () => false,
+    dataset: { story: 'STORY-11', repositoryId: 'unknown' } }) } });
+  assert.equal(attached.length, 2, 'a forged remote-only repository identity cannot attach');
 
   const tree = buildInboxTree(store.current.snapshot, null, catalog, '/repo/a');
   const model = buildInbox(store.current.snapshot, catalog, '/repo/a');
@@ -147,17 +151,18 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
     ['STORY-7'], 'other repositories provide Story navigation, not invented artifact catalogs');
   assert.equal(model.stories.length, 7);
   assert.equal(model.activeStories.length, 5);
-  assert.equal(buildInbox(null, catalog, '/repo/a').stories.filter((story) => !story.attachable).length, 2,
+  assert.equal(buildInbox(null, catalog, '/repo/a').stories.filter((story) => !story.materialized).length, 2,
     'remote-only Stories remain visible before a local repository snapshot exists');
   const stories = tree.find((node) => node.id === 'inbox:active-stories').children;
   assert.equal(stories.length, 7);
   assert.match(stories.find((node) => node.label === 'STORY-7').description, /current-delivery/);
   assert.equal(stories.find((node) => node.description.startsWith('payments')).openPath, '/repo/b');
   for (const remoteOnly of stories.filter((node) => node.label === 'STORY-11')) {
-    assert.equal(remoteOnly.runCommand, undefined);
-    assert.equal(remoteOnly.command, undefined);
+    assert.equal(remoteOnly.runCommand, 'singularityFlow.runAction');
+    assert.deepEqual(remoteOnly.command, ['session', 'attach', 'STORY-11']);
     assert.equal(remoteOnly.openPath, undefined);
-    assert.match(remoteOnly.description, /materialize to open/);
+    assert.match(remoteOnly.description, /materialize and open/);
+    assert.match(remoteOnly.storyRepositoryId, /shipping|analytics/);
   }
   assert.equal(tree.find((node) => node.id === 'inbox:refresh-stories')?.runCommand,
     'singularityFlow.refresh', 'the sidebar Inbox refresh uses the same remote discovery command');

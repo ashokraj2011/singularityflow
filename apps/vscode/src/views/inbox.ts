@@ -57,17 +57,17 @@ function storyCards(inbox: Inbox): string {
   if (!inbox.stories.length) return '';
   return `<section class="active-story-switcher" aria-labelledby="active-stories-heading">
     <div class="section-heading"><div><h2 id="active-stories-heading">${icon('story')}Workspace Stories</h2>
-      <p class="muted">Open a materialized Story's isolated checkout in this window. Remote-only Stories need their repository materialized first.</p></div>
+      <p class="muted">Open a Story's isolated checkout in this window. Selecting a remote-only Story materializes its mapped repository first.</p></div>
       <span class="count-badge">${inbox.stories.length}</span></div>
     <div class="active-story-grid">${inbox.stories.map((story) => `
       <button type="button" class="active-story-card${story.current ? ' current' : ''}"
-        data-story="${escape(story.workId)}" data-repository-path="${escape(story.repositoryPath)}"${story.current ? ' aria-current="page"' : ''}${story.attachable ? '' : ' disabled aria-disabled="true"'}>
+        data-story="${escape(story.workId)}" data-repository-id="${escape(story.repositoryId)}"${story.current ? ' aria-current="page"' : ''}${story.attachable ? '' : ' disabled aria-disabled="true"'}>
         <span class="active-story-title">${icon(story.current ? 'statusCurrent' : 'story')}${escape(story.workId)}</span>
         <span class="active-story-phase">${escape(story.repositoryId)} · ${escape(story.phase)}${story.terminal ? ` · ${escape(story.status)}` : ''}</span>
         <small>${escape(story.title)}</small>
         ${story.attachable
-    ? `<span class="active-story-action">${story.current ? 'Current checkout' : 'Open checkout'}${icon('next')}</span>`
-    : '<small>Materialize repository to open</small>'}
+    ? `<span class="active-story-action">${story.current ? 'Current checkout' : story.materialized ? 'Open checkout' : 'Materialize &amp; open'}${icon('next')}</span>`
+    : '<small>Repository mapping is unavailable</small>'}
       </button>`).join('')}</div>
   </section>`;
 }
@@ -119,7 +119,7 @@ const SCRIPT = `
     if (!target) return;
     if (target.hasAttribute('data-refresh-stories')) vscode.postMessage({ type: 'refresh-stories' });
     else if (target.dataset.story) vscode.postMessage({
-      type: 'attach-story', id: target.dataset.story, repositoryPath: target.dataset.repositoryPath || ''
+      type: 'attach-story', id: target.dataset.story, repositoryId: target.dataset.repositoryId || ''
     });
     else if (target.dataset.artifact) vscode.postMessage({ type: 'open-artifact', id: target.dataset.artifact });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
@@ -130,7 +130,7 @@ const SCRIPT = `
 
 export type InboxMessage =
   | { type: 'refresh-stories' }
-  | { type: 'attach-story'; workId: string; repositoryPath: string }
+  | { type: 'attach-story'; workId: string; repositoryId: string }
   | { type: 'open-artifact'; artifact: InboxArtifact }
   | { type: 'approve'; approval: PendingApproval }
   | { type: 'reject'; approval: PendingApproval }
@@ -194,10 +194,10 @@ export class InboxPanel {
       },
       'attach-story': (message) => {
         const workId = stringField(message, 'id');
-        const repositoryPath = typeof message.repositoryPath === 'string' ? message.repositoryPath : '';
+        const repositoryId = typeof message.repositoryId === 'string' ? message.repositoryId : '';
         const exists = this.currentInbox().stories.some((item) =>
-          item.workId === workId && item.repositoryPath === repositoryPath && item.attachable);
-        if (workId && exists) onMessage({ type: 'attach-story', workId, repositoryPath });
+          item.workId === workId && item.repositoryId === repositoryId && item.attachable);
+        if (workId && exists) onMessage({ type: 'attach-story', workId, repositoryId });
       },
       'open-artifact': (message) => {
         const id = stringField(message, 'id');

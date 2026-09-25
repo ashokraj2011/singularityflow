@@ -34,8 +34,9 @@ import {
 } from './views/submission-presentation.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
-import { buildInboxTree, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
+import { buildInbox, buildInboxTree, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
 import { discoverWorkspaceStoryRows, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
+import { sameStoryAttachPath, selectedCatalogStory, verifiedWorkspaceStoryRepository } from './story-attach.ts';
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
 import type { DesignerMessage } from './views/designer.ts';
@@ -4465,6 +4466,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let readiness: CapabilityReadiness = {};
   let workspaceStoryCatalog: WorkspaceStoryCatalogRow[] = [];
   let workspaceStoryCatalogIssue: string | null = null;
+  let workspaceStoryCatalogWorkspacePath: string | null = null;
   let configurationTree: LifecycleTreeProvider | null = null;
   const refreshReadiness = async (force = false): Promise<void> => {
     // Readiness is a remote projection of an approved capability map. A plain governed repository
@@ -4573,6 +4575,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
         if (!repositoryEpoch.isCurrent(scope)) return;
         workspaceStoryCatalog = catalog.stories;
+        workspaceStoryCatalogWorkspacePath = current.active ? current.workspacePath ?? null : null;
         if (catalog.issues.length) issue = `Story discovery is incomplete: ${catalog.issues.map((entry) =>
           `${entry.repositoryId}: ${entry.message}`).join(' | ')}`;
       } catch (error) {
@@ -4799,6 +4802,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     repository = canonicalTarget;
     workspaceStoryCatalog = [];
     workspaceStoryCatalogIssue = null;
+    workspaceStoryCatalogWorkspacePath = null;
     resultPanelRepositoryChanged(canonicalTarget);
     client.useRepository(canonicalTarget);
     watchGovernedRepository(canonicalTarget, targetGitCommonDirectory);
@@ -4983,12 +4987,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // the window to the checkout the engine proved. The CLI still owns fetching and validation.
     if (argv[0] === 'session' && argv[1] === 'attach') {
       try {
-        const args = argv.includes('--json') ? argv : [...argv, '--json'];
-        // A workspace Inbox may list Stories from another mapped delivery repository. Bind the
-        // attach command to the exact verified repository the user selected, not the current tab.
-        const attachmentRoot = node.openPath
-          ? await validateRepositoryDirectory(node.openPath, { signal: extensionLifetime.signal })
-          : repository;
+        let args = argv.includes('--json') ? argv : [...argv, '--json'];
+        // A Story card carries only its repository ID. Resolve it against the extension's trusted
+        // catalog, then the current workspace manifest. Never accept a webview path as a clone or
+        // checkout target, and never fall back to the current tab for a deferred repository.
+        const catalogStory = node.storyRepositoryId
+          ? selectedCatalogStory(workspaceStoryCatalog, {
+            workId: argv[2] ?? '', repositoryId: node.storyRepositoryId
+          }) : null;
+        let attachmentRoot: string;
+        if (catalogStory) {
+          const current = await activeSelectionClient.run<{
+            active?: boolean; workspaceId?: string; workspacePath?: string;
+          }>(['workspace', 'current', '--json']);
+          if (current.active && current.workspacePath) {
+            if (!workspaceStoryCatalogWorkspacePath
+              || !sameStoryAttachPath(workspaceStoryCatalogWorkspacePath, current.workspacePath)) {
+              throw new Error('Workspace selection changed after Story discovery. Refresh Stories and select it again.');
+            }
+            const status = await activeSelectionClient.run<WorkspaceStatus>([
+              'workspace', 'status', current.workspacePath, '--level', 'readiness', '--json'
+            ]);
+            verifiedWorkspaceStoryRepository(catalogStory, current, status);
+            // The CLI preflights the exact remote Story before materializing this one mapped
+            // repository. Explicit selectors avoid changing machine-wide workspace selection or
+            // accidentally resolving the same Story ID in a different open checkout.
+            args = [...args, '--workspace', status.workspace.path,
+              '--repository', catalogStory.repositoryId];
+            attachmentRoot = status.workspace.path;
+          } else {
+            if (!catalogStory.repositoryPath) {
+              throw new Error('Select the workspace that owns this remote-only Story, then refresh Stories. No repository was cloned.');
+            }
+            attachmentRoot = await validateRepositoryDirectory(catalogStory.repositoryPath, {
+              signal: extensionLifetime.signal
+            });
+          }
+        } else {
+          attachmentRoot = node.openPath
+            ? await validateRepositoryDirectory(node.openPath, { signal: extensionLifetime.signal })
+            : repository;
+        }
         const attachmentClient = attachmentRoot === repository ? client : new SingularityFlowClient({
           location: client.location, repository: attachmentRoot, environment: cliEnvironment,
           onOutput: (value) => output.append(value)
@@ -5606,9 +5645,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return refreshRemoteStories();
     }
     if (message.type === 'attach-story') {
+      const story = buildInbox(store.current.snapshot, workspaceStoryCatalog, repository).stories
+        .find((item) => item.workId === message.workId && item.repositoryId === message.repositoryId);
+      if (!story || !story.attachable) {
+        showRefusal('This Story is no longer in the workspace Inbox. Refresh Stories and select it again.', {
+          headline: 'Could not attach the selected Story'
+        });
+        return;
+      }
       return runNode({
         kind: 'story', id: `inbox:active-story:${message.workId}`, label: message.workId,
-        command: ['session', 'attach', message.workId], openPath: message.repositoryPath
+        command: ['session', 'attach', message.workId],
+        ...(workspaceStoryCatalog.some((row) => row.id === story.workId
+          && row.repositoryId === story.repositoryId)
+          ? { storyRepositoryId: story.repositoryId }
+          : story.repositoryPath && story.repositoryPath !== repository
+            ? { openPath: story.repositoryPath } : {})
       });
     }
     if (message.type === 'open-artifact') {

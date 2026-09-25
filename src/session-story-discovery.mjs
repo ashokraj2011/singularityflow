@@ -41,7 +41,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       { code: 'SESSION_REMOTE_NOT_CONFIGURED' }
     );
   }
-  if (fetch) await fetchRemote(root, remote);
+  if (fetch) await fetchRemote(root, remote, { respectPartialClone: true });
   const refs = remoteBranches(root, remote)
     .filter(isStoryDiscoveryBranch)
     .map((branch) => ({ branch, ref: `${remote}/${branch}` }));

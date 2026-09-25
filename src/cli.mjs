@@ -23,10 +23,11 @@ import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile }
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, isAncestor, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, removeCleanAttachStagingWorktree, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from './session-story-discovery.mjs';
-import { discoverRemoteStoryCandidatesByUrl } from './session-remote-url-discovery.mjs';
+import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
+import { samePlatformPath } from './story-worktree.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import {
@@ -240,7 +241,7 @@ import {
 } from './story-start-base-configuration.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import {
-  activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile,
+  activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile, buildWorkspaceContext,
   clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext,
   resolveWorkspaceExecutionContext, workspacePromptLabel, workspaceRegistryFile
 } from './workspace-context.mjs';
@@ -9304,7 +9305,7 @@ async function sessionDiscoveryConfiguration(root, authority = null, { storyBoot
     return { definition, remote: definition.git?.remote ?? authority.remote, source: approvedRef };
   }
   if (authority.source === 'configuration-remote') {
-    await fetchRemote(root, authority.remote);
+    await fetchRemote(root, authority.remote, { respectPartialClone: true });
     const definition = definitionAtRef(root, approvedRef);
     if (!definition) {
       throw new SingularityFlowError(
@@ -9329,20 +9330,43 @@ async function sessionDiscoveryConfiguration(root, authority = null, { storyBoot
   );
 }
 
-async function resolveSessionRepository() {
+async function resolveSessionRepository({ workspaceReference = null, repositoryId = null } = {}) {
   const governed = (candidate) => sessionRepositoryAuthority(candidate);
 
-  let cwdRoot = null;
-  try { cwdRoot = repoRoot(); } catch { /* Not inside a Git repository at all. */ }
-  const cwdAuthority = await governed(cwdRoot);
-  if (cwdAuthority) {
-    return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null, authority: cwdAuthority };
+  if (repositoryId != null && workspaceReference == null) throw new SingularityFlowError(
+    '--repository requires --workspace for session candidates or attach.',
+    { code: 'SESSION_WORKSPACE_SELECTION_REQUIRED' }
+  );
+
+  // An exact workspace/repository selector is independent of the host's current directory. In
+  // particular, VS Code may be rooted in a different Story worktree when its Inbox opens a remote
+  // Story from another mapped repository. This read does not change the active local selection.
+  const explicit = workspaceReference == null ? null : await buildWorkspaceContext(
+    workspaceRegistryFile(), workspaceReference, { repositoryId, detectStory: false }
+  );
+  if (explicit && repositoryId == null
+      && Object.keys((await readWorkspace(explicit.workspacePath)).repositories).length > 1) {
+    throw new SingularityFlowError(
+      `Workspace '${explicit.workspaceName}' contains multiple repositories. Choose one with --repository <ID>.`,
+      { code: 'SESSION_REPOSITORY_SELECTION_REQUIRED' }
+    );
   }
 
-  let context = null;
-  try {
-    context = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile());
-  } catch { /* An unreadable or stale selection is a miss, not a failure of the command. */ }
+  let cwdRoot = null;
+  if (!explicit) {
+    try { cwdRoot = repoRoot(); } catch { /* Not inside a Git repository at all. */ }
+    const cwdAuthority = await governed(cwdRoot);
+    if (cwdAuthority) {
+      return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null, authority: cwdAuthority };
+    }
+  }
+
+  let context = explicit;
+  if (!context) {
+    try {
+      context = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile());
+    } catch { /* An unreadable or stale selection is a miss, not a failure of the command. */ }
+  }
 
   if (!context) {
     return {
@@ -9352,15 +9376,18 @@ async function resolveSessionRepository() {
     };
   }
   if (context.repositoryState !== 'ready') {
-    // Never present an unusable clone as an active repository; say what is wrong with it.
+    // Candidates can inspect a deferred repository without cloning. Attach will preflight the
+    // exact Story before materializing only this reviewed workspace member.
     return {
       root: null,
       reason: 'workspace-repository-not-ready',
+      workspaceContext: context,
       detail: `Workspace '${context.workspaceName}' repository '${context.repositoryId}' is ${context.repositoryState}. `
         + `Run \`singularity-flow workspace repair ${context.workspacePath}\`.`
     };
   }
-  const workspaceAuthority = await governed(context.repositoryPath);
+  const workspaceRoot = context.canonicalRepositoryPath ?? context.repositoryPath;
+  const workspaceAuthority = await governed(workspaceRoot);
   if (!workspaceAuthority) {
     return {
       root: null,
@@ -9369,10 +9396,121 @@ async function resolveSessionRepository() {
     };
   }
   return {
-    root: path.resolve(context.repositoryPath),
-    resolvedFrom: 'active-workspace',
+    root: path.resolve(explicit ? workspaceRoot : context.repositoryPath),
+    resolvedFrom: explicit ? 'explicit-workspace' : 'active-workspace',
     workspaceId: context.workspaceId,
-    authority: workspaceAuthority
+    authority: workspaceAuthority,
+    workspaceContext: context
+  };
+}
+
+async function selectedSessionRemote(context) {
+  const workspace = await readWorkspace(context.workspacePath);
+  if (workspace.id !== context.workspaceId) throw new SingularityFlowError(
+    'The selected workspace identity changed before Story discovery. Select the workspace again.',
+    { code: 'SESSION_WORKSPACE_CHANGED' }
+  );
+  const member = workspace.repositories?.[context.repositoryId];
+  if (!member || !samePlatformPath(
+    workspaceRepositoryPath(workspace, member), context.canonicalRepositoryPath
+  )) {
+    throw new SingularityFlowError(
+      'The selected workspace repository changed before Story discovery. Select it again.',
+      { code: 'SESSION_WORKSPACE_CHANGED' }
+    );
+  }
+  const lead = workspace.repositories?.[workspace.leadRepository];
+  const configurationUrl = workspace.capabilityAuthority?.url ?? lead?.url;
+  if (!member.url || !configurationUrl) throw new SingularityFlowError(
+    'The selected workspace does not identify both Story and approved configuration Git authorities.',
+    { code: 'SESSION_REMOTE_CONFIGURATION_REQUIRED' }
+  );
+  return { url: member.url, configurationUrl };
+}
+
+function exactDiscoveredStory(discovery, reference) {
+  const matches = discovery.items.filter((item) => item.id === reference || item.branch === reference);
+  if (matches.length !== 1) throw new SingularityFlowError(
+    matches.length ? `Story reference '${reference}' is ambiguous on the selected remote.`
+      : `No governed Story matches '${reference}' on the selected remote. Refresh Story candidates and choose an exact ID or branch.`,
+    { code: matches.length ? 'SESSION_STORY_AMBIGUOUS' : 'SESSION_STORY_NOT_FOUND' }
+  );
+  if (discovery.unavailable?.some((entry) => entry.claimedId === matches[0].id
+      || entry.branch === matches[0].branch)) throw new SingularityFlowError(
+    `Story '${matches[0].id}' has conflicting or unreadable claims on the selected remote. Repair its governed state before attaching.`,
+    { code: 'SESSION_STORY_INVALID' }
+  );
+  return matches[0];
+}
+
+const SESSION_METADATA_BLOB_LIMIT = 1024 * 1024;
+
+async function exactStoryMetadataAtRef(root, remote, item, expectedCommit = null) {
+  const ref = `${remote}/${item.branch}`;
+  const commit = refHead(root, `refs/remotes/${ref}`);
+  if (!commit || (expectedCommit && commit !== expectedCommit)) throw new SingularityFlowError(
+    `Story branch '${item.branch}' changed after discovery. Refresh candidates and retry.`,
+    { code: 'SESSION_REMOTE_CHANGED' }
+  );
+  const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+  if (!identity.configured || identity.ambiguous) throw new SingularityFlowError(
+    `Story remote '${remote}' has no single configured fetch authority.`,
+    { code: 'GIT_REMOTE_CONFIG_INVALID' }
+  );
+  const readMetadata = async (relative) => {
+    const oid = refHead(root, `${ref}:${relative}`, {
+      env: { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' }
+    });
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(oid ?? '')) throw new SingularityFlowError(
+      `Story branch '${item.branch}' is missing required metadata '${relative}'.`,
+      { code: 'SESSION_STORY_INVALID' }
+    );
+    // The exact tree path fixes the immutable blob OID. In a partial clone this may fetch only
+    // that promised blob, never the application tree. The registered remote executor bounds the
+    // network wait/output and disables interactive credential prompts.
+    const observed = await runRemoteGitAsync(['cat-file', 'blob', oid], {
+      cwd: root, operation: 'remote-configuration', maxBuffer: SESSION_METADATA_BLOB_LIMIT + 1
+    });
+    if (observed.status !== 0 || Buffer.byteLength(observed.stdout ?? '', 'utf8') > SESSION_METADATA_BLOB_LIMIT) {
+      throw new SingularityFlowError(
+        `Story branch '${item.branch}' has unavailable or oversized metadata '${relative}'.`,
+        { code: 'SESSION_STORY_METADATA_UNAVAILABLE' }
+      );
+    }
+    return observed.stdout;
+  };
+  let definition;
+  try {
+    definition = YAML.parse(await readMetadata(WORKFLOW_PATH));
+    validateDefinition(definition);
+    validateId(definition, item.id);
+  } catch (error) {
+    if (error instanceof SingularityFlowError) throw error;
+    throw new SingularityFlowError(`Story '${item.id}' has an invalid pinned workflow definition.`, {
+      code: 'SESSION_STORY_INVALID'
+    });
+  }
+  const itemPath = posix(path.join(
+    definition.workItemRoot ?? 'singularity/work-items', item.id, 'workflow.json'
+  ));
+  let state;
+  try { state = readRecord('story-workflow', JSON.parse(await readMetadata(itemPath))).record; }
+  catch (error) {
+    if (error instanceof SingularityFlowError) throw error;
+    throw new SingularityFlowError(`Story '${item.id}' has invalid governed state.`, {
+      code: 'SESSION_STORY_INVALID'
+    });
+  }
+  const canonical = state.lineage?.canonicalBranch ?? state.workItem?.branch ?? item.id;
+  if (state.workItem?.id !== item.id || !state.phases || !Array.isArray(state.phaseOrder)
+      || canonical !== item.branch) throw new SingularityFlowError(
+    `Story '${item.id}' does not own branch '${item.branch}' in its pinned state.`,
+    { code: 'SESSION_STORY_INVALID' }
+  );
+  return {
+    id: item.id, kind: 'story', canonicalBranch: canonical, selectedBranch: item.branch,
+    location: { source: 'ref', ref, branch: item.branch, path: itemPath, commit },
+    state
   };
 }
 
@@ -9380,6 +9518,18 @@ async function sessionCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const repositoryUrl = optionString(options, 'repository-url');
   const configurationUrl = optionString(options, 'configuration-url');
+  const workspaceReference = optionString(options, 'workspace');
+  const selectedRepositoryId = optionString(options, 'repository');
+  if (subcommand !== 'workspace'
+      && (workspaceReference != null || selectedRepositoryId != null)
+      && !['candidates', 'attach'].includes(subcommand)) throw new SingularityFlowError(
+    '--workspace and --repository are supported by session candidates and attach.',
+    { code: 'SESSION_WORKSPACE_SELECTION_INVALID' }
+  );
+  if (repositoryUrl != null && workspaceReference != null) throw new SingularityFlowError(
+    'Choose either --repository-url or --workspace, not both.',
+    { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
+  );
   if (configurationUrl != null && repositoryUrl == null) throw new SingularityFlowError(
     '--configuration-url requires --repository-url for session candidates.',
     { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
@@ -9666,8 +9816,60 @@ async function sessionCommand(positionals, options) {
     console.log(`Selected Story ${workId} at ${result.repositoryPath}. No Git state was changed.`);
     return result;
   }
-  const resolved = await resolveSessionRepository();
-  const root = resolved.root;
+  let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId });
+  let root = resolved.root;
+  let preflightStory = null;
+  let prefetchedRemote = null;
+  if (!root && resolved.workspaceContext && ['candidates', 'attach'].includes(subcommand)) {
+    const context = resolved.workspaceContext;
+    const authority = await selectedSessionRemote(context);
+    const discovered = await discoverRemoteStoryCandidatesByUrl(authority.url, {
+      configurationUrl: authority.configurationUrl
+    });
+    if (subcommand === 'candidates') {
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
+        optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
+      ));
+      if (!discovered.items.length) return console.log('No remote Singularity Flow work-item branches were found.');
+      return console.log(table(discovered.items, [
+        { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' },
+        { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
+        { key: 'commit', label: 'REMOTE COMMIT' }
+      ]));
+    }
+    const reference = requirePositional(positionals, 2, 'work, Jira, or branch reference');
+    preflightStory = exactDiscoveredStory(discovered, reference);
+    // Materialize only the selected, manifest-bound repository after the exact Story has been
+    // proven on the remote. A bad/unknown Story must not cause a new application clone.
+    await repairWorkspace(context.workspacePath, {
+      repositoryIds: [context.repositoryId], returnIfSelectedReady: true,
+      statusLevel: 'readiness'
+    });
+    const refreshed = await buildWorkspaceContext(workspaceRegistryFile(), context.workspaceId, {
+      repositoryId: context.repositoryId, detectStory: false
+    });
+    if (refreshed.repositoryState !== 'ready') throw new SingularityFlowError(
+      `Workspace repository '${context.repositoryId}' was not ready after materialization.`,
+      { code: 'SESSION_REPOSITORY_REQUIRED' }
+    );
+    const currentAuthority = await selectedSessionRemote(refreshed);
+    if (currentAuthority.url !== authority.url
+        || currentAuthority.configurationUrl !== authority.configurationUrl) throw new SingularityFlowError(
+      'The selected Story or configuration Git authority changed during materialization. Nothing was attached.',
+      { code: 'SESSION_REMOTE_CHANGED' }
+    );
+    root = refreshed.repositoryPath;
+    // A deferred clone may initially track only its default branch. Fetch the reviewed delivery
+    // remote before resolving its Story-carried configuration; do not mistake that for an
+    // ungoverned repository merely because the Story ref is not yet locally advertised.
+    await fetchRemote(root, 'origin', { respectPartialClone: true });
+    prefetchedRemote = 'origin';
+    resolved = {
+      root, workspaceId: refreshed.workspaceId, workspaceContext: refreshed,
+      resolvedFrom: workspaceReference ? 'explicit-workspace' : 'active-workspace',
+      authority: await sessionRepositoryAuthority(root)
+    };
+  }
   if (!root) {
     if (subcommand === 'attach' || subcommand === 'candidates') {
       throw new SingularityFlowError(
@@ -9762,25 +9964,50 @@ async function sessionCommand(positionals, options) {
     // branch impossible to select. We still require a clean tree before changing branches or
     // advancing HEAD; the sole exception below only binds local session metadata in place.
     const remote = discovery.remote;
-    await fetchRemote(root, remote);
-    const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
+    if (prefetchedRemote !== remote) await fetchRemote(root, remote, { respectPartialClone: true });
+    const refs = remoteBranches(root, remote)
+      .filter(isStoryDiscoveryBranch)
+      .map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
     const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
-    const subject = resolveContext(subjectIndex, { reference, kind: 'story' });
+    let subject = resolveContext(subjectIndex, { reference, kind: 'story', required: false });
+    if (!subject) {
+      const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+      if (!identity.configured || identity.ambiguous) throw new SingularityFlowError(
+        `Story remote '${remote}' has no single configured fetch authority.`,
+        { code: 'GIT_REMOTE_CONFIG_INVALID' }
+      );
+      const recovered = preflightStory
+        ? { items: [preflightStory] }
+        : await discoverRemoteStoryCandidatesByUrl(identity.url, { approvedDefinition: config });
+      const item = exactDiscoveredStory(recovered, reference);
+      subject = await exactStoryMetadataAtRef(root, remote, item, item.commitOid);
+    }
+    if (preflightStory && (subject.id !== preflightStory.id
+        || subject.selectedBranch !== preflightStory.branch)) throw new SingularityFlowError(
+      'The selected Story changed between remote preflight and local checkout. Refresh candidates and retry.',
+      { code: 'SESSION_REMOTE_CHANGED' }
+    );
     const id = subject.id;
     const targetBranch = subject.selectedBranch;
     // A Story started from VS Code or a dirty launch checkout owns an isolated managed worktree.
     // Git will not check the same branch out in the canonical clone, so attaching from that clone
     // must resolve and operate on the checkout that already owns it. The managed path is discovered
     // from Git's worktree registry rather than reconstructed from mutable workspace configuration.
-    const { storyWorktreeForBranch } = await import('./story-worktree.mjs');
+    const { completeStoryWorktree, prepareStoryWorktree, storyWorktreeForBranch } = await import('./story-worktree.mjs');
     const managedWorktree = storyWorktreeForBranch(root, targetBranch);
-    const attachmentRoot = managedWorktree?.repositoryPath ?? root;
-    const alreadyCurrent = branch(attachmentRoot) === targetBranch;
-    if (!alreadyCurrent) assertClean(attachmentRoot);
     const remoteName = `${remote}/${targetBranch}`;
     const remoteRef = `refs/remotes/${remote}/${targetBranch}`;
     const remoteSha = refHead(root, remoteRef);
     if (!remoteSha) throw new SingularityFlowError(`No committed lifecycle branch '${targetBranch}' exists on ${remote}. Start it with /sf-start or verify the Story reference.`);
+    if (preflightStory?.commitOid && remoteSha !== preflightStory.commitOid) throw new SingularityFlowError(
+      `Story branch '${targetBranch}' changed after remote preflight. Refresh candidates and retry.`,
+      { code: 'SESSION_REMOTE_CHANGED' }
+    );
+    const localStoryHead = refHead(root, `refs/heads/${targetBranch}`);
+    if (localStoryHead && localStoryHead !== remoteSha
+        && !isAncestor(root, localStoryHead, remoteSha)) throw new SingularityFlowError(
+      `Local branch '${targetBranch}' contains commits that are not on ${remoteName}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`
+    );
     let pinned;
     try {
       pinned = validatedRemoteStoryDefinition(root, remoteName, subject);
@@ -9790,29 +10017,64 @@ async function sessionCommand(positionals, options) {
         + `Expected matching state at ${subject.location.path} and a valid pinned ${WORKFLOW_PATH}.`
       );
     }
-    const dirtyInPlace = alreadyCurrent && Boolean(changes(attachmentRoot).trim());
+    // Do not switch an unrelated Story's linked checkout merely because the command was launched
+    // there. Start an isolated managed checkout for the selected Story after remote proof succeeds.
+    // A normal canonical clone keeps its historical clean-checkout attach behavior.
+    let preparedWorktree = null;
+    let attachmentRoot = managedWorktree?.repositoryPath ?? root;
+    if (!managedWorktree && !samePlatformPath(gitDir(root), gitCommonDir(root))
+        && branch(root) !== targetBranch) {
+      // A linked Story checkout is nested under story-worktrees; using it as the worktree path
+      // anchor would nest another story-worktrees directory inside Story A. Anchor on the shared
+      // repository's canonical checkout instead, while leaving A's branch/index untouched.
+      const commonDir = gitCommonDir(root);
+      if (path.basename(commonDir) !== '.git') throw new SingularityFlowError(
+        'Cannot locate the canonical checkout for this linked Story worktree.',
+        { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }
+      );
+      preparedWorktree = await prepareStoryWorktree(path.dirname(commonDir), id, { base: remoteSha });
+      attachmentRoot = preparedWorktree.repositoryPath;
+    }
     let materialization;
-    if (dirtyInPlace) {
-      if (head(attachmentRoot) !== remoteSha) {
-        throw new SingularityFlowError(
-          `Local branch '${targetBranch}' has uncommitted changes and is not at the exact ${remote}/${targetBranch} head. `
-          + 'Commit or preserve the changes before synchronizing; Singularity Flow will not merge, rebase, reset, stash, or discard them.'
-        );
+    try {
+      const alreadyCurrent = branch(attachmentRoot) === targetBranch;
+      if (!alreadyCurrent) assertClean(attachmentRoot);
+      const dirtyInPlace = alreadyCurrent && Boolean(changes(attachmentRoot).trim());
+      if (dirtyInPlace) {
+        if (head(attachmentRoot) !== remoteSha) {
+          throw new SingularityFlowError(
+            `Local branch '${targetBranch}' has uncommitted changes and is not at the exact ${remote}/${targetBranch} head. `
+            + 'Commit or preserve the changes before synchronizing; Singularity Flow will not merge, rebase, reset, stash, or discard them.'
+          );
+        }
+        materialization = managedWorktree
+          ? 'bound-managed-story-worktree-with-local-changes'
+          : 'bound-current-with-local-changes';
+      } else {
+        materialization = managedWorktree
+          ? 'reused-managed-story-worktree'
+          : await checkout(attachmentRoot, targetBranch, { base: pinned.definition.defaultBaseBranch, existingOnly: true, remote });
+        try { fastForwardTo(attachmentRoot, remoteName); }
+        catch { throw new SingularityFlowError(`Local branch '${targetBranch}' cannot fast-forward to ${remote}/${targetBranch}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
       }
-      materialization = managedWorktree
-        ? 'bound-managed-story-worktree-with-local-changes'
-        : 'bound-current-with-local-changes';
-    } else {
-      materialization = managedWorktree
-        ? 'reused-managed-story-worktree'
-        : await checkout(attachmentRoot, targetBranch, { base: pinned.definition.defaultBaseBranch, existingOnly: true, remote });
-      try { fastForwardTo(attachmentRoot, remoteName); }
-      catch { throw new SingularityFlowError(`Local branch '${targetBranch}' cannot fast-forward to ${remote}/${targetBranch}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
+    } catch (error) {
+      if (preparedWorktree?.created) removeCleanAttachStagingWorktree(
+        root, attachmentRoot, preparedWorktree.stagingBranch
+      );
+      throw error;
+    }
+    if (preparedWorktree?.created) {
+      completeStoryWorktree(preparedWorktree);
+      materialization = 'created-managed-story-worktree';
     }
     if (head(attachmentRoot) !== remoteSha) throw new SingularityFlowError(`Local branch '${targetBranch}' contains commits that are not on ${remote}/${targetBranch}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
     const attachedConfig = await loadConfig(attachmentRoot);
     const workflow = await loadStoryAggregate(attachmentRoot, attachedConfig, id);
     const session = await activateWorkItemSession(attachmentRoot, attachedConfig, workflow);
+    if (workspaceReference && resolved.workspaceContext) await activateWorkspaceContext(
+      workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspaceId,
+      { repositoryId: resolved.workspaceContext.repositoryId, detectStory: false }
+    );
     await activateWorkspaceStoryContext(
       activeWorkspaceFile(), workspaceRegistryFile(), attachmentRoot,
       { storyId: id, selectionSource: 'session-attach' }
@@ -9829,8 +10091,8 @@ async function sessionCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
       ...result,
       repositoryPath: attachmentRoot,
-      resolvedFrom: managedWorktree ? 'managed-story-worktree' : resolved.resolvedFrom,
-      ...(managedWorktree ? { sourceRepositoryPath: root } : {})
+      resolvedFrom: managedWorktree || preparedWorktree ? 'managed-story-worktree' : resolved.resolvedFrom,
+      ...(managedWorktree || preparedWorktree ? { sourceRepositoryPath: root } : {})
     }, null, 2));
     // This checked out a branch. When the repository came from the selection rather than from where
     // the caller is standing, saying which one is the difference between an attach and a surprise.

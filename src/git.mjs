@@ -826,8 +826,16 @@ export async function fetchRemote(root, remote = 'origin', options = {}) {
   // Git must not re-read a mutable remote name after the permission/configuration check.
   const frozen = frozenRemoteTransport(requestedTransport);
   const pruneRefspecs = safePruneRefspecs(root, remote);
+  const partialClone = options.respectPartialClone === true
+    && git(['config', '--local', '--get', `remote.${remote}.promisor`], {
+      cwd: root, allowFailure: true
+    }).stdout.trim() === 'true'
+    && git(['config', '--local', '--get', `remote.${remote}.partialclonefilter`], {
+      cwd: root, allowFailure: true
+    }).stdout.trim() === 'blob:none';
   const result = await runRemoteGitAsync([
-    'fetch', ...(pruneRefspecs ? ['--prune'] : []), frozen.remote,
+    'fetch', ...(pruneRefspecs ? ['--prune'] : []),
+    ...(partialClone ? ['--filter=blob:none'] : []), frozen.remote,
     `+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])
   ], {
     cwd: root, operation: 'remote-configuration', allowFailure: false,
@@ -968,6 +976,39 @@ export function refHead(root, ref, { env = process.env } = {}) {
 export function fastForwardTo(root, ref) {
   git(['merge', '--ff-only', ref], { cwd: root, stdio: 'inherit' });
   return head(root);
+}
+
+/** A local ancestry proof; a missing object or malformed ref is never treated as an ancestor. */
+export function isAncestor(root, older, newer) {
+  return git(['merge-base', '--is-ancestor', older, newer], {
+    cwd: root, allowFailure: true
+  }).status === 0;
+}
+
+/**
+ * Discard only a newly-created, still-empty attach staging checkout. Never touch a Story branch,
+ * a dirty checkout, an unregistered path, or the current process directory.
+ */
+export function removeCleanAttachStagingWorktree(root, target, stagingBranch) {
+  const absolute = path.resolve(target);
+  const same = (left, right) => {
+    const a = path.resolve(left);
+    const b = path.resolve(right);
+    return process.platform === 'win32'
+      ? a.toLocaleLowerCase('en-US') === b.toLocaleLowerCase('en-US') : a === b;
+  };
+  const registered = git(['worktree', 'list', '--porcelain'], { cwd: root }).stdout
+    .split(/(?=^worktree )/mu)
+    .find((record) => record.startsWith('worktree ')
+      && same(record.split(/\r?\n/u)[0].slice('worktree '.length), absolute));
+  if (!registered || !registered.split(/\r?\n/u).includes(`branch refs/heads/${stagingBranch}`)
+      || !same(gitCommonDir(absolute), gitCommonDir(root))
+      || branch(absolute) !== stagingBranch || changes(absolute).trim()
+      || same(absolute, process.cwd())) return false;
+  const removed = git(['worktree', 'remove', '--', absolute], { cwd: root, allowFailure: true });
+  if (removed.status !== 0) return false;
+  git(['branch', '-D', '--', stagingBranch], { cwd: root, allowFailure: true });
+  return true;
 }
 
 export function remoteBranches(root, remote = 'origin', { env = process.env } = {}) {

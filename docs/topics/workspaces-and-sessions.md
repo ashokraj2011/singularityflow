@@ -15,7 +15,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 5
+version: 6
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -44,8 +44,9 @@ Before any workspace exists, use `sflow workspace prepare <REMOTE> --id <ID> --b
 Workspace registration normally records the approved capability bindings and planned repository
 paths without cloning application code. `workspace use` can select that workspace and reports the
 repository as `missing` until files are needed. Starting work materializes the repositories
-required by an unambiguous Story capability; generic intake prepares the required workspace set
-when no exact binding is known. If files are needed earlier, run
+required by an unambiguous Story capability; attaching an existing Story can materialize its
+selected deferred repository and safely select its branch. Generic intake
+prepares the required workspace set when no exact binding is known. If files are needed earlier, run
 `sflow workspace repair <WORKSPACE-DIRECTORY> --repository <REPOSITORY-ID>`.
 From inside a saved workspace or one of its subdirectories, `sflow workspace status` and
 `sflow workspace repair --repository <REPOSITORY-ID>` infer that workspace. Outside it, pass
@@ -53,6 +54,25 @@ the exact workspace directory; the last selected workspace is never repaired imp
 `workspace prepare --initialize` explicitly requests an immediate checkout and state
 initialization; `--no-clone --initialize` is contradictory and refused. Mapping a capability reads
 governed configuration, not application source.
+
+To attach an existing Story, first select the exact workspace/repository or pass the explicit
+selectors to both commands:
+
+```bash
+singularity-flow session candidates --workspace <WORKSPACE> --repository <REPOSITORY-ID> --json --diagnostics
+singularity-flow session attach <WORK-ID> --workspace <WORKSPACE> --repository <REPOSITORY-ID> --json
+```
+
+The first command may discover a published Story using bounded remote metadata even before the
+application checkout exists. Its `repositoryPath`, if present, is only the discovery source and
+may be another checkout; it is **not** the Story destination. Attach verifies the exact selected
+Story and materializes only the selected missing repository if needed. It reuses an existing
+managed Story worktree, creates one to avoid switching another Story worktree, or may switch a
+clean canonical checkout; an exact already-current branch can bind in place. Its returned `repositoryPath`
+is the checkout to open. In a terminal, `cd` to that path; a child command cannot change the
+terminal's current directory. Copilot `/sf-session` runs subsequent commands with that path as
+cwd, and VS Code opens it after successful attachment. A remote-only URL candidate does not
+authorize cloning by itself: an exact workspace/repository selection is required.
 
 To use a clone already on the machine, run `sflow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY> --dry-run --json`. Review its canonical path, origin, branch, worktrees, submodules, SFlow configuration, changed paths, and preservation list. A dirty clone requires the exact content-aware hash returned by the preview in `--confirm-dirty`; changing file bytes invalidates it. Adoption creates a separate workspace shell and never fetches, checks out, stashes, commits, resets, cleans, or edits the clone remote.
 
@@ -65,6 +85,7 @@ These commands can mutate governed or machine-local state: `workspace`, `session
 ## Troubleshooting
 
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
+- If a Story appears in candidates but attach refuses it, use `session candidates --json --diagnostics` with the same exact workspace/repository selectors and follow its unavailable-object or Git-access diagnosis. Do not create a duplicate Story or switch another Story's checkout by hand.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a partial clone is refused, confirm the Git server supports upload-pack filtering or deliberately change the capability's clone fallback. Existing workspace clones are not silently rewritten.

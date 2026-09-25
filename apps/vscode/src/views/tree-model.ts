@@ -48,6 +48,8 @@ export interface TreeNode {
    * repository — a workspace opens into its lead repository, which is somewhere else entirely.
    */
   openPath?: string;
+  /** Exact mapped repository identity for an Inbox Story, including deferred repositories. */
+  storyRepositoryId?: string;
   /**
    * A command this node runs when clicked. For rows that exist to be acted on rather than read —
    * an empty state offering the way out of itself.

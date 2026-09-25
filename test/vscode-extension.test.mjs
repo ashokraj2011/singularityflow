@@ -1748,6 +1748,16 @@ test('Story description enhancement leaves cleanup headroom beyond its model dea
   assert.ok(STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS > 120_000);
 });
 
+test('selected workspace Story attachment has room to materialize one deferred repository', () => {
+  const client = new SingularityFlowClient({
+    location: { executable: 'node', cli: '/cli.mjs', source: 'setting' },
+    repository: '/work/team'
+  });
+  assert.equal(client.timeoutFor([
+    'session', 'attach', 'STORY-11', '--workspace', '/work/team', '--repository', 'shipping', '--json'
+  ]), 30 * 60_000);
+});
+
 test('phases are read in declared order with the state each is in', () => {
   const phases = phasesInOrder(snapshot.initiative);
   assert.deepEqual(phases.map((phase) => phase.id), ['define', 'plan', 'build', 'release']);

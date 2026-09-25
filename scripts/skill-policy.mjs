@@ -170,12 +170,17 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   }
 });
 
-function executionBoundary(kind = 'story') {
+function executionBoundary(kind = 'story', name = '') {
   if (kind === 'machine') {
     return '**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.';
   }
   if (kind === 'repository') {
-    return '**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.';
+    const base = '**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.';
+    // Session attachment alone can start from an exact selected workspace whose application
+    // checkout is deferred. Other repository-bound skills still require a ready checkout.
+    return name === 'sflow-session'
+      ? base.replace('refuse if neither resolves;', 'an exact selected workspace/repository is also valid before checkout exists; refuse if neither resolves;')
+      : base;
   }
   if (kind === 'organisation') {
     return '**Boundary:** no Story or repository required; use only the selected lead URL. Resolve local checks with `singularity-flow workspace current --json`; never search `$HOME`.';
@@ -234,7 +239,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
   const contractText = `**Output contract:** ${CONTRACT_TEXT[contract]}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
-  const boundaryText = executionBoundary(executionBoundaryKind);
+  const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
   const existing = /<!-- sflow-output-contract: [^>]+ -->\r?\n(?:\*\*Output contract:\*\*[^\n]*\r?\n?)?(?:<!-- sflow-execution-boundary -->\r?\n)?(?:\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?)*/;
   const rendered = `${marker}\n${contractText}\n${boundaryMarker}\n${boundaryText}\n`;
@@ -314,7 +319,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const maximum = rule.maximumTokenOverride ?? classPolicy.maximumTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
-    const boundaryText = executionBoundary(executionBoundaryKind);
+    const boundaryText = executionBoundary(executionBoundaryKind, name);
     const modelOperations = referencedModelOperations(skill.body);
     if (skill.frontmatter.name !== name) errors.push(`${name}: frontmatter name must match directory`);
     if (automatic.has(name)) {

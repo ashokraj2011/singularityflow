@@ -985,6 +985,38 @@ test('session attach reuses the managed Story worktree instead of switching its 
   assert.equal(status.ready, true);
 });
 
+test('session attach from Story A creates Story B worktree without switching or discarding A', async (t) => {
+  const { root } = await repository(t);
+  const start = (id) => JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', id, '--description', `Keep ${id} isolated.`
+  ], root).stdout).data.repositoryPath;
+  const first = start('ISO-ATTACH-A');
+  const second = start('ISO-ATTACH-B');
+  run('git', ['push', '-q', '-u', 'origin', 'ISO-ATTACH-A'], first);
+  run('git', ['push', '-q', '-u', 'origin', 'ISO-ATTACH-B'], second);
+  // Simulate another laptop's published B: the remote branch remains, but this checkout has no
+  // managed B worktree yet. The source A checkout owns uncommitted work and must remain intact.
+  run('git', ['worktree', 'remove', '--', second], root);
+  await writeFile(path.join(first, 'unfinished-a.txt'), 'preserve A\n');
+  const beforeA = git(first, ['rev-parse', 'HEAD']);
+  const unknown = run(process.execPath, [cli, 'session', 'attach', 'NOT-A-STORY', '--json'], first, {
+    allowFailure: true
+  });
+  assert.notEqual(unknown.status, 0);
+  assert.equal(git(first, ['rev-parse', 'HEAD']), beforeA);
+  const attached = JSON.parse(run(process.execPath, [cli,
+    'session', 'attach', 'ISO-ATTACH-B', '--json'
+  ], first).stdout);
+  assert.equal(attached.workId, 'ISO-ATTACH-B');
+  assert.equal(attached.materialization, 'created-managed-story-worktree');
+  assert.equal(path.resolve(attached.repositoryPath), path.resolve(second));
+  assert.equal(git(first, ['branch', '--show-current']), 'ISO-ATTACH-A');
+  assert.equal(git(first, ['rev-parse', 'HEAD']), beforeA);
+  assert.equal(await readFile(path.join(first, 'unfinished-a.txt'), 'utf8'), 'preserve A\n');
+  assert.equal(git(second, ['branch', '--show-current']), 'ISO-ATTACH-B');
+});
+
 test('a failed isolated start removes its disposable checkout and branch', async (t) => {
   const { root } = await repository(t);
   await writeFile(path.join(root, 'unfinished-prior-story.txt'), 'still mine\n');

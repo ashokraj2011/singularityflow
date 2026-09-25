@@ -52,8 +52,13 @@ test('session and progress skills ground every follow-up command in the resolved
   const session = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   const progress = await readFile(path.join(pluginRoot, 'skills', 'sflow-progress', 'SKILL.md'), 'utf8');
   assert.match(session, /session attach <WORK-ID> --json/);
+  assert.match(session, /--workspace <WORKSPACE> --repository <REPOSITORY-ID>/);
+  assert.match(session, /found through bounded remote metadata is still eligible for attachment/);
+  assert.match(session, /materializes only its selected deferred repository/);
+  assert.match(session, /never switches an unrelated Story worktree/);
   assert.match(session, /exact `repositoryPath` returned/);
   assert.match(session, /same returned `repositoryPath`/);
+  assert.match(session, /Tell a shell contributor to `cd` to the exact returned path/);
   assert.match(progress, /session current --json/);
   assert.match(progress, /explicit Work ID[\s\S]*do not require or change the active Story/i);
   assert.match(progress, /Without an ID[\s\S]*session current --json[\s\S]*exact `repositoryPath`/i);
@@ -553,7 +558,7 @@ test('session skill synchronizes work-item state and activates the phase agent a
   assert.match(content, /session attach <WORK-ID>/);
   assert.match(content, /work ID or Jira ID/i);
   assert.match(content, /default governed agent is activated automatically/);
-  assert.match(content, /Never create, merge, rebase, reset, force-checkout, stash, or discard work/);
+  assert.match(content, /Never manually create branches\/worktrees, merge, rebase, reset, force-checkout, stash, or discard work/);
   assert.match(content, /session-setup-only skill/);
   assert.match(content, /every.*returned `actions` entry/i);
   assert.match(content, /`Copilot: <copilotCommand>`.*`Shell: <command>`/s);

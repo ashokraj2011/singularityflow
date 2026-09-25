@@ -63,6 +63,8 @@ export interface InboxStory {
   repositoryId: string;
   repositoryPath: string;
   repositoryUrl: string | null;
+  /** Whether this repository already has a verified local checkout. */
+  materialized: boolean;
   attachable: boolean;
   branch: string | null;
 }
@@ -201,6 +203,7 @@ function storiesOf(
       repositoryId: catalogRow?.repositoryId ?? 'Current repository',
       repositoryPath: currentRepositoryPath,
       repositoryUrl: catalogRow?.repositoryUrl ?? null,
+      materialized: true,
       attachable: true,
       branch: catalogRow?.branch ?? item.branch ?? null
     });
@@ -219,7 +222,8 @@ function storiesOf(
       repositoryId: row.repositoryId || row.repositoryPath || row.repositoryUrl || 'Mapped repository',
       repositoryPath: row.repositoryPath,
       repositoryUrl: row.repositoryUrl ?? null,
-      attachable: Boolean(row.repositoryPath),
+      materialized: Boolean(row.repositoryPath),
+      attachable: Boolean(row.repositoryPath || row.repositoryUrl),
       branch: row.branch
     });
   }
@@ -370,21 +374,24 @@ export function buildInboxTree(
   }, ...(stories.length ? [{
     kind: 'group' as const, id: 'inbox:active-stories', label: 'Workspace Stories',
     description: String(stories.length), icon: 'list-tree',
-    tooltip: 'Open a materialized Story checkout. Remote-only Stories need their repository materialized first.',
+    tooltip: 'Open a Story checkout. A deferred repository is materialized only when you select its Story.',
     children: stories.map((item) => ({
       kind: 'story' as const,
       id: item.attachable && item.repositoryPath === currentRepositoryPath
         ? `inbox:active-story:${item.workId}`
         : `inbox:active-story:${encodeURIComponent(item.repositoryPath || item.repositoryUrl || item.repositoryId)}:${item.workId}`,
       label: item.workId,
-      description: `${item.repositoryId} · ${item.phase}${item.terminal ? ` · ${item.status}` : ''}${item.current ? ' · current' : ''}${item.attachable ? '' : ' · materialize to open'}`,
-      tooltip: `${item.title}\n${item.repositoryPath || item.repositoryUrl || item.repositoryId}\n${item.status}\n${item.attachable
+      description: `${item.repositoryId} · ${item.phase}${item.terminal ? ` · ${item.status}` : ''}${item.current ? ' · current' : ''}${item.materialized ? '' : ' · materialize and open'}`,
+      tooltip: `${item.title}\n${item.repositoryPath || item.repositoryUrl || item.repositoryId}\n${item.status}\n${item.materialized
         ? 'Select to synchronize and open this Story checkout.'
-        : 'Materialize repository to open this Story.'}`,
+        : 'Select to materialize this repository and open its Story checkout.'}`,
       icon: item.attachable ? item.current ? 'check' : 'statusCurrent' : 'warning',
       ...(item.attachable ? {
         command: ['session', 'attach', item.workId], runCommand: 'singularityFlow.runAction',
-        ...(item.repositoryPath !== currentRepositoryPath ? { openPath: item.repositoryPath } : {}),
+        ...(catalog.some((row) => row.id === item.workId && row.repositoryId === item.repositoryId)
+          ? { storyRepositoryId: item.repositoryId } : {}),
+        ...(item.repositoryPath && item.repositoryPath !== currentRepositoryPath
+          ? { openPath: item.repositoryPath } : {}),
         contextValue: 'sflow.story.active.summary'
       } : { contextValue: 'sflow.story.remote-only' })
     }))

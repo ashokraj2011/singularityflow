@@ -48,6 +48,15 @@ interface ProposalRepairResult {
 
 type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
 
+function fileChangeLabel(status: string): string {
+  if (status.startsWith('A')) return 'Added';
+  if (status.startsWith('M')) return 'Updated';
+  if (status.startsWith('D')) return 'Removed';
+  if (status.startsWith('R')) return 'Renamed';
+  if (status.startsWith('C')) return 'Copied';
+  return status;
+}
+
 function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: string | null,
   activated: ActivationResult | null): string {
   if (!proposal) return `${brandLockup({ compact: true })}
@@ -55,7 +64,10 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     <p class="meta">Loading the exact configuration change from Git…</p></header>
     ${error ? `<div class="notice error"><p>${escape(error)}</p></div>` : ''}`;
   const files = proposal.changedFiles.map((file) => `<tr>
-      <td><code>${escape(file.status)}</code></td><td>${escape(file.paths.join(' to '))}</td></tr>`).join('');
+      <td>${escape(fileChangeLabel(file.status))}</td><td><code>${escape(file.paths.join(' → '))}</code></td></tr>`).join('');
+  const changeSummary = proposal.merged
+    ? `This proposal has already been merged into ${proposal.targetBranch}. Check the changed files, then record its activation.`
+    : `This proposal changes ${proposal.changedFiles.length} ${proposal.changedFiles.length === 1 ? 'file' : 'files'} on ${proposal.targetBranch}. Check the changed files before merging this exact commit.`;
   const projection = activated?.projection;
   const activationComplete = capabilityActivationSucceeded(activated);
   // The engine proves repairability against the exact mismatching Agent Markdown bytes at the
@@ -82,7 +94,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     <header class="inbox-header">
       <p class="eyebrow">Governed configuration review</p>
       <h1>${icon('merge', { size: 24 })} Review capability proposal</h1>
-      <p class="meta">Review one exact commit before it becomes approved organisation configuration.</p>
+      <p class="meta">${escape(changeSummary)}</p>
     </header>
     ${error ? `<div class="notice error"><p>${escape(error)}</p></div>` : ''}
     ${activationNotice}
@@ -92,6 +104,18 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       <div class="summary-card"><span>Files</span><strong>${proposal.changedFiles.length}</strong></div>
       <div class="summary-card ${proposal.valid ? '' : 'governance-warning'}"><span>Validation</span><strong>${proposal.valid ? 'Ready' : 'Blocked'}</strong></div>
     </div>
+    <section>
+      <h2>${icon('configuration')} Changed files</h2>
+      ${proposal.changedFiles.length
+        ? `<div class="table-wrap"><table><thead><tr><th>Change</th><th>Path</th></tr></thead><tbody>${files}</tbody></table></div>`
+        : '<p class="muted">No changed files were reported.</p>'}
+      ${proposal.invalidFiles.length ? `<div class="notice error"><p>Non-configuration files are refused: ${escape(proposal.invalidFiles.join(', '))}</p></div>` : ''}
+      ${proposal.configurationError ? `<div class="notice governance-warning"><p><strong>Configuration compatibility needs attention.</strong> ${escape(proposal.configurationError)}</p>${proposal.repairable
+        ? '<p>The recognized historical packaged files can be repaired on this proposal branch without changing approved configuration or application code. The new commit must be reviewed again.</p>'
+        : proposal.repairAction?.command
+          ? commandGuidanceHtml(proposal.repairAction, { shellLabel: 'Next — Shell', copilotLabel: 'Next — Copilot' })
+          : ''}</div>` : ''}
+    </section>
     <section class="plain">
       <h2>${icon('branch')} Source and target</h2>
       <div class="review-binding">
@@ -101,24 +125,16 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
         <span>Lead repository</span><code>${escape(proposal.remote)}</code>
       </div>
       <div class="notice"><p>The application default branch is not part of this operation. Activation uses a normal, non-force push to <code>${escape(proposal.targetBranch)}</code>; repository branch protection still applies.</p></div>
-    </section>
-    <section>
-      <h2>${icon('configuration')} Changed configuration files</h2>
-      <div class="table-wrap"><table><thead><tr><th>Status</th><th>Path</th></tr></thead><tbody>${files}</tbody></table></div>
-      ${proposal.invalidFiles.length ? `<div class="notice error"><p>Non-configuration files are refused: ${escape(proposal.invalidFiles.join(', '))}</p></div>` : ''}
-      ${proposal.configurationError ? `<div class="notice governance-warning"><p><strong>Configuration compatibility needs attention.</strong> ${escape(proposal.configurationError)}</p>${proposal.repairable
-        ? '<p>The recognized historical packaged files can be repaired on this proposal branch without changing approved configuration or application code. The new commit must be reviewed again.</p>'
-        : proposal.repairAction?.command
-          ? commandGuidanceHtml(proposal.repairAction, { shellLabel: 'Next — Shell', copilotLabel: 'Next — Copilot' })
-          : ''}</div>` : ''}
-    </section>
-    <section>
-      <h2>${icon('compare')} Proposed diff</h2>
-      <div class="help-code"><pre><code>${escape(proposal.diff || 'No textual diff.')}</code></pre></div>
+      <details class="configuration-advanced-tools"><summary>${icon('compare')} View Git diff</summary>
+        <div class="help-code"><pre><code>${escape(proposal.diff || 'No textual diff.')}</code></pre></div>
+      </details>
     </section>
     <section class="next">
+      ${proposal.merged
+        ? '<p class="muted">Record the activation audit and publish the capability projection for this already merged commit.</p>'
+        : `<p class="muted">Merge and acknowledge authorizes one exact leased update of <code>${escape(proposal.proposalCommit)}</code> to <code>${escape(proposal.targetBranch)}</code> if the repository permits direct pushes. Branch protection and server hooks still apply.</p>`}
       <div class="actions">
-        <button class="primary" data-action="activate" ${busy || !proposal.valid || activationComplete && Boolean(activated) ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated && !activationComplete ? 'Retry exact activation' : 'Merge proposal'}</button>
+        <button class="primary" data-action="activate" ${busy || !proposal.valid || activationComplete && Boolean(activated) ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated && !activationComplete ? `Retry merge and acknowledge ${escape(proposal.proposalCommit.slice(0, 12))}` : `Merge and acknowledge ${escape(proposal.proposalCommit.slice(0, 12))}`}</button>
         ${packagedRepairAvailable
           ? `<button class="secondary" data-action="repair" ${busy ? 'disabled' : ''}>${icon('refresh')} Prepare compatibility repair</button>` : ''}
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
@@ -242,43 +258,16 @@ export class CapabilityProposalPanel {
       await this.load();
       return;
     }
-    if (message.type !== 'activate' || !this.proposal || this.busy) return;
+    if (message.type !== 'activate' || !this.proposal || !this.proposal.valid || this.busy) return;
     const proposal = this.proposal;
     const externallyMerged = proposal.merged;
-    const confirmationLabel = externallyMerged ? 'Record merged activation' : 'Merge proposal';
-    const preauthorizedLabel = 'Merge and acknowledge';
-    const confirmed = await vscode.window.showWarningMessage(
-      externallyMerged
-        ? `Record the exact externally merged proposal ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)} and publish its capability projection?`
-        : `Merge ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)} into ${proposal.targetBranch}, then publish the capability projection?`,
-      { modal: true, detail: externallyMerged
-        ? 'The approved configuration already contains this exact proposal. This records the activation audit and repairs the state projection; the application default branch is not changed.'
-        : 'This uses one exact leased update; Git dry-runs cannot prove whether server review controls are enforced. Choose “Merge proposal” to stop before that update and review the acknowledgement, or “Merge and acknowledge” to authorize this exact attempt now. Server hooks may still refuse it. The application default branch is not changed.' },
-      confirmationLabel, ...(externallyMerged ? [] : [preauthorizedLabel]));
-    if (confirmed !== confirmationLabel && confirmed !== preauthorizedLabel) return;
-    const preauthorizedUnprotected = !externallyMerged && confirmed === preauthorizedLabel;
     this.busy = true; this.error = null; this.render();
     const baseArguments = [
       'capability', 'activate', proposal.branch, '--lead', this.lead,
       '--confirm', proposal.proposalCommit,
-      ...(preauthorizedUnprotected ? ['--acknowledge-unprotected'] : []), '--json'
+      ...(externallyMerged ? [] : ['--acknowledge-unprotected']), '--json'
     ];
-    let attempted = await this.run(baseArguments);
-    if (!externallyMerged && !preauthorizedUnprotected && attempted.error
-      && /CAPABILITY_CONFIGURATION_UNPROTECTED|cannot prove whether|branch protection is not enforced|accepted the exact dry-run update/i.test(attempted.error)) {
-      this.busy = false; this.error = attempted.error; this.render();
-      const acknowledgement = 'Acknowledge unprotected branch';
-      const accepted = await vscode.window.showWarningMessage(
-        `Git cannot determine whether ${proposal.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed proposal?`,
-        { modal: true, detail: 'The acknowledgement and the actual server result are recorded in the activation audit. Review controls and hooks may still refuse the update. No application branch is changed.' },
-        acknowledgement);
-      if (accepted !== acknowledgement) return;
-      this.busy = true; this.error = null; this.render();
-      attempted = await this.run([
-        ...baseArguments.slice(0, -1), '--acknowledge-unprotected', '--json'
-      ]);
-    }
-    const { result, error } = attempted;
+    const { result, error } = await this.run(baseArguments);
     this.busy = false;
     if (error) this.error = error;
     else {

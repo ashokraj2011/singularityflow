@@ -3502,7 +3502,7 @@ test('the capability editor delegates creation to the mapping form that accepts 
   assert.match(mapping.webview.html, /Repository it ships from/);
   assert.match(mapping.webview.html, /<option value="delivery" selected>Delivery<\/option>/,
     'new capabilities default to Delivery');
-  assert.match(mapping.webview.html, /Clone URL/,
+  assert.match(mapping.webview.html, /Git URL/,
     'the creation path has an explicit place for a new Git repository URL');
   await mapping.post({ type: 'field', field: 'repositoryUrl', value: remote });
   await mapping.post({ type: 'inspectRepository' });
@@ -5817,6 +5817,10 @@ test('capability review presents only an engine-proven exact compatibility repai
     ? panel.webview.html : null);
   assert.match(panel.webview.html, /MCP server &#39;figma&#39; is assigned to agent &#39;product-designer&#39;/,
     'the original compatibility failure remains visible beside its recovery action');
+  assert.match(panel.webview.html, /<summary>[\s\S]*?View Git diff<\/summary>/,
+    'the diff remains available in a collapsed detail');
+  assert.ok(panel.webview.html.indexOf('Changed files') < panel.webview.html.indexOf('View Git diff'),
+    'the changed-file summary appears before the raw diff');
   assert.equal(calls.some((argv) => argv[1] === 'activate'), false,
     'direct proposal inspection blocks activation before the reviewer can press Merge');
 
@@ -5838,6 +5842,50 @@ test('capability review presents only an engine-proven exact compatibility repai
   assert.equal(calls.filter((argv) => argv[1] === 'activate').length, 0,
     'preparing a repair never retries or bypasses activation');
   panelController.dispose();
+});
+
+test('capability review merges its exact commit with one acknowledged action', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { CapabilityProposalPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/new-service.git';
+  const branch = 'sflow/config-change/capability/map-new-service-12345678';
+  const proposalCommit = 'a'.repeat(40);
+  const targetCommit = 'b'.repeat(40);
+  const calls = [];
+  const controller = CapabilityProposalPanel.show(context(), lead, branch, async (argv) => {
+    calls.push([...argv]);
+    if (argv[1] === 'proposal') return { result: {
+      remote: lead, branch, targetBranch: 'sflow/config', targetCommit,
+      proposalCommit, proposalBase: targetCommit, merged: false, valid: true,
+      invalidFiles: [], changedFiles: [{ status: 'M', paths: ['singularity/capabilities.yml'] }],
+      diff: '+new capability'
+    }, error: null };
+    if (argv[1] === 'activate') return { result: {
+      status: 'activated', activated: true, targetBranch: 'sflow/config',
+      targetCommit: proposalCommit, proposalCommit, alreadyMerged: false,
+      projection: { published: true, branch: 'state', commit: proposalCommit }
+    }, error: null };
+    throw new Error(`Unexpected command: ${argv.join(' ')}`);
+  });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
+  await until(() => panel.webview.html.includes('Merge and acknowledge') ? panel.webview.html : null);
+  assert.match(panel.webview.html, /Updated<\/td><td><code>singularity\/capabilities\.yml/);
+  assert.match(panel.webview.html, /<summary>[\s\S]*?View Git diff<\/summary>/);
+  assert.match(panel.webview.html, /Merge and acknowledge aaaaaaaaaaaa/);
+  await panel.post({ type: 'activate' });
+  await until(() => panel.webview.html.includes('Capability activated.') ? panel.webview.html : null);
+  assert.deepEqual(calls, [
+    ['capability', 'proposal', branch, '--lead', lead, '--json'],
+    ['capability', 'activate', branch, '--lead', lead, '--confirm', proposalCommit,
+      '--acknowledge-unprotected', '--json']
+  ]);
+  assert.equal(registered.warningDetails.length, 0,
+    'the reviewed action does not open a second confirmation dialog');
+  controller.dispose();
 });
 
 test('capability proposal inbox shows joined-definition failures and exact recovery metadata', async (t) => {

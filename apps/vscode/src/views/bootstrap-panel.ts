@@ -1194,8 +1194,8 @@ export class BootstrapPanel {
     };
     informationItem.information = true;
     const pasteItem: CatalogPick = {
-      label: '$(link) Paste clone URL instead',
-      description: 'Keep using the clone URL field; no provider request is required',
+      label: '$(link) Use Git URL field instead',
+      description: 'Paste a Git URL directly; no provider search is required',
       pasteUrl: true
     };
     const showInformation = async () => {
@@ -1222,7 +1222,7 @@ export class BootstrapPanel {
         informationItem,
         pasteItem
       ], {
-        title: 'Choose repository',
+        title: 'Browse repositories',
         placeHolder: knownPage.enumeration === 'exhausted'
           ? 'Choose one known to SFlow, or explicitly search a Git provider'
           : 'Known results are bounded; load more or explicitly search a Git provider',

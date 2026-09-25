@@ -461,6 +461,44 @@ function repositorySetupPrimary(plan: RepositoryOnboardingPlan): {
   return { message: 'repositorySetupRequiresNewerVersion', label: copy.action, disabled: false };
 }
 
+function repositorySetupEffect(effect: RepositoryOnboardingPlan['effects'][number]): string {
+  if ((effect.kind === 'configuration-restore' && effect.action === 'create')
+    || (effect.kind === 'git-ref' && effect.action === 'restore' && effect.target === 'sflow/config')) {
+    return 'Prepare to restore SFlow configuration; repository approval may be required.';
+  }
+  if (effect.kind === 'configuration-migration' && effect.action === 'propose') {
+    return 'Prepare a proposal to update SFlow configuration.';
+  }
+  if (effect.kind === 'configuration-recreate' || effect.kind === 'configuration') {
+    if (effect.action === 'create') return 'Set up SFlow configuration; repository approval may be required.';
+    if (effect.action === 'propose') return 'Prepare a proposal to recreate SFlow configuration.';
+  }
+  if (effect.kind === 'state-projection' && effect.action === 'refresh') {
+    return `Refresh the portable state index on ${effect.target}.`;
+  }
+  if (effect.kind === 'local-registration') {
+    if (effect.action === 'remember') return 'Remember this repository on this laptop.';
+    if (effect.action === 'forget') return 'Remove this laptop\'s repository shortcut.';
+  }
+  if (effect.kind === 'local-cache' && effect.action === 'delete') {
+    return 'Clear this laptop\'s cached organisation data.';
+  }
+  return `${effect.action} ${effect.kind} at ${effect.target}.`;
+}
+
+function repositorySetupEffectsHtml(plan: RepositoryOnboardingPlan): string {
+  if (!plan.effects.length) return '';
+  const preserved = plan.preserved.includes('application-branches')
+    && plan.preserved.includes('application-working-tree')
+    ? '<p class="muted">Application branches and working files stay unchanged.</p>'
+    : '';
+  return `<div class="notice" data-repository-setup-effects>
+    <strong>What setup will change</strong>
+    <ul>${plan.effects.map((effect) => `<li>${escape(repositorySetupEffect(effect))}</li>`).join('')}</ul>
+    ${preserved}
+  </div>`;
+}
+
 function repositorySetupHtml(form: MapCapabilityForm): string {
   if (form.inspectionStatus === 'checking' && !form.repositorySetupPlan) {
     return `<section class="plain repository-setup-card" aria-live="polite">
@@ -613,7 +651,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     <p>${escape(copy.message)}</p>
     ${failureDiagnosis ? `<p class="muted" data-repository-setup-failure>${escape(failureDiagnosis)}</p>` : ''}
     ${plan.mode !== 'auto' ? `<p class="muted">Selected option: <strong>${escape(plan.mode === 'reset-local' ? 'reset local registration' : plan.mode)}</strong>.</p>` : ''}
-    ${plan.effects.length ? `<p class="muted">${plan.effects.length} planned ${plan.effects.length === 1 ? 'change' : 'changes'}; ${plan.preserved.length} preserved ${plan.preserved.length === 1 ? 'item' : 'items'}.</p>` : ''}
+    ${primary.message === 'applyRepositorySetup' ? repositorySetupEffectsHtml(plan) : ''}
     ${warnings}
     ${omitted}
     ${form.repositorySetupNotice ? `<p class="ok-text">${icon('ok')}${escape(form.repositorySetupNotice)}</p>` : ''}
@@ -780,17 +818,20 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
   if (form.repositorySetupMaintenance) {
     return `<header>
       <h1>${icon('configuration', { size: 20 })}Repair or upgrade repository setup</h1>
-      <p class="meta">Enter a Git URL or local clone. SFlow recognizes the repository once and offers one safe next action.</p>
+      <p class="meta">Paste a Git URL or enter a local clone to check its setup.</p>
     </header>
     <section>
       <h2>${icon('repository')}Repository</h2>
       <label class="field full"><span>Git URL or local clone</span><input type="text"
         value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
         placeholder="https://git.example.corp/acme/payments-api.git"></label>
-      <p><button type="button" class="secondary" data-map-choose-repository
-        ${form.inspectionStatus === 'checking' ? 'disabled' : ''}>${icon('repository')}Choose repository…</button>
-        <button type="button" data-map-inspect
+      <p><button type="button" data-map-inspect
           ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' ? 'disabled' : ''}>${form.inspectionStatus === 'checking' ? 'Checking…' : 'Check setup'}</button></p>
+      <details class="configuration-advanced-tools"><summary>Don't have the Git URL?</summary>
+        <p class="muted">Find one already known to SFlow or search your Git provider. Selecting it fills the URL and checks setup.</p>
+        <button type="button" class="secondary" data-map-choose-repository
+          ${form.inspectionStatus === 'checking' ? 'disabled' : ''}>${icon('repository')}Browse repositories…</button>
+      </details>
     </section>
     ${setupHtml}
     ${form.error && !form.repositorySetupPlan ? `<section class="plain"><p class="blockers" role="alert">${escape(form.error)}</p></section>` : ''}`;
@@ -799,8 +840,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
   ${startWizardProgress(journey)}
   <header>
     <h1>${icon('capability', { size: 20 })}Map a capability</h1>
-    <p class="meta">What this organisation builds, and which repository each part ships from.
-      Repository choices are made together below; no separate setup step is required.</p>
+    <p class="meta">Paste the Git URL of the repository this capability ships from. SFlow checks its setup and existing mapping before you enter capability details.</p>
   </header>
 
   ${operationHtml}
@@ -808,18 +848,20 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
 
   <section>
     <h2>${icon('git')}Git repository</h2>
-    <p class="muted">Start with the repository so Flow can tell whether it is already onboarded before another capability is proposed.</p>
-    <label class="field full"><span>Clone URL ${fieldInfo('Clone URL', 'The credential-free Git identity of the repository that ships this capability. Authentication remains in Git or the operating system and is never stored in the capability map.')}</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
+    <p class="muted">Enter the Git URL, then check the repository.</p>
+    <label class="field full"><span>Git URL ${fieldInfo('Git URL', 'The credential-free Git identity of the repository that ships this capability. Authentication remains in Git or the operating system and is never stored in the capability map.')}</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
       ${form.collectionWithoutRepository ? 'disabled' : ''} placeholder="https://git.example.corp/acme/payments-api.git"></label>
     <p>
-      <button type="button" class="secondary" data-map-choose-repository ${form.collectionWithoutRepository || form.inspectionStatus === 'checking' ? 'disabled' : ''}>
-        ${icon('repository')}Choose repository…
-      </button>
-      <button type="button" data-map-inspect ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' || form.collectionWithoutRepository ? 'disabled' : ''}>
-        ${form.inspectionStatus === 'checking' ? 'Checking…' : 'Check repository'}
-      </button>
-      <button type="button" class="secondary" data-map-collection>${form.collectionWithoutRepository ? 'Use a repository instead' : 'Map a collection without a repository'}</button>
+      ${form.collectionWithoutRepository
+        ? '<button type="button" data-map-collection>Use a repository instead</button>'
+        : `<button type="button" data-map-inspect ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' ? 'disabled' : ''}>
+          ${form.inspectionStatus === 'checking' ? 'Checking…' : 'Check repository'}</button>`}
     </p>
+    <details class="configuration-advanced-tools"><summary>Other ways to start</summary>
+      <p class="muted">If you don't have the Git URL, find one from repositories known to SFlow or search your Git provider. Selecting it fills the URL and checks the repository.</p>
+      <p><button type="button" class="secondary" data-map-choose-repository ${form.collectionWithoutRepository || form.inspectionStatus === 'checking' ? 'disabled' : ''}>${icon('repository')}Browse repositories…</button>
+        ${form.collectionWithoutRepository ? '' : '<button type="button" class="secondary" data-map-collection>Map a collection without a repository</button>'}</p>
+    </details>
     ${setupHtml}
     ${!form.repositorySetupPlan || form.repositorySetupResolved || form.inspectionStatus !== 'idle'
       ? inspectionResult : ''}

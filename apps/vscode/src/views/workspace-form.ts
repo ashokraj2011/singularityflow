@@ -298,7 +298,7 @@ function organisationHtml(form: WorkspaceForm): string {
   if (!form.organisations.length) {
     return `<p class="muted">No organisation has been mapped yet. Map a capability to a Git
       repository from the Capabilities screen — that is what creates the map this form reads.</p>
-      <p><button class="secondary" data-open="repository">${icon('repository')}Choose repository and map capability…</button>
+      <p><button class="secondary" data-open="repository">${icon('repository')}Map a capability from a Git URL…</button>
       <button class="secondary" data-open="capabilities">Open Capabilities</button></p>`;
   }
   if (form.organisations.length === 1 && form.organisation === form.organisations[0]) {
@@ -330,7 +330,7 @@ function capabilityHtml(form: WorkspaceForm): string {
   if (!hasCapabilityMap(form)) {
     return `<p class="muted">${escape(form.capabilitiesReason ?? 'This organisation does not describe what it builds yet.')}
       Create its first capability here; this form will refresh when it has been mapped.</p>
-      <p><button class="secondary" data-open="repository">${icon('repository')}Choose repository and create capability…</button>
+      <p><button class="secondary" data-open="repository">${icon('repository')}Map a capability from a Git URL…</button>
       <button class="secondary" data-open="capabilities">${icon('capability')}Create first capability manually</button></p>`;
   }
 

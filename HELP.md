@@ -970,10 +970,14 @@ selected capability repositories on demand. When using `--json`, failures are a
 single structured refusal on stderr, with `error.code`; successful results are on
 stdout.
 
-Start repository onboarding with its exact credential-free Git URL and run `capability onboard
-<REPOSITORY-URL> --dry-run --json`. It returns a `repository-onboarding-plan/v1` with one status,
-exact effects and preserved data, a ref-bound `planId`, and the next Shell and Copilot commands.
-Review the plan before running the returned `--confirm-plan` command. Copilot
+Start repository onboarding with its exact credential-free Git URL. In VS Code, paste it into the
+repository field; **Browse repositories…** can optionally find a repository, fill that field, and
+run the same read-only setup check. Selecting a result does not apply changes. In the CLI, run
+`capability onboard <REPOSITORY-URL> --dry-run --json`. It returns a
+`repository-onboarding-plan/v1` with one status, exact effects and preserved data, a ref-bound
+`planId`, and the next Shell and Copilot commands. In VS Code,
+inspect the setup summary and confirm once in the same flow. In the CLI, review the plan before
+running the returned `--confirm-plan` command. Copilot
 `/sf-capability-map` relays that same plan and asks for confirmation; it never invents a recovery
 mode. `--migrate`, `--recreate`, and `--reset-local` are explicit choices, each requiring a new dry
 run. Normal output keeps authority pins, Git object details, and cache leases under diagnostics.
@@ -997,8 +1001,10 @@ failed after completed remote writes, or `ready-state-refresh-pending` when conf
 and only the returned `capability publish` retry remains. Follow the returned retry and do not
 repeat completed configuration publication.
 
-Fresh setup creates `sflow/config` directly from installed defaults with an exact create lease;
-it does not need a separate approval unless remote policy rejects the write. A
+Fresh setup shows the installed defaults and effects in one plan confirmation, then creates
+`sflow/config` directly with an exact create lease. A separate diff review is not required unless
+remote policy rejects the write. For restore, migrate, or recreate of existing configuration,
+review the exact changed files and diff, source and proposal commits, and any omitted paths. A
 `configuration-review-required` result refers to a **repository setup** branch under
 `sflow/config-change/onboarding/`; `capability proposals` only lists later capability-map changes
 under `sflow/config-change/capability/`. List pending setup branches with `capability
@@ -1009,7 +1015,8 @@ a mutable source ref may remain on a proposal because that source cannot be atom
 while creating `sflow/config`; the remote can also enforce review. Activation refuses direct writes unless you explicitly
 acknowledge unverified branch protection with `--acknowledge-unprotected`; it uses an exact lease
 and cannot bypass server review. If external review is required, obtain it through the Git host
-and recheck onboarding afterward.
+and recheck onboarding afterward. Capability-map proposals continue to require approval of their
+exact commit before activation.
 
 Selected branch snapshots are depth-one, no-tags, blobless partial clones. Onboarding deletes and
 refuses any snapshot above 16,384 local files or 128 MiB before checkout or parsing. State mirrors

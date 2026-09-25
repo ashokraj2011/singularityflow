@@ -562,8 +562,13 @@ configured state authority and leaves the application branch unchanged.
 
 ## Repository discovery before onboarding
 
-Use the model-free repository catalog when you know a repository by account membership but do not
-yet have its clone URL or a workspace:
+Start with the repository's credential-free clone URL. In VS Code, paste it into **Map a capability**;
+**Create workspace** links to that mapping flow when a capability is not mapped yet. If you do not
+have the URL, **Browse repositories…** is an optional way to find one. Selecting a result fills the
+same field and checks setup read-only; it does not apply any change.
+
+The model-free repository catalog can also find a repository by account membership before you
+have a clone URL or workspace:
 
 ```bash
 singularity-flow repositories list --scope known
@@ -575,8 +580,8 @@ it performs no Git or provider request. Provider scope is an explicit bounded re
 active stored `gh` identity for the selected host. Listing never clones, maps, proposes, or creates
 a workspace. Each row has an expiring opaque selection reference; `repositories select <REF>
 --action inspect` revalidates it and prepares the existing onboarding inspection. In VS Code, use
-**Map a capability → Choose repository…** or **Create workspace → Choose repository…**. Pasting a
-credential-free clone URL remains available. Copilot exposes the same journey as
+the optional **Browse repositories…** control below the Git URL field. Selecting a result runs
+the same read-only setup check as entering its URL. Copilot exposes the same journey as
 `/sf-repositories`; it discloses provider-backed names only after an explicit provider/host request
 and labels the private/internal count. Without that request, use the native picker or direct CLI.
 
@@ -590,8 +595,9 @@ singularity-flow capability onboard <REPOSITORY-URL> --confirm-plan <PLAN-ID> --
 ```
 
 The dry run returns a `repository-onboarding-plan/v1` with one understandable status, exact effects
-and preserved data, and the next Shell and Copilot commands. It does not write. Review that plan,
-then pass its `planId`; apply checks that the observed repository refs are unchanged before it
+and preserved data, and the next Shell and Copilot commands. It does not write. In VS Code, the
+repository URL and setup summary stay in one flow: inspect the summary and confirm the plan once.
+The CLI passes its `planId`; apply checks that the observed repository refs are unchanged before it
 writes. `/sf-capability-map` follows the same preview-and-confirm flow.
 
 The normal statuses are **Ready**, **Ready to restore**, **Update available**, **Linked to team
@@ -633,9 +639,12 @@ An applied plan may safely stop with a resumable partial result:
 | `ready-state-refresh-pending` | Configuration is ready; run the returned `capability publish` retry without republishing configuration. |
 
 An onboarding proposal (`sflow/config-change/onboarding/...`) is **not** a capability-map proposal
-(`sflow/config-change/capability/...`). `capability proposals` lists only the latter. Fresh setup
-creates `sflow/config` directly from installed defaults with an exact create lease. A restore or
-recreate derived from another ref still needs review because Git cannot atomically prove that
+(`sflow/config-change/capability/...`). `capability proposals` lists only the latter. For a new
+repository, the one setup confirmation shows what installed defaults will create; a separate diff
+review is not required. Fresh setup creates `sflow/config` directly with an exact create lease.
+When restoring, migrating, or recreating existing configuration, inspect the exact changed files
+and diff, source and proposal commits, and any omitted paths before approval. A restore or
+recreate derived from another ref needs a proposal because Git cannot atomically prove that
 source ref stayed fixed while creating a new authority branch. Repository policy can also reject
 direct creation. If setup returns a proposal, list
 pending setup branches with `capability setup-proposals --lead <URL> --json`, inspect the named
@@ -644,7 +653,8 @@ then explicitly approve it with `capability setup-activate <BRANCH> --lead <URL>
 <FULL-COMMIT> --json`. If direct-branch protection cannot be verified, the command refuses until
 you explicitly choose `--acknowledge-unprotected` or use external review. Activation uses an exact
 lease and cannot bypass server review controls; if those controls require an external merge, use
-the repository's normal review path. Recheck onboarding
+the repository's normal review path. Existing capability-map changes remain exact-commit review
+proposals and become active only after approval. Recheck onboarding
 after approval before creating a capability-map proposal. A missing `sflow/config` target may need
 an authorized maintainer to establish the branch from the reviewed setup commit.
 

@@ -3141,6 +3141,9 @@ test('the state branch is stated as a consequence, not asked for as a field', ()
 
 test('the workspace form asks for a directory, an organisation and capabilities — no repositories', () => {
   const html = workspaceFormHtml(EMPTY_WORKSPACE_FORM);
+  assert.match(html, /Map a capability from a Git URL…/,
+    'an unmapped workspace links to the URL-first mapping flow instead of a vague repository picker');
+  assert.doesNotMatch(html, /Choose repository and map capability/);
   const order = [
     'Working directory', 'Workspace details', 'Your local profile',
     'Organisation', 'Capabilities', 'Repositories'
@@ -3680,7 +3683,11 @@ test('mapping a capability defaults Kind to Delivery', () => {
   assert.match(html,
     /<option value="delivery" selected>Delivery<\/option>/);
   assert.match(html, /Smart \(recommended\) — blobless partial clone/);
-  assert.match(html, /aria-label="Clone URL:/);
+  assert.match(html, /aria-label="Git URL:/);
+  assert.match(html, /data-map-inspect[^>]*disabled[^>]*>[^<]*Check repository/);
+  assert.match(html, /<summary>Other ways to start<\/summary>/);
+  assert.match(html, /Browse repositories…/);
+  assert.doesNotMatch(html, /Choose repository…/);
   assert.match(html, /aria-label="Clone strategy:/);
   assert.match(html, /aria-label="State branch:/);
 });
@@ -3767,6 +3774,8 @@ test('repository setup renders one primary action and keeps recovery choices und
   assert.match(html, /Repository setup/);
   assert.match(html, /Ready to restore/);
   assert.match(html, /data-repository-setup-primary="applyRepositorySetup"/);
+  assert.match(html, /What setup will change/);
+  assert.match(html, /Prepare to restore SFlow configuration; repository approval may be required/);
   assert.equal((html.match(/data-repository-setup-primary=/g) ?? []).length, 1);
   assert.match(html, /<summary>More options<\/summary>/);
   assert.match(html, /Recreate configuration/);
@@ -3866,6 +3875,8 @@ test('repository setup renders one primary action and keeps recovery choices und
     ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: pendingStateIndex
   });
   assert.match(pendingStateHtml, /data-repository-setup-primary="continueRepositorySetup"[^>]*>Continue</);
+  assert.doesNotMatch(pendingStateHtml, /What setup will change/,
+    'continuing past an optional state refresh does not claim that it will write');
   assert.match(pendingStateHtml, /data-repository-setup-optional-apply>Refresh portable state index/);
   assert.match(pendingStateHtml, /not required to describe the first capability/);
   assert.equal((pendingStateHtml.match(/data-repository-setup-primary=/g) ?? []).length, 1);
@@ -7508,17 +7519,17 @@ test('capability proposals have an exact review and activation UI', async () => 
     'activation is bound to the complete reviewed proposal commit');
   assert.match(panel, /--acknowledge-unprotected/,
     'VS Code can pass the explicit unprotected-branch acknowledgement to the CLI');
-  assert.match(panel, /Merge and acknowledge[\s\S]*preauthorizedUnprotected[\s\S]*baseArguments[\s\S]*--acknowledge-unprotected[\s\S]*await this\.run\(baseArguments\)/,
-    'an explicit pre-authorization avoids a guaranteed refused network round trip');
-  assert.match(panel, /!preauthorizedUnprotected[\s\S]*Acknowledge unprotected branch/,
-    'the ordinary merge choice remains fail-closed and requires a second acknowledgement after refusal');
+  assert.match(panel, /View Git diff/,
+    'the Git diff remains available in expandable details');
+  assert.match(panel, /Merge and acknowledge[\s\S]*--acknowledge-unprotected[\s\S]*await this\.run\(baseArguments\)/,
+    'the reviewed exact-commit action includes the explicit unprotected-branch acknowledgement');
   assert.match(panel, /Activation audit:/,
     'the activation receipt is visible rather than discarded');
   assert.match(panel, /application default branch is not part of this operation/i);
   assert.match(panel, /exact leased update/i);
   assert.match(panel, /proposal\.merged \? 'Record merged activation'/,
     'an externally merged exact proposal remains actionable for audit and projection recovery');
-  assert.match(panel, /Retry exact activation/,
+  assert.match(panel, /Retry merge and acknowledge/,
     'a preserved review-required proposal can be retried without starting another proposal');
   assert.match(panel, /Available recovery paths|After correcting the blocker/,
     'the review surface shows the exact recovery rather than only a failure sentence');

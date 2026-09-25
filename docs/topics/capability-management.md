@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 19
+version: 20
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -38,7 +38,10 @@ Use this topic when the current goal matches **capability management**. Start in
 
 ## Repository setup front door
 
-Start setup, recovery, or upgrade from the same idempotent preview:
+In VS Code, paste a credential-free clone URL into the repository field. **Browse repositories…**
+is optional when you need to find the URL. Selecting a repository fills the field and immediately
+runs the same read-only setup check; it does not apply changes. Start setup, recovery, or upgrade
+from the same idempotent preview:
 
 ```bash
 singularity-flow capability onboard <REPOSITORY-URL> --dry-run --json
@@ -52,7 +55,8 @@ observed refs, and the next Shell and Copilot commands. Previewing performs one 
 and writes nothing. Applying the plan performs one final comparison with those refs and refuses a
 changed repository setup instead of replaying a stale decision.
 
-The normal journey presents one status and one primary action:
+The normal journey keeps the repository URL, one status, and one primary action together. For
+fresh setup, inspect the effects summary and confirm the plan once:
 
 | Status | Primary action |
 | --- | --- |
@@ -93,7 +97,10 @@ configuration mirror can restore it, a verified delivery locator continues to it
 lifecycle-only state continues to capability mapping. A branch that merely happens to be named
 `state` is not proof and remains untouched.
 
-Fresh setup creates `sflow/config` directly from installed defaults under an exact create lease.
+Fresh setup creates `sflow/config` directly from installed defaults under an exact create lease;
+the plan confirmation is sufficient when the repository accepts that write. Restore, migrate, and
+recreate of existing configuration require inspection of the exact changed files and diff, source
+and proposal commits, and any omitted paths before approval.
 Repository setup and capability mapping have separate review branches when review is required. A setup proposal is under
 `sflow/config-change/onboarding/` and is **not** returned by `capability proposals`, which lists
 only `sflow/config-change/capability/`. If a restore or recreate candidate uses mutable application
@@ -146,7 +153,7 @@ release. Normal repository setup entry points use `capability onboard`.
 2. Preserve the returned status, effects, preserved data, and next actions. Ask before running its exact `--confirm-plan` command. Do not select `--migrate`, `--recreate`, or `--reset-local` unless the contributor explicitly chose that mode and reviewed its own preview.
 3. Continue to capability metadata only when the applied or already-ready result says to map the capability. `sflow capability inspect-repository <GIT-URL> --json` remains a one-release compatibility diagnostic: reuse `already-mapped`; resolve every `ambiguous` match to one explicit lead; and treat `unreachable` or partial `inconclusive` results as unknown rather than new. `known-repository-unassigned` requires an explicit mapping choice, while `not-onboarded` is scoped to the complete set of checked approved maps.
 4. Only after the contributor explicitly requests more detail, use `sflow capability add <ID> --owns <DIRECTORY>`, `capability protect <PATH>`, or `capability depend <TARGET>@<REFERENCE>`. These create governed proposals. Keep `capability map` and remote `capability edit` as expert multi-repository compatibility flows.
-5. Inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**.
+5. For a capability-map proposal, inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**. The proposal does not activate itself.
    If inspection identifies an exact historical packaged Agent Markdown contract that conflicts
    with the current MCP policy, use the returned `capability repair-proposal` command (or
    **Prepare compatibility repair** in VS Code). The repair is proposal-only, requires the exact

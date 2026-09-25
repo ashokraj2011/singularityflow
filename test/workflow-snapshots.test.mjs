@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { renderArtifactTemplate } from '../src/config.mjs';
 import { lockAgent, renderAgentSkills, syncAgent } from '../src/agents.mjs';
@@ -144,6 +145,84 @@ test('a Story snapshot closes policy, template, and governed-agent bytes for off
     );
     assert.doesNotMatch(manifestText, /user:secret|private\.md/);
   } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('accepted Story snapshot hydrates only immutable closure blobs from a blobless checkout', async () => {
+  const value = await fixture();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wfa-partial-'));
+  try {
+    const unrelated = 'app/unrelated-source.bin';
+    await mkdir(path.join(value.root, 'app'), { recursive: true });
+    await writeFile(path.join(value.root, unrelated), Buffer.alloc(2 * 1024 * 1024, 0x77));
+    value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+      value.root, value.config, value.workflow
+    );
+    const creation = await acceptSnapshot(value);
+    const workflowRelative = `${value.config.workItemRoot}/${value.workflow.workItem.id}/workflow.json`;
+    const creationOid = run('git', ['rev-parse', `${creation}:${workflowRelative}`], {
+      cwd: value.root
+    }).stdout.trim();
+    const sourceOid = run('git', ['rev-parse', `${creation}:${unrelated}`], {
+      cwd: value.root
+    }).stdout.trim();
+    value.workflow.status = 'in_progress';
+    await writeFile(path.join(value.root, workflowRelative),
+      `${JSON.stringify(value.workflow, null, 2)}\n`);
+    run('git', ['add', workflowRelative], { cwd: value.root });
+    run('git', ['commit', '-q', '-m', 'advance Story after creation'], { cwd: value.root });
+    run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: value.root });
+
+    const partial = path.join(base, 'partial');
+    run('git', ['clone', '--quiet', '--depth=1', '--filter=blob:none', '--no-checkout',
+      pathToFileURL(value.root).href, partial], { cwd: base });
+    const partialHead = run('git', ['rev-parse', 'HEAD'], { cwd: partial }).stdout.trim();
+    assert.equal(run('git', ['rev-parse', '--is-shallow-repository'], {
+      cwd: partial
+    }).stdout.trim(), 'true');
+    await mkdir(path.join(partial, path.dirname(workflowRelative)), { recursive: true });
+    await writeFile(path.join(partial, workflowRelative),
+      `${JSON.stringify(value.workflow, null, 2)}\n`);
+    const localOnly = { ...process.env, GIT_NO_LAZY_FETCH: '1' };
+    assert.match(run('git', ['config', '--local', '--get-regexp', 'promisor'], {
+      cwd: partial
+    }).stdout, /remote\.origin\.promisor true/);
+    assert.match(run('git', ['config', '--local', '--get-regexp',
+      '^remote\\..*\\.promisor$'], { cwd: partial }).stdout, /remote\.origin\.promisor true/);
+    assert.notEqual(run('git', ['cat-file', '-e', creationOid], {
+      cwd: partial, env: localOnly, allowFailure: true
+    }).status, 0, 'the historical creation blob should initially be promised');
+    assert.notEqual(run('git', ['cat-file', '-e', sourceOid], {
+      cwd: partial, env: localOnly, allowFailure: true
+    }).status, 0);
+
+    const verified = await verifyWorkflowSnapshot(partial, value.config, value.workflow, {
+      requireAccepted: true
+    });
+    assert.equal(verified.status, 'ready');
+    assert.equal(verified.creationCommit, creation);
+    const context = await resolveStoryExecutionContext(partial, value.config, value.workflow, {
+      agentId: 'developer', phaseId: 'implementation'
+    });
+    assert.equal(context.identity.mode, 'workflow-snapshot');
+    assert.equal(run('git', ['rev-parse', '--is-shallow-repository'], {
+      cwd: partial
+    }).stdout.trim(), 'false', 'the true creation commit must be reached before accepting WFA');
+    assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: partial }).stdout.trim(), partialHead);
+    const temporaryAlias = run('git', ['config', '--local', '--get-regexp',
+      '^remote\\.sflow-frozen-.*\\.(promisor|partialclonefilter)$'], {
+      cwd: partial, allowFailure: true
+    });
+    assert.equal(temporaryAlias.status, 1, 'one-shot promisor aliases must be removed');
+    assert.equal(run('git', ['cat-file', '-e', creationOid], {
+      cwd: partial, env: localOnly, allowFailure: true
+    }).status, 0);
+    assert.notEqual(run('git', ['cat-file', '-e', sourceOid], {
+      cwd: partial, env: localOnly, allowFailure: true
+    }).status, 0, 'snapshot recovery must not hydrate unrelated application source');
+  } finally {
+    await rm(base, { recursive: true, force: true });
     await rm(value.root, { recursive: true, force: true });
   }
 });

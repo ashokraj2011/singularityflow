@@ -5,10 +5,13 @@ import path from 'node:path';
 
 import { canonicalJson } from './records.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { syncAgent } from './agents.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import {
+  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
+} from './git-remote-diagnostics.mjs';
 import {
   SingularityFlowError, posix, readJson, run, secureRepositoryPath, writeBytes, writeJson
 } from './util.mjs';
@@ -507,6 +510,172 @@ function exactStoryBlobPath(config, workId, digest) {
   return storyRelative(config, workId, `config/wfa/blobs/sha256/${digest}`);
 }
 
+/**
+ * Accepted snapshots can be read from a blobless Story worktree. Inspect exact creation-commit
+ * OIDs without contacting its promisor remote; only genuinely missing blobs may be hydrated.
+ */
+function missingLocalSnapshotBlobs(root, objectIds, label) {
+  const localEnv = {
+    ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1'
+  };
+  const checked = run('git', [
+    'cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'
+  ], {
+    cwd: root, env: localEnv, allowFailure: true,
+    input: Buffer.from(`${objectIds.join('\n')}\n`),
+    maxBuffer: Math.max(1024, objectIds.length * 160)
+  });
+  const rows = String(checked.stdout ?? '').trimEnd().split('\n');
+  if (checked.status !== 0 || rows.length !== objectIds.length) {
+    fail(`${label} could not inspect the required local Git objects.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const missing = [];
+  for (let index = 0; index < objectIds.length; index += 1) {
+    const oid = objectIds[index];
+    const row = rows[index].trim();
+    if (row === `${oid} missing`) {
+      missing.push(oid);
+    } else if (!new RegExp(`^${oid} blob [0-9]+$`, 'u').test(row)) {
+      fail(`${label} contains a non-blob or malformed Git object.`,
+        'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+  }
+  return missing;
+}
+
+function configuredPromisorIdentity(root, label) {
+  const promisor = run('git', ['config', '--local', '--get-regexp',
+    '^remote\\..*\\.promisor$'], { cwd: root, allowFailure: true });
+  const promisorNames = promisor.status === 0
+    ? String(promisor.stdout ?? '').split(/\r?\n/u)
+      .map((line) => /^remote\.([^\s]+)\.promisor\s+true$/iu.exec(line)?.[1] ?? null)
+      .filter(Boolean)
+    : [];
+  if (promisorNames.length !== 1) {
+    fail(`${label} requires exactly one partial-clone promisor remote; this checkout has ${promisorNames.length}. Repair its Git remotes before retrying.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const identity = configuredRemoteIdentity(root, promisorNames[0], {
+    direction: 'fetch'
+  });
+  if (!identity.configured || identity.ambiguous) {
+    fail(`${label} has no unambiguous configured promisor fetch authority.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  return identity;
+}
+
+function removeFrozenPromisorAlias(root, transport, label) {
+  const cleanup = run('git', ['config', '--local', '--remove-section',
+    `remote.${transport.remote}`], { cwd: root, allowFailure: true });
+  if (cleanup.status !== 0 && cleanup.status !== 5) {
+    fail(`${label} could not remove its temporary partial-clone transport configuration.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+}
+
+function hydrateMissingSnapshotBlobs(root, objectIds, label) {
+  const missing = missingLocalSnapshotBlobs(root, objectIds, label);
+  if (!missing.length) return false;
+  const identity = configuredPromisorIdentity(root, label);
+  const transport = frozenRemoteTransport(identity.url);
+  // An exact blob want cannot bring an application tree into the worktree. The server-side limit
+  // refuses oversized objects before they transfer; the local reader still enforces the limit and
+  // verifies every returned Git hash. Filtered fetch may persist this one-shot alias in the local
+  // Git config, so always remove exactly that random section before returning.
+  for (let offset = 0; offset < missing.length; offset += 128) {
+    try {
+      try {
+        runRemoteGit([
+          'fetch', '--no-tags', '--no-write-fetch-head',
+          `--filter=blob:limit=${MAXIMUM_ASSET_BYTES + 1}`, transport.remote,
+          ...missing.slice(offset, offset + 128)
+        ], {
+          cwd: root, operation: 'remote-configuration', allowFailure: false,
+          env: transport.env, maxBuffer: 64 * 1024
+        });
+      } catch (error) {
+        if (error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE') throw error;
+        fail(`${label} could not fetch a missing immutable blob from the configured partial-clone remote. Check Git access and promised-object support, then retry.`,
+          'WFA_DEPENDENCY_UNAVAILABLE', { remoteCode: error?.code ?? null });
+      }
+    } finally {
+      removeFrozenPromisorAlias(root, transport, label);
+    }
+  }
+  if (missingLocalSnapshotBlobs(root, missing, label).length) {
+    fail(`${label} still has missing immutable Git blobs after the bounded fetch.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  return true;
+}
+
+/** A shallow tip is not proof of the Story's original workflow.json addition. */
+function ensureCompleteStoryCreationHistory(root, label) {
+  const shallow = run('git', ['rev-parse', '--is-shallow-repository'], {
+    cwd: root, allowFailure: true
+  });
+  if (shallow.status !== 0 || !['true', 'false'].includes(shallow.stdout.trim())) {
+    fail(`${label} cannot establish whether its Git history is complete.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  if (shallow.stdout.trim() === 'false') return;
+  const branch = run('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], {
+    cwd: root, allowFailure: true
+  });
+  const branchName = branch.status === 0 ? branch.stdout.trim() : '';
+  if (!branchName || /[\r\n]/u.test(branchName)) {
+    fail(`${label} is in a shallow detached checkout; attach its Story branch before retrying.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const upstreamRemote = run('git', ['config', '--local', '--get',
+    `branch.${branchName}.remote`], { cwd: root, allowFailure: true });
+  const upstreamRef = run('git', ['config', '--local', '--get',
+    `branch.${branchName}.merge`], { cwd: root, allowFailure: true });
+  const identity = configuredPromisorIdentity(root, label);
+  const mergeRef = upstreamRef.status === 0 ? upstreamRef.stdout.trim() : '';
+  if (upstreamRemote.status !== 0 || upstreamRemote.stdout.trim() !== identity.remote
+      || !/^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u.test(mergeRef)
+      || mergeRef.includes('..') || mergeRef.endsWith('/') || mergeRef.includes('//')) {
+    fail(`${label} is shallow without one verifiable Story upstream branch. Repair its tracking branch before retrying.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const head = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root }).stdout.trim();
+  const transport = frozenRemoteTransport(identity.url);
+  try {
+    // Blobless unshallow transfers commits and trees, not application source. The one-shot frozen
+    // alias prevents a mutable local URL rewrite from changing the selected authority mid-fetch.
+    try {
+      runRemoteGit([
+        'fetch', '--no-tags', '--unshallow', '--filter=blob:none',
+        transport.remote, mergeRef
+      ], {
+        cwd: root, operation: 'remote-configuration', allowFailure: false,
+        env: transport.env, maxBuffer: 64 * 1024
+      });
+    } catch (error) {
+      if (error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE') throw error;
+      fail(`${label} could not fetch complete blobless ancestry from its configured Story upstream. Check Git access, then retry.`,
+        'WFA_DEPENDENCY_UNAVAILABLE', { remoteCode: error?.code ?? null });
+    }
+  } finally {
+    // Git may persist a filtered one-shot alias as a promisor remote. Remove only this invocation's
+    // unpredictable alias; never rewrite the user's real origin or checkout state.
+    removeFrozenPromisorAlias(root, transport, label);
+  }
+  const complete = run('git', ['rev-parse', '--is-shallow-repository'], { cwd: root });
+  const unchanged = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root });
+  const related = run('git', ['merge-base', 'HEAD', 'FETCH_HEAD'], {
+    cwd: root, allowFailure: true
+  });
+  if (complete.stdout.trim() !== 'false' || unchanged.stdout.trim() !== head
+      || related.status !== 0 || !/^[a-f0-9]{40,64}$/u.test(related.stdout.trim())) {
+    fail(`${label} could not prove complete ancestry for the checked-out Story branch.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+}
+
 function gitTreeEntries(root, commit, paths, label) {
   const entries = new Map();
   for (let offset = 0; offset < paths.length; offset += 256) {
@@ -539,18 +708,33 @@ function gitTreeEntries(root, commit, paths, label) {
     fail(`${label} is missing ${missing[0]} from the immutable Story creation commit.`,
       'WFA_DEPENDENCY_UNAVAILABLE');
   }
-  const blobs = readLocalGitBlobs(root, [...entries.values()].map((entry) => entry.oid), {
+  const objectIds = [...entries.values()].map((entry) => entry.oid);
+  const readBlobs = () => readLocalGitBlobs(root, objectIds, {
     maximumBytes: MAXIMUM_BUNDLE_BYTES,
     maximumObjectBytes: MAXIMUM_ASSET_BYTES,
     code: 'WFA_DEPENDENCY_UNAVAILABLE',
     limitCode: 'WFA_LIMIT_REACHED',
     label
   });
+  let blobs;
+  try {
+    blobs = readBlobs();
+  } catch (error) {
+    if (error?.code !== 'WFA_DEPENDENCY_UNAVAILABLE') throw error;
+    if (!hydrateMissingSnapshotBlobs(root, objectIds, label)) throw error;
+    blobs = readBlobs();
+  }
   return new Map([...entries].map(([relative, entry]) => [relative, blobs.get(entry.oid)]));
 }
 
 function initialSnapshotAuthority(root, config, workId) {
   const workflowRelative = storyRelative(config, workId, 'workflow.json');
+  const repository = run('git', ['rev-parse', '--git-dir'], {
+    cwd: root, allowFailure: true
+  });
+  if (repository.status === 0) {
+    ensureCompleteStoryCreationHistory(root, `Story '${workId}' immutable creation record`);
+  }
   const history = run('git', [
     'log', '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative
   ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);

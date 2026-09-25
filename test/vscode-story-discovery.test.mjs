@@ -34,6 +34,24 @@ test('Story discovery never treats a malformed response as a verified empty cata
   assert.match(result.issues[0].message, /no candidate list/);
 });
 
+test('Story discovery surfaces the affected branch and failure reason in the Inbox warning', async () => {
+  const result = await discoverWorkspaceStoryRows([
+    { id: 'pysfield', absolutePath: '/workspace/repos/pysfield', state: 'ready' }
+  ], async () => ({
+    items: [{ id: 'test', title: 'test', status: 'in_progress', phase: 'intake', branch: 'test' }],
+    unavailableCount: 2,
+    unavailable: [
+      { code: 'SUBJECT_STATE_UNAVAILABLE', branch: 'migration', reason: 'Git could not list governed state at origin/migration.' },
+      { code: 'SUBJECT_STATE_UNAVAILABLE', branch: 'old', reason: 'required configuration object is unavailable locally' }
+    ]
+  }));
+  assert.equal(result.stories.length, 1);
+  assert.equal(result.issues.length, 1);
+  assert.match(result.issues[0].message, /migration \[SUBJECT_STATE_UNAVAILABLE\]: Git could not list governed state/);
+  assert.match(result.issues[0].message, /old \[SUBJECT_STATE_UNAVAILABLE\]: required configuration object is unavailable locally/);
+  assert.match(result.issues[0].message, /session candidates --json --diagnostics/);
+});
+
 test('Story discovery reports malformed workspace inventory instead of silently skipping it', async () => {
   const result = await discoverWorkspaceStoryRows([
     { id: 'missing-path', absolutePath: '', state: 'missing' },

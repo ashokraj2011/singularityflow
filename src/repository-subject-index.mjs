@@ -178,7 +178,16 @@ export async function buildRepositorySubjectIndex(root, { definition = {}, portf
   return index;
 }
 
-const isSubjectRecord = (file) => file.endsWith('/workflow.json') || file.endsWith('/state.json');
+function isSubjectRecord(file, roots) {
+  const directChild = (root, leaf) => {
+    const prefix = `${root}/`;
+    if (!file.startsWith(prefix)) return false;
+    const suffix = file.slice(prefix.length);
+    return suffix.endsWith(`/${leaf}`) && suffix.split('/').length === 2;
+  };
+  return directChild(roots.workRoot, 'workflow.json')
+    || directChild(roots.initiativeRoot, 'state.json');
+}
 const REF_SUBJECT_CACHE_LIMIT = 128;
 const refSubjectCache = new Map();
 
@@ -283,7 +292,9 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
       const roots = rootsForRef(root, ref, { workRoot, initiativeRoot, env });
       const observed = roots.status === 'ok'
         ? readRefTreeResult(root, ref, [roots.workRoot, roots.initiativeRoot], {
-          filter: isSubjectRecord, env
+          // Filter by tree path before asking Git for blob sizes. A blobless workspace can have
+          // every workflow.json locally while unrelated artifacts under the same root are absent.
+          pathFilter: (file) => isSubjectRecord(file, roots), env
         })
         : null;
       return { roots, observed };

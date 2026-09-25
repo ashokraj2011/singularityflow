@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { readRefTree, readRefTreeResult } from '../src/git-ref-tree.mjs';
 
@@ -140,6 +141,41 @@ test('a filter can bound blob admission from listed object sizes before material
   const requested = fake.calls.find((call) => call.args[0] === 'cat-file').options.input;
   assert.equal(requested.includes(fake.entries[1].oid), false,
     'a filtered blob must never be handed to cat-file');
+});
+
+test('path-first Story inventory ignores unrelated missing blobs in a partial clone', (t) => {
+  const base = mkdtempSync(path.join(tmpdir(), 'sflow-ref-tree-partial-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const seed = path.join(base, 'seed');
+  const clone = path.join(base, 'clone');
+  mkdirSync(seed);
+  git(seed, ['init', '-q']);
+  git(seed, ['switch', '-qc', 'migration']);
+  const story = 'singularity/work-items/migration/workflow.json';
+  mkdirSync(path.join(seed, 'singularity', 'work-items', 'migration'), { recursive: true });
+  writeFileSync(path.join(seed, story), '{"workItem":{"id":"migration"}}\n');
+  writeFileSync(path.join(seed, 'singularity', 'work-items', 'migration', 'large-artifact.md'), 'x'.repeat(64 * 1024));
+  git(seed, ['add', '.']);
+  git(seed, ['-c', 'user.name=SFlow Test', '-c', 'user.email=test@example.invalid',
+    '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture']);
+  git(seed, ['config', 'uploadpack.allowFilter', 'true']);
+  git(base, ['clone', '--quiet', '--filter=blob:none', '--no-checkout', '--single-branch',
+    '--branch', 'migration', pathToFileURL(seed).href, clone]);
+  // This is the state of an already-fetched Story with an unrelated artifact still promised by
+  // the remote. Git show is allowed to hydrate exactly this small state blob, not the artifact.
+  assert.match(git(clone, ['show', `origin/migration:${story}`]), /migration/);
+  const legacyListing = spawnSync('git', [
+    'ls-tree', '-r', '-z',
+    '--format=%(objectmode)%x09%(objecttype)%x09%(objectname)%x09%(objectsize)%x09%(path)',
+    'origin/migration', '--', 'singularity/work-items'
+  ], { cwd: clone, encoding: 'utf8', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } });
+  assert.notEqual(legacyListing.status, 0,
+    'fixture must retain an unrelated promised blob that breaks the old size-first inventory');
+  const observed = readRefTreeResult(clone, 'origin/migration', ['singularity/work-items'], {
+    pathFilter: (file) => file.endsWith('/workflow.json')
+  });
+  assert.equal(observed.status, 'ok', JSON.stringify(observed.errors));
+  assert.deepEqual([...observed.contents.keys()], [story]);
 });
 
 test('a same-size substituted blob is rejected before its contents are exposed', () => {

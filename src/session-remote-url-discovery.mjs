@@ -22,6 +22,11 @@ const MAX_METADATA_TOTAL_BYTES = 64 * 1024 * 1024;
 const MAX_OBJECT_STORE_BYTES = 256 * 1024 * 1024;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
+/** Framework-owned refs can carry configuration history but are never Story branches. */
+export function isStoryDiscoveryBranch(branch) {
+  return branch !== 'state' && !branch.startsWith('sflow/');
+}
+
 function remoteUrl(url) {
   const checked = assertCredentialFreeRemote(String(url ?? '').trim());
   if (!/^(?:https?:\/\/|git@|ssh:\/\/|file:\/\/)/u.test(checked)
@@ -204,17 +209,22 @@ async function cloneBloblessBranch(transport, branch, expectedCommit, {
  * configuration/Story blobs. No application checkout or workspace repository is created.
  */
 export async function discoverRemoteStoryCandidatesByUrl(url, {
-  env = process.env, configurationUrl = null
+  env = process.env, configurationUrl = null, approvedDefinition = null
 } = {}) {
   const selectedUrl = remoteUrl(url);
   const transport = frozenRemoteTransport(selectedUrl, { env });
-  const selectedConfigurationUrl = configurationUrl == null ? selectedUrl : remoteUrl(configurationUrl);
-  const configurationTransport = selectedConfigurationUrl === selectedUrl
-    ? transport : frozenRemoteTransport(selectedConfigurationUrl, { env });
+  // Materialized workspace discovery may already hold a validated approved definition from its
+  // lead repository. Delivery repositories need not own sflow/config; never force one onto them.
+  if (approvedDefinition != null) validateDefinition(approvedDefinition);
+  const selectedConfigurationUrl = approvedDefinition == null
+    ? (configurationUrl == null ? selectedUrl : remoteUrl(configurationUrl)) : null;
+  const configurationTransport = approvedDefinition != null ? null
+    : selectedConfigurationUrl === selectedUrl ? transport
+      : frozenRemoteTransport(selectedConfigurationUrl, { env });
   const heads = await probeHeads(transport, 'Story');
-  const configurationHeads = configurationTransport === transport
-    ? heads : await probeHeads(configurationTransport, 'configuration');
-  if (!configurationHeads.has(CONFIGURATION_BRANCH)) throw new SingularityFlowError(
+  const configurationHeads = configurationTransport == null ? null
+    : configurationTransport === transport ? heads : await probeHeads(configurationTransport, 'configuration');
+  if (configurationHeads && !configurationHeads.has(CONFIGURATION_BRANCH)) throw new SingularityFlowError(
     `The configuration remote has no approved ${CONFIGURATION_BRANCH} branch for metadata-only discovery.`,
     { code: 'SESSION_REMOTE_CONFIGURATION_REQUIRED' }
   );
@@ -222,7 +232,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
   let configurationScratch = null;
   let scratch = null;
   try {
-    configurationScratch = await cloneBloblessBranch(
+    if (configurationTransport) configurationScratch = await cloneBloblessBranch(
       configurationTransport, CONFIGURATION_BRANCH, configurationHeads.get(CONFIGURATION_BRANCH)
     );
 
@@ -247,22 +257,24 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
       blobs.set(cacheKey, observed.stdout);
       return observed.stdout;
     };
-    const approvedOid = refBlobOid(
-      configurationScratch, `refs/remotes/origin/${CONFIGURATION_BRANCH}`,
-      WORKFLOW_PATH, configurationTransport.env
-    );
-    if (!approvedOid) throw new SingularityFlowError(
-      `Approved ${CONFIGURATION_BRANCH} is missing ${WORKFLOW_PATH}.`,
-      { code: 'SESSION_REMOTE_CONFIGURATION_UNAVAILABLE' }
-    );
-    let approvedDefinition;
-    try {
-      approvedDefinition = YAML.parse(await readBlob(configurationScratch, configurationTransport, approvedOid));
-      validateDefinition(approvedDefinition);
-    } catch (error) {
-      throw new SingularityFlowError(`Approved Story configuration is unreadable: ${error.message}`, {
-        code: 'SESSION_REMOTE_CONFIGURATION_UNAVAILABLE'
-      });
+    let effectiveApprovedDefinition = approvedDefinition;
+    if (configurationTransport) {
+      const approvedOid = refBlobOid(
+        configurationScratch, `refs/remotes/origin/${CONFIGURATION_BRANCH}`,
+        WORKFLOW_PATH, configurationTransport.env
+      );
+      if (!approvedOid) throw new SingularityFlowError(
+        `Approved ${CONFIGURATION_BRANCH} is missing ${WORKFLOW_PATH}.`,
+        { code: 'SESSION_REMOTE_CONFIGURATION_UNAVAILABLE' }
+      );
+      try {
+        effectiveApprovedDefinition = YAML.parse(await readBlob(configurationScratch, configurationTransport, approvedOid));
+        validateDefinition(effectiveApprovedDefinition);
+      } catch (error) {
+        throw new SingularityFlowError(`Approved Story configuration is unreadable: ${error.message}`, {
+          code: 'SESSION_REMOTE_CONFIGURATION_UNAVAILABLE'
+        });
+      }
     }
 
     // The delivery repository need not own sflow/config. Select only a ref it actually
@@ -313,8 +325,9 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
     const items = new Map();
     const diagnostics = [];
     for (const [branch, commit] of heads) {
+      if (!isStoryDiscoveryBranch(branch)) continue;
       const ref = `refs/remotes/origin/${branch}`;
-      let definition = approvedDefinition;
+      let definition = effectiveApprovedDefinition;
       try {
         const ownOid = refBlobOid(scratch, ref, WORKFLOW_PATH, transport.env);
         if (ownOid) {

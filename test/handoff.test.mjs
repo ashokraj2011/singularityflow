@@ -3,13 +3,23 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { bootstrapRepository } from '../src/bootstrap.mjs';
+import { isStoryDiscoveryBranch } from '../src/session-remote-url-discovery.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+
+test('Story discovery ignores framework authority refs but keeps ordinary Story branches', () => {
+  assert.equal(isStoryDiscoveryBranch('migration'), true);
+  assert.equal(isStoryDiscoveryBranch('story/MIGRATION-1'), true);
+  assert.equal(isStoryDiscoveryBranch('sflow/config'), false);
+  assert.equal(isStoryDiscoveryBranch('sflow/config-change/capability/map-app'), false);
+  assert.equal(isStoryDiscoveryBranch('sflow/config-history/abc123'), false);
+  assert.equal(isStoryDiscoveryBranch('state'), false);
+});
 
 function run(command, args, cwd, env = process.env) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
@@ -232,7 +242,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   // A capability can expose published Stories before its delivery repository is cloned locally.
   run('git', ['config', 'uploadpack.allowFilter', 'true'], remote);
   const remoteOnly = spawnSync(process.execPath, [
-    bin, 'session', 'candidates', '--repository-url', `file://${remote}`,
+    bin, 'session', 'candidates', '--repository-url', pathToFileURL(remote).href,
     '--json', '--diagnostics'
   ], {
     cwd: base, encoding: 'utf8', env: {
@@ -259,14 +269,14 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   ], remote);
   run('git', ['config', 'uploadpack.allowFilter', 'true'], delivery);
   const withoutLead = spawnSync(process.execPath, [
-    bin, 'session', 'candidates', '--repository-url', `file://${delivery}`,
+    bin, 'session', 'candidates', '--repository-url', pathToFileURL(delivery).href,
     '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(withoutLead.status, 1);
   assert.match(withoutLead.stderr, /SESSION_REMOTE_CONFIGURATION_REQUIRED/);
   const separateLead = spawnSync(process.execPath, [
-    bin, 'session', 'candidates', '--repository-url', `file://${delivery}`,
-    '--configuration-url', `file://${remote}`, '--json', '--diagnostics'
+    bin, 'session', 'candidates', '--repository-url', pathToFileURL(delivery).href,
+    '--configuration-url', pathToFileURL(remote).href, '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(separateLead.status, 0, separateLead.stderr);
   const separateDiscovery = JSON.parse(separateLead.stdout);
@@ -276,21 +286,47 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   assert.ok(separateDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'));
   run('git', ['config', 'uploadpack.allowFilter', 'false'], delivery);
   const unsupportedDelivery = spawnSync(process.execPath, [
-    bin, 'session', 'candidates', '--repository-url', `file://${delivery}`,
-    '--configuration-url', `file://${remote}`, '--json', '--diagnostics'
+    bin, 'session', 'candidates', '--repository-url', pathToFileURL(delivery).href,
+    '--configuration-url', pathToFileURL(remote).href, '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(unsupportedDelivery.status, 1);
   assert.match(unsupportedDelivery.stderr, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
   run('git', ['config', 'uploadpack.allowFilter', 'true'], delivery);
   run('git', ['config', 'uploadpack.allowFilter', 'false'], remote);
   const unsupportedFilter = spawnSync(process.execPath, [
-    bin, 'session', 'candidates', '--repository-url', `file://${remote}`,
+    bin, 'session', 'candidates', '--repository-url', pathToFileURL(remote).href,
     '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(unsupportedFilter.status, 1);
   assert.match(unsupportedFilter.stderr, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
   assert.equal(unsupportedFilter.stdout.trim(), '');
   run('git', ['config', 'uploadpack.allowFilter', 'true'], remote);
+
+  // A Windows-style blobless workspace has branch trees but may not yet hold the Story state
+  // blobs. Candidate refresh must explicitly recover only bounded metadata, with no checkout or
+  // source hydration, and must not count SFlow's own review refs as unreadable Stories.
+  const partial = path.join(base, 'partial');
+  run('git', ['clone', '--quiet', '--filter=blob:none', '--no-checkout', '--single-branch',
+    '--branch', 'main', pathToFileURL(remote).href, partial], base);
+  const partialHead = run('git', ['rev-parse', 'HEAD'], partial).stdout.trim();
+  const partialCandidates = spawnSync(process.execPath, [
+    bin, 'session', 'candidates', '--json', '--diagnostics'
+  ], {
+    cwd: partial, encoding: 'utf8', env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'partial-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'partial-selection.json')
+    }
+  });
+  assert.equal(partialCandidates.status, 0, partialCandidates.stderr);
+  const partialDiscovery = JSON.parse(partialCandidates.stdout);
+  assert.ok(partialDiscovery.items.some((item) => item.id === 'BOOT-101'));
+  assert.equal(partialDiscovery.unavailable.some((item) => item.branch?.startsWith('sflow/')), false);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], partial).stdout.trim(), partialHead);
+  assert.equal(run('git', ['branch', '--show-current'], partial).stdout.trim(), 'main');
+  assert.notEqual(spawnSync('git', ['cat-file', '-e', 'HEAD:README.md'], {
+    cwd: partial, encoding: 'utf8', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }
+  }).status, 0, 'Story metadata discovery must not fetch the application README blob');
 
   run('git', ['clone', '--no-hardlinks', remote, second], base);
   identity(second, 'Second Bootstrap Contributor');

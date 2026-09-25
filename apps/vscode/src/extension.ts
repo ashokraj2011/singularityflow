@@ -4550,6 +4550,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return activeSelectionClient.run<{
               items: Array<{ id: string; title: string; status: string; phase: string | null; branch: string | null }>;
               unavailableCount: number;
+              unavailable: Array<{ code?: string; branch?: string | null; ref?: string | null; reason?: string }>;
             }>(['session', 'candidates', '--repository-url', entry.url,
               ...(entry.configurationUrl && entry.configurationUrl !== entry.url
                 ? ['--configuration-url', entry.configurationUrl] : []),
@@ -4567,6 +4568,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return reader.run<{
             items: Array<{ id: string; title: string; status: string; phase: string | null; branch: string | null }>;
             unavailableCount: number;
+            unavailable: Array<{ code?: string; branch?: string | null; ref?: string | null; reason?: string }>;
           }>(['session', 'candidates', '--json', '--diagnostics']);
         });
         if (!repositoryEpoch.isCurrent(scope)) return;

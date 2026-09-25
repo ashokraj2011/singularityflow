@@ -2,7 +2,9 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { fetchRemote, fileAtRef, hasRemote, remoteBranches } from './git.mjs';
+import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import { buildRepositorySubjectIndexFromRefs } from './repository-subject-index.mjs';
+import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
 import { validateId } from './state.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
@@ -41,6 +43,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   }
   if (fetch) await fetchRemote(root, remote);
   const refs = remoteBranches(root, remote)
+    .filter(isStoryDiscoveryBranch)
     .map((branch) => ({ branch, ref: `${remote}/${branch}` }));
   const index = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
   const unavailable = [...index.unreadable, ...(index.conflicts ?? [])];
@@ -64,6 +67,45 @@ export async function discoverRemoteStoryCandidates(root, definition, {
         branch: subject.location.branch ?? null,
         path: subject.location.path ?? null,
         reason: error.message
+      });
+    }
+  }
+  // A fresh blobless checkout has commits and trees but may not yet hold even workflow.json.
+  // Local reads deliberately suppress implicit promisor fetches; recover through the bounded
+  // metadata-only remote operation instead of downloading application source or calling an
+  // unreadable Story absent. The existing validated local items survive a failed recovery.
+  if (fetch && unavailable.some((entry) => (
+    entry.branch && ['SUBJECT_STATE_UNAVAILABLE', 'SUBJECT_STATE_PARTIAL'].includes(entry.code)
+  ))) {
+    try {
+      const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+      if (!identity.configured || identity.ambiguous) throw new SingularityFlowError(
+        'The Story remote has no single configured fetch authority.',
+        { code: 'GIT_REMOTE_CONFIG_INVALID' }
+      );
+      const recovered = await discoverRemoteStoryCandidatesByUrl(identity.url, {
+        // The caller loaded this through its selected approved configuration authority. A
+        // delivery repository can be separate from that lead and need not own sflow/config.
+        approvedDefinition: definition
+      });
+      const restoredBranches = new Set(recovered.items.map((item) => item.branch));
+      const merged = new Map(items.map((item) => [item.id, item]));
+      for (const item of recovered.items) merged.set(item.id, item);
+      const remaining = unavailable.filter((entry) => !restoredBranches.has(entry.branch)
+        && !recovered.unavailable.some((failure) => failure.branch === entry.branch
+          && failure.path === entry.path));
+      return {
+        source: 'materialized-metadata-recovery', repositoryPath: path.resolve(root),
+        remote, fetched: fetch,
+        count: merged.size, items: [...merged.values()].sort((left, right) => left.id.localeCompare(right.id)),
+        unavailableCount: remaining.length + recovered.unavailable.length,
+        unavailable: [...remaining, ...recovered.unavailable]
+      };
+    } catch (error) {
+      unavailable.push({
+        code: 'SESSION_METADATA_RECOVERY_UNAVAILABLE', claimedId: null, ref: null,
+        branch: null, path: null,
+        reason: `Bounded metadata-only recovery could not complete (${error.code ?? 'unknown'}).`
       });
     }
   }

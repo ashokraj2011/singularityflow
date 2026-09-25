@@ -49,6 +49,26 @@ interface CandidateResponse {
     branch?: string | null;
   }>;
   unavailableCount?: number;
+  unavailable?: Array<{
+    code?: string;
+    branch?: string | null;
+    ref?: string | null;
+    reason?: string;
+  }>;
+}
+
+function unreadableStoryMessage(repository: StoryRepository, response: CandidateResponse): string {
+  const count = response.unavailableCount ?? 0;
+  const summary = `${count} Story branch${count === 1 ? ' is' : 'es are'} unreadable in '${repository.id}'.`;
+  const examples = (response.unavailable ?? []).slice(0, 2).map((entry) => {
+    const ref = entry.branch || entry.ref || 'unknown branch';
+    const code = entry.code ? ` [${entry.code}]` : '';
+    const reason = String(entry.reason ?? 'No failure reason was returned.').slice(0, 240);
+    return `${ref}${code}: ${reason}`;
+  });
+  return examples.length
+    ? `${summary} ${examples.join(' | ')}${count > examples.length ? ` (+${count - examples.length} more)` : ''}. Run singularity-flow session candidates --json --diagnostics in this repository for the full report.`
+    : `${summary} Run singularity-flow session candidates --json --diagnostics in this repository for the full report.`;
 }
 
 /**
@@ -105,7 +125,7 @@ export async function discoverWorkspaceStoryRows(
         }
         if ((response.unavailableCount ?? 0) > 0) issues.push({
           repositoryId: repository.id,
-          message: `${response.unavailableCount} Story branch${response.unavailableCount === 1 ? ' is' : 'es are'} unreadable in '${repository.id}'. Inspect its Story discovery diagnostics.`
+          message: unreadableStoryMessage(repository, response)
         });
       } catch (error) {
         issues.push({ repositoryId: repository.id, message: (error as Error).message });

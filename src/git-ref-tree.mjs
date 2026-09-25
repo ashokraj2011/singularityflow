@@ -115,6 +115,7 @@ function parseBatch(buffer, entries) {
  */
 export function readRefTreeResult(root, ref, pathspecs = [], {
   filter = null,
+  pathFilter = null,
   runCommand = run,
   env = process.env,
   maxBatchBytes = DEFAULT_BATCH_BYTES,
@@ -147,9 +148,16 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
     )], 0, 0);
   }
 
+  // %(objectsize) asks Git to open every blob under the pathspec, including files a later
+  // filter rejects. In a blobless Story checkout that turns an otherwise local tree listing
+  // into a missing-promisor-object failure (or an implicit network fetch on older Git). When a
+  // caller can first select paths, list only tree metadata and size-check those selected blobs.
+  const deferredSizes = typeof pathFilter === 'function';
   const listed = runCommand('git', [
     'ls-tree', '-r', '-z',
-    '--format=%(objectmode)%x09%(objecttype)%x09%(objectname)%x09%(objectsize)%x09%(path)',
+    deferredSizes
+      ? '--format=%(objectmode)%x09%(objecttype)%x09%(objectname)%x09%(path)'
+      : '--format=%(objectmode)%x09%(objecttype)%x09%(objectname)%x09%(objectsize)%x09%(path)',
     treeOid, '--', ...pathspecs
   ], { cwd: root, allowFailure: true, env: localEnv });
   if (listed.status !== 0) {
@@ -159,19 +167,67 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
     )], 0, 0);
   }
 
-  const entries = [];
+  const listedEntries = [];
   const errors = [];
   for (const row of String(listed.stdout ?? '').split('\0')) {
     if (!row) continue;
-    const [mode, type, oid, rawSize, ...pathParts] = row.split('\t');
+    const [mode, type, oid, ...remaining] = row.split('\t');
+    const rawSize = deferredSizes ? null : remaining.shift();
+    const pathParts = remaining;
     const file = pathParts.join('\t');
-    const size = Number(rawSize);
     if (!/^[0-7]{6}$/.test(mode ?? '') || !['blob', 'commit'].includes(type)
         || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid ?? '') || oid.length !== treeOid.length
-        || !file || !Number.isSafeInteger(size) || size < 0) {
+        || !file || (!deferredSizes && (!Number.isSafeInteger(Number(rawSize)) || Number(rawSize) < 0))) {
       errors.push(diagnostic('REF_TREE_LIST_INVALID', `Git returned an invalid tree entry at '${ref}'.`, { ref }));
       continue;
     }
+    if (pathFilter && !pathFilter(file, Object.freeze({ oid, mode, type }))) continue;
+    listedEntries.push({ oid, file, size: deferredSizes ? null : Number(rawSize), mode, type });
+  }
+  if (errors.length) return result('unavailable', new Map(), errors, listedEntries.length, 0);
+
+  if (deferredSizes) {
+    // Batch-check only the accepted metadata objects. This preserves the original per-object
+    // admission ceiling without consulting unrelated application blobs in a partial clone.
+    for (let offset = 0; offset < listedEntries.length; offset += 512) {
+      const group = listedEntries.slice(offset, offset + 512);
+      const checked = runCommand('git', [
+        'cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'
+      ], {
+        cwd: root, allowFailure: true, env: localEnv,
+        maxBuffer: group.length * 128 + 1024,
+        input: `${group.map((entry) => entry.oid).join('\n')}\n`
+      });
+      if (checked.status !== 0) {
+        return result('unavailable', new Map(), [diagnostic(
+          checked.timedOut ? 'REF_TREE_SIZE_TIMEOUT'
+            : checked.error?.code === 'ENOBUFS' ? 'REF_TREE_SIZE_OVERFLOW' : 'REF_TREE_SIZE_FAILED',
+          `Git could not size governed state objects at '${ref}'.`, { ref }
+        )], listedEntries.length, 0);
+      }
+      const lines = String(checked.stdout ?? '').trimEnd().split(/\r?\n/);
+      if (lines.length !== group.length) {
+        return result('unavailable', new Map(), [diagnostic(
+          'REF_TREE_SIZE_INVALID', `Git returned incomplete governed-state object sizes at '${ref}'.`, { ref }
+        )], listedEntries.length, 0);
+      }
+      for (let index = 0; index < group.length; index += 1) {
+        const [oid, type, rawSize] = lines[index].split(' ');
+        const size = Number(rawSize);
+        if (oid !== group[index].oid || type !== group[index].type
+            || !Number.isSafeInteger(size) || size < 0) {
+          return result('unavailable', new Map(), [diagnostic(
+            'REF_TREE_SIZE_INVALID', `Git returned an invalid governed-state object size at '${ref}'.`,
+            { ref, path: group[index].file }
+          )], listedEntries.length, 0);
+        }
+        group[index].size = size;
+      }
+    }
+  }
+
+  const entries = [];
+  for (const { oid, file, size, mode, type } of listedEntries) {
     // Size and object identity let bounded callers make an admission decision before any blob is
     // materialized. Existing path-only filters remain source-compatible.
     if (filter && !filter(file, Object.freeze({ oid, size, mode, type }))) continue;

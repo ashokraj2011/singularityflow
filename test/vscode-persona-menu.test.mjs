@@ -23,10 +23,17 @@ test('menu personas are complete, stable, and navigation-only', () => {
     assert.ok(persona.label);
     assert.ok(persona.description);
     assert.ok(persona.menuIds.length >= 3);
-    assert.equal(persona.menuIds[0], 'setup-wizard',
-      `${persona.id} starts first-use Favorites with Guided start`);
-    assert.ok(persona.menuIds.includes('capability-map'),
-      `${persona.id} keeps Map a capability in first-use Favorites`);
+    assert.ok(persona.menuIds.length <= 4, `${persona.id} keeps suggested Favorites concise`);
+    assert.equal(new Set(persona.menuIds).size, persona.menuIds.length,
+      `${persona.id} does not suggest a menu twice`);
+    if (persona.id !== 'other') {
+      assert.ok(!persona.menuIds.includes('setup-wizard'),
+        `${persona.id} does not pin onboarding for an established role`);
+    }
+    if (persona.id !== 'admin') {
+      assert.ok(!persona.menuIds.includes('capability-map'),
+        `${persona.id} does not pin capability mapping without a role-specific reason`);
+    }
     assert.deepEqual([...new Set(persona.sectionOrder)].sort(), [...SECTIONS].sort(),
       `${persona.id} keeps every Navigator section`);
   }
@@ -37,17 +44,19 @@ test('menu personas are complete, stable, and navigation-only', () => {
   assert.equal(resolveProfilePersona('not-configured').id, 'other');
 });
 
-test('each principal persona receives relevant first-use menu suggestions', () => {
+test('each principal persona receives concise role-specific menu suggestions', () => {
   assert.deepEqual(resolveProfilePersona('developer').menuIds,
-    ['setup-wizard', 'my-work', 'work-start', 'journal', 'diagnostics', 'logs-open', 'capability-map']);
+    ['my-work', 'work-start', 'journal', 'diagnostics']);
   assert.deepEqual(resolveProfilePersona('architect').menuIds,
-    ['setup-wizard', 'my-work', 'impact-form', 'flow-impact', 'configuration-center', 'ast-intelligence', 'capability-map']);
+    ['my-work', 'impact-form', 'flow-impact', 'configuration-center']);
   assert.deepEqual(resolveProfilePersona('qa').menuIds,
-    ['setup-wizard', 'my-work', 'fault-repairs', 'inbox-open', 'visual-assurance', 'approvals-open', 'capability-map']);
+    ['my-work', 'inbox-open', 'visual-assurance', 'approvals-open']);
   assert.deepEqual(resolveProfilePersona('admin').menuIds,
-    ['setup-wizard', 'workspace-manage', 'local-reset', 'configuration-center', 'ast-intelligence', 'capability-map', 'diagnostics']);
+    ['workspace-manage', 'configuration-center', 'capability-map', 'diagnostics']);
   assert.deepEqual(resolveProfilePersona('product-owner').menuIds,
-    ['setup-wizard', 'my-work', 'goals', 'work-start', 'inbox-open', 'approvals-open', 'capability-map']);
+    ['my-work', 'goals', 'work-start', 'approvals-open']);
+  assert.deepEqual(resolveProfilePersona('other').menuIds,
+    ['setup-wizard', 'my-work', 'work-start', 'inbox-open']);
 });
 
 test('the public VS Code setting and command palette expose every menu persona', async () => {
@@ -59,4 +68,10 @@ test('the public VS Code setting and command palette expose every menu persona',
   assert.ok(manifest.contributes.commands.some((entry) =>
     entry.command === 'singularityFlow.startWizard' && entry.title.includes('Capability, Workspace, Work')),
   'the complete first-use journey is available from the Command Palette');
+  assert.ok(manifest.contributes.commands.some((entry) =>
+    entry.command === 'singularityFlow.mapCapability'),
+  'capability mapping is available from the Command Palette');
+  assert.ok(manifest.contributes.commands.some((entry) =>
+    entry.command === 'singularityFlow.manageFavorites'),
+  'people can customize the shorter defaults');
 });

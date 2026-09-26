@@ -76,6 +76,8 @@ import { capabilityProposalArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import { SidebarViewProvider } from './views/sidebar.ts';
+import { deriveSidebarNavigation } from './views/sidebar-navigation-model.ts';
+import { buildApprovals } from './views/approvals-model.ts';
 import { PROFILE_PERSONAS, isProfilePersonaId, resolveProfilePersona } from './views/profile-personas.ts';
 import {
   buildWorkspaceTree, capabilityIdOf, workspacePathOf, type CapabilityReadiness
@@ -3247,10 +3249,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }).run<WorkspaceEntry[]>(['workspace', 'list', '--json']);
       workspaceEntries = entries;
       drawWorkspaces();
+      sidebar.setNavigation(deriveSidebarNavigation(workspaceEntries, null));
     } catch (error) {
       output.appendLine(`Could not read the workspace registry: ${(error as Error).message}`);
-      workspaceEntries = [];
       drawWorkspaces();
+      sidebar.setNavigation(deriveSidebarNavigation(workspaceEntries, null, { loading: true }));
     }
   };
   /**
@@ -4303,6 +4306,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // says nothing: the tree is right, it is simply being re-checked.
   context.subscriptions.push(store.onDidChange((state) => {
     sidebar.setFreshness(state.stale ? 'Showing the last known state — checking the repository…' : null);
+    sidebar.setNavigation(deriveSidebarNavigation(workspaceEntries, state.stale ? null : state.snapshot,
+      { loading: state.loading }));
+    sidebar.setPendingApprovals(state.stale ? 0
+      : buildApprovals(state.snapshot).pending.filter((approval) => approval.standing === 'yours').length);
     /**
      * The first read specifically, which is the one with nothing behind it.
      *

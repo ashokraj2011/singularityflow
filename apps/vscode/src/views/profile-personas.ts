@@ -26,20 +26,15 @@ export interface ProfilePersona {
 
 const BASE_SECTIONS = ['favorites', 'inbox', 'workspaces', 'lifecycle', 'configuration', 'help', 'logs'] as const;
 
-/**
- * Guided Start is the first-use front door, and capability mapping remains directly reachable for
- * later portfolio changes. Keep both in every persona's suggested Favorites while still allowing a
- * person to unpin either explicitly. Centralising the invariant here means a newly added persona
- * cannot accidentally omit onboarding or capability management.
- */
+/** Keep each role's suggested Favorites in its chosen order without adding shared shortcuts. */
 function personaMenus(...menuIds: string[]): readonly string[] {
-  return Object.freeze([...new Set(['setup-wizard', ...menuIds, 'capability-map'])]);
+  return Object.freeze([...new Set(menuIds)]);
 }
 
 export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   {
     id: 'product-owner', label: 'Product owner', description: 'outcomes, intake, and decisions',
-    menuIds: personaMenus('my-work', 'goals', 'work-start', 'inbox-open', 'approvals-open'),
+    menuIds: personaMenus('my-work', 'goals', 'work-start', 'approvals-open'),
     sectionOrder: ['favorites', 'inbox', 'lifecycle', 'workspaces', 'configuration', 'help', 'logs']
   },
   {
@@ -54,17 +49,17 @@ export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   },
   {
     id: 'architect', label: 'Architect', description: 'system impact and governed design',
-    menuIds: personaMenus('my-work', 'impact-form', 'flow-impact', 'configuration-center', 'ast-intelligence'),
+    menuIds: personaMenus('my-work', 'impact-form', 'flow-impact', 'configuration-center'),
     sectionOrder: ['favorites', 'configuration', 'lifecycle', 'inbox', 'workspaces', 'help', 'logs']
   },
   {
     id: 'developer', label: 'Developer', description: 'current work, change impact, and diagnostics',
-    menuIds: personaMenus('my-work', 'work-start', 'journal', 'diagnostics', 'logs-open'),
+    menuIds: personaMenus('my-work', 'work-start', 'journal', 'diagnostics'),
     sectionOrder: ['favorites', 'lifecycle', 'inbox', 'workspaces', 'logs', 'help', 'configuration']
   },
   {
     id: 'qa', label: 'QA', description: 'verification, evidence, and decisions',
-    menuIds: personaMenus('my-work', 'fault-repairs', 'inbox-open', 'visual-assurance', 'approvals-open'),
+    menuIds: personaMenus('my-work', 'inbox-open', 'visual-assurance', 'approvals-open'),
     sectionOrder: ['favorites', 'inbox', 'lifecycle', 'logs', 'workspaces', 'help', 'configuration']
   },
   {
@@ -79,17 +74,17 @@ export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   },
   {
     id: 'operations', label: 'Operations', description: 'workspaces, runtime impact, and logs',
-    menuIds: personaMenus('my-work', 'workspace-manage', 'diagnostics', 'logs-open', 'impact-form'),
+    menuIds: personaMenus('workspace-manage', 'diagnostics', 'logs-open', 'impact-form'),
     sectionOrder: ['favorites', 'workspaces', 'logs', 'lifecycle', 'inbox', 'configuration', 'help']
   },
   {
     id: 'admin', label: 'Admin', description: 'workspace and product configuration',
-    menuIds: personaMenus('workspace-manage', 'local-reset', 'configuration-center', 'ast-intelligence', 'capability-map', 'diagnostics'),
+    menuIds: personaMenus('workspace-manage', 'configuration-center', 'capability-map', 'diagnostics'),
     sectionOrder: ['favorites', 'workspaces', 'configuration', 'logs', 'help', 'inbox', 'lifecycle']
   },
   {
     id: 'other', label: 'General', description: 'a balanced view of governed work',
-    menuIds: personaMenus('my-work', 'work-start', 'inbox-open'),
+    menuIds: personaMenus('setup-wizard', 'my-work', 'work-start', 'inbox-open'),
     sectionOrder: BASE_SECTIONS
   }
 ]);

@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import type { TreeNode } from './tree-model.ts';
 import { brandSymbol, contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, type IconName } from './webview.ts';
 import { isProfilePersonaId, resolveProfilePersona, type ProfilePersona } from './profile-personas.ts';
+import type { SidebarNavigation } from './sidebar-navigation-model.ts';
 import { MicrotaskCoalescer } from '../single-flight.ts';
 
 export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
@@ -30,6 +31,9 @@ const SECTION_META: Record<SidebarSection, {
   label: string;
   icon: IconName;
   actions: Array<{ id: string; label: string; icon: IconName }>;
+  linkHeading?: string;
+  links?: Array<{ id: string; label: string; icon: IconName }>;
+  more?: Array<{ id: string; label: string; icon: IconName }>;
   empty: { text: string; action: string; actionLabel: string };
 }> = {
   favorites: {
@@ -42,17 +46,13 @@ const SECTION_META: Record<SidebarSection, {
     }
   },
   inbox: {
-    label: 'Inbox', icon: 'inbox', actions: [
-      { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
-      { id: 'fault-repairs', label: 'Faults & Repairs', icon: 'warning' },
-      // Approvals were reachable only from the command palette, which is where a reader looks last.
-      // The inbox is where "what is waiting on me" already lives, so the decision screen belongs
-      // beside it rather than one search away.
-      { id: 'approvals-open', label: 'Open approvals', icon: 'approval' },
-      { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' },
-      // Every section reads from the one shared snapshot, so a failed refresh empties them together.
-      // Inbox was the only one of the two affected sections with no way to ask for another go.
-      { id: 'refresh', label: 'Refresh inbox', icon: 'refresh' }
+    label: 'Inbox & reviews', icon: 'inbox', actions: [],
+    linkHeading: 'Reviews', links: [
+      { id: 'approvals-open', label: 'Review approvals', icon: 'approval' },
+      { id: 'capability-proposals', label: 'Review capability changes', icon: 'capability' }
+    ],
+    more: [
+      { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' }
     ],
     empty: {
       text: 'Nothing is waiting on you. Submitted phases appear here for approval.',
@@ -60,11 +60,14 @@ const SECTION_META: Record<SidebarSection, {
     }
   },
   workspaces: {
-    label: 'Workspaces', icon: 'workspace', actions: [
+    label: 'Workspaces', icon: 'workspace', actions: [],
+    linkHeading: 'Set up', links: [
+      { id: 'capability-map', label: 'Map a capability', icon: 'capability' },
+      { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' }
+    ],
+    more: [
       { id: 'setup-wizard', label: 'Guided start', icon: 'start' },
-      { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' },
-      { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspaceManage' },
-      { id: 'local-reset', label: 'Local Data & Reset', icon: 'remove' }
+      { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspaceManage' }
     ],
     empty: {
       text: 'No workspace is selected. A workspace points at the governed repository whose lifecycle you want to see.',
@@ -72,59 +75,26 @@ const SECTION_META: Record<SidebarSection, {
     }
   },
   lifecycle: {
-    label: 'Lifecycle', icon: 'workflow', actions: [
-      { id: 'work-start', label: 'Start intake', icon: 'start' },
+    label: 'Work', icon: 'workflow', actions: [
+      { id: 'refresh', label: 'Refresh work', icon: 'refresh' }
+    ],
+    links: [
+      { id: 'work-start', label: 'Start new work', icon: 'start' }
+    ],
+    more: [
       { id: 'goals', label: 'Goals', icon: 'impact' },
-      // A form with no entry point is unreachable, which is the same "declared, never consumed"
-      // state the gateway itself was in. Lifecycle, because "what does this change touch" is a
-      // question about work in flight.
       { id: 'impact-form', label: 'Change Flight Plan', icon: 'compare' },
-      /**
-       * Four more destinations belong here and do not fit. `[UXH:REQ-051]`
-       *
-       * The journey, Stories, evidence and impact analysis are all work in flight, which is what
-       * this section is — and a section header renders its actions as a single row of icons beside
-       * the label. Four fit. Adding four more pushed them over the word "Lifecycle" itself, which
-       * was caught by opening the editor and looking: every wiring test passed, because the ids all
-       * resolve to real commands and nothing a test can read was wrong.
-       *
-       * Left out rather than crammed in. They are still reachable from the command palette, which
-       * is worse than a menu entry and better than a section whose own name is illegible; giving
-       * them a proper home means a submenu or an expanded-body list, which is a design change
-       * rather than another entry in this array.
-       */
-      { id: 'command-center', label: 'Open Command Center', icon: 'workflow' },
-      { id: 'visual-assurance', label: 'Open visual assurance', icon: 'visual' },
-      { id: 'refresh', label: 'Refresh lifecycle', icon: 'refresh' }
+      { id: 'command-center', label: 'Command Center', icon: 'workflow' }
     ],
     empty: {
       text: 'No work item is in flight in this workspace.',
       action: 'work-start', actionLabel: 'Start intake'
     }
   },
-  /**
-   * One way in. The four title-bar shortcuts that used to live here — map capability, design
-   * workflow, design agents, prompt audit — are all in the Configuration Center, which is what this
-   * section now opens. Duplicating them meant the sidebar had to be updated every time the Center
-   * grew a tab, and it stopped being.
-   */
   configuration: {
-    label: 'Configuration', icon: 'configuration', actions: [
-      { id: 'configuration-center', label: 'Open Configuration Center', icon: 'configuration' },
+    label: 'Configuration', icon: 'configuration', actions: [],
+    more: [
       { id: 'ast-intelligence', label: 'AST intelligence', icon: 'worldModel' },
-      // A review queue rather than a tab: proposals arrive from other people and wait for a
-      // decision, so they are found by looking rather than by remembering a command name.
-      /**
-       * Map a capability, restored to the sidebar.
-       *
-       * `capability-map` stayed in `ACTION_COMMANDS` after the Configuration Center absorbed the
-       * four title-bar shortcuts, and no section listed it — a live mapping to a real command that
-       * nothing rendered, which is the same "declared, never reaching a consumer" shape this shell
-       * keeps producing. Mapping a capability is how a workspace gets its first one, so it is worth
-       * a click of its own rather than a tab inside the Center.
-       */
-      { id: 'capability-map', label: 'Map a capability', icon: 'capability' },
-      { id: 'capability-proposals', label: 'Review proposals', icon: 'capability' },
       { id: 'flow-impact', label: 'Flow impact studies and reports', icon: 'impact' }
     ],
     empty: {
@@ -133,16 +103,17 @@ const SECTION_META: Record<SidebarSection, {
     }
   },
   help: {
-    label: 'Help', icon: 'help', actions: [
-      { id: 'help-open', label: 'Open Help Center', icon: 'search' },
-      { id: 'journal', label: 'Local Journal', icon: 'book' },
+    label: 'Help & diagnostics', icon: 'help', actions: [],
+    linkHeading: 'Troubleshoot', links: [
       { id: 'diagnostics', label: 'Diagnostics & Schema Health', icon: 'statusCurrent' },
+      { id: 'fault-repairs', label: 'Faults & Repairs', icon: 'warning' }
+    ],
+    more: [
+      { id: 'journal', label: 'Local Journal', icon: 'book' },
       { id: 'comprehension-center', label: 'Comprehension Center', icon: 'code' },
-      // "What did it actually do, and what was sent to the model" is a Help question, not a
-      // Configuration one. The prompt audit was reachable only from Configuration, where nobody
-      // asking that question would look, and the activity log was not reachable at all.
-      { id: 'activity-log', label: 'Open the activity log', icon: 'commit' },
-      { id: 'prompt-audit', label: 'Open the prompt audit', icon: 'prompt' }
+      { id: 'activity-log', label: 'Activity log', icon: 'commit' },
+      { id: 'prompt-audit', label: 'Prompt audit', icon: 'prompt' },
+      { id: 'local-reset', label: 'Local Data & Reset', icon: 'remove' }
     ],
     empty: {
       text: 'Guides, the command reference, the activity log, and what was sent to the model.',
@@ -151,7 +122,6 @@ const SECTION_META: Record<SidebarSection, {
   },
   logs: {
     label: 'Logs', icon: 'commit', actions: [
-      { id: 'logs-open', label: 'Open workspace logs', icon: 'commit' },
       { id: 'logs-refresh', label: 'Refresh workspace logs', icon: 'refresh' }
     ],
     empty: {
@@ -181,6 +151,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'workspace-create': 'singularityFlow.createWorkspace',
   'setup-wizard': 'singularityFlow.startWizard',
   'workspace-manage': 'singularityFlow.openWorkspaces',
+  'workspace-switch': 'singularityFlow.switchWorkspace',
   'local-reset': 'singularityFlow.openLocalReset',
   'work-start': 'singularityFlow.startWork',
   'adhoc-work': 'singularityFlow.openAdhocWork',
@@ -287,6 +258,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private view: vscode.WebviewView | null = null;
   private freshness: string | null = null;
   private awaitingFirstRead = false;
+  private navigation: SidebarNavigation = { workspace: null, next: null };
+  private pendingApprovals = 0;
   private favoriteIds: string[];
   private favoritesCustomized: boolean;
   /** Three tree providers publish one snapshot synchronously; replace the document once, not thrice. */
@@ -327,7 +300,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private sectionOrder(): SidebarSection[] {
     const ordered = this.persona().sectionOrder
       .filter((section): section is SidebarSection => ALL_SECTIONS.includes(section as SidebarSection));
-    return [...new Set([...ordered, ...ALL_SECTIONS])];
+    const complete = [...new Set([...ordered, ...ALL_SECTIONS])];
+    // Before the first workspace exists, a persona's Inbox or Work preference cannot be actionable.
+    // Put setup immediately after Favorites until a workspace has been selected.
+    return this.navigation.workspace
+      ? complete : ['favorites', 'workspaces', ...complete.filter((section) => section !== 'favorites' && section !== 'workspaces')];
   }
 
   /** Re-render machine-local guidance when the VS Code profile changes. */
@@ -415,6 +392,20 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.renders.request();
   }
 
+  /** Machine-wide workspace selection and a conservative, snapshot-backed next action. */
+  setNavigation(navigation: SidebarNavigation): void {
+    if (JSON.stringify(this.navigation) === JSON.stringify(navigation)) return;
+    this.navigation = navigation;
+    this.renders.request();
+  }
+
+  setPendingApprovals(count: number): void {
+    const normalized = Number.isSafeInteger(count) && count > 0 ? count : 0;
+    if (normalized === this.pendingApprovals) return;
+    this.pendingApprovals = normalized;
+    this.renders.request();
+  }
+
   bind(section: SidebarSection, source: TreeSource): void {
     // Until a section is bound it has no data source at all, which is a different thing from having
     // a source that returned nothing — and the reader deserves to be told which.
@@ -462,6 +453,16 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       if (command) void vscode.commands.executeCommand(command);
       return;
     }
+    if (value.type === 'workspace' && typeof value.key === 'string') {
+      const node = this.nodeIndex.get(value.key);
+      if (!node?.id.startsWith('workspace:')) return;
+      if (value.action === 'select' && node.runCommand === 'singularityFlow.switchWorkspace') {
+        void vscode.commands.executeCommand('singularityFlow.switchWorkspace', node);
+      } else if (value.action === 'details') {
+        void vscode.commands.executeCommand('singularityFlow.openWorkspaces', node);
+      }
+      return;
+    }
     if (value.type !== 'node' || typeof value.key !== 'string') return;
     const node = this.nodeIndex.get(value.key);
     if (!node) return;
@@ -484,14 +485,21 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const tooltip = escape(node.tooltip ?? [node.label, node.description].filter(Boolean).join(' — '));
     const actionable = hasAction(node);
     const hasChildren = Boolean(node.children?.length);
-    const directAction = actionable && !hasChildren;
+    const workspaceRow = section === 'workspaces' && node.id.startsWith('workspace:') && !hasChildren;
+    const directAction = actionable && !hasChildren && !workspaceRow;
     const currentPhase = node.contextValue === 'sflow.story.phase.current';
-    const row = `<span class="node-row${actionable ? ' actionable' : ''}${currentPhase ? ' current-phase-row' : ''}"${actionable
+    const row = `<span class="node-row${directAction ? ' actionable' : ''}${currentPhase ? ' current-phase-row' : ''}"${directAction
       ? ` data-selection-key="node:${escape(node.id)}"` : ''}${directAction
       ? ` role="button" tabindex="0" data-node="${escape(key)}"` : ''} title="${tooltip}">
         <span class="node-icon">${icon(semanticIcon(node), { size: 16 })}</span>
         <span class="node-copy"><span class="node-label">${escape(node.label)}</span>${description}</span>
-        ${section === 'favorites'
+        ${workspaceRow
+          ? `<span class="workspace-row-actions">${node.runCommand === 'singularityFlow.switchWorkspace'
+            ? `<button type="button" data-workspace-action="select" data-workspace-key="${escape(key)}"
+                aria-label="Select ${escape(node.label)}" title="Select ${escape(node.label)}">Select</button>` : ''}
+              <button type="button" data-workspace-action="details" data-workspace-key="${escape(key)}"
+                aria-label="Details for ${escape(node.label)}" title="Details for ${escape(node.label)}">Details</button></span>`
+          : section === 'favorites'
           ? `<button class="favorite-remove" type="button" data-remove-favorite="${escape(node.id.replace(/^favorite:/, ''))}" aria-label="Unpin ${escape(node.label)}" title="Unpin ${escape(node.label)}">${icon('close', { size: 14 })}</button>`
           : actionable ? (hasChildren
           ? `<button class="node-open" type="button" data-open-node="${escape(key)}" aria-label="Open ${escape(node.label)}" title="Open ${escape(node.label)}">${icon('next', { size: 14 })}</button>`
@@ -514,6 +522,29 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       data-action="${escape(action.id)}" data-selection-key="action:${escape(action.id)}" aria-label="${escape(action.label)}" title="${escape(action.label)}">
       ${icon(action.icon, { size: 16 })}</button>`).join('');
     const nodes = this.roots[section];
+    const link = (action: { id: string; label: string; icon: IconName }): string => {
+      const label = section === 'inbox' && action.id === 'approvals-open' && this.pendingApprovals
+        ? `${action.label} (${this.pendingApprovals})` : action.label;
+      return `<button class="section-link" type="button" data-action="${escape(action.id)}"
+        data-selection-key="action:${escape(action.id)}">${icon(action.icon, { size: 14 })}<span>${escape(label)}</span></button>`;
+    };
+    // An idle Work tree already contains Start intake; a second shortcut would be the same action.
+    const links = (meta.links ?? []).filter((action) => {
+      if (section === 'lifecycle' && action.id === 'work-start') {
+        return Boolean(this.navigation.workspace && this.navigation.next)
+          && !nodes.some((node) => node.id === 'start-intake');
+      }
+      if (section === 'inbox' && action.id === 'approvals-open' && !this.navigation.workspace) return false;
+      return true;
+    });
+    const shortcuts = links.length
+      ? `<div class="section-shortcuts">${meta.linkHeading ? `<span class="shortcut-heading">${escape(meta.linkHeading)}</span>` : ''}
+          ${links.map(link).join('')}</div>` : '';
+    const moreActions = (meta.more ?? []).filter((action) => !(section === 'workspaces'
+      && action.id === 'setup-wizard' && this.navigation.next?.actionId === 'setup-wizard'));
+    const more = moreActions.length
+      ? `<details class="section-more" data-node-state="more:${section}"><summary>More actions</summary>
+          <div class="section-more-links">${moreActions.map(link).join('')}</div></details>` : '';
     /**
      * Three ways to have nothing, and only one of them means nothing.
      *
@@ -544,13 +575,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const persona = this.persona();
     const personaSection = persona.id === 'other'
       ? 'lifecycle' : persona.sectionOrder.find((candidate) => candidate !== 'favorites');
-    const initiallyOpen = section === 'favorites' || section === personaSection ? ' open' : '';
+    const initiallyOpen = section === (this.navigation.workspace ? personaSection : 'workspaces') ? ' open' : '';
     return `<details class="section" data-section="${section}"${initiallyOpen}>
       <summary class="section-heading">
         <span class="section-title">${icon(meta.icon, { size: 16 })}<span>${escape(meta.label)}</span></span>
         <span class="section-actions">${actions}</span>
       </summary>
-      <div class="section-body">${content}</div>
+      <div class="section-body">${shortcuts}${more}${content}</div>
     </details>`;
   }
 
@@ -563,6 +594,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const configuredPersona = isProfilePersonaId(profile.role);
     const sectionOrder = this.sectionOrder();
     const sections = sectionOrder.map((section) => this.renderSection(section)).join('');
+    const workspace = this.navigation.workspace;
+    const workspaceLabel = workspace ? [workspace.name, workspace.repository].filter(Boolean).join(' · ') : 'No workspace selected';
+    const next = this.navigation.next;
+    const workspaceAction = workspace || next?.actionId === 'workspace-switch' ? 'workspace-switch' : 'setup-wizard';
     // The status dot was hard-coded green, so it said "ready" while the CLI was still being found —
     // and said it just as confidently when resolution had failed.
     const ready = sectionOrder.filter((section) => section !== 'favorites')
@@ -606,6 +641,23 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:650; letter-spacing:.01em; }
         .brand-status { margin-left:4px; width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--quiet); }
         .brand-status.connecting { background:var(--vscode-descriptionForeground); box-shadow:0 0 0 3px transparent; }
+        .workspace-context { display:flex; align-items:center; gap:8px; min-width:0; padding:7px 10px;
+          border-bottom:1px solid var(--vscode-sideBarSectionHeader-border,var(--vscode-panel-border)); }
+        .workspace-context-label { flex:none; color:var(--vscode-descriptionForeground); font-size:11px; }
+        .workspace-switch { display:flex; align-items:center; justify-content:space-between; gap:5px; min-width:0;
+          flex:1; border:1px solid var(--vscode-panel-border); border-radius:5px; padding:4px 6px;
+          color:var(--vscode-foreground); background:transparent; cursor:pointer; text-align:left; }
+        .workspace-switch:hover { background:var(--vscode-list-hoverBackground); }
+        .workspace-switch span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .workspace-switch:focus-visible,.next-action:focus-visible,.section-link:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
+        .next-step { display:flex; flex-direction:column; gap:4px; padding:9px 10px;
+          border-bottom:1px solid var(--vscode-sideBarSectionHeader-border,var(--vscode-panel-border)); background:var(--quiet); }
+        .next-heading { font-size:10px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; color:var(--accent); }
+        .next-action { display:flex; align-items:center; justify-content:space-between; gap:5px; width:100%; padding:5px 7px;
+          border:1px solid var(--accent); border-radius:5px; color:var(--vscode-foreground); background:transparent;
+          text-align:left; cursor:pointer; font-weight:600; }
+        .next-action:hover { background:var(--vscode-list-hoverBackground); }
+        .next-description { color:var(--vscode-descriptionForeground); font-size:11px; }
         main { overflow-y:auto; }
         details { margin:0; }
         summary { list-style:none; }
@@ -625,6 +677,26 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .icon-button.last-opened { color:var(--accent); background:var(--quiet); box-shadow:inset 0 0 0 1px var(--accent); }
         .icon-button:focus-visible,.actionable:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:-1px; }
         .section-body { padding:4px 6px 7px; }
+        .section-shortcuts { display:flex; flex-direction:column; gap:2px; margin:3px 3px 6px 17px; }
+        .shortcut-heading { padding:2px 8px; color:var(--vscode-descriptionForeground); font-size:10px;
+          font-weight:650; letter-spacing:.04em; text-transform:uppercase; }
+        .section-link { display:flex; align-items:center; gap:8px; width:100%; padding:5px 8px; border:0;
+          border-radius:5px; color:var(--vscode-sideBar-foreground); background:transparent; text-align:left; cursor:pointer; }
+        .section-link .ico { color:var(--vscode-icon-foreground); flex:none; }
+        .section-link:hover { background:var(--vscode-list-hoverBackground); }
+        .section-link.last-opened { background:var(--quiet); box-shadow:inset 2px 0 0 var(--accent); }
+        .section-more { margin:2px 3px 6px 17px; }
+        .section-more>summary { padding:4px 8px; border-radius:5px; color:var(--vscode-descriptionForeground); font-size:11px; cursor:pointer; }
+        .section-more>summary:hover { background:var(--vscode-list-hoverBackground); }
+        .section-more>summary:focus-visible { outline:1px solid var(--vscode-focusBorder); }
+        .section-more>summary::before { content:'›'; display:inline-block; width:12px; }
+        .section-more[open]>summary::before { transform:rotate(90deg); }
+        .section-more-links { display:flex; flex-direction:column; gap:2px; margin-left:5px; }
+        .workspace-row-actions { display:flex; align-items:center; gap:3px; flex:none; }
+        .workspace-row-actions button { padding:2px 4px; border:1px solid var(--vscode-panel-border); border-radius:4px;
+          color:var(--vscode-foreground); background:transparent; font-size:10px; cursor:pointer; }
+        .workspace-row-actions button:hover { border-color:var(--accent); background:var(--vscode-list-hoverBackground); }
+        .workspace-row-actions button:focus-visible { outline:1px solid var(--vscode-focusBorder); }
         .node { display:block; }
         .node>summary { cursor:pointer; }
         .node>summary:before { content:''; float:left; width:5px; height:5px; margin:12px 3px 0 5px; border-right:1px solid currentColor; border-bottom:1px solid currentColor; transform:rotate(-45deg); opacity:.6; }
@@ -688,8 +760,17 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           aria-label="${configuredPersona ? `Change ${escape(persona.label)} menu persona` : 'Choose a menu persona'}"
           title="${configuredPersona ? `${escape(persona.label)} menu · ${escape(persona.description)}. Change persona.` : 'Choose a persona to tailor menu order and suggestions.'}">${icon('agent', { size: 14 })}<span>${configuredPersona ? escape(persona.label) : 'Set persona'}</span></button>
         <span class="brand-status${ready ? '' : ' connecting'}" role="img"
-          aria-label="${ready ? 'Connected' : 'Connecting'}"
-          title="${ready ? 'Connected to the Singularity Flow CLI' : 'Connecting to the Singularity Flow CLI…'}"></span></header>
+          aria-label="${ready ? 'Navigation loaded' : 'Navigation loading'}"
+          title="${ready ? 'Navigation sections loaded; repository health is shown in the section content' : 'Loading Singularity Flow navigation…'}"></span></header>
+      <div class="workspace-context"><span class="workspace-context-label">${workspace ? 'Working in' : 'Workspace'}</span>
+        <button class="workspace-switch" data-action="${workspaceAction}"
+          data-selection-key="action:${workspaceAction}" type="button" aria-label="${workspace ? 'Change workspace' : 'Choose or create a workspace'}"
+          title="${escape(workspaceLabel)} — ${workspace ? 'change workspace' : 'choose or create a workspace'}">
+          <span>${escape(workspaceLabel)}</span>${icon('next', { size: 14 })}</button></div>
+      ${next ? `<div class="next-step"><span class="next-heading">Next step</span>
+        <button class="next-action" type="button" data-action="${escape(next.actionId)}"
+          data-selection-key="action:${escape(next.actionId)}"><span>${escape(next.label)}</span>${icon('next', { size: 14 })}</button>
+        <span class="next-description">${escape(next.description)}</span></div>` : ''}
       ${this.freshness ? `<div class="freshness" role="status">${icon('wait', { size: 14 })}<span>${escape(this.freshness)}</span></div>` : ''}
       <main>${sections}</main>
       <script nonce="${token}">
@@ -741,6 +822,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         document.addEventListener('click',(event)=>{
           const removeFavorite=event.target.closest('[data-remove-favorite]'); if(removeFavorite){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'favorite-remove',action:removeFavorite.dataset.removeFavorite});return;}
           const action=event.target.closest('[data-action]'); if(action){event.preventDefault();event.stopPropagation();markLastOpened(action);vscode.postMessage({type:'action',action:action.dataset.action});return;}
+          const workspaceAction=event.target.closest('[data-workspace-action]'); if(workspaceAction){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'workspace',action:workspaceAction.dataset.workspaceAction,key:workspaceAction.dataset.workspaceKey});return;}
           const openNode=event.target.closest('[data-open-node]'); if(openNode){event.preventDefault();event.stopPropagation();markLastOpened(openNode.closest('.node-row'));vscode.postMessage({type:'node',key:openNode.dataset.openNode});return;}
           const node=event.target.closest('[data-node]'); if(node&&!event.target.closest('summary')){markLastOpened(node);vscode.postMessage({type:'node',key:node.dataset.node});}
           else if(node&&node.closest('.leaf')){markLastOpened(node);vscode.postMessage({type:'node',key:node.dataset.node});}

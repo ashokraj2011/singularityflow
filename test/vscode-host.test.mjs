@@ -1113,11 +1113,11 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.doesNotMatch(navigation.webview.html, />Talk to SFlow<\/span>/,
     'the compatibility alias is not presented as visible navigation');
   for (const [section, label] of Object.entries({
-    favorites: 'Favorites', workspaces: 'Workspaces', lifecycle: 'Lifecycle', inbox: 'Inbox',
-    configuration: 'Configuration', help: 'Help'
+    favorites: 'Favorites', workspaces: 'Workspaces', lifecycle: 'Work', inbox: 'Inbox & reviews',
+    configuration: 'Configuration', help: 'Help & diagnostics'
   })) {
     assert.match(navigation.webview.html, new RegExp(`data-section="${section}"`));
-    assert.match(navigation.webview.html, new RegExp(`<span>${label}<\\/span>`),
+    assert.match(navigation.webview.html, new RegExp(`<span>${label.replace(/&/g, '&amp;')}<\\/span>`),
       `${label} is rendered in readable title case`);
   }
   const sectionTitleRule = navigation.webview.html.match(/\.section-title \{[^}]+\}/)?.[0] ?? '';
@@ -1125,11 +1125,23 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
     'section names use a restrained medium weight rather than full bold');
   assert.doesNotMatch(sectionTitleRule, /text-transform:uppercase/,
     'section names are not forced to all caps');
-  assert.match(navigation.webview.html, /data-section="favorites" open/);
-  assert.match(navigation.webview.html, /data-section="lifecycle" open/);
-  for (const section of ['workspaces', 'inbox', 'configuration', 'help', 'logs']) {
+  assert.match(navigation.webview.html, /data-section="workspaces" open/,
+    'workspace setup is the first open section without a selection');
+  for (const section of ['favorites', 'lifecycle', 'inbox', 'configuration', 'help', 'logs']) {
     assert.doesNotMatch(navigation.webview.html, new RegExp(`data-section="${section}" open`),
-      `${section} starts collapsed to keep the first view calm`);
+      `${section} starts collapsed until a workspace is selected`);
+  }
+  assert.match(navigation.webview.html, /aria-label="Choose or create a workspace"/);
+  assert.match(navigation.webview.html, /data-action="setup-wizard"[^>]*data-selection-key="action:setup-wizard"/,
+    'an empty installation opens guided setup from the workspace selector');
+  assert.match(navigation.webview.html, /<span class="next-heading">Next step<\/span>/);
+  assert.match(navigation.webview.html, /Review capability changes/);
+  assert.ok(navigation.webview.html.indexOf('data-section="workspaces"')
+    < navigation.webview.html.indexOf('data-section="inbox"'),
+  'setup precedes Inbox until a workspace exists');
+  for (const heading of navigation.webview.html.matchAll(/<summary class="section-heading">([\s\S]*?)<\/summary>/g)) {
+    assert.ok((heading[1].match(/class="icon-button"/g) ?? []).length <= 1,
+      'section headers keep at most one icon-only action');
   }
   assert.match(navigation.webview.html, /\.node-row\.actionable\.last-opened/);
   assert.match(navigation.webview.html, /default-src 'none'/);
@@ -1224,8 +1236,10 @@ test('menu personas tailor first-use Favorites and section order without overrid
   for (const label of ['My Work', 'Inbox', 'Visual assurance', 'Approvals']) {
     assert.match(navigation.webview.html, new RegExp(`aria-label="Unpin ${label}"`));
   }
-  assert.match(navigation.webview.html, /aria-label="Unpin Map a capability"/,
-    'Map a capability is a first-use Favorite for every persona');
+  assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin Map a capability"/,
+    'QA starts with role-specific Favorites');
+  assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin Guided start"/,
+    'established roles do not start with onboarding pinned');
   assert.ok(navigation.webview.html.indexOf('data-section="inbox"')
     < navigation.webview.html.indexOf('data-section="lifecycle"'), 'QA sees decisions before lifecycle');
 
@@ -5275,7 +5289,15 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   const item = provider.getTreeItem(rows[0]);
   assert.equal(item.command.command, 'singularityFlow.switchWorkspace',
     'clicking an inactive workspace selects its governed scope');
-  await registered.commands.get(item.command.command)(...item.command.arguments);
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  await until(() => navigation.webview.html.includes('aria-label="Select commerce"') ? true : null);
+  assert.match(navigation.webview.html, /data-action="workspace-switch"[^>]*data-selection-key="action:workspace-switch"/,
+    'an existing workspace is offered for selection before creating another');
+  assert.match(navigation.webview.html, /Choose a workspace/);
+  assert.match(navigation.webview.html, /aria-label="Details for commerce"/,
+    'workspace selection and inspection are two explicit actions');
+  await navigation.post({ type: 'workspace', action: 'select', key: 'workspaces:0' });
+  await until(() => issued.includes('workbench.action.reloadWindow') ? true : null);
 
   assert.equal(issued.includes('vscode.openFolder'), false, 'no folder was opened');
   assert.equal(issued.includes('workbench.action.reloadWindow'), true,

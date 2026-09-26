@@ -5382,14 +5382,14 @@ test('the compact sidebar uses distinct modern icons for navigation and task act
   const content = await readFile(source('views/sidebar.ts'), 'utf8');
   assert.match(content, /label: 'Favorites', icon: 'favorite'/);
   assert.match(content, /label: 'Workspaces', icon: 'workspace'/);
-  assert.match(content, /label: 'Lifecycle', icon: 'workflow'/);
-  assert.match(content, /label: 'Inbox', icon: 'inbox'/);
+  assert.match(content, /label: 'Work', icon: 'workflow'/);
+  assert.match(content, /label: 'Inbox & reviews', icon: 'inbox'/);
   assert.match(content, /label: 'Configuration', icon: 'configuration'/);
-  assert.match(content, /label: 'Help', icon: 'help'/);
-  assert.match(content, /label: 'Start intake', icon: 'start'/);
+  assert.match(content, /label: 'Help & diagnostics', icon: 'help'/);
+  assert.match(content, /label: 'Start new work', icon: 'start'/);
   assert.match(content, /label: 'Create workspace', icon: 'workspaceAdd'/);
   assert.match(content, /label: 'Manage workspaces', icon: 'workspaceManage'/);
-  assert.doesNotMatch(content, /label: 'Inbox', icon: 'approval'/,
+  assert.doesNotMatch(content, /label: 'Inbox & reviews', icon: 'approval'/,
     'an inbox must not be represented as a governance approval');
   assert.doesNotMatch(content, /label: 'Configuration', icon: 'workflow'/,
     'configuration and lifecycle need distinct visual identities');

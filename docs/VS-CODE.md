@@ -196,6 +196,11 @@ Inbox answers **what needs attention?**
   only by remote URL is visible but cannot be attached until its delivery repository
   is materialized or repaired locally. Unpublished changes on another laptop are
   not discoverable; that laptop must push the Story branch first.
+- A Story shown in both the local snapshot and workspace discovery appears once under
+  its mapped repository, including when a linked Story worktree is open. Joining the
+  two views requires verified workspace membership and shared Git metadata. Local
+  progress and the current-Story marker are retained; identical Story IDs in different
+  repositories remain separate.
 - If a repository or branch cannot be verified, Inbox reports incomplete coverage
   and offers **Retry Story refresh**. Verified Stories from other repositories stay
   visible; an error is never presented as proof that no Stories exist.

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  selectedCatalogStory, verifiedWorkspaceStoryRepository
+  selectedCatalogStory, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository
 } from '../apps/vscode/src/story-attach.ts';
 
 const catalog = [
@@ -60,4 +60,44 @@ test('ready repository attach refuses a checkout that moved since discovery', ()
   const readyStatus = { ...status, repositories: status.repositories.map((row) => row.id === 'alpha'
     ? { ...row, state: 'ready', absolutePath: '/work/team/repos/replaced' } : row) };
   assert.throws(() => verifiedWorkspaceStoryRepository(ready, current, readyStatus), /moved since Story discovery/);
+});
+
+test('Inbox repository identity admits only the selected ready member with a proven shared Git directory', () => {
+  const checkoutPath = '/work/team/story-worktrees/first/repos/alpha';
+  const selected = { ...current, repositoryId: 'alpha', repositoryPath: checkoutPath,
+    canonicalRepositoryPath: '/work/team/repos/alpha', selectionStatus: 'ready' };
+  const readyStatus = { ...status, repositories: status.repositories.map((row) => row.id === 'alpha'
+    ? { ...row, state: 'ready' } : row) };
+  const common = { checkout: '/work/team/repos/alpha/.git', mapped: '/work/team/repos/alpha/.git' };
+  assert.deepEqual(verifiedInboxRepositoryBinding(selected, readyStatus, checkoutPath, common), {
+    checkoutPath, repositoryPath: '/work/team/repos/alpha', repositoryId: 'alpha'
+  });
+  assert.equal(verifiedInboxRepositoryBinding(selected, readyStatus, checkoutPath), null,
+    'a mapped repository ID and Story name cannot prove linked-checkout identity');
+  assert.equal(verifiedInboxRepositoryBinding(selected, readyStatus, checkoutPath, {
+    ...common, mapped: '/different-clone/.git'
+  }), null, 'independent clones must not be joined even if they use the same remote');
+  assert.equal(verifiedInboxRepositoryBinding({ ...selected, workspaceId: 'other' }, readyStatus,
+    checkoutPath, common), null);
+  assert.equal(verifiedInboxRepositoryBinding({ ...selected, repositoryId: 'beta' }, readyStatus,
+    checkoutPath, common), null);
+  assert.equal(verifiedInboxRepositoryBinding({ ...selected, selectionStatus: 'stale' }, readyStatus,
+    checkoutPath, common), null);
+  assert.equal(verifiedInboxRepositoryBinding(selected, readyStatus, '/work/another-story', common), null);
+  assert.equal(verifiedInboxRepositoryBinding({ ...selected, canonicalRepositoryPath: '/work/replaced' },
+    readyStatus, checkoutPath, common), null, 'a changed canonical mapping cannot join a stale snapshot');
+  assert.equal(verifiedInboxRepositoryBinding(selected, {
+    ...readyStatus, repositories: [...readyStatus.repositories, readyStatus.repositories[0]]
+  }, checkoutPath, common), null, 'ambiguous repository membership cannot prove a binding');
+  assert.equal(verifiedInboxRepositoryBinding(selected, status, checkoutPath, common), null,
+    'a deferred member cannot identify an existing snapshot');
+});
+
+test('a canonical selected checkout requires no extra Git-common-directory probe to join its Inbox rows', () => {
+  const repositoryPath = '/work/team/repos/alpha';
+  const selected = { ...current, repositoryId: 'alpha', repositoryPath };
+  const readyStatus = { ...status, repositories: [{ ...status.repositories[0], state: 'ready' }] };
+  assert.deepEqual(verifiedInboxRepositoryBinding(selected, readyStatus, repositoryPath), {
+    checkoutPath: repositoryPath, repositoryPath, repositoryId: 'alpha'
+  });
 });

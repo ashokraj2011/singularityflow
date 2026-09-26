@@ -34,9 +34,9 @@ import {
 } from './views/submission-presentation.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
-import { buildInbox, buildInboxTree, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
+import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
 import { discoverWorkspaceStoryRows, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
-import { sameStoryAttachPath, selectedCatalogStory, verifiedWorkspaceStoryRepository } from './story-attach.ts';
+import { sameStoryAttachPath, selectedCatalogStory, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
 import type { DesignerMessage } from './views/designer.ts';
@@ -4425,7 +4425,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Git common directory so a linked Story worktree and its main checkout see the same flight. The
   // Auto worktrees themselves are deliberately excluded: watching source/build output there would
   // recreate the whole-repository watcher storm this boundary is intended to avoid.
+  let watchedGitCommonDirectory: string | null = null;
   const watchGovernedRepository = (target: string, gitCommonDirectory: string | null): void => {
+    watchedGitCommonDirectory = gitCommonDirectory;
     repositoryWatcher?.dispose();
     autoPrivateWatcher?.dispose();
     if (repositoryRefreshTimer) {
@@ -4483,6 +4485,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let workspaceStoryCatalog: WorkspaceStoryCatalogRow[] = [];
   let workspaceStoryCatalogIssue: string | null = null;
   let workspaceStoryCatalogWorkspacePath: string | null = null;
+  let inboxRepositoryBinding: InboxRepositoryBinding | null = null;
   let configurationTree: LifecycleTreeProvider | null = null;
   const refreshReadiness = async (force = false): Promise<void> => {
     // Readiness is a remote projection of an approved capability map. A plain governed repository
@@ -4526,7 +4529,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const tree = new LifecycleTreeProvider(store);
   const inboxTree = new LifecycleTreeProvider(store, [], (snapshot, error) =>
-    buildInboxTree(snapshot, error, workspaceStoryCatalog, repository, workspaceStoryCatalogIssue));
+    buildInboxTree(snapshot, error, workspaceStoryCatalog, repository, workspaceStoryCatalogIssue, inboxRepositoryBinding));
   configurationTree = new LifecycleTreeProvider(
     store, [], (snapshot, error) => buildConfigurationTree(snapshot, error, readiness));
   context.subscriptions.push(tree, inboxTree, configurationTree);
@@ -4540,9 +4543,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const scope = repositoryEpoch.capture();
     return storyRefreshGate.run(scope.epoch, async (): Promise<void> => {
       let issue: string | null = null;
+      let repositoryBinding: InboxRepositoryBinding | null = null;
       try {
         const current = await activeSelectionClient.run<{
-          active?: boolean; workspacePath?: string; repositoryId?: string; repositoryPath?: string;
+          active?: boolean; workspaceId?: string; workspacePath?: string; repositoryId?: string; repositoryPath?: string;
+          canonicalRepositoryPath?: string; selectionStatus?: string;
         }>(['workspace', 'current', '--json']);
         const selectedHere = current.active && current.repositoryPath
           && path.resolve(current.repositoryPath) === path.resolve(scope.repository);
@@ -4552,16 +4557,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           throw new Error('Workspace selection changed in another window. Refresh after this window follows the new selection.');
         }
         let repositories: StoryRepository[];
+        let workspaceStatus: WorkspaceStatus | null = null;
         if (current.active && current.workspacePath) {
           const status = await activeSelectionClient.run<WorkspaceStatus>([
             'workspace', 'status', current.workspacePath, '--level', 'readiness', '--json'
           ]);
+          workspaceStatus = status;
           repositories = status.repositories.map((entry) => ({
             id: entry.id,
-            // Store the manifest's canonical member path in the Story catalog. The current
-            // window may be inside a linked Story worktree for this same repository; recording
-            // that checkout as the mapped path makes the attach guard falsely report a move.
-            // Git refs are shared by its canonical checkout and managed Story worktrees.
+            // Catalog identity is the mapped clone, not the open Story worktree.
             absolutePath: entry.absolutePath ?? '',
             state: entry.state ?? 'unknown',
             url: entry.url ?? null,
@@ -4590,6 +4594,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const verifiedRoot = await validateRepositoryDirectory(entry.absolutePath, {
             signal: extensionLifetime.signal
           });
+          if (workspaceStatus && entry.id === current.repositoryId) {
+            let commonDirectories: { checkout: string; mapped: string } | undefined;
+            if (!sameStoryAttachPath(scope.repository, verifiedRoot)) {
+              // Reuse this epoch's already-validated watcher identity. Only the canonical
+              // member needs another local metadata read; no remote or per-Story probe is added.
+              const checkoutCommon = watchedGitCommonDirectory
+                ?? await validatedRepositoryGitCommonDirectory(scope.repository, { signal: extensionLifetime.signal });
+              commonDirectories = {
+                checkout: checkoutCommon,
+                mapped: await validatedRepositoryGitCommonDirectory(verifiedRoot, { signal: extensionLifetime.signal })
+              };
+            }
+            repositoryBinding = verifiedInboxRepositoryBinding(current, workspaceStatus, scope.repository, commonDirectories);
+          }
           const reader = new SingularityFlowClient({
             location: client.location,
             repository: verifiedRoot,
@@ -4611,6 +4629,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         issue = `Story discovery is incomplete: ${(error as Error).message}`;
       }
       if (!repositoryEpoch.isCurrent(scope)) return;
+      inboxRepositoryBinding = repositoryBinding;
       workspaceStoryCatalogIssue = issue;
       // Explicit Refresh must re-read the local lifecycle even when remote discovery is offline.
       // Initial discovery follows a just-confirmed snapshot, so reading that same snapshot again
@@ -4846,6 +4865,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     workspaceStoryCatalog = [];
     workspaceStoryCatalogIssue = null;
     workspaceStoryCatalogWorkspacePath = null;
+    inboxRepositoryBinding = null;
     resultPanelRepositoryChanged(canonicalTarget);
     client.useRepository(canonicalTarget);
     watchGovernedRepository(canonicalTarget, targetGitCommonDirectory);
@@ -5713,7 +5733,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return refreshRemoteStories();
     }
     if (message.type === 'attach-story') {
-      const story = buildInbox(store.current.snapshot, workspaceStoryCatalog, repository).stories
+      const story = buildInbox(store.current.snapshot, workspaceStoryCatalog, repository, inboxRepositoryBinding).stories
         .find((item) => item.workId === message.workId && item.repositoryId === message.repositoryId);
       if (!story || !story.attachable) {
         showRefusal('This Story is no longer in the workspace Inbox. Refresh Stories and select it again.', {
@@ -6401,7 +6421,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async () => {
         const { InboxPanel } = lazyPanels();
         return InboxPanel.show(context, store, onInboxMessage,
-          () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue);
+          () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue, () => inboxRepositoryBinding);
       },
     // Backward-compatible command ID for old keybindings and links; it never opens a second home.
     'singularityFlow.openDeveloperHome': async () =>

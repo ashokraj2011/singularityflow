@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
+import type { InboxRepositoryBinding, WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
 import type { WorkspaceStatus } from './views/workspaces-model.ts';
 
 export interface StoryAttachSelection {
@@ -11,12 +11,40 @@ interface ActiveWorkspaceSelection {
   active?: boolean;
   workspaceId?: string;
   workspacePath?: string;
+  repositoryId?: string;
+  repositoryPath?: string;
+  canonicalRepositoryPath?: string;
+  selectionStatus?: string;
 }
 
 export function sameStoryAttachPath(left: string, right: string): boolean {
   const canonical = (value: string) => process.platform === 'win32'
     ? path.resolve(value).toLowerCase() : path.resolve(value);
   return canonical(left) === canonical(right);
+}
+
+/** Only a selected, ready workspace member sharing Git metadata may identify a snapshot. */
+export function verifiedInboxRepositoryBinding(
+  current: ActiveWorkspaceSelection,
+  status: WorkspaceStatus,
+  checkoutPath: string,
+  commonDirectories?: { checkout: string; mapped: string }
+): InboxRepositoryBinding | null {
+  if (!checkoutPath || !current.active || !current.workspaceId || !current.workspacePath
+    || current.workspaceId !== status.workspace.id
+    || !sameStoryAttachPath(current.workspacePath, status.workspace.path)
+    || !current.repositoryId || !current.repositoryPath
+    || !sameStoryAttachPath(current.repositoryPath, checkoutPath)
+    || (current.selectionStatus && current.selectionStatus !== 'ready')) return null;
+  const members = status.repositories.filter((entry) => entry.id === current.repositoryId);
+  const member = members[0];
+  if (members.length !== 1 || !member?.absolutePath || member.state !== 'ready'
+    || (current.canonicalRepositoryPath
+      && !sameStoryAttachPath(current.canonicalRepositoryPath, member.absolutePath))) return null;
+  if (!sameStoryAttachPath(checkoutPath, member.absolutePath)
+    && (!commonDirectories?.checkout || !commonDirectories.mapped
+      || !sameStoryAttachPath(commonDirectories.checkout, commonDirectories.mapped))) return null;
+  return { checkoutPath, repositoryPath: member.absolutePath, repositoryId: member.id };
 }
 
 /** Resolve a click against the extension's last verified catalog, never a webview-supplied path. */

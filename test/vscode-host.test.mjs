@@ -5575,10 +5575,28 @@ test('Inbox opens another Story while the selected workspace points at a managed
   const inbox = host.registered.panels.find((entry) => entry.id === 'singularityFlow.inboxPanel');
   assert.ok(inbox);
   await inbox.post({ type: 'refresh-stories' });
-  const targetButton = await until(() => inbox.webview.html.match(
-    /data-story="STORY-WORKTREE-TARGET" data-repository-id="(finalui1)"/
-  ), { what: 'the other Story to appear in the selected workspace Inbox' });
+  const targetButton = await until(() => {
+    if (/data-refresh-stories disabled aria-busy="true"/.test(inbox.webview.html)) return null;
+    return inbox.webview.html.match(
+      /data-story="STORY-WORKTREE-TARGET" data-repository-id="([^"]+)"/
+    );
+  }, { what: 'the selected workspace Story refresh to finish' });
   assert.equal(targetButton[1], 'finalui1');
+  const storyButtons = [...inbox.webview.html.matchAll(/<button\b[^>]*\bdata-story="([^"]+)"[^>]*>/g)];
+  assert.deepEqual(storyButtons.map((button) => button[1]).sort(), [
+    'STORY-WORKTREE-FIRST', 'STORY-WORKTREE-TARGET'
+  ], 'each Story has exactly one Inbox card, with no synthetic Current repository duplicate');
+  for (const button of storyButtons) {
+    assert.match(button[0], /data-repository-id="finalui1"/,
+      `${button[1]} uses its canonical workspace repository mapping`);
+    if (button[1] === 'STORY-WORKTREE-FIRST') {
+      assert.match(button[0], /class="active-story-card current"/);
+      assert.match(button[0], /aria-current="page"/);
+    } else {
+      assert.doesNotMatch(button[0], /class="active-story-card current"|aria-current=/,
+        'only the selected Story is marked current');
+    }
+  }
 
   await inbox.post({ type: 'attach-story', id: 'STORY-WORKTREE-TARGET', repositoryId: targetButton[1] });
   const opened = await until(() => host.registered.executedCommands.find(

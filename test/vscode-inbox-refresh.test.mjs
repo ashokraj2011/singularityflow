@@ -40,6 +40,103 @@ const { InboxPanel } = await import('../apps/vscode/src/views/inbox.ts');
 const { buildInbox, buildInboxTree } = await import('../apps/vscode/src/views/inbox-model.ts');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+function linkedCheckoutFixture() {
+  const checkoutPath = '/worktrees/STORY-7';
+  const repositoryPath = '/workspace/repos/delivery';
+  return {
+    checkoutPath,
+    repositoryPath,
+    binding: { checkoutPath, repositoryPath, repositoryId: 'delivery' },
+    snapshot: {
+      repository: { root: checkoutPath },
+      initiative: null, workflow: null, selectedWorkId: 'STORY-7', documents: [],
+      workItems: [{ id: 'STORY-7', title: 'Local review progress',
+        status: 'awaiting_approval', currentPhase: 'security_review', branch: 'sflow/story/STORY-7' }]
+    },
+    catalog: [{ repositoryId: 'delivery', repositoryPath,
+      repositoryUrl: 'https://example.test/delivery.git', id: 'STORY-7',
+      title: 'Older remote progress', status: 'in_progress', currentPhase: 'intake',
+      branch: 'sflow/story/STORY-7' }]
+  };
+}
+
+test('a verified repository binding joins linked-checkout Stories to their canonical mapped repository', () => {
+  const { snapshot, catalog, checkoutPath, repositoryPath, binding } = linkedCheckoutFixture();
+  const inbox = buildInbox(snapshot, catalog, checkoutPath, binding);
+  assert.equal(inbox.stories.length, 1,
+    'the snapshot and canonical catalog entry describe one Story in one verified repository');
+  const [story] = inbox.stories;
+  assert.equal(story.workId, 'STORY-7');
+  assert.equal(story.repositoryId, 'delivery');
+  assert.equal(story.repositoryPath, repositoryPath,
+    'the merged card retains the mapped path used by the attachment drift guard');
+  assert.equal(story.current, true);
+  assert.equal(story.title, 'Local review progress');
+  assert.equal(story.phase, 'security review', 'the local snapshot supplies current phase progress');
+  assert.equal(story.status, 'awaiting approval', 'the local snapshot supplies current lifecycle status');
+
+  const tree = buildInboxTree(snapshot, null, catalog, checkoutPath, null, binding);
+  const stories = tree.find((node) => node.id === 'inbox:active-stories').children;
+  assert.equal(stories.length, 1, 'the sidebar uses the same verified repository binding');
+  assert.equal(stories[0].storyRepositoryId, 'delivery');
+  assert.match(stories[0].description, /delivery.*security review.*current/);
+});
+
+test('the same Story ID in different mapped repositories remains distinct even with an identical remote URL', () => {
+  const { snapshot, catalog, checkoutPath, binding } = linkedCheckoutFixture();
+  const secondRepository = {
+    ...catalog[0], repositoryId: 'accounts', repositoryPath: '/workspace/repos/accounts',
+    title: 'Independent repository Story', currentPhase: 'design'
+  };
+  const inbox = buildInbox(snapshot, [...catalog, secondRepository], checkoutPath, binding);
+  assert.equal(inbox.stories.length, 2,
+    'a remote URL or Story ID does not prove that two local repositories share identity');
+  assert.deepEqual(inbox.stories.map((story) => ({
+    repositoryId: story.repositoryId, repositoryPath: story.repositoryPath, current: story.current
+  })), [
+    { repositoryId: 'delivery', repositoryPath: '/workspace/repos/delivery', current: true },
+    { repositoryId: 'accounts', repositoryPath: '/workspace/repos/accounts', current: false }
+  ]);
+  assert.equal(inbox.stories[1].title, 'Independent repository Story');
+  assert.equal(inbox.stories[1].phase, 'design');
+});
+
+test('an unknown linked-checkout repository is not inferred from a matching Story ID', () => {
+  const { snapshot, catalog, checkoutPath } = linkedCheckoutFixture();
+  const inbox = buildInbox(snapshot, catalog, checkoutPath);
+  assert.equal(inbox.stories.length, 2,
+    'different checkout paths remain separate until the caller provides verified repository identity');
+  assert.equal(inbox.stories.filter((story) => story.current).length, 1);
+  assert.equal(inbox.stories.find((story) => story.current).repositoryPath, checkoutPath);
+  assert.equal(inbox.stories.find((story) => story.repositoryId === 'delivery').current, false);
+});
+
+test('a repository binding for a different checkout cannot merge the current snapshot', () => {
+  const { snapshot, catalog, checkoutPath, binding } = linkedCheckoutFixture();
+  const wrongCheckout = { ...binding, checkoutPath: '/worktrees/another-checkout' };
+  assert.deepEqual(buildInbox(snapshot, catalog, checkoutPath, wrongCheckout),
+    buildInbox(snapshot, catalog, checkoutPath),
+    'a retained binding from another checkout is ignored');
+  assert.deepEqual(buildInboxTree(snapshot, null, catalog, checkoutPath, null, wrongCheckout),
+    buildInboxTree(snapshot, null, catalog, checkoutPath),
+    'the sidebar also ignores a binding from another checkout');
+});
+
+test('a verified binding cannot join a snapshot retained from another repository', () => {
+  const { snapshot, catalog, checkoutPath, binding } = linkedCheckoutFixture();
+  const stale = { ...snapshot, repository: { root: '/another/repository' } };
+  assert.deepEqual(buildInbox(stale, catalog, checkoutPath, binding), buildInbox(stale, catalog, checkoutPath));
+});
+
+test('same-ID remote-only Stories keep their explicit mapped repository identities', () => {
+  const { catalog } = linkedCheckoutFixture();
+  const first = { ...catalog[0], repositoryPath: '' };
+  const second = { ...first, repositoryId: 'independent-mapping', title: 'A separate selected mapping' };
+  const stories = buildInbox(null, [first, second, { ...first }]).stories;
+  assert.equal(stories.length, 2, 'no Git identity is inferred from a shared remote URL');
+  assert.deepEqual(stories.map((story) => story.repositoryId), ['delivery', 'independent-mapping']);
+});
+
 test('Inbox refresh discovers Stories from an empty workspace and supports a failed fetch retry', async () => {
   const store = {
     current: { snapshot: null },
@@ -101,7 +198,7 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   pending[1].resolve();
   await tick();
   assert.match(panel.webview.html, /STORY-7/);
-  assert.match(panel.webview.html, /Open checkout/);
+  assert.match(panel.webview.html, /Open &amp; continue|Open & continue/);
   assert.doesNotMatch(panel.webview.html, /remote unavailable/);
   assert.doesNotMatch(panel.webview.html, /Checking for Stories…/);
   catalog = [
@@ -135,7 +232,7 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   assert.match(panel.webview.html, /STORY-10[\s\S]*?cancelled/);
   assert.equal([...panel.webview.html.matchAll(/data-story="STORY-11"/g)].length, 2);
   assert.match(panel.webview.html, /data-story="STORY-11" data-repository-id="shipping"/);
-  assert.match(panel.webview.html, /Materialize &amp; open|Materialize & open/);
+  assert.match(panel.webview.html, /Materialize &amp; continue|Materialize & continue/);
   assert.ok(panel.webview.html.indexOf('data-story="STORY-8"')
     < panel.webview.html.indexOf('data-story="STORY-9"'),
   'active Stories precede terminal ones');

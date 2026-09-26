@@ -1,7 +1,7 @@
 /** The business inbox: work needing a decision and every generated artifact. */
 import * as vscode from 'vscode';
 import {
-  buildInbox, type Inbox, type InboxArtifact, type WorkspaceStoryCatalogRow
+  buildInbox, type Inbox, type InboxArtifact, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow
 } from './inbox-model.ts';
 import { buildApprovals, type PendingApproval } from './approvals-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
@@ -143,6 +143,7 @@ export class InboxPanel {
   private readonly storyCatalog: () => readonly WorkspaceStoryCatalogRow[];
   private readonly repositoryPath: () => string | null;
   private readonly catalogIssue: () => string | null;
+  private readonly repositoryBinding: () => InboxRepositoryBinding | null;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
@@ -155,13 +156,15 @@ export class InboxPanel {
     onMessage: (message: InboxMessage) => Promise<void> | void,
     storyCatalog: () => readonly WorkspaceStoryCatalogRow[],
     repositoryPath: () => string | null,
-    catalogIssue: () => string | null
+    catalogIssue: () => string | null,
+    repositoryBinding: () => InboxRepositoryBinding | null
   ) {
     this.panel = panel;
     this.store = store;
     this.storyCatalog = storyCatalog;
     this.repositoryPath = repositoryPath;
     this.catalogIssue = catalogIssue;
+    this.repositoryBinding = repositoryBinding;
     // The Inbox does not display the shared snapshot spinner. Replacing its entire webview for a
     // loading-only event is expensive and discards the user's scroll/focus for no content change.
     this.subscription = store.onDidChange((_state, change) => {
@@ -232,7 +235,8 @@ export class InboxPanel {
     onMessage: (message: InboxMessage) => Promise<void> | void,
     storyCatalog: () => readonly WorkspaceStoryCatalogRow[] = () => [],
     repositoryPath: () => string | null = () => null,
-    catalogIssue: () => string | null = () => null
+    catalogIssue: () => string | null = () => null,
+    repositoryBinding: () => InboxRepositoryBinding | null = () => null
   ): InboxPanel {
     if (InboxPanel.current) {
       InboxPanel.current.panel.reveal(vscode.ViewColumn.Active);
@@ -242,7 +246,7 @@ export class InboxPanel {
       enableScripts: true, retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
     });
-    InboxPanel.current = new InboxPanel(panel, store, onMessage, storyCatalog, repositoryPath, catalogIssue);
+    InboxPanel.current = new InboxPanel(panel, store, onMessage, storyCatalog, repositoryPath, catalogIssue, repositoryBinding);
     return InboxPanel.current;
   }
 
@@ -256,7 +260,7 @@ export class InboxPanel {
   }
 
   private currentInbox(): Inbox {
-    return buildInbox(this.store.current.snapshot, this.storyCatalog(), this.repositoryPath() ?? '');
+    return buildInbox(this.store.current.snapshot, this.storyCatalog(), this.repositoryPath() ?? '', this.repositoryBinding());
   }
 
   private render(): void {

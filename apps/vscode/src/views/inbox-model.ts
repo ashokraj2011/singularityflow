@@ -12,6 +12,7 @@ import type {
 } from '../cli/snapshot.ts';
 import type { TreeNode } from './tree-model.ts';
 import { storyArtifactPublicationLabel } from './submission-presentation.ts';
+import { sameStoryAttachPath } from '../story-attach.ts';
 
 export interface InboxArtifact {
   id: string;
@@ -50,6 +51,13 @@ export interface WorkspaceStoryCatalogRow {
   status: string;
   currentPhase: string | null;
   branch: string | null;
+}
+
+/** Host-proven mapping from the snapshot checkout to its canonical workspace member. */
+export interface InboxRepositoryBinding {
+  checkoutPath: string;
+  repositoryPath: string;
+  repositoryId: string;
 }
 
 /** A Story checkout available from a mapped workspace repository. */
@@ -182,26 +190,38 @@ const TERMINAL_STORY_STATUSES = new Set(['complete', 'completed', 'cancelled', '
 function storiesOf(
   snapshot: RepositorySnapshot | null,
   catalog: readonly WorkspaceStoryCatalogRow[],
-  currentRepositoryPath: string
+  currentRepositoryPath: string,
+  repositoryBinding: InboxRepositoryBinding | null
 ): InboxStory[] {
   const selectedWorkId = snapshot?.selectedWorkId ?? snapshot?.workflow?.workItem.id ?? null;
-  const currentCatalog = currentRepositoryPath
-    ? catalog.filter((row) => row.repositoryPath === currentRepositoryPath)
+  // A linked Story checkout and its canonical clone share Git identity, not a filesystem path.
+  // Only the host's verified binding may join them; a matching Story ID or remote URL cannot.
+  const binding = repositoryBinding?.repositoryId && repositoryBinding.repositoryPath
+    && repositoryBinding.checkoutPath
+    && currentRepositoryPath && sameStoryAttachPath(repositoryBinding.checkoutPath, currentRepositoryPath)
+    && (!snapshot?.repository?.root || sameStoryAttachPath(snapshot.repository.root, currentRepositoryPath))
+    ? repositoryBinding : null;
+  const identityPath = binding?.repositoryPath ?? currentRepositoryPath;
+  const currentCatalog = identityPath
+    ? catalog.filter((row) => Boolean(row.repositoryPath) && sameStoryAttachPath(row.repositoryPath, identityPath)
+      && (!binding || row.repositoryId === binding.repositoryId))
     : [];
+  const currentCatalogRows = new Set(currentCatalog);
   const byRepositoryAndId = new Map<string, InboxStory>();
   const key = (repositoryPath: string, workId: string, repositoryUrl?: string | null, repositoryId?: string) =>
-    `${repositoryPath ? `path:${repositoryPath}` : `remote:${repositoryUrl || repositoryId || ''}`}\u0000${workId}`;
+    `${repositoryPath ? `path:${repositoryPath}` : `remote:${repositoryUrl || ''}`}\u0000${repositoryId || ''}\u0000${workId}`;
   for (const item of snapshot?.workItems ?? []) {
     const catalogRow = currentCatalog.find((row) => row.id === item.id);
-    byRepositoryAndId.set(key(currentRepositoryPath, item.id), {
+    byRepositoryAndId.set(key(catalogRow?.repositoryPath ?? identityPath, item.id,
+      catalogRow?.repositoryUrl, binding?.repositoryId ?? catalogRow?.repositoryId), {
       workId: item.id,
       title: item.title ?? catalogRow?.title ?? item.id,
       phase: String(item.currentPhase ?? item.status ?? 'active').replaceAll('_', ' '),
       status: String(item.status ?? 'active').replaceAll('_', ' '),
       terminal: TERMINAL_STORY_STATUSES.has(String(item.status)),
       current: item.id === selectedWorkId,
-      repositoryId: catalogRow?.repositoryId ?? 'Current repository',
-      repositoryPath: currentRepositoryPath,
+      repositoryId: binding?.repositoryId ?? catalogRow?.repositoryId ?? 'Current repository',
+      repositoryPath: catalogRow?.repositoryPath ?? identityPath,
       repositoryUrl: catalogRow?.repositoryUrl ?? null,
       materialized: true,
       attachable: true,
@@ -218,7 +238,7 @@ function storiesOf(
       phase: String(row.currentPhase || row.status || 'active').replaceAll('_', ' '),
       status: String(row.status || 'active').replaceAll('_', ' '),
       terminal: TERMINAL_STORY_STATUSES.has(String(row.status)),
-      current: Boolean(row.repositoryPath) && row.repositoryPath === currentRepositoryPath && row.id === selectedWorkId,
+      current: row.id === selectedWorkId && currentCatalogRows.has(row),
       repositoryId: row.repositoryId || row.repositoryPath || row.repositoryUrl || 'Mapped repository',
       repositoryPath: row.repositoryPath,
       repositoryUrl: row.repositoryUrl ?? null,
@@ -236,10 +256,11 @@ function storiesOf(
 export function buildInbox(
   snapshot: RepositorySnapshot | null,
   catalog: readonly WorkspaceStoryCatalogRow[] = [],
-  currentRepositoryPath = ''
+  currentRepositoryPath = '',
+  repositoryBinding: InboxRepositoryBinding | null = null
 ): Inbox {
   const approvals = buildApprovals(snapshot);
-  const stories = storiesOf(snapshot, catalog, currentRepositoryPath);
+  const stories = storiesOf(snapshot, catalog, currentRepositoryPath, repositoryBinding);
   const activeStories = stories.filter((story) => !story.terminal);
   if (!snapshot) {
     return {
@@ -337,7 +358,8 @@ export function buildInboxTree(
   error?: Error | null,
   catalog: readonly WorkspaceStoryCatalogRow[] = [],
   currentRepositoryPath = '',
-  catalogIssue: string | null = null
+  catalogIssue: string | null = null,
+  repositoryBinding: InboxRepositoryBinding | null = null
 ): TreeNode[] {
   const refreshStories: TreeNode = {
     kind: 'action', id: 'inbox:refresh-stories', label: 'Refresh Stories',
@@ -352,7 +374,7 @@ export function buildInboxTree(
     kind: 'message', id: 'inbox:error', label: error.message, icon: 'error',
     tooltip: 'The inbox could not read the governed repository.'
   }, ...discoveryWarning, refreshStories];
-  const inbox = buildInbox(snapshot, catalog, currentRepositoryPath);
+  const inbox = buildInbox(snapshot, catalog, currentRepositoryPath, repositoryBinding);
   if (!snapshot && !inbox.stories.length) {
     return catalogIssue
       ? [...discoveryWarning, refreshStories]

@@ -3458,7 +3458,7 @@ test('the sidebar and full inbox list active Stories without mixing their artifa
   assert.match(surface, /Workspace Stories/);
   assert.match(surface, /data-story=/);
   assert.match(surface, /aria-current="page"/);
-  assert.match(surface, /Open checkout/);
+  assert.match(surface, /Open &amp; continue/);
   assert.match(surface, /'attach-story'/);
 });
 

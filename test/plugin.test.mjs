@@ -41,11 +41,11 @@ test('workflow skill governs dependency-complete transfer and linked duplication
   assert.match(content, /complete dependency closure/);
   assert.match(content, /workflow import <FILE> --dry-run --propose --json/);
   assert.match(content, /workflow import <FILE> --confirm <PLAN-SHA256> --propose --json/);
-  assert.match(content, /A skill invocation is not confirmation/);
-  assert.match(content, /singularity-flow workflow duplicate` is an alias of `singularity-flow workflow copy/);
-  assert.match(content, /linked copy/);
-  assert.match(content, /later shared-dependency edits[\s\S]*both workflows/);
-  assert.match(content, /Never overwrite an existing target, bypass review, commit, activate, merge, or refresh/);
+  assert.match(content, /Skill invocation is not confirmation/);
+  assert.match(content, /`duplicate` aliases `copy`/);
+  assert.match(content, /Linked copies reuse dependencies/);
+  assert.match(content, /later shared edits affect[\s\S]*both/);
+  assert.match(content, /never overwrite, bypass review, commit, activate, merge or refresh automatically/);
 });
 
 test('session and progress skills ground every follow-up command in the resolved repository', async () => {

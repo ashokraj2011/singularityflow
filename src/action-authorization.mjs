@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
+import readline from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
+import { isatty } from 'node:tty';
 import { gitDir, identity } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
@@ -8,6 +11,9 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const AUTHORIZATION_TTL_MS = 15 * 60 * 1000;
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+// This is a live presentation witness, not a durable authorization ledger. Files and public
+// issuer calls cannot manufacture it. It is deliberately unavailable across process boundaries.
+const terminalPresentations = new Map();
 
 function authorizationDirectory(root) {
   return path.join(gitDir(root), 'singularity-flow', 'action-authorizations');
@@ -89,8 +95,59 @@ export async function issueActionAuthorization(root, plan, action, {
   return record;
 }
 
-export async function consumeActionAuthorization(root, token, plan, action) {
+/**
+ * Direct-terminal confirmation. No caller-supplied answer, stream or receipt can stand in for the
+ * named action on the exact card. This is terminal-local review, not authenticated Copilot consent.
+ */
+export async function captureTerminalActionAuthorization(root, plan, action, { label = 'Confirm action' } = {}) {
+  if (stdin.isTTY !== true || stdout.isTTY !== true || !isatty(stdin.fd) || !isatty(stdout.fd)) {
+    throw new SingularityFlowError('This action requires direct terminal review of its exact current plan.',
+      { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
+  }
+  if (!action.confirmation?.required || typeof label !== 'string' || !label.trim()
+      || label.length > 128 || /[\0\r\n\x1b]/u.test(label)) {
+    throw new SingularityFlowError('The terminal confirmation card is invalid.',
+      { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
+  }
+  const reviewedPlan = structuredClone(plan);
+  const reviewedAction = structuredClone(action);
+  const beforeActor = actorKey(identity(root));
+  stdout.write(`${JSON.stringify({ plan: reviewedPlan, action: reviewedAction }, null, 2)}\n`);
+  const terminal = readline.createInterface({ input: stdin, output: stdout });
+  let answer;
+  try { answer = await terminal.question(`Type ${label} to confirm this exact action, or Enter to cancel: `); }
+  finally { terminal.close(); }
+  if (answer !== label) return null;
+  if (!beforeActor || beforeActor !== actorKey(identity(root))) {
+    throw new SingularityFlowError('Local identity changed during terminal review; review the action again.',
+      { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
+  }
+  const record = await issueActionAuthorization(root, reviewedPlan, reviewedAction,
+    { confirmation: reviewedAction.actionId, channel: 'terminal' });
+  terminalPresentations.set(record.token, {
+    root: path.resolve(root), planHash: record.planHash, actionId: record.actionId,
+    subject: canonicalJson(reviewedPlan.subject), revision: reviewedPlan.revision,
+    actor: beforeActor, expiresAt: Date.parse(record.expiresAt)
+  });
+  return record;
+}
+
+export async function consumeActionAuthorization(root, token, plan, action, {
+  requireTerminalPresentation = false
+} = {}) {
   if (!action.confirmation?.required) return null;
+  if (requireTerminalPresentation) {
+    const presented = terminalPresentations.get(token);
+    // Every attempted use consumes the live witness, including stale/changed-plan attempts.
+    terminalPresentations.delete(token);
+    if (!presented || presented.root !== path.resolve(root)
+        || presented.planHash !== plan.planHash || presented.actionId !== action.actionId
+        || presented.subject !== canonicalJson(plan.subject) || presented.revision !== plan.revision
+        || presented.actor !== actorKey(identity(root)) || presented.expiresAt <= Date.now()) {
+      throw new SingularityFlowError('A live direct-terminal presentation is required; a local receipt is not human consent.',
+        { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });
+    }
+  }
   const source = authorizationPath(root, token);
   const claimed = `${source}.consuming-${process.pid}-${randomUUID()}`;
   try {

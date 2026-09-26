@@ -3652,6 +3652,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openDiagnostics', openDiagnostics));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', openDiagnostics));
 
+  // Shared drafts are bound to an explicitly opened/selected Git root, not the machine's last
+  // workspace. Register before lifecycle activation so an incomplete Story cannot hide authoring.
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openSharedWorkflowDrafts', async () => {
+    try {
+      const folders = vscode.workspace.workspaceFolders ?? [];
+      const folder = folders.length === 1 ? folders[0]
+        : folders.length > 1 ? await vscode.window.showWorkspaceFolderPick({
+          placeHolder: 'Choose the opened repository whose configuration authority owns these drafts'
+        }) : null;
+      const picked = folder ? folder.uri : (await vscode.window.showOpenDialog({
+        title: 'Choose the exact Git repository root for shared workflow drafts',
+        canSelectFiles: false, canSelectFolders: true, canSelectMany: false,
+        openLabel: 'Use this repository'
+      }))?.[0];
+      if (!picked) return;
+      const selectedRoot = await validateRepositoryDirectory(picked.fsPath);
+      const draftsClient = new SingularityFlowClient({
+        location: surfaceLocation, repository: selectedRoot, environment: cliEnvironment,
+        onOutput: (text) => output.append(text)
+      });
+      const { showSharedWorkflowDrafts } = lazyPanels();
+      await showSharedWorkflowDrafts(context, async (argv, requestedRoot) => {
+        try {
+          if (path.resolve(requestedRoot) !== path.resolve(selectedRoot)
+              || await validateRepositoryDirectory(selectedRoot) !== selectedRoot) {
+            return { result: null, error: 'The shared-draft repository changed. Reopen the draft panel.' };
+          }
+          return { result: await draftsClient.run(argv), error: null };
+        } catch (error) {
+          return { result: null, error: error instanceof Error ? error.message : String(error) };
+        }
+      }, selectedRoot);
+    } catch (error) { showRefusal(error, { headline: 'Could not open shared workflow drafts' }); }
+  }));
+
   const resetClient = new SingularityFlowClient({
     location: surfaceLocation, repository: os.tmpdir(), environment: cliEnvironment,
     onOutput: (text) => output.append(text)
@@ -6272,6 +6307,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'add-capability') await vscode.commands.executeCommand('singularityFlow.addCapability');
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
+    else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand('singularityFlow.openSharedWorkflowDrafts');
     else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
     else if (message.action === 'world-model') { await openConfigurationCenter('world-model'); return null; }
     else if (message.action === 'ast-intelligence') await vscode.commands.executeCommand('singularityFlow.configureAstIntelligence');

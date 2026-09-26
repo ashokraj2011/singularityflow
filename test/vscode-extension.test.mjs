@@ -407,6 +407,12 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['documents', 'publish']), 'mutation');
   assert.equal(commandClass(['workflow', 'list', '--json']), 'read');
   assert.equal(commandClass(['workflow', 'create']), 'mutation');
+  for (const action of ['list', 'read', 'show', 'history', 'op-status']) {
+    assert.equal(commandClass(['workflow', 'author', action]), 'read');
+  }
+  for (const action of ['create', 'save', 'delete', 'unknown']) {
+    assert.equal(commandClass(['workflow', 'author', action]), 'mutation');
+  }
   assert.equal(commandClass(['phase', 'show', 'planning', '--json']), 'read');
   assert.equal(commandClass(['phase', 'publish', 'planning']), 'mutation');
   assert.equal(commandClass(['converge', '--json']), 'read');
@@ -1023,6 +1029,15 @@ test('configuration validation always reads current bytes while ordinary status 
     assert.deepEqual(await client.run(['factory-reset', '--dry-run', '--json']), { count: 5 },
       'the destructive reset freshness check must never reuse its reviewed preview');
     assert.equal(await readFile(counter, 'utf8'), '5');
+
+    for (const action of ['list', 'read', 'show', 'history', 'op-status']) {
+      const args = ['workflow', 'author', action, '--json'];
+      const first = await client.run(args);
+      const second = await client.run(args);
+      assert.equal(second.count, first.count + 1,
+        `shared ${action} must observe peer saves/deletions, not a cached acknowledgement`);
+    }
+    assert.equal(await readFile(counter, 'utf8'), '15');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -7590,6 +7605,29 @@ test('configuration recovery stays inside VS Code for conflicting MCP host entri
     'the accepted recovery invokes the engine escape hatch itself');
   assert.match(extension, /Other MCP servers and inputs are preserved/,
     'the confirmation explains the bounded write scope');
+});
+
+test('shared workflow drafts are discoverable, lazy and bound to an explicitly selected root', async () => {
+  const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
+  assert.ok(manifest.contributes.commands.some((entry) =>
+    entry.command === 'singularityFlow.openSharedWorkflowDrafts'));
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  const start = extension.indexOf("registerCommand('singularityFlow.openSharedWorkflowDrafts'");
+  assert.ok(start > 0);
+  const handler = extension.slice(start, extension.indexOf('const resetClient', start));
+  assert.match(handler, /workspace\.workspaceFolders/);
+  assert.match(handler, /showWorkspaceFolderPick/);
+  assert.match(handler, /showOpenDialog/);
+  assert.match(handler, /selectedRoot = await validateRepositoryDirectory\(picked\.fsPath\)/);
+  assert.match(handler, /new SingularityFlowClient\([\s\S]*repository: selectedRoot/);
+  assert.match(handler, /path\.resolve\(requestedRoot\) !== path\.resolve\(selectedRoot\)/);
+  assert.match(handler, /validateRepositoryDirectory\(selectedRoot\)/);
+  assert.doesNotMatch(handler, /useRepository|workspace current|os\.homedir/);
+  assert.match(await readFile(source('lazy-panels-runtime.ts'), 'utf8'),
+    /export \{ showSharedWorkflowDrafts \} from '\.\/views\/workflow-drafts\.ts'/);
+  const page = await readFile(source('views/configuration-center-page.ts'), 'utf8');
+  assert.match(page, /Shared workflow drafts[\s\S]*action: 'shared-workflow-drafts'/);
+  assert.match(extension, /message\.action === 'shared-workflow-drafts'[\s\S]*executeCommand\('singularityFlow\.openSharedWorkflowDrafts'\)/);
 });
 
 test('Comprehension Center is a lazy leased read-only surface with explicit unknowns', async () => {

@@ -277,6 +277,12 @@ Usage:
   singularity-flow secrets protect [--force]
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative
+  singularity-flow workflow author [list|read WFD-ID|show WFD-ID|history WFD-ID|op-status OP-ID] [--json]
+  singularity-flow workflow author create [WFD-ID] --operation-id ID --expected-head empty|OID [--name TEXT] [--input FILE] [--json]
+  singularity-flow workflow author save WFD-ID --operation-id ID --expected-head OID --epoch 1 [--name TEXT] [--input FILE] [--json]
+  singularity-flow workflow author delete WFD-ID [--operation-id ID] [--json]
+                                                        shared inert Git drafts; not configuration approval or activation
+                                                        --expected-authority REMOTE asserts the observed destination; never overrides it
   singularity-flow skill inspect <LOCAL-DIRECTORY> [--skill-id ID] [--json]    read-only candidate package inspection
   singularity-flow skill approved <ID> [--expected-package-sha256 SHA256] [--json]
                                                         inspect a skill in verified approved configuration

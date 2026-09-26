@@ -2319,6 +2319,12 @@ const families = [
   family({ id: 'workflow-ir', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-ratification', currentVersion: 1, immutable: true }),
   family({ id: 'policy-snapshot', currentVersion: 1, immutable: true }),
+  // WCA's isolated draft ref is mutable only by exact remote-head CAS. Individual revisions,
+  // manifests and deletion fences are immutable identities and never approve configuration.
+  family({ id: 'workflow-authoring-git-draft-store', currentVersion: 1 }),
+  family({ id: 'workflow-authoring-draft-revision', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-asset-manifest', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-draft-tombstone', currentVersion: 1, immutable: true }),
   family({
     id: 'learning-workspace', currentVersion: 1, immutable: true,
     paths: [/^\$git\/sgos\/learning\/[a-f0-9]{64}\/workspace\.json$/]

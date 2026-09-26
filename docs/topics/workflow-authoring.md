@@ -22,7 +22,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 17
+version: 18
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -45,8 +45,74 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
   phase contracts and exposes planned claims, code task, and approval groups. Lead-governed saves
   create review proposals; self-governed saves leave an uncommitted edit on local `sflow/config`.
   The selected Story snapshot is never edited.
+  **Configuration Center → Shared workflow drafts** (or Command Palette **Singularity Flow:
+  Shared workflow drafts**) opens the shared inert draft editor. Explicit Save writes a leased
+  revision, not a proposal or approval. Conflicts retain unsaved text; Reload requires a discard
+  choice. This first editor has no autosave—save before closing. Binary assets are read-only to
+  avoid a lossy text round trip.
 
 After `singularity-flow onboard --bootstrap`, run `singularity-flow init` before authoring. Bootstrap pins the repository authority; init materializes `singularity/workflow.yml` and `singularity/portfolio.yml`. When initialization is needed, the bootstrap receipt now gives that exact next command.
+
+## Share an inert workflow draft across machines
+
+Open the exact repository first. These commands resolve its freshly verified configuration
+authority, not the machine's last selected workspace. All clients use the same repository-wide
+`sflow/drafts/configuration` branch in that authority repository. Approved `sflow/config`, Story
+branches, application files and the application index are untouched.
+
+Start with Shell `singularity-flow workflow author list --json`, or Copilot
+`/sf-workflows author list --json`. The result identifies the exact authority, current shared Git
+head (or `null`), and live `WFD-…` draft IDs. To create an incomplete draft:
+
+```bash
+singularity-flow workflow author create WFD-DEMO001 --name "Review checklist" \
+  --operation-id draft-create-001 --expected-head empty --json
+```
+
+Use `empty` only when list returned a null head; otherwise pass that exact Git object ID. A draft
+is inert collaboration data, not an approved workflow. An optional `--input FILE` is a bounded
+UTF-8 JSON envelope: `{"payload":{"id":"candidate","description":"Partial purpose"},"assets":[]}`.
+Assets have literal `path` and `content` fields; logical paths never install files or grant tools.
+Credentials, unsafe paths and approved environment-local exclusions are refused before sharing.
+For destination-bound automation, add `--expected-authority <EXACT-REPOSITORY-FROM-LIST-OR-READ>`
+to Create and Save. It is an assertion against freshly resolved authority, never a destination
+override. The VS Code editor always supplies its retained authority; even a cloned repository at
+the same head cannot silently replace it.
+
+Shell `singularity-flow workflow author read WFD-DEMO001 --json` (Copilot `/sf-workflows author
+read WFD-DEMO001 --json`) returns the retained revision, lifecycle epoch, exact head and asset
+bytes. Save an edit with a new operation ID and those exact bindings:
+
+```bash
+singularity-flow workflow author save WFD-DEMO001 --name "Updated checklist" \
+  --epoch 1 --operation-id draft-edit-002 --expected-head <RETURNED-GIT-OID> --json
+```
+
+Never refresh a head and silently reuse it for an older editor buffer. Another writer causes a
+conflict, not an overwrite. Reconcile the retained and unsaved revisions explicitly. After an
+interrupted acknowledgement, Shell `singularity-flow workflow author op-status draft-edit-002
+--json` (Copilot `/sf-workflows author op-status draft-edit-002 --json`) checks the original
+operation. Retrying the exact original request is idempotent; changing it under that operation ID
+is refused. Deleted draft IDs fence queued saves and cannot be recreated.
+
+`workflow author history WFD-DEMO001 --json` lists retained revisions. `workflow author show
+WFD-DEMO001 --json` is read-only and reports partial definition gaps. Full graph/compiler coverage,
+approval/publication state and installed-host readiness are explicitly unavailable; this view does
+not validate, publish or activate the candidate. Copilot uses `/sf-workflows author history …` or
+`/sf-workflows author show …`.
+
+Deletion is a separate explicit action: Shell `singularity-flow workflow author delete WFD-DEMO001
+--json`. In a direct terminal it displays the exact destination, head, revision and effect, with
+Cancel as the default. Type **Delete draft** only after reviewing that card. A one-use, in-process
+presentation witness supplements the existing authorization owner; a locally authored receipt or
+public issuer call alone cannot authorize this route. Copilot `/sf-workflows author delete
+WFD-DEMO001 --json` returns a terminal handoff without deleting. Authenticated mediated Copilot
+confirmation is not installed. Tombstones and historical draft bytes remain in Git; deletion is
+not physical erasure and changes no submitted snapshot or active configuration.
+
+Git's native repository ACL governs access; no per-draft JSON ACL or authenticated-provider
+principal is claimed. Guided editing, autosave, complete package compilation/submission and
+authorized where-used are separate pending work, not effects of draft storage.
 
 ## Inspect a local skill candidate
 

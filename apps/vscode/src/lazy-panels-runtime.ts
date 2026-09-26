@@ -31,6 +31,7 @@ export { InboxPanel } from './views/inbox.ts';
 export { JourneyPanel } from './views/journey.ts';
 export { SgosCommandCenterPanel } from './views/sgos-command-center.ts';
 export { showSgosWorkflowCreator } from './sgos-workflow-create.ts';
+export { showSharedWorkflowDrafts } from './views/workflow-drafts.ts';
 export { showSgosMetaToolReview } from './sgos-meta-tool-review.ts';
 export { showGdpLocalRunnerReview } from './gdp-local-runner-review.ts';
 export { ReconciliationPanel } from './views/reconciliation.ts';

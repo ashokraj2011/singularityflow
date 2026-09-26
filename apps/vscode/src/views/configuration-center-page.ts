@@ -23,6 +23,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Repair or upgrade setup', glyph: 'configuration', action: 'repository-setup' },
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
     { label: 'Workflows & artifacts', glyph: 'workflow', action: 'workflow' },
+    { label: 'Shared workflow drafts', glyph: 'workflow', action: 'shared-workflow-drafts' },
     { label: 'World model', glyph: 'worldModel', tab: 'world-model' },
     { label: 'AST intelligence', glyph: 'worldModel', action: 'ast-intelligence' }
   ] },
@@ -112,6 +113,7 @@ function overview(view: ConfigurationCenterView): string {
     <p class="muted">Open the most common operational tools without turning every destination into an equally prominent card.</p>
     <div class="configuration-action-list">
       <button class="configuration-action-row" data-action="open-designer">${icon('workflow', { size: 16 })}<span><strong>Workflow Designer</strong><small>Work types, phases, gates, and artifact flow.</small></span>${icon('next')}</button>
+      <button class="configuration-action-row" data-action="shared-workflow-drafts">${icon('workflow', { size: 16 })}<span><strong>Shared workflow drafts</strong><small>Explicitly save partial drafts in the configuration authority across machines.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-copilot">${icon('agent', { size: 16 })}<span><strong>Continue active Story in Copilot</strong><small>Hand the open interval to Copilot with governed context.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-specification-trace">${icon('document', { size: 16 })}<span><strong>Specification traceability</strong><small>Review which clauses each artifact and test claims to satisfy.</small></span>${icon('next')}</button>
     </div>

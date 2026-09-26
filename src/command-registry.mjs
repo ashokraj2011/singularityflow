@@ -228,7 +228,10 @@ const WORKFLOW_MUTATION_SUBCOMMANDS = Object.freeze([
   'activate', 'create', 'edit', 'phase', 'install', 'add', 'upgrade',
   'export', 'import', 'copy', 'duplicate'
 ]);
-const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS]);
+const WORKFLOW_AUTHOR_READ_ACTIONS = Object.freeze(['list', 'read', 'history', 'op-status', 'show']);
+const WORKFLOW_AUTHOR_MUTATION_ACTIONS = Object.freeze(['create', 'save', 'delete']);
+const WORKFLOW_AUTHOR_ACTIONS = Object.freeze([...WORKFLOW_AUTHOR_READ_ACTIONS, ...WORKFLOW_AUTHOR_MUTATION_ACTIONS]);
+const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author']);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'upload', 'add', 'fetch']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
@@ -546,6 +549,14 @@ function resolveInputsOperation(definition, options) {
 
 function resolveWorkflowCommandOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'list';
+  if (subcommand === 'author') {
+    const action = positionals[2] ?? 'list';
+    if (!WORKFLOW_AUTHOR_ACTIONS.includes(action)) {
+      return unknownSubcommand('workflow author', action, WORKFLOW_AUTHOR_ACTIONS);
+    }
+    return never(`workflow.author.${action}`, definition,
+      WORKFLOW_AUTHOR_READ_ACTIONS.includes(action) ? 'read' : 'mutation');
+  }
   if (WORKFLOW_READ_SUBCOMMANDS.includes(subcommand)) {
     return never(`workflow.${subcommand}`, definition, 'read');
   }
@@ -1549,6 +1560,8 @@ export function operationCatalog() {
     never('inputs.dry-run', inputsDefinition, 'read'),
     never('inputs.prepare', inputsDefinition, 'mutation'),
     ...WORKFLOW_READ_SUBCOMMANDS.map((name) => never(`workflow.${name}`, workflowDefinition, 'read')),
+    ...WORKFLOW_AUTHOR_READ_ACTIONS.map((name) => never(`workflow.author.${name}`, workflowDefinition, 'read')),
+    ...WORKFLOW_AUTHOR_MUTATION_ACTIONS.map((name) => never(`workflow.author.${name}`, workflowDefinition, 'mutation')),
     ...['activate', 'create', 'edit', 'phase', 'install', 'export', 'import', 'copy'].map((name) => never(
       `workflow.${name}`, workflowDefinition, 'mutation'
     )),

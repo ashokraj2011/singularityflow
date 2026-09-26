@@ -8325,6 +8325,11 @@ function configurationProposalFileSubject(root, requestedPath) {
 
 async function workflowCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'workflow subcommand'); const root = repoRoot();
+  if (subcommand === 'author') {
+    const { resolveWorkflowAuthorScope } = await import('./wca-author-scope.mjs');
+    const scope = await resolveWorkflowAuthorScope(root);
+    return (await import('./commands/workflow-author.mjs')).run(root, positionals, options, { scope });
+  }
   if (subcommand === 'skills-recipe') {
     return (await import('./commands/workflow-skills-recipe.mjs')).run(root, positionals, options);
   }

@@ -1,52 +1,50 @@
 ---
 name: sflow-workflows
-description: List, compare, simulate, install, export, import, or duplicate governed Singularity Flow workflows.
+description: List, preview, transfer, duplicate governed workflows, or explicitly share inert Git-backed workflow drafts.
 disable-model-invocation: true
-argument-hint: "[list|simulate ID|diff ID|export --workflow ID... --out FILE|import FILE|copy SOURCE TARGET --label TEXT]"
+argument-hint: "[list|author list|author read WFD-ID|author save WFD-ID ...|skills-recipe ID ...|simulate ID|export ...|import FILE|copy SOURCE TARGET ...]"
 
 ---
-# Workflow catalog, transfer, and duplication
+# Workflow catalog, shared drafts, and transfer
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Run `singularity-flow workflow $ARGUMENTS`. Default to `list` when no action is supplied.
+Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
-For installation, run simulation, diff, and `--dry-run`; show YAML/Markdown.
-Never use `--replace` without explicit confirmation or commit configuration automatically.
+For `author`, require an explicit opened Git root, without workspace fallback.
+`list|read|history|show|op-status` is read-only; relay authority, head, revision, epoch and gaps.
+Create/Save require user direction, unique operation ID, exact observed head and matching
+`--expected-authority`. Input is inert payload/assets JSON. Never rebase text, change a replayed
+request or recreate deleted drafts. Lost acknowledgement: `author op-status <ID> --json`.
+Sharing is not approval or execution. Headless `author delete <WFD-ID> --json` only hands off:
+never supply receipts, answers or tokens. Direct terminal captures the named human action.
+
+For installation, simulate/diff/`--dry-run`; show YAML/Markdown. No unconfirmed `--replace` or auto-commit.
 
 Read-only BYO preview: `singularity-flow workflow skills-recipe <NEW-ID> --label <TEXT>
 --phases <APPROVED-PHASE-IDS> --json`. Code requires explicit `--planned-claims required
 --clause-phases <CRITERIA> --claim-owners <CODE=PLAN>`. Relay revision, sequence, pending approval
-and unavailable host; never infer opt-out. It imports, confirms, and executes nothing. Following
-the proposal route requires separate user authorization.
+and unavailable host; never infer opt-out or import/confirm/execute. Proposals require separate authorization.
 
-For portable workflow bundles:
+Export only explicit selections to a new file:
+`singularity-flow workflow export --workflow <ID> [--workflow <ID>...] --out <FILE> --json`.
+Report complete dependency closure and remote-agent locks. Policy/installed World Model contracts are
+prerequisites, not imported objects. Never hand-edit bundles.
 
-1. Export only explicitly named workflows. Use one `--workflow <ID>` for each selection and require
-   a new output path: `singularity-flow workflow export --workflow <ID> [--workflow <ID>...] --out <FILE> --json`.
-   Report the complete dependency closure including remote-agent locks. Repository policy and installed World
-   Model contracts are prerequisites, not imported objects. Never hand-edit the bundle.
-2. Import is a two-step governed mutation. First run exactly
-   `singularity-flow workflow import <FILE> --dry-run --propose --json`. Show the plan SHA-256,
-   dependencies, changed paths, reuse, and collisions. A skill invocation is not confirmation.
-3. After the user explicitly accepts that exact plan, run
-   `singularity-flow workflow import <FILE> --confirm <PLAN-SHA256> --propose --json` once. Never
-   substitute a digest, overwrite a collision, or retry a stale plan without a new preview. Preserve
-   whether the CLI created a proposal or a local authority edit.
+Import preview: `singularity-flow workflow import <FILE> --dry-run --propose --json`.
+Skill invocation is not confirmation. After explicit digest/path/collision review and acceptance run
+`singularity-flow workflow import <FILE> --confirm <PLAN-SHA256> --propose --json` once.
+Never substitute a digest, overwrite collisions, or retry stale plans without a new review.
 
-For duplication:
+`duplicate` aliases `copy`. Require a distinct lower-kebab target and label. Preview:
+`singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label <TEXT> --dry-run --propose --json`.
+Qualify ambiguous Story/Initiative IDs. Linked copies reuse dependencies; later shared edits affect
+both, so never claim isolation. Show the exact plan/collisions and wait for explicit acceptance:
+`singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label <TEXT> --confirm <PLAN-SHA256> --propose --json`.
+Run once; never overwrite, bypass review, commit, activate, merge or refresh automatically.
 
-1. `singularity-flow workflow duplicate` is an alias of `singularity-flow workflow copy`. Require a distinct lower-kebab target and label. Preview:
-   `singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label <TEXT> --dry-run --propose --json`.
-   Use a qualified source whenever Story and Initiative catalogs share the same ID.
-2. A **linked copy** reuses dependencies: later shared-dependency edits affect both workflows. Never claim isolation.
-3. Show the exact copy plan and collisions and wait for explicit confirmation. Then run
-   `singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label <TEXT> --confirm <PLAN-SHA256> --propose --json`
-   once. Never overwrite an existing target, bypass review, commit, activate, merge, or refresh the
-   workspace automatically.
-
-Relay validation, proposal/local status, files, warnings, and next commands. Stop on missing
-dependencies, collisions, stale plans, invalid bundles, or authority refusal.
+Stop on missing dependencies, collisions, stale plans, invalid bundles or authority refusal.
+Always relay paired Shell and Copilot routes; a deterministic command remains CLI-owned.

@@ -73,6 +73,9 @@ export function excludesActiveWorkspaceRouting(
     // Local skill inspection reads an explicit directory and remains repository-independent.
     // Approved inspection selects the current repository or active workspace's authority.
     || (command === 'skill' && subcommand === 'inspect')
+    // Shared authoring writes must stay with the explicitly opened repository. A neutral cwd
+    // cannot silently choose a different configuration authority from a machine-local selection.
+    || (command === 'workflow' && subcommand === 'author')
     // Documentation topics remain machine-local and repository-independent. Code explanation is
     // deliberately repository-bound and may use the repository selected by `workspace use` when
     // Copilot starts from a neutral directory.
@@ -575,6 +578,10 @@ export async function main(argv) {
   if (definition.name === 'skill') {
     const { validateSkillRequest } = await import('./commands/skill.mjs');
     validateSkillRequest({ positionals, options });
+  }
+  if (definition.name === 'workflow' && positionals[1] === 'author') {
+    const { validateWorkflowAuthorRequest } = await import('./commands/workflow-author.mjs');
+    validateWorkflowAuthorRequest({ positionals, options });
   }
   const timingInput = {
     started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),

@@ -1,17 +1,19 @@
 import path from 'node:path';
 import os from 'node:os';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
 import {
   accessSync, constants as FS_CONSTANTS, existsSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
-import { SingularityFlowError, invariant, run } from './util.mjs';
+import { SingularityFlowError, invariant, run, writeAtomic, removeTemporaryTree } from './util.mjs';
+import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
+import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteAuthority,
-  configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference
+  configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference, isPortableAbsoluteGitPath
 } from './git-remote-diagnostics.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { scopedReadSync } from './read-scope.mjs';
@@ -1165,6 +1167,11 @@ export function exactFileAtObject(root, objectId, file, { maximumBytes = 1024 * 
     encoding: 'buffer',
     maxBuffer: maximumBytes
   });
+  if (ISOLATED_GIT_OBJECT_REPOSITORIES.has(root) && !processResultCompleted(result)) {
+    const error = new SingularityFlowError('The isolated exact-object read did not prove process cleanup.', { code: 'GIT_OBJECT_READ_UNAVAILABLE' });
+    error.temporaryGitCleanupUnproven = true;
+    throw error;
+  }
   if (result.status !== 0) return null;
   return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '');
 }
@@ -1180,7 +1187,203 @@ export function exactTreePathsAtObject(root, objectId, pathspec = []) {
     env: immutableLocalGitEnvironment(),
     allowFailure: true
   });
+  if (ISOLATED_GIT_OBJECT_REPOSITORIES.has(root) && !processResultCompleted(result)) {
+    const error = new SingularityFlowError('The isolated exact-tree read did not prove process cleanup.', { code: 'GIT_OBJECT_READ_UNAVAILABLE' });
+    error.temporaryGitCleanupUnproven = true;
+    throw error;
+  }
   return result.status === 0 ? nullList(result.stdout) : null;
+}
+
+/**
+ * A transient exact-object repository, never a worktree or a contributor object database.
+ * Remote contact stays at the existing frozen enterprise transport boundary. A child with an
+ * indeterminate termination leaves its private scratch retained rather than racing Windows
+ * directory removal against a surviving Git/helper process.
+ */
+const ISOLATED_GIT_OBJECT_REPOSITORIES = new Set();
+
+export async function withIsolatedGitObjectRepository({
+  remote, expectedCommit = null, objectFormat = 'sha1', maximumBytes = 64 * 1024 * 1024
+}, callback) {
+  assertCredentialFreeRemote(remote);
+  invariant(isPortableAbsoluteGitPath(remote) || /^[a-z][a-z0-9+.-]*:\/\//iu.test(remote)
+    || /^(?:[^/@:\s]+@)?(?:\[[^\]]+\]|[^/:\s]+):.+$/u.test(remote) && !/^file:/iu.test(remote),
+  'Isolated Git repositories require an already anchored remote destination.');
+  invariant(['sha1', 'sha256'].includes(objectFormat), 'Invalid isolated Git object format.');
+  invariant(expectedCommit === null || EXACT_LOCAL_OBJECT_ID.test(expectedCommit)
+    && expectedCommit.length === (objectFormat === 'sha256' ? 64 : 40), 'Invalid exact remote object identity.');
+  invariant(Number.isSafeInteger(maximumBytes) && maximumBytes > 0
+    && maximumBytes <= 512 * 1024 * 1024 && typeof callback === 'function', 'Invalid isolated object budget.');
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-exact-objects-'));
+  let retained = false;
+  const controls = Object.freeze({ retainTemporaryTree() { retained = true; } });
+  const env = isolatedObjectWriterEnvironment();
+  async function repositoryBytes(directory) {
+    let total = 0;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
+        throw new SingularityFlowError('The isolated Git repository contains an unsafe entry.', { code: 'GIT_OBJECT_REPOSITORY_INVALID' });
+      }
+      total += entry.isDirectory() ? await repositoryBytes(file) : (await lstat(file)).size;
+      if (total > maximumBytes + 1024 * 1024) {
+        throw new SingularityFlowError('The isolated Git repository exceeds its storage budget.', { code: 'GIT_OBJECT_REPOSITORY_LIMIT' });
+      }
+    }
+    return total;
+  }
+  try {
+    const initialized = git(['-c', `core.hooksPath=${gitDisabledHooksPath()}`, 'init', '--bare', '--quiet', '--template=', `--object-format=${objectFormat}`, scratch], { cwd: scratch, env, allowFailure: true, timeoutMs: 30_000 });
+    if (!processResultCompleted(initialized)) retained = true;
+    if (!processResultSucceeded(initialized)) throw new SingularityFlowError('Unable to initialize an isolated exact-object repository.', { code: 'GIT_OBJECT_REPOSITORY_UNAVAILABLE' });
+    ISOLATED_GIT_OBJECT_REPOSITORIES.add(scratch);
+    if (expectedCommit !== null) {
+      const transport = frozenRemoteTransport(remote);
+      const fetched = await runRemoteGitAsync([
+        '-c', `core.hooksPath=${gitDisabledHooksPath()}`, '-c', 'fetch.unpackLimit=1',
+        'fetch', '--no-tags', '--no-write-fetch-head', '--depth=1', '--', transport.remote, expectedCommit
+      ], { cwd: scratch, env: transport.env, operation: 'remote-configuration', maxBuffer: 1024 * 1024 });
+      if (!processResultCompleted(fetched)) retained = true;
+      if (!processResultSucceeded(fetched)) throw new SingularityFlowError('Unable to fetch the exact shared object revision.', { code: 'GIT_OBJECT_REPOSITORY_UNAVAILABLE' });
+      await repositoryBytes(scratch);
+      // Closed, inert callers may not reinterpret a symlink or submodule as an ordinary retained
+      // byte sequence. Check the whole exact tree before returning any file to the caller.
+      const listed = git(['ls-tree', '-r', '-z', expectedCommit], { cwd: scratch, env, allowFailure: true, maxBuffer: 2 * 1024 * 1024, timeoutMs: 30_000 });
+      if (!processResultCompleted(listed)) retained = true;
+      if (!processResultSucceeded(listed) || listed.stdout.split('\0').filter(Boolean).some((row) => !/^100644 blob (?:[a-f0-9]{40}|[a-f0-9]{64})\t/u.test(row))) {
+        throw new SingularityFlowError('The exact shared tree contains a non-regular or unreadable entry.', { code: 'GIT_OBJECT_REPOSITORY_INVALID' });
+      }
+    }
+    return await callback(scratch, controls);
+  } catch (error) {
+    if (error?.temporaryGitCleanupUnproven === true) retained = true;
+    throw error;
+  } finally {
+    ISOLATED_GIT_OBJECT_REPOSITORIES.delete(scratch);
+    if (!retained) await removeTemporaryTree(scratch);
+  }
+}
+
+function isolatedObjectWriterEnvironment() {
+  return {
+    ...immutableLocalGitEnvironment(),
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath(), GIT_CONFIG_GLOBAL: gitEmptyConfigPath(),
+    GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'
+  };
+}
+
+/**
+ * Write literal Git blobs/trees and one commit; do not stage, check out, update a ref, or run hooks.
+ * This exact-object owner accepts bounded bytes, not caller source paths or executable Git flags.
+ */
+export async function writeExactGitObjectCommit(root, {
+  parentCommit = null, files, commitIdentity, message
+}) {
+  invariant(path.isAbsolute(root), 'An exact object repository root is required.');
+  invariant(ISOLATED_GIT_OBJECT_REPOSITORIES.has(root), 'Exact object writes require a live isolated repository owned by the Git service.');
+  invariant(parentCommit === null || EXACT_LOCAL_OBJECT_ID.test(parentCommit), 'Invalid exact commit parent.');
+  invariant(files instanceof Map && files.size > 0 && files.size <= 16_384, 'Invalid exact object file count.');
+  invariant(typeof message === 'string' && Buffer.byteLength(message) <= 4096 && !message.includes('\0'), 'Invalid exact commit message.');
+  const identityValue = validateGitCommitIdentity(commitIdentity);
+  const env = gitCommitIdentityEnvironment(isolatedObjectWriterEnvironment(), identityValue);
+  const formatResult = git(['rev-parse', '--show-object-format'], { cwd: root, env, allowFailure: true, timeoutMs: 30_000, killSignal: 'SIGKILL' });
+  if (!processResultSucceeded(formatResult)) {
+    const error = new SingularityFlowError('The isolated repository object format is unavailable.', { code: 'GIT_OBJECT_WRITE_UNAVAILABLE' });
+    error.temporaryGitCleanupUnproven = !processResultCompleted(formatResult);
+    throw error;
+  }
+  const format = formatResult.stdout.trim();
+  invariant(['sha1', 'sha256'].includes(format), 'Unknown exact object repository format.');
+  invariant(parentCommit === null || parentCommit.length === (format === 'sha256' ? 64 : 40), 'Exact parent object format mismatch.');
+  const temporary = await mkdtemp(path.join(root, 'exact-write-'));
+  let retained = false;
+  const checked = (args, options = {}) => {
+    const result = git(['-c', `core.hooksPath=${gitDisabledHooksPath()}`, ...args], { cwd: root, env, timeoutMs: 30_000, killSignal: 'SIGKILL', allowFailure: true, ...options });
+    if (!processResultCompleted(result)) retained = true;
+    if (!processResultSucceeded(result)) {
+      const error = new SingularityFlowError('Exact Git object creation failed.', { code: 'GIT_OBJECT_WRITE_UNAVAILABLE' });
+      error.temporaryGitCleanupUnproven = retained;
+      throw error;
+    }
+    return result.stdout.trim();
+  };
+  async function object(type, bytes) {
+    const source = path.join(temporary, 'literal-object');
+    await writeAtomic(source, bytes, { mode: 0o600 });
+    const oid = checked(['hash-object', '-t', type, '-w', '--no-filters', '--', source]);
+    invariant(EXACT_LOCAL_OBJECT_ID.test(oid) && oid.length === (format === 'sha256' ? 64 : 40), 'Invalid exact Git object result.');
+    return oid;
+  }
+  try {
+    if (parentCommit !== null) checked(['cat-file', '-e', `${parentCommit}^{commit}`]);
+    const tree = new Map(); const folded = new Set(); let total = 0;
+    for (const [relative, bytes] of files) {
+      invariant(typeof relative === 'string' && Buffer.byteLength(relative) <= 512
+        && !/[\\\0\r\n:]/u.test(relative) && !relative.startsWith('/')
+        && relative.split('/').every((part) => /^[A-Za-z0-9._-]+$/u.test(part) && part !== '.' && part !== '..'), 'Invalid exact object path.');
+      invariant(Buffer.isBuffer(bytes) && bytes.length <= 32 * 1024 * 1024, 'Invalid exact object bytes.');
+      total += bytes.length;
+      invariant(total <= 288 * 1024 * 1024, 'Exact object byte budget exceeded.');
+      const normalized = relative.toLowerCase();
+      invariant(!folded.has(normalized), 'Exact object paths collide on a portable filesystem.'); folded.add(normalized);
+      const parts = relative.split('/'); let node = tree;
+      for (const part of parts.slice(0, -1)) {
+        if (!node.has(part)) node.set(part, new Map());
+        invariant(node.get(part) instanceof Map, 'Exact object file/tree collision.'); node = node.get(part);
+      }
+      invariant(!node.has(parts.at(-1)), 'Exact object file/tree collision.');
+      node.set(parts.at(-1), { oid: await object('blob', bytes) });
+    }
+    async function writeTree(node) {
+      const entries = [...node.entries()].sort(([a, av], [b, bv]) => Buffer.compare(Buffer.from(a + (av instanceof Map ? '/' : '')), Buffer.from(b + (bv instanceof Map ? '/' : ''))));
+      const chunks = [];
+      for (const [name, value] of entries) {
+        const directory = value instanceof Map;
+        const oid = directory ? await writeTree(value) : value.oid;
+        chunks.push(Buffer.from(`${directory ? '40000' : '100644'} ${name}\0`), Buffer.from(oid, 'hex'));
+      }
+      return object('tree', Buffer.concat(chunks));
+    }
+    const treeOid = await writeTree(tree);
+    return checked(['commit-tree', treeOid, ...(parentCommit ? ['-p', parentCommit] : []), '-m', message]);
+  } finally {
+    if (!retained) await removeTemporaryTree(temporary);
+  }
+}
+
+/** Publish only a live isolated author's draft object, with no local ref/tracking mutation. */
+export async function pushIsolatedGitDraftCommit(root, {
+  remote, commit, branch, expectedRemoteSha
+}) {
+  invariant(ISOLATED_GIT_OBJECT_REPOSITORIES.has(root), 'Draft pushes require a live isolated object repository.');
+  invariant(/^sflow\/drafts\/[a-z0-9][a-z0-9-]{0,63}$/u.test(branch), 'Draft publication cannot target application or approved-configuration refs.');
+  invariant(EXACT_LOCAL_OBJECT_ID.test(commit) && (expectedRemoteSha === null
+    || EXACT_LOCAL_OBJECT_ID.test(expectedRemoteSha) && expectedRemoteSha.length === commit.length), 'Draft publication requires exact object identities.');
+  assertCredentialFreeRemote(remote);
+  const checked = git(['rev-parse', '--verify', `${commit}^{commit}`], {
+    cwd: root, env: isolatedObjectWriterEnvironment(), allowFailure: true, timeoutMs: 30_000
+  });
+  if (!processResultSucceeded(checked) || checked.stdout.trim() !== commit) {
+    const error = new SingularityFlowError('The exact draft commit could not be verified.', { code: 'GIT_OBJECT_WRITE_UNAVAILABLE' });
+    error.temporaryGitCleanupUnproven = !processResultCompleted(checked);
+    throw error;
+  }
+  const destination = `refs/heads/${branch}`;
+  const transport = frozenRemoteTransport(remote, { push: true });
+  const result = await runRemoteGitAsync([
+    'push', '--porcelain', `--force-with-lease=${destination}:${expectedRemoteSha ?? ''}`,
+    '--', transport.remote, `${commit}:${destination}`
+  ], { cwd: root, env: transport.env, operation: 'remote-push', maxBuffer: 1024 * 1024 });
+  if (processResultSucceeded(result)) {
+    const transition = result.stdout.split(/\r?\n/u).map((line) => {
+      const [flag, refspec] = line.split('\t');
+      return refspec?.endsWith(`:${destination}`) ? flag : null;
+    }).find((flag) => flag !== null);
+    const acquired = expectedRemoteSha === null ? transition === '*' : transition === ' ' || transition === '+';
+    if (!acquired) return { ...result, status: 1, leaseNotAcquired: true };
+  }
+  return result;
 }
 
 function nullList(value) {

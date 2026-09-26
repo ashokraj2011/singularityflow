@@ -138,6 +138,9 @@ function cacheableRead(args: string[]): boolean {
     // A card presented for human review must therefore be read from the journal now, not from the
     // extension's short-lived coalescing cache.
     && !(args[0] === 'revision' && ['status', 'card', 'show'].includes(args[1] ?? ''))
+    // A peer can save or delete a shared draft at any moment. CAS cards must be owner reads,
+    // not a replay of this window's previous acknowledgement.
+    && !(args[0] === 'workflow' && args[1] === 'author')
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
     && args[0] !== 'factory-reset';
@@ -197,6 +200,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   if (args[0] === 'documents') return (args[1] ?? 'list') === 'list' ? 'read' : 'mutation';
+  if (args[0] === 'workflow' && args[1] === 'author') {
+    return ['list', 'read', 'show', 'history', 'op-status'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
+  }
   if (args[0] === 'workflow') return (args[1] ?? 'list') === 'list' ? 'read' : 'mutation';
   if (args[0] === 'phase') return (args[1] ?? '') === 'show' ? 'read' : 'mutation';
   if (args[0] === 'converge' || args[0] === 'explain') return 'read';
@@ -581,6 +587,7 @@ export class SingularityFlowClient {
     // ordinary local CLI action, so it gets the same ceiling as capability authority changes. A
     // real timeout still carries the complete terminal recovery command from the shared runner.
     if ((args[0] === 'workflow' && hasOption(args, 'propose'))
+        || (args[0] === 'workflow' && args[1] === 'author')
         || (args[0] === 'configuration' && args[1] === 'save' && hasOption(args, 'propose'))) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }

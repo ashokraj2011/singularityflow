@@ -253,6 +253,7 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
       mode: 'legacy-live', closure: 'unproven', policy: workflow?.resolution ?? null,
       agents: definition.agents ?? {}, agentCatalog: definition.agentCatalog ?? [],
       phaseTemplates: Object.freeze({}), planningPrompt: null,
+      skillPackages: Object.freeze([]),
       effectiveDefinition, snapshotHash: null,
       parserProfile: null, composerProfile: null
     });
@@ -275,6 +276,11 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
   const parsed = parsedSnapshotAgents(closure);
   const phaseTemplates = parsedSnapshotTemplates(closure);
   const planningPrompt = parsedPlanningPrompt(closure);
+  const skillPackages = Object.freeze((closure.manifest.skillPackages ?? []).map((entry) =>
+    Object.freeze({
+      skillId: entry.skillId, packageSha256: entry.manifest.packageSha256,
+      phaseIds: Object.freeze(entry.phaseBindings.map((binding) => binding.phaseId))
+    })));
   if (!Object.keys(parsed.agents).length) {
     fail('Story snapshot contains no governed-agent bytes.', 'WFA_DEPENDENCY_UNAVAILABLE');
   }
@@ -331,7 +337,7 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
   Object.freeze(effectiveDefinition);
   const catalog = {
     mode: 'workflow-snapshot', closure: 'verified', policy,
-    agents, agentCatalog, phaseTemplates, planningPrompt,
+    agents, agentCatalog, phaseTemplates, planningPrompt, skillPackages,
     effectiveDefinition, snapshotHash: closure.snapshotHash,
     parserProfile: parsed.parserProfile, composerProfile: parsed.composerProfile,
     manifest: immutable(structuredClone(closure.manifest))
@@ -353,6 +359,57 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
   const verified = Object.freeze(catalog);
   VERIFIED_CATALOG_BY_DEFINITION.set(effectiveDefinition, verified);
   return verified;
+}
+
+/**
+ * Read one skill phase from the verified accepted Story closure. This is a dependency reader,
+ * not producer admission: callers still need their own governed host and evidence decisions.
+ */
+export async function resolveStorySkillPackage(root, definition, workflow, {
+  phaseId, executionCatalog = null
+} = {}) {
+  const catalog = executionCatalog
+    ? verifiedCatalogFor(root, workflow, executionCatalog)
+    : await resolveStoryExecutionCatalog(root, definition, workflow);
+  if (typeof phaseId !== 'string' || !phaseId) {
+    fail('A selected phase ID is required to read a Story skill package.', 'WFA_SNAPSHOT_INVALID');
+  }
+  const phase = catalog.policy?.phases?.find((entry) => entry.id === phaseId);
+  if (!phase) fail(`Selected phase '${phaseId}' is absent from the accepted Story policy.`,
+    'WFA_SNAPSHOT_INVALID');
+  if (phase.kind !== 'skill') return null;
+  if (catalog.mode !== 'workflow-snapshot' || !catalog[VERIFIED_CLOSURE]) {
+    fail(`Skill phase '${phaseId}' has no accepted retained execution closure.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const closure = catalog[VERIFIED_CLOSURE];
+  const bindingRefs = phase.skillBinding?.bindingRefs;
+  const skillId = bindingRefs?.skill?.id;
+  const record = closure.manifest.skillPackages?.find((entry) => entry.skillId === skillId);
+  const phaseBinding = record?.phaseBindings.find((entry) => entry.phaseId === phaseId);
+  if (!record || !phaseBinding
+      || record.manifest.packageSha256 !== bindingRefs?.skill?.packageSha256
+      || phaseBinding.contractSha256 !== bindingRefs?.contractSha256
+      || phaseBinding.compilationSha256 !== phase.skillBinding?.compilationSha256) {
+    fail(`Skill phase '${phaseId}' is not bound to exact retained package and contract bytes.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const files = new Map();
+  for (const file of record.files) {
+    const bytes = closure.assetBytes.get(file.assetLogicalId);
+    if (!bytes) fail(`Skill phase '${phaseId}' has missing retained file '${file.path}'.`,
+      'WFA_DEPENDENCY_UNAVAILABLE');
+    files.set(file.path, Buffer.from(bytes));
+  }
+  return Object.freeze({
+    phaseId, skillId, packageSha256: record.manifest.packageSha256,
+    contractSha256: phaseBinding.contractSha256,
+    compilationSha256: phaseBinding.compilationSha256,
+    parserProfile: phaseBinding.parserProfile,
+    bindingRefs: immutable(structuredClone(bindingRefs)),
+    manifest: immutable(structuredClone(record.manifest)),
+    files, snapshotHash: catalog.snapshotHash
+  });
 }
 
 /**

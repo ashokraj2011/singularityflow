@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["version", "git", "templatesRoot", "workTypes", "phases"],
   "properties": {
-    "version": { "const": 2 },
+    "version": { "enum": [2, 3] },
     "auto": { "$ref": "#/$defs/autoPolicy" },
     "inputsMode": { "enum": ["off", "record", "enforce"], "default": "off" },
     "noModel": {
@@ -344,7 +344,7 @@
           "templateOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
           "phaseOverrides": {
             "type": "object",
-            "description": "Per-profile overrides for artifact, qualityCommands, worldModel, comparison, approval, or other phase fields. Skill producer fields require a future versioned SKP contract and are unsupported in v2.",
+            "description": "Per-profile overrides for template phases. Compiled skill phases cannot be overridden; author a new reviewed binding.",
             "additionalProperties": {
               "type": "object",
               "not": { "anyOf": [{ "required": ["kind"] }, { "required": ["skill"] }, { "required": ["contract"] }] },
@@ -367,9 +367,10 @@
       "minProperties": 1,
       "additionalProperties": {
         "type": "object",
-        "description": "Version-2 phases are template-backed. Skill producer declarations require registered SKP lowering and cannot be interpreted as template phases.",
-        "not": { "anyOf": [{ "required": ["kind"] }, { "required": ["skill"] }, { "required": ["contract"] }] },
+        "description": "Template phases remain unchanged. Version-3 skill phases require a compiled, versioned binding.",
         "properties": {
+          "kind": { "const": "skill" },
+          "skillBinding": { "$ref": "#/$defs/skpSkillBinding" },
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
           "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },
           "artifact": { "$ref": "#/$defs/artifactContract" },
@@ -563,7 +564,139 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "version": { "const": 2 } }, "required": ["version"] },
+      "then": {
+        "properties": {
+          "phases": {
+            "additionalProperties": {
+              "not": { "anyOf": [
+                { "required": ["kind"] }, { "required": ["skill"] },
+                { "required": ["contract"] }, { "required": ["skillBinding"] }
+              ] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "version": { "const": 3 } }, "required": ["version"] },
+      "then": {
+        "properties": {
+          "phases": {
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "required": ["kind", "skillBinding", "label", "artifact", "inputs", "qualityCommands", "approval", "writeScope", "generation", "clarification"],
+                  "properties": { "kind": { "const": "skill" }, "skillBinding": { "$ref": "#/$defs/skpSkillBinding" } },
+                  "not": { "anyOf": [
+                    { "required": ["skill"] }, { "required": ["contract"] },
+                    { "required": ["defaultTemplate"] }
+                  ] }
+                },
+                {
+                  "not": { "anyOf": [
+                    { "required": ["kind"] }, { "required": ["skill"] },
+                    { "required": ["contract"] }, { "required": ["skillBinding"] }
+                  ] }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
+    "skpSkillBinding": {
+      "type": "object",
+      "required": ["schemaVersion", "compiler", "compilationSha256", "parserProfile", "bindingRefs"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "compiler": { "const": "skp-contract/v1" },
+        "compilationSha256": { "$ref": "#/$defs/skpSha256" },
+        "parserProfile": { "const": "skp-skill-text/v1" },
+        "bindingRefs": {
+          "type": "object",
+          "required": ["skill", "contractSha256", "catalogSha256", "confirmation", "inputs", "outputs", "checks", "readScope", "sourceScope", "codeDeliverySha256"],
+          "properties": {
+            "skill": {
+              "type": "object", "required": ["id", "packageSha256"],
+              "properties": {
+                "id": { "$ref": "#/$defs/skpId" },
+                "packageSha256": { "$ref": "#/$defs/skpSha256" }
+              },
+              "additionalProperties": false
+            },
+            "contractSha256": { "$ref": "#/$defs/skpSha256" },
+            "catalogSha256": { "$ref": "#/$defs/skpSha256" },
+            "confirmation": {
+              "type": "object", "required": ["planSha256", "candidateSha256", "draftRevision"],
+              "properties": {
+                "planSha256": { "$ref": "#/$defs/skpSha256" },
+                "candidateSha256": { "$ref": "#/$defs/skpSha256" },
+                "draftRevision": { "type": "integer", "minimum": 1 }
+              },
+              "additionalProperties": false
+            },
+            "inputs": { "type": "array", "items": { "$ref": "#/$defs/skpInputBinding" } },
+            "outputs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/skpOutputBinding" } },
+            "checks": { "type": "array", "items": {
+              "type": "object", "required": ["id", "definitionSha256"],
+              "properties": { "id": { "$ref": "#/$defs/skpId" }, "definitionSha256": { "$ref": "#/$defs/skpSha256" } },
+              "additionalProperties": false
+            } },
+            "readScope": {
+              "type": "object", "required": ["inputs", "sourcePaths"],
+              "properties": {
+                "inputs": { "type": "boolean" },
+                "sourcePaths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+              },
+              "additionalProperties": false
+            },
+            "sourceScope": { "anyOf": [
+              { "type": "null" },
+              { "type": "object", "required": ["id", "definitionSha256"],
+                "properties": { "id": { "$ref": "#/$defs/skpId" }, "definitionSha256": { "$ref": "#/$defs/skpSha256" } },
+                "additionalProperties": false }
+            ] },
+            "codeDeliverySha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/skpSha256" }] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "skpSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "skpId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "skpInputBinding": {
+      "type": "object", "required": ["phase", "output", "required", "state", "path"],
+      "properties": {
+        "phase": { "$ref": "#/$defs/skpId" },
+        "output": { "$ref": "#/$defs/skpId" },
+        "required": { "type": "boolean" },
+        "state": { "const": "approved" },
+        "path": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "skpOutputBinding": {
+      "type": "object", "required": ["id", "path", "kind", "required", "minimumBytes", "maximumBytes", "clauses", "claimRole"],
+      "properties": {
+        "id": { "$ref": "#/$defs/skpId" },
+        "path": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" },
+        "minimumBytes": { "type": "integer", "minimum": 1 },
+        "maximumBytes": { "type": "integer", "minimum": 1 },
+        "mediaType": { "type": "string", "minLength": 3 },
+        "encoding": { "enum": ["utf-8", "binary"] },
+        "clauses": { "enum": ["required", "optional", "none"] },
+        "claimRole": { "enum": ["criteria", "planning", "findings", "evidence", "none"] }
+      },
+      "additionalProperties": false
+    },
     "tokenEconomy": {
       "type": "object",
       "properties": {
@@ -814,6 +947,14 @@
               "type": "array",
               "uniqueItems": true,
               "items": { "type": "string", "minLength": 1 }
+            },
+            "markers": {
+              "oneOf": [
+                { "enum": ["off", "warn", "block"] },
+                { "type": "object", "required": ["mode"],
+                  "properties": { "mode": { "enum": ["off", "warn", "block"] } },
+                  "additionalProperties": false }
+              ]
             }
           },
           "additionalProperties": false
@@ -968,14 +1109,15 @@
           "required": ["id", "modelPolicy"],
           "properties": {
             "id": { "type": "string", "minLength": 1 },
-            "command": { "type": "string", "minLength": 1 },
-            "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "command": { "type": ["string", "null"], "minLength": 1 },
+            "argv": { "type": ["array", "null"], "minItems": 1, "items": { "type": "string" } },
             "modelPolicy": { "enum": ["never", "required", "unknown"] },
             "environment": {
               "type": "string", "maxLength": 64,
               "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
             },
-            "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 },
+            "timeoutMs": { "type": ["integer", "null"], "minimum": 1000, "maximum": 7200000 },
+            "requirement": { "enum": ["required", "advisory"] },
             "kind": { "enum": ["test", "compile", "lint", "format", "static-analysis", "security", "other"] },
             "workingDirectory": { "type": "string", "minLength": 1 },
             "affectedRoots": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
@@ -985,19 +1127,22 @@
               "properties": {
                 "adapter": { "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "node-tap", "karma-text", "dotnet-trx", "cargo-json", "sflow-test-result-v1"] },
                 "path": { "type": "string", "minLength": 1 },
-                "minimumDiscovered": { "type": "integer", "minimum": 1 }
+                "minimumDiscovered": { "type": "integer", "minimum": 1 },
+                "minimumPassed": { "type": "integer", "minimum": 1 },
+                "sourceExtensions": { "type": "array", "uniqueItems": true,
+                  "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9][A-Za-z0-9.+-]{0,15}$" } }
               },
               "additionalProperties": false
             }
           },
           "oneOf": [
-            { "required": ["command"], "not": { "required": ["argv"] } },
-            { "required": ["argv"], "not": { "required": ["command"] } }
+            { "required": ["command"], "properties": { "command": { "type": "string" }, "argv": { "type": "null" } } },
+            { "required": ["argv"], "properties": { "argv": { "type": "array" }, "command": { "type": "null" } } }
           ],
           "allOf": [
             {
               "if": { "required": ["environment"] },
-              "then": { "required": ["argv"], "not": { "required": ["command"] } }
+              "then": { "required": ["argv"], "properties": { "argv": { "type": "array" }, "command": { "type": "null" } } }
             }
           ],
           "additionalProperties": false
@@ -1041,8 +1186,8 @@
       { "type": "object",
       "properties": {
         "mode": { "enum": ["required", "none", "policy"] },
-        "policy": { "type": "string", "minLength": 1 },
-        "maximumChangedPaths": { "type": "integer", "minimum": 1 },
+        "policy": { "type": ["string", "null"], "minLength": 1 },
+        "maximumChangedPaths": { "type": ["integer", "null"], "minimum": 1 },
         "authorities": {
           "type": "array",
           "minItems": 1,
@@ -1055,6 +1200,7 @@
           "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
         },
         "minimum": { "type": "integer", "minimum": 1 },
+        "allowSelfApproval": { "type": "boolean" },
         "rejectTo": {
           "type": "array",
           "minItems": 1,

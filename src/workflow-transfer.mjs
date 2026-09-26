@@ -386,6 +386,12 @@ function validateBundleClosure(bundle, agents) {
   for (const workflow of bundle.workflows) {
     const store = STORE[workflow.governs];
     const definition = bundle.objects[workflow.governs][store.workflows][workflow.id];
+    for (const [phaseId, override] of Object.entries(definition.phaseOverrides ?? {})) {
+      if (override?.kind === 'skill' || override?.skillBinding != null) {
+        fail(`Workflow bundle v1 cannot transfer skill phase override '${workflow.governs}:${phaseId}' without its approved package.`,
+          'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+      }
+    }
     collectNamedDependencies(definition, dependencies, { governs: workflow.governs });
     for (const phaseId of definition.phases ?? []) {
       if (!Object.hasOwn(bundle.objects[workflow.governs][store.phases], phaseId)) {
@@ -404,6 +410,14 @@ function validateBundleClosure(bundle, agents) {
       if (!phase) {
         fail(`Workflow bundle is missing phase '${governs}:${phaseId}'.`,
           'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
+      }
+      // Bundle v1 has no skill-package asset member. A phase binding without its exact entry,
+      // resources, and interpretation profile would look portable while losing its authority.
+      // Refuse both export and imported/hand-authored bundles until a versioned transfer format
+      // can retain and validate the complete selected package closure.
+      if (phase.kind === 'skill' || phase.skillBinding != null) {
+        fail(`Workflow bundle v1 cannot transfer skill phase '${governs}:${phaseId}' without its approved package.`,
+          'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
       }
       collectNamedDependencies(phase, dependencies, { governs });
       for (const referenced of phaseReferences(phase)) {
@@ -769,6 +783,12 @@ async function buildBundle(root, workflowIds) {
     const store = STORE[governs];
     const config = configs[governs];
     const definition = config[store.workflows][id];
+    for (const [phaseId, override] of Object.entries(definition.phaseOverrides ?? {})) {
+      if (override?.kind === 'skill' || override?.skillBinding != null) {
+        fail(`Workflow bundle v1 cannot transfer skill phase override '${governs}:${phaseId}' without its approved package.`,
+          'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+      }
+    }
     const targetMap = governs === 'story' ? objects.story.workTypes : objects.initiative.initiativeProfiles;
     addMapEntry(targetMap, id, definition, `${governs}-workflow`);
     workflows.push({ id, governs, definitionSha256: digest(definition) });
@@ -785,6 +805,10 @@ async function buildBundle(root, workflowIds) {
       const phase = config?.[store.phases]?.[phaseId];
       if (!phase) fail(`Workflow dependency phase '${governs}:${phaseId}' is not defined.`,
         'WORKFLOW_DEPENDENCY_MISSING');
+      if (phase.kind === 'skill' || phase.skillBinding != null) {
+        fail(`Workflow bundle v1 cannot transfer skill phase '${governs}:${phaseId}' without its approved package.`,
+          'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+      }
       const targetMap = governs === 'story' ? objects.story.phases : objects.initiative.initiativePhases;
       addMapEntry(targetMap, phaseId, phase, `${governs}-phase`);
       collectNamedDependencies(phase, dependencies, { governs });

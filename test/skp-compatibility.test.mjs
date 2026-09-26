@@ -89,11 +89,14 @@ test('v2 workflow schema explicitly refuses the SKP authoring fragment', async (
   const schema = JSON.parse(await readFile(
     new URL('../schemas/workflow-definition.schema.json', import.meta.url), 'utf8'
   ));
-  for (const phase of [
-    schema.properties.phases.additionalProperties,
-    schema.properties.workTypes.additionalProperties.properties.phaseOverrides.additionalProperties
-  ]) {
-    const refused = phase.not.anyOf.map(({ required }) => required[0]);
-    assert.deepEqual(refused, ['kind', 'skill', 'contract']);
-  }
+  const v2 = schema.allOf.find((entry) => entry.if.properties.version.const === 2);
+  assert.deepEqual(v2.then.properties.phases.additionalProperties.not.anyOf
+    .map(({ required }) => required[0]), ['kind', 'skill', 'contract', 'skillBinding']);
+  assert.deepEqual(schema.properties.workTypes.additionalProperties.properties.phaseOverrides
+    .additionalProperties.not.anyOf.map(({ required }) => required[0]),
+  ['kind', 'skill', 'contract']);
+  const v3 = schema.allOf.find((entry) => entry.if.properties.version.const === 3);
+  assert.deepEqual(v3.then.properties.phases.additionalProperties.oneOf[0].required,
+    ['kind', 'skillBinding', 'label', 'artifact', 'inputs', 'qualityCommands',
+      'approval', 'writeScope', 'generation', 'clarification']);
 });

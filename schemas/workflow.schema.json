@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8] },
+    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9] },
     "workflowSnapshot": {
       "anyOf": [
         { "type": "null" },
@@ -14,7 +14,7 @@
           "required": ["enrollment", "schemaVersion", "revision", "snapshotHash", "manifestPath", "genesisSnapshotHash"],
           "properties": {
             "enrollment": { "const": "wfa" },
-            "schemaVersion": { "const": 1 },
+            "schemaVersion": { "enum": [1, 2] },
             "revision": { "type": "integer", "minimum": 1 },
             "snapshotHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
             "manifestPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
@@ -134,7 +134,14 @@
           "additionalProperties": false
         },
         "sessionLegacy": { "type": "boolean" },
-        "phases": { "type": "array", "items": { "type": "object" } },
+        "phases": { "type": "array", "items": {
+          "type": "object",
+          "properties": {
+            "kind": { "const": "skill" },
+            "skillBinding": { "$ref": "workflow-definition.schema.json#/$defs/skpSkillBinding" }
+          },
+          "allOf": [{ "$ref": "#/$defs/skpPhaseMarker" }]
+        } },
         "wel": {
           "type": "object",
           "required": ["schemaVersion", "mode", "witnessedClauses", "testcaseExact", "claimMapContractVersion", "cab", "sgos", "rollout", "configurationAuthority"],
@@ -189,6 +196,8 @@
         "properties": {
           "id": { "type": "string" },
           "label": { "type": "string" },
+          "kind": { "const": "skill" },
+          "skillBinding": { "$ref": "workflow-definition.schema.json#/$defs/skpSkillBinding" },
           "owner": { "type": ["string", "null"] },
           "status": { "enum": ["not_started", "in_progress", "awaiting_approval", "approved", "cancelled"] },
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
@@ -258,13 +267,54 @@
             ]
           }
         },
+        "allOf": [{ "$ref": "#/$defs/skpPhaseMarker" }],
         "additionalProperties": true
       }
     },
     "history": { "type": "array", "items": { "type": "object" } },
     "sequenceOverrides": { "type": "array", "items": { "type": "object" } }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "maximum": 8 } }, "required": ["schemaVersion"] },
+      "then": {
+        "properties": {
+          "resolution": { "properties": { "phases": { "items": { "$ref": "#/$defs/skpLegacyPhaseMarker" } } } },
+          "phases": { "additionalProperties": { "$ref": "#/$defs/skpLegacyPhaseMarker" } }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "resolution": { "properties": { "phases": {
+            "contains": { "type": "object", "required": ["kind"],
+              "properties": { "kind": { "const": "skill" } } }
+          } } }
+        },
+        "required": ["resolution"]
+      },
+      "then": {
+        "properties": {
+          "schemaVersion": { "const": 9 },
+          "workflowSnapshot": { "type": "object", "properties": { "schemaVersion": { "const": 2 } } }
+        },
+        "required": ["workflowSnapshot"]
+      }
+    }
+  ],
   "$defs": {
+    "skpPhaseMarker": {
+      "if": { "required": ["kind"], "properties": { "kind": { "const": "skill" } } },
+      "then": { "required": ["skillBinding"] },
+      "else": { "not": { "required": ["skillBinding"] } }
+    },
+    "skpLegacyPhaseMarker": {
+      "not": { "anyOf": [
+        { "required": ["skillBinding"] },
+        { "required": ["kind"], "properties": { "kind": { "const": "skill" } } }
+      ] }
+    },
     "architectureIntentBinding": {
       "type": "object",
       "required": ["workId", "phase", "generation", "path", "intentSha256", "blobSha256"],

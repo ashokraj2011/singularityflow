@@ -89,7 +89,9 @@ reader/capture foundation and the first read-only inspection surface. The follow
 deliberately separate because it introduces new authority and dialect semantics:
 
 1. Immutable amendment snapshots with parent linkage, approval binding, and append-only revision
-   selection. Until then, the genesis reference cannot be replaced.
+   selection. Until then, the genesis reference cannot be replaced. Creation finalization refuses
+   an accepted Story whose policy has changed with `WFA_AMENDMENT_UNSUPPORTED`; it cannot adopt a
+   newer skill package or repair a corrupt accepted closure.
 2. A dedicated Story handoff/import UX beyond the existing Git Story-branch synchronization and
    conservative session-attach flow.
 3. A GitHub Actions importer that produces an unratified proposal only. It needs a bounded YAML

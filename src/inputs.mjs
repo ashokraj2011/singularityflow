@@ -1,12 +1,16 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { exists, nowIso, posix, snapshot, writeJson } from './util.mjs';
+import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
 import { readAgentBrief } from './agent-briefs.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson } from './records.mjs';
+import {
+  resolveSkillPhaseEvidenceBinding, verifyApprovedSkillOutputContinuity,
+  verifyTemplateProducerSetContinuity
+} from './skp-phase-evidence.mjs';
 
 export const INPUTS_START = '<!-- singularity-flow:inputs:start -->';
 export const INPUTS_END = '<!-- singularity-flow:inputs:end -->';
@@ -44,6 +48,8 @@ function inputMessage(consumer, entry) {
   if (entry.status === 'brief_missing') return `${consumer.id} requires an approved agent brief from ${entry.phase}; its generation-bound brief is missing`;
   if (entry.status === 'brief_invalid') return `${consumer.id} requires an approved agent brief from ${entry.phase}; ${entry.briefError ?? 'its binding is invalid'}`;
   if (entry.status === 'expansion_missing') return `${consumer.id} requires a hash-bound expansion handle for the approved ${entry.phase} artifact`;
+  if (entry.status === 'receipt_missing') return `${consumer.id} requires the exact approved receipt for ${entry.phase}/${entry.skp?.output ?? 'output'}`;
+  if (entry.status === 'receipt_invalid') return `${consumer.id} input receipt for ${entry.phase}/${entry.skp?.output ?? 'output'} does not match the current approved generation`;
   return null;
 }
 
@@ -75,9 +81,22 @@ export function resolvedPhaseInputs(workflow, phase) {
   return workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id)?.inputs ?? phase.inputs ?? [];
 }
 
-export async function collectInputs(root, workflow, phase, { itemDirectory, itemRelative, generation = phase.generation + 1 } = {}) {
-  const mode = workflowInputsMode(workflow);
-  const declarations = resolvedPhaseInputs(workflow, phase);
+export async function collectInputs(root, workflow, phase, {
+  itemDirectory, itemRelative, generation = phase.generation + 1, definition = null
+} = {}) {
+  const selected = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
+  if (selected?.kind === 'skill' && !definition) {
+    throw new Error(`Skill phase '${phase.id}' inputs require the accepted Story definition.`);
+  }
+  const skill = selected?.kind === 'skill'
+    ? await resolveSkillPhaseEvidenceBinding(root, definition, workflow, phase) : null;
+  const mode = skill ? 'enforce' : workflowInputsMode(workflow);
+  const declarations = skill
+    ? (skill.bindingRefs.inputs ?? []).map((entry) => ({
+        phase: entry.phase, output: entry.output, path: entry.path,
+        optional: !entry.required, state: entry.state
+      }))
+    : resolvedPhaseInputs(workflow, phase);
   const records = [];
   const warnings = [];
   const errors = [];
@@ -88,6 +107,15 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
     const relativeArtifact = declaration.path ?? producer?.requiredArtifact?.path ?? null;
     const repositoryPath = relativeArtifact ? posix(path.join(itemRelative, relativeArtifact)) : null;
     const registered = producer?.artifacts?.find((artifact) => artifact.path === repositoryPath);
+    if (skill && relativeArtifact) {
+      if (!producer || !relativeArtifact.startsWith(`artifacts/${declaration.phase}/`)
+          || relativeArtifact.includes('\\')
+          || relativeArtifact.split('/').some((part) => !part || part === '.' || part === '..')
+          || (producer.artifacts ?? []).filter((artifact) => artifact.path === repositoryPath).length > 1) {
+        throw new Error(`Skill input '${declaration.phase}/${declaration.output}' has an invalid retained output path.`);
+      }
+      await secureRepositoryPath(root, repositoryPath, { label: `Skill input '${declaration.phase}/${declaration.output}'` });
+    }
     const current = relativeArtifact ? await snapshot(path.join(itemDirectory, relativeArtifact)) : { exists: false, size: 0, sha256: null };
     let status = 'captured';
     if (!current.exists) status = 'missing';
@@ -129,6 +157,84 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
         expansionHandle: null
       } : { kind: 'full' }
     };
+    if (skill) {
+      record.skp = {
+        output: declaration.output,
+        state: declaration.state,
+        receipt: null
+      };
+      if (status === 'captured') {
+        const activeApproval = (producer.approvals ?? []).findLast?.((entry) =>
+          !entry.invalidatedAt && entry.decision === 'approved'
+          && Number(entry.generation) === Number(producer.generation));
+        const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+          entry.phase === producer.id && Number(entry.generation) === Number(producer.generation));
+        const waived = ['none', 'policy'].includes(producer.approvalPolicy?.mode)
+          && producer.status === 'approved';
+        const skillProducer = workflow.resolution?.phases?.some((entry) =>
+          entry.id === producer.id && entry.kind === 'skill');
+        if (!submission || (!activeApproval && !waived)) {
+          status = 'receipt_missing';
+        } else if (producer.artifactSet && (
+            Number(producer.artifactSet.generation) !== Number(producer.generation)
+            || !producer.artifactSet.members?.some((member) =>
+              member.path === repositoryPath && member.exists
+              && (!skillProducer || member.sha256 === current.sha256))
+            || activeApproval && (skillProducer
+              ? activeApproval.bundleSha256 !== producer.artifactSet.submittedBundleSha256
+                || activeApproval.skillApprovedBundleSha256 !== producer.artifactSet.bundleSha256
+              : activeApproval.bundleSha256 !== producer.artifactSet.bundleSha256)
+          )) {
+          status = 'receipt_invalid';
+        } else if (activeApproval && activeApproval.reviewPacketSha256 !== submission.packetSha256) {
+          status = 'receipt_invalid';
+        } else {
+          try {
+            const { readStoryReviewPacket } = await import('./story-lineage.mjs');
+            const packet = await readStoryReviewPacket(root, definition, workflow, submission.packetSha256);
+            const source = packet.artifacts?.find((entry) => entry.path === repositoryPath);
+            if (packet.phase !== producer.id
+                || Number(packet.generation) !== Number(producer.generation)
+                || !source?.sha256 || packet.packetSha256 !== submission.packetSha256
+                || activeApproval && (activeApproval.evidenceCommit !== packet.evidenceCommit
+                  || !(activeApproval.artifactSha256 ?? []).some((entry) =>
+                    entry.path === repositoryPath && entry.sha256 === source.sha256)
+                  || skillProducer && (activeApproval.skillOutputIdentityVersion !== 1
+                    || activeApproval.skillEvidenceSha256
+                    !== packet.submissionEvidence?.skill?.evidenceSha256
+                    || !(activeApproval.skillApprovedOutputs ?? []).some((entry) =>
+                      entry.path === repositoryPath && entry.exists === true
+                      && entry.sha256 === current.sha256 && entry.bytes === current.size)))) {
+              status = 'receipt_invalid';
+            } else {
+              await verifyApprovedSkillOutputContinuity(root, definition, workflow, producer, {
+                repositoryPath, submittedSha256: source.sha256, submittedSize: source.size,
+                approvedSha256: current.sha256, evidenceCommit: packet.evidenceCommit
+              });
+              if (producer.artifactSet && !skillProducer) {
+                await verifyTemplateProducerSetContinuity(root, definition, workflow, producer, {
+                  approvedPath: repositoryPath, approvedSha256: current.sha256,
+                  approvedBytes: current.size, packet
+                });
+              }
+              record.skp.receipt = {
+                generation: producer.generation,
+                packetSha256: packet.packetSha256,
+                evidenceCommit: packet.evidenceCommit,
+                submittedSha256: source.sha256,
+                approvedSha256: current.sha256,
+                submittedBundleSha256: producer.artifactSet?.submittedBundleSha256 ?? null,
+                bundleSha256: producer.artifactSet?.bundleSha256 ?? null,
+                acceptance: activeApproval ? 'human-approved' : 'policy-approved'
+              };
+            }
+          } catch {
+            status = 'receipt_invalid';
+          }
+        }
+        record.status = status;
+      }
+    }
     if (status === 'captured') {
       const raw = await readFile(path.join(itemDirectory, relativeArtifact));
       const authored = Buffer.from(authoredArtifactText(raw.toString('utf8')), 'utf8');
@@ -208,9 +314,9 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
 export function renderInputsBlock(result) {
   if (result.mode === 'off' || !result.records.length) return { text: '', sha256: null };
   const sections = result.records.map((entry) => {
-    const header = `## Approved phase input: ${entry.phase}`;
+    const header = `## Approved phase input: ${entry.phase}${entry.skp ? `/${entry.skp.output}` : ''}`;
     const projection = entry.projection?.kind ?? 'full';
-    const metadata = `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.representation?.sha256 ? ` representation-sha256=${entry.representation.sha256}` : ''}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.representation?.expansionHandle ? ` expansion=${entry.representation.expansionHandle}` : ''} -->`;
+    const metadata = `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.skp?.receipt ? ` producer-generation=${entry.skp.receipt.generation} receipt=${entry.skp.receipt.packetSha256}` : ''}${entry.representation?.sha256 ? ` representation-sha256=${entry.representation.sha256}` : ''}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.representation?.expansionHandle ? ` expansion=${entry.representation.expansionHandle}` : ''} -->`;
     if (entry.status !== 'captured') return `${header}\n\n${metadata}\n\n> ${inputMessage({ id: 'This phase' }, entry) ?? `Input is ${entry.status}.`}`;
     const suffix = entry.truncated ? '\n\n> Input truncated at its configured byte limit.' : '';
     const expansion = entry.representation?.expansionHandle
@@ -262,12 +368,18 @@ function sameRecord(left, right) {
   return canonicalJson(left) === canonicalJson(right);
 }
 
-export async function verifyInputsIntegrity(root, workflow, phase, { itemDirectory, itemRelative } = {}) {
-  const mode = workflowInputsMode(workflow);
+export async function verifyInputsIntegrity(root, workflow, phase, { itemDirectory, itemRelative, definition = null } = {}) {
+  const selected = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
+  if (selected?.kind === 'skill' && !definition) {
+    throw new Error(`Skill phase '${phase.id}' input integrity requires the accepted Story definition.`);
+  }
+  const skill = selected?.kind === 'skill'
+    ? await resolveSkillPhaseEvidenceBinding(root, definition, workflow, phase) : null;
+  const mode = skill ? 'enforce' : workflowInputsMode(workflow);
   const errors = [];
   const warnings = [];
   const passes = [];
-  const declarations = resolvedPhaseInputs(workflow, phase);
+  const declarations = skill ? (skill.bindingRefs.inputs ?? []) : resolvedPhaseInputs(workflow, phase);
   if (mode === 'off' || !declarations.length || phase.generation < 1) return { errors, warnings, passes };
   const add = (message) => (mode === 'enforce' ? errors : warnings).push(message);
   const file = path.join(itemDirectory, 'context', `inputs-${phase.id}-gen${phase.generation}.json`);
@@ -288,7 +400,8 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
     || anchor.mode !== mode) {
     add(`${phase.id} phase-input record is not bound to the current generation workflow anchor`);
   }
-  const live = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative, generation: phase.generation });
+  const live = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative,
+    generation: phase.generation, definition });
   for (const message of [...live.errors, ...live.warnings]) add(message);
   const expectedInputs = recordedInputs(live.records);
   if (!sameRecord(record.inputs ?? [], expectedInputs)) {

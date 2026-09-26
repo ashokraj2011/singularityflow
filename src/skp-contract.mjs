@@ -20,9 +20,15 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { assertModelTask } from './model-tasks.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
+import { SKP_PARSER_PROFILE } from './skp-package.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
 
 export const SKP_CONTRACT_COMPILER = 'skp-contract/v1';
+export const SKP_PHASE_BINDING_VERSION = 1;
+const PHASE_POLICY_FIELDS = [
+  'label', 'artifact', 'inputs', 'qualityCommands', 'approval', 'writeScope',
+  'generation', 'clarification', 'artifactSet'
+];
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const KIND = /^(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)*|custom:[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/;
@@ -484,4 +490,192 @@ export function compileConfirmedSkillPhase({ phase, confirmation, catalog, phase
   return JSON.parse(canonicalJson({
     ...core, compilationSha256: `sha256:${recordSha256(core)}`
   }));
+}
+
+/**
+ * The approved workflow stores the compiled ordinary policy plus one versioned provenance
+ * binding. The authoring contract and selected skill prose are never parallel policy fields.
+ */
+export function configurationPhaseFromCompiledSkill(compiled) {
+  plain(compiled, 'Compiled skill phase');
+  closed(compiled, ['compiler', 'phaseId', 'phasePolicy', 'bindingRefs', 'compilationSha256'],
+    'Compiled skill phase');
+  const phase = {
+    kind: 'skill', ...compiled.phasePolicy,
+    skillBinding: {
+      schemaVersion: SKP_PHASE_BINDING_VERSION,
+      compiler: compiled.compiler,
+      compilationSha256: compiled.compilationSha256,
+      parserProfile: SKP_PARSER_PROFILE,
+      bindingRefs: compiled.bindingRefs
+    }
+  };
+  validateConfiguredSkillPhase(phase, compiled.phaseId);
+  return JSON.parse(canonicalJson(phase));
+}
+
+/**
+ * Admission check for an approved, compiled configuration phase. It proves internal consistency,
+ * not WCA actor confirmation or package retention; those remain the configuration and WFA owners.
+ */
+export function validateConfiguredSkillPhase(phase, phaseId) {
+  plain(phase, `Skill phase '${phaseId}'`);
+  checkedId(phaseId, 'Skill phase id');
+  if (phase.kind !== 'skill') {
+    fail('SKP_PHASE_BINDING_INVALID', `Phase '${phaseId}' is not a skill phase.`);
+  }
+  for (const field of Object.keys(phase)) {
+    if (!['kind', 'skillBinding', ...PHASE_POLICY_FIELDS].includes(field)) {
+      fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' contains uncompiled field '${field}'.`);
+    }
+  }
+  const binding = phase.skillBinding;
+  closed(binding, ['schemaVersion', 'compiler', 'compilationSha256', 'parserProfile', 'bindingRefs'],
+    `Skill phase '${phaseId}' binding`, 'SKP_PHASE_BINDING_INVALID');
+  const bindingVersion = binding.schemaVersion;
+  if (bindingVersion !== SKP_PHASE_BINDING_VERSION
+      || binding.compiler !== SKP_CONTRACT_COMPILER
+      || binding.parserProfile !== SKP_PARSER_PROFILE) {
+    fail('SKP_PHASE_BINDING_UNSUPPORTED', `Skill phase '${phaseId}' has an unsupported binding or parser version.`);
+  }
+  checkedDigest(binding.compilationSha256, `Skill phase '${phaseId}' compilation digest`);
+  const refs = binding.bindingRefs;
+  closed(refs, [
+    'skill', 'contractSha256', 'catalogSha256', 'confirmation', 'inputs', 'outputs',
+    'checks', 'readScope', 'sourceScope', 'codeDeliverySha256'
+  ], `Skill phase '${phaseId}' references`, 'SKP_PHASE_BINDING_INVALID');
+  closed(refs.skill, ['id', 'packageSha256'], `Skill phase '${phaseId}' selected skill`,
+    'SKP_PHASE_BINDING_INVALID');
+  checkedId(refs.skill.id, `Skill phase '${phaseId}' selected skill ID`);
+  for (const [field, value] of [
+    ['packageSha256', refs.skill.packageSha256], ['contractSha256', refs.contractSha256],
+    ['catalogSha256', refs.catalogSha256]
+  ]) checkedDigest(value, `Skill phase '${phaseId}' ${field}`);
+  closed(refs.confirmation, ['planSha256', 'candidateSha256', 'draftRevision'],
+    `Skill phase '${phaseId}' confirmation`, 'SKP_PHASE_BINDING_INVALID');
+  checkedDigest(refs.confirmation.planSha256, `Skill phase '${phaseId}' plan digest`);
+  checkedDigest(refs.confirmation.candidateSha256, `Skill phase '${phaseId}' candidate digest`);
+  if (!Number.isSafeInteger(refs.confirmation.draftRevision)
+      || refs.confirmation.draftRevision < 1) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' has no confirmed draft revision.`);
+  }
+  const policy = Object.fromEntries(PHASE_POLICY_FIELDS
+    .filter((field) => Object.hasOwn(phase, field))
+    .map((field) => [field, phase[field]]));
+  jsonSafe(policy, `Skill phase '${phaseId}' policy`);
+  jsonSafe(refs, `Skill phase '${phaseId}' references`);
+  const core = { compiler: binding.compiler, phaseId, phasePolicy: policy, bindingRefs: refs };
+  if (binding.compilationSha256 !== `sha256:${recordSha256(core)}`) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' policy differs from its confirmed compilation.`);
+  }
+  if (!Array.isArray(refs.inputs) || !Array.isArray(refs.outputs)
+      || !Array.isArray(refs.checks) || !Array.isArray(policy.inputs)
+      || !Array.isArray(policy.qualityCommands)
+      || refs.checks.length !== policy.qualityCommands.length) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' input, output, or check binding is incomplete.`);
+  }
+  const inputKeys = new Set();
+  for (const input of refs.inputs ?? []) {
+    closed(input, ['phase', 'output', 'required', 'state', 'path'],
+      `Skill phase '${phaseId}' input binding`, 'SKP_PHASE_BINDING_INVALID');
+    checkedId(input.phase, `Skill phase '${phaseId}' input phase`);
+    checkedId(input.output, `Skill phase '${phaseId}' input output`);
+    exactPath(input.path, `Skill phase '${phaseId}' input path`);
+    if (input.required !== true && input.required !== false || input.state !== 'approved') {
+      fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' input must name approved output state.`);
+    }
+    const key = `${input.phase}\u0000${input.output}`;
+    if (inputKeys.has(key)) fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' repeats an input binding.`);
+    inputKeys.add(key);
+  }
+  const outputIds = new Set();
+  const outputPaths = new Set();
+  for (const output of refs.outputs ?? []) {
+    closed(output, [
+      'id', 'path', 'kind', 'required', 'minimumBytes', 'maximumBytes',
+      'mediaType', 'encoding', 'clauses', 'claimRole'
+    ], `Skill phase '${phaseId}' output binding`, 'SKP_PHASE_BINDING_INVALID');
+    checkedId(output.id, `Skill phase '${phaseId}' output ID`);
+    exactPath(output.path, `Skill phase '${phaseId}' output path`, `artifacts/${phaseId}`);
+    if (outputIds.has(output.id) || outputPaths.has(output.path)
+        || !KIND.test(output.kind) || typeof output.required !== 'boolean'
+        || !Number.isSafeInteger(output.minimumBytes) || output.minimumBytes < 1
+        || !Number.isSafeInteger(output.maximumBytes) || output.maximumBytes < output.minimumBytes
+        || !CLAUSE_MODES.has(output.clauses) || !OUTPUT_ROLES.has(output.claimRole)
+        || (output.mediaType != null && !MEDIA_TYPE.test(output.mediaType))
+        || (output.encoding != null && !['utf-8', 'binary'].includes(output.encoding))
+        || (output.kind.startsWith('custom:') && (!output.mediaType || !output.encoding))) {
+      fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' has an invalid or duplicate output binding.`);
+    }
+    outputIds.add(output.id);
+    outputPaths.add(output.path);
+  }
+  for (const [index, check] of (refs.checks ?? []).entries()) {
+    closed(check, ['id', 'definitionSha256'], `Skill phase '${phaseId}' check binding`,
+      'SKP_PHASE_BINDING_INVALID');
+    checkedId(check.id, `Skill phase '${phaseId}' check ID`);
+    checkedDigest(check.definitionSha256, `Skill phase '${phaseId}' check digest`);
+    const command = policy.qualityCommands?.[index];
+    if (!command || !Array.isArray(command.argv) || !command.argv.length
+        || command.command !== null
+        || canonicalJson(normalizeExternalCommand(command, index)) !== canonicalJson(command)) {
+      fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' check must be an exact structured command.`);
+    }
+  }
+  closed(refs.readScope, ['inputs', 'sourcePaths'], `Skill phase '${phaseId}' read scope`,
+    'SKP_PHASE_BINDING_INVALID');
+  if (typeof refs.readScope.inputs !== 'boolean'
+      || !Array.isArray(refs.readScope.sourcePaths)
+      || new Set(refs.readScope.sourcePaths).size !== refs.readScope.sourcePaths.length
+      || (refs.inputs.length && !refs.readScope.inputs)) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' has an invalid read scope.`);
+  }
+  refs.readScope.sourcePaths.forEach((sourcePath) => exactPath(sourcePath,
+    `Skill phase '${phaseId}' read source path`, null));
+  if (refs.sourceScope != null) {
+    closed(refs.sourceScope, ['id', 'definitionSha256'],
+      `Skill phase '${phaseId}' source scope`, 'SKP_PHASE_BINDING_INVALID');
+    checkedId(refs.sourceScope.id, `Skill phase '${phaseId}' source scope ID`);
+    checkedDigest(refs.sourceScope.definitionSha256, `Skill phase '${phaseId}' source scope digest`);
+  }
+  if (refs.codeDeliverySha256 != null) {
+    checkedDigest(refs.codeDeliverySha256, `Skill phase '${phaseId}' code delivery digest`);
+  }
+  if (!refs.outputs.length
+      || !refs.outputs.some((output) => output?.required === true)
+      || !refs.outputs.some((output) => output?.path === phase.artifact?.path && output.required === true)) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' has no bound required primary output.`);
+  }
+  const inputPhases = [...new Set(refs.inputs.map((input) => input.phase))];
+  if (inputPhases.length !== policy.inputs.length || inputPhases.some((source, index) =>
+    policy.inputs[index]?.phase !== source
+      || policy.inputs[index]?.optional !== refs.inputs.filter((input) => input.phase === source)
+        .every((input) => input.required === false))) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' ordinary inputs differ from the bound outputs.`);
+  }
+  if (refs.checks.some((check, index) => check?.id !== policy.qualityCommands[index]?.id
+      || check?.definitionSha256 !== `sha256:${recordSha256(policy.qualityCommands[index])}`)) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' check definitions differ from their bindings.`);
+  }
+  if (policy.generation?.requirement !== 'required'
+      || policy.generation.defaultProducer !== 'governed-agent'
+      || !Array.isArray(policy.generation.allowedProducers)
+      || policy.generation.allowedProducers.length !== 1
+      || policy.generation.allowedProducers[0] !== 'governed-agent'
+      || policy.approval?.mode !== 'required' || policy.approval.minimum < 1) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' must use governed generation and human approval.`);
+  }
+  if (policy.writeScope === 'source-and-artifact'
+      && (policy.generation.task !== 'code' || !refs.sourceScope || !refs.codeDeliverySha256)) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' source writes lack code-delivery bindings.`);
+  }
+  if (policy.writeScope === 'artifact-only'
+      && (policy.generation.task === 'code' || refs.sourceScope !== null
+        || refs.codeDeliverySha256 !== null)) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' artifact-only binding claims source effects.`);
+  }
+  if (refs.outputs.length > 1 && !policy.artifactSet) {
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' multiple outputs need an artifact set.`);
+  }
+  return binding;
 }

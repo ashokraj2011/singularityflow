@@ -21,7 +21,8 @@ export const SKP_CAPTURE_LIMITS = Object.freeze({
   directories: 512,
   depth: 16,
   entryBytes: 256 * 1024,
-  // Current WFA accepts at most 1 MiB per asset and 16 MiB for the entire Story closure.
+  // WFA accepts at most 1 MiB per asset; v2 budgets 64 MiB for selected skills within an
+  // 80 MiB Story closure. This package owner keeps each imported skill smaller still.
   referenceBytes: 1024 * 1024,
   totalBytes: 8 * 1024 * 1024,
   pathBytes: 1024

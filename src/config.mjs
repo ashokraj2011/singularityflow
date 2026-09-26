@@ -69,6 +69,7 @@ import { normalizeTokenEconomy } from './token-economy.mjs';
 import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto/auto-policy.mjs';
 import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
 import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
+import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
 import {
   BUILTIN_PROJECTION_REGISTRY, resolveProjectionContract
@@ -147,6 +148,23 @@ function assertSupportedPhaseProducer(value, label) {
       refuse(`generation.${field}`);
     }
   }
+}
+
+function assertConfiguredPhaseProducer(value, label, phaseId, version) {
+  if (version === 3 && value?.kind === 'skill') {
+    validateConfiguredSkillPhase(value, phaseId);
+    return;
+  }
+  assertSupportedPhaseProducer(value, label);
+}
+
+function assertNoSkillPhaseOverride(value, label) {
+  if (value == null || (typeof value === 'object' && !Array.isArray(value)
+      && Object.keys(value).length === 0)) return;
+  throw new SingularityFlowError(
+    `${label} cannot override a compiled skill phase; compile a new reviewed binding.`,
+    { code: 'SKP_PHASE_BINDING_INVALID' }
+  );
 }
 
 function assertKnownKeys(value, allowed, label) {
@@ -940,16 +958,18 @@ export function normalizeModelProviders(value = {}) {
 }
 
 export function validateDefinition(definition, { storyBootstrap = false } = {}) {
-  if (definition?.version !== 2) throw new SingularityFlowError('workflow.yml version must be 2. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current version-2 configuration.');
+  if (![2, 3].includes(definition?.version)) throw new SingularityFlowError('workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.');
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
   for (const [phaseId, phase] of Object.entries(definition.phases)) {
-    assertSupportedPhaseProducer(phase, `Phase '${phaseId}'`);
+    assertConfiguredPhaseProducer(phase, `Phase '${phaseId}'`, phaseId, definition.version);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
-      assertSupportedPhaseProducer(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
+      if (definition.version === 3 && definition.phases[phaseId]?.kind === 'skill') {
+        assertNoSkillPhaseOverride(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
+      } else assertSupportedPhaseProducer(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
     }
   }
   definition.workItemRoot = normalizeWorkItemRoot(definition.workItemRoot);
@@ -1266,7 +1286,13 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     if (!workType.label || !Array.isArray(workType.phases) || !workType.phases.length) throw new SingularityFlowError(`Work type '${id}' requires label and phases.`);
     normalizeReworkLoops(workType.reworkLoops, { workTypeId: id, phases: workType.phases });
     for (const phaseId of workType.phases) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Work type '${id}' references unknown phase '${phaseId}'.`);
-    for (const phaseId of Object.keys(workType.templateOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has a template override for inactive phase '${phaseId}'.`);
+    for (const phaseId of Object.keys(workType.templateOverrides ?? {})) {
+      if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has a template override for inactive phase '${phaseId}'.`);
+      if (definition.phases[phaseId]?.kind === 'skill') {
+        throw new SingularityFlowError(`Work type '${id}' cannot give skill phase '${phaseId}' a template override.`,
+          { code: 'SKP_PHASE_BINDING_INVALID' });
+      }
+    }
     for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
     for (const phaseId of workType.documents?.allowedPhases ?? []) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' allows document upload in inactive phase '${phaseId}'.`);
     normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
@@ -1325,7 +1351,10 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     const template = phase.defaultTemplate;
     if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);
     for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
-    if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
+    if (phase.kind !== 'skill' && !template
+        && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) {
+      throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
+    }
     const normalizedApproval = normalizeApprovalPolicy(
       phase.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity
     );
@@ -1341,8 +1370,12 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
         "Phase 'convergence' generation must be required and allow only deterministic authorship; its reviewed artifact is a kernel-owned projection."
       );
     }
-    phase.mcp = normalizePhaseMcpPolicy(phase.mcp, { servers: definition.mcpServers, phaseId: id });
-    phase.repairBudget = normalizeRepairBudget(phase.repairBudget, { phaseId: id, phases: Object.keys(definition.phases) });
+    const phaseMcp = normalizePhaseMcpPolicy(phase.mcp, { servers: definition.mcpServers, phaseId: id });
+    const phaseRepairBudget = normalizeRepairBudget(phase.repairBudget, { phaseId: id, phases: Object.keys(definition.phases) });
+    if (phase.kind !== 'skill') {
+      phase.mcp = phaseMcp;
+      phase.repairBudget = phaseRepairBudget;
+    }
     for (const [index, command] of (phase.qualityCommands ?? []).entries()) normalizeExternalCommand(command, index);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
     normalizeClarificationPolicy(phase.clarification);
@@ -1373,6 +1406,20 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     const resolved = resolveWorkType(definition, workTypeId);
     for (const consumer of resolved.phases) {
+      if (consumer.kind === 'skill') {
+        for (const input of consumer.skillBinding.bindingRefs.inputs) {
+          const source = resolved.phases.find((phase) => phase.id === input.phase);
+          const outputs = source?.kind === 'skill'
+            ? source.skillBinding.bindingRefs.outputs
+            : source ? [{ id: 'primary', path: source.artifact.path }] : [];
+          if (!outputs.some((output) => output.id === input.output && output.path === input.path)) {
+            throw new SingularityFlowError(
+              `Work type '${workTypeId}' skill phase '${consumer.id}' has a stale binding to '${input.phase}/${input.output}'.`,
+              { code: 'SKP_INPUT_UNKNOWN' }
+            );
+          }
+        }
+      }
       if (consumer.testEvidenceFrom !== undefined) {
         const producer = resolved.phases.find((phase) => phase.id === consumer.testEvidenceFrom);
         if (!producer || producer.order >= consumer.order || !phaseRequiresCodeDelivery(producer)) {
@@ -1563,6 +1610,12 @@ export async function validateAgentBriefHeadingContracts(root, definition) {
         if (declaration.projection !== 'approved-summary' || !(declaration.preserve?.length)) continue;
         const producer = phaseById.get(declaration.phase);
         if (!producer) continue; // resolveWorkType reports invalid phase references independently.
+        if (producer.kind === 'skill') {
+          throw new SingularityFlowError(
+            `Work type '${workTypeId}' phase '${consumer.id}' cannot prevalidate preserved headings from skill phase '${producer.id}'.`,
+            { code: 'SKP_INPUT_PROJECTION_UNSUPPORTED' }
+          );
+        }
         if (isAgentTemplateReference(producer.template)) {
           throw new SingularityFlowError(
             `Work type '${workTypeId}' phase '${consumer.id}' cannot declare preserved headings for dynamic Agent template '${producer.template}'. Use a governed repository template so the heading contract can be validated before Story start.`,
@@ -1692,6 +1745,15 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     }
     if (!storyBootstrap) {
       for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
+        if (phase.kind === 'skill') {
+          if (!phase.defaultAgent) {
+            throw new SingularityFlowError(
+              `Work type '${workTypeId}' skill phase '${phase.id}' has no selected governed agent.`,
+              { code: 'SKP_AGENT_UNAVAILABLE' }
+            );
+          }
+          continue;
+        }
         if (isAgentTemplateReference(phase.template)) continue;
         const template = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
           label: `Template for work type '${workTypeId}' phase '${phase.id}'`,
@@ -1973,8 +2035,17 @@ export function resolveWorkType(definition, workTypeId) {
   // Some callers resolve already-loaded definitions directly. Refuse unsupported declarations
   // here too, before any copied phase or override can become an effective Story contract.
   for (const id of workType.phases) {
-    assertSupportedPhaseProducer(definition.phases[id], `Phase '${id}'`);
-    assertSupportedPhaseProducer(workType.phaseOverrides?.[id], `Work type '${workTypeId}' phase '${id}' override`);
+    const source = definition.phases[id];
+    assertConfiguredPhaseProducer(source, `Phase '${id}'`, id, definition.version);
+    if (source?.kind === 'skill') {
+      assertNoSkillPhaseOverride(workType.phaseOverrides?.[id],
+        `Work type '${workTypeId}' phase '${id}' override`);
+      if (workType.templateOverrides?.[id] != null) {
+        throw new SingularityFlowError(`Work type '${workTypeId}' cannot give skill phase '${id}' a template override.`,
+          { code: 'SKP_PHASE_BINDING_INVALID' });
+      }
+    } else assertSupportedPhaseProducer(workType.phaseOverrides?.[id],
+      `Work type '${workTypeId}' phase '${id}' override`);
   }
   const reworkLoops = normalizeReworkLoops(workType.reworkLoops, {
     workTypeId, phases: workType.phases
@@ -2002,8 +2073,10 @@ export function resolveWorkType(definition, workTypeId) {
     // A catalog id resolves to its path here, so every downstream reader — generation, the
     // designer, the catalog view — receives a path and never has to know which form was written.
     const declaredTemplate = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
-    const resolvedTemplate = resolveTemplate(definition, declaredTemplate, { label: `Work type '${workTypeId}' phase '${id}' template` });
-    const template = resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
+    const resolvedTemplate = phase.kind === 'skill' ? null
+      : resolveTemplate(definition, declaredTemplate, { label: `Work type '${workTypeId}' phase '${id}' template` });
+    const template = phase.kind === 'skill' ? null
+      : resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity);
     const loopTargets = reworkLoops.filter((loop) => loop.from === id).map((loop) => loop.to);
@@ -2139,6 +2212,7 @@ export async function snapshotResolution(root, definition, resolved) {
   }
   const templates = {};
   for (const phase of resolved.phases) {
+    if (phase.kind === 'skill') continue;
     if (isAgentTemplateReference(phase.template)) {
       templates[phase.id] = await materializeAgentTemplate(root, phase.template, { phaseId: phase.id });
       continue;

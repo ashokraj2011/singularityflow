@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import {
+  inspectApprovedSkillPackage, loadStoryConfigurationSnapshot
+} from '../src/configuration-branch.mjs';
+import {
   activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
   listWorkflowConfigurationProposals, proposeConfigurationChange
 } from '../src/configuration-proposal.mjs';
@@ -156,6 +159,75 @@ test('configuration save proposals CAS approved authority without touching a div
     assert.equal(run('git', [
       '--git-dir', item.remote, 'rev-parse', `${proposal.branch}^`
     ]).stdout.trim(), item.approved);
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
+test('a reviewed configuration proposal retains the complete approved skill package', async () => {
+  const item = await fixture();
+  try {
+    const proposal = await proposeConfigurationChange(item.story, {
+      operation: 'add-skill', subject: 'threat-model',
+      message: '[configuration] add complete skill package',
+      expectedAuthority: {
+        kind: 'approved-configuration-ref', commit: item.approved,
+        sourceCommit: item.approved, remoteFingerprint: remoteFingerprint(item.remote)
+      },
+      async mutate(scratch) {
+        const skill = path.join(scratch, 'singularity/skills/threat-model');
+        await mkdir(path.join(skill, 'references'), { recursive: true });
+        await writeFile(path.join(skill, 'SKILL.md'),
+          '# Threat model\nRead [the checklist](references/checklist.md).\n');
+        await writeFile(path.join(skill, 'references/checklist.md'), 'Approved checklist\n');
+        return { id: 'threat-model' };
+      }
+    }, { transport: { env: {
+      ...process.env, NODE_ENV: 'test',
+      SINGULARITY_FLOW_TRANSPORT_OUTBOX: item.outbox
+    } } });
+    assert.equal(proposal.reviewRequired, true);
+    assert.deepEqual(proposal.files, [
+      'singularity/skills/threat-model/SKILL.md',
+      'singularity/skills/threat-model/references/checklist.md'
+    ]);
+    assert.equal(run('git', [
+      '--git-dir', item.remote, 'show',
+      `${proposal.branch}:singularity/skills/threat-model/references/checklist.md`
+    ]).stdout, 'Approved checklist\n');
+    assert.notEqual(run('git', [
+      '--git-dir', item.remote, 'cat-file', '-e',
+      'sflow/config:singularity/skills/threat-model/SKILL.md'
+    ], { allowFailure: true }).status, 0, 'proposal must not silently activate the package');
+
+    await assert.rejects(
+      () => proposeConfigurationChange(item.story, {
+        operation: 'add-native-skill', subject: 'threat-model',
+        message: 'Do not make a draft host-discoverable',
+        async mutate(scratch) {
+          const native = path.join(scratch, '.github/skills/threat-model');
+          await mkdir(native, { recursive: true });
+          await writeFile(path.join(native, 'SKILL.md'), '# Unapproved native projection\n');
+          return {};
+        }
+      }),
+      (error) => error.code === 'CONFIGURATION_PROPOSAL_SCOPE_INVALID'
+    );
+
+    const activation = await activateWorkflowConfigurationProposal(item.story, proposal.branch, {
+      confirm: proposal.commit, acknowledgeUnprotected: true
+    });
+    assert.equal(activation.activated, true);
+    const snapshot = await loadStoryConfigurationSnapshot({
+      remote: item.remote, branch: 'sflow/config', commit: activation.targetCommit,
+      source: 'configuration'
+    });
+    const packageResult = await inspectApprovedSkillPackage(snapshot, 'threat-model');
+    assert.equal(packageResult.contents.get('SKILL.md').toString('utf8'),
+      '# Threat model\nRead [the checklist](references/checklist.md).\n');
+    assert.equal(packageResult.contents.get('references/checklist.md').toString('utf8'),
+      'Approved checklist\n');
+    assert.equal(packageResult.source.commit, activation.targetCommit);
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

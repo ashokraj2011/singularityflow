@@ -191,6 +191,10 @@ import {
 import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from './story-execution-context.mjs';
+import { resolveStorySkillPackage } from './story-execution-context.mjs';
+import {
+  verifySkillPhaseApproval, verifySkillPhasePublication
+} from './skp-phase-evidence.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -202,6 +206,19 @@ const CONFIRMED_CONVERGENCE_SUBMISSION = Symbol('confirmed-convergence-submissio
 const MODEL_ASSURANCE_RANK = Object.freeze({
   unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
 });
+
+function assertSkillPhaseHostReady(workflow, phase, operation) {
+  const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase?.id);
+  if (pinned?.kind !== 'skill' && phase?.kind !== 'skill') return;
+  // M2 pins and verifies skill bytes and phase evidence, but does not grant execution authority.
+  // In particular, a model host or direct CLI call cannot reinterpret the accepted SKILL.md as
+  // instructions until the qualified containment and delivery-receipt boundary is installed.
+  throw new SingularityFlowError(
+    `Cannot ${operation} skill phase '${phase.id}': the qualified skill host and delivery receipt are not installed. `
+    + 'The approved Story package remains pinned; no template or live skill folder was used.',
+    { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE', details: { phase: phase.id, operation } }
+  );
+}
 
 function requiredModelAssuranceRank(value) {
   return ({ unavailable: 0, observed: 1, 'provider-reported': 2, 'policy-selected': 3 })[value] ?? 1;
@@ -366,6 +383,9 @@ function phaseState(definition, index) {
     id: definition.id,
     label: definition.label,
     order: index,
+    ...(definition.kind === 'skill' ? {
+      kind: 'skill', skillBinding: structuredClone(definition.skillBinding)
+    } : {}),
     defaultAgent: definition.defaultAgent ?? null,
     status: index === 0 ? 'in_progress' : 'not_started',
     requiredArtifact,
@@ -413,6 +433,9 @@ function resolvedPhasePolicy(definition, index) {
     id: definition.id,
     label: definition.label,
     order: index,
+    ...(definition.kind === 'skill' ? {
+      kind: 'skill', skillBinding: structuredClone(definition.skillBinding)
+    } : {}),
     defaultAgent: definition.defaultAgent ?? null,
     requiredArtifact: structuredClone(definition.artifact),
     template: definition.template,
@@ -435,6 +458,8 @@ function currentPhasePolicy(phase) {
   return resolvedPhasePolicy({
     id: phase.id,
     label: phase.label,
+    kind: phase.kind,
+    skillBinding: phase.skillBinding,
     artifact: phase.requiredArtifact,
     template: phase.template,
     defaultAgent: phase.defaultAgent,
@@ -639,7 +664,16 @@ export function storyArtifactMetadata(workflow, phase) {
     usage: phase.usage,
     sequenceOverrides: (workflow.sequenceOverrides ?? []).filter((override) =>
       override.requestedPhase === phase.id || override.before?.currentPhase === phase.id),
-    approvals: phase.approvals,
+    // SKP's post-approval raw output and bundle hashes are recorded in the decision/aggregate,
+    // but cannot be embedded in the primary artifact's own managed metadata: doing so would
+    // change the bytes they hash and create an impossible self-referential digest.
+    approvals: phase.approvals.map((approval) => {
+      const {
+        skillOutputIdentityVersion, skillApprovedOutputs, skillApprovedBundleSha256,
+        ...metadataApproval
+      } = approval;
+      return metadataApproval;
+    }),
     selfApproval: phase.approvals.some((approval) => approval.selfApproval && !approval.invalidatedAt),
     conformanceTree: phase.conformanceTree ?? null
   };
@@ -881,6 +915,9 @@ export async function createWorkflow(root, config, {
   const phases = resolution.phases.map(phaseState);
   const createdAt = nowIso();
   const workflow = {
+    // A selected skill phase introduces a different immutable phase contract, but all newly
+    // written Stories use the current record version. Legacy template records remain readable
+    // through the identity migration without being reinterpreted as skill phases.
     schemaVersion: currentSchemaVersion('story-workflow'),
     ...(executionOrigin ? { executionOrigin: structuredClone(executionOrigin) } : {}),
     mcpAuthorizations: targetOrigin ? {
@@ -1001,7 +1038,9 @@ export async function createWorkflow(root, config, {
   });
   // Capture before accepted Story state is written. This rewrites phase-template references to
   // immutable blobs and stamps the exact resulting effective-policy digest.
-  workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow);
+  workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow, {
+    approvedConfigurationSnapshot
+  });
   await writeJson(sourcePath(root, config, id), source);
   await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
   await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
@@ -1011,7 +1050,10 @@ export async function createWorkflow(root, config, {
     itemRelative: workDirRelative(config, id)
   });
   await saveWorkflow(root, config, workflow);
-  await preparePhase(root, config, workflow, phases[0]?.id);
+  // Story activation may pin a selected skill package before the qualified host exists. Keep its
+  // first phase at an honest generation-zero state; automatic preparation must not surface or run
+  // untrusted package instructions through the legacy template/agent path.
+  if (phases[0]?.kind !== 'skill') await preparePhase(root, config, workflow, phases[0]?.id);
   await saveWorkflow(root, config, workflow);
   return workflow;
 }
@@ -1554,6 +1596,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'begin code generation');
   const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
+  assertSkillPhaseHostReady(workflow, phase, 'begin code generation for');
   if (!phaseRequiresCodeDelivery(phase)) {
     throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
   }
@@ -1575,6 +1618,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
 } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  if (!dryRun) assertSkillPhaseHostReady(workflow, phase, 'prepare');
   let references = [];
   if (!dryRun) {
     references = await storyReferenceRepositories(root, config, workflow);
@@ -1655,7 +1699,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         agentId: session.agent, phaseId: phase.id, executionCatalog
       })
     : null;
-  const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
+  const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory, itemRelative });
   if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
   const rendered = renderInputsBlock(inputs);
   if (!dryRun) {
@@ -1693,7 +1737,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       let canonicalArtifact = preparedArtifactText;
       canonicalArtifact = applyInputsBlock(canonicalArtifact, rendered.text, inputs.mode);
       await writeText(target, canonicalArtifact);
-      if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
+      if (phase.kind === 'skill'
+          || (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length)) {
         const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
         phase.inputContext = {
           generation: inputs.generation,
@@ -1817,7 +1862,8 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         bytes: Buffer.byteLength(authored)
       };
     }
-    if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
+    if (phase.kind === 'skill'
+        || (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length)) {
       const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
       phase.inputContext = { generation: inputs.generation, path: recorded.path, sha256: recorded.sha256, renderedSha256: recorded.record.renderedSha256, mode: inputs.mode };
       await updateArtifactMetadata(root, config, workflow, phase);
@@ -1960,11 +2006,20 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
 
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
-  const declarations = resolvedPhaseInputs(workflow, phase);
-  if (workflowInputsMode(workflow) === 'off' || !declarations.length) {
+  const declarations = phase.kind === 'skill'
+    ? (await resolveStorySkillPackage(root, config, workflow, { phaseId: phase.id })).bindingRefs.inputs ?? []
+    : resolvedPhaseInputs(workflow, phase);
+  // A skill phase can legitimately declare zero inputs. It must not accept an attacker-authored
+  // managed input block in that case merely because skill phases always use receipt validation.
+  if (phase.kind === 'skill' && !declarations.length && extractInputsBlock(currentText)) {
+    return { ...base, status: 'unsafe', reason: 'unexpected-managed-inputs' };
+  }
+  if (phase.kind !== 'skill' && (workflowInputsMode(workflow) === 'off' || !declarations.length)) {
     if (extractInputsBlock(currentText)) return { ...base, status: 'unsafe', reason: 'unexpected-managed-inputs' };
   } else {
-    const integrity = await verifyInputsIntegrity(root, workflow, phase, { itemDirectory, itemRelative });
+    const integrity = await verifyInputsIntegrity(root, workflow, phase, {
+      definition: config, itemDirectory, itemRelative
+    });
     if (integrity.errors.length || integrity.warnings.length) {
       return {
         ...base, status: 'unsafe', reason: 'managed-inputs-invalid',
@@ -2062,6 +2117,11 @@ function ignored(config, workflow, relativePath, { untracked = false } = {}) {
 export async function scanArtifacts(root, config, workflow, phaseId = undefined) {
   await assertNoPendingPublication(root, config, workflow, 'scan or register artifacts');
   const phase = await assertPhaseSequence(root, workflow, 'scan artifacts', { requestedPhase: phaseId }); const records = [];
+  const skillPackage = phase.kind === 'skill'
+    ? await resolveStorySkillPackage(root, config, workflow, { phaseId: phase.id }) : null;
+  const skillOutputKinds = new Map((skillPackage?.bindingRefs?.outputs ?? []).map((output) => [
+    posix(path.posix.join(workDirRelative(config, workflow.workItem.id), output.path)), output.kind
+  ]));
   pruneTransientArtifactRegistrations(phase);
   const untracked = new Set(untrackedFiles(root));
   // `prepare` creates the required phase artifact on purpose. Calling that expected output an
@@ -2074,7 +2134,9 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   const discovered = changedFiles(root).filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }));
   const discoveredPaths = new Set(discovered);
   for (const file of discovered) {
-    records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id, config }));
+    records.push(await registerArtifact(root, workflow, file, {
+      phaseId: phase.id, kind: skillOutputKinds.get(file), config
+    }));
     if (untracked.has(file) && file !== requiredArtifact) adopted.push(file);
   }
   // A prior SFlow build or lifecycle transition may have committed managed metadata while leaving
@@ -2101,6 +2163,57 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
     console.warn('Delete or .gitignore anything above that is not part of this change, then scan again.');
   }
   return records;
+}
+
+async function refreshSkillLifecycleArtifactIdentities(root, config, workflow, phase, {
+  stage, decision = null
+} = {}) {
+  const selected = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
+  if (selected?.kind !== 'skill') return;
+  // Only a verified accepted closure may name the output set. In particular, a live skill folder
+  // or mutable phase field must not redefine a reviewed bundle at submission/approval time.
+  const skill = await resolveStorySkillPackage(root, config, workflow, { phaseId: phase.id });
+  const set = resolvedArtifactSet(config, workflow, phase);
+  if (set) {
+    const prior = phase.artifactSet;
+    if (!prior || Number(prior.generation) !== Number(phase.generation)) {
+      throw new SingularityFlowError(
+        `Skill phase '${phase.id}' has no published artifact-set identity to advance to ${stage}.`,
+        { code: 'SKP_ARTIFACT_SET_INVALID' }
+      );
+    }
+    const current = await catalogArtifactSet(
+      root, workDirRelative(config, workflow.workItem.id), phase, set
+    );
+    phase.artifactSet = {
+      ...prior, ...current, generation: phase.generation,
+      publicationBundleSha256: prior.publicationBundleSha256 ?? prior.bundleSha256,
+      ...(stage === 'approved' ? { submittedBundleSha256: prior.bundleSha256 } : {})
+    };
+    if (stage === 'approved' && decision) {
+      decision.skillApprovedBundleSha256 = current.bundleSha256;
+    }
+  }
+  if (stage === 'approved' && decision) {
+    const itemRoot = workDirRelative(config, workflow.workItem.id);
+    decision.skillOutputIdentityVersion = 1;
+    decision.skillApprovedOutputs = [];
+    for (const output of skill.bindingRefs.outputs ?? []) {
+      const relativePath = posix(path.posix.join(itemRoot, output.path));
+      const current = await repositoryArtifactSnapshot(root, relativePath);
+      if (current.symbolicLink || current.exists && !current.sha256
+          || output.required && !current.exists) {
+        throw new SingularityFlowError(
+          `Skill phase '${phase.id}' approved output '${output.id}' is unavailable or unsafe.`,
+          { code: 'SKP_OUTPUT_INVALID', details: { output: output.id, path: relativePath } }
+        );
+      }
+      decision.skillApprovedOutputs.push({
+        id: output.id, path: relativePath, exists: current.exists,
+        sha256: current.sha256, bytes: current.exists ? current.size : null
+      });
+    }
+  }
 }
 
 function pruneTransientArtifactRegistrations(phase) {
@@ -2494,6 +2607,7 @@ export async function publishGeneration(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
+  assertSkillPhaseHostReady(workflow, phase, 'publish');
   // Deterministic generation is kernel-owned and deliberately carries no phase-agent session.
   // Its explicit authorship still binds the human Git identity that invoked the publication.
   const session = authorship?.producer === 'deterministic'
@@ -3032,6 +3146,9 @@ export async function publishGeneration(root, config, workflow, {
     content: true
   });
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
+  // This is an evidence check only. Host admission above remains closed until a qualified
+  // containment/delivery boundary can prove how the selected skill was executed.
+  await verifySkillPhasePublication(root, config, workflow, phase);
   if (generationIntent) {
     const resultDigest = await generationResultDigest(root, config, workflow, phase, {
       architectureIntent: architectureIntentBinding,
@@ -3606,6 +3723,7 @@ async function submitPhaseTransition(root, config, workflow, {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
+  assertSkillPhaseHostReady(workflow, phase, 'submit');
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   const session = actor
     ? { actor, agent: agent ?? null }
@@ -4110,6 +4228,9 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   await updateArtifactMetadata(root, config, workflow, phase);
   await refreshRequiredArtifact(root, config, workflow, phase);
+  await refreshSkillLifecycleArtifactIdentities(root, config, workflow, phase, {
+    stage: 'submitted'
+  });
   // A phase completed by an explicit no-approval contract or deterministic policy is still an
   // approved producer for downstream dataflow. Bind the final managed artifact bytes exactly as a
   // human approval would; otherwise an approved phase paradoxically appears "unapproved" to its
@@ -4176,6 +4297,7 @@ export async function approvePhase(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
+  assertSkillPhaseHostReady(workflow, phase, 'approve');
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   if (phase.id === 'convergence') {
     await assertConvergencePublicationReady(root, config, workflow, phase);
@@ -4213,6 +4335,9 @@ export async function approvePhase(root, config, workflow, {
       code: 'STORY_REVIEW_EVIDENCE_INVALID'
     });
   }
+  const skillApprovalEvidence = await verifySkillPhaseApproval(
+    root, config, workflow, phase, submittedReview
+  );
   // Every approval, including an artifact-only planning/specification approval, is bound to the
   // exact application tree that was submitted for review. Previously this comparison lived only
   // in the code-delivery branch below. That let a generic editor commit implementation during a
@@ -4591,6 +4716,7 @@ export async function approvePhase(root, config, workflow, {
     // regenerated underneath it — the bundle it named no longer exists.
     ...(phase.artifactSet ? { artifactSet: phase.artifactSet.setId, bundleSha256: phase.artifactSet.bundleSha256 } : {}),
     reviewPacketSha256: submittedReview.packetSha256,
+    ...(skillApprovalEvidence ? { skillEvidenceSha256: skillApprovalEvidence.evidenceSha256 } : {}),
     evidenceCommit: submittedReview.evidenceCommit,
     artifactSetSha256: submittedReview.submissionEvidence.artifactSetSha256,
     architectureIntent: structuredClone(architectureIntentBinding),
@@ -4667,6 +4793,9 @@ export async function approvePhase(root, config, workflow, {
     if (reached) {
       await updateArtifactMetadata(root, config, workflow, phase);
       await registerApprovedSnapshot(root, config, workflow, phase);
+      await refreshSkillLifecycleArtifactIdentities(root, config, workflow, phase, {
+        stage: 'approved', decision
+      });
       await refreshPhaseSpecificationIndex(root, config, workflow, phase);
     }
     await writeDecision(root, config, workflow, phase, decision);
@@ -6590,6 +6719,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               // This hash represents the final approved artifact, including its
               // managed approval metadata. Do not rewrite it after this point.
               await registerApprovedSnapshot(root, config, workflow, requestedPhase);
+              await refreshSkillLifecycleArtifactIdentities(root, config, workflow, requestedPhase, {
+                stage: 'approved', decision: approval
+              });
               // The specification index was first created at publication, before approval metadata
               // was rendered. Rebuild it against the exact final approved bytes so downstream
               // clause context can verify source, index and workflow anchor before injection.

@@ -184,6 +184,59 @@ export async function catalogArtifactSet(root, workDirRelativePath, phase, set) 
 }
 
 /**
+ * A skill contract names output IDs, while the ordinary artifact-set owner names member paths.
+ * This join is deliberately exact: an extra member or a missing required output cannot be
+ * represented by the primary artifact alone. The caller obtains `outputs` from the verified
+ * accepted Story binding and `catalog` from the current repository bytes.
+ */
+export function assertSkillArtifactSetEvidence(phase, set, catalog, outputs, workDirRelativePath) {
+  const fail = (message, code = 'SKP_ARTIFACT_SET_INVALID') => {
+    throw new SingularityFlowError(message, { code });
+  };
+  if (!Array.isArray(outputs) || !outputs.length) fail(`Skill phase '${phase.id}' has no bound outputs.`);
+  if (outputs.length === 1) {
+    if (set || catalog) fail(`Skill phase '${phase.id}' has one output but an artifact set was supplied.`);
+    return null;
+  }
+  if (!set || !catalog || catalog.setId !== set.id
+      || Number(phase.artifactSet?.generation) !== Number(phase.generation)
+      || phase.artifactSet?.bundleSha256 !== catalog.bundleSha256) {
+    fail(`Skill phase '${phase.id}' has no current exact artifact-set catalogue.`);
+  }
+  const storedMembers = new Map((phase.artifactSet.members ?? []).map((member) => [member.path, member]));
+  if (storedMembers.size !== catalog.members.length || catalog.members.some((member) => {
+    const stored = storedMembers.get(member.path);
+    return !stored || stored.sha256 !== member.sha256 || stored.exists !== member.exists
+      || stored.role !== member.role || stored.required !== member.required
+      || stored.authority !== member.authority;
+  })) {
+    fail(`Skill phase '${phase.id}' stored artifact-set members differ from the current exact catalogue.`);
+  }
+  const base = posix(path.posix.join(workDirRelativePath, memberRoot(phase)));
+  const byPath = new Map(catalog.members.map((member) => [member.path, member]));
+  if (set.members.length !== outputs.length || byPath.size !== outputs.length) {
+    fail(`Skill phase '${phase.id}' artifact-set membership differs from the accepted outputs.`);
+  }
+  const primaryPath = posix(path.posix.join(workDirRelativePath, phase.requiredArtifact.path));
+  if (catalog.primary !== primaryPath) {
+    fail(`Skill phase '${phase.id}' artifact-set primary differs from the accepted primary output.`);
+  }
+  for (const output of outputs) {
+    const expected = posix(path.posix.join(workDirRelativePath, output.path));
+    const member = byPath.get(expected);
+    const declaration = set.members.find((entry) => posix(path.posix.join(base, entry.path)) === expected);
+    if (!member || !declaration || declaration.required !== output.required
+        || declaration.authority !== 'governed' || member.directory) {
+      fail(`Skill output '${phase.id}/${output.id}' is not an exact governed artifact-set member.`);
+    }
+    if (output.required && (!member.exists || !member.sha256)) {
+      fail(`Required skill output '${phase.id}/${output.id}' is missing at ${expected}.`, 'SKP_OUTPUT_MISSING');
+    }
+  }
+  return catalog.bundleSha256;
+}
+
+/**
  * What changed between two catalogues of the same set. `[SPK:REQ-111]`
  *
  * `declared` names the members a surgical reopen said it would regenerate. Everything else that

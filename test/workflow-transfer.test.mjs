@@ -120,6 +120,46 @@ test('workflow export captures a deduplicated multi-workflow dependency closure'
   );
 });
 
+test('workflow bundle v1 refuses skill phases until it can carry exact approved package bytes', async (t) => {
+  const source = await initializedRepository(t, 'sflow-skp-transfer-source-');
+  const bundle = await exportWorkflowBundle(source, ['story:feature']);
+
+  // An imported or hand-authored v1 bundle must not appear portable merely because its
+  // phase binding and outer bundle digest are internally consistent.
+  const incomplete = structuredClone(bundle);
+  incomplete.objects.story.phases.implementation.kind = 'skill';
+  incomplete.objects.story.phases.implementation.skillBinding = {
+    bindingRefs: { skill: { id: 'example', packageSha256: `sha256:${'a'.repeat(64)}` } }
+  };
+  incomplete.bundleSha256 = bundleDigest(incomplete);
+  await assert.rejects(
+    () => planWorkflowImport(source, incomplete),
+    (error) => error.code === 'SKP_WORKFLOW_TRANSFER_UNSUPPORTED'
+  );
+
+  const overridden = structuredClone(bundle);
+  overridden.objects.story.workTypes.feature.phaseOverrides ??= {};
+  overridden.objects.story.workTypes.feature.phaseOverrides.implementation = {
+    kind: 'skill', skillBinding: incomplete.objects.story.phases.implementation.skillBinding
+  };
+  overridden.workflows[0].definitionSha256 = objectDigest(
+    overridden.objects.story.workTypes.feature
+  );
+  overridden.bundleSha256 = bundleDigest(overridden);
+  await assert.rejects(
+    () => planWorkflowImport(source, overridden),
+    (error) => error.code === 'SKP_WORKFLOW_TRANSFER_UNSUPPORTED'
+  );
+
+  const configuration = await workflowConfiguration(source);
+  configuration.phases.implementation = incomplete.objects.story.phases.implementation;
+  await writeWorkflowConfiguration(source, configuration);
+  await assert.rejects(
+    () => exportWorkflowBundle(source, ['story:feature']),
+    (error) => error.code === 'SKP_WORKFLOW_TRANSFER_UNSUPPORTED'
+  );
+});
+
 test('workflow bundles support Initiative-only and mixed Story/Initiative selections', async (t) => {
   const source = await initializedRepository(t, 'sflow-workflow-initiative-source-');
   const target = await initializedRepository(t, 'sflow-workflow-initiative-target-');

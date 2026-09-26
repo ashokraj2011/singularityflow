@@ -36,6 +36,7 @@ import {
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
+import { verifySkillPhasePublication, verifyStoredSkillEvidence } from './skp-phase-evidence.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -460,6 +461,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     coverage: await evaluateVisualCoverage(root, workflow),
     comparisons: await listVisualComparisons(root, workflow)
   } : null;
+  const skillEvidence = await verifySkillPhasePublication(root, config, workflow, phase);
   const submissionEvidence = {
     architectureIntent: structuredClone(
       publishedArchitectureIntentBinding(phase, phase.generation)
@@ -487,7 +489,8 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     })),
     claimMaps: currentClaimMapBindings(root, config, workflow, phase),
     checksSha256: hash(phase.checks ?? []),
-    artifactSetSha256: reviewArtifactSetSha256(artifacts)
+    artifactSetSha256: reviewArtifactSetSha256(artifacts),
+    ...(skillEvidence ? { skill: skillEvidence } : {})
   };
   const sourceTreeSha256 = await sourceTreeHash(root, config, workflow);
   if (submissionEvidence.codeDelivery?.autoCandidate) {
@@ -600,6 +603,16 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
       || packet.submissionEvidence.checksSha256 !== hash(packet.checks ?? [])
       || packet.submissionEvidence.artifactSetSha256 !== reviewArtifactSetSha256(packet.artifacts ?? [])) {
       failures.push(`${evidenceCommit.slice(0, 12)} has invalid checks or artifact-set bindings`);
+      continue;
+    }
+    try {
+      if (workflow.resolution?.phases?.find((entry) => entry.id === packet.phase)?.kind === 'skill'
+          && !packet.submissionEvidence.skill) {
+        throw new Error('required skill evidence is missing');
+      }
+      verifyStoredSkillEvidence(packet.submissionEvidence.skill ?? null);
+    } catch (error) {
+      failures.push(`${evidenceCommit.slice(0, 12)} has invalid skill evidence: ${error.message}`);
       continue;
     }
     try {

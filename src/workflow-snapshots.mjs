@@ -8,6 +8,9 @@ import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { syncAgent } from './agents.mjs';
+import { inspectApprovedSkillPackage } from './configuration-branch.mjs';
+import { SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
+  verifySkillPackage } from './skp-package.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
@@ -21,6 +24,11 @@ const SNAPSHOT_REFERENCE_FAMILY = 'workflow-snapshot-reference';
 const MAXIMUM_ASSET_BYTES = 1024 * 1024;
 const MAXIMUM_BUNDLE_BYTES = 16 * 1024 * 1024;
 const MAXIMUM_ASSETS = 2048;
+const MAXIMUM_SKILL_BUNDLE_BYTES = 64 * 1024 * 1024;
+const MAXIMUM_SKILL_SNAPSHOT_BYTES = MAXIMUM_BUNDLE_BYTES + MAXIMUM_SKILL_BUNDLE_BYTES;
+const MAXIMUM_SKILL_ASSETS = 8192;
+const MAXIMUM_SKILL_PACKAGES = 32;
+const MAXIMUM_V2_MANIFEST_BYTES = 8 * 1024 * 1024;
 const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const QUALIFIED_SHA256 = /^sha256:[a-f0-9]{64}$/;
 const DEPENDENCY_KINDS = new Set(['skill', 'template', 'generated']);
@@ -60,6 +68,10 @@ function qualified(value) {
 function domainHash(domain, value) {
   const bytes = Buffer.isBuffer(value) ? value : Buffer.from(canonicalJson(value));
   return qualified(createHash('sha256').update(`${domain}\0`).update(bytes).digest('hex'));
+}
+
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function digestHex(value, label) {
@@ -311,13 +323,140 @@ function manifestCore(manifest) {
   return core;
 }
 
+function selectedSkillBindings(policy) {
+  const packages = new Map();
+  const phaseIds = new Set();
+  for (const phase of policy.phases ?? []) {
+    if (!phase || !KEBAB_ID.test(phase.id ?? '') || phaseIds.has(phase.id)) {
+      fail('Selected workflow phase identities are invalid.');
+    }
+    phaseIds.add(phase.id);
+    if (phase.kind !== 'skill') {
+      if (phase.skillBinding != null) {
+        fail(`Phase '${phase.id}' has a skill binding without a skill producer.`);
+      }
+      continue;
+    }
+    if (!KEBAB_ID.test(phase.defaultAgent ?? '')) {
+      fail(`Skill phase '${phase.id}' has no exact selected governed agent.`,
+        'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+    const binding = phase.skillBinding;
+    const bindingVersion = Number(binding?.schemaVersion);
+    const refs = binding?.bindingRefs;
+    const skill = refs?.skill;
+    if (bindingVersion !== 1 || binding.compiler !== 'skp-contract/v1'
+        || binding.parserProfile !== SKP_PARSER_PROFILE
+        || !QUALIFIED_SHA256.test(binding.compilationSha256 ?? '')
+        || !QUALIFIED_SHA256.test(refs?.contractSha256 ?? '')
+        || !KEBAB_ID.test(skill?.id ?? '')
+        || !QUALIFIED_SHA256.test(skill?.packageSha256 ?? '')) {
+      fail(`Skill phase '${phase.id}' has no complete confirmed package/contract binding.`,
+        'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+    const phaseBinding = {
+      phaseId: phase.id,
+      contractSha256: refs.contractSha256,
+      compilationSha256: binding.compilationSha256,
+      parserProfile: binding.parserProfile,
+      bindingRefsSha256: domainHash('skp.binding-refs.v1', refs)
+    };
+    const current = packages.get(skill.id);
+    if (current && current.packageSha256 !== skill.packageSha256) {
+      fail(`Skill '${skill.id}' has conflicting selected package versions.`,
+        'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+    if (current) current.phaseBindings.push(phaseBinding);
+    else packages.set(skill.id, {
+      skillId: skill.id, packageSha256: skill.packageSha256,
+      phaseBindings: [phaseBinding]
+    });
+  }
+  if (packages.size > MAXIMUM_SKILL_PACKAGES) {
+    fail(`Story selects more than ${MAXIMUM_SKILL_PACKAGES} skill packages.`, 'WFA_LIMIT_REACHED');
+  }
+  return [...packages.values()].sort((left, right) => compareText(left.skillId, right.skillId));
+}
+
+async function captureApprovedSkillPackages(root, config, workId, selected, approvedSnapshot,
+  retainedDraftSkillPackages = null, pinnedConfigurationCommit = null) {
+  if (!selected.length) return { assets: [], skillPackages: [], bytes: 0 };
+  if (!approvedSnapshot && !retainedDraftSkillPackages) {
+    fail('Selected skill phases require the exact approved configuration snapshot at Story start.',
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  // Inspect all selected packages before writing any skill blob. The configuration owner proves
+  // this snapshot was approved; the package owner verifies its complete immutable byte manifest.
+  const captures = [];
+  let selectedBytes = 0;
+  for (const choice of selected) {
+    const capture = approvedSnapshot
+      ? await inspectApprovedSkillPackage(approvedSnapshot, choice.skillId, {
+          expectedPackageSha256: choice.packageSha256
+        })
+      : retainedDraftSkillPackages.get(choice.skillId);
+    if (!capture || capture.manifest?.packageSha256 !== choice.packageSha256) {
+      fail(`Selected skill '${choice.skillId}' is not retained at its confirmed package version.`,
+        'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+    if (pinnedConfigurationCommit && capture.source?.commit !== pinnedConfigurationCommit) {
+      fail(`Selected skill '${choice.skillId}' differs from the Story's pinned configuration commit.`,
+        'WFA_SOURCE_STALE');
+    }
+    const verified = verifySkillPackage(capture);
+    selectedBytes += verified.bytes;
+    if (selectedBytes > MAXIMUM_SKILL_BUNDLE_BYTES) {
+      fail('Selected skill packages exceed the 64 MiB Story retention limit.', 'WFA_LIMIT_REACHED');
+    }
+    captures.push({ choice, capture });
+  }
+  const assets = [];
+  const skillPackages = [];
+  for (const { choice, capture } of captures) {
+    const files = [];
+    for (let index = 0; index < capture.manifest.files.length; index += 1) {
+      const file = capture.manifest.files[index];
+      const bytes = capture.contents.get(file.path);
+      const logicalId = `skill:${choice.skillId}:file:${String(index + 1).padStart(3, '0')}`;
+      const blob = await installBlob(root, config, workId, {
+        bytes, size: bytes.byteLength, sha256: digestHex(file.sha256, `Skill '${choice.skillId}' file`),
+        mediaType: file.role === 'instructions' || file.role === 'reference'
+          ? 'text/markdown; charset=utf-8' : 'application/octet-stream'
+      });
+      assets.push({
+        logicalId, purpose: 'skill-package-file', dependencies: [], blob,
+        source: {
+          kind: 'approved-skill-package', skillId: choice.skillId,
+          packageSha256: choice.packageSha256, path: file.path,
+          configurationCommit: capture.source?.commit ?? null, sha256: blob.sha256
+        }
+      });
+      files.push({ path: file.path, assetLogicalId: logicalId });
+    }
+    skillPackages.push({
+      skillId: choice.skillId, manifest: structuredClone(capture.manifest),
+      phaseBindings: choice.phaseBindings, files
+    });
+  }
+  return { assets, skillPackages, bytes: selectedBytes };
+}
+
 /**
  * Capture the exact declarative bytes a newly created Story needs to interpret its pinned policy.
  * This is part of the Story-start draft transaction: a failure leaves no accepted Story commit.
  */
-export async function captureWorkflowSnapshot(root, config, workflow) {
+export async function captureWorkflowSnapshot(root, config, workflow, {
+  approvedConfigurationSnapshot = null,
+  retainedDraftSkillPackages = null
+} = {}) {
   const workId = workflow.workItem.id;
   const assets = [];
+  const selectedSkills = selectedSkillBindings(workflow.resolution);
+  const skillClosure = await captureApprovedSkillPackages(
+    root, config, workId, selectedSkills, approvedConfigurationSnapshot,
+    retainedDraftSkillPackages, workflow.resolution.configurationSource?.commit ?? null
+  );
+  assets.push(...skillClosure.assets);
   for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
     const sourcePath = template?.source === 'workflow-snapshot'
       ? template.sourcePath
@@ -390,7 +529,8 @@ export async function captureWorkflowSnapshot(root, config, workflow) {
     assets.push(...capturedDependencies.assets);
     executionDependencies.push(...capturedDependencies.dependencies);
   }
-  if (assets.length > MAXIMUM_ASSETS) fail('Workflow snapshot has too many assets.', 'WFA_LIMIT_REACHED');
+  const assetLimit = selectedSkills.length ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS;
+  if (assets.length > assetLimit) fail('Workflow snapshot has too many assets.', 'WFA_LIMIT_REACHED');
   const capturedAssetIndex = new Map();
   for (const asset of assets) {
     if (!asset?.logicalId || capturedAssetIndex.has(asset.logicalId)) {
@@ -414,22 +554,29 @@ export async function captureWorkflowSnapshot(root, config, workflow) {
     mediaType: 'application/json; profile=singularity-flow-effective-policy-v1'
   });
   const totalBytes = policyBlob.bytes + assets.reduce((sum, asset) => sum + asset.blob.bytes, 0);
-  if (totalBytes > MAXIMUM_BUNDLE_BYTES) {
-    fail('Workflow snapshot exceeds the 16 MiB aggregate bundle limit.', 'WFA_LIMIT_REACHED');
+  const totalLimit = selectedSkills.length ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES;
+  if (totalBytes > totalLimit) {
+    fail(`Workflow snapshot exceeds the ${totalLimit / (1024 * 1024)} MiB aggregate bundle limit.`,
+      'WFA_LIMIT_REACHED');
   }
 
   const configurationSource = workflow.resolution.configurationSource ?? null;
   if (configurationSource?.repository) assertCredentialFreeRemote(configurationSource.repository);
   const createdAt = workflow.workItem.createdAt;
   const manifest = {
-    schemaVersion: currentSchemaVersion(SNAPSHOT_FAMILY), kind: SNAPSHOT_FAMILY,
+    // Template-only Stories preserve the original v1 manifest and hash semantics. v2 is used
+    // only when the accepted policy selects at least one skill producer.
+    schemaVersion: selectedSkills.length ? currentSchemaVersion(SNAPSHOT_FAMILY) : 1,
+    kind: SNAPSHOT_FAMILY,
     story: {
       repositoryId: domainHash('wfa.repository.v1', configurationSource?.repository ?? 'local-authority'),
       workId
     },
     revision: 1, parentSnapshotHash: null,
     policy: policyBlob,
-    assets: assets.sort((left, right) => left.logicalId.localeCompare(right.logicalId)),
+    assets: assets.sort((left, right) => selectedSkills.length
+      ? compareText(left.logicalId, right.logicalId)
+      : left.logicalId.localeCompare(right.logicalId)),
     executionDependencies: executionDependencies.sort((left, right) => left.id.localeCompare(right.id)),
     provenance: {
       configuration: configurationSource ? {
@@ -441,17 +588,26 @@ export async function captureWorkflowSnapshot(root, config, workflow) {
       foldProfile: 'singularity-flow-resolution-v1'
     },
     semantics: {
-      snapshot: 'wfa-snapshot-v1', canonicalJson: 'singularity-flow-canonical-json-v1',
-      policyReaderMinimum: 5,
+      snapshot: selectedSkills.length ? 'wfa-snapshot-v2' : 'wfa-snapshot-v1',
+      canonicalJson: 'singularity-flow-canonical-json-v1',
+      policyReaderMinimum: selectedSkills.length ? 9 : 5,
       agentDocumentParser: 'sflow-agent-document-v1',
-      promptComposer: 'story-snapshot-agent-v1'
+      promptComposer: 'story-snapshot-agent-v1',
+      ...(selectedSkills.length ? {
+        skillPackageReader: SKP_PACKAGE_FORMAT,
+        skillTextParser: SKP_PARSER_PROFILE,
+        skillPhaseBinding: 'skp-contract/v1'
+      } : {})
     },
     configFoldHash: domainHash('wfa.fold.v1', clonePolicy(workflow.resolution)),
     createdAt,
     limits: { assets: assets.length, bytes: totalBytes },
     snapshotHash: null
   };
-  manifest.snapshotHash = domainHash('wfa.snapshot.v1', manifestCore(manifest));
+  if (selectedSkills.length) manifest.skillPackages = skillClosure.skillPackages;
+  manifest.snapshotHash = domainHash(
+    selectedSkills.length ? 'wfa.snapshot.v2' : 'wfa.snapshot.v1', manifestCore(manifest)
+  );
   const manifestPath = storyRelative(config, workId, 'config/wfa/snapshots/000001/manifest.json');
   const target = await secureRepositoryPath(root, manifestPath, { label: 'Workflow snapshot manifest' });
   if (target.exists) fail('Workflow snapshot revision 1 already exists.', 'WFA_REVISION_CONFLICT');
@@ -477,22 +633,73 @@ export function hasRetainedWorkflowSnapshotDraft(root, config, workflow) {
   return !accepted;
 }
 
+async function readRetainedDraftSkillPackages(root, config, workflow) {
+  const reference = workflow.workflowSnapshot;
+  if (!reference?.manifestPath) {
+    fail('Unaccepted skill Story has no prior retained package closure.',
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const safe = await secureRepositoryPath(root, reference.manifestPath, {
+    label: 'Unaccepted skill snapshot manifest', mustExist: true, type: 'file'
+  });
+  const raw = await readJson(safe.absolute);
+  if (readRecord(SNAPSHOT_FAMILY, raw).storedVersion !== 2) {
+    fail('Unaccepted skill Story has no v2 retained package closure.',
+      'WFA_DEPENDENCY_UNAVAILABLE');
+  }
+  const policy = await verifyBlob(root, config, workflow.workItem.id, raw.policy,
+    'Unaccepted skill snapshot policy');
+  let previousResolution;
+  try { previousResolution = JSON.parse(policy.bytes.toString('utf8')); }
+  catch { fail('Unaccepted skill snapshot policy is invalid.'); }
+  const previous = await verifyWorkflowSnapshot(root, config, {
+    ...workflow, resolution: previousResolution
+  }, { retainBytes: true });
+  const packages = new Map();
+  for (const record of previous.manifest.skillPackages ?? []) {
+    const contents = new Map();
+    for (const file of record.files) {
+      contents.set(file.path, Buffer.from(previous.assetBytes.get(file.assetLogicalId)));
+    }
+    const firstAsset = previous.manifest.assets.find((asset) =>
+      asset.logicalId === record.files[0]?.assetLogicalId);
+    packages.set(record.skillId, {
+      manifest: record.manifest, contents,
+      source: { commit: firstAsset?.source?.configurationCommit ?? null }
+    });
+  }
+  return packages;
+}
+
 /**
  * Seal the last in-memory creation additions at the first governed commit boundary.
  *
  * `createWorkflow` is a draft builder: callers may still bind an accepted Auto plan, Change Flight
  * Plan, or other creation-only policy before their transaction commits. An unaccepted revision-one
- * directory may therefore be replaced inside that same locked transaction. Callers must prove
- * separately that no creation commit exists; this function is never an amendment mechanism.
+ * directory may therefore be replaced inside that same locked transaction. This function checks
+ * the creation commit before replacing a draft; it is never an amendment mechanism.
  */
 export async function finalizeDraftWorkflowSnapshot(root, config, workflow) {
   try {
     const verification = await verifyWorkflowSnapshot(root, config, workflow);
     if (verification.enrolled) return workflow.workflowSnapshot;
   } catch {
-    // Any incomplete or inconsistent draft is replaceable before its first accepted commit. The
-    // caller proves that boundary; accepted snapshots never enter this function.
+    // An incomplete or inconsistent draft is replaceable only before its first accepted commit.
+    // The guard below proves that boundary before any file is removed.
   }
+  // A direct caller cannot turn this creation-only helper into a skill-version amendment by
+  // changing the in-memory policy after acceptance. The exact creation commit is the authority
+  // for whether a draft may be replaced, even when verification of the supplied object failed.
+  if (!hasRetainedWorkflowSnapshotDraft(root, config, workflow)) {
+    fail('Accepted Story workflow snapshots require a reviewed amendment revision; creation finalization is unavailable.',
+      'WFA_AMENDMENT_UNSUPPORTED');
+  }
+  // The final pre-commit projection may change policy while keeping the confirmed skill version.
+  // Rebuild it from the already verified draft closure; a later live folder or configuration head
+  // cannot supply missing bytes or change the selected package during this transaction.
+  const retainedDraftSkillPackages = selectedSkillBindings(workflow.resolution).length
+    ? await readRetainedDraftSkillPackages(root, config, workflow)
+    : null;
   const relative = storyRelative(config, workflow.workItem.id, 'config/wfa');
   const target = await secureRepositoryPath(root, relative, {
     label: 'Unaccepted workflow snapshot draft'
@@ -502,7 +709,9 @@ export async function finalizeDraftWorkflowSnapshot(root, config, workflow) {
   }
   if (target.exists) await rm(target.absolute, { recursive: true, force: true });
   delete workflow.workflowSnapshot;
-  workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow);
+  workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow, {
+    retainedDraftSkillPackages
+  });
   return workflow.workflowSnapshot;
 }
 
@@ -575,7 +784,7 @@ function removeFrozenPromisorAlias(root, transport, label) {
   }
 }
 
-function hydrateMissingSnapshotBlobs(root, objectIds, label) {
+function hydrateMissingSnapshotBlobs(root, objectIds, label, maximumObjectBytes = MAXIMUM_ASSET_BYTES) {
   const missing = missingLocalSnapshotBlobs(root, objectIds, label);
   if (!missing.length) return false;
   const identity = configuredPromisorIdentity(root, label);
@@ -589,7 +798,7 @@ function hydrateMissingSnapshotBlobs(root, objectIds, label) {
       try {
         runRemoteGit([
           'fetch', '--no-tags', '--no-write-fetch-head',
-          `--filter=blob:limit=${MAXIMUM_ASSET_BYTES + 1}`, transport.remote,
+          `--filter=blob:limit=${maximumObjectBytes + 1}`, transport.remote,
           ...missing.slice(offset, offset + 128)
         ], {
           cwd: root, operation: 'remote-configuration', allowFailure: false,
@@ -676,7 +885,10 @@ function ensureCompleteStoryCreationHistory(root, label) {
   }
 }
 
-function gitTreeEntries(root, commit, paths, label) {
+function gitTreeEntries(root, commit, paths, label, {
+  maximumBytes = MAXIMUM_BUNDLE_BYTES,
+  maximumObjectBytes = MAXIMUM_ASSET_BYTES
+} = {}) {
   const entries = new Map();
   for (let offset = 0; offset < paths.length; offset += 256) {
     const selected = paths.slice(offset, offset + 256);
@@ -710,8 +922,8 @@ function gitTreeEntries(root, commit, paths, label) {
   }
   const objectIds = [...entries.values()].map((entry) => entry.oid);
   const readBlobs = () => readLocalGitBlobs(root, objectIds, {
-    maximumBytes: MAXIMUM_BUNDLE_BYTES,
-    maximumObjectBytes: MAXIMUM_ASSET_BYTES,
+    maximumBytes,
+    maximumObjectBytes,
     code: 'WFA_DEPENDENCY_UNAVAILABLE',
     limitCode: 'WFA_LIMIT_REACHED',
     label
@@ -721,7 +933,7 @@ function gitTreeEntries(root, commit, paths, label) {
     blobs = readBlobs();
   } catch (error) {
     if (error?.code !== 'WFA_DEPENDENCY_UNAVAILABLE') throw error;
-    if (!hydrateMissingSnapshotBlobs(root, objectIds, label)) throw error;
+    if (!hydrateMissingSnapshotBlobs(root, objectIds, label, maximumObjectBytes)) throw error;
     blobs = readBlobs();
   }
   return new Map([...entries].map(([relative, entry]) => [relative, blobs.get(entry.oid)]));
@@ -776,8 +988,9 @@ async function verifyBlob(root, config, workId, blob, label, { acceptedBytes = n
     return { bytes: Buffer.from(bytes), sha256: digest, size: bytes.byteLength };
   }
   const safe = await secureRepositoryPath(root, blob.path, {
-    label: `${label} blob`, mustExist: true, type: 'file'
+    label: `${label} blob`, type: 'file'
   });
+  if (!safe.exists) fail(`${label} has no retained blob bytes.`, 'WFA_DEPENDENCY_UNAVAILABLE');
   const captured = await stableFile(safe.absolute, `${label} blob`);
   if (captured.sha256 !== digest || captured.size !== blob.bytes) {
     fail(`${label} blob bytes do not match the accepted snapshot.`);
@@ -939,6 +1152,90 @@ function assertDependencyClosure(manifest, assetByLogicalId) {
   for (const logicalId of assetByLogicalId.keys()) walk(logicalId);
 }
 
+function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogicalId, assetBytes) {
+  const selected = selectedSkillBindings(policy);
+  const declared = manifest.skillPackages ?? [];
+  if (storedVersion === 1) {
+    if (selected.length || declared.length
+        || [...assetByLogicalId.values()].some((asset) => asset.purpose === 'skill-package-file')) {
+      fail('A v1 Story snapshot cannot select a skill producer.', 'WFA_RUNTIME_INCOMPATIBLE');
+    }
+    return;
+  }
+  if (storedVersion !== 2 || !selected.length || !Array.isArray(declared)
+      || declared.length !== selected.length || declared.length > MAXIMUM_SKILL_PACKAGES
+      || manifest.semantics?.snapshot !== 'wfa-snapshot-v2'
+      || manifest.semantics?.policyReaderMinimum !== 9
+      || manifest.semantics?.skillPackageReader !== SKP_PACKAGE_FORMAT
+      || manifest.semantics?.skillTextParser !== SKP_PARSER_PROFILE
+      || manifest.semantics?.skillPhaseBinding !== 'skp-contract/v1') {
+    fail('Story skill snapshot has an unsupported or incomplete interpretation profile.',
+      'WFA_RUNTIME_INCOMPATIBLE');
+  }
+  const claimedAssets = new Set();
+  let skillBytes = 0;
+  for (let index = 0; index < selected.length; index += 1) {
+    const choice = selected[index];
+    const record = declared[index];
+    assertExactFields(record, ['skillId', 'manifest', 'phaseBindings', 'files'],
+      `Skill package '${choice.skillId}'`);
+    if (record.skillId !== choice.skillId
+        || record.manifest?.skillId !== choice.skillId
+        || record.manifest?.packageSha256 !== choice.packageSha256
+        || !Array.isArray(record.phaseBindings)
+        || canonicalJson(record.phaseBindings) !== canonicalJson(choice.phaseBindings)
+        || !Array.isArray(record.files)
+        || !Array.isArray(record.manifest?.files)
+        || record.files.length !== record.manifest?.files?.length
+        || record.files.length > SKP_CAPTURE_LIMITS.files) {
+      fail(`Skill package '${choice.skillId}' does not bind the accepted phase contracts.`,
+        'WFA_SNAPSHOT_INVALID');
+    }
+    const contents = new Map();
+    for (let fileIndex = 0; fileIndex < record.files.length; fileIndex += 1) {
+      const fileRef = record.files[fileIndex];
+      const file = record.manifest.files[fileIndex];
+      assertExactFields(fileRef, ['path', 'assetLogicalId'],
+        `Skill '${choice.skillId}' file reference`);
+      if (!file || typeof file !== 'object' || typeof file.path !== 'string') {
+        fail(`Skill '${choice.skillId}' has an invalid file manifest.`, 'WFA_SNAPSHOT_INVALID');
+      }
+      const expectedId = `skill:${choice.skillId}:file:${String(fileIndex + 1).padStart(3, '0')}`;
+      const asset = assetByLogicalId.get(fileRef.assetLogicalId);
+      const bytes = assetBytes.get(fileRef.assetLogicalId);
+      if (fileRef.path !== file.path || fileRef.assetLogicalId !== expectedId
+          || !asset || !bytes || claimedAssets.has(expectedId)
+          || asset.purpose !== 'skill-package-file'
+          || canonicalJson(asset.dependencies) !== canonicalJson([])
+          || asset.blob.sha256 !== file.sha256 || asset.blob.bytes !== file.bytes
+          || asset.source?.kind !== 'approved-skill-package'
+          || asset.source?.skillId !== choice.skillId
+          || asset.source?.packageSha256 !== choice.packageSha256
+          || asset.source?.path !== file.path
+          || (manifest.provenance?.configuration?.commit
+            && asset.source?.configurationCommit !== manifest.provenance.configuration.commit)
+          || asset.source?.sha256 !== file.sha256) {
+        fail(`Skill '${choice.skillId}' file '${file.path}' has no exact retained bytes.`,
+          'WFA_DEPENDENCY_UNAVAILABLE');
+      }
+      claimedAssets.add(expectedId);
+      contents.set(file.path, bytes);
+      skillBytes += bytes.byteLength;
+    }
+    try { verifySkillPackage({ manifest: record.manifest, contents }); }
+    catch (error) {
+      fail(`Skill '${choice.skillId}' retained package is invalid: ${error.message}`,
+        'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+  }
+  if (skillBytes > MAXIMUM_SKILL_BUNDLE_BYTES
+      || [...assetByLogicalId.values()].some((asset) => asset.purpose === 'skill-package-file'
+        && !claimedAssets.has(asset.logicalId))) {
+    fail('Story skill snapshot contains an unclaimed or oversized retained package.',
+      'WFA_SNAPSHOT_INVALID');
+  }
+}
+
 export async function verifyWorkflowSnapshot(root, config, workflow, {
   retainBytes = false, requireAccepted = false
 } = {}) {
@@ -974,7 +1271,10 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
   let safe = null;
   if (accepted) {
     manifestBytes = gitTreeEntries(
-      root, accepted.commit, [reference.manifestPath], 'Workflow snapshot manifest'
+      root, accepted.commit, [reference.manifestPath], 'Workflow snapshot manifest', {
+        maximumBytes: MAXIMUM_V2_MANIFEST_BYTES,
+        maximumObjectBytes: MAXIMUM_V2_MANIFEST_BYTES
+      }
     ).get(reference.manifestPath);
   } else {
     safe = await secureRepositoryPath(root, reference.manifestPath, {
@@ -982,24 +1282,42 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
     });
   }
   let manifest;
+  let sourceManifest;
+  let storedVersion;
   try {
+    const localManifestSize = accepted ? null : (await lstat(safe.absolute)).size;
+    if (localManifestSize > MAXIMUM_V2_MANIFEST_BYTES) {
+      fail('Workflow snapshot manifest exceeds its versioned size limit.', 'WFA_LIMIT_REACHED');
+    }
     const source = accepted
       ? JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes))
       : await readJson(safe.absolute);
+    sourceManifest = source;
+    const manifestSize = accepted ? manifestBytes.byteLength : localManifestSize;
+    const rawVersion = Number(source?.schemaVersion);
+    if (manifestSize > MAXIMUM_V2_MANIFEST_BYTES
+        || (rawVersion === 1 && manifestSize > MAXIMUM_ASSET_BYTES)) {
+      fail('Workflow snapshot manifest exceeds its versioned size limit.', 'WFA_LIMIT_REACHED');
+    }
     // JSON Schema enforces these ceilings too, but classifying a hostile/self-rehashed oversized
     // closure as a runtime incompatibility hides the actual recovery. Inspect only the bounded
     // cardinality/accounting fields before schema projection; all semantic validation remains in
     // the registered immutable reader below.
+    const v2 = rawVersion === 2;
     const tooManyAssets = Array.isArray(source?.assets)
-      && source.assets.length > MAXIMUM_ASSETS;
+      && source.assets.length > (v2 ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS);
     const tooManyDependencies = Array.isArray(source?.executionDependencies)
       && source.executionDependencies.length > MAXIMUM_ASSETS;
     const tooManyDeclaredBytes = Number.isFinite(source?.limits?.bytes)
-      && source.limits.bytes > MAXIMUM_BUNDLE_BYTES;
+      && source.limits.bytes > (v2 ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES);
     if (tooManyAssets || tooManyDependencies || tooManyDeclaredBytes) {
       fail('Workflow snapshot exceeds its accepted resource limits.', 'WFA_LIMIT_REACHED');
     }
-    manifest = readRecord(SNAPSHOT_FAMILY, source).record;
+    const opened = readRecord(SNAPSHOT_FAMILY, source);
+    // Keep historical v1 bytes and schema stamp visible to Story consumers. The registered
+    // v1→v2 projection proves readability, but it is not the immutable v1 identity being run.
+    manifest = opened.storedVersion === 1 ? source : opened.record;
+    storedVersion = opened.storedVersion;
   }
   catch (error) {
     if (error instanceof SingularityFlowError && String(error.code ?? '').startsWith('WFA_')) throw error;
@@ -1008,7 +1326,8 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
   if (manifest.kind !== SNAPSHOT_FAMILY || manifest.story?.workId !== workflow.workItem.id
       || manifest.revision !== reference.revision
       || manifest.snapshotHash !== reference.snapshotHash
-      || domainHash('wfa.snapshot.v1', manifestCore(manifest)) !== manifest.snapshotHash) {
+      || domainHash(storedVersion === 2 ? 'wfa.snapshot.v2' : 'wfa.snapshot.v1',
+        manifestCore(sourceManifest)) !== manifest.snapshotHash) {
     fail('Workflow snapshot manifest identity does not match its accepted Story reference.');
   }
   if (manifest.revision === 1 && manifest.parentSnapshotHash !== null) {
@@ -1029,7 +1348,10 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
   }
   const acceptedBlobBytes = accepted
     ? gitTreeEntries(root, accepted.commit,
-        closureReferences.map((entry) => entry.blob.path), 'Workflow snapshot closure')
+        closureReferences.map((entry) => entry.blob.path), 'Workflow snapshot closure', {
+          maximumBytes: storedVersion === 2
+            ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES
+        })
     : null;
   const policy = await verifyBlob(
     root, config, workflow.workItem.id, manifest.policy, 'Effective workflow policy',
@@ -1067,7 +1389,8 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
       || manifest.configFoldHash !== domainHash('wfa.fold.v1', capturedPolicy)) {
     fail('Workflow compatibility projection differs from its accepted snapshot policy.');
   }
-  if (!Array.isArray(manifest.assets) || manifest.assets.length > MAXIMUM_ASSETS) {
+  if (!Array.isArray(manifest.assets)
+      || manifest.assets.length > (storedVersion === 2 ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS)) {
     fail('Workflow snapshot asset manifest is invalid.', 'WFA_LIMIT_REACHED');
   }
   let totalBytes = policy.size;
@@ -1082,11 +1405,15 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
       `Workflow snapshot asset '${asset.logicalId}'`, { acceptedBytes: acceptedBlobBytes }
     );
     assetByLogicalId.set(asset.logicalId, asset);
-    if (retainBytes) retainedAssets.set(asset.logicalId, Buffer.from(captured.bytes));
+    if (retainBytes || asset.purpose === 'skill-package-file') {
+      retainedAssets.set(asset.logicalId, Buffer.from(captured.bytes));
+    }
     totalBytes += captured.size;
   }
   assertDependencyClosure(manifest, assetByLogicalId);
-  if (totalBytes > MAXIMUM_BUNDLE_BYTES || manifest.limits?.bytes !== totalBytes
+  assertSkillPackageClosure(manifest, storedVersion, capturedPolicy, assetByLogicalId, retainedAssets);
+  if (totalBytes > (storedVersion === 2 ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES)
+      || manifest.limits?.bytes !== totalBytes
       || manifest.limits?.assets !== manifest.assets.length) {
     fail('Workflow snapshot closure does not match its accepted resource accounting.', 'WFA_LIMIT_REACHED');
   }
@@ -1095,6 +1422,10 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
     snapshotHash: manifest.snapshotHash, genesisSnapshotHash: reference.genesisSnapshotHash,
     manifestPath: reference.manifestPath, assets: manifest.assets.length,
     bytes: totalBytes, executionDependencies: manifest.executionDependencies ?? [],
+    skillPackages: (manifest.skillPackages ?? []).map((entry) => ({
+      skillId: entry.skillId, packageSha256: entry.manifest.packageSha256,
+      phaseIds: entry.phaseBindings.map((binding) => binding.phaseId)
+    })),
     provenance: manifest.provenance, semantics: manifest.semantics,
     creationCommit: accepted?.commit ?? null
   };

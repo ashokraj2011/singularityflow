@@ -146,7 +146,9 @@ test('story-workflow v6 migration repairs only the shipped Spec-Driven Release c
   };
   const result = readRecord('story-workflow', source);
   const migrated = result.record;
-  assert.deepEqual(result.migratedThrough, [{ from: 6, to: 7 }, { from: 7, to: 8 }]);
+  assert.deepEqual(result.migratedThrough, [
+    { from: 6, to: 7 }, { from: 7, to: 8 }, { from: 8, to: 9 }
+  ]);
   assert.equal(migrated.schemaVersion, currentSchemaVersion('story-workflow'));
   for (const release of [
     migrated.resolution.phases.find((phase) => phase.id === 'release'),
@@ -184,7 +186,7 @@ test('story-workflow v7 migration cannot acquire WMP authority from an open lega
     }
   };
   const result = readRecord('story-workflow', crafted);
-  assert.deepEqual(result.migratedThrough, [{ from: 7, to: 8 }]);
+  assert.deepEqual(result.migratedThrough, [{ from: 7, to: 8 }, { from: 8, to: 9 }]);
   assert.equal(Object.hasOwn(result.record.resolution, 'worldModelHistoryPin'), false);
   assert.notEqual(crafted.resolution.worldModelHistoryPin, null,
     'read-side migration rewrote the historical source object');

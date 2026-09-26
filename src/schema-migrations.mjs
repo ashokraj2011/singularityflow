@@ -2679,13 +2679,18 @@ const families = [
     ]
   }),
   family({
-    id: 'workflow-snapshot', currentVersion: 1, immutable: true,
+    id: 'workflow-snapshot', currentVersion: 2, immutable: true,
+    // The v1 manifest and its hash remain immutable. This is only an in-memory read
+    // projection; WFA verifies the stored v1 bytes with the original hash domain.
+    steps: [migration(1, 2, (source) => ({
+      ...clone(source), schemaVersion: 2, skillPackages: []
+    }))],
     paths: [
       /^(?:singularity|\.sdlc)\/work-items\/[^/]+\/config\/wfa\/snapshots\/\d{6}\/manifest\.json$/
     ]
   }),
   family({
-    id: 'story-workflow', currentVersion: 8,
+    id: 'story-workflow', currentVersion: 9,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
@@ -2693,7 +2698,10 @@ const families = [
       migration(4, 5, storyWorkflowV4ToV5),
       migration(5, 6, storyWorkflowV5ToV6),
       migration(6, 7, storyWorkflowV6ToV7),
-      migration(7, 8, storyWorkflowV7ToV8)
+      migration(7, 8, storyWorkflowV7ToV8),
+      // Existing template Stories remain semantically unchanged; v9 only registers the new
+      // optional skill binding shape. It never infers a skill producer from legacy fields.
+      migration(8, 9, identity(9))
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),
@@ -2733,7 +2741,11 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/candidates-[^/]+\.json$/], immutable: true
   }),
   family({ id: 'clarification-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/clarifications-[^/]+-gen\d+\.json$/] }),
-  family({ id: 'phase-input-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/inputs-[^/]+-gen\d+\.json$/] }),
+  family({
+    id: 'phase-input-record', currentVersion: 2,
+    steps: [migration(1, 2, identity(2))],
+    paths: [/^singularity\/work-items\/[^/]+\/context\/inputs-[^/]+-gen\d+\.json$/]
+  }),
   family({ id: 'agent-brief-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/briefs\/[^/]+-gen\d+-for-[^/]+\.json$/], immutable: true }),
   family({ id: 'design-source-set', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-sources\/[^/]+-gen\d+\.json$/], immutable: true }),
   family({ id: 'design-source-provenance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-sources-[^/]+-gen\d+\.json$/], immutable: true }),
@@ -2830,10 +2842,12 @@ const families = [
   }),
   family({ id: 'specification-acceptance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/acceptance\/[^/]+\.json$/], immutable: true }),
   family({
-    id: 'story-submission-packet', currentVersion: 2,
-    steps: [migration(1, 2, storySubmissionPacketV1ToV2)],
+    id: 'story-submission-packet', currentVersion: 3,
+    steps: [migration(1, 2, storySubmissionPacketV1ToV2), migration(2, 3, identity(3))],
     paths: [/^singularity\/work-items\/[^/]+\/submissions\/[^/]+\/[^/]+\.json$/], immutable: true
   }),
+  // Embedded in the versioned Story submission packet; no independent path or authority.
+  family({ id: 'skp-phase-evidence', currentVersion: 1, immutable: true }),
   family({
     id: 'return-locator', currentVersion: 1,
     paths: [/^singularity\/work-items\/[^/]+\/context\/return-locator\.json$/], immutable: true

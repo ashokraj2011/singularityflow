@@ -3749,6 +3749,227 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   assert.match(panel.webview.html, /<button data-submit="create" >/, 'nothing outstanding');
 });
 
+test('an activated map refreshes a retained workspace draft without hiding the review', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  await until(() => panel.webview.html.includes('Storefront Web') ? panel.webview.html : null);
+
+  registered.pickedFolder = org.base;
+  await panel.post({ type: 'choose', what: 'base' });
+  await panel.post({ type: 'field', field: 'id', value: 'my-existing-draft' });
+  await panel.post({ type: 'field', field: 'name', value: 'My existing draft' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
+  await panel.post({ type: 'capability', id: 'storefront-web', selected: true });
+  await until(() => panel.webview.html.includes('data-capability-remove="storefront-web"')
+    ? panel.webview.html : null);
+
+  const update = path.join(org.base, 'capability-update');
+  run('git', ['clone', '-q', '--branch', 'sflow/config', org.lead, update], { cwd: org.base });
+  const map = path.join(update, 'singularity/capabilities.yml');
+  await writeFile(map, (await readFile(map, 'utf8'))
+    + '  new-delivery: { name: New Delivery, kind: delivery, parent: payments, repository: api }\n');
+  run('git', ['add', 'singularity/capabilities.yml'], { cwd: update });
+  run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
+    'commit', '-qm', 'Activate new delivery'], { cwd: update });
+  run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: update });
+
+  const { WorkspacePanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  panel.setVisible(false);
+  await WorkspacePanel.refreshOpenCapabilityMap({ organisation: org.lead });
+  assert.equal(panel.visible, false, 'background refresh leaves activation review visible');
+  assert.match(panel.webview.html, /<option value="new-delivery">[^<]*New Delivery/,
+    'the newly approved capability is immediately available in the dropdown');
+  assert.match(panel.webview.html, /data-capability-remove="storefront-web"/,
+    'an existing capability selection survives the remote refresh');
+
+  await registered.commands.get('singularityFlow.createWorkspace')({
+    organisation: org.lead, capabilityId: 'new-delivery'
+  });
+  await until(() => panel.webview.html.includes('data-capability-remove="new-delivery"')
+    ? panel.webview.html : null);
+  assert.equal(registered.panels.filter((entry) => entry.id === 'singularityFlow.workspace').length, 1,
+    'the post-activation action reuses the draft');
+  assert.match(panel.webview.html, /data-capability-remove="storefront-web"/);
+  assert.match(panel.webview.html, /value="my-existing-draft"/);
+  assert.match(panel.webview.html, /value="My existing draft"/);
+  assert.match(panel.webview.html, /value="Casey Contributor"/);
+  assert.match(panel.webview.html, /<option value="developer" selected>/);
+  assert.match(panel.webview.html, new RegExp(escapeRegExp(org.base)));
+});
+
+test('Create workspace reads an activated organisation absent from the local lead registry', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  await writeFile(org.registry, JSON.stringify({ schemaVersion: 1, leads: [] }));
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')({
+    organisation: org.lead, capabilityId: 'payments-api'
+  });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  const html = await until(() => panel.webview.html.includes('data-capability-remove="payments-api"')
+    ? panel.webview.html : null);
+  assert.match(html, /Payments API/);
+  assert.match(html, /Lead capability/);
+  assert.match(html, new RegExp(escapeRegExp(org.lead)));
+  assert.doesNotMatch(html, /No organisation has been mapped yet/);
+});
+
+test('Refresh capabilities rereads the dropdown and keeps the workspace draft', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  await until(() => panel.webview.html.includes('<option value="storefront-web"')
+    && panel.webview.html.includes('Refresh capabilities') ? panel.webview.html : null,
+    { attempts: 100 });
+  registered.pickedFolder = org.base;
+  await panel.post({ type: 'choose', what: 'base' });
+  await panel.post({ type: 'field', field: 'id', value: 'keep-my-draft' });
+  await panel.post({ type: 'field', field: 'name', value: 'Keep my draft' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'capability', id: 'storefront-web', selected: true });
+  await until(() => panel.webview.html.includes('data-capability-remove="storefront-web"')
+    ? panel.webview.html : null, { attempts: 100 });
+
+  const update = path.join(org.base, 'another-capability-update');
+  run('git', ['clone', '-q', '--branch', 'sflow/config', org.lead, update], { cwd: org.base });
+  const map = path.join(update, 'singularity/capabilities.yml');
+  await writeFile(map, (await readFile(map, 'utf8'))
+    + '  reports-api: { name: Reports API, kind: delivery, parent: commerce, repository: api }\n');
+  run('git', ['add', 'singularity/capabilities.yml'], { cwd: update });
+  run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
+    'commit', '-qm', 'Activate reports capability'], { cwd: update });
+  run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: update });
+
+  await panel.post({ type: 'refresh' });
+  const html = await until(() => panel.webview.html.includes('value="reports-api"')
+    ? panel.webview.html : null, { attempts: 100 });
+  assert.match(html, /<option value="reports-api">[^<]*Reports API/);
+  assert.match(html, /data-capability-remove="storefront-web"/);
+  assert.match(html, /value="keep-my-draft"/);
+  assert.match(html, /value="Keep my draft"/);
+  assert.match(html, /value="Casey Contributor"/);
+  assert.match(html, new RegExp(escapeRegExp(org.base)));
+});
+
+test('a failed capability refresh keeps draft picks and lead until a verified retry', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  await until(() => panel.webview.html.includes('Storefront Web') ? panel.webview.html : null);
+  registered.pickedFolder = org.base;
+  await panel.post({ type: 'choose', what: 'base' });
+  await panel.post({ type: 'field', field: 'id', value: 'resilient-draft' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
+  await panel.post({ type: 'capability', id: 'commerce', selected: true });
+  await panel.post({ type: 'field', field: 'lead-capability', value: 'storefront-web' });
+  await until(() => panel.webview.html.includes('<option value="storefront-web" selected>')
+    ? panel.webview.html : null);
+
+  const update = path.join(org.base, 'unavailable-capability-update');
+  run('git', ['clone', '-q', '--branch', 'sflow/config', org.lead, update], { cwd: org.base });
+  const map = path.join(update, 'singularity/capabilities.yml');
+  const validMap = await readFile(map, 'utf8');
+  await writeFile(map, 'version: [temporarily invalid\n');
+  run('git', ['add', 'singularity/capabilities.yml'], { cwd: update });
+  run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
+    'commit', '-qm', 'Temporarily unreadable map'], { cwd: update });
+  run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: update });
+
+  await panel.post({ type: 'refresh' });
+  const unavailable = await until(() => panel.webview.html.includes('Your capability choices and lead are kept')
+    ? panel.webview.html : null);
+  assert.match(unavailable, /Refresh the approved capability map before creating this workspace/);
+  assert.match(unavailable, /<button data-submit="create" disabled>/,
+    'an unverified map cannot authorize workspace creation');
+  assert.match(unavailable, /value="resilient-draft"/);
+  assert.match(unavailable, /value="Casey Contributor"/);
+
+  await writeFile(map, validMap);
+  run('git', ['add', 'singularity/capabilities.yml'], { cwd: update });
+  run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
+    'commit', '-qm', 'Restore readable map'], { cwd: update });
+  run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: update });
+  await panel.post({ type: 'refresh' });
+  const recovered = await until(() => panel.webview.html.includes('data-capability-remove="commerce"')
+    ? panel.webview.html : null);
+  assert.match(recovered, /<option value="storefront-web" selected>/,
+    'the previously chosen lead is reconciled against the verified map');
+  assert.match(recovered, /value="resilient-draft"/);
+  assert.match(recovered, /value="Casey Contributor"/);
+  assert.doesNotMatch(recovered, /Refresh the approved capability map before creating this workspace/);
+});
+
+test('an empty workspace picker can refresh a newly mapped organisation', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  await writeFile(org.registry, JSON.stringify({ schemaVersion: 1, leads: [] }));
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  await until(() => panel.webview.html.includes('No organisation has been mapped yet')
+    ? panel.webview.html : null);
+  assert.match(panel.webview.html, /data-refresh-capabilities="1"/);
+
+  await writeFile(org.registry, JSON.stringify({ schemaVersion: 1, leads: [
+    { url: org.lead, usedAt: '2026-01-01T00:00:00.000Z' }
+  ] }));
+  await panel.post({ type: 'refresh' });
+  const html = await until(() => panel.webview.html.includes('Payments API')
+    ? panel.webview.html : null);
+  assert.match(html, /<option value="payments-api"/);
+});
+
+test('ordinary Create workspace replaces a retained guided journey callback', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')({
+    guidedStart: true, organisation: org.lead, capabilityId: 'payments-api'
+  });
+  const guided = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  await until(() => guided.webview.html.includes('Step 2 of 3') ? guided.webview.html : null);
+
+  await registered.commands.get('singularityFlow.createWorkspace')({
+    organisation: org.lead, capabilityId: 'storefront-web'
+  });
+  const workspaces = registered.panels.filter((entry) => entry.id === 'singularityFlow.workspace');
+  assert.equal(workspaces.length, 2);
+  assert.equal(guided.visible, false);
+  assert.equal(workspaces[1].title, 'New workspace');
+  const html = await until(() => workspaces[1].webview.html.includes('data-capability-remove="storefront-web"')
+    ? workspaces[1].webview.html : null);
+  assert.doesNotMatch(html, /Step 2 of 3/);
+});
+
 test('when several capabilities ship, one of them is named the lead', async (t) => {
   if (!requireBundle(t)) return;
   // The lead is the workspace's centre of gravity: its repository is where the orphan state branch
@@ -5870,14 +6091,27 @@ test('capability review merges its exact commit with one acknowledged action', a
       projection: { published: true, branch: 'state', commit: proposalCommit }
     }, error: null };
     throw new Error(`Unexpected command: ${argv.join(' ')}`);
-  });
+  }, undefined, 'new-service');
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
   await until(() => panel.webview.html.includes('Merge and acknowledge') ? panel.webview.html : null);
   assert.match(panel.webview.html, /Updated<\/td><td><code>singularity\/capabilities\.yml/);
   assert.match(panel.webview.html, /<summary>[\s\S]*?View Git diff<\/summary>/);
   assert.match(panel.webview.html, /Merge and acknowledge aaaaaaaaaaaa/);
+  assert.doesNotMatch(panel.webview.html, /data-action="create-workspace"/);
+  await panel.post({ type: 'create-workspace' });
+  assert.equal(registered.executedCommands.some(({ id }) => id === 'singularityFlow.createWorkspace'), false,
+    'a webview message cannot open workspace creation before the engine confirms activation');
   await panel.post({ type: 'activate' });
   await until(() => panel.webview.html.includes('Capability activated.') ? panel.webview.html : null);
+  assert.match(panel.webview.html, /data-action="create-workspace"/);
+  assert.doesNotMatch(panel.webview.html, /data-action="activate"/,
+    'the completion screen has a next step instead of another merge action');
+  await panel.post({ type: 'create-workspace' });
+  await until(() => registered.executedCommands.some(({ id }) => id === 'singularityFlow.createWorkspace'));
+  assert.deepEqual(registered.executedCommands.find(({ id }) => id === 'singularityFlow.createWorkspace'), {
+    id: 'singularityFlow.createWorkspace',
+    args: [{ organisation: lead, capabilityId: 'new-service' }]
+  }, 'the existing workspace flow receives the approved organisation and mapped capability');
   assert.deepEqual(calls, [
     ['capability', 'proposal', branch, '--lead', lead, '--json'],
     ['capability', 'activate', branch, '--lead', lead, '--confirm', proposalCommit,
@@ -5885,6 +6119,119 @@ test('capability review merges its exact commit with one acknowledged action', a
   ]);
   assert.equal(registered.warningDetails.length, 0,
     'the reviewed action does not open a second confirmation dialog');
+  controller.dispose();
+});
+
+test('activated capability review opens a populated workspace form in the same VS Code host', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const { CapabilityProposalPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const branch = 'sflow/config-change/capability/map-payments-api-12345678';
+  const proposalCommit = 'a'.repeat(40);
+  const controller = CapabilityProposalPanel.show(context(), org.lead, branch, async (argv) => {
+    if (argv[1] === 'proposal') return { result: {
+      remote: org.lead, branch, targetBranch: 'sflow/config', targetCommit: 'b'.repeat(40),
+      proposalCommit, proposalBase: 'b'.repeat(40), merged: false, valid: true,
+      invalidFiles: [], changedFiles: [{ status: 'M', paths: ['singularity/capabilities.yml'] }],
+      diff: '+payments-api'
+    }, error: null };
+    if (argv[1] === 'activate') return { result: {
+      status: 'activated', activated: true, targetBranch: 'sflow/config',
+      targetCommit: proposalCommit, proposalCommit, alreadyMerged: false
+    }, error: null };
+    throw new Error(`Unexpected command: ${argv.join(' ')}`);
+  }, undefined, 'payments-api');
+  const review = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
+  await until(() => review.webview.html.includes('Merge and acknowledge') ? review.webview.html : null);
+  await review.post({ type: 'activate' });
+  await review.post({ type: 'create-workspace' });
+  const workspace = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  assert.ok(workspace, 'Create workspace reaches the registered extension command');
+  const html = await until(() => workspace.webview.html.includes('data-capability-remove="payments-api"')
+    ? workspace.webview.html : null);
+  assert.match(html, /Payments API/);
+  assert.match(html, new RegExp(escapeRegExp(org.lead)));
+  assert.equal(registered.errors.length, 0, registered.errors.join(' | '));
+  controller.dispose();
+});
+
+test('capability review does not offer workspace creation while activation awaits repository review', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { CapabilityProposalPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/protected-service.git';
+  const branch = 'sflow/config-change/capability/map-protected-service-12345678';
+  const proposalCommit = 'a'.repeat(40);
+  const controller = CapabilityProposalPanel.show(context(), lead, branch, async (argv) => {
+    if (argv[1] === 'proposal') return { result: {
+      remote: lead, branch, targetBranch: 'sflow/config', targetCommit: 'b'.repeat(40),
+      proposalCommit, proposalBase: 'b'.repeat(40), merged: false, valid: true,
+      invalidFiles: [], changedFiles: [{ status: 'M', paths: ['singularity/capabilities.yml'] }],
+      diff: '+protected capability'
+    }, error: null };
+    if (argv[1] === 'activate') return { result: {
+      status: 'review-required', activated: false, targetBranch: 'sflow/config',
+      targetCommit: 'b'.repeat(40), proposalCommit, alreadyMerged: false,
+      failure: { message: 'Repository review is required.' }
+    }, error: null };
+    throw new Error(`Unexpected command: ${argv.join(' ')}`);
+  }, undefined, 'protected-service');
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
+  await until(() => panel.webview.html.includes('Merge and acknowledge') ? panel.webview.html : null);
+  await panel.post({ type: 'activate' });
+  await until(() => panel.webview.html.includes('Activation is waiting.') ? panel.webview.html : null);
+  assert.doesNotMatch(panel.webview.html, /data-action="create-workspace"/);
+  await panel.post({ type: 'create-workspace' });
+  assert.equal(registered.executedCommands.some(({ id }) => id === 'singularityFlow.createWorkspace'), false);
+  controller.dispose();
+});
+
+test('activated capability removal does not offer or dispatch workspace creation', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { CapabilityProposalPanel } = hostRequire(path.join(
+    packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'
+  ));
+  const lead = 'https://git.example/platform.git';
+  const branch = 'sflow/config-change/capability/remove-checkout-12345678';
+  const proposalCommit = 'c'.repeat(40);
+  const targetCommit = 'd'.repeat(40);
+  const calls = [];
+  const controller = CapabilityProposalPanel.show(context(), lead, branch, async (argv) => {
+    calls.push([...argv]);
+    if (argv[1] === 'proposal') return { result: {
+      remote: lead, branch, targetBranch: 'sflow/config', targetCommit,
+      proposalCommit, proposalBase: targetCommit, merged: false, valid: true,
+      invalidFiles: [], changedFiles: [{ status: 'M', paths: ['singularity/capabilities.yml'] }],
+      diff: '-removed capability'
+    }, error: null };
+    if (argv[1] === 'activate') return { result: {
+      status: 'activated', activated: true, targetBranch: 'sflow/config',
+      targetCommit: proposalCommit, proposalCommit, alreadyMerged: false,
+      projection: { published: true, branch: 'state', commit: proposalCommit }
+    }, error: null };
+    throw new Error(`Unexpected command: ${argv.join(' ')}`);
+  });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
+  await until(() => panel.webview.html.includes('Merge and acknowledge') ? panel.webview.html : null);
+  await panel.post({ type: 'activate' });
+  await until(() => panel.webview.html.includes('Capability activated.') ? panel.webview.html : null);
+  assert.equal(calls.filter((argv) => argv[1] === 'activate').length, 1,
+    'the removal reached a confirmed activation');
+  assert.doesNotMatch(panel.webview.html, /data-action="create-workspace"/);
+  await panel.post({ type: 'create-workspace' });
+  assert.equal(registered.executedCommands.some(({ id }) => id === 'singularityFlow.createWorkspace'), false,
+    'posting a forged action cannot open workspace creation after a removal');
   controller.dispose();
 });
 

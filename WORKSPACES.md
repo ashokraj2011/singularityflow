@@ -105,6 +105,15 @@ configuration lives under **Configuration**, not as a second workspace tree.
 
 ## Create a capability-based workspace
 
+In VS Code, use **Map a capability**, review its proposal, and complete **Merge and
+acknowledge**. Only after activation succeeds does the review screen offer
+**Create workspace**. That action opens the workspace form with the approved
+organisation and new capability selected; it does not create or clone anything
+until you confirm the workspace. An already-open workspace draft refreshes its
+**Include** list without losing its name, directory, profile, or selections. Use
+**Refresh capabilities** in that form to pick up a map change made in another
+window or on another laptop. A pending proposal is not a selectable capability.
+
 The preferred flow starts with the lead repository that owns
 `singularity/capabilities.yml`:
 

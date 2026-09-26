@@ -68,6 +68,8 @@ export interface WorkspaceForm {
   capabilities: CapabilityChoice[] | null;
   /** Why there is no map to choose from, when there is none. */
   capabilitiesReason: string | null;
+  /** A remote read failed; saved picks are drafts until a verified map is read again. */
+  capabilitiesReadFailed: boolean;
   /** Non-blocking freshness notice when a validated offline cache is being shown. */
   capabilitiesNotice: string | null;
   /** The capabilities this workspace is for. */
@@ -83,7 +85,8 @@ export interface WorkspaceForm {
 export const EMPTY_WORKSPACE_FORM: WorkspaceForm = {
   base: null, id: '', name: '', profileName: '', profileRole: '',
   organisations: [], organisation: null,
-  capabilities: null, capabilitiesReason: null, capabilitiesNotice: null,
+  capabilities: null, capabilitiesReason: null, capabilitiesReadFailed: false,
+  capabilitiesNotice: null,
   selected: [], leadCapability: null,
   reading: false, busy: false, error: null
 };
@@ -246,7 +249,9 @@ export function formProblems(form: WorkspaceForm): string[] {
   if (!form.organisation) problems.push('Choose the organisation whose capabilities this is for.');
   else if (form.reading) problems.push('Wait for the capability map to be read.');
   else if (!hasCapabilityMap(form)) {
-    problems.push('Create the first capability for this organisation.');
+    problems.push(form.capabilitiesReadFailed
+      ? 'Refresh the approved capability map before creating this workspace.'
+      : 'Create the first capability for this organisation.');
   } else if (!form.selected.length) {
     problems.push('Choose the capabilities this workspace is for.');
   } else if (!shippingCapabilities(form).length) {
@@ -299,7 +304,8 @@ function organisationHtml(form: WorkspaceForm): string {
     return `<p class="muted">No organisation has been mapped yet. Map a capability to a Git
       repository from the Capabilities screen — that is what creates the map this form reads.</p>
       <p><button class="secondary" data-open="repository">${icon('repository')}Map a capability from a Git URL…</button>
-      <button class="secondary" data-open="capabilities">Open Capabilities</button></p>`;
+      <button class="secondary" data-open="capabilities">Open Capabilities</button>
+      <button class="secondary" data-refresh-capabilities="1"${form.busy ? ' disabled' : ''}>${icon('refresh')}Refresh capabilities</button></p>`;
   }
   if (form.organisations.length === 1 && form.organisation === form.organisations[0]) {
     return `<p><code>${escape(form.organisation)}</code>
@@ -329,9 +335,15 @@ function capabilityHtml(form: WorkspaceForm): string {
   if (form.reading) return '<p class="muted">Reading the capability map…</p>';
   if (!hasCapabilityMap(form)) {
     return `<p class="muted">${escape(form.capabilitiesReason ?? 'This organisation does not describe what it builds yet.')}
-      Create its first capability here; this form will refresh when it has been mapped.</p>
-      <p><button class="secondary" data-open="repository">${icon('repository')}Map a capability from a Git URL…</button>
-      <button class="secondary" data-open="capabilities">${icon('capability')}Create first capability manually</button></p>`;
+      ${form.capabilitiesReadFailed
+        ? 'Refresh the approved map to continue.'
+        : 'Create its first capability here; this form will refresh when it has been mapped.'}</p>
+      ${form.capabilitiesReadFailed && form.selected.length
+        ? '<p class="muted">Your capability choices and lead are kept in this draft until the map can be read again.</p>'
+        : ''}
+      <p>${form.capabilitiesReadFailed ? '' : `<button class="secondary" data-open="repository">${icon('repository')}Map a capability from a Git URL…</button>
+      <button class="secondary" data-open="capabilities">${icon('capability')}Create first capability manually</button>`}
+      <button class="secondary" data-refresh-capabilities="1"${form.busy ? ' disabled' : ''}>${icon('refresh')}Refresh capabilities</button></p>`;
   }
 
   const covered = coveredCapabilities(form);
@@ -348,6 +360,7 @@ function capabilityHtml(form: WorkspaceForm): string {
         ${offered.map((capability) => `<option value="${escape(capability.id)}">${'&nbsp;&nbsp;'.repeat(capability.depth)}${escape(capability.name)}${capability.repositories.length ? ` (${capability.repositories.map((repository) => escape(repository.id)).join(', ')})` : ''}</option>`).join('')}
       </select></label>
       <button class="secondary" data-capability-add="1"${offered.length ? '' : ' disabled'}>Add</button>
+      <button class="secondary" data-refresh-capabilities="1"${form.busy ? ' disabled' : ''}>${icon('refresh')}Refresh capabilities</button>
     </p>
 
     ${form.selected.length ? `
@@ -507,10 +520,11 @@ export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgr
 export const WORKSPACE_FORM_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-choose],[data-submit],[data-open],[data-capability-add],[data-capability-remove]');
+    const target = event.target.closest('[data-choose],[data-submit],[data-open],[data-capability-add],[data-capability-remove],[data-refresh-capabilities]');
     if (!target) return;
     if (target.dataset.choose) vscode.postMessage({ type: 'choose', what: target.dataset.choose });
     else if (target.dataset.open) vscode.postMessage({ type: 'open', what: target.dataset.open });
+    else if (target.dataset.refreshCapabilities) vscode.postMessage({ type: 'refresh' });
     else if (target.dataset.capabilityAdd) {
       const pick = document.querySelector('[data-capability-pick]');
       if (pick && pick.value) vscode.postMessage({ type: 'capability', id: pick.value, selected: true });

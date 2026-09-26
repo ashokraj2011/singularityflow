@@ -57,8 +57,14 @@ function fileChangeLabel(status: string): string {
   return status;
 }
 
+/** Branch naming is used only for a post-review navigation hint, never for authority or identity. */
+function offersWorkspaceHandoff(branch: string, capabilityId: string | null): boolean {
+  return Boolean(capabilityId)
+    || /^sflow\/config-change\/capability\/(?:map-|add-)/.test(branch);
+}
+
 function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: string | null,
-  activated: ActivationResult | null): string {
+  activated: ActivationResult | null, workspaceHandoff: boolean): string {
   if (!proposal) return `${brandLockup({ compact: true })}
     <header><h1>${icon('merge', { size: 24 })} Review capability proposal</h1>
     <p class="meta">Loading the exact configuration change from Git…</p></header>
@@ -82,7 +88,9 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
         : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${activated.audit?.eventId
           ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
           : ''}${activated.nextAction?.command
-            ? commandGuidanceHtml(activated.nextAction, { shellLabel: 'Recovery — Shell', copilotLabel: 'Recovery — Copilot' }) : ''}</div>`
+            ? commandGuidanceHtml(activated.nextAction, { shellLabel: 'Recovery — Shell', copilotLabel: 'Recovery — Copilot' }) : ''}
+      ${workspaceHandoff ? `<p>The approved capability map is now available to workspace creation.</p>
+      <div class="actions"><button class="primary" data-action="create-workspace" ${busy ? 'disabled' : ''}>${icon('workspace')} Create workspace</button></div>` : ''}</div>`
     : `<div class="notice governance-warning"><p><strong>Activation is waiting.</strong> ${escape(
       activated.failure?.message ?? `Status: ${activated.status ?? 'review-required'}.`
     )}</p>${activated.externalAction
@@ -130,11 +138,15 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       </details>
     </section>
     <section class="next">
-      ${proposal.merged
+      ${activationComplete
+        ? workspaceHandoff
+          ? '<p class="muted">Activation is complete. Create a workspace above to work with the approved capability.</p>'
+          : '<p class="muted">Activation is complete. The approved configuration is now current.</p>'
+        : proposal.merged
         ? '<p class="muted">Record the activation audit and publish the capability projection for this already merged commit.</p>'
         : `<p class="muted">Merge and acknowledge authorizes one exact leased update of <code>${escape(proposal.proposalCommit)}</code> to <code>${escape(proposal.targetBranch)}</code> if the repository permits direct pushes. Branch protection and server hooks still apply.</p>`}
       <div class="actions">
-        <button class="primary" data-action="activate" ${busy || !proposal.valid || activationComplete && Boolean(activated) ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated && !activationComplete ? `Retry merge and acknowledge ${escape(proposal.proposalCommit.slice(0, 12))}` : `Merge and acknowledge ${escape(proposal.proposalCommit.slice(0, 12))}`}</button>
+        ${activationComplete ? '' : `<button class="primary" data-action="activate" ${busy || !proposal.valid ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated ? `Retry merge and acknowledge ${escape(proposal.proposalCommit.slice(0, 12))}` : `Merge and acknowledge ${escape(proposal.proposalCommit.slice(0, 12))}`}</button>`}
         ${packagedRepairAvailable
           ? `<button class="secondary" data-action="repair" ${busy ? 'disabled' : ''}>${icon('refresh')} Prepare compatibility repair</button>` : ''}
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
@@ -160,6 +172,7 @@ export class CapabilityProposalPanel {
   private busy = false;
   private error: string | null = null;
   private activated: ActivationResult | null = null;
+  private capabilityId: string | null;
   private readonly activationCallbacks = new Set<(result: ActivationResult) => Promise<void>>();
 
   private constructor(
@@ -167,9 +180,11 @@ export class CapabilityProposalPanel {
     private readonly lead: string,
     private readonly branch: string,
     private readonly run: Run,
-    onActivated?: (result: ActivationResult) => Promise<void>
+    onActivated?: (result: ActivationResult) => Promise<void>,
+    capabilityId?: string | null
   ) {
     if (onActivated) this.activationCallbacks.add(onActivated);
+    this.capabilityId = capabilityId?.trim() || null;
     this.panel = vscode.window.createWebviewPanel(
       'singularityFlow.capabilityProposal', 'Capability proposal review', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true,
@@ -189,15 +204,17 @@ export class CapabilityProposalPanel {
   }
 
   static show(context: vscode.ExtensionContext, lead: string, branch: string, run: Run,
-    onActivated?: (result: ActivationResult) => Promise<void>): CapabilityProposalPanel {
+    onActivated?: (result: ActivationResult) => Promise<void>,
+    capabilityId?: string | null): CapabilityProposalPanel {
     const key = `${lead}\n${branch}`;
     const existing = this.current.get(key);
     if (existing) {
       if (onActivated) existing.activationCallbacks.add(onActivated);
+      if (capabilityId?.trim()) existing.capabilityId = capabilityId.trim();
       existing.panel.reveal(vscode.ViewColumn.Active);
       return existing;
     }
-    const created = new CapabilityProposalPanel(context, lead, branch, run, onActivated);
+    const created = new CapabilityProposalPanel(context, lead, branch, run, onActivated, capabilityId);
     this.current.set(key, created);
     return created;
   }
@@ -205,7 +222,8 @@ export class CapabilityProposalPanel {
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page('Capability proposal review',
-      reviewHtml(this.proposal, this.busy, this.error, this.activated),
+      reviewHtml(this.proposal, this.busy, this.error, this.activated,
+        offersWorkspaceHandoff(this.branch, this.capabilityId)),
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 
@@ -222,6 +240,20 @@ export class CapabilityProposalPanel {
 
   private async receive(message: { type?: string }): Promise<void> {
     if (message.type === 'refresh') return this.load();
+    if (message.type === 'create-workspace') {
+      if (!capabilityActivationSucceeded(this.activated) || this.busy
+        || !offersWorkspaceHandoff(this.branch, this.capabilityId)) return;
+      try {
+        await vscode.commands.executeCommand('singularityFlow.createWorkspace', {
+          organisation: this.lead,
+          capabilityId: this.capabilityId
+        });
+      } catch (error) {
+        this.error = `Could not open workspace creation: ${error instanceof Error ? error.message : String(error)}`;
+        this.render();
+      }
+      return;
+    }
     if (message.type === 'copy') {
       await vscode.env.clipboard.writeText(this.branch);
       void vscode.window.showInformationMessage('Capability proposal branch copied.');

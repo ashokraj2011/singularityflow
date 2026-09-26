@@ -1383,9 +1383,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }));
           }
           await workspacePanel.refreshCapabilityMap({
-            capabilityId: mapped.capabilityId,
+            capabilityId: guidedStart ? mapped.capabilityId : null,
             organisation: mapped.lead
-          });
+          }, { reveal: guidedStart });
         }
       );
     }, {
@@ -2092,6 +2092,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!mapped.reviewRequired || !mapped.branch) {
         void vscode.window.showInformationMessage(`${mapped.capabilityId} is already active on ${mapped.baseBranch}.`);
         if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
+        else {
+          const { WorkspacePanel } = lazyPanels();
+          await WorkspacePanel.refreshOpenCapabilityMap({
+            organisation: mapped.lead
+          });
+        }
         if (refreshStoriesAfterMapping) void refreshStoriesAfterMapping().catch((error) => {
           output.appendLine(`Story discovery after capability mapping needs attention: ${(error as Error).message}`);
         });
@@ -2102,10 +2108,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A retained workspace form contains the user's unsaved directory and identity choices.
         // Refresh that form only after activation, when the capability is genuinely selectable.
         if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
+        else {
+          const { WorkspacePanel } = lazyPanels();
+          await WorkspacePanel.refreshOpenCapabilityMap({
+            organisation: mapped.lead
+          });
+        }
         if (refreshStoriesAfterMapping) void refreshStoriesAfterMapping().catch((error) => {
           output.appendLine(`Story discovery after capability activation needs attention: ${(error as Error).message}`);
         });
-      });
+      }, mapped.capabilityId);
     }, initial);
   }));
 
@@ -2131,7 +2143,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { CapabilityProposalsPanel } = lazyPanels();
       CapabilityProposalsPanel.show(context, run, (lead, branch) => {
         void Promise.resolve(lazyPanels()).then(({ CapabilityProposalPanel }) => {
-          CapabilityProposalPanel.show(context, lead, branch, run);
+          CapabilityProposalPanel.show(context, lead, branch, run, async () => {
+            const { WorkspacePanel } = lazyPanels();
+            await WorkspacePanel.refreshOpenCapabilityMap({ organisation: lead });
+            if (refreshStoriesAfterMapping) void refreshStoriesAfterMapping().catch((error) => {
+              output.appendLine(`Story discovery after capability activation needs attention: ${(error as Error).message}`);
+            });
+          });
         });
       });
     }

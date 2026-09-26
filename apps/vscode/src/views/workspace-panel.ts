@@ -82,6 +82,7 @@ export class WorkspacePanel {
   private journey: StartWizardProgress | null;
   private preferredOrganisation: string | null;
   private preferredCapabilityId: string | null;
+  private mapReadGeneration = 0;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -118,7 +119,7 @@ export class WorkspacePanel {
  this.router.route(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
-    void this.loadOrganisations();
+    void this.loadOrganisations(Boolean(initial.organisation), true);
   }
 
   static show(
@@ -130,15 +131,18 @@ export class WorkspacePanel {
     initial: WorkspaceLaunch = {}
   ): WorkspacePanel {
     if (WorkspacePanel.current) {
-      // Entering the guided journey establishes a new target and callback chain. Do not reveal a
-      // retained ordinary draft whose capability selection belongs to an earlier visit.
-      if (initial.journey || initial.organisation || initial.capabilityId) {
+      // A guided journey has its own completion callback. Switching into or out of it needs a new
+      // panel; ordinary Create workspace visits can keep the retained draft.
+      if (initial.journey || WorkspacePanel.current.journey) {
         WorkspacePanel.current.dispose();
       } else {
         WorkspacePanel.current.panel.reveal(vscode.ViewColumn.Active);
-        // A capability may have been mapped while this retained panel was hidden. Re-read rather than
-        // revealing the stale "no capabilities" snapshot that originally opened the form.
-        void WorkspacePanel.current.refreshCapabilityMap();
+        // A mapped capability can bring the person back here with a selected organisation. Keep
+        // their unsaved directory, name and profile while reading the newly approved map.
+        void WorkspacePanel.current.refreshCapabilityMap({
+          organisation: initial.organisation,
+          capabilityId: initial.capabilityId
+        }, { reveal: false });
         return WorkspacePanel.current;
       }
     }
@@ -151,6 +155,13 @@ export class WorkspacePanel {
     WorkspacePanel.current = new WorkspacePanel(
       panel, context, location, output, onCreated, onOpenCapabilities, initial);
     return WorkspacePanel.current;
+  }
+
+  /** Refresh a retained draft after activation while leaving its review receipt in front. */
+  static async refreshOpenCapabilityMap(preferred: {
+    organisation?: string | null; capabilityId?: string | null
+  } = {}): Promise<void> {
+    await WorkspacePanel.current?.refreshCapabilityMap(preferred, { reveal: false });
   }
 
   private render(): void {
@@ -181,36 +192,75 @@ export class WorkspacePanel {
    * A single organisation is the ordinary case, and asking which of one to use is a question with no
    * information in it.
    */
-  private async loadOrganisations(refresh = false): Promise<void> {
+  private async loadOrganisations(refresh = false, selectPreferred = false): Promise<void> {
+    const generation = ++this.mapReadGeneration;
     let leads: { url?: string }[] = [];
+    let leadError: string | null = null;
     try {
       leads = await this.client().run<{ url?: string }[]>(['capability', 'leads', '--json']);
     } catch (error) {
-      this.update({ error: (error as Error).message });
-      return;
+      leadError = (error as Error).message;
     }
-    const organisations = leads.map((lead) => lead.url ?? '').filter(Boolean);
+    if (this.disposed || generation !== this.mapReadGeneration) return;
+    const organisations = [...new Set(leads.map((lead) => lead.url ?? '').filter(Boolean))];
+    // A proposal can be activated on another laptop before its local lead registry is populated.
+    // Also keep a selected draft if its registry entry temporarily disappears. Both are checked
+    // against the approved remote map before becoming usable for workspace creation.
+    const verifiedMaps = new Map<string, Organisation>();
+    const readErrors = new Map<string, string>();
+    const candidates = [...new Set([this.preferredOrganisation, this.form.organisation]
+      .filter((url): url is string => Boolean(url)))];
+    for (const candidate of candidates) {
+      if (organisations.includes(candidate)) continue;
+      try {
+        const verified = await this.client().run<Organisation>([
+          'capability', 'organisation', candidate, '--refresh', '--json'
+        ]);
+        verifiedMaps.set(candidate, verified);
+        organisations.push(candidate);
+      } catch (error) {
+        readErrors.set(candidate, (error as Error).message);
+      }
+    }
+    if (this.disposed || generation !== this.mapReadGeneration) return;
     const only = organisations.length === 1 ? organisations[0] : null;
     const current = this.form.organisation && organisations.includes(this.form.organisation)
       ? this.form.organisation
       : null;
     const preferred = this.preferredOrganisation && organisations.includes(this.preferredOrganisation)
       ? this.preferredOrganisation : null;
-    const selected = current ?? preferred ?? only;
+    const selected = selectPreferred && this.preferredOrganisation
+      ? preferred ?? current ?? this.form.organisation
+      : current ?? this.form.organisation ?? preferred ?? only;
+    const preserveSelection = selected === this.form.organisation;
+    const selectionVerified = Boolean(selected && organisations.includes(selected));
+    const selectedError = selected ? readErrors.get(selected) ?? null : null;
+    // Retain a previously selected URL as a draft even when its remote cannot currently be read.
+    // It is shown for continuity, but has no capability map and cannot pass formProblems().
+    if (selected && !selectionVerified) organisations.push(selected);
     this.update({
       organisations,
       organisation: selected,
       capabilities: null,
-      capabilitiesReason: null,
+      capabilitiesReason: selectionVerified ? null : selectedError ?? leadError,
+      capabilitiesReadFailed: Boolean(selected && !selectionVerified),
       capabilitiesNotice: null,
-      reading: Boolean(selected),
-      error: null
+      selected: preserveSelection ? this.form.selected : [],
+      leadCapability: preserveSelection ? this.form.leadCapability : null,
+      reading: selectionVerified,
+      error: selectedError ?? (this.preferredOrganisation
+        ? readErrors.get(this.preferredOrganisation) ?? null : null)
+        ?? (organisations.length ? null : leadError)
     });
-    if (selected) await this.readOrganisation(selected, refresh);
+    if (selected && selectionVerified) await this.readOrganisation(selected, refresh, selectPreferred,
+      generation, verifiedMaps.get(selected) ?? null);
   }
 
   /** Return from capability setup without losing the workspace directory or identity already typed. */
-  async refreshCapabilityMap(preferred: { organisation?: string | null; capabilityId?: string | null } = {}): Promise<void> {
+  async refreshCapabilityMap(
+    preferred: { organisation?: string | null; capabilityId?: string | null } = {},
+    options: { reveal?: boolean } = {}
+  ): Promise<void> {
     if (preferred.organisation?.trim()) this.preferredOrganisation = preferred.organisation.trim();
     if (preferred.capabilityId?.trim()) {
       this.preferredCapabilityId = preferred.capabilityId.trim();
@@ -218,8 +268,8 @@ export class WorkspacePanel {
       if (!this.form.id) this.form.id = this.preferredCapabilityId;
       if (!this.form.name) this.form.name = workspaceNameFromId(this.preferredCapabilityId);
     }
-    this.panel.reveal(vscode.ViewColumn.Active);
-    await this.loadOrganisations(true);
+    if (options.reveal !== false) this.panel.reveal(vscode.ViewColumn.Active);
+    await this.loadOrganisations(true, Boolean(preferred.capabilityId?.trim()));
   }
 
   /**
@@ -229,12 +279,16 @@ export class WorkspacePanel {
    * remote. An organisation with no map is reported as the ordinary state of a new organisation
    * rather than as a failure, because the answer is to go and map one, not to try again.
    */
-  private async readOrganisation(url: string, refresh = false): Promise<void> {
+  private async readOrganisation(
+    url: string, refresh = false, selectPreferred = false,
+    generation = this.mapReadGeneration, preloaded: Organisation | null = null
+  ): Promise<void> {
     let capabilities: CapabilityChoice[] | null = null;
     let capabilitiesReason: string | null = null;
     let capabilitiesNotice: string | null = null;
+    let readFailed = false;
     try {
-      const organisation = await this.client().run<Organisation>(
+      const organisation = preloaded ?? await this.client().run<Organisation>(
         ['capability', 'organisation', url, ...(refresh ? ['--refresh'] : []), '--json']);
       capabilities = organisation.capabilities
         ? capabilityChoices(organisation.capabilities, organisation.repositories ?? {})
@@ -248,19 +302,39 @@ export class WorkspacePanel {
         capabilitiesReason = 'This organisation does not describe what it builds yet.';
       }
     } catch (error) {
+      readFailed = true;
       capabilitiesReason = (error as Error).message;
     }
-    const preferred = capabilities?.find((capability) => capability.id === this.preferredCapabilityId) ?? null;
+    if (this.disposed || generation !== this.mapReadGeneration || this.form.organisation !== url) return;
+    if (readFailed) {
+      // The last verified tree is unavailable, so the form cannot create a workspace. Keep only
+      // the person's draft IDs/lead until a later successful read can reconcile them.
+      this.update({
+        capabilities: null, capabilitiesReason, capabilitiesReadFailed: true,
+        capabilitiesNotice: null, reading: false
+      });
+      return;
+    }
+    const selected = this.form.selected.filter((id) => capabilities?.some((capability) => capability.id === id));
+    const preferred = selectPreferred
+      ? capabilities?.find((capability) => capability.id === this.preferredCapabilityId) ?? null
+      : null;
+    if (preferred && !selected.includes(preferred.id)) selected.push(preferred.id);
+    const shipping = shippingCapabilities({ ...this.form, capabilities, selected });
+    const leadCapability = shipping.some((capability) => capability.id === this.form.leadCapability)
+      ? this.form.leadCapability
+      : preferred?.repository && shipping.some((capability) => capability.id === preferred.id)
+        ? preferred.id : null;
     this.update({
-      capabilities, capabilitiesReason, capabilitiesNotice,
-      selected: preferred ? [preferred.id] : [],
-      leadCapability: preferred?.repository ? preferred.id : null,
+      capabilities, capabilitiesReason, capabilitiesReadFailed: false, capabilitiesNotice,
+      selected,
+      leadCapability,
       reading: false
     });
   }
 
   /**
-   * The six messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   * The messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
    *
    * Every resolution against a known set is unchanged, and there are four of them — a capability id,
    * a profile role, an organisation URL and a lead capability are each checked against what this
@@ -279,6 +353,9 @@ export class WorkspacePanel {
       const target = stringField(message, 'what');
       if (target === 'capabilities') void this.onOpenCapabilities();
       if (target === 'repository') void this.onOpenCapabilities({ chooseRepository: true });
+    },
+    refresh: () => {
+      if (!this.form.busy) void this.refreshCapabilityMap({}, { reveal: false });
     },
     capability: (message) => {
       const id = stringField(message, 'id');
@@ -323,13 +400,14 @@ export class WorkspacePanel {
     if (field === 'organisation') {
       // Changing the organisation invalidates everything read from the last one. Keeping a
       // selection from a different map would be worse than asking again.
+      const generation = ++this.mapReadGeneration;
       const url = this.form.organisations.includes(value) ? value : null;
       this.update({
         organisation: url, capabilities: null, capabilitiesReason: null,
-        capabilitiesNotice: null,
+        capabilitiesReadFailed: false, capabilitiesNotice: null,
         selected: [], leadCapability: null, reading: Boolean(url), error: null
       });
-      if (url) await this.readOrganisation(url);
+      if (url) await this.readOrganisation(url, false, false, generation);
       return;
     }
     if (field === 'lead-capability') {

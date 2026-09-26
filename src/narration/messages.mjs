@@ -21,6 +21,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Inspected candidate skill ${slot(s.skillId)} (${slot(s.files)} files, ${slot(s.proposedFields)} proposed fields, ${slot(s.findings)} findings). Inspection did not approve or execute the package. Use --json for exact candidates and package identity.`,
     preserves: true
   },
+  'skill.approved-inspected': {
+    headline: (s) => `Inspected approved-configuration skill ${slot(s.skillId)} (${slot(s.files)} files, ${slot(s.proposedFields)} proposed fields, ${slot(s.findings)} findings). Inspection did not make the package executable. Use --json for the source commit and exact package identity.`,
+    preserves: true
+  },
   'fos.repository-attached': {
     headline: (s) => `Repository authority attachment is ${slot(s.status)}${s.authority ? ` (${slot(s.authority)})` : ''}.`,
     preserves: false

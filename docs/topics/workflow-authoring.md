@@ -13,6 +13,7 @@ questions:
   - How do I export or import several workflows with their dependencies?
   - How do I duplicate a workflow without duplicating its shared phase contracts?
   - How do I inspect a local skill before proposing it as a workflow phase?
+  - How do I inspect a skill in approved configuration?
 commands:
   - workflow
   - configuration
@@ -21,7 +22,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 15
+version: 16
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -35,7 +36,8 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
   `workflow copy` for portable workflow operations. Add `--propose` when authoring from an
   application or active Story checkout. Run `singularity-flow workflow --help` for the exact forms
   supported by this build. Use `singularity-flow skill inspect <LOCAL-DIRECTORY> --json` for a
-  read-only, local skill package preview.
+  read-only, local skill package preview. Use `singularity-flow skill approved <ID> --json` to
+  inspect a skill retained by the repository or workspace's verified approved configuration.
 - **Copilot:** `/sf-workflows`. Ask it to export, import, or copy the selected workflows; it must show
   the exact deterministic preview and stop for confirmation before an import or copy mutation.
 - **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. The Designer
@@ -67,6 +69,21 @@ It does not run scripts, fetch linked URLs, or call a model. Local Markdown link
 captured files. It refuses symlinks, non-portable or colliding paths, missing resources, changed
 files, and limits above 256 files, 256 KiB for `SKILL.md`, 1 MiB per other file, or 8 MiB total.
 The preview is not a runnable phase; a separate reviewed authoring flow must confirm its contract.
+
+## Inspect an approved skill package
+
+From a repository or active workspace, select the exact approved skill ID:
+
+```bash
+singularity-flow skill approved threat-model --json
+singularity-flow skill approved threat-model --expected-package-sha256 sha256:<64-hex-digits> --json
+```
+
+This reads a verified approved configuration snapshot and returns the source `sflow/config` commit,
+the package digest, candidates, findings, and package-inspector costs. Git and remote authority read
+costs are not included in those metrics. It checks the retained file hashes in
+memory and does not write to the checkout. A supplied expected digest must match exactly. The
+inspection still does not admit execution or assert that an active Story contains the same revision.
 
 ## Shared configuration proposals
 

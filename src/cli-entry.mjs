@@ -70,9 +70,9 @@ export function excludesActiveWorkspaceRouting(
   command, subcommand = null, options = {}, action = null
 ) {
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
-    // The skill namespace is currently read-only inspection of an explicit local directory.
-    // Even an invalid action must not discover Git or switch machine-selected workspaces.
-    || command === 'skill'
+    // Local skill inspection reads an explicit directory and remains repository-independent.
+    // Approved inspection selects the current repository or active workspace's authority.
+    || (command === 'skill' && subcommand !== 'approved')
     // Documentation topics remain machine-local and repository-independent. Code explanation is
     // deliberately repository-bound and may use the repository selected by `workspace use` when
     // Copilot starts from a neutral directory.
@@ -506,7 +506,8 @@ export async function main(argv) {
   // Product reinstall is intentionally not a repository operation. Resolving a root would invoke
   // Git before the command even reached its strict no-repository transaction boundary.
   const localOnlyRequest = effectiveArgv[0] === 'reinstall'
-    || effectiveArgv[0] === 'skill';
+    || (effectiveArgv[0] === 'skill'
+      && parseArgs(effectiveArgv).positionals[1] !== 'approved');
   let root = null;
   const argvSha256 = createHash('sha256').update(JSON.stringify(effectiveArgv)).digest('hex');
   /**

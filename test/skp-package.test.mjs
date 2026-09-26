@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  assertSkillPackagePath, assertStableSkillCapture, inspectSkillPackage,
+  assertSkillPackagePath, assertStableSkillCapture, inspectSkillPackage, inspectSkillPackageContents,
   readBoundedSkillFile, SKP_CAPTURE_LIMITS, verifySkillPackage
 } from '../src/skp-package.mjs';
 
@@ -34,6 +34,120 @@ test('membership digest is portable across file creation order and source direct
   await writeFile(path.join(second.directory, 'references', 'z.md'), 'z\n');
   const changed = await inspectSkillPackage(second.directory);
   assert.notEqual(changed.manifest.packageSha256, one.manifest.packageSha256);
+});
+
+test('supplied exact bytes seal the same package and findings as a selected directory', async (t) => {
+  const { directory } = await fixture(t);
+  const entry = Buffer.from('# Example\r\n## Outputs\r\n- `artifacts/report.md`\r\n'
+    + 'Read [guide](references/guide.md).\r\nEdit source files.\r\n');
+  const declaration = Buffer.from(JSON.stringify({
+    format: 'sflow-skill-declarations/v1',
+    outputs: [{ id: 'report', path: 'artifacts/report.md' }],
+    capabilityRequests: ['read source tree']
+  }));
+  const reference = Buffer.from([0, 13, 10, 255]);
+  await writeFile(path.join(directory, 'SKILL.md'), entry);
+  await writeFile(path.join(directory, 'sflow-skill.json'), declaration);
+  await mkdir(path.join(directory, 'references'));
+  await writeFile(path.join(directory, 'references', 'guide.md'), reference);
+  await mkdir(path.join(directory, 'scripts'));
+  await writeFile(path.join(directory, 'scripts', 'hook.sh'), Buffer.from('exit 1\n'));
+  const disk = await inspectSkillPackage(directory);
+  const supplied = new Map([
+    ['scripts/hook.sh', Buffer.from('exit 1\n')],
+    ['references/guide.md', reference],
+    ['sflow-skill.json', declaration],
+    ['SKILL.md', entry]
+  ]);
+  const memory = inspectSkillPackageContents('portable-skill', supplied, {
+    expectedPackageSha256: disk.manifest.packageSha256
+  });
+  assert.deepEqual(memory.manifest, disk.manifest);
+  assert.deepEqual(memory.proposals, disk.proposals);
+  assert.deepEqual(memory.findings, disk.findings);
+  assert.deepEqual(memory.contents.get('references/guide.md'), reference);
+  assert.equal(verifySkillPackage(memory).verified, true);
+  assert.deepEqual(memory.source, { kind: 'in-memory' });
+  assert.deepEqual(memory.metrics, { ...disk.metrics, fileReads: 0 });
+
+  entry[0] = 0;
+  supplied.set('references/guide.md', Buffer.from('changed'));
+  assert.equal(verifySkillPackage(memory).verified, true);
+  assert.equal(memory.contents.get('SKILL.md')[0], '#'.charCodeAt(0));
+  assert.deepEqual(memory.contents.get('references/guide.md'), reference);
+});
+
+test('supplied package rejects missing entry, invalid values, paths, aliases, and drift', () => {
+  const entry = Buffer.from('# Example\n');
+  const valid = new Map([['SKILL.md', entry]]);
+  const digest = inspectSkillPackageContents('example', valid).manifest.packageSha256;
+  assert.equal(inspectSkillPackageContents('example', valid,
+    { expectedPackageSha256: digest }).manifest.packageSha256, digest);
+  assert.throws(() => inspectSkillPackageContents('example', valid,
+    { expectedPackageSha256: `sha256:${'0'.repeat(64)}` }), { code: 'SKP_SKILL_DRIFT' });
+  assert.throws(() => inspectSkillPackageContents('example', valid,
+    { expectedPackageSha256: 'bad' }), { code: 'SKP_SKILL_DRIFT' });
+  assert.throws(() => inspectSkillPackageContents('Example', valid), { code: 'SKP_ID_CASE_COLLISION' });
+  assert.throws(() => inspectSkillPackageContents('example', {}), { code: 'SKP_PACKAGE_CORRUPT' });
+  assert.throws(() => inspectSkillPackageContents('example', new Map([['SKILL.md', '# Example\n']])),
+    { code: 'SKP_PACKAGE_CORRUPT' });
+  assert.throws(() => inspectSkillPackageContents('example', new Map([['skill.md', entry]])),
+    { code: 'SKP_SKILL_MISSING' });
+  for (const invalid of ['../escape.md', 'a\\b.md', '.env', 'CON.txt', 'a//b.md', 'e\u0301.md']) {
+    assert.throws(() => inspectSkillPackageContents('example', new Map([
+      ['SKILL.md', entry], [invalid, Buffer.alloc(0)]
+    ])), { code: 'SKP_PATH_REFUSED' }, invalid);
+  }
+  assert.throws(() => inspectSkillPackageContents('example', new Map([
+    ['SKILL.md', entry], ['a'.repeat(SKP_CAPTURE_LIMITS.pathBytes + 1), Buffer.alloc(0)]
+  ])), { code: 'SKP_BUDGET_EXCEEDED' });
+  for (const aliases of [
+    ['Guide.md', 'guide.md'],
+    ['ﬀ.md', 'ff.md'],
+    ['References/a.md', 'references/b.md'],
+    ['foo', 'foo/bar.md']
+  ]) {
+    assert.throws(() => inspectSkillPackageContents('example', new Map([
+      ['SKILL.md', entry], ...aliases.map((name) => [name, Buffer.alloc(0)])
+    ])), { code: 'SKP_ID_CASE_COLLISION' });
+  }
+  assert.throws(() => inspectSkillPackageContents('example', new Map([
+    ['SKILL.md', Buffer.from('# Example\nRead [guide](references/guide.md).\n')]
+  ])), { code: 'SKP_SKILL_MISSING' });
+  assert.throws(() => inspectSkillPackageContents('example', new Map([
+    ['SKILL.md', entry],
+    ['sflow-skill.json', Buffer.from('{"format":"sflow-skill-declarations/v1","allowedTools":["shell"]}')]
+  ])), { code: 'SKP_MANIFEST_INVALID' });
+});
+
+test('supplied package enforces file, directory, depth, per-file, and total budgets', () => {
+  const entry = Buffer.from('# Example\n');
+  const packageWith = (path, bytes) => new Map([['SKILL.md', entry], [path, bytes]]);
+  const assertBudget = (capture, dimension) => assert.throws(capture,
+    (error) => error.code === 'SKP_BUDGET_EXCEEDED' && error.details?.dimension === dimension);
+  assertBudget(() => inspectSkillPackageContents('example', packageWith('guide.md',
+    Buffer.alloc(SKP_CAPTURE_LIMITS.referenceBytes + 1))), 'referenceBytes');
+  assertBudget(() => inspectSkillPackageContents('example', new Map([
+    ['SKILL.md', Buffer.alloc(SKP_CAPTURE_LIMITS.entryBytes + 1)]
+  ])), 'entryBytes');
+  assertBudget(() => inspectSkillPackageContents('example', packageWith(
+    `${Array.from({ length: SKP_CAPTURE_LIMITS.depth + 1 }, (_, i) => `d${i}`).join('/')}/guide.md`,
+    Buffer.alloc(0))), 'depth');
+  const tooManyFiles = new Map([['SKILL.md', entry]]);
+  for (let index = 0; index < SKP_CAPTURE_LIMITS.files; index += 1) {
+    tooManyFiles.set(`f${index}.md`, Buffer.alloc(0));
+  }
+  assertBudget(() => inspectSkillPackageContents('example', tooManyFiles), 'files');
+  const tooManyDirectories = new Map([['SKILL.md', entry]]);
+  for (let index = 0; index < SKP_CAPTURE_LIMITS.files - 1; index += 1) {
+    tooManyDirectories.set(`a${index}/b${index}/c${index}/guide.md`, Buffer.alloc(0));
+  }
+  assertBudget(() => inspectSkillPackageContents('example', tooManyDirectories), 'directories');
+  const tooManyBytes = new Map([['SKILL.md', entry]]);
+  for (let index = 0; index < 9; index += 1) {
+    tooManyBytes.set(`r${index}.bin`, Buffer.alloc(SKP_CAPTURE_LIMITS.referenceBytes));
+  }
+  assertBudget(() => inspectSkillPackageContents('example', tooManyBytes), 'totalBytes');
 });
 
 test('selected source drift refuses a new binding while retained bytes still verify', async (t) => {

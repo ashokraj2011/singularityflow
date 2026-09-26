@@ -46,6 +46,8 @@ import {
 } from './configuration-assets.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 import { recordSha256 } from './records.mjs';
+import { readLocalGitBlobs } from './git-blob-batch.mjs';
+import { assertSkillPackagePath, SKP_CAPTURE_LIMITS } from './skp-package.mjs';
 import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
@@ -1611,6 +1613,77 @@ function missingStoryConfigurationWorkflow(authority, sourceCommit) {
   );
 }
 
+/** Keep the complete skill subtree of the approved commit, including entries a checkout skips. */
+function approvedSkillTreeEntries(root, env) {
+  const listed = run('git', [
+    'ls-tree', '-r', '-z', '--full-tree',
+    '--format=%(objectmode) %(objectname) %(path)', 'HEAD', '--', 'singularity/skills'
+  ], { cwd: root, env, encoding: 'buffer', timeoutClass: 'local-read' }).stdout;
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const entries = new Map();
+  const aliases = new Map();
+  let cursor = 0;
+  while (cursor < listed.length) {
+    const end = listed.indexOf(0, cursor);
+    if (end < 0) {
+      throw new SingularityFlowError('Approved skill tree listing was truncated.', {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+      });
+    }
+    const record = listed.subarray(cursor, end);
+    const first = record.indexOf(0x20);
+    const second = record.indexOf(0x20, first + 1);
+    let relative;
+    try { relative = decoder.decode(record.subarray(second + 1)); }
+    catch {
+      throw new SingularityFlowError('Approved skill tree contains a non-UTF-8 path.', {
+        code: 'SKP_PATH_REFUSED'
+      });
+    }
+    const mode = record.toString('ascii', 0, first);
+    const object = record.toString('ascii', first + 1, second);
+    const prefix = 'singularity/skills/';
+    if (first < 0 || second < 0 || !relative.startsWith(prefix)
+        || !/^100(?:644|755)$/.test(mode)
+        || !/^[0-9a-f]{40,64}$/.test(object)) {
+      throw new SingularityFlowError(`Approved skill tree contains an unsupported entry: ${relative}.`, {
+        code: 'CONFIGURATION_ASSET_NOT_REGULAR', details: { paths: [relative] }
+      });
+    }
+    const parts = relative.slice(prefix.length).split('/');
+    const skillId = parts.shift();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(skillId ?? '') || !parts.length) {
+      throw new SingularityFlowError(`Approved skill tree contains an invalid skill path: ${relative}.`, {
+        code: 'SKP_PATH_REFUSED', details: { paths: [relative] }
+      });
+    }
+    const skillPath = parts.join('/');
+    assertSkillPackagePath(skillPath);
+    for (let depth = 1; depth <= parts.length; depth += 1) {
+      const segmentPath = parts.slice(0, depth).join('/');
+      const alias = `${skillId}/${assertSkillPackagePath(segmentPath)}`;
+      const kind = depth === parts.length ? 'file' : 'directory';
+      const previous = aliases.get(alias);
+      if (previous && (previous.path !== segmentPath || previous.kind !== kind)) {
+        throw new SingularityFlowError(
+          `Approved skill tree paths '${previous.path}' and '${segmentPath}' alias.`, {
+            code: 'SKP_ID_CASE_COLLISION', details: { paths: [previous.path, segmentPath] }
+          }
+        );
+      }
+      aliases.set(alias, { path: segmentPath, kind });
+    }
+    if (entries.has(relative)) {
+      throw new SingularityFlowError(`Approved skill tree repeats '${relative}'.`, {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+      });
+    }
+    entries.set(relative, { relative, mode, object, skillId, skillPath });
+    cursor = end + 1;
+  }
+  return entries;
+}
+
 async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   observedCommit,
   sourceCommit,
@@ -1626,17 +1699,83 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   if (!workflow) throw missingStoryConfigurationWorkflow(authority, sourceCommit);
   const definition = retainedDefinition ?? await loadDefinition(scratch);
   const assets = [];
+  // The clone was obtained under frozen enterprise Git policy. Keep every subsequent tree/blob
+  // query on that same authority boundary; ambient GIT_DIR, alternates, and command-scoped config
+  // must not retarget only the package read after the remote commit was verified.
+  const gitEnv = mirror ? null : enterpriseGitEnvironment(env);
   const treeEntries = mirror?.assets
     ? new Map(Object.entries(mirror.assets))
-    : configurationTreeEntries(scratch, 'HEAD', null, { env });
-  for (const relative of await configurationAssetPaths(scratch)) {
+    : configurationTreeEntries(scratch, 'HEAD', null, { env: gitEnv });
+  // State mirrors were already materialized from Git blobs and checked against the manifest.
+  // Direct sflow/config clones may have checkout conversions, so the skill subtree is read from
+  // the commit objects after validating its complete raw tree membership.
+  const skillEntries = mirror ? new Map() : approvedSkillTreeEntries(scratch, gitEnv);
+  const assetPaths = await configurationAssetPaths(scratch);
+  if (!mirror) {
+    const retainedSkills = assetPaths.filter((relative) =>
+      relative.startsWith('singularity/skills/')).sort();
+    const approvedSkills = [...skillEntries.keys()].sort();
+    if (JSON.stringify(retainedSkills) !== JSON.stringify(approvedSkills)) {
+      throw new SingularityFlowError('Approved skill tree and retained configuration paths differ.', {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID',
+        details: { missing: approvedSkills.filter((relative) => !retainedSkills.includes(relative)),
+          unexpected: retainedSkills.filter((relative) => !skillEntries.has(relative)) }
+      });
+    }
+  }
+  const skillBlobs = new Map();
+  if (!mirror) {
+    const bySkill = new Map();
+    for (const entry of skillEntries.values()) {
+      const group = bySkill.get(entry.skillId) ?? [];
+      group.push(entry);
+      bySkill.set(entry.skillId, group);
+    }
+    for (const [skillId, entries] of bySkill) {
+      if (entries.length > SKP_CAPTURE_LIMITS.files) {
+        throw new SingularityFlowError(`Approved skill '${skillId}' exceeds its file limit.`, {
+          code: 'SKP_BUDGET_EXCEEDED', details: {
+            dimension: 'files', limit: SKP_CAPTURE_LIMITS.files, actual: entries.length
+          }
+        });
+      }
+      const blobs = readLocalGitBlobs(scratch, entries.map((entry) => entry.object), {
+        env: gitEnv, maximumBytes: SKP_CAPTURE_LIMITS.totalBytes,
+        maximumObjectBytes: SKP_CAPTURE_LIMITS.referenceBytes,
+        maximumBatchBytes: SKP_CAPTURE_LIMITS.totalBytes,
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID', limitCode: 'SKP_BUDGET_EXCEEDED',
+        label: `Approved skill '${skillId}'`
+      });
+      let totalBytes = 0;
+      for (const entry of entries) {
+        const contents = blobs.get(entry.object);
+        if (!contents || (entry.skillPath === 'SKILL.md'
+            && contents.length > SKP_CAPTURE_LIMITS.entryBytes)) {
+          throw new SingularityFlowError(`Approved skill entry is unavailable or too large: ${entry.relative}.`, {
+            code: contents ? 'SKP_BUDGET_EXCEEDED' : 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+          });
+        }
+        totalBytes += contents.length;
+        if (totalBytes > SKP_CAPTURE_LIMITS.totalBytes) {
+          throw new SingularityFlowError(`Approved skill '${skillId}' exceeds its byte limit.`, {
+            code: 'SKP_BUDGET_EXCEEDED', details: {
+              dimension: 'totalBytes', limit: SKP_CAPTURE_LIMITS.totalBytes, actual: totalBytes
+            }
+          });
+        }
+        skillBlobs.set(entry.relative, contents);
+      }
+    }
+  }
+  for (const relative of assetPaths) {
     const file = path.join(scratch, relative);
     const info = await lstat(file);
     if (!info.isFile() || info.isSymbolicLink()) {
       throw new SingularityFlowError(`Configuration asset must be a regular file: ${relative}`);
     }
-    const contents = Buffer.from(await readFile(file));
-    const treeEntry = treeEntries.get(relative);
+    const contents = skillBlobs.has(relative)
+      ? Buffer.from(skillBlobs.get(relative)) : Buffer.from(await readFile(file));
+    const treeEntry = skillEntries.get(relative) ?? treeEntries.get(relative);
     if (!treeEntry || !/^100(?:644|755)$/.test(treeEntry.mode)
         || !/^[0-9a-f]{40,64}$/.test(treeEntry.object ?? '')) {
       throw new SingularityFlowError(`Configuration asset has no canonical Git blob identity: ${relative}`);
@@ -1760,6 +1899,48 @@ export async function loadStoryConfigurationSnapshot(authority, { env = process.
     }
   }
   throw lastMoved;
+}
+
+/** Inspect one skill retained by an exact, verified approved configuration snapshot. */
+export async function inspectApprovedSkillPackage(snapshot, skillId, {
+  expectedPackageSha256
+} = {}) {
+  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
+    throw new SingularityFlowError(
+      'Approved skill inspection requires a verified Story configuration snapshot.',
+      { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+    );
+  }
+  if (typeof skillId !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(skillId)) {
+    throw new SingularityFlowError('Skill ID must be a portable lowercase kebab-case name.',
+      { code: 'SKP_ID_CASE_COLLISION' });
+  }
+  const prefix = `singularity/skills/${skillId}/`;
+  const contents = new Map();
+  for (const entry of snapshot.assets) {
+    if (!entry.relative.startsWith(prefix)) continue;
+    if (!Buffer.isBuffer(entry.contents)
+        || createHash('sha256').update(entry.contents).digest('hex') !== entry.sha256) {
+      throw new SingularityFlowError(
+        `Verified Story configuration snapshot changed in memory: ${entry.relative}.`,
+        { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+      );
+    }
+    const relative = entry.relative.slice(prefix.length);
+    if (!relative || contents.has(relative)) {
+      throw new SingularityFlowError('Approved skill snapshot contains a duplicate or empty path.',
+        { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' });
+    }
+    // Copy before the dynamic import yields; a caller holding the snapshot cannot change the
+    // bytes that the package inspector receives after this digest check.
+    contents.set(relative, Buffer.from(entry.contents));
+  }
+  const { inspectSkillPackageContents } = await import('./skp-package.mjs');
+  const capture = inspectSkillPackageContents(skillId, contents, { expectedPackageSha256 });
+  capture.source = Object.freeze({
+    kind: 'approved-configuration', branch: CONFIGURATION_BRANCH, commit: snapshot.sourceCommit
+  });
+  return capture;
 }
 
 async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPaths = null } = {}) {

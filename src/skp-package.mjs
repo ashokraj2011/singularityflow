@@ -524,6 +524,123 @@ export function skillInspectionView(capture) {
   }));
 }
 
+function assertSkillId(skillId) {
+  if (typeof skillId !== 'string' || !ID.test(skillId)) {
+    fail('SKP_ID_CASE_COLLISION', 'Skill ID must be a portable lowercase kebab-case name.');
+  }
+}
+
+function sealSkillPackage(skillId, contents, { source, directories, totalBytes, fileReads,
+  expectedPackageSha256 }) {
+  const files = [...contents].map(([relativePath, bytes]) => ({
+    path: relativePath, role: roleFor(relativePath), bytes: bytes.byteLength, sha256: sha256(bytes)
+  })).sort((left, right) => comparePortable(left.path, right.path));
+  const core = {
+    format: SKP_PACKAGE_FORMAT, skillId, entry: 'SKILL.md', files,
+    parserProfile: SKP_PARSER_PROFILE
+  };
+  const manifest = { ...core, packageSha256: packageDigest(core) };
+  if (expectedPackageSha256 !== undefined) {
+    if (!SHA256.test(expectedPackageSha256)) {
+      fail('SKP_SKILL_DRIFT', 'Expected skill package digest is invalid.');
+    }
+    if (manifest.packageSha256 !== expectedPackageSha256) {
+      fail('SKP_SKILL_DRIFT', 'Selected skill bytes differ from the confirmed package.');
+    }
+  }
+  verifySkillPackage({ manifest, contents });
+  const declarations = parseDeclarations(contents.get('sflow-skill.json'));
+  const inspection = inspectText(contents.get('SKILL.md'), declarations, new Set(contents.keys()));
+  for (const file of files) {
+    if (file.role === 'script') {
+      inspection.findings.push({ code: 'SKP_EFFECT_UNSUPPORTED',
+        message: `Script '${file.path}' was retained as inert bytes and requires separate operation admission.`,
+        source: { path: file.path } });
+    }
+  }
+  return {
+    source, manifest, contents,
+    proposals: inspection.proposals, findings: inspection.findings,
+    metrics: { files: files.length, directories, bytes: totalBytes, fileReads,
+      parserCalls: declarations ? 3 : 1, gitRequests: 0, remoteCalls: 0, modelCalls: 0 }
+  };
+}
+
+/** Capture exact supplied bytes without consulting a directory, Git, a remote, or a model. */
+export function inspectSkillPackageContents(skillId, suppliedContents, {
+  expectedPackageSha256
+} = {}) {
+  assertSkillId(skillId);
+  if (!(suppliedContents instanceof Map)) {
+    fail('SKP_PACKAGE_CORRUPT', 'Skill contents must be a map of portable paths to Buffer bytes.');
+  }
+  if (suppliedContents.size > SKP_CAPTURE_LIMITS.files) {
+    fail('SKP_BUDGET_EXCEEDED', `Skill package exceeds ${SKP_CAPTURE_LIMITS.files} files.`,
+      { dimension: 'files', limit: SKP_CAPTURE_LIMITS.files, actual: suppliedContents.size });
+  }
+  const entries = [...suppliedContents];
+  for (const [relativePath, bytes] of entries) {
+    assertSkillPackagePath(relativePath);
+    if (!Buffer.isBuffer(bytes)) {
+      fail('SKP_PACKAGE_CORRUPT', `Skill file '${relativePath}' must contain exact Buffer bytes.`);
+    }
+  }
+  entries.sort(([left], [right]) => comparePortable(left, right));
+  const aliases = new Map();
+  const directories = new Set(['']);
+  const contents = new Map();
+  let totalBytes = 0;
+  function register(relativePath, kind) {
+    const alias = assertSkillPackagePath(relativePath);
+    const previous = aliases.get(alias);
+    if (previous && (previous.path !== relativePath || previous.kind !== kind)) {
+      fail('SKP_ID_CASE_COLLISION',
+        `Skill paths '${previous.path}' and '${relativePath}' alias on a supported filesystem.`,
+        { paths: [previous.path, relativePath] });
+    }
+    aliases.set(alias, { path: relativePath, kind });
+  }
+  for (const [relativePath, bytes] of entries) {
+    const parts = relativePath.split('/');
+    const depth = parts.length - 1;
+    if (depth > SKP_CAPTURE_LIMITS.depth) {
+      fail('SKP_BUDGET_EXCEEDED', `Skill package exceeds directory depth ${SKP_CAPTURE_LIMITS.depth}.`,
+        { dimension: 'depth', limit: SKP_CAPTURE_LIMITS.depth, path: parts.slice(0, -1).join('/') });
+    }
+    for (let index = 1; index < parts.length; index += 1) {
+      const directory = parts.slice(0, index).join('/');
+      register(directory, 'directory');
+      directories.add(directory);
+      if (directories.size > SKP_CAPTURE_LIMITS.directories) {
+        fail('SKP_BUDGET_EXCEEDED', `Skill package exceeds ${SKP_CAPTURE_LIMITS.directories} directories.`,
+          { dimension: 'directories', limit: SKP_CAPTURE_LIMITS.directories,
+            actual: directories.size });
+      }
+    }
+    register(relativePath, 'file');
+    const maxBytes = relativePath === 'SKILL.md'
+      ? SKP_CAPTURE_LIMITS.entryBytes : SKP_CAPTURE_LIMITS.referenceBytes;
+    if (bytes.byteLength > maxBytes) {
+      fail('SKP_BUDGET_EXCEEDED', `Skill file '${relativePath}' exceeds ${maxBytes} bytes.`,
+        { dimension: relativePath === 'SKILL.md' ? 'entryBytes' : 'referenceBytes',
+          path: relativePath, limit: maxBytes, actual: bytes.byteLength });
+    }
+    totalBytes += bytes.byteLength;
+    if (totalBytes > SKP_CAPTURE_LIMITS.totalBytes) {
+      fail('SKP_BUDGET_EXCEEDED', `Skill package exceeds ${SKP_CAPTURE_LIMITS.totalBytes} total bytes.`,
+        { dimension: 'totalBytes', limit: SKP_CAPTURE_LIMITS.totalBytes, actual: totalBytes });
+    }
+    contents.set(relativePath, Buffer.from(bytes));
+  }
+  if (!contents.has('SKILL.md')) {
+    fail('SKP_SKILL_MISSING', 'Skill contents must contain an exact SKILL.md entry.');
+  }
+  return sealSkillPackage(skillId, contents, {
+    source: { kind: 'in-memory' }, directories: directories.size, totalBytes,
+    fileReads: 0, expectedPackageSha256
+  });
+}
+
 /**
  * Capture exact bytes and return only evidence-bearing suggestions. The selected directory is
  * inspected twice; a content or membership change between passes refuses the entire candidate.
@@ -546,45 +663,15 @@ export async function inspectSkillPackage(selectedDirectory, {
     fail('SKP_PATH_REFUSED', 'Selected skill directory must be an ordinary local directory.');
   }
   const id = skillId ?? path.basename(directory);
-  if (!ID.test(id)) {
-    fail('SKP_ID_CASE_COLLISION', 'Skill ID must be a portable lowercase kebab-case name.');
-  }
+  assertSkillId(id);
   const limits = checkedLimits(requestedLimits);
   const first = await scan(directory, limits);
   const second = await scan(directory, limits);
   assertStableSkillCapture(first, second);
-  const files = [...first.files].map(([relativePath, bytes]) => ({
-    path: relativePath, role: roleFor(relativePath), bytes: bytes.byteLength, sha256: sha256(bytes)
-  })).sort((left, right) => comparePortable(left.path, right.path));
-  const core = {
-    format: SKP_PACKAGE_FORMAT, skillId: id, entry: 'SKILL.md', files,
-    parserProfile: SKP_PARSER_PROFILE
-  };
-  const manifest = { ...core, packageSha256: packageDigest(core) };
-  if (expectedPackageSha256 !== undefined) {
-    if (!SHA256.test(expectedPackageSha256)) {
-      fail('SKP_SKILL_DRIFT', 'Expected skill package digest is invalid.');
-    }
-    if (manifest.packageSha256 !== expectedPackageSha256) {
-      fail('SKP_SKILL_DRIFT', 'Selected skill bytes differ from the confirmed package.');
-    }
-  }
   const contents = new Map(first.files);
-  verifySkillPackage({ manifest, contents });
-  const declarations = parseDeclarations(contents.get('sflow-skill.json'));
-  const inspection = inspectText(contents.get('SKILL.md'), declarations, new Set(contents.keys()));
-  for (const file of files) {
-    if (file.role === 'script') {
-      inspection.findings.push({ code: 'SKP_EFFECT_UNSUPPORTED',
-        message: `Script '${file.path}' was retained as inert bytes and requires separate operation admission.`,
-        source: { path: file.path } });
-    }
-  }
-  return {
-    source: { kind: 'local-directory', selectedPath: directory }, manifest, contents,
-    proposals: inspection.proposals, findings: inspection.findings,
-    metrics: { files: files.length, directories: first.directories.length,
-      bytes: first.totalBytes, fileReads: files.length * 2, parserCalls: declarations ? 3 : 1,
-      gitRequests: 0, remoteCalls: 0, modelCalls: 0 }
-  };
+  return sealSkillPackage(id, contents, {
+    source: { kind: 'local-directory', selectedPath: directory },
+    directories: first.directories.length, totalBytes: first.totalBytes,
+    fileReads: contents.size * 2, expectedPackageSha256
+  });
 }

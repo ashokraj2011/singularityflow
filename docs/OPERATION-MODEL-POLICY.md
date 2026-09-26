@@ -503,6 +503,7 @@ Every public operation is classified before its implementation module is importe
 | session.status | read | never | — | — |
 | session.workspace | mutation | never | — | — |
 | show | read | never | — | — |
+| skill | read | never | — | — |
 | snapshot | read | never | — | — |
 | spec.acceptance | mutation | never | — | — |
 | spec.acceptance.dry-run | read | never | — | — |

@@ -116,6 +116,38 @@ const STRUCTURED_TEST_READINESS_MODES = new Set([
   'off', 'when-detected', 'required-for-code', 'required'
 ]);
 const ARCHITECTURE_PROJECTION_IDS = new Set(['arch.calm']);
+// A v2 phase is template-backed. Until SKP has a versioned contract compiler and retained
+// execution binding, producer declarations must never ride through the phase spread in
+// `resolveWorkType` and masquerade as an ordinary template phase. Keep this guard narrow:
+// historical custom phases can still carry their existing non-producer extensions.
+const UNSUPPORTED_PHASE_PRODUCER_FIELDS = new Set([
+  'kind', 'skill', 'skillId', 'skillPackage', 'skillPackageSha256', 'skillBinding',
+  'producer', 'phaseProducer', 'producerKind', 'producerBinding',
+  'contract', 'phaseContract', 'contractSha256',
+  'binding', 'bindingRefs', 'package', 'packageSha256'
+]);
+const LEGACY_GENERATION_PRODUCER_FIELDS = new Set(['producer', 'defaultProducer', 'allowedProducers']);
+
+function assertSupportedPhaseProducer(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const refuse = (field) => {
+    throw new SingularityFlowError(
+      `${label} contains unsupported phase producer field '${field}'. This build supports template-backed phases only; skill phases require registered SKP lowering and a versioned reader.`,
+      { code: 'SKP_PHASE_PRODUCER_UNSUPPORTED', details: { location: label, field } }
+    );
+  };
+  for (const field of Object.keys(value)) {
+    if (UNSUPPORTED_PHASE_PRODUCER_FIELDS.has(field) || field.startsWith('skp')) refuse(field);
+  }
+  const generation = value.generation;
+  if (!generation || typeof generation !== 'object' || Array.isArray(generation)) return;
+  for (const field of Object.keys(generation)) {
+    if ((UNSUPPORTED_PHASE_PRODUCER_FIELDS.has(field) || field.startsWith('skp'))
+        && !LEGACY_GENERATION_PRODUCER_FIELDS.has(field)) {
+      refuse(`generation.${field}`);
+    }
+  }
+}
 
 function assertKnownKeys(value, allowed, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -912,6 +944,14 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
+  for (const [phaseId, phase] of Object.entries(definition.phases)) {
+    assertSupportedPhaseProducer(phase, `Phase '${phaseId}'`);
+  }
+  for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
+    for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
+      assertSupportedPhaseProducer(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
+    }
+  }
   definition.workItemRoot = normalizeWorkItemRoot(definition.workItemRoot);
   assertRelative(definition.templatesRoot, 'templatesRoot');
   /**
@@ -1930,6 +1970,12 @@ export async function initializationStatus(root) {
 export function resolveWorkType(definition, workTypeId) {
   const workType = definition.workTypes[workTypeId];
   if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
+  // Some callers resolve already-loaded definitions directly. Refuse unsupported declarations
+  // here too, before any copied phase or override can become an effective Story contract.
+  for (const id of workType.phases) {
+    assertSupportedPhaseProducer(definition.phases[id], `Phase '${id}'`);
+    assertSupportedPhaseProducer(workType.phaseOverrides?.[id], `Work type '${workTypeId}' phase '${id}' override`);
+  }
   const reworkLoops = normalizeReworkLoops(workType.reworkLoops, {
     workTypeId, phases: workType.phases
   });

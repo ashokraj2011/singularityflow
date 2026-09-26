@@ -1,12 +1,10 @@
 import path from 'node:path';
 
-import { actionCommandLines, copilotAction } from '../copilot-guidance.mjs';
 import {
   activateWorkspaceContext, activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from '../workspace-context.mjs';
 import { optionBoolean, optionString, table } from '../util.mjs';
-import { renderChangeDirectoryCommand, renderPlatformCommand } from '../safe-command-guidance.mjs';
 
 const HOT_ACTIONS = new Set(['list', 'current', 'prompt', 'use', 'switch']);
 let legacy = null;
@@ -42,6 +40,8 @@ export async function run(argv, context = {}) {
   });
 
   if (action === 'use' || action === 'switch') {
+    const { actionCommandLines, copilotAction } = await import('../copilot-guidance.mjs');
+    const { renderChangeDirectoryCommand, renderPlatformCommand } = await import('../safe-command-guidance.mjs');
     const activeContext = await activateWorkspaceContext(registry, selectionFile, context.positionals?.[2], {
       repositoryId: optionString(options, 'repository'),
       storyId: optionString(options, 'story')
@@ -102,6 +102,7 @@ export async function run(argv, context = {}) {
   if (!current) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
     if (action === 'prompt') return console.log('');
+    const { actionCommandLines, copilotAction } = await import('../copilot-guidance.mjs');
     console.log('No active workspace.');
     for (const line of actionCommandLines(copilotAction({
       command: 'singularity-flow workspace use <WORKSPACE>'

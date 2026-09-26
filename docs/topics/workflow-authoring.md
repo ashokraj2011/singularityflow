@@ -8,17 +8,20 @@ aliases:
   - workflow-export
   - workflow-import
   - workflow-copy
+  - skill-inspect
 questions:
   - How do I export or import several workflows with their dependencies?
   - How do I duplicate a workflow without duplicating its shared phase contracts?
+  - How do I inspect a local skill before proposing it as a workflow phase?
 commands:
   - workflow
   - configuration
+  - skill
 related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 14
+version: 15
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -31,7 +34,8 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 - **Shell:** `sflow workflow`, `sflow configuration`. Use `workflow export`, `workflow import`, or
   `workflow copy` for portable workflow operations. Add `--propose` when authoring from an
   application or active Story checkout. Run `singularity-flow workflow --help` for the exact forms
-  supported by this build.
+  supported by this build. Use `singularity-flow skill inspect <LOCAL-DIRECTORY> --json` for a
+  read-only, local skill package preview.
 - **Copilot:** `/sf-workflows`. Ask it to export, import, or copy the selected workflows; it must show
   the exact deterministic preview and stop for confirmation before an import or copy mutation.
 - **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. The Designer
@@ -41,6 +45,28 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
   The selected Story snapshot is never edited.
 
 After `singularity-flow onboard --bootstrap`, run `singularity-flow init` before authoring. Bootstrap pins the repository authority; init materializes `singularity/workflow.yml` and `singularity/portfolio.yml`. When initialization is needed, the bootstrap receipt now gives that exact next command.
+
+## Inspect a local skill candidate
+
+Select the exact local directory containing `SKILL.md`. Inspection is a machine-local read and does
+not require a Story or repository checkout:
+
+```bash
+singularity-flow skill inspect ./skills/threat-model --json
+singularity-flow skill inspect ./skills/threat-model --skill-id threat-model --json
+```
+
+The JSON response identifies the portable package manifest and digest, captured file roles and
+byte lengths, evidence-bearing output/input candidates with source locations, unresolved findings,
+and capture costs. It omits raw file bytes. A skill's text and `sflow-skill.json` sidecar can suggest
+fields, but neither grants tools, source access, approval authority, checks, or execution. The
+selected folder is not installed into host skill discovery or saved as approved configuration.
+
+The inspector retains exact bytes in memory while it works and checks the full directory twice.
+It does not run scripts, fetch linked URLs, or call a model. Local Markdown links must resolve to
+captured files. It refuses symlinks, non-portable or colliding paths, missing resources, changed
+files, and limits above 256 files, 256 KiB for `SKILL.md`, 1 MiB per other file, or 8 MiB total.
+The preview is not a runnable phase; a separate reviewed authoring flow must confirm its contract.
 
 ## Shared configuration proposals
 

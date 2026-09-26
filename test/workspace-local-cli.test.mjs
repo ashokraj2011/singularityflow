@@ -172,6 +172,15 @@ test('workspace status and targeted repair resolve the saved workspace from its 
     '--level', 'readiness', '--json'], env, { cwd: nested }).stdout);
   assert.deepEqual(repaired.repaired.map((entry) => entry.repository), ['app']);
   assert.equal(repaired.status.repositories[0].state, 'ready');
+
+  const switched = cli(['workspace', 'switch', workspacePath], env);
+  assert.match(switched.stdout, /Active context:/);
+  assert.match(switched.stdout, /Start Copilot here:/);
+  const listed = JSON.parse(cli(['workspace', 'list', '--json'], env).stdout);
+  assert.equal(listed.find((entry) => entry.path === workspacePath)?.active, 'yes');
+  const current = JSON.parse(cli(['workspace', 'current', '--json'], env).stdout);
+  assert.equal(current.active, true);
+  assert.equal(current.repositoryPath, path.join(workspacePath, 'repos', 'app'));
 });
 
 test('workspace cwd inference follows physical directories and refuses a symlink escape', async (t) => {

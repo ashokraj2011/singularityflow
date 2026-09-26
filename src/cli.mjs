@@ -15973,6 +15973,7 @@ async function dispatch(command, positionals, options) {
     review: () => reviewCommand(positionals, options),
     receipt: () => receiptCommand(positionals, options),
     workflow: () => workflowCommand(positionals, options),
+    skill: async () => (await import('./commands/skill.mjs')).run(argv, { positionals, options }),
     assign: () => assignCommand(positionals),
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),

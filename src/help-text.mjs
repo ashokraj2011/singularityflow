@@ -276,6 +276,7 @@ Usage:
   singularity-flow secrets protect [--force]
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative
+  singularity-flow skill inspect <LOCAL-DIRECTORY> [--skill-id ID] [--json]    read-only candidate package inspection
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]
     [--loop from:to:maxAttempts[:resetOnPhase]]...  bounded reviewer-directed Story rework
     [--planned-claims required --clause-phases a,b --claim-owners code=plan]

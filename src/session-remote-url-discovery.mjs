@@ -11,7 +11,7 @@ import {
   enqueueRepositoryOnboardingCleanup, repositoryOnboardingCleanupContention
 } from './repository-onboarding-cleanup.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { validateId } from './state.mjs';
+import { validateId } from './state-stores.mjs';
 import { posix, removeTemporaryTree, SingularityFlowError } from './util.mjs';
 
 const CONFIGURATION_BRANCH = 'sflow/config';

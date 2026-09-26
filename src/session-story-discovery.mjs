@@ -5,7 +5,7 @@ import { fetchRemote, fileAtRef, hasRemote, remoteBranches } from './git.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import { buildRepositorySubjectIndexFromRefs } from './repository-subject-index.mjs';
 import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
-import { validateId } from './state.mjs';
+import { validateId } from './state-stores.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
 /** Prove that a remote ref contains the Story it claims, under its own pinned definition. */

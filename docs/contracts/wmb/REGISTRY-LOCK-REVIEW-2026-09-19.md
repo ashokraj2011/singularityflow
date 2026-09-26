@@ -387,6 +387,39 @@ The registry, source-digest, and environment-exclusion regressions own this tran
 the frozen identities, installation-independent hashing, case/compatibility exclusion behavior,
 and legacy-v3/registered-v4 exclusion boundary together.
 
+## Frozen view-contract schema constant acceptance
+
+**Review boundary:** `main@ab9f5623fa3616d921f7159211c69f126d7e3df7`
+
+Since the last accepted lock at `0ea49942c84f69651f565c71c53903d20cbc951e`, exactly two
+packaged kernel paths changed: `registry/views.mjs` now reads the view-contract schema version
+from `view-contract-schema-version.mjs`, and that new file fixes the version at `1`. The former
+`currentSchemaVersion('world-model-view-contract')` also returned `1`; the migration family remains
+immutable with `frozen-identity` policy. Executing the previous and current constructors yielded
+identical built-in and persisted-overview View Registry hashes. Contract fields, View policy, and
+sealed View identities are unchanged. The coverage extractor and Extractor Registry source blobs
+remain respectively `063af8c31e245f2e6280680edd7693ac135e3b86` and
+`95d2cfdecb6a4d399d6d36c42c900a9fb99287ba`. No extractor algorithm, fact vocabulary,
+parser declaration, permission, cache policy, or publication authority changed.
+
+An independent replay of the source-digest algorithm over Git's packaged bytes reproduced the
+previous kernel digest from 109 files and the current digest from 110 files. The extra file and
+changed import move every built-in extractor identity mechanically:
+
+| Identity | Previously accepted | Accepted at this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:b2e1bfeb1211a022b8e68dd92648087b613fe21b7c79cf33dc4a8763c927f30c` | `sha256:c7fb97c6492ade4be5ac53811ce610faf3fa873f62aea96d5b93f3604d987cde` |
+| Coverage implementation | `sha256:62f40aecfb586773debdc1c9648bafce6857ec25ad389e24eb943a73c9e4b4cc` | `sha256:f9325983f02aefdca22556f6945fa7df7fa7aea71c50408dc082ede8cd8f9923` |
+| Coverage conformance receipt | `sha256:f46ec45e996dc9e9933829d19dd2e206ad4a22d21a9eb7c545a8a08ac499b7a7` | `sha256:f5b3243bd82794b40e9e8b797eeaf1f40f59d8bf56e70d72508830c0bcf5e33c` |
+| Coverage manifest | `sha256:7ec77d325d22d33e16b60f5a0034f1e3b13e2a94ec893fedcf7bdaf91a6f6624` | `sha256:c0848f266a5db5cf27ad59d3058f12f21578be9cab624078fb52ae14060aed56` |
+| Built-in Extractor Registry | `sha256:95968338f449e6a1628fccf167233e986bde1cd0619724c4e048c0aff6531503` | `sha256:559285187f036990893a6b062df871b70339be4bed7ee94e8896b21c3e163542` |
+
+The registry, source-digest, persisted-overview, and view-projection owner tests passed (18/18).
+The broader 14-file owner run also passed, covering extraction, retained adapters, authority
+refresh, runtime, materialization, cache, publication, commands, and View policy. These checks
+include the frozen schema version, testing overview's optional `test-impact`, and required
+`runtime-frequency` limitation assertions.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

@@ -344,9 +344,10 @@
           "templateOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
           "phaseOverrides": {
             "type": "object",
-            "description": "Per-profile overrides for artifact, qualityCommands, worldModel, comparison, approval, or other phase fields.",
+            "description": "Per-profile overrides for artifact, qualityCommands, worldModel, comparison, approval, or other phase fields. Skill producer fields require a future versioned SKP contract and are unsupported in v2.",
             "additionalProperties": {
               "type": "object",
+              "not": { "anyOf": [{ "required": ["kind"] }, { "required": ["skill"] }, { "required": ["contract"] }] },
               "properties": {
                 "inputs": { "$ref": "#/$defs/phaseInputs" },
                 "clarification": { "$ref": "#/$defs/clarificationPolicy" },
@@ -366,6 +367,8 @@
       "minProperties": 1,
       "additionalProperties": {
         "type": "object",
+        "description": "Version-2 phases are template-backed. Skill producer declarations require registered SKP lowering and cannot be interpreted as template phases.",
+        "not": { "anyOf": [{ "required": ["kind"] }, { "required": ["skill"] }, { "required": ["contract"] }] },
         "properties": {
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
           "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },

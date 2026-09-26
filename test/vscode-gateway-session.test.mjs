@@ -74,7 +74,8 @@ test('the packaged status worker loads its sibling gateway runtime and replies o
 test('the editor bundles the shared docs planner with a verified package root', async () => {
   /**
    * `help-explain` now receives the same package-root contract as every other surface. It must be
-   * present in the CommonJS bundle rather than falling back to a second host-specific resolver.
+   * present in the lazy gateway CommonJS bundle rather than falling back to a second host-specific
+   * resolver.
    */
   const source = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
   const imported = [...source.matchAll(/planners\/([a-z-]+)\.mjs/g)].map(([, name]) => name).sort();
@@ -91,7 +92,7 @@ test('the editor bundles the shared docs planner with a verified package root', 
    * Center `require`s at runtime from a computed path and which is data, not a bundled module. A
    * substring of a filename cannot tell "this code is here" from "this name is mentioned".
    */
-  const bundle = await readFile(path.join(isolatedBundle, 'extension.cjs'), 'utf8');
+  const bundle = await readFile(path.join(isolatedBundle, 'gateway-runtime.cjs'), 'utf8');
   const topics = await readFile(path.join(root, 'src', 'docs-topics.mjs'), 'utf8');
   const marker = topics.match(/export function (\w+)/)?.[1];
   assert.ok(marker, 'docs-topics.mjs exports something to look for');

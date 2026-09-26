@@ -2919,7 +2919,18 @@ singularity-flow workflow simulate figma-mobile
 singularity-flow workflow diff figma-mobile
 singularity-flow workflow add figma-mobile --dry-run
 singularity-flow workflow create customer-onboarding --phases requirements,implementation-spec,implementation,verification --governs story --propose
+singularity-flow skill inspect ./skills/threat-model --json
+singularity-flow skill inspect ./skills/threat-model --skill-id threat-model --json
 ```
+
+`skill inspect` reads the exact local directory you name and returns a portable package digest,
+captured-file metadata, candidate output/input fields, findings, and capture costs. It does not run
+skill scripts, fetch URLs, install a skill, write configuration, or approve a phase. Candidate fields
+must be reviewed through ordinary workflow authoring before they can become an executable contract.
+The selected directory must contain `SKILL.md`; local Markdown links must resolve inside the
+captured package. Current limits are 256 files, 256 KiB for `SKILL.md`, 1 MiB per other file, and
+8 MiB per package. Inspection refuses links, unsafe portable paths, missing resources, oversized
+packages, and capture drift.
 
 `workflow validate [TYPE]` proves every code phase has an authoritative clause source and an earlier
 reviewed planned-claim owner, or reports a deliberate opt-out/non-code contract. The same validation
@@ -3379,6 +3390,7 @@ singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
 singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
 singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
 singularity-flow workflow list|validate|simulate|diff|add|upgrade
+singularity-flow skill inspect <LOCAL-DIRECTORY> [--skill-id ID] [--json]
 singularity-flow assign <PHASE> <ASSIGNEE>
 singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
 singularity-flow recover [WORK-ID] [--fetch] [--apply]

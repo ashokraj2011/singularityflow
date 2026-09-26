@@ -281,6 +281,9 @@ Usage:
   singularity-flow workflow author create [WFD-ID] --operation-id ID --expected-head empty|OID [--name TEXT] [--input FILE] [--json]
   singularity-flow workflow author save WFD-ID --operation-id ID --expected-head OID --epoch 1 [--name TEXT] [--input FILE] [--json]
   singularity-flow workflow author delete WFD-ID [--operation-id ID] [--json]
+  singularity-flow workflow author preview WFD-ID [--revision N] [--json]
+  singularity-flow workflow author catalog [--kind KIND] [--limit N] [--cursor N] [--json]
+  singularity-flow workflow author submit WFD-ID --revision N [--json]
                                                         shared inert Git drafts; not configuration approval or activation
                                                         --expected-authority REMOTE asserts the observed destination; never overrides it
   singularity-flow skill inspect <LOCAL-DIRECTORY> [--skill-id ID] [--json]    read-only candidate package inspection

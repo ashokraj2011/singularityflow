@@ -2,7 +2,7 @@
 name: sflow-workflows
 description: List, preview, transfer, duplicate governed workflows, or explicitly share inert Git-backed workflow drafts.
 disable-model-invocation: true
-argument-hint: "[list|author list|author read WFD-ID|author save WFD-ID ...|skills-recipe ID ...|simulate ID|export ...|import FILE|copy SOURCE TARGET ...]"
+argument-hint: "[list|author list|author preview WFD-ID|author submit WFD-ID --revision N|skills-recipe ID ...|simulate ID|export ...|import FILE|copy SOURCE TARGET ...]"
 
 ---
 # Workflow catalog, shared drafts, and transfer
@@ -15,14 +15,15 @@ argument-hint: "[list|author list|author read WFD-ID|author save WFD-ID ...|skil
 Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
 For `author`, require an explicit opened Git root, without workspace fallback.
-`list|read|history|show|op-status` is read-only; relay authority, head, revision, epoch and gaps.
+`list|read|history|show|preview|catalog|op-status` is read-only; relay exact revision, coverage and gaps.
 Create/Save require user direction, unique operation ID, exact observed head and matching
 `--expected-authority`. Input is inert payload/assets JSON. Never rebase text, change a replayed
 request or recreate deleted drafts. Lost acknowledgement: `author op-status <ID> --json`.
-Sharing is not approval or execution. Headless `author delete <WFD-ID> --json` only hands off:
+Headless `author submit <WFD-ID> --revision N` or `author delete` only hands off:
 never supply receipts, answers or tokens. Direct terminal captures the named human action.
+Submit creates only an exact review proposal; no approval, activation or execution.
 
-For installation, simulate/diff/`--dry-run`; show YAML/Markdown. No unconfirmed `--replace` or auto-commit.
+For installation, preview YAML/Markdown. No unconfirmed `--replace` or auto-commit.
 
 Read-only BYO preview: `singularity-flow workflow skills-recipe <NEW-ID> --label <TEXT>
 --phases <APPROVED-PHASE-IDS> --json`. Code requires explicit `--planned-claims required
@@ -31,8 +32,8 @@ and unavailable host; never infer opt-out or import/confirm/execute. Proposals r
 
 Export only explicit selections to a new file:
 `singularity-flow workflow export --workflow <ID> [--workflow <ID>...] --out <FILE> --json`.
-Report complete dependency closure and remote-agent locks. Policy/installed World Model contracts are
-prerequisites, not imported objects. Never hand-edit bundles.
+Report complete dependency closure and remote-agent locks. Policy/World Model contracts are prerequisites,
+not imports. Never hand-edit bundles.
 
 Import preview: `singularity-flow workflow import <FILE> --dry-run --propose --json`.
 Skill invocation is not confirmation. After explicit digest/path/collision review and acceptance run

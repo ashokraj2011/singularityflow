@@ -14,6 +14,7 @@ const execute = promisify(execFile);
 const { SharedWorkflowDraftController, WORKFLOW_DRAFT_INPUT_MAX_BYTES, workflowDraftCopilotContextIssue } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts'));
 const { withWorkflowDraftInputFile } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-input.ts'));
 const { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts'));
+const { addWorkflowDraftStage, editWorkflowDraftGuide, workflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog, WORKFLOW_DRAFT_STAGES } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts'));
 
 const repository = path.resolve('/opened/explicit repository');
 const draftId = 'WFD-ABC123';
@@ -25,8 +26,26 @@ const revision = (number = 1, id = draftId) => ({ draftId: id, displayName: 'Dra
 const result = (action, data, status = 'read') => ({ resultType: 'workflow-author', status,
   operation: { id: `workflow.author.${action}`, modelPolicy: 'never' },
   capability: { repository: '/approved/shared.git' }, data });
+function packagePreview(selected = revision(), overrides = {}) {
+  const approvedSource = { repository: '/approved/shared.git', baseRevision: firstHead, observedCommit: firstHead };
+  return { kind: 'workflow-authoring-package-preview',
+    source: { repository: '/approved/shared.git', draftId: selected.draftId, revision: selected.revision,
+      lifecycleEpoch: selected.lifecycleEpoch, revisionSha256: selected.revisionSha256, lifecycle: 'live', head: firstHead },
+    approvedSource, planSha256: `sha256:${'d'.repeat(64)}`, findings: [{ code: 'WCA_ARTIFACT_UNRESOLVED', fieldPath: 'definitions.phases', message: 'Actual output choices remain unresolved.' }],
+    readiness: { authoring: 'invalid', host: 'discovery-unverified', execution: 'not-run', confirmation: 'absent' },
+    catalogChoices: { kind: 'workflow-authoring-catalog-choices', permissionEffect: 'none', membership: 'not-verified', hostMapping: 'not-verified', approvedSource,
+      groups: [['execution-task', 'analyze'], ['approval-authority', 'real-reviewers'], ['quality-command', 'actual-check'], ['phase', 'intake']].map(([kind, id]) =>
+        ({ kind, choices: [{ ref: { source: 'catalog', kind, id }, label: id }], total: 1, nextCursor: null, unavailable: 0 })) }, ...overrides };
+}
+function packageShow(selected = revision()) {
+  return { kind: 'workflow-authoring-show-view', subject: { kind: 'draft', ...selected },
+    assessment: { status: 'invalid', coverage: { schema: 'invalid', references: 'selected-closure', policy: 'pre-change-approved-source',
+      graph: 'ordered-input-and-registered-rework-validation', hostEnforcement: 'unavailable', behavior: 'not-evaluated' } },
+    missingDecisions: [], graph: { nodes: [], edges: [], coverage: 'ordered-input-and-registered-rework-validation' },
+    preview: packagePreview(selected), capabilities: { automaticSaving: 'vscode-opt-in' } };
+}
 
-function fixture(overrides = {}) {
+function fixture(overrides = {}, clock) {
   const calls = []; const copied = []; const inputs = []; const notices = []; const rejected = []; const inputFiles = [];
   let loadedRevision = revision();
   let listHead = firstHead;
@@ -46,9 +65,8 @@ function fixture(overrides = {}) {
       return { result: result(action, { record: loadedRevision, head: secondHead, operationHead: secondHead,
         operationId: args[args.indexOf('--operation-id') + 1], currentLifecycle: 'live' }, 'shared-acknowledged'), error: null };
     }
-    if (action === 'show') return { result: result(action, { view: { kind: 'workflow-authoring-show-view',
-      subject: { draftId, revision: loadedRevision.revision, revisionSha256: loadedRevision.revisionSha256 },
-      assessment: { coverage: 'complete-package-validation-unavailable' }, missingDecisions: [], graph: { coverage: 'unavailable' } } }), error: null };
+    if (action === 'show') return { result: result(action, { view: packageShow(loadedRevision) }), error: null };
+    if (action === 'preview') return { result: result(action, { preview: packagePreview(loadedRevision) }), error: null };
     throw new Error(`Unexpected action ${action}`);
   };
   const controller = new SharedWorkflowDraftController(repository, runner, async (text, invoke) => {
@@ -60,7 +78,7 @@ function fixture(overrides = {}) {
     editorRejected: (binding, message) => rejected.push({ binding, message }),
     confirmDiscard: async () => confirmation,
     copyReview: async (callRoot, argv, surface) => copied.push({ root: callRoot, argv, surface })
-  });
+  }, clock);
   const edit = (inputText = '{"payload":{"id":"unsaved"},"assets":[]}', name = 'Edited') => ({
     binding: controller.view.editor.binding, name, inputText
   });
@@ -196,10 +214,29 @@ test('read-only Show pins saved revision, preserves unsaved text and cannot appr
   assert.equal(f.controller.view.editor.inputText, fields.inputText);
   assert.equal(f.controller.view.dirty, true);
   assert.match(f.controller.view.notice, /not unsaved editor text/);
-  assert.match(f.controller.view.notice, /readiness are unavailable/);
+  assert.match(f.controller.view.notice, /Compiler coverage.*static validation is not approval, host acceptance/);
+  const html = sharedWorkflowDraftsHtml(f.controller.view);
+  assert.match(html, /Authoring assessment: invalid/); assert.match(html, /Request schema<\/dt><dd>invalid/);
+  assert.match(html, /Native host enforcement<\/dt><dd>unavailable/);
+  assert.doesNotMatch(html, /storage-only projection|Complete-package validation, graph coverage/);
   await f.controller.receive({ type: 'approve', ...fields });
   assert.match(f.controller.view.error, /not supported/);
   assert.equal(f.calls.filter((call) => !['list', 'read', 'show'].includes(call.args[2])).length, 0);
+});
+
+test('Show refuses a mismatched saved tuple and never republishes an assessment after newer captured edits', async () => {
+  for (const change of [(v) => { v.subject.revision = 2; }, (v) => { v.subject.lifecycleEpoch = 2; },
+    (v) => { v.subject.revisionSha256 = revision(2).revisionSha256; }]) {
+    const f = fixture({ show: async () => { const view = packageShow(); change(view); return result('show', { view }); } });
+    await f.open(); await f.controller.receive({ type: 'show', binding: f.controller.view.editor.binding });
+    assert.equal(f.controller.view.show, null); assert.match(f.controller.view.error, /retained saved revision/); f.controller.dispose();
+  }
+  let release; const gate = new Promise((resolve) => { release = resolve; });
+  const f = fixture({ show: async () => { await gate; return result('show', { view: packageShow() }); } }); await f.open();
+  const showing = f.controller.receive({ type: 'show', binding: f.controller.view.editor.binding }); await settle();
+  const changed = f.edit(); await f.controller.receive({ type: 'change', ...changed }); release(); await showing;
+  assert.equal(f.controller.view.show, null); assert.equal(f.controller.view.editor.inputText, changed.inputText);
+  assert.match(f.controller.view.error, /New captured edits arrived during navigation/); f.controller.dispose();
 });
 
 test('Shell and Copilot deletion routes are copy-only and use retained subject, never a message command', async () => {
@@ -313,6 +350,11 @@ test('actual page script keeps oversized pasted DOM text without posting it and 
   assert.equal(fields['draft-input'].value.length, WORKFLOW_DRAFT_INPUT_MAX_BYTES + 1);
   assert.match(fields['draft-input-error'].textContent, /5 MiB.*only in this visible editor.*not sent or saved/);
   assert.equal(fields['draft-input-error'].hidden, false);
+  hostHandlers.message({ data: { type: 'draft-status', binding: 'retained-binding', durability: 'Shared revision 2 · all captured changes saved',
+    busy: false, autosave: 'On', revision: '2', operation: 'one', error: '', hasShow: false } });
+  assert.match(fields['draft-dirty'].textContent, /Visible text is not captured or saved.*prior bounded checkpoint/);
+  assert.equal(fields['draft-input'].value.length, WORKFLOW_DRAFT_INPUT_MAX_BYTES + 1);
+  assert.equal(posted.length, 0);
   hostHandlers.message({ data: { type: 'editor-rejected', binding: 'retained-binding', message: 'Rejected by bounded host preflight.' } });
   assert.equal(fields['draft-input'].value.length, WORKFLOW_DRAFT_INPUT_MAX_BYTES + 1);
   assert.match(fields['draft-input-error'].textContent, /visible text has not been replaced/);
@@ -476,7 +518,7 @@ test('draft page escapes all untrusted text, states unavailable coverage and exp
   const html = sharedWorkflowDraftsHtml(f.controller.view);
   assert.doesNotMatch(html, /<script>|<img src=|<b>unsafe|<a>unsafe/);
   assert.match(html, /&lt;\/textarea&gt;&lt;script&gt;/);
-  assert.match(html, /No autosave, complete-package compiler/);
+  assert.match(html, /Shared autosave requires explicit editing-scope opt-in/);
   assert.match(html, /execution readiness are unavailable/);
   assert.match(html, /data-draft-action="save"/);
   assert.match(html, /data-draft-action="show"/);
@@ -496,7 +538,465 @@ test('draft page escapes all untrusted text, states unavailable coverage and exp
   assert.doesNotMatch(panel, /executeCommand|createTerminal|sendText|issueActionAuthorization|useRepository|openGitDraftStore/);
 });
 
-test('actual CLI-backed editor and an independent shell share one identity and stale Save preserves the buffer', async (t) => {
+const settle = async () => { for (let index = 0; index < 4; index += 1) await new Promise((resolve) => setImmediate(resolve)); };
+function fakeClock() {
+  let now = 0; let sequence = 0; const timers = new Map();
+  return { now: () => now, set: (callback, milliseconds) => { const id = ++sequence; timers.set(id, { at: now + milliseconds, callback }); return id; },
+    clear: (id) => timers.delete(id), count: () => timers.size,
+    advance: async (milliseconds) => {
+      const until = now + milliseconds;
+      for (;;) {
+        const next = [...timers.entries()].filter(([, timer]) => timer.at <= until).sort((a, b) => a[1].at - b[1].at)[0];
+        if (!next) break;
+        now = next[1].at; timers.delete(next[0]); next[1].callback(); await settle();
+      }
+      now = until; await settle();
+    } };
+}
+
+test('six-stage guide edits preserve unknown fields/assets and create real incomplete namespaced components without grants', () => {
+  assert.deepEqual(WORKFLOW_DRAFT_STAGES, ['Goal', 'Stages', 'Team & skills', 'Access & review', 'Review package', 'Submit & next steps']);
+  const original = { payload: { unknown: { retained: true }, definitions: { futureCollection: [{ data: 'keep' }] } },
+    assets: [{ path: 'references/manual.md', content: 'hand-written literal' }] };
+  let text = editWorkflowDraftGuide(JSON.stringify(original), 'id', 'reviewed-change');
+  text = editWorkflowDraftGuide(text, 'description', 'Actual human goal');
+  text = addWorkflowDraftStage(text, 'reviewed-change');
+  text = editWorkflowDraftGuide(text, 'agent-prompt', 'Do the actual task; never approve it.', 0);
+  text = editWorkflowDraftGuide(text, 'skill-instructions', 'Retain the real procedural instructions.', 0);
+  text = editWorkflowDraftGuide(text, 'template-content', '# Actual required output', 0);
+  text = addWorkflowDraftStage(text, 'reviewed-change');
+  text = reorderWorkflowDraftStage(text, 1, -1);
+  const saved = JSON.parse(text); const guide = workflowDraftGuide(text);
+  assert.deepEqual(saved.assets, original.assets); assert.deepEqual(saved.payload.unknown, original.payload.unknown);
+  assert.deepEqual(saved.payload.definitions.futureCollection, original.payload.definitions.futureCollection);
+  assert.equal(saved.payload.schema, 'sflow-workflow-request@2');
+  assert.deepEqual(guide.workflows[0].phases, ['reviewed-change-stage-2', 'reviewed-change-stage-1']);
+  assert.equal(guide.agents[0].prompt, 'Do the actual task; never approve it.');
+  assert.equal(guide.skills[0].instructions, 'Retain the real procedural instructions.');
+  assert.equal(guide.templates[0].content, '# Actual required output');
+  assert.equal(guide.agents[1].prompt, ''); assert.deepEqual(guide.agents[1].toolBindings, []);
+  assert.equal(guide.phases[0].taskBinding, undefined); assert.equal(guide.phases[0].approvalBinding, undefined);
+  assert.equal(saved.payload.baseRevision, undefined, 'no fabricated approved revision');
+  assert.equal(saved.payload.definitions.workflows[0].plannedClaims, undefined, 'no implicit code opt-out');
+});
+
+test('guided edits refuse duplicate, future-version and ambiguous collection shapes without rewriting advanced text', async () => {
+  for (const text of ['{"payload":{"id":"one","id":"two"}}', '{"payload":{"id":"one","\\u0069d":"two"}}',
+    '{"payload":{"schema":"future-required@9"}}', '{"payload":{"definitions":{"phases":{}}}}']) {
+    assert.throws(() => editWorkflowDraftGuide(text, 'label', 'Changed'), /Duplicate|not supported|requires/);
+  }
+  const f = fixture(); await f.open(); const text = '{"payload":{"id":"one","id":"two"}}';
+  await f.controller.receive({ type: 'guide-answer', ...f.edit(text), field: 'label', value: 'No rewrite', index: 0 });
+  assert.equal(f.controller.view.editor.inputText, text); assert.match(f.controller.view.error, /Duplicate JSON keys/);
+  assert.equal(f.calls.some((call) => call.args[2] === 'save'), false);
+  await f.controller.receive({ type: 'guide-answer', ...f.edit(), field: 'actor', value: 'approved human', index: 0 });
+  assert.match(f.controller.view.error, /bounded typed guide field/);
+});
+
+test('shared autosave is exact-draft opt-in, coalesces idle changes and turns off on explicit reload', async () => {
+  const clock = fakeClock(); const f = fixture({}, clock); await f.open();
+  await f.controller.receive({ type: 'change', ...f.edit() }); await clock.advance(5000);
+  assert.equal(f.calls.some((call) => call.args[2] === 'save'), false); assert.equal(f.controller.view.durability, 'memory');
+  await f.controller.receive({ type: 'autosave-on', ...f.edit() });
+  await clock.advance(749); assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 0);
+  await clock.advance(1); assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+  assert.equal(f.controller.view.durability, 'shared'); assert.equal(f.controller.view.dirty, false);
+  await f.controller.receive({ type: 'reload', binding: f.controller.view.editor.binding });
+  assert.equal(f.controller.view.autosave, false); assert.equal(clock.count(), 0);
+  f.controller.dispose();
+});
+
+test('continuous captured editing cannot postpone a shared attempt past the bounded two-second window', async () => {
+  const clock = fakeClock(); const f = fixture({}, clock); await f.open();
+  await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+  for (let index = 0; index < 20; index += 1) {
+    await f.controller.receive({ type: 'change', ...f.edit(JSON.stringify({ payload: { incomplete: index } })) });
+    await clock.advance(100);
+  }
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+  assert.deepEqual(JSON.parse(f.inputs[0]), { payload: { incomplete: 19 } });
+  assert.equal(f.controller.view.dirty, false); f.controller.dispose();
+});
+
+test('edits during an in-flight autosave stay captured; immutable snapshot ACK cannot certify or discard newer text', async () => {
+  const clock = fakeClock(); let release; const gate = new Promise((resolve) => { release = resolve; }); let attempts = 0;
+  const f = fixture({ save: async (args) => {
+    if (++attempts === 1) await gate;
+    return result('save', { record: revision(attempts + 1), head: attempts === 1 ? secondHead : latestHead,
+      operationHead: attempts === 1 ? secondHead : latestHead,
+      operationId: args[args.indexOf('--operation-id') + 1], currentLifecycle: 'live' }, 'shared-acknowledged');
+  } }, clock);
+  await f.open(); const binding = f.controller.view.editor.binding;
+  await f.controller.receive({ type: 'autosave-on', binding });
+  const first = f.edit('{"payload":{"draft":"first"}}', 'First');
+  await f.controller.receive({ type: 'change', ...first }); await clock.advance(750);
+  assert.equal(f.controller.view.busy, true); assert.equal(f.controller.view.durability, 'saving');
+  const second = f.edit('{"payload":{"draft":"second"}}', 'Second');
+  await f.controller.receive({ type: 'change', ...second });
+  release(); await settle();
+  assert.equal(f.controller.view.editor.savedText, first.inputText);
+  assert.equal(f.controller.view.editor.inputText, second.inputText); assert.equal(f.controller.view.dirty, true);
+  assert.equal(f.controller.view.editor.binding, binding, 'managed capture lease remains stable while saving');
+  assert.equal(f.controller.view.editor.head, secondHead); assert.equal(f.controller.view.durability, 'memory');
+  await clock.advance(750);
+  assert.equal(f.controller.view.dirty, false); assert.deepEqual(f.inputs, [first.inputText, second.inputText]);
+  const saves = f.calls.filter((call) => call.args[2] === 'save').map((call) => call.args);
+  assert.equal(saves[0][saves[0].indexOf('--name') + 1], 'First');
+  assert.equal(saves[1][saves[1].indexOf('--expected-head') + 1], secondHead);
+  assert.notEqual(saves[0][saves[0].indexOf('--operation-id') + 1], saves[1][saves[1].indexOf('--operation-id') + 1]);
+  f.controller.dispose();
+});
+
+test('lost autosave acknowledgement fences changed requests until operation-status resolves the exact prior snapshot', async () => {
+  const clock = fakeClock(); let attempts = 0; let operation;
+  const f = fixture({ save: async (args) => {
+    operation ??= args[args.indexOf('--operation-id') + 1];
+    if (++attempts === 1) throw new Error('WCA_DRAFT_WRITE_UNACKNOWLEDGED: Network outcome unknown');
+    return result('save', { record: revision(3), head: latestHead, operationHead: latestHead,
+      operationId: args[args.indexOf('--operation-id') + 1], currentLifecycle: 'live' }, 'shared-acknowledged');
+  }, 'op-status': async (args) => result('op-status', { status: 'shared-acknowledged', head: latestHead,
+    operationHead: secondHead, record: revision(2), operationId: args[3], currentLifecycle: 'live' }) }, clock);
+  await f.open(); await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+  const first = f.edit('{"payload":{"pending":1}}'); await f.controller.receive({ type: 'change', ...first }); await clock.advance(750);
+  assert.equal(f.controller.view.durability, 'uncertain');
+  const changed = f.edit('{"payload":{"pending":2}}'); await f.controller.receive({ type: 'change', ...changed });
+  await f.controller.receive({ type: 'save', ...changed });
+  assert.equal(attempts, 1); assert.equal(f.controller.view.operationId, operation);
+  await f.controller.receive({ type: 'operation-status', ...changed });
+  assert.equal(f.controller.view.editor.head, secondHead, 'never adopt the newer global head from historical ACK');
+  assert.equal(f.controller.view.editor.savedText, first.inputText); assert.equal(f.controller.view.editor.inputText, changed.inputText);
+  await clock.advance(5000); assert.equal(attempts, 1, 'status is read-only; no automatic write resumes');
+  await f.controller.receive({ type: 'save', ...changed });
+  assert.equal(attempts, 2); assert.equal(f.controller.view.dirty, false);
+  assert.notEqual(f.controller.view.operationId, operation); f.controller.dispose();
+});
+
+test('autosave conflict or deletion pauses retries and navigation; explicit Reload is the only discard/reconciliation path', async () => {
+  for (const code of ['WCA_DRAFT_CONFLICT', 'WCA_DRAFT_AUTHORITY_CHANGED', 'WCA_DRAFT_DELETED']) {
+    const clock = fakeClock(); const f = fixture({ save: async () => { throw new Error(`${code}: Peer changed retained authority/lifecycle`); } }, clock);
+    await f.open(); await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+    const fields = f.edit(); await f.controller.receive({ type: 'change', ...fields }); await clock.advance(750);
+    assert.equal(f.controller.view.durability, code === 'WCA_DRAFT_DELETED' ? 'deleted' : 'conflict');
+    await clock.advance(20_000); await f.controller.receive({ type: 'stage', ...fields, stage: 3 });
+    assert.equal(f.controller.view.stage, 1); assert.equal(f.controller.view.editor.inputText, fields.inputText);
+    assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+    assert.equal(f.calls.some((call) => call.args[2] === 'create'), false);
+    f.confirm(true); await f.controller.receive({ type: 'reload', ...fields });
+    assert.equal(f.controller.view.dirty, false); assert.equal(f.controller.view.autosave, false);
+    f.controller.dispose();
+  }
+});
+
+test('navigation flushes opted-in captured edits before Show, stage switch and Back to drafts without submission', async () => {
+  const clock = fakeClock(); const f = fixture({}, clock); await f.open();
+  await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+  await f.controller.receive({ type: 'stage', ...f.edit(), stage: 2 });
+  assert.equal(f.controller.view.stage, 2); assert.equal(f.controller.view.dirty, false);
+  await f.controller.receive({ type: 'show', ...f.edit('{"payload":{"third":"partial"}}') });
+  const show = f.calls.findLast((call) => call.args[2] === 'show').args;
+  assert.equal(show[show.indexOf('--revision') + 1], '2');
+  assert.equal(f.controller.view.dirty, false);
+  await f.controller.receive({ type: 'back-drafts', ...f.edit('{"payload":{"fourth":"partial"}}') });
+  assert.equal(f.controller.view.editor, null); assert.equal(f.controller.view.autosave, false); assert.equal(clock.count(), 0);
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 3);
+  assert.ok(f.calls.every((call) => ['list', 'read', 'save', 'show'].includes(call.args[2])));
+  f.controller.dispose();
+});
+
+test('semantic guided answers autosave through the same CLI and stage navigation itself creates no revision', async () => {
+  const clock = fakeClock(); const f = fixture({}, clock); await f.open();
+  await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+  await f.controller.receive({ type: 'guide-answer', binding: f.controller.view.editor.binding, field: 'id', value: 'real-goal', index: 0 });
+  await f.controller.receive({ type: 'add-stage', binding: f.controller.view.editor.binding });
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 2);
+  assert.equal(workflowDraftGuide(f.controller.view.editor.inputText).agents[0].prompt, '');
+  for (let stage = 1; stage <= 6; stage += 1) await f.controller.receive({ type: 'stage', binding: f.controller.view.editor.binding, stage });
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 2);
+  const html = sharedWorkflowDraftsHtml(f.controller.view);
+  assert.match(html, /Step 6 of 6/); assert.match(html, /Trusted submission confirmation is unavailable/);
+  assert.doesNotMatch(html, /data-draft-action="submit"/); f.controller.dispose();
+});
+
+test('captured edits during an asynchronous Open or discard prompt cannot be replaced by navigation', async () => {
+  let release; const gate = new Promise((resolve) => { release = resolve; }); let reads = 0;
+  const f = fixture({ read: async () => {
+    if (++reads > 1) await gate;
+    return result('read', { head: secondHead, record: revision(2), payload: { reopened: true }, assets: [], tombstone: null });
+  } });
+  await f.open();
+  const reopening = f.controller.receive({ type: 'open', draftId }); await settle();
+  const newest = f.edit('{"payload":{"arrived":"during read"}}');
+  await f.controller.receive({ type: 'change', ...newest }); release(); await reopening;
+  assert.equal(f.controller.view.editor.inputText, newest.inputText);
+  assert.match(f.controller.view.error, /New captured edits arrived during navigation/);
+  assert.equal(f.controller.view.dirty, true);
+  let answer; const prompt = new Promise((resolve) => { answer = resolve; });
+  const current = f.controller.view.editor;
+  const controller = new SharedWorkflowDraftController(repository, async () => { throw new Error('No read may start after a raced discard prompt.'); },
+    async () => {}, { changed: () => {}, confirmDiscard: () => prompt, copyReview: async () => {} });
+  controller.view.editor = structuredClone(current); controller.view.dirty = true;
+  const reload = controller.receive({ type: 'reload', binding: controller.view.editor.binding }); await settle();
+  await controller.receive({ type: 'change', binding: controller.view.editor.binding, name: 'New during prompt', inputText: newest.inputText });
+  answer(true); await reload;
+  assert.equal(controller.view.editor.name, 'New during prompt');
+  assert.match(controller.view.error, /New captured edits arrived during navigation/);
+  controller.dispose(); f.controller.dispose();
+});
+
+test('immediate newer edits fence every clean navigation action before its first async discard return', async () => {
+  for (const type of ['open', 'create', 'reload', 'back-drafts', 'exit']) {
+    const f = fixture(); await f.open();
+    const baselineCalls = f.calls.length; const editor = f.controller.view.editor;
+    const action = f.controller.receive({ type, binding: editor.binding, ...(type === 'open' ? { draftId } : {}) });
+    const newest = f.edit('{"payload":{"newUnsaved":"never-discarded"},"assets":[]}', 'Just typed');
+    await f.controller.receive({ type: 'change', ...newest }); await action;
+    assert.equal(f.controller.view.editor, editor, `${type} must retain the original editor`);
+    assert.equal(f.controller.view.editor.inputText, newest.inputText); assert.equal(f.controller.view.editor.name, newest.name);
+    assert.equal(f.controller.view.dirty, true); assert.match(f.controller.view.error, /New captured edits arrived during navigation/);
+    assert.equal(f.calls.length, baselineCalls, `${type} must stop before a new read or shared mutation`);
+    f.controller.dispose();
+  }
+});
+
+test('closing the controller cancels scheduled autosave and offers no false private recovery or background sync', async () => {
+  const clock = fakeClock(); const f = fixture({}, clock); await f.open();
+  await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+  await f.controller.receive({ type: 'change', ...f.edit() }); assert.equal(clock.count(), 1);
+  const html = sharedWorkflowDraftsHtml(f.controller.view);
+  assert.match(html, /native tab or application cannot guarantee a flush or background sync/);
+  assert.match(html, /No local durable recovery is claimed/);
+  assert.equal(f.controller.view.durability, 'memory');
+  f.controller.dispose(); await clock.advance(20_000);
+  assert.equal(clock.count(), 0); assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 0);
+});
+
+test('uncertain Save still pauses when the visible buffer was reverted before the failed acknowledgement', async () => {
+  const clock = fakeClock(); let release; const gate = new Promise((resolve) => { release = resolve; });
+  const f = fixture({ save: async () => { await gate; throw new Error('WCA_FUTURE_TRANSPORT_FAILURE: outcome unknown'); } }, clock);
+  await f.open(); const original = { binding: f.controller.view.editor.binding, name: f.controller.view.editor.name,
+    inputText: f.controller.view.editor.inputText };
+  await f.controller.receive({ type: 'autosave-on', binding: original.binding });
+  await f.controller.receive({ type: 'change', ...f.edit() }); await clock.advance(750);
+  await f.controller.receive({ type: 'change', ...original }); assert.equal(f.controller.view.dirty, false);
+  release(); await settle();
+  assert.equal(f.controller.view.busy, false); assert.equal(f.controller.view.durability, 'uncertain');
+  assert.match(f.controller.view.error, /op-status/); await clock.advance(20_000);
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+  f.controller.dispose();
+});
+
+test('an uncertain exact pending checkpoint fences replacement/exit even after reverting the visible buffer to an older baseline', async () => {
+  for (const type of ['open', 'create', 'reload', 'back-drafts', 'exit']) {
+    const f = fixture({ save: async () => { throw new Error('WCA_DRAFT_WRITE_UNACKNOWLEDGED: outcome unknown'); } }); await f.open();
+    const editor = f.controller.view.editor;
+    const original = { binding: editor.binding, name: editor.name, inputText: editor.inputText };
+    const pending = f.edit('{"payload":{"uncertainOriginal":"retain exact bytes"}}');
+    await f.controller.receive({ type: 'save', ...pending }); const operation = f.controller.view.operationId;
+    await f.controller.receive({ type: 'change', ...original }); assert.equal(f.controller.view.dirty, false);
+    const calls = f.calls.length;
+    await f.controller.receive({ type, binding: editor.binding, ...(type === 'open' ? { draftId } : {}) });
+    assert.equal(f.controller.view.editor, editor); assert.equal(f.controller.view.operationId, operation);
+    assert.match(f.controller.view.error, /unresolved acknowledgement.*operation status before replacing or closing/);
+    assert.equal(f.calls.length, calls, `${type} cannot discard or replace an unresolved checkpoint`);
+    await f.controller.receive({ type: 'save', ...pending });
+    assert.equal(f.controller.view.operationId, operation, 'the original exact checkpoint remains recoverable with its stable operation ID');
+    assert.deepEqual(f.inputs, [pending.inputText, pending.inputText]); f.controller.dispose();
+  }
+});
+
+test('a failed initial read is not rendered as an empty successful draft catalog', async () => {
+  const f = fixture({ list: async () => { throw new Error('Git authorization unavailable'); } });
+  await f.controller.initialize(); const html = sharedWorkflowDraftsHtml(f.controller.view);
+  assert.match(html, /shared draft list has not loaded.*not an empty catalog/);
+  assert.doesNotMatch(html, /No live shared drafts were observed/); f.controller.dispose();
+});
+
+test('deleted-draft fencing still permits explicit pause and Cancel-default return without recreating the ID', async () => {
+  const clock = fakeClock(); const f = fixture({ save: async () => { throw new Error('WCA_DRAFT_DELETED: Shared tombstone'); } }, clock);
+  await f.open(); await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+  const fields = f.edit(); await f.controller.receive({ type: 'change', ...fields }); await clock.advance(750);
+  assert.equal(f.controller.view.durability, 'deleted');
+  const html = sharedWorkflowDraftsHtml(f.controller.view);
+  assert.match(html, /data-draft-action="autosave-off">Pause shared autosave/);
+  assert.match(html, /data-draft-action="back-drafts">Back to drafts/);
+  await f.controller.receive({ type: 'autosave-off', ...fields });
+  await f.controller.receive({ type: 'back-drafts', ...fields });
+  assert.equal(f.controller.view.editor.inputText, fields.inputText, 'Cancel preserves fenced text');
+  f.confirm(true); await f.controller.receive({ type: 'back-drafts', ...fields });
+  assert.equal(f.controller.view.editor, null);
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+  assert.equal(f.calls.some((call) => call.args[2] === 'create'), false); f.controller.dispose();
+});
+
+test('explicit package Preview reaches its actual read-only owner, pins the saved revision and never claims host readiness', async () => {
+  const f = fixture(); await f.open();
+  await f.controller.receive({ type: 'preview', binding: f.controller.view.editor.binding });
+  assert.deepEqual(f.calls.at(-1).args, ['workflow', 'author', 'preview', draftId, '--revision', '1', '--json']);
+  assert.equal(f.controller.view.preview.source.revisionSha256, revision().revisionSha256);
+  assert.equal(f.controller.view.editor.head, firstHead);
+  assert.match(f.controller.view.notice, /unsupported host contracts.*no approval, submission or execution readiness/);
+  const html = sharedWorkflowDraftsHtml(f.controller.view);
+  assert.match(html, /Static validity is not Ready to run/); assert.match(html, /WCA_ARTIFACT_UNRESOLVED/);
+  await f.controller.receive({ type: 'change', ...f.edit() });
+  assert.equal(f.controller.view.preview, null, 'old assessment does not certify new candidate bytes');
+  assert.equal(f.calls.some((call) => ['submit', 'approve', 'execute'].includes(call.args[2])), false); f.controller.dispose();
+});
+
+test('Preview refuses foreign authority, wrong revision/digest and changes captured during its async read', async () => {
+  for (const change of [
+    (p) => { p.source.repository = '/different/shared.git'; },
+    (p) => { p.approvedSource.repository = '/different/shared.git'; },
+    (p) => { p.source.revisionSha256 = revision(2).revisionSha256; },
+    (p) => { p.source.revision = 2; }, (p) => { p.source.lifecycleEpoch = 2; }
+  ]) {
+    const f = fixture({ preview: async () => { const value = packagePreview(); change(value); return result('preview', { preview: value }); } });
+    await f.open(); await f.controller.receive({ type: 'preview', binding: f.controller.view.editor.binding });
+    assert.equal(f.controller.view.preview, null); assert.match(f.controller.view.error, /exact retained draft revision/); f.controller.dispose();
+  }
+  let release; const gate = new Promise((resolve) => { release = resolve; });
+  const f = fixture({ preview: async () => { await gate; return result('preview', { preview: packagePreview() }); } }); await f.open();
+  const previewing = f.controller.receive({ type: 'preview', binding: f.controller.view.editor.binding }); await settle();
+  const changed = f.edit(); await f.controller.receive({ type: 'change', ...changed }); release(); await previewing;
+  assert.equal(f.controller.view.preview, null); assert.equal(f.controller.view.editor.inputText, changed.inputText);
+  assert.match(f.controller.view.error, /New captured edits arrived during navigation/); f.controller.dispose();
+});
+
+test('Preview flushes opted-in captured text first and observes only the acknowledged revision', async () => {
+  const clock = fakeClock(); const f = fixture({}, clock); await f.open();
+  await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+  await f.controller.receive({ type: 'preview', ...f.edit() });
+  assert.equal(f.controller.view.dirty, false); assert.equal(f.controller.view.preview.source.revision, 2);
+  const operations = f.calls.map((call) => call.args[2]);
+  assert.deepEqual(operations.slice(-3), ['save', 'list', 'preview']);
+  assert.equal(f.controller.view.editor.head, secondHead); f.controller.dispose();
+});
+
+test('catalog answers come only from the exact captured choice set and never select optional tools or invent reviewer authority', async () => {
+  const text = addWorkflowDraftStage('{"payload":{"id":"typed-goal","unknown":"keep"},"assets":[]}', 'typed-goal');
+  for (const choiceKind of ['execution-task', 'approval-authority', 'quality-command']) {
+    const f = fixture({ read: async () => result('read', { head: firstHead, record: revision(), payload: JSON.parse(text).payload, assets: [], tombstone: null }) });
+    await f.open(); await f.controller.receive({ type: 'preview', binding: f.controller.view.editor.binding });
+    const choiceId = choiceKind === 'execution-task' ? 'analyze' : choiceKind === 'approval-authority' ? 'real-reviewers' : 'actual-check';
+    await f.controller.receive({ type: 'catalog-answer', binding: f.controller.view.editor.binding, choiceKind, choiceId, index: 0 });
+    assert.equal(f.controller.view.error, null);
+    const payload = JSON.parse(f.controller.view.editor.inputText).payload;
+    const selected = Object.values(payload.bindings)[0]; assert.deepEqual(selected, { source: 'catalog', kind: choiceKind, id: choiceId });
+    assert.deepEqual(payload.definitions.agents[0].toolBindings, []);
+    assert.equal(payload.unknown, 'keep'); assert.equal(f.controller.view.preview, null);
+    assert.equal(f.calls.some((call) => call.args[2] === 'save'), false, 'opt-in remains separate; body is memory-only until Save');
+    f.controller.dispose();
+  }
+  const invalid = fixture(); await invalid.open(); await invalid.controller.receive({ type: 'preview', binding: invalid.controller.view.editor.binding });
+  const original = invalid.controller.view.editor.inputText;
+  await invalid.controller.receive({ type: 'catalog-answer', binding: invalid.controller.view.editor.binding, choiceKind: 'approval-authority', choiceId: 'invented-admins', index: 0 });
+  assert.match(invalid.controller.view.error, /not present in the exact captured catalog choice set/);
+  assert.equal(invalid.controller.view.editor.inputText, original); invalid.controller.dispose();
+});
+
+test('catalog selection retains literal approved check identifiers instead of applying candidate pathname rules', async () => {
+  const text = addWorkflowDraftStage('{"payload":{"id":"typed-goal"},"assets":[]}', 'typed-goal');
+  for (const id of ['check:lint', `check:${'é'.repeat(253)}`]) {
+    const f = fixture({ read: async () => result('read', { head: firstHead, record: revision(), payload: JSON.parse(text).payload, assets: [], tombstone: null }),
+      preview: async () => { const preview = packagePreview(); const group = preview.catalogChoices.groups.find((entry) => entry.kind === 'quality-command');
+        group.choices = [{ ref: { source: 'catalog', kind: 'quality-command', id }, label: id }]; return result('preview', { preview }); } });
+    await f.open(); await f.controller.receive({ type: 'preview', binding: f.controller.view.editor.binding });
+    await f.controller.receive({ type: 'catalog-answer', binding: f.controller.view.editor.binding, choiceKind: 'quality-command', choiceId: id, index: 0 });
+    assert.equal(f.controller.view.error, null); assert.equal(Object.values(JSON.parse(f.controller.view.editor.inputText).payload.bindings)[0].id, id);
+    f.controller.dispose();
+  }
+  for (const id of ['check\0lint', 'check\nlint', 'x'.repeat(513), 'é'.repeat(257), 'check:\ud800']) {
+    assert.throws(() => selectWorkflowDraftCatalog(text, 'quality-command', id, 0), /bounded captured catalog reference/);
+  }
+  assert.throws(() => editWorkflowDraftGuide(text, 'id', 'check:lint'), /kebab-case/, 'candidate pathname identity stays separate and constrained');
+});
+
+test('actual page script sends bounded literal captured check IDs and refuses oversized catalog values', () => {
+  const posted = []; const handlers = {};
+  const fields = { 'draft-binding': { value: 'retained-binding' }, 'draft-name': { value: 'Name' }, 'draft-input': { value: '{"payload":{}}' },
+    'draft-input-error': { textContent: '', hidden: true }, 'catalog-quality-command-0': { value: 'check:lint' } };
+  class Element { closest() { return this; } }
+  class HTMLButtonElement extends Element { constructor() { super(); this.dataset = { draftAction: 'catalog-answer', choiceKind: 'quality-command',
+    choiceSelect: 'catalog-quality-command-0', guideIndex: '0' }; this.disabled = false; } }
+  runInNewContext(SHARED_WORKFLOW_DRAFTS_SCRIPT, { window: { __sfVscode: { postMessage: (message) => posted.push(message) }, addEventListener: () => {} },
+    document: { getElementById: (id) => fields[id], addEventListener: (type, listener) => { handlers[type] = listener; } }, Element, HTMLButtonElement, TextEncoder });
+  for (const id of ['check:lint', `check:${'é'.repeat(253)}`]) {
+    fields['catalog-quality-command-0'].value = id; handlers.click({ target: new HTMLButtonElement() });
+    assert.equal(posted.at(-1).choiceId, id); assert.equal(posted.at(-1).choiceKind, 'quality-command');
+  }
+  for (const id of ['é'.repeat(257), 'check\0lint']) { fields['catalog-quality-command-0'].value = id; handlers.click({ target: new HTMLButtonElement() }); }
+  assert.equal(posted.length, 2); assert.match(fields['draft-input-error'].textContent, /bounded captured catalog value/);
+});
+
+test('explicit captured-base selection binds real approved commit/target and refuses advanced conflicting scope', async () => {
+  const f = fixture(); await f.open(); await f.controller.receive({ type: 'preview', binding: f.controller.view.editor.binding });
+  await f.controller.receive({ type: 'catalog-answer', binding: f.controller.view.editor.binding, choiceKind: 'approved-base' });
+  const payload = JSON.parse(f.controller.view.editor.inputText).payload;
+  assert.equal(payload.baseRevision, firstHead); assert.deepEqual(payload.target, { hosts: [], governs: 'story', authority: 'selected-repository' });
+  assert.equal(payload.schema, 'sflow-workflow-request@2'); assert.equal(payload.id, 'partial');
+  assert.equal(f.controller.view.dirty, true); assert.equal(f.calls.some((call) => call.args[2] === 'save'), false);
+  const scoped = fixture({ read: async () => result('read', { head: firstHead, record: revision(), payload: { target: { governs: 'initiative' } }, assets: [], tombstone: null }) });
+  await scoped.open(); await scoped.controller.receive({ type: 'preview', binding: scoped.controller.view.editor.binding });
+  await scoped.controller.receive({ type: 'catalog-answer', binding: scoped.controller.view.editor.binding, choiceKind: 'approved-base' });
+  assert.match(scoped.controller.view.error, /another target.*No scope was silently changed/);
+  assert.equal(JSON.parse(scoped.controller.view.editor.inputText).payload.target.governs, 'initiative');
+  f.controller.dispose(); scoped.controller.dispose();
+});
+
+test('submission review is exact saved-revision Shell/Copilot copy-only, never a CLI write or webview consent token', async () => {
+  const f = fixture(); await f.open();
+  await f.controller.receive({ type: 'submit-review', binding: f.controller.view.editor.binding });
+  await f.controller.receive({ type: 'copilot-submit-review', binding: f.controller.view.editor.binding });
+  assert.deepEqual(f.copied, [{ root: repository, argv: ['workflow', 'author', 'submit', draftId, '--revision', '1'], surface: 'shell' },
+    { root: repository, argv: ['workflow', 'author', 'submit', draftId, '--revision', '1'], surface: 'copilot' }]);
+  assert.match(f.controller.view.notice, /copied only.*Nothing was submitted or executed/);
+  await f.controller.receive({ type: 'submit-review', ...f.edit() });
+  assert.equal(f.copied.length, 2); assert.match(f.controller.view.error, /No route was copied/);
+  assert.equal(f.calls.some((call) => ['submit', 'approve'].includes(call.args[2])), false); f.controller.dispose();
+});
+
+test('guided output bounds and captured-asset content edits preserve exact representation and unrelated manual assets', () => {
+  let text = '{"payload":{"id":"literal-package","definitions":{"phases":[{"id":"note"}],"agents":[{"id":"writer","promptAsset":"prompts/writer.md"}],"templates":[]}},"assets":[{"path":"prompts/writer.md","content":"Old exact manual text"},{"path":"notes/keep.txt","content":"Do not replace"}]}';
+  text = editWorkflowDraftGuide(text, 'agent-prompt', 'Explicit new manual text');
+  text = editWorkflowDraftGuide(text, 'phase-artifact-path', 'artifacts/note/note.md');
+  text = editWorkflowDraftGuide(text, 'phase-artifact-kind', 'custom:note');
+  text = editWorkflowDraftGuide(text, 'phase-artifact-minimum', '20');
+  text = editWorkflowDraftGuide(text, 'phase-artifact-maximum', '16384');
+  text = editWorkflowDraftGuide(text, 'phase-write-scope', 'artifact-only');
+  const value = JSON.parse(text);
+  assert.equal(value.payload.definitions.agents[0].promptAsset, 'prompts/writer.md');
+  assert.equal(value.payload.definitions.agents[0].prompt, undefined);
+  assert.deepEqual(value.assets, [{ path: 'prompts/writer.md', content: 'Explicit new manual text' }, { path: 'notes/keep.txt', content: 'Do not replace' }]);
+  assert.deepEqual(value.payload.definitions.phases[0].artifact, { path: 'artifacts/note/note.md', kind: 'custom:note', minimumBytes: 20, maximumBytes: 16384 });
+  assert.equal(value.payload.definitions.phases[0].writeScope, 'artifact-only');
+  assert.throws(() => editWorkflowDraftGuide(text, 'phase-artifact-minimum', '-1'), /positive bounded integers/);
+  assert.throws(() => editWorkflowDraftGuide(text, 'phase-write-scope', 'source-and-artifact'), /admitted owner/);
+  value.payload.definitions.agents[0].prompt = 'Conflicting inline source';
+  assert.throws(() => editWorkflowDraftGuide(JSON.stringify(value), 'agent-prompt', 'Must not normalize'), /one explicit content representation/);
+});
+
+test('catalog source mismatch or stale preview cannot be used to overwrite an existing binding', async () => {
+  const f = fixture({ preview: async () => {
+    const value = packagePreview(); value.catalogChoices.approvedSource = { ...value.approvedSource, baseRevision: latestHead };
+    return result('preview', { preview: value });
+  } }); await f.open(); await f.controller.receive({ type: 'preview', binding: f.controller.view.editor.binding });
+  const original = f.controller.view.editor.inputText;
+  await f.controller.receive({ type: 'catalog-answer', binding: f.controller.view.editor.binding, choiceKind: 'approved-base' });
+  assert.equal(f.controller.view.editor.inputText, original); assert.match(f.controller.view.error, /source-bound navigation-only/);
+  f.controller.dispose();
+});
+
+test('fresh-list Create cannot silently change the destination disclosed by the clicked list', async () => {
+  let destination = '/approved/shared.git'; let created = 0;
+  const f = fixture({ list: async () => ({ ...result('list', { head: firstHead, drafts: [], nextCursor: null }), capability: { repository: destination } }),
+    create: async () => { created += 1; throw new Error('No first redirected create is allowed.'); } });
+  await f.controller.initialize(); destination = '/replacement/shared.git';
+  await f.controller.receive({ type: 'create' });
+  assert.equal(created, 0); assert.equal(f.controller.view.authority, destination);
+  assert.match(f.controller.view.error, /changed while creating.*Review the refreshed authority.*no draft was written/);
+  f.controller.dispose();
+});
+
+test('actual CLI-backed clients share identity, fence autosave races and Preview captured catalog choices before copy-only Submit', async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-shared-drafts-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const application = path.join(base, 'opened'); const peer = path.join(base, 'peer');
@@ -522,12 +1022,14 @@ test('actual CLI-backed editor and an independent shell share one identity and s
   const cli = async (cwd, args) => JSON.parse((await execute(process.execPath,
     [path.join(root, 'bin/singularity-flow.mjs'), ...args], { cwd, env, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout);
   const commands = [];
+  const clock = fakeClock();
   const controller = new SharedWorkflowDraftController(application, async (argv, openedRoot) => {
     assert.equal(openedRoot, application); commands.push([...argv]);
     try { return { result: await cli(openedRoot, argv), error: null }; }
     catch (error) { return { result: null, error: error.message }; }
   }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => true,
-    copyReview: async () => { throw new Error('No deletion review was requested.'); } });
+    copyReview: async () => { throw new Error('No deletion review was requested.'); } }, clock);
+  t.after(() => controller.dispose());
   await controller.initialize(); await controller.receive({ type: 'create' });
   assert.equal(controller.view.error, null);
   const id = controller.view.editor.record.draftId;
@@ -556,8 +1058,94 @@ test('actual CLI-backed editor and an independent shell share one identity and s
   assert.equal(controller.view.editor.record.revision, 3);
   await controller.receive({ type: 'show', binding: controller.view.editor.binding });
   assert.equal(controller.view.show.subject.draftId, id);
-  assert.equal(controller.view.show.assessment.coverage, 'complete-package-validation-unavailable');
-  assert.equal(controller.view.show.capabilities.automaticSaving, 'unavailable');
+  assert.equal(controller.view.show.assessment.coverage.schema, 'invalid');
+  assert.equal(controller.view.show.assessment.coverage.graph, 'ordered-input-and-registered-rework-validation');
+  assert.equal(controller.view.show.capabilities.automaticSaving, 'vscode-opt-in');
+  assert.equal(controller.view.show.preview.source.revisionSha256, controller.view.editor.record.revisionSha256);
+  // Two independently rooted authoring clients open the same canonical head, accept different
+  // complete semantic answers and autosave concurrently. Only one CAS may install revision 4.
+  const peerCommands = [];
+  const peerController = new SharedWorkflowDraftController(peer, async (argv, openedRoot) => {
+    assert.equal(openedRoot, peer); peerCommands.push([...argv]);
+    try { return { result: await cli(openedRoot, argv), error: null }; }
+    catch (error) { return { result: null, error: error.message }; }
+  }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => false,
+    copyReview: async () => { throw new Error('No review action requested.'); } }, clock);
+  t.after(() => peerController.dispose());
+  await peerController.initialize(); await peerController.receive({ type: 'open', draftId: id });
+  assert.equal(peerController.view.editor.record.revision, 3);
+  assert.equal(peerController.view.editor.head, controller.view.editor.head);
+  for (const client of [controller, peerController]) await client.receive({ type: 'autosave-on', binding: client.view.editor.binding });
+  await Promise.all([[controller, 'Actual UI autosave goal'], [peerController, 'Independent peer autosave goal']].map(([client, value]) =>
+    client.receive({ type: 'guide-answer', binding: client.view.editor.binding, field: 'description', value, index: 0 })));
+  const winner = [controller, peerController].find((client) => !client.view.error);
+  const loser = [controller, peerController].find((client) => client.view.error);
+  assert.ok(winner); assert.ok(loser); assert.equal(winner.view.editor.record.revision, 4);
+  assert.equal(loser.view.editor.record.revision, 3); assert.equal(loser.view.durability, 'conflict');
+  assert.match(loser.view.error, /WCA_DRAFT_CONFLICT/); assert.equal(loser.view.dirty, true);
+  const winningShared = await cli(peer, ['workflow', 'author', 'read', id, '--json']);
+  assert.equal(winningShared.data.record.revision, 4);
+  assert.equal(winningShared.data.payload.description, JSON.parse(winner.view.editor.inputText).payload.description);
+  assert.notEqual(winningShared.data.payload.description, JSON.parse(loser.view.editor.inputText).payload.description);
+  const writeCounts = [commands.filter((argv) => argv[2] === 'save').length, peerCommands.filter((argv) => argv[2] === 'save').length];
+  await clock.advance(20_000);
+  assert.deepEqual([commands.filter((argv) => argv[2] === 'save').length, peerCommands.filter((argv) => argv[2] === 'save').length], writeCounts,
+    'no silent retry, merge, rebase, duplicate revision or deleted-ID recreation');
+  const reopenedCommands = []; const copied = [];
+  const reopened = new SharedWorkflowDraftController(application, async (argv, openedRoot) => {
+    assert.equal(openedRoot, application); reopenedCommands.push([...argv]); return { result: await cli(openedRoot, argv), error: null };
+  }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => false,
+    copyReview: async (openedRoot, argv, surface) => copied.push({ root: openedRoot, argv: [...argv], surface }) }, clock);
+  t.after(() => reopened.dispose());
+  await reopened.initialize(); await reopened.receive({ type: 'open', draftId: id });
+  assert.equal(reopened.view.editor.record.revision, 4);
+  assert.equal(JSON.parse(reopened.view.editor.inputText).payload.description, winningShared.data.payload.description);
+  assert.equal(reopened.view.autosave, false, 'resume does not transfer another editing scope or consent');
+  const binding = reopened.view.editor.binding;
+  await reopened.receive({ type: 'preview', binding });
+  assert.equal(reopened.view.error, null);
+  const captured = reopened.view.preview;
+  assert.equal(captured.source.repository, remote); assert.equal(captured.source.draftId, id);
+  assert.equal(captured.source.revision, 4); assert.equal(captured.source.lifecycleEpoch, 1);
+  assert.equal(captured.source.revisionSha256, winningShared.data.record.revisionSha256);
+  assert.equal(captured.approvedSource.baseRevision, appHead);
+  assert.equal(captured.coverage.schema, 'invalid'); assert.equal(captured.readiness.host, 'discovery-unverified');
+  assert.equal(captured.effects.proposalCreated, false); assert.equal(captured.effects.executed, false);
+  const catalog = await cli(peer, ['workflow', 'author', 'catalog', '--kind', 'phase', '--limit', '32', '--json']);
+  assert.equal(catalog.operation.id, 'workflow.author.catalog'); assert.equal(catalog.operation.modelPolicy, 'never');
+  assert.equal(catalog.data.catalogChoices.permissionEffect, 'none');
+  assert.deepEqual(catalog.data.catalogChoices.approvedSource, captured.approvedSource);
+  const group = captured.catalogChoices.groups.find((entry) => entry.kind === 'phase');
+  assert.ok(group.choices.length > 0, 'choices are actual captured approved entries, not guessed defaults');
+  assert.deepEqual(catalog.data.catalogChoices.groups[0].choices, group.choices);
+  // Explicitly bind the captured approved source, checkpoint it, then request a fresh Preview.
+  await reopened.receive({ type: 'catalog-answer', binding, choiceKind: 'approved-base' });
+  assert.equal(reopened.view.error, null); assert.equal(reopened.view.preview, null);
+  assert.equal(reopened.view.dirty, true); assert.equal(reopened.view.editor.record.revision, 4);
+  await reopened.receive({ type: 'save', binding }); assert.equal(reopened.view.error, null);
+  assert.equal(reopened.view.editor.record.revision, 5);
+  await reopened.receive({ type: 'preview', binding }); assert.equal(reopened.view.error, null);
+  const selected = reopened.view.preview.catalogChoices.groups.find((entry) => entry.kind === 'phase').choices[0].ref;
+  await reopened.receive({ type: 'catalog-answer', binding, choiceKind: selected.kind, choiceId: selected.id, index: 0 });
+  assert.equal(reopened.view.error, null); assert.equal(reopened.view.preview, null);
+  assert.ok(JSON.parse(reopened.view.editor.inputText).payload.definitions.workflows[0].phases.includes(selected.id));
+  await reopened.receive({ type: 'save', binding }); assert.equal(reopened.view.error, null);
+  assert.equal(reopened.view.editor.record.revision, 6);
+  await reopened.receive({ type: 'preview', binding }); assert.equal(reopened.view.error, null);
+  assert.equal(reopened.view.preview.source.revision, 6);
+  assert.equal(reopened.view.preview.source.revisionSha256, reopened.view.editor.record.revisionSha256);
+  assert.equal(reopened.view.preview.readiness.authoring, 'invalid', 'unknown stage remains an honest decision gap');
+  await reopened.receive({ type: 'submit-review', binding }); await reopened.receive({ type: 'copilot-submit-review', binding });
+  assert.deepEqual(copied, ['shell', 'copilot'].map((surface) => ({ root: application,
+    argv: ['workflow', 'author', 'submit', id, '--revision', '6'], surface })));
+  assert.equal(reopenedCommands.some((argv) => ['submit', 'approve', 'execute', 'delete'].includes(argv[2])), false);
+  const sharedCandidate = await cli(peer, ['workflow', 'author', 'read', id, '--json']);
+  assert.equal(sharedCandidate.data.record.revision, 6);
+  assert.equal(sharedCandidate.data.payload.baseRevision, appHead);
+  assert.ok(sharedCandidate.data.payload.definitions.workflows[0].phases.includes(selected.id));
+  assert.equal(sharedCandidate.data.payload.unknownBinding, null);
+  assert.equal(Buffer.from(sharedCandidate.data.assets[0].contentBase64, 'base64').toString('utf8'), JSON.parse(text).assets[0].content);
+  await assert.rejects(access(path.join(application, '.github/skills/candidate/SKILL.md')), /ENOENT/);
   assert.ok(commands.filter((argv) => ['create', 'save'].includes(argv[2])).every((argv) => argv.includes('--expected-authority')));
   assert.equal(await git(application, 'rev-parse', 'HEAD'), appHead);
   assert.deepEqual(await readFile(path.join(application, '.git/index')), appIndex);

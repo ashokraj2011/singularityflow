@@ -2325,6 +2325,12 @@ const families = [
   family({ id: 'workflow-authoring-draft-revision', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-authoring-asset-manifest', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-authoring-draft-tombstone', currentVersion: 1, immutable: true }),
+  // A @2 request is retained inside this versioned envelope, not silently rewritten to @1.
+  family({ id: 'workflow-authoring-request', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-package-preview', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-catalog-choices', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-submission-snapshot', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/workflow-authoring-submissions\/[a-f0-9]{64}\.json$/] }),
   family({
     id: 'learning-workspace', currentVersion: 1, immutable: true,
     paths: [/^\$git\/sgos\/learning\/[a-f0-9]{64}\/workspace\.json$/]

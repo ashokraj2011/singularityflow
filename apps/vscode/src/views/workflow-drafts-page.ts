@@ -1,47 +1,152 @@
 /** Escaped, nonce-shell content. Draft JSON is never executable webview markup. */
 import { WORKFLOW_DRAFT_INPUT_MAX_BYTES, type SharedWorkflowDraftView } from './workflow-drafts-model.ts';
 import { escape } from './webview.ts';
+import { workflowDraftContent, workflowDraftEnvelope, workflowDraftGuide, WORKFLOW_DRAFT_STAGES, type WorkflowDraftGuideField } from './workflow-drafts-guide.ts';
+
+export function workflowDraftDurabilityLabel(view: SharedWorkflowDraftView): string {
+  const revision = view.editor?.record.revision ?? '?';
+  const labels = { shared: `Shared revision ${revision} · all captured changes saved`,
+    memory: 'Not saved · changes are in this panel memory only', saving: 'Saving… · shared acknowledgement pending; pending text is memory-only',
+    failed: 'Not saved · storage/content needs attention; prior shared revision retained',
+    conflict: 'Conflict · your changes remain in this panel memory only; autosave paused',
+    uncertain: 'Acknowledgement unknown · check operation status; autosave paused',
+    deleted: 'Deleted · pending text is memory-only; this draft ID will not be recreated' };
+  return labels[view.durability];
+}
+
+function guidedHtml(view: SharedWorkflowDraftView): string {
+  const editor = view.editor!; const disabled = view.busy || editor.readOnlyReason ? ' disabled' : '';
+  const navigationDisabled = view.busy ? ' disabled' : '';
+  const text = (value: unknown): string => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : Array.isArray(value) ? value.join(', ') : '';
+  const answer = (field: WorkflowDraftGuideField, label: string, value: unknown, index = 0): string => {
+    const id = `guide-${field}-${index}`;
+    return `<label for="${id}">${escape(label)}<textarea id="${id}" rows="${['agent-prompt', 'skill-instructions', 'template-content', 'description', 'rationale'].includes(field) ? 4 : 1}" spellcheck="false"${view.busy || editor.readOnlyReason ? ' readonly' : ''}>${escape(text(value))}</textarea></label>
+      <button type="button" class="secondary" data-draft-action="guide-answer" data-guide-field="${field}" data-guide-input="${id}" data-guide-index="${index}"${disabled}>Apply answer</button>`;
+  };
+  const catalog = view.preview?.catalogChoices;
+  const groups = catalog && typeof catalog === 'object' && Array.isArray((catalog as Record<string, unknown>).groups)
+    ? (catalog as { groups: Record<string, unknown>[] }).groups : [];
+  const selection = (kind: string, label: string, index = 0): string => {
+    const selectionDisabled = view.busy || editor.readOnlyReason || view.dirty ? ' disabled' : '';
+    const group = groups.find((value) => value.kind === kind);
+    const choices = group && Array.isArray(group.choices) ? group.choices.slice(0, 64) : [];
+    const id = `catalog-${kind}-${index}`;
+    return choices.length ? `<label for="${id}">${escape(label)}<select id="${id}"${selectionDisabled}><option value="">Leave unresolved / choose explicitly</option>${choices.map((raw) => {
+      const choice = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+      const ref = choice.ref && typeof choice.ref === 'object' ? choice.ref as Record<string, unknown> : {};
+      return `<option value="${escape(ref.id)}">${escape(choice.label)} (${escape(ref.id)})</option>`;
+    }).join('')}</select></label><button type="button" class="secondary" data-draft-action="catalog-answer" data-choice-kind="${kind}" data-choice-select="${id}" data-guide-index="${index}"${selectionDisabled}>Apply captured catalog choice</button>${group?.nextCursor !== null ? '<p class="muted">This is a bounded catalog page, not every entry. Unlisted requests remain unresolved.</p>' : ''}` : `<p class="muted">${escape(label)}: captured choices unavailable. Request Preview of the exact saved revision; never guess an approved ID.</p>`;
+  };
+  let content: string;
+  try {
+    const guide = workflowDraftGuide(editor.inputText);
+    const envelope = workflowDraftEnvelope(editor.inputText);
+    if (view.stage === 1) content = '<p>What should this workflow help people complete? Leave a field empty when undecided; no meaning is guessed.</p>'
+      + answer('id', 'Package identity (lower-case kebab-case)', guide.payload.id)
+      + answer('label', 'Package label', guide.payload.label) + answer('description', 'Goal / purpose', guide.payload.description)
+      + (view.preview?.approvedSource && typeof view.preview.approvedSource === 'object' ? `<p>Captured approved base: <code>${escape((view.preview.approvedSource as Record<string, unknown>).baseRevision)}</code>. This choice requests the selected repository Story scope only; host IDs are not granted.</p><button type="button" class="secondary" data-draft-action="catalog-answer" data-choice-kind="approved-base"${disabled}>Use captured approved base and repository Story target</button>` : '<p class="muted">Preview supplies the exact approved base for an explicit target choice; no revision is fabricated.</p>');
+    else if (view.stage === 2) {
+      const order = guide.workflows[0]?.phases;
+      content = '<p>Are these the right steps? New steps create incomplete candidate phase, agent, skill and template definitions. No business prompt or catalog binding is invented.</p>'
+        + (Array.isArray(order) ? `<ol>${order.slice(0, 32).map((id, index) => `<li>${escape(id)}
+          ${index > 0 ? `<button type="button" class="secondary" data-draft-action="move-stage" data-guide-index="${index}" data-guide-direction="-1"${disabled}>Move earlier</button>` : ''}
+          ${index + 1 < order.length ? `<button type="button" class="secondary" data-draft-action="move-stage" data-guide-index="${index}" data-guide-direction="1"${disabled}>Move later</button>` : ''}</li>`).join('')}</ol>` : '<p>Stage order is unresolved.</p>')
+        + `<button type="button" data-draft-action="add-stage"${disabled}>Add new candidate stage</button>`
+        + selection('phase', 'Append an existing approved catalog stage')
+        + guide.phases.map((phase, index) => {
+          const artifact = phase.artifact && typeof phase.artifact === 'object' ? phase.artifact as Record<string, unknown> : {};
+          return `<details><summary>${escape(phase.id)} · stage content</summary>${answer('phase-label', 'Stage label', phase.label, index)}${answer('phase-inputs', 'Required input stage IDs (comma-separated, unresolved IDs allowed)', phase.inputs, index)}${selection('execution-task', 'Select the actual execution task', index)}
+            <details><summary>Required output contract (your explicit choices)</summary>${answer('phase-artifact-path', `Own-artifact path under artifacts/${String(phase.id)}/`, artifact.path, index)}${answer('phase-artifact-kind', 'Artifact kind (for example custom:findings — not a ready-made meaning)', artifact.kind, index)}${answer('phase-artifact-minimum', 'Minimum literal bytes', artifact.minimumBytes, index)}${answer('phase-artifact-maximum', 'Maximum literal bytes', artifact.maximumBytes, index)}${answer('phase-write-scope', 'Write scope: type artifact-only to request own-artifact edits; no source grant', phase.writeScope, index)}</details></details>`;
+        }).join('');
+    } else if (view.stage === 3) content = '<p>Who or what does each step? Supply actual purpose and procedural text. Empty text remains a decision gap. Reuse requires an explicit choice from the captured approved catalog. Model generation and human/deterministic role adapters are unavailable here.</p>'
+      + guide.agents.map((agent, index) => `<details><summary>${escape(agent.id)} · candidate agent</summary>${answer('agent-description', 'Role purpose', agent.description, index)}${answer('agent-prompt', agent.promptAsset ? 'Hand-written prompt · captured literal asset (no host file read)' : 'Hand-written prompt', workflowDraftContent(envelope, agent, 'prompt'), index)}</details>`).join('')
+      + guide.skills.map((skill, index) => `<details><summary>${escape(skill.id)} · candidate skill</summary>${answer('skill-description', 'Skill purpose', skill.description, index)}${answer('skill-instructions', 'Procedural instructions', workflowDraftContent(envelope, skill, 'instructions'), index)}</details>`).join('')
+      + guide.templates.map((template, index) => `<details><summary>${escape(template.id)} · candidate template</summary>${answer('template-content', 'Required output template', workflowDraftContent(envelope, template, 'content'), index)}</details>`).join('')
+      + guide.phases.map((phase, index) => `<details><summary>${escape(phase.id)} · reuse existing components explicitly</summary>${selection('agent', 'Approved catalog agent', index)}${selection('template', 'Approved catalog template', index)}</details>`).join('');
+    else if (view.stage === 4) content = '<p>What may each agent do, and who reviews the work? Typed references are requests, not approved catalog selections. Optional tools default to none. No policy floor, mandatory gate or planned-claim obligation is removed.</p>'
+      + '<p class="warning">Native operation/host mapping is unavailable. Captured reviewer/quality catalog IDs are navigation-only: they do not prove membership or grant execution. Nonempty operation bindings may be unsupported.</p>'
+      + guide.agents.map((agent, index) => `<details><summary>${escape(agent.id)} · requested operations</summary>${answer('agent-tools', 'Requested operation binding aliases (comma-separated)', agent.toolBindings, index)}</details>`).join('')
+      + guide.phases.map((phase, index) => `<details><summary>${escape(phase.id)} · requested review</summary>${answer('phase-review', 'Existing reviewer binding alias, or leave unresolved', phase.approvalBinding, index)}${selection('approval-authority', 'Actual approved reviewer group', index)}${selection('quality-command', 'Actual approved quality check', index)}</details>`).join('');
+    else if (view.stage === 5) content = `<p>Is this the package you want to propose? Candidate components: ${guide.workflows.length} workflows, ${guide.phases.length} stages, ${guide.agents.length} agents, ${guide.skills.length} skills, ${guide.templates.length} templates.</p>`
+      + '<p>These counts are not a completeness or readiness verdict. Show is pinned to an acknowledged revision and reports its actual coverage.</p>' + answer('rationale', 'Review explanation', guide.payload.rationale);
+    else content = `<p>Submit this package for the required review?</p><p class="warning">Trusted submission confirmation is unavailable in this editor. Shared persistence and Preview are not approval, active configuration or execution. These buttons copy review routes only; the terminal separately revalidates and presents an exact package, or refuses unresolved findings. Headless Copilot cannot mint consent.</p>
+      <button type="button" class="secondary" data-draft-action="submit-review"${navigationDisabled}>Copy rooted Shell submission-review command</button>
+      <button type="button" class="secondary" data-draft-action="copilot-submit-review"${navigationDisabled}>Copy Copilot submission handoff</button>`;
+  } catch (error) { content = `<p class="warning">${escape(error instanceof Error ? error.message : String(error))}</p><p>Advanced JSON is retained unchanged. Resolve its shape before guided edits.</p>`; }
+  return `<section aria-labelledby="guide-title"><h3 id="guide-title">Step ${view.stage} of 6 · ${WORKFLOW_DRAFT_STAGES[view.stage - 1]}</h3>
+    <p>Authoring progress only — these stages do not run the workflow. Apply answer captures a complete semantic edit; un-applied question text is not saved.</p>
+    <nav aria-label="Authoring sections">${WORKFLOW_DRAFT_STAGES.map((label, index) => `<button type="button" class="secondary" data-draft-action="stage" data-guide-stage="${index + 1}"${navigationDisabled}>${escape(label)}</button>`).join('')}</nav>
+    ${content}<details><summary>Explain this stage</summary><p>Typed choices edit the inert partial request only. Leave unresolved by keeping a field empty. Unknown advanced fields, literal assets and unrelated hand-written content are preserved. Full compiler checks, catalog authority, approval and execution remain distinct owners.</p></details>
+    <div class="form-actions">${view.stage > 1 ? `<button type="button" class="secondary" data-draft-action="stage" data-guide-stage="${view.stage - 1}"${navigationDisabled}>Back</button>` : ''}
+    ${view.stage < 6 ? `<button type="button" class="secondary" data-draft-action="stage" data-guide-stage="${view.stage + 1}"${navigationDisabled}>Next / leave unresolved</button>` : ''}
+    <button type="button" class="secondary" data-draft-action="show"${navigationDisabled}>Show workflow</button>
+    <button type="button" class="secondary" data-draft-action="preview"${navigationDisabled}>Preview saved package (read-only)</button>
+    <button type="button" class="secondary" data-draft-action="back-drafts"${navigationDisabled}>Back to drafts</button>
+    <button type="button" class="secondary" data-draft-action="exit"${navigationDisabled}>Exit (flush captured edits)</button></div></section>`;
+}
 
 export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string {
   const editor = view.editor;
   const disabled = view.busy ? ' disabled' : '';
   const show = view.show;
   const missing = show && Array.isArray(show.missingDecisions) ? show.missingDecisions : [];
+  const assessment = show?.assessment && typeof show.assessment === 'object' ? show.assessment as Record<string, unknown> : {};
+  const coverage = assessment.coverage && typeof assessment.coverage === 'object' ? assessment.coverage as Record<string, unknown> : null;
+  const graph = show?.graph && typeof show.graph === 'object' ? show.graph as Record<string, unknown> : {};
+  const edges = Array.isArray(graph.edges) ? graph.edges : [];
   return `<main aria-labelledby="drafts-title"><header><p class="eyebrow">Workflow authoring · Shared Git drafts</p>
-    <h1 id="drafts-title">Shared Workflow Drafts</h1><p>List, read and explicitly save inert partial workflow packages through the same CLI DraftStore used by a shell.</p>
+    <h1 id="drafts-title">Shared Workflow Drafts</h1><p>Guide, read and save inert partial workflow packages through the same CLI DraftStore used by a shell.</p>
     <p class="muted">Opened repository: <code>${escape(view.repository)}</code><br>Draft authority: <code>${escape(view.authority ?? 'Not observed yet')}</code></p>
-    <p>No autosave, complete-package compiler, submission, approval, host installation or execution is provided by this editor.</p></header>
+    <p>Shared autosave requires explicit editing-scope opt-in for the opened draft. No private recovery checkpoint, submission, approval, host installation or execution is provided by this editor.</p></header>
+    <p id="draft-live-error" class="warning" role="alert"${view.error ? '' : ' hidden'}>${escape(view.error ?? '')}</p>
     ${view.error ? `<section class="warning" role="alert"><strong>Draft operation needs attention</strong><p>${escape(view.error)}</p><p>The editor buffer is retained. A write may need operation-status reconciliation; a conflict requires explicit Reload, never automatic overwrite.</p></section>` : ''}
     ${view.notice ? `<p role="status" aria-live="polite">${escape(view.notice)}</p>` : ''}
-    ${view.operationId ? `<p class="muted">Last write operation ID: <code>${escape(view.operationId)}</code>. Check status first; then explicitly Save retained text with the same ID if unchanged.</p><button type="button" class="secondary" data-draft-action="operation-status"${disabled}>Check last write status (read-only)</button>` : ''}
+    <p id="draft-operation" class="muted">${view.operationId ? `Last write operation ID: ${escape(view.operationId)}. Check status before retrying uncertain writes.` : ''}</p><button type="button" class="secondary" data-draft-action="operation-status"${disabled}>Check last write status (read-only)</button>
     ${view.busy ? '<p role="status" aria-live="polite">Waiting for the shared-draft CLI…</p>' : ''}
-    <section><h2>Shared drafts</h2><div class="form-actions"><button type="button" class="secondary" data-draft-action="refresh"${disabled}>Refresh shared list</button>
+    <section><h2>Last observed shared drafts</h2><div class="form-actions"><button type="button" class="secondary" data-draft-action="refresh"${disabled}>Refresh shared list</button>
       <button type="button" data-draft-action="create"${disabled}>Create empty shared draft</button></div>
-      ${view.drafts.length ? `<table><thead><tr><th>Draft</th><th>Saved revision</th><th>Open</th></tr></thead><tbody>${view.drafts.map((draft) => `<tr><td>${escape(draft.displayName)}<br><code>${escape(draft.draftId)}</code></td><td>${escape(draft.revision)}</td><td><button type="button" class="secondary" data-draft-action="open" data-draft-id="${escape(draft.draftId)}"${disabled}>Open draft</button></td></tr>`).join('')}</tbody></table>` : '<p class="muted">No live shared drafts were observed. Refresh or create an empty draft.</p>'}</section>
+      ${view.drafts.length ? `<table><thead><tr><th>Draft</th><th>Saved revision</th><th>Open</th></tr></thead><tbody>${view.drafts.map((draft) => `<tr><td>${escape(draft.displayName)}<br><code>${escape(draft.draftId)}</code></td><td>${escape(draft.revision)}</td><td><button type="button" class="secondary" data-draft-action="open" data-draft-id="${escape(draft.draftId)}"${disabled}>Open draft</button></td></tr>`).join('')}</tbody></table>` : view.authority ? '<p class="muted">No live shared drafts were observed in the last successful list. Refresh or explicitly create an empty draft.</p>' : '<p class="warning">The shared draft list has not loaded. This is not an empty catalog; Refresh to retry.</p>'}</section>
     ${editor ? `<section><h2>Draft editor · <code>${escape(editor.record.draftId)}</code></h2>
-      <p>Retained saved revision ${escape(editor.record.revision)} · lifecycle epoch ${escape(editor.record.lifecycleEpoch)}<br>
+      <p id="draft-revision">Retained saved revision ${escape(editor.record.revision)} · lifecycle epoch ${escape(editor.record.lifecycleEpoch)}<br>
       <code>${escape(editor.record.revisionSha256)}</code><br>Compare-and-swap head: <code>${escape(editor.head)}</code><br>Retained draft authority: <code>${escape(editor.authority)}</code></p>
-      <p id="draft-dirty" role="status" aria-live="polite">${view.dirty ? 'Unsaved editor changes · explicit Save required.' : 'Editor matches the retained saved revision.'}</p>
-      <p class="muted">Unsaved text exists only in this open panel. Save before closing; no local shadow draft or autosave is created.</p>
+      <p id="draft-dirty" role="status" aria-live="polite">${escape(workflowDraftDurabilityLabel(view))}</p>
+      <p id="draft-autosave" role="status">Shared autosave ${view.autosave ? 'on for this exact draft' : 'off'}.</p>
+      <p class="muted">Pending text exists only in this open panel. The Exit button flushes eligible captured edits; closing the native tab or application cannot guarantee a flush or background sync. No local durable recovery is claimed.</p>
+      <p>Editing destination: <code>${escape(editor.authority)}</code> · visible to principals permitted by the Git repository provider. Nothing here is an active workflow. Enabling autosave authorizes ordinary draft edits here only, not sharing elsewhere or submission.</p>
+      <button type="button" class="secondary" data-draft-action="${view.autosave ? 'autosave-off' : 'autosave-on'}"${view.busy || (!view.autosave && editor.readOnlyReason) ? ' disabled' : ''}>${view.autosave ? 'Pause shared autosave' : 'Enable shared autosave for this draft'}</button>
       <p id="draft-input-error" class="warning" role="alert" hidden></p>
       ${editor.readOnlyReason ? `<p class="warning">${escape(editor.readOnlyReason)}</p>` : ''}
       <input type="hidden" id="draft-binding" value="${escape(editor.binding)}">
-      <label for="draft-name">Display name<input id="draft-name" value="${escape(editor.name)}" autocomplete="off"${view.busy || editor.readOnlyReason ? ' disabled' : ''}></label>
-      <label for="draft-input">Partial package JSON and literal assets<textarea id="draft-input" rows="22" spellcheck="false"${view.busy || editor.readOnlyReason ? ' readonly' : ''}>${escape(editor.inputText)}</textarea></label>
+      <label for="draft-name">Display name<input id="draft-name" value="${escape(editor.name)}" autocomplete="off"${editor.readOnlyReason ? ' disabled' : ''}></label>
+      ${guidedHtml(view)}
+      <details><summary>Change advanced partial package JSON and literal assets</summary><label for="draft-input">Advanced JSON<textarea id="draft-input" rows="22" spellcheck="false"${editor.readOnlyReason ? ' readonly' : ''}>${escape(editor.inputText)}</textarea></label>
       <p class="muted">Closed JSON envelope: <code>{"payload": {…}, "assets": [{"path": "logical/path", "content": "literal text"}]}</code>. Paths are labels, not local file reads. Missing decisions are allowed; secret/environment-local storage admission still applies.</p>
-      <div class="form-actions"><button type="button" data-draft-action="save"${view.busy || editor.readOnlyReason ? ' disabled' : ''}>Save shared revision</button>
+      </details><div class="form-actions"><button type="button" data-draft-action="save"${view.busy || editor.readOnlyReason ? ' disabled' : ''}>Save shared revision / retry</button>
       <button type="button" class="secondary" data-draft-action="reload"${disabled}>Reload latest (discard unsaved changes…)</button>
       <button type="button" class="secondary" data-draft-action="show"${disabled}>Show saved revision (read-only)</button></div>
+      <button type="button" class="secondary" data-draft-action="preview"${disabled}>Preview exact saved package (read-only)</button>
       <details><summary>Delete via terminal review</summary><p>Native webview deletion confirmation is unavailable. This prepares a terminal command only; the terminal separately presents the exact current draft, repository and revision with Cancel as the default. Submitted snapshots and active workflows are not deletion targets.</p>
       <p class="muted">Shell copy is rooted to this exact repository. Copilot copy requires this repository to be the only opened folder; its headless route cannot capture deletion consent.</p>
       <button type="button" class="secondary" data-draft-action="terminal-review"${disabled}>Copy Shell review command</button>
       <button type="button" class="secondary" data-draft-action="copilot-review"${disabled}>Copy Copilot handoff</button></details></section>` : '<section><p>Open a shared draft to edit its partial package.</p></section>'}
-    ${show ? `<section aria-labelledby="draft-show-title"><h2 id="draft-show-title">Read-only Show · saved revision</h2>
-      <p>Assessment: partial. Complete-package validation, graph coverage and execution readiness are unavailable. No approval or host acceptance is implied.</p>
-      <h3>Missing decisions reported by the storage-only projection</h3>${missing.length ? `<ul>${missing.slice(0, 64).map((decision) => {
+    ${view.preview ? `<section id="draft-preview"><h2>Exact saved-package Preview · read-only</h2><p>Plan: <code>${escape(view.preview.planSha256)}</code>. Authoring: ${escape((view.preview.readiness as Record<string, unknown>)?.authoring)}. Host: ${escape((view.preview.readiness as Record<string, unknown>)?.host)}. Execution: ${escape((view.preview.readiness as Record<string, unknown>)?.execution)}.</p>
+      <p>Static validity is not Ready to run. Human confirmation, membership, native host enforcement and activation remain separate; no operation was executed.</p>
+      <ul>${Array.isArray(view.preview.findings) ? view.preview.findings.slice(0, 128).map((finding) => {
+        const item = finding && typeof finding === 'object' ? finding as Record<string, unknown> : {};
+        return `<li><code>${escape(item.code)}</code> · ${escape(item.fieldPath)} · ${escape(item.message)}</li>`;
+      }).join('') : ''}</ul><p>Catalog choices are pinned to this Preview's approved source and saved revision. After a candidate edit, Preview again; no old assessment certifies new bytes.</p></section>` : ''}
+    ${show ? `<section id="draft-show" aria-labelledby="draft-show-title"><h2 id="draft-show-title">Read-only Show · saved revision</h2>
+      ${coverage ? `<p>Authoring assessment: ${escape(assessment.status ?? 'not reported')}. These checks describe the exact saved package, not unsaved editor text.</p><dl>${([['schema', 'Request schema'], ['references', 'Reference resolution'], ['policy', 'Policy source'], ['graph', 'Workflow graph'], ['hostEnforcement', 'Native host enforcement'], ['behavior', 'Behavior evaluation']] as const).map(([key, label]) => `<dt>${label}</dt><dd>${escape(coverage[key] ?? 'not reported')}</dd>`).join('')}</dl>`
+        : '<p>Assessment coverage was not reported. Complete-package validation, graph coverage and execution readiness are unavailable.</p>'}
+      <p>Static validation is not Ready to run. No submission, approval, activation or host acceptance is implied.</p>
+      ${edges.length ? `<details><summary>Declared input relationships (first ${Math.min(edges.length, 64)})</summary><ul>${edges.slice(0, 64).map((raw) => {
+        const edge = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+        return `<li>${escape(edge.workflowId)}: <code>${escape(edge.from)}</code> → <code>${escape(edge.to)}</code></li>`;
+      }).join('')}</ul></details>` : ''}
+      <h3>Unresolved decisions reported by the saved-package assessment</h3>${missing.length ? `<ul>${missing.slice(0, 64).map((decision) => {
         const item = decision && typeof decision === 'object' ? decision as Record<string, unknown> : {};
         return `<li>${escape(item.label)} · <code>${escape(item.fieldPath)}</code></li>`;
-      }).join('')}</ul>` : '<p>No missing fields were reported by this partial projection. This is not a ready-to-run verdict.</p>'}
+      }).join('')}</ul>` : '<p>No unresolved decisions were reported by this assessment. This is not a ready-to-run verdict.</p>'}
       <details><summary>Exact saved-revision Show JSON</summary><pre><code>${escape(JSON.stringify(show, null, 2))}</code></pre></details></section>` : ''}
     </main>`;
 }
@@ -71,7 +176,7 @@ export const SHARED_WORKFLOW_DRAFTS_SCRIPT = `
   document.addEventListener('input', (event) => {
     if (event.target?.id !== 'draft-name' && event.target?.id !== 'draft-input') return;
     const status = document.getElementById('draft-dirty');
-    if (status) status.textContent = 'Unsaved editor changes · explicit Save required.';
+    if (status) status.textContent = 'Not saved · captured editor changes are in panel memory; shared acknowledgement is pending.';
     const fields = editorFields();
     if (fields) draftsVscode.postMessage({ type: 'change', ...fields });
   });
@@ -80,11 +185,46 @@ export const SHARED_WORKFLOW_DRAFTS_SCRIPT = `
     if (!(target instanceof HTMLButtonElement) || target.disabled) return;
     const fields = editorFields();
     if (!fields) return;
-    draftsVscode.postMessage({ type: target.dataset.draftAction, ...fields,
+    const extra = {};
+    if (target.dataset.guideStage) extra.stage = Number(target.dataset.guideStage);
+    if (target.dataset.guideIndex) extra.index = Number(target.dataset.guideIndex);
+    if (target.dataset.guideDirection) extra.direction = Number(target.dataset.guideDirection);
+    if (target.dataset.choiceKind) {
+      extra.choiceKind = target.dataset.choiceKind;
+      if (target.dataset.choiceSelect) {
+        const value = document.getElementById(target.dataset.choiceSelect)?.value;
+        if (typeof value !== 'string' || !value || new TextEncoder().encode(value).byteLength > 512 || /[\\0\\r\\n]/u.test(value)) { showEditorError('Choose one bounded captured catalog value or leave this decision unresolved. No binding was sent.'); return; }
+        extra.choiceId = value;
+      }
+    }
+    if (target.dataset.guideField) {
+      const value = document.getElementById(target.dataset.guideInput)?.value;
+      if (typeof value !== 'string' || new TextEncoder().encode(value).byteLength > 128 * 1024) {
+        showEditorError('The guided answer exceeds 128 KiB or is missing. Its visible text is retained but has not been applied or sent.'); return;
+      }
+      extra.field = target.dataset.guideField; extra.value = value;
+    }
+    draftsVscode.postMessage({ type: target.dataset.draftAction, ...fields, ...extra,
       ...(target.dataset.draftId ? { draftId: target.dataset.draftId } : {}) });
   });
   window.addEventListener('message', (event) => {
     const message = event.data;
+    if (message?.type === 'draft-status' && message.binding === document.getElementById('draft-binding')?.value) {
+      const visibleCaptured = editorFields() !== null;
+      for (const [id, key] of [['draft-dirty', 'durability'], ['draft-autosave', 'autosave'], ['draft-revision', 'revision'], ['draft-operation', 'operation']]) {
+        const element = document.getElementById(id);
+        if (element && typeof message[key] === 'string' && message[key].length <= 5000) element.textContent = id === 'draft-dirty' && !visibleCaptured
+          ? 'Visible text is not captured or saved. Any shared acknowledgement covers only the prior bounded checkpoint.' : message[key];
+      }
+      const error = document.getElementById('draft-live-error');
+      if (error && typeof message.error === 'string' && message.error.length <= 4000) { error.textContent = message.error; error.hidden = !message.error; }
+      const show = document.getElementById('draft-show'); if (show && message.hasShow === false) show.hidden = true;
+      const preview = document.getElementById('draft-preview'); if (preview && message.hasPreview === false) preview.hidden = true;
+      for (const button of document.querySelectorAll?.('[data-draft-action]') ?? []) {
+        if (button instanceof HTMLButtonElement) button.disabled = message.busy === true;
+      }
+      return;
+    }
     if (message?.type !== 'editor-rejected' || typeof message.message !== 'string'
         || message.message.length > 4000 || message.binding !== document.getElementById('draft-binding')?.value) return;
     showEditorError(message.message + ' The visible text has not been replaced or sent to the CLI. Reduce it before any panel action.');

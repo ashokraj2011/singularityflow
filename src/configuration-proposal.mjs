@@ -20,11 +20,12 @@ import {
 } from './configuration-branch.mjs';
 import { validateDefinition } from './config.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
+import { configurationAssetPolicy } from './configuration-assets.mjs';
 import { createGitRuntime } from './git-access.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
-import { gitCommitIdentity } from './git.mjs';
+import { gitCommitIdentity, exactConfigurationProposalGitTree } from './git.mjs';
 import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,
@@ -723,11 +724,16 @@ export function assertLocalConfigurationAuthoringAllowed(root) {
  * before the commit is retained and pushed.
  */
 export async function proposeConfigurationChange(root, {
-  operation, subject, message, mutate, expectedAuthority = null
+  operation, subject, message, mutate, expectedAuthority = null, verifyStaged = null
 }, { transport = {}, env = transport.env ?? process.env, session = null } = {}) {
   if (typeof mutate !== 'function') {
     throw new SingularityFlowError('A configuration proposal needs a mutation.', {
       code: 'CONFIGURATION_PROPOSAL_MUTATION_REQUIRED'
+    });
+  }
+  if (verifyStaged !== null && typeof verifyStaged !== 'function') {
+    throw new SingularityFlowError('Exact staged proposal verification must be an owner callback.', {
+      code: 'CONFIGURATION_PROPOSAL_EXACT_VERIFIER_INVALID'
     });
   }
   const operationId = safeSlug(operation);
@@ -815,25 +821,61 @@ export async function proposeConfigurationChange(root, {
         commit: expected.commit
       }, { commit: baseCommit });
     }
+    // Only the exact approved base may establish managed roots and runtime exclusions. The
+    // candidate workflow can request a root change for review, but cannot authorize its own files.
+    const approvedAssetPolicy = configurationAssetPolicy(
+      yamlAtRef(scratch, baseCommit, 'singularity/workflow.yml', authorityTransport.env),
+      yamlAtRef(scratch, baseCommit, 'singularity/portfolio.yml', authorityTransport.env)
+    );
     const result = await mutate(scratch);
     run('git', ['add', '-A'], { cwd: scratch, env: authorityTransport.env });
     const files = run('git', ['diff', '--cached', '--name-only'], {
       cwd: scratch, env: authorityTransport.env
     }).stdout
       .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
-    if (!files.length) {
-      return {
-        ...result, changed: false, pushed: false, reviewRequired: false,
-        branch: null, baseBranch: CONFIGURATION_BRANCH, baseCommit, files: []
-      };
-    }
-    const escaped = files.filter((file) => !isConfigurationReadPath(file));
+    const escaped = files.filter((file) => !isConfigurationReadPath(file, approvedAssetPolicy));
     if (escaped.length) {
       throw new SingularityFlowError(
         `Configuration proposal attempted to change non-configuration paths: ${escaped.join(', ')}.`, {
           code: 'CONFIGURATION_PROPOSAL_SCOPE_INVALID', details: { files: escaped }
         }
       );
+    }
+
+    let verifiedTree = null;
+    if (verifyStaged) {
+      const staged = exactConfigurationProposalGitTree(scratch, { baselineCommit: baseCommit, env: authorityTransport.env });
+      let verified = false;
+      const mismatch = (message) => { throw new SingularityFlowError(message, { code: 'CONFIGURATION_PROPOSAL_REVIEWED_FILES_CHANGED' }); };
+      const verifyFiles = (expectedFiles) => {
+        if (!Array.isArray(expectedFiles) || !expectedFiles.length || expectedFiles.length > 1024) mismatch('Reviewed proposal file closure must be explicit and bounded.');
+        const expected = expectedFiles.map((file) => {
+          if (!file || Object.getPrototypeOf(file) !== Object.prototype || typeof file.path !== 'string'
+              || !isConfigurationReadPath(file.path, approvedAssetPolicy) || !['100644', '100755'].includes(file.mode)
+              || !Number.isSafeInteger(file.bytes) || file.bytes < 0 || file.bytes > 16 * 1024 * 1024
+              || typeof file.sha256 !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(file.sha256)) mismatch('The reviewed proposal file manifest is invalid.');
+          return { path: file.path, mode: file.mode, bytes: file.bytes, sha256: file.sha256 };
+        });
+        const paths = expected.map((file) => file.path);
+        if (new Set(paths).size !== paths.length || expected.reduce((sum, file) => sum + file.bytes, 0) > 32 * 1024 * 1024
+            || staged.changedPaths.some((relative) => !paths.includes(relative))) mismatch('The staged changes differ from the exact reviewed file closure.');
+        const actual = staged.fileMetadata(paths);
+        if (actual.some((file, index) => ['path', 'mode', 'bytes', 'sha256'].some((key) => file[key] !== expected[index][key]))) mismatch('Git staging changed reviewed file bytes or modes; obtain a new exact package preview.');
+        verified = true;
+        return Object.freeze({ candidateTree: staged.candidateTree, files: actual });
+      };
+      await verifyStaged(Object.freeze({ baseCommit, candidateTree: staged.candidateTree,
+        changedPaths: staged.changedPaths, verifyFiles }));
+      if (!verified) mismatch('The owner callback did not verify an exact reviewed file closure.');
+      const current = exactConfigurationProposalGitTree(scratch, { baselineCommit: baseCommit, env: authorityTransport.env });
+      if (current.candidateTree !== staged.candidateTree) mismatch('The staged proposal tree changed after exact review verification.');
+      verifiedTree = staged.candidateTree;
+    }
+    if (!files.length) {
+      return {
+        ...result, changed: false, pushed: false, reviewRequired: false,
+        branch: null, baseBranch: CONFIGURATION_BRANCH, baseCommit, files: []
+      };
     }
 
     const reviewBranch = `${REVIEW_PREFIX}${operationId}-${subjectId}-${baseCommit.slice(0, 8)}`;
@@ -901,6 +943,16 @@ export async function proposeConfigurationChange(root, {
       'commit', '-m', String(message ?? '').trim() || `[configuration] ${operationId} ${subjectId}`
     ], { cwd: scratch, env: authorityTransport.env });
     const commit = configurationRepositoryHead(scratch, authorityTransport.env);
+    if (verifiedTree) {
+      const committed = exactConfigurationProposalGitTree(scratch, {
+        baselineCommit: baseCommit, objectId: commit, env: authorityTransport.env
+      });
+      if (committed.candidateTree !== verifiedTree || committed.parents?.length !== 1 || committed.parents[0] !== baseCommit) {
+        throw new SingularityFlowError('The committed proposal differs from its exact reviewed tree or approved base; nothing will be published.', {
+          code: 'CONFIGURATION_PROPOSAL_REVIEWED_FILES_CHANGED'
+        });
+      }
+    }
 
     const retentionTransport = frozenRemoteTransport(scratch, { env: gitEnv });
     const retained = await runRemoteGitAsync([

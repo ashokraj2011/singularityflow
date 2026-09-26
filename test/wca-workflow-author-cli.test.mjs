@@ -22,14 +22,16 @@ test('workflow author preflight has closed routes, targets, numeric options, and
   assert.equal(validateWorkflowAuthorRequest(request()), 'list');
   for (const argv of [
     ['list', '--limit', '64', '--cursor', '0', '--json'],
-    ['read', ID, '--revision', '1'], ['history', ID], ['show', ID],
+    ['read', ID, '--revision', '1'], ['history', ID], ['show', ID], ['preview', ID, '--revision', '1'],
+    ['catalog', '--kind', 'phase', '--limit', '64', '--cursor', '0'], ['submit', ID, '--revision', '1'],
     ['op-status', 'create:one'], ['delete', ID],
     ['create', ID, '--expected-head', 'empty', '--operation-id', 'create-one'],
     ['save', ID, '--name', 'Partial draft', '--expected-head', GIT_HEAD, '--epoch', '1', '--operation-id', 'save-one'],
     ['create', ID, '--expected-head', 'empty', '--operation-id', 'create-bound', '--expected-authority', '/exact/shared.git']
   ]) assert.doesNotThrow(() => validateWorkflowAuthorRequest(request(...argv)));
   for (const argv of [
-    ['submit', ID], ['read'], ['read', ID, ID], ['read', '../draft'], ['create'],
+    ['submit', ID], ['submit', ID, '--revision', '1', '--confirmed', 'true'], ['catalog', ID],
+    ['catalog', '--kind', 'tools'], ['read'], ['read', ID, ID], ['read', '../draft'], ['create'],
     ['create', '--expected-head', GIT_HEAD], ['save', ID, '--expected-head', 'empty', '--operation-id', 's', '--epoch', '1', '--name', 'name'],
     ['save', ID, '--expected-head', GIT_HEAD, '--operation-id', 's', '--epoch', '1'],
     ['list', '--limit', '65'], ['list', '--cursor', '0.5'], ['list', '--limit', '01'],
@@ -48,12 +50,12 @@ test('actual parsed author commands register deterministic model-free read and d
   assert.equal(excludesActiveWorkspaceRouting('workflow', 'author'), true,
     'shared authoring must use the explicit caller repository, not a home-selected fallback');
   for (const [action, target] of [['list'], ['read', ID], ['show', ID], ['history', ID],
-    ['op-status', 'op-one'], ['create', ID], ['save', ID], ['delete', ID]]) {
+    ['op-status', 'op-one'], ['create', ID], ['save', ID], ['delete', ID], ['catalog'], ['preview', ID], ['submit', ID]]) {
     const parsed = request(action, ...(target ? [target] : []));
     const operation = resolveOperation({ requestedCommand: 'workflow', ...parsed });
     assert.equal(operation.id, `workflow.author.${action}`);
     assert.equal(operation.modelPolicy, 'never');
-    assert.equal(operation.classification, ['create', 'save', 'delete'].includes(action) ? 'mutation' : 'read');
+    assert.equal(operation.classification, ['create', 'save', 'delete', 'submit'].includes(action) ? 'mutation' : 'read');
   }
 });
 
@@ -204,10 +206,11 @@ test('actual shell clients share one draft identity, preserve partial content, a
   const shown = author(second, 'show', ID);
   assert.equal(shown.data.view.subject.revision, 2);
   assert.equal(shown.data.view.assessment.execution, 'not-started');
-  assert.equal(shown.data.view.assessment.coverage, 'complete-package-validation-unavailable');
+  assert.equal(shown.data.view.assessment.coverage.schema, 'invalid');
+  assert.equal(shown.data.view.assessment.coverage.hostEnforcement, 'unavailable');
   assert.ok(shown.data.view.missingDecisions.some((decision) => decision.fieldPath === 'description'));
-  assert.equal(shown.data.view.graph.coverage, 'unavailable');
-  assert.ok(!JSON.stringify(shown).includes('Never execute or install'));
+  assert.equal(shown.data.view.graph.coverage, 'ordered-input-and-registered-rework-validation');
+  assert.equal(shown.data.view.preview.readiness.execution, 'not-run');
   const deleted = author(second, 'delete', ID, '--operation-id', 'cli-delete-one');
   assert.equal(deleted.status, 'needs-human-input');
   assert.equal(deleted.data.code, 'WCA_NEEDS_HUMAN_INPUT');
@@ -222,8 +225,10 @@ test('actual shell clients share one draft identity, preserve partial content, a
     '--operation-id', 'cli-create-other');
   const sameRevision = author(second, 'show', ID);
   assert.equal(sameRevision.data.view.durability.head, other.data.head);
-  assert.equal(sameRevision.data.view.viewSha256, shown.data.view.viewSha256,
+  assert.deepEqual(sameRevision.data.view.assessment, shown.data.view.assessment,
     'another draft advancing transport must not change this exact revision assessment');
+  assert.notEqual(sameRevision.data.view.preview.planSha256, shown.data.view.preview.planSha256,
+    'submission preview freshness binds the exact shared head as well as this revision');
   assert.equal(git(first, 'rev-parse', 'HEAD'), firstHead);
   assert.equal(git(second, 'rev-parse', 'HEAD'), secondHead);
   assert.equal(git(first, 'for-each-ref', '--format=%(refname) %(objectname)'), firstRefs);

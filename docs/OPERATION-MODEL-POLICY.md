@@ -653,14 +653,17 @@ Every public operation is classified before its implementation module is importe
 | wm.view-contract | read | never | — | — |
 | wm.views | read | never | — | — |
 | workflow.activate | mutation | never | — | — |
+| workflow.author.catalog | read | never | — | — |
 | workflow.author.create | mutation | never | — | — |
 | workflow.author.delete | mutation | never | — | — |
 | workflow.author.history | read | never | — | — |
 | workflow.author.list | read | never | — | — |
 | workflow.author.op-status | read | never | — | — |
+| workflow.author.preview | read | never | — | — |
 | workflow.author.read | read | never | — | — |
 | workflow.author.save | mutation | never | — | — |
 | workflow.author.show | read | never | — | — |
+| workflow.author.submit | mutation | never | — | — |
 | workflow.copy | mutation | never | — | — |
 | workflow.copy.preview | read | never | — | — |
 | workflow.create | mutation | never | — | — |

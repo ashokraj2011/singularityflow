@@ -127,6 +127,7 @@ export async function captureTerminalActionAuthorization(root, plan, action, { l
   terminalPresentations.set(record.token, {
     root: path.resolve(root), planHash: record.planHash, actionId: record.actionId,
     subject: canonicalJson(reviewedPlan.subject), revision: reviewedPlan.revision,
+    cardSha256: recordSha256({ plan: reviewedPlan, action: reviewedAction }),
     actor: beforeActor, expiresAt: Date.parse(record.expiresAt)
   });
   return record;
@@ -143,6 +144,7 @@ export async function consumeActionAuthorization(root, token, plan, action, {
     if (!presented || presented.root !== path.resolve(root)
         || presented.planHash !== plan.planHash || presented.actionId !== action.actionId
         || presented.subject !== canonicalJson(plan.subject) || presented.revision !== plan.revision
+        || presented.cardSha256 !== recordSha256({ plan, action })
         || presented.actor !== actorKey(identity(root)) || presented.expiresAt <= Date.now()) {
       throw new SingularityFlowError('A live direct-terminal presentation is required; a local receipt is not human consent.',
         { code: 'ACTION_TERMINAL_PRESENTATION_REQUIRED' });

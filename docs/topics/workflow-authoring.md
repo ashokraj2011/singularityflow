@@ -22,7 +22,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 18
+version: 19
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -46,10 +46,11 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
   create review proposals; self-governed saves leave an uncommitted edit on local `sflow/config`.
   The selected Story snapshot is never edited.
   **Configuration Center → Shared workflow drafts** (or Command Palette **Singularity Flow:
-  Shared workflow drafts**) opens the shared inert draft editor. Explicit Save writes a leased
-  revision, not a proposal or approval. Conflicts retain unsaved text; Reload requires a discard
-  choice. This first editor has no autosave—save before closing. Binary assets are read-only to
-  avoid a lossy text round trip.
+  Shared workflow drafts**) opens six guided stages with an advanced literal JSON editor.
+  Shared autosave is opt-in for the exact opened draft and authority; an acknowledged revision
+  is storage, not a proposal or approval. Conflicts and uncertain acknowledgements retain the
+  pending buffer; Reload requires explicit reconciliation/discard. Binary assets are read-only
+  to avoid a lossy text round trip. Native tab close does not guarantee a flush or private recovery.
 
 After `singularity-flow onboard --bootstrap`, run `singularity-flow init` before authoring. Bootstrap pins the repository authority; init materializes `singularity/workflow.yml` and `singularity/portfolio.yml`. When initialization is needed, the bootstrap receipt now gives that exact next command.
 
@@ -96,10 +97,90 @@ operation. Retrying the exact original request is idempotent; changing it under 
 is refused. Deleted draft IDs fence queued saves and cannot be recreated.
 
 `workflow author history WFD-DEMO001 --json` lists retained revisions. `workflow author show
-WFD-DEMO001 --json` is read-only and reports partial definition gaps. Full graph/compiler coverage,
-approval/publication state and installed-host readiness are explicitly unavailable; this view does
-not validate, publish or activate the candidate. Copilot uses `/sf-workflows author history …` or
-`/sf-workflows author show …`.
+WFD-DEMO001 --revision 1 --json` is read-only: it projects the exact saved package's deterministic
+findings, ordered artifact graph, static validation coverage and legal next action. It does not
+publish or activate the candidate. Full lifecycle simulation, approval/publication state and
+installed-host readiness remain distinct unavailable or unevaluated states. Copilot uses
+`/sf-workflows author history …` or `/sf-workflows author show …`.
+
+## Guide and preview an exact package
+
+The shared draft UI organizes **Goal → Stages → Team & skills → Access & review → Review package →
+Submit & next steps**. Typed edits preserve unrelated advanced fields, prompts and assets. New
+components remain incomplete until their actual content and contracts are supplied; the guide
+does not invent business instructions, human authority or host/tool mappings. Safe incomplete
+content can be shared without passing complete-package validation.
+
+Enable shared autosave only after checking the exact draft and destination. Captured edits use the
+same bounded CLI CAS and operation-ID owner as explicit Save. **Shared revision N · all captured
+changes saved** means the store acknowledged the payload and asset closure. **Not saved**,
+**Conflict** and **Acknowledgement unknown** are not shared success. Check the retained operation
+ID before retrying an uncertain write; changed text cannot replace its exact pending request.
+Explicit Exit flushes eligible captured edits. Closing the native tab or application promises no
+background sync, flush or durable private recovery; pending text is memory-only.
+
+Select a retained revision and the real approved catalog:
+
+```bash
+singularity-flow workflow author preview WFD-DEMO001 --revision 1 --json
+singularity-flow workflow author catalog --kind quality-command --limit 32 --cursor 0 --json
+singularity-flow workflow author show WFD-DEMO001 --revision 1 --json
+```
+
+Copilot forms: `/sf-workflows author preview WFD-DEMO001 --revision 1 --json`,
+`/sf-workflows author catalog --kind quality-command --limit 32 --cursor 0 --json`, and
+`/sf-workflows author show WFD-DEMO001 --revision 1 --json`.
+
+Preview is deterministic and model-free. It captures an exact draft revision/head and freshly
+verified approved configuration, resolves selected dependencies, validates the closed
+`sflow-workflow-request@2` package and reports exact candidate file bytes/hashes. Catalog choices
+are bounded navigation-only IDs/labels pinned to that approved source; they do not prove reviewer
+membership, admit operations or grant host access. Apply a captured choice explicitly, save its
+new revision and preview again. A changed draft, authority, base, catalog or policy invalidates the
+old plan rather than silently rebasing it.
+
+Current candidate emission supports complete ordinary artifact-only create packages with real
+agent/template bodies and approved task, check and reviewer references. Unsupported tool/source
+effects, missing artifacts, ambiguous references and unclaimed attachments block emission. Edit,
+fork and shared-consumer impact are not inferred. New SKP packages can be lowered proposal-only;
+they have no confirmed runtime binding and cannot be submitted as executable skill phases. Static
+ordered-input and registered rework-policy validation is not complete lifecycle simulation.
+
+## Submit separately for configuration review
+
+For an ordinary package with no authoring blockers, use one exact saved revision:
+
+```bash
+singularity-flow workflow author submit WFD-DEMO001 --revision 1 --json
+```
+
+Copilot: `/sf-workflows author submit WFD-DEMO001 --revision 1 --json`. Headless Shell/Copilot
+returns `needs-human-input` and a rooted terminal handoff; it makes no proposal. The VS Code buttons
+copy this route only. They do not submit or transfer consent.
+
+A direct terminal independently refreshes and presents the complete package, exact authority,
+draft and approved-source identities, destination and effect. Cancel is the default. Type
+**Create review proposal** only after reviewing that card. The existing action-authorization owner
+requires a live one-use terminal presentation, not a generated claim, public issuer call, JSON
+receipt or `--confirm` flag. This is terminal-local review, not authenticated mediated Copilot
+confirmation or native host qualification.
+
+The existing configuration-proposal owner creates only a recoverable
+`sflow/config-change/workflow/...` review branch. It retains an immutable submission snapshot under
+`singularity/workflow-authoring-submissions/<plan-hash>.json`, including the raw request, inert
+asset bytes, preview and exact candidate file closure. Before publication it verifies selected
+staged Git bytes/modes, all changed paths, the committed tree and its exact approved base parent.
+Git filters/EOL changes or unexpected files are refused; unchanged selected candidate files are
+still checked. Moving or deleting the shared draft cannot rewrite a retained submitted snapshot.
+The application checkout, index and approved `sflow/config` ref remain unchanged.
+
+Submission is **review required**, not approved, active or executing. Merge/approval, approved
+configuration refresh and any separate Start action remain their existing owners' operations.
+SKP proposal-to-post-consent binding/digest design, qualified skill execution, full lifecycle
+simulation, durable private recovery, mediated-host confirmation and authorized where-used are
+not complete. No new skill runtime binding is fabricated to bypass those gaps.
+
+## Delete a shared draft
 
 Deletion is a separate explicit action: Shell `singularity-flow workflow author delete WFD-DEMO001
 --json`. In a direct terminal it displays the exact destination, head, revision and effect, with
@@ -111,8 +192,8 @@ confirmation is not installed. Tombstones and historical draft bytes remain in G
 not physical erasure and changes no submitted snapshot or active configuration.
 
 Git's native repository ACL governs access; no per-draft JSON ACL or authenticated-provider
-principal is claimed. Guided editing, autosave, complete package compilation/submission and
-authorized where-used are separate pending work, not effects of draft storage.
+principal is claimed. Shared storage, static compilation, review proposal, approval and host
+qualification are separate states; none follows merely from autosave.
 
 ## Inspect a local skill candidate
 

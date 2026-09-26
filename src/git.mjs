@@ -1,5 +1,6 @@
 import path from 'node:path';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
 import {
@@ -1462,6 +1463,65 @@ function exactTreeRoster(root, tree, env) {
     entries.set(relative, Object.freeze({ path: relative, mode: match[1], oid: match[3] }));
   }
   return entries;
+}
+
+/** Capture the exact prospective index tree and bounded selected blob metadata, never worktree bytes. */
+export function exactConfigurationProposalGitTree(root, {
+  baselineCommit, objectId = null, env: sourceEnv = process.env
+} = {}) {
+  const oid = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
+  const refusal = (message) => { throw new SingularityFlowError(message, { code: 'CONFIGURATION_PROPOSAL_EXACT_TREE_UNAVAILABLE' }); };
+  if (!oid.test(baselineCommit ?? '') || objectId !== null && !oid.test(objectId ?? '')) refusal('Exact proposal-tree capture requires full Git object IDs.');
+  const env = immutableLocalGitEnvironment(sourceEnv);
+  const resolve = (object) => {
+    const result = git(object === null ? ['write-tree'] : ['rev-parse', '--verify', `${object}^{tree}`], {
+      cwd: root, env, allowFailure: true, maxBuffer: 1024
+    });
+    const tree = String(result.stdout ?? '').trim();
+    if (!processResultCompleted(result) || result.status !== 0 || !oid.test(tree)) refusal('Git could not capture the exact proposal tree.');
+    return tree;
+  };
+  const baselineTree = resolve(baselineCommit); const candidateTree = resolve(objectId);
+  let parents = null;
+  if (objectId !== null) {
+    const result = git(['rev-list', '--parents', '-n', '1', objectId], {
+      cwd: root, env, allowFailure: true, maxBuffer: 4096
+    });
+    const row = String(result.stdout ?? '').trim().split(' ');
+    if (!processResultCompleted(result) || result.status !== 0 || row[0] !== objectId || row.some((value) => !oid.test(value))) refusal('Git could not bind the exact proposal commit ancestry.');
+    parents = Object.freeze(row.slice(1));
+  }
+  const baseline = exactTreeRoster(root, baselineTree, env); const candidate = exactTreeRoster(root, candidateTree, env);
+  if (!baseline || !candidate || baseline.size > 100_000 || candidate.size > 100_000) refusal('Git could not capture a bounded exact proposal-tree roster.');
+  const changedPaths = [...new Set([...baseline.keys(), ...candidate.keys()])].filter((relative) => {
+    const old = baseline.get(relative); const next = candidate.get(relative);
+    return !old || !next || old.mode !== next.mode || old.oid !== next.oid;
+  }).sort();
+  const fileMetadata = (paths) => {
+    if (!Array.isArray(paths) || paths.length > 1024 || new Set(paths).size !== paths.length
+        || paths.some((relative) => typeof relative !== 'string' || !relative || relative.includes('\0')
+          || relative.includes('\\') || path.posix.normalize(relative) !== relative || path.posix.isAbsolute(relative)
+          || relative.split('/').includes('..') || Buffer.from(relative).toString('utf8') !== relative)) {
+      refusal('Selected proposal files require bounded exact repository-relative paths.');
+    }
+    const selected = paths.map((relative) => {
+      const entry = candidate.get(relative);
+      if (!entry || !['100644', '100755'].includes(entry.mode)) refusal('A reviewed proposal file is missing or is not an ordinary Git blob.');
+      return entry;
+    });
+    const blobs = readLocalGitBlobs(root, selected.map((entry) => entry.oid), {
+      env, maximumBytes: 32 * 1024 * 1024, maximumObjectBytes: 16 * 1024 * 1024,
+      code: 'CONFIGURATION_PROPOSAL_EXACT_TREE_UNAVAILABLE', label: 'Exact reviewed proposal files'
+    });
+    let total = 0;
+    return Object.freeze(selected.map((entry) => {
+      const bytes = blobs.get(entry.oid); total += bytes.length;
+      if (total > 32 * 1024 * 1024) refusal('Selected proposal files exceed their aggregate byte budget.');
+      return Object.freeze({ path: entry.path, mode: entry.mode, objectId: entry.oid,
+        bytes: bytes.length, sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}` });
+    }));
+  };
+  return Object.freeze({ candidateTree, baselineTree, parents, changedPaths: Object.freeze(changedPaths), fileMetadata });
 }
 
 /**

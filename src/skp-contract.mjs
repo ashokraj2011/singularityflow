@@ -403,18 +403,31 @@ function effectsFor(phaseId, contract, catalog, qualityCommands) {
  * Compile one WCA-confirmed candidate; returns JSON-only policy and references, never authority.
  * WCA must verify actor, exact plan/draft revision, and approval of the supplied catalog first.
  */
-export function compileConfirmedSkillPhase({ phase, confirmation, catalog, phaseOrder } = {}) {
-  if (!confirmation) fail('SKP_CONTRACT_UNCONFIRMED', 'Skill phase has no verified plan confirmation.');
-  plain(confirmation, 'Skill plan confirmation');
-  closed(confirmation, [
+export function compileConfirmedSkillPhase(request = {}) {
+  return compileSkillPhase(request, false);
+}
+
+/** Validation/lowering only: this intentionally cannot be used as a configured skillBinding. */
+export function compileSkillPhaseProposal(request = {}) {
+  return compileSkillPhase(request, true);
+}
+
+function compileSkillPhase({ phase, confirmation, catalog, phaseOrder } = {}, proposalOnly) {
+  if (!proposalOnly && !confirmation) fail('SKP_CONTRACT_UNCONFIRMED', 'Skill phase has no verified plan confirmation.');
+  if (!proposalOnly) {
+    plain(confirmation, 'Skill plan confirmation');
+    closed(confirmation, [
     'contractSha256', 'catalogSha256', 'packageSha256', 'candidateSha256',
     'planSha256', 'draftRevision'
-  ], 'Skill plan confirmation');
+    ], 'Skill plan confirmation');
+  } else if (confirmation !== undefined) {
+    fail('SKP_CONTRACT_CONFLICT', 'A proposal-only compilation cannot accept or create human confirmation.');
+  }
   plain(catalog, 'Approved candidate catalog', 'SKP_CATALOG_UNAVAILABLE');
   plain(phase, 'Skill phase');
   jsonSafe(catalog, 'Approved candidate catalog');
   jsonSafe(phase, 'Skill phase');
-  jsonSafe(confirmation, 'Skill plan confirmation');
+  if (!proposalOnly) jsonSafe(confirmation, 'Skill plan confirmation');
   jsonSafe(phaseOrder, 'Confirmed workflow order');
   if (!Array.isArray(phaseOrder) || !phaseOrder.length
       || phaseOrder.some((id) => typeof id !== 'string' || !ID.test(id))
@@ -434,7 +447,8 @@ export function compileConfirmedSkillPhase({ phase, confirmation, catalog, phase
   const selectedPackage = Object.hasOwn(catalog.skillPackages ?? {}, skillId)
     ? catalog.skillPackages[skillId] : null;
   if (!selectedPackage || selectedPackage.packageSha256 !== packageSha256
-      || selectedPackage.eligibility !== 'candidate-producer') {
+      || !(selectedPackage.eligibility === 'candidate-producer'
+        || proposalOnly && selectedPackage.eligibility === 'proposed-candidate-producer')) {
     fail('SKP_SKILL_NOT_PHASE_PRODUCER', `Skill '${skillId}' is not an exact admitted producer in the approved catalog.`);
   }
   closed(phase.contract, [
@@ -446,17 +460,19 @@ export function compileConfirmedSkillPhase({ phase, confirmation, catalog, phase
   const contractSha256 = skillContractSha256(phaseId, contract);
   const catalogSha256 = skillCandidateCatalogSha256(catalog);
   const candidateSha256 = skillPhaseCandidateSha256(phase, phaseOrder, catalogSha256);
-  for (const [field, expected] of [
-    ['contractSha256', contractSha256], ['packageSha256', packageSha256],
-    ['catalogSha256', catalogSha256], ['candidateSha256', candidateSha256]
-  ]) {
-    if (confirmation[field] !== expected) {
-      fail('SKP_CONTRACT_UNCONFIRMED', `Skill phase '${phaseId}' confirmation does not bind current ${field}.`);
+  if (!proposalOnly) {
+    for (const [field, expected] of [
+      ['contractSha256', contractSha256], ['packageSha256', packageSha256],
+      ['catalogSha256', catalogSha256], ['candidateSha256', candidateSha256]
+    ]) {
+      if (confirmation[field] !== expected) {
+        fail('SKP_CONTRACT_UNCONFIRMED', `Skill phase '${phaseId}' confirmation does not bind current ${field}.`);
+      }
     }
-  }
-  checkedDigest(confirmation.planSha256, 'Confirmed plan digest');
-  if (!Number.isSafeInteger(confirmation.draftRevision) || confirmation.draftRevision < 1) {
-    fail('SKP_CONTRACT_UNCONFIRMED', `Skill phase '${phaseId}' needs the exact confirmed draft revision.`);
+    checkedDigest(confirmation.planSha256, 'Confirmed plan digest');
+    if (!Number.isSafeInteger(confirmation.draftRevision) || confirmation.draftRevision < 1) {
+      fail('SKP_CONTRACT_UNCONFIRMED', `Skill phase '${phaseId}' needs the exact confirmed draft revision.`);
+    }
   }
   const { artifact, artifactSet, outputs } = outputsFor(phase, contract, catalog);
   const { phaseInputs, inputs } = inputsFor(phaseId, contract, catalog, phaseOrder);
@@ -476,17 +492,23 @@ export function compileConfirmedSkillPhase({ phase, confirmation, catalog, phase
   const bindingRefs = {
     skill: { id: skillId, packageSha256 },
     contractSha256, catalogSha256,
-    confirmation: {
+    ...(!proposalOnly ? { confirmation: {
       planSha256: confirmation.planSha256,
       candidateSha256,
       draftRevision: confirmation.draftRevision
-    },
+    } } : {}),
     inputs, outputs, checks,
     readScope: effects.readScope,
     sourceScope: effects.sourceScope,
     codeDeliverySha256: effects.codeDeliverySha256 ?? null
   };
   const core = { compiler: SKP_CONTRACT_COMPILER, phaseId, phasePolicy, bindingRefs };
+  if (proposalOnly) {
+    const proposal = { schemaVersion: 1, kind: 'skp-skill-phase-proposal', ...core,
+      candidateSha256, eligibility: selectedPackage.eligibility,
+      status: 'proposal-only', confirmation: 'absent', execution: 'not-run' };
+    return JSON.parse(canonicalJson({ ...proposal, proposalSha256: `sha256:${recordSha256(proposal)}` }));
+  }
   return JSON.parse(canonicalJson({
     ...core, compilationSha256: `sha256:${recordSha256(core)}`
   }));

@@ -1,4 +1,4 @@
-/** Shared inert draft transport. This is not the complete WCA guide or submission compiler. */
+/** Shared inert drafts, deterministic previews and separately confirmed review proposals. */
 import { randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
@@ -14,7 +14,7 @@ import { SingularityFlowError } from '../util.mjs';
 export const WORKFLOW_AUTHOR_INPUT_MAX_BYTES = 5 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES = 256 * 1024;
 const ASSET_MAX_BYTES = 4 * 1024 * 1024;
-const ACTIONS = new Set(['list', 'read', 'create', 'save', 'history', 'op-status', 'delete', 'show']);
+const ACTIONS = new Set(['list', 'read', 'create', 'save', 'history', 'op-status', 'delete', 'show', 'preview', 'catalog', 'submit']);
 const OPTIONS = {
   list: new Set(['json', 'limit', 'cursor']),
   read: new Set(['json', 'revision']),
@@ -23,7 +23,10 @@ const OPTIONS = {
   history: new Set(['json', 'limit', 'cursor']),
   'op-status': new Set(['json']),
   delete: new Set(['json', 'operation-id']),
-  show: new Set(['json', 'revision'])
+  show: new Set(['json', 'revision']),
+  preview: new Set(['json', 'revision']),
+  catalog: new Set(['json', 'kind', 'limit', 'cursor']),
+  submit: new Set(['json', 'revision'])
 };
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
 const OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u;
@@ -47,9 +50,9 @@ function numberOption(options, name, minimum, maximum, fallback) {
 /** Entry preflight must run before repository selection or any shared-store contact. */
 export function validateWorkflowAuthorRequest({ positionals, options }) {
   const action = positionals[2] ?? 'list';
-  if (!ACTIONS.has(action)) fail('Use workflow author list, read, create, save, history, op-status, delete, or show.');
+  if (!ACTIONS.has(action)) fail('Use workflow author list, read, create, save, history, op-status, delete, show, preview, catalog, or submit.');
   const length = positionals.length;
-  if (action === 'list' ? ![2, 3].includes(length)
+  if (action === 'list' ? ![2, 3].includes(length) : action === 'catalog' ? length !== 3
     : action === 'create' ? ![3, 4].includes(length) : length !== 4) {
     fail(`workflow author ${action} has an invalid target selection.`);
   }
@@ -88,6 +91,10 @@ export function validateWorkflowAuthorRequest({ positionals, options }) {
   numberOption(options, 'cursor', 0, 1024, 0);
   numberOption(options, 'revision', 1, 256, null);
   numberOption(options, 'epoch', 1, 1, 1);
+  if (action === 'submit' && options.revision === undefined) fail('Submission requires one exact --revision from a saved preview.');
+  if (options.kind !== undefined && !['phase', 'template', 'agent', 'workflow', 'execution-task', 'quality-command', 'approval-authority'].includes(options.kind)) {
+    fail('Select one supported captured catalog kind.');
+  }
   return action;
 }
 
@@ -190,8 +197,9 @@ function nextRoute(argv) {
   const guidance = safeCommandGuidance({ executable: 'singularity-flow', argv });
   return guidance ? { argv, command: guidance.command, copilotCommand: guidance.copilotCommand } : { argv };
 }
-function showView(selected, scope) {
-  const missingDecisions = [];
+function showView(selected, scope, preview) {
+  const missingDecisions = preview.findings.map((finding) => ({ ...finding,
+    label: finding.message, status: 'unresolved' }));
   const payload = selected.payload;
   for (const [fieldPath, label] of [['id', 'Package identity'], ['label', 'Package label'],
     ['description', 'Purpose']]) {
@@ -209,16 +217,18 @@ function showView(selected, scope) {
       lifecycleEpoch: selected.record.lifecycleEpoch, revisionSha256: selected.record.revisionSha256,
       lifecycle: selected.tombstone ? 'deleted' : 'live' },
     displayName: selected.record.displayName,
-    assessment: { status: 'partial', definitionGapCount: missingDecisions.length,
-      coverage: 'complete-package-validation-unavailable', execution: 'not-started',
-      approval: 'unavailable', publication: 'unavailable', activation: 'unavailable',
+    assessment: { status: preview.readiness.authoring, definitionGapCount: missingDecisions.length,
+      coverage: preview.coverage, execution: 'not-started',
+      approval: 'not-granted', publication: 'not-proposed', activation: 'inactive',
       host: 'unverified', policy: scope.approvedConfiguration ?? { status: 'unavailable' } },
-    graph: { nodes: [], edges: [], coverage: 'unavailable' },
+    graph: { nodes: preview.graph, edges: preview.graph.flatMap((node) => node.inputs.map((input) => ({
+      workflowId: node.workflowId, from: input, to: node.phaseId }))), coverage: preview.coverage.graph },
+    preview,
     missingDecisions,
     assets: selected.assets.map((asset) => ({ path: asset.path, bytes: asset.content.length })),
     durability: { status: 'shared-acknowledged', head: selected.head, revision: selected.record.revision },
-    capabilities: { guide: 'unavailable', completePackageCompiler: 'unavailable',
-      submission: 'unavailable', automaticSaving: 'unavailable', nativeHostConfirmation: 'unavailable' },
+    capabilities: { guide: 'vscode-six-stage', completePackageCompiler: 'deterministic-preview',
+      submission: 'separate-terminal-review', automaticSaving: 'vscode-opt-in', nativeHostConfirmation: 'unavailable' },
     primaryAction: missingDecisions.length && !selected.tombstone ? { operationId: 'workflow.author.save',
       draftId: selected.record.draftId, reasonCode: 'draft-definition-incomplete',
       effect: 'edit-inert-draft', requiresCurrentRevision: true } : null
@@ -237,7 +247,7 @@ function emit(value, json) {
       const view = value.data.view;
       console.log(`${JSON.stringify(view.displayName)} — ${view.subject.draftId} revision ${view.subject.revision}`);
       console.log(`Shared head: ${view.durability.head}`);
-      console.log('Graph: unavailable; full package validation and host readiness have not been established.');
+      console.log(`Graph: ${view.graph.coverage}; native-host readiness has not been established.`);
       for (const decision of view.missingDecisions) console.log(`Unresolved: ${decision.fieldPath} (${decision.label})`);
       console.log('This Show operation requested no proposal, approval, installation, or execution.');
     } else console.log(JSON.stringify(value.data, null, 2));
@@ -261,7 +271,39 @@ export async function run(root, positionals, options, { scope } = {}) {
   let data;
   let status = 'read';
   let declaredEffects = EFFECTS_NONE;
-  if (action === 'list') data = await store.list({ limit: numberOption(options, 'limit', 1, 64, 20),
+  if (action === 'preview' || action === 'catalog' || action === 'submit') {
+    const compiler = await import('../wca-compiler.mjs');
+    if (action === 'catalog') {
+      data = { catalogChoices: compiler.workflowCompilerCatalogChoices(await compiler.captureWorkflowCompilerContext(root), {
+        kind: options.kind ?? null, limit: numberOption(options, 'limit', 1, 64, 32), cursor: numberOption(options, 'cursor', 0, 1024, 0) }) };
+    } else {
+      const revision = numberOption(options, 'revision', 1, 256, null);
+      const preview = await compiler.previewWorkflowDraftPackage(root, { draftId: target, revision });
+      if (preview.source.repository !== store.capability.repository) fail('The preview authority changed; reload the draft.', 'WCA_DRAFT_AUTHORITY_CHANGED');
+      data = { preview };
+      if (action === 'submit') {
+        const submission = await import('../wca-submission.mjs');
+        const review = submission.workflowDraftSubmissionPlan(preview);
+        if (!stdin.isTTY || !stdout.isTTY) {
+          status = 'needs-human-input'; data = { code: 'WCA_NEEDS_HUMAN_INPUT', preview, review,
+            handoff: { kind: 'terminal-review', ...nextRoute(['workflow', 'author', 'submit', target,
+              '--revision', String(revision)]) }, nativeConfirmation: 'unavailable' };
+        } else {
+          console.log(JSON.stringify({ preview, review }, null, 2));
+          console.log('Creates only a review proposal. No approval, activation or execution. Cancel is the default.');
+          const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action,
+            { label: 'Create review proposal' });
+          if (!authorization) { status = 'cancelled'; data = { preview, review }; }
+          else {
+            data = await submission.createWorkflowDraftReviewProposal(root, { draftId: target, revision,
+              expectedPlanSha256: preview.planSha256, confirmation: authorization.token });
+            status = data.changed ? 'proposed' : 'unchanged';
+            if (data.changed) declaredEffects = { ...EFFECTS_NONE, stateChanged: true, publicationCreated: true, externalSystemsChanged: true };
+          }
+        }
+      }
+    }
+  } else if (action === 'list') data = await store.list({ limit: numberOption(options, 'limit', 1, 64, 20),
     cursor: numberOption(options, 'cursor', 0, 1024, 0) });
   else if (action === 'history') data = await store.history({ draftId: target,
     limit: numberOption(options, 'limit', 1, 64, 20), cursor: numberOption(options, 'cursor', 0, 1024, 0) });
@@ -269,7 +311,11 @@ export async function run(root, positionals, options, { scope } = {}) {
   else if (action === 'read' || action === 'show') {
     const selected = await store.readRevision({ draftId: target,
       revision: numberOption(options, 'revision', 1, 256, null) });
-    data = action === 'show' ? { view: showView(selected, scope) } : {
+    const preview = action === 'show' ? await (await import('../wca-compiler.mjs')).previewWorkflowDraftPackage(root,
+      { draftId: target, revision: selected.record.revision }) : null;
+    if (preview && (preview.source.repository !== store.capability.repository
+      || preview.source.revisionSha256 !== selected.record.revisionSha256)) fail('The Show source changed; reload the draft.', 'WCA_DRAFT_AUTHORITY_CHANGED');
+    data = action === 'show' ? { view: showView(selected, scope, preview) } : {
       ...selected, assets: selected.assets.map((asset) => ({ path: asset.path,
         contentBase64: asset.content.toString('base64'), bytes: asset.content.length }))
     };
@@ -320,6 +366,6 @@ export async function run(root, positionals, options, { scope } = {}) {
     }
   }
   return emit({ resultType: 'workflow-author', operation: { id: `workflow.author.${action}`,
-    modelPolicy: 'never', classification: ['create', 'save', 'delete'].includes(action) ? 'mutation' : 'read' },
+    modelPolicy: 'never', classification: ['create', 'save', 'delete', 'submit'].includes(action) ? 'mutation' : 'read' },
   status, scope: scopeView(scope), capability: store.capability, effects: declaredEffects, data }, Boolean(options.json));
 }

@@ -32,6 +32,7 @@ to understand which document is authoritative for a specific topic.
 | Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |
 | Collect and merge the physical SGOS release proof | [SGOS end-to-end release proof](SGOS-END-TO-END-RELEASE-PROOF.md) |
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
+| Plan retirement of the legacy CLI dispatcher and remaining desktop references | [Legacy CLI and desktop retirement plan](LEGACY-CLI-AND-DESKTOP-RETIREMENT-PLAN.md) |
 | Read the Architecture Review Board overview and implementation-status boundaries | [Architecture Review Board document](ARB-document-plain.html) |
 | Attach an existing checkout quickly and use safe Git acceleration | [Fast onboarding and Git performance](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md) |
 | Review FOS design, milestones, evidence, and deferred release gates | [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md) |

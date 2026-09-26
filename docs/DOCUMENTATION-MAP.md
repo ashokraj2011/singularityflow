@@ -165,6 +165,7 @@ unless the document itself says the feature is implemented.
 | Document | Program |
 |---|---|
 | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) | Cross-product pending work |
+| [Legacy CLI and desktop retirement plan](LEGACY-CLI-AND-DESKTOP-RETIREMENT-PLAN.md) | Staged command extraction, compatibility, and desktop-reference cleanup |
 | [AUT v2 implementation roadmap](AUT-V2-IMPLEMENTATION-ROADMAP.md) | Developer Auto Mode |
 | [CMP roadmap](CMP-ROADMAP.md) | Governed comprehension |
 | [CMP brownfield](CMP-BROWNFIELD.md) | Brownfield comprehension rollout |

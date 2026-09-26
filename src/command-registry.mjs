@@ -317,10 +317,11 @@ const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'f
 const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate', 'acknowledge']);
 const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);
 const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'propose', 'decide', 'acknowledge']);
+const STORY_SKILL_VERSION_ACTIONS = Object.freeze(['status', 'preview', 'propose', 'decide']);
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
 const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 'inspect']);
 const STORY_SUBCOMMANDS = Object.freeze([
-  'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'workflow', 'references',
+  'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references',
   ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
@@ -766,6 +767,16 @@ function resolveStoryOperation(definition, positionals, options) {
       return unknownSubcommand('story intent-amendment', action, STORY_INTENT_AMENDMENT_ACTIONS, 'action');
     }
     return never(`story.intent-amendment.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+  }
+  if (subcommand === 'skill-version') {
+    const action = positionals[2] ?? 'status';
+    if (!STORY_SKILL_VERSION_ACTIONS.includes(action)) {
+      return unknownSubcommand('story skill-version', action, STORY_SKILL_VERSION_ACTIONS, 'action');
+    }
+    const confirmed = Boolean(optionString(options, 'confirm'));
+    const mutation = ['propose', 'decide'].includes(action) && confirmed;
+    return never(`story.skill-version.${action}${['propose', 'decide'].includes(action) && !confirmed ? '.preview' : ''}`,
+      definition, mutation ? 'mutation' : 'read');
   }
   return unknownSubcommand('story', subcommand, STORY_SUBCOMMANDS);
 }
@@ -1652,6 +1663,12 @@ export function operationCatalog() {
       .map((name) => never(`story.branch.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
     ...STORY_INTENT_AMENDMENT_ACTIONS
       .map((name) => never(`story.intent-amendment.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
+    ...STORY_SKILL_VERSION_ACTIONS.flatMap((name) => (
+      ['propose', 'decide'].includes(name)
+        ? [never(`story.skill-version.${name}.preview`, storyDefinition, 'read'),
+          never(`story.skill-version.${name}`, storyDefinition, 'mutation')]
+        : [never(`story.skill-version.${name}`, storyDefinition, 'read')]
+    )),
     ...STORY_WORKFLOW_ACTIONS
       .map((name) => never(`story.workflow.${name}`, storyDefinition, 'read')),
     ...STORY_REFERENCE_ACTIONS

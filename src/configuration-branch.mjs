@@ -14,7 +14,7 @@ import YAML from 'yaml';
 import {
   chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
 } from 'node:fs/promises';
-import { initializeDefinition, loadDefinition } from './config.mjs';
+import { initializeDefinition, loadDefinition, resolveWorkType } from './config.mjs';
 import {
   describeCapability, describeRepository, enableLedger, repositoryIdFromUrl,
   setDefaultBaseBranch, setGroundingMode
@@ -61,6 +61,10 @@ export const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-authority-snapshot');
+// The public snapshot projection is convenient for ordinary readers but nested objects remain
+// mutable. Keep the verified definition in a private slot so later Story policy/authority reads
+// cannot be widened by changing snapshot.definition after the approved bytes were loaded.
+const STORY_CONFIGURATION_VERIFIED_DEFINITIONS = new WeakMap();
 // This receipt is written by configuration refresh after it has compared repository bytes with the
 // installed package.  A copy found on an application branch is not approved authority and must not
 // be imported into a newly-created sflow/config branch.  Importing it let an application commit
@@ -1792,7 +1796,7 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   if (!assets.some((entry) => entry.relative === 'singularity/workflow.yml')) {
     throw missingStoryConfigurationWorkflow(authority, sourceCommit);
   }
-  return Object.freeze({
+  const snapshot = Object.freeze({
     [STORY_CONFIGURATION_SNAPSHOT]: true,
     authority: Object.freeze({
       remote: authority.remote,
@@ -1811,6 +1815,46 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
     definition,
     assets: Object.freeze(assets)
   });
+  STORY_CONFIGURATION_VERIFIED_DEFINITIONS.set(snapshot, Object.freeze({
+    definition: structuredClone(definition),
+    definitionSha256: recordSha256(definition)
+  }));
+  return snapshot;
+}
+
+function verifiedStoryDefinition(snapshot) {
+  const retained = snapshot && STORY_CONFIGURATION_VERIFIED_DEFINITIONS.get(snapshot);
+  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT] || !retained) {
+    throw new SingularityFlowError(
+      'Story work-type resolution requires a verified approved configuration snapshot.',
+      { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+    );
+  }
+  let projectionSha256;
+  try { projectionSha256 = recordSha256(snapshot.definition); }
+  catch { projectionSha256 = null; }
+  if (projectionSha256 !== retained.definitionSha256
+      || !snapshot.assets.some((asset) => asset.relative === 'singularity/workflow.yml')
+      || snapshot.assets.some((asset) => !Buffer.isBuffer(asset.contents)
+        || createHash('sha256').update(asset.contents).digest('hex') !== asset.sha256)) {
+    throw new SingularityFlowError(
+      'Verified Story configuration definition or retained asset bytes changed in memory.',
+      { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+    );
+  }
+  return retained.definition;
+}
+
+/** Resolve a Story work type and approval authority from the exact approved, retained bytes. */
+export function resolveApprovedStoryWorkType(snapshot, workTypeId) {
+  // resolveWorkType normalizes a fresh copy; neither the returned policy nor a caller-supplied
+  // snapshot projection can modify the private approved definition used by later operations.
+  return resolveWorkType(structuredClone(verifiedStoryDefinition(snapshot)), workTypeId);
+}
+
+/** Current approved reviewer catalog, even if that source removed the old Story work type. */
+export function approvedStoryApprovalAuthorities(snapshot) {
+  return structuredClone(verifiedStoryDefinition(snapshot).approvalAuthorities);
 }
 
 /**

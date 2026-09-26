@@ -763,6 +763,12 @@ Usage:
   singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]
   singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
   singularity-flow story intent-amendment acknowledge [AMD-ID]
+  singularity-flow story skill-version status [--work-id ID] [--json]
+  singularity-flow story skill-version preview <SKILL-ID> --reason TEXT [--work-id ID] [--json]
+  singularity-flow story skill-version propose <SKILL-ID> --reason TEXT [--work-id ID]
+    [--confirm sha256:PREVIEW-DIGEST] [--json]   (without --confirm: read-only preview)
+  singularity-flow story skill-version decide <PROPOSAL-ID> --decision approve|reject
+    --reason TEXT [--work-id ID] [--confirm sha256:PREVIEW-DIGEST] [--json]
   singularity-flow constitution check|show [--work-type ID] [--path FILE] [--json]
   singularity-flow constitution generate [--work-type ID] [--path FILE] [--dry-run]
   singularity-flow constitution except <ARTICLE-ID> --reason TEXT [--scope TEXT] [--expires ISO] [--work-id ID]

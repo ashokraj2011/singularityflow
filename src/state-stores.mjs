@@ -227,11 +227,14 @@ export {
 };
 export {
   actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow,
-  CONFIG_PATH, createWorkflow, currentPhase,
+  CONFIG_PATH, createWorkflow, currentPhase, decideStorySkillVersion,
   generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
-  inspectRequiredArtifactRegistration, previewReworkRollForward, previewTestingRepair, promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
+  inspectRequiredArtifactRegistration, previewReworkRollForward, previewStorySkillVersionDecision,
+  previewStorySkillVersionProposal, previewTestingRepair, promoteDesignSource,
+  proposeStorySkillVersion, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
   rollForwardRework, scanArtifacts,
-  sourceTreeHash, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase,
+  sourceTreeHash, storyPublicationPending, storySkillVersionStatus, storyWelEnrollmentStatus,
+  submitConfirmedConvergencePhase,
   submitPhase, validateId, workflowBranchAllowed,
   workflowPublicationBranch, workDir, workDirRelative, pendingPublicationPath
 } from './state.mjs';

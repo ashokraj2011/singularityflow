@@ -10,7 +10,7 @@ import {
 } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import {
-  branch, changedFiles, commitIsAncestor, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  branch, changedFiles, commitIsAncestor, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, untrackedFiles
 } from './git.mjs';
 import {
@@ -106,7 +106,7 @@ import {
 } from './capability-publication-recovery.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
-import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
+import { LIFECYCLE_EVENT, lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { validateDocumentPublicationTree } from './document-publication.mjs';
@@ -115,7 +115,10 @@ import {
 } from './revision/publication-selection.mjs';
 import { assertNoInteractiveRevisionPublication } from './revision/publication-adapter.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
-import { readConfigurationSource } from './configuration-branch.mjs';
+import {
+  approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
+  readConfigurationSource, resolveApprovedStoryWorkType
+} from './configuration-branch.mjs';
 import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
 import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
@@ -155,7 +158,8 @@ import { normalizeTokenEconomy } from './token-economy.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
 import {
-  captureWorkflowSnapshot, finalizeDraftWorkflowSnapshot, verifyWorkflowSnapshot
+  captureWorkflowSnapshot, captureWorkflowSnapshotAmendment, finalizeDraftWorkflowSnapshot,
+  verifyWorkflowSnapshot
 } from './workflow-snapshots.mjs';
 import {
   prepareStoryWorldModelHistoryPin
@@ -195,6 +199,7 @@ import { resolveStorySkillPackage } from './story-execution-context.mjs';
 import {
   verifySkillPhaseApproval, verifySkillPhasePublication
 } from './skp-phase-evidence.mjs';
+import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -203,6 +208,9 @@ const DEFAULT_QUALITY_COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
 // an explicit `story advance --confirm`. Generic phase submission never receives this private
 // symbol; only the combined confirmation-and-transition operation below can enter that path.
 const CONFIRMED_CONVERGENCE_SUBMISSION = Symbol('confirmed-convergence-submission');
+// Only the exact aggregate mutated by the locked publication owner may present an uncommitted
+// amendment revision for validation. Ordinary readers must prove the accepted Git chain instead.
+const PROSPECTIVE_SKILL_AMENDMENT = new WeakMap();
 const MODEL_ASSURANCE_RANK = Object.freeze({
   unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
 });
@@ -1167,6 +1175,9 @@ export async function loadWorkflow(root, config, id = undefined) {
   invariant(workflow.workItem?.id === selected.id, `Workflow ID does not match indexed Story ${selected.id}.`);
   if (id == null && !workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
+  }
+  if (Number(workflow.workflowSnapshot?.revision ?? 1) > 1) {
+    await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
   }
   return workflow;
 }
@@ -3710,6 +3721,7 @@ async function submitPhaseTransition(root, config, workflow, {
   phaseId, runChecks = true, persist = true, submissionContext = null,
   architectureCandidateSnapshot = null, actor = null, agent = undefined
 } = {}) {
+  await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const requestedPhase = workflow.phases?.[phaseId ?? workflow.currentPhase] ?? null;
   // Keep this guard in the domain transition as well as the CLI. Alternate hosts and future
@@ -4145,7 +4157,7 @@ async function submitPhaseTransition(root, config, workflow, {
       baseline: final.baseline
     };
   }
-  const automaticUpcoming = nextPhase(workflow, phase);
+  const automaticUpcoming = nextPhaseAfterSkillAmendment(workflow, phase);
   if (phaseRequiresCodeDelivery(automaticUpcoming)
       && (phase.approvalPolicy.mode === 'none' || phase.approvalPolicy.mode === 'policy')) {
     await assertPlannedSpecificationClaims(root, config, workflow, automaticUpcoming);
@@ -4188,7 +4200,7 @@ async function submitPhaseTransition(root, config, workflow, {
       actor: actorKey(session.actor),
       agent: session.agent
     });
-    const upcoming = nextPhase(workflow, phase);
+    const upcoming = nextPhaseAfterSkillAmendment(workflow, phase);
     if (upcoming) {
       upcoming.status = 'in_progress'; upcoming.startedAt = phase.submittedAt; workflow.currentPhase = upcoming.id;
       await ensureWorkIntervalBaseline(root, config, workflow, {
@@ -4275,6 +4287,21 @@ export async function submitConfirmedConvergencePhase(root, config, workflow, {
 }
 
 function nextPhase(workflow, phase) { const id = workflow.phaseOrder[workflow.phaseOrder.indexOf(phase.id) + 1]; return id ? workflow.phases[id] : null; }
+
+export function nextPhaseAfterSkillAmendment(workflow, phase) {
+  const amendment = [...(workflow.skillVersionAmendments ?? [])].reverse().find((entry) =>
+    entry.status === 'approved' && entry.affectedPhaseIds.includes(phase.id));
+  if (!amendment) return nextPhase(workflow, phase);
+  for (let index = workflow.phaseOrder.indexOf(phase.id) + 1;
+    index < workflow.phaseOrder.length; index += 1) {
+    const candidate = workflow.phases[workflow.phaseOrder[index]];
+    // A verified dependency proof allows its already-approved evidence and decision to survive.
+    // Do not silently re-open that phase while advancing through the linear Story workflow.
+    if (amendment.preservedPhaseIds.includes(candidate.id) && candidate.status === 'approved') continue;
+    return candidate;
+  }
+  return null;
+}
 
 async function writeDecision(root, config, workflow, phase, decision) {
   const safe = decision.at.replace(/[:.]/g, '-');
@@ -4739,7 +4766,7 @@ export async function approvePhase(root, config, workflow, {
   }
   const prospectiveApprovals = [...phase.approvals, decision];
   const reached = approvalRequirementsMet(phase.approvalPolicy, prospectiveApprovals);
-  const upcomingForApproval = reached ? nextPhase(workflow, phase) : null;
+  const upcomingForApproval = reached ? nextPhaseAfterSkillAmendment(workflow, phase) : null;
   if (phaseRequiresCodeDelivery(upcomingForApproval)) {
     await assertPlannedSpecificationClaims(root, config, workflow, upcomingForApproval);
   }
@@ -4767,7 +4794,7 @@ export async function approvePhase(root, config, workflow, {
       };
     }
     if (resolved.length) decision.resolvedChangeRequests = resolved.map((request) => request.id);
-    const upcoming = nextPhase(workflow, phase);
+    const upcoming = nextPhaseAfterSkillAmendment(workflow, phase);
     if (upcoming) {
       upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id;
       // Gated with every other durable write here. Under `persist: false` the caller owns
@@ -6441,6 +6468,712 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
   return { phase, cancellation: record };
 }
 
+const SKILL_AMENDMENT_SHA = /^sha256:[a-f0-9]{64}$/u;
+const SKILL_AMENDMENT_ID = /^SAM-[0-9]{3,6}$/u;
+
+function skillAmendmentDigest(value) { return `sha256:${recordSha256(value)}`; }
+
+function skillAmendmentPath(config, workflow, id, suffix) {
+  if (!SKILL_AMENDMENT_ID.test(id)) {
+    throw new SingularityFlowError('Invalid skill-version amendment identity.', {
+      code: 'SKP_AMENDMENT_INVALID'
+    });
+  }
+  return `${workDirRelative(config, workflow.workItem.id)}/context/skill-amendments/${id}-${suffix}.json`;
+}
+
+function skillAmendmentFail(code, message) {
+  throw new SingularityFlowError(message, { code });
+}
+
+function skillAmendmentActorKeys(actor) {
+  const email = String(actor?.email ?? '').trim().toLowerCase();
+  const login = String(actor?.login ?? actor?.githubLogin ?? '').trim().toLowerCase();
+  return [email && `email:${email}`, login && `github:${login}`].filter(Boolean);
+}
+
+function skillAmendmentSameHuman(left, right) {
+  const keys = new Set(skillAmendmentActorKeys(left));
+  return skillAmendmentActorKeys(right).some((key) => keys.has(key));
+}
+
+function assertSelectableSkillAmendmentReopen(workflow, impact) {
+  for (const phaseId of impact.affectedPhaseIds ?? []) {
+    const phase = workflow.phases?.[phaseId];
+    if (!phase || phase.generationPolicy?.requirement === 'none') {
+      skillAmendmentFail('SKP_AMENDMENT_DEPENDENCY_UNPROVEN',
+        `Affected phase '${phaseId}' has no publishable generation for reviewed revalidation.`);
+    }
+  }
+  const first = Math.min(...impact.affectedPhaseIds.map((phaseId) =>
+    workflow.phaseOrder.indexOf(phaseId)));
+  if (!Number.isInteger(first) || first < 0) {
+    skillAmendmentFail('SKP_AMENDMENT_DEPENDENCY_UNPROVEN',
+      'The affected phase cannot be located in the accepted Story order.');
+  }
+  const activeEarlier = workflow.phaseOrder.slice(0, first)
+    .filter((phaseId) => ['in_progress', 'awaiting_approval'].includes(
+      workflow.phases[phaseId]?.status));
+  if (activeEarlier.length) {
+    skillAmendmentFail('SKP_AMENDMENT_SEQUENCE_UNSAFE',
+      `Finish active predecessor phase(s) before adopting a later skill: ${activeEarlier.join(', ')}.`);
+  }
+  const activePreserved = workflow.phaseOrder.slice(first)
+    .filter((phaseId) => impact.preservedPhaseIds.includes(phaseId)
+      && ['in_progress', 'awaiting_approval'].includes(workflow.phases[phaseId]?.status));
+  if (activePreserved.length) {
+    skillAmendmentFail('SKP_AMENDMENT_ACTIVE_PRESERVED_PHASE',
+      `Cannot reopen an earlier skill while preserving active phase(s): ${activePreserved.join(', ')}. `
+      + 'Finish or explicitly rework those phases before adopting the new version.');
+  }
+  return first;
+}
+
+function skillAmendmentBindings(resolution, skillId) {
+  return resolution.phases.filter((phase) => phase.kind === 'skill'
+    && phase.skillBinding?.bindingRefs?.skill?.id === skillId).map((phase) => {
+    const refs = phase.skillBinding.bindingRefs;
+    return {
+      phaseId: phase.id, contractSha256: refs.contractSha256,
+      compilationSha256: phase.skillBinding.compilationSha256,
+      parserProfile: phase.skillBinding.parserProfile,
+      bindingRefsSha256: `sha256:${createHash('sha256')
+        .update('skp.binding-refs.v1\0').update(canonicalJson(refs)).digest('hex')}`
+    };
+  });
+}
+
+function skillAmendmentPolicy(workflow, skillId) {
+  const selected = workflow.resolution?.phases?.filter((phase) => phase.kind === 'skill'
+    && phase.skillBinding?.bindingRefs?.skill?.id === skillId) ?? [];
+  if (!selected.length || selected.some((phase) =>
+    canonicalJson(phase.approval) !== canonicalJson(selected[0].approval))
+      || selected[0].approval?.mode !== 'required') {
+    skillAmendmentFail('SKP_AMENDMENT_UNSUPPORTED',
+      'Skill-version adoption requires selected phases with one pinned required human approval policy.');
+  }
+  return selected[0].approval;
+}
+
+/** Build only the skill binding delta; no live YAML or unrelated phase policy enters the Story. */
+async function skillAmendmentCandidate(root, config, workflow, skillId, approvedConfigurationSnapshot) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(String(skillId ?? ''))
+      || !approvedConfigurationSnapshot) {
+    skillAmendmentFail('SKP_AMENDMENT_INVALID',
+      'Select one skill and an exact verified approved configuration snapshot.');
+  }
+  const accepted = await verifyWorkflowSnapshot(root, config, workflow, {
+    requireAccepted: true, retainBytes: true
+  });
+  if (!accepted.enrolled || !accepted.policy
+      || canonicalJson(accepted.policy) !== canonicalJson(workflow.resolution)) {
+    skillAmendmentFail('SKP_AMENDMENT_STALE', 'The Story no longer matches its accepted skill snapshot.');
+  }
+  const selectedIds = new Set(workflow.resolution.phases.filter((phase) => phase.kind === 'skill')
+    .map((phase) => phase.skillBinding?.bindingRefs?.skill?.id));
+  if (!selectedIds.has(skillId)) {
+    skillAmendmentFail('SKP_AMENDMENT_UNSUPPORTED',
+      'The selected skill is not pinned by this Story.');
+  }
+  const prior = workflow.resolution.phases.find((phase) => phase.kind === 'skill'
+    && phase.skillBinding?.bindingRefs?.skill?.id === skillId);
+  const priorPackageSha256 = prior.skillBinding.bindingRefs.skill.packageSha256;
+  const newPackage = await inspectApprovedSkillPackage(approvedConfigurationSnapshot, skillId);
+  const packageSha256 = newPackage.manifest.packageSha256;
+  const sourceCommit = approvedConfigurationSnapshot.sourceCommit;
+  const sourceRemote = approvedConfigurationSnapshot.authority?.remote;
+  const previousSource = workflow.resolution.configurationSource;
+  if (packageSha256 === priorPackageSha256 || !/^[a-f0-9]{40,64}$/u.test(sourceCommit ?? '')
+      || sourceCommit === previousSource?.commit || sourceRemote !== previousSource?.repository) {
+    skillAmendmentFail('SKP_AMENDMENT_STALE',
+      'The approved candidate must select a newer skill package from the same configuration authority.');
+  }
+  const resolved = resolveApprovedStoryWorkType(approvedConfigurationSnapshot,
+    workflow.workItem.workType);
+  if (canonicalJson(resolved.phases.map((phase) => phase.id))
+      !== canonicalJson(workflow.phaseOrder)) {
+    skillAmendmentFail('SKP_AMENDMENT_UNSUPPORTED',
+      'The approved candidate changes the Story phase topology. Use a new Story.');
+  }
+  const proposedResolution = structuredClone(workflow.resolution);
+  for (const [index, priorPhase] of proposedResolution.phases.entries()) {
+    if (priorPhase.kind !== 'skill'
+        || priorPhase.skillBinding?.bindingRefs?.skill?.id !== skillId) continue;
+    const selected = resolved.phases[index];
+    if (selected?.id !== priorPhase.id || selected.kind !== 'skill'
+        || selected.skillBinding?.bindingRefs?.skill?.id !== skillId
+        || selected.skillBinding.bindingRefs.skill.packageSha256 !== packageSha256) {
+      skillAmendmentFail('SKP_AMENDMENT_UNSUPPORTED',
+        `Approved configuration has no exact replacement binding for '${priorPhase.id}'.`);
+    }
+    priorPhase.skillBinding = structuredClone(selected.skillBinding);
+  }
+  proposedResolution.configurationSource = {
+    ...structuredClone(previousSource), commit: sourceCommit,
+    // A new approved source is not yet materialized in the Story checkout; its exact WFA
+    // package closure, not the old materialization receipt, supplies the new authority.
+    filesSha256: null
+  };
+  proposedResolution.policySha256 = resolutionPolicySha256(proposedResolution);
+  const impact = planSkillAmendmentEvidence(workflow.resolution, {
+    replacedSkillIds: [skillId]
+  });
+  if (impact.status !== 'ready') {
+    skillAmendmentFail('SKP_AMENDMENT_DEPENDENCY_UNPROVEN',
+      `Selective evidence impact is unproven: ${impact.unknown.map((entry) => `${entry.phaseId}: ${entry.reason}`).join('; ')}`);
+  }
+  assertSelectableSkillAmendmentReopen(workflow, impact);
+  skillAmendmentPolicy(workflow, skillId);
+  return { accepted, proposedResolution, impact, packageSha256, sourceCommit,
+    priorPackageSha256 };
+}
+
+/** Read-only, exact plan. Mutations recompute this digest after the subject lock is held. */
+export async function previewStorySkillVersionProposal(root, config, workflow, {
+  skillId, approvedConfigurationSnapshot, reason
+} = {}) {
+  if (!String(reason ?? '').trim() || [...String(reason)].length > 4096) {
+    skillAmendmentFail('SKP_AMENDMENT_REASON_REQUIRED',
+      'A skill-version adoption proposal requires a human-readable reason of at most 4096 characters.');
+  }
+  if ((workflow.skillVersionAmendments ?? []).some((entry) => entry.status === 'proposed')) {
+    skillAmendmentFail('SKP_AMENDMENT_PENDING',
+      'Finish or reject the existing skill-version proposal before opening another.');
+  }
+  const candidate = await skillAmendmentCandidate(root, config, workflow, skillId,
+    approvedConfigurationSnapshot);
+  const actor = identity(root);
+  if (!skillAmendmentActorKeys(actor).length) {
+    skillAmendmentFail('SKP_AMENDMENT_IDENTITY_UNAVAILABLE', 'Configure a Git email or login first.');
+  }
+  const next = Math.max(0, ...(workflow.skillVersionAmendments ?? []).map((entry) =>
+    Number(String(entry.id).slice(4)) || 0)) + 1;
+  if (next > 999999) skillAmendmentFail('SKP_AMENDMENT_LIMIT', 'Too many Story skill amendments.');
+  const proposalId = `SAM-${String(next).padStart(3, '0')}`;
+  const impactRecord = {
+    schemaVersion: currentSchemaVersion('skill-version-adoption-impact'),
+    kind: 'skill-version-adoption-impact', proposalId,
+    workId: workflow.workItem.id, ...candidate.impact
+  };
+  const impactSha256 = skillAmendmentDigest(impactRecord);
+  const proposal = {
+    schemaVersion: currentSchemaVersion('skill-version-adoption-proposal'),
+    kind: 'skill-version-adoption-proposal', id: proposalId,
+    workId: workflow.workItem.id, skillId, proposedBy: structuredClone(actor),
+    reason: String(reason).trim(), impactSha256,
+    from: {
+      revision: workflow.workflowSnapshot.revision,
+      snapshotHash: workflow.workflowSnapshot.snapshotHash,
+      policySha256: workflow.resolution.policySha256
+    },
+    to: {
+      configurationCommit: candidate.sourceCommit,
+      packageSha256: candidate.packageSha256,
+      policySha256: candidate.proposedResolution.policySha256,
+      phaseBindings: skillAmendmentBindings(candidate.proposedResolution, skillId)
+    }
+  };
+  const proposalSha256 = skillAmendmentDigest(proposal);
+  if (Buffer.byteLength(canonicalJson(proposal)) > 256 * 1024
+      || Buffer.byteLength(canonicalJson(impactRecord)) > 256 * 1024) {
+    skillAmendmentFail('SKP_AMENDMENT_LIMIT',
+      'The review proposal or dependency impact exceeds the supported 256 KiB record ceiling.');
+  }
+  const planSha256 = skillAmendmentDigest({
+    operation: 'skill-version.propose', gitHead: head(root),
+    proposalSha256, impactSha256, workflowSnapshot: workflow.workflowSnapshot
+  });
+  return {
+    schemaVersion: 1, status: 'ready', proposalId, planSha256,
+    proposalSha256, impactSha256, proposal, impact: impactRecord,
+    affectedPhaseIds: candidate.impact.affectedPhaseIds,
+    preservedPhaseIds: candidate.impact.preservedPhaseIds
+  };
+}
+
+export async function proposeStorySkillVersion(root, config, workflow, options = {}) {
+  const { confirmPreviewDigest, ...selection } = options;
+  const preview = await previewStorySkillVersionProposal(root, config, workflow, selection);
+  if (!SKILL_AMENDMENT_SHA.test(confirmPreviewDigest ?? '')
+      || confirmPreviewDigest !== preview.planSha256) {
+    skillAmendmentFail('SKP_AMENDMENT_PREVIEW_STALE',
+      'Skill-version proposal confirmation differs from the current exact preview.');
+  }
+  const result = await commitAndPublish(root, config, workflow, {
+    type: LIFECYCLE_EVENT.SKILL_AMENDMENT_PROPOSED,
+    phaseId: workflow.currentPhase,
+    payload: { proposalId: preview.proposalId, proposalSha256: preview.proposalSha256,
+      impactSha256: preview.impactSha256 }
+  }, `[${workflow.workItem.id}][skill-version:propose] ${preview.proposalId}`, [], {
+    beforeStateWrite: async () => {
+      const live = await previewStorySkillVersionProposal(root, config, workflow, selection);
+      if (live.planSha256 !== confirmPreviewDigest) {
+        skillAmendmentFail('SKP_AMENDMENT_PREVIEW_STALE',
+          'Story, approved package, or Git parent changed since the reviewed preview.');
+      }
+      for (const [suffix, reviewPayload] of [['impact', live.impact], ['proposal', live.proposal]]) {
+        const relative = skillAmendmentPath(config, workflow, live.proposalId, suffix);
+        const safe = await secureRepositoryPath(root, relative, { label: 'Story skill-version review record' });
+        if (safe.exists) skillAmendmentFail('SKP_AMENDMENT_CONFLICT',
+          `Skill-version review record already exists: ${relative}.`);
+        await mkdir(path.dirname(safe.absolute), { recursive: true });
+        await writeText(safe.absolute, canonicalJson(reviewPayload));
+      }
+      const at = nowIso();
+      workflow.skillVersionAmendments ??= [];
+      workflow.skillVersionAmendments.push({
+        id: live.proposalId, status: 'proposed', skillId: selection.skillId,
+        proposalPath: skillAmendmentPath(config, workflow, live.proposalId, 'proposal'),
+        proposalSha256: live.proposalSha256,
+        impactPath: skillAmendmentPath(config, workflow, live.proposalId, 'impact'),
+        impactSha256: live.impactSha256,
+        from: live.proposal.from,
+        to: { configurationCommit: live.proposal.to.configurationCommit,
+          packageSha256: live.proposal.to.packageSha256 },
+        proposedBy: live.proposal.proposedBy, proposedAt: at, approvals: [],
+        affectedPhaseIds: live.affectedPhaseIds,
+        preservedPhaseIds: live.preservedPhaseIds
+      });
+      workflow.history.push({ at, actor: actorKey(live.proposal.proposedBy),
+        event: 'skill_version_proposed', phase: workflow.currentPhase,
+        detail: `${live.proposalId}: ${selection.skillId} ${live.proposal.to.packageSha256}` });
+      return { proposalId: live.proposalId, proposalSha256: live.proposalSha256 };
+    }
+  });
+  return { ...result, proposalId: preview.proposalId, proposalSha256: preview.proposalSha256 };
+}
+
+async function committedSkillAmendmentRecord(root, relative, claimedSha256, label, family) {
+  if (!SKILL_AMENDMENT_SHA.test(claimedSha256 ?? '')) {
+    skillAmendmentFail('SKP_AMENDMENT_INVALID', `${label} has no exact committed SHA-256.`);
+  }
+  const bytes = exactFileAtObject(root, head(root), relative, { maximumBytes: 512 * 1024 });
+  if (!bytes || `sha256:${createHash('sha256').update(bytes).digest('hex')}` !== claimedSha256) {
+    skillAmendmentFail('SKP_AMENDMENT_STALE',
+      `${label} is absent or differs from its committed Story review record.`);
+  }
+  const local = await secureRepositoryPath(root, relative, {
+    label, mustExist: true, type: 'file'
+  });
+  const localBytes = await readFile(local.absolute);
+  if (!localBytes.equals(bytes)) {
+    skillAmendmentFail('SKP_AMENDMENT_STALE',
+      `${label} has uncommitted changes; only the accepted exact bytes may be reviewed.`);
+  }
+  let parsed;
+  try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+  catch { skillAmendmentFail('SKP_AMENDMENT_INVALID', `${label} is not valid UTF-8 JSON.`); }
+  try { readRecord(family, parsed); }
+  catch { skillAmendmentFail('SKP_AMENDMENT_INVALID', `${label} has no supported registered reader.`); }
+  if (canonicalJson(parsed) !== bytes.toString('utf8')) {
+    skillAmendmentFail('SKP_AMENDMENT_INVALID', `${label} is not the exact canonical review record.`);
+  }
+  return parsed;
+}
+
+/** A read-only decision preview binds the current Git actor, exact proposal and authority sets. */
+export async function previewStorySkillVersionDecision(root, config, workflow, {
+  proposalId, decision, approvedConfigurationSnapshot, reason = null
+} = {}) {
+  if (!SKILL_AMENDMENT_ID.test(String(proposalId ?? ''))
+      || !['approve', 'reject'].includes(decision)
+      || [...String(reason ?? '')].length > 4096) {
+    skillAmendmentFail('SKP_AMENDMENT_DECISION_INVALID',
+      'Select a pending SAM proposal and approve or reject it, with a reason of at most 4096 characters.');
+  }
+  const summary = (workflow.skillVersionAmendments ?? []).find((entry) => entry.id === proposalId);
+  if (!summary || summary.status !== 'proposed') {
+    skillAmendmentFail('SKP_AMENDMENT_NOT_PENDING',
+      `Skill-version proposal '${proposalId}' is not awaiting a human decision.`);
+  }
+  if (summary.proposalPath !== skillAmendmentPath(config, workflow, proposalId, 'proposal')
+      || summary.impactPath !== skillAmendmentPath(config, workflow, proposalId, 'impact')) {
+    skillAmendmentFail('SKP_AMENDMENT_INVALID', 'Skill-version review paths differ from their Story slots.');
+  }
+  const proposal = await committedSkillAmendmentRecord(root, summary.proposalPath,
+    summary.proposalSha256, 'Skill-version proposal', 'skill-version-adoption-proposal');
+  const impact = await committedSkillAmendmentRecord(root, summary.impactPath,
+    summary.impactSha256, 'Skill-version impact', 'skill-version-adoption-impact');
+  if (proposal.id !== proposalId || proposal.workId !== workflow.workItem.id
+      || proposal.skillId !== summary.skillId
+      || proposal.impactSha256 !== summary.impactSha256
+      || impact.proposalId !== proposalId || impact.workId !== workflow.workItem.id
+      || impact.status !== 'ready'
+      || canonicalJson(proposal.from) !== canonicalJson(summary.from)
+      || proposal.to.configurationCommit !== summary.to.configurationCommit
+      || proposal.to.packageSha256 !== summary.to.packageSha256
+      || canonicalJson(impact.affectedPhaseIds) !== canonicalJson(summary.affectedPhaseIds)
+      || canonicalJson(impact.preservedPhaseIds) !== canonicalJson(summary.preservedPhaseIds)
+      || canonicalJson(proposal.proposedBy) !== canonicalJson(summary.proposedBy)
+      || proposal.from.revision !== workflow.workflowSnapshot?.revision
+      || proposal.from.snapshotHash !== workflow.workflowSnapshot?.snapshotHash
+      || proposal.from.policySha256 !== workflow.resolution?.policySha256) {
+    skillAmendmentFail('SKP_AMENDMENT_STALE',
+      'The committed proposal, impact, and current Story pin no longer agree.');
+  }
+  if (approvedConfigurationSnapshot?.authority?.remote
+      !== workflow.resolution?.configurationSource?.repository) {
+    skillAmendmentFail('SKP_AMENDMENT_AUTHORITY_CHANGED',
+      'The current approved reviewer authority is not the Story’s pinned configuration repository.');
+  }
+  // Rejection closes a pending review without adopting bytes. It must remain possible when the
+  // proposed package has since moved or disappeared. Approval, by contrast, re-proves the exact
+  // candidate and impact before any revision can be recorded.
+  if (decision === 'approve') {
+    const candidate = await skillAmendmentCandidate(root, config, workflow,
+      summary.skillId, approvedConfigurationSnapshot);
+    const { kind: _kind, proposalId: _id,
+      workId: _work, ...persistedImpact } = impact;
+    if (candidate.sourceCommit !== proposal.to.configurationCommit
+        || candidate.packageSha256 !== proposal.to.packageSha256
+        || candidate.proposedResolution.policySha256 !== proposal.to.policySha256
+        || canonicalJson(skillAmendmentBindings(candidate.proposedResolution, summary.skillId))
+          !== canonicalJson(proposal.to.phaseBindings)
+        || canonicalJson(candidate.impact) !== canonicalJson(persistedImpact)) {
+      skillAmendmentFail('SKP_AMENDMENT_STALE',
+        'The exact approved package or dependency impact changed after proposal.');
+    }
+  } else {
+    const accepted = await verifyWorkflowSnapshot(root, config, workflow, {
+      requireAccepted: true, retainBytes: true
+    });
+    if (!accepted.enrolled || !accepted.policy
+        || canonicalJson(accepted.policy) !== canonicalJson(workflow.resolution)) {
+      skillAmendmentFail('SKP_AMENDMENT_STALE',
+        'The Story no longer matches its accepted skill snapshot.');
+    }
+  }
+  const currentAuthorities = approvedStoryApprovalAuthorities(approvedConfigurationSnapshot);
+  const actor = identity(root);
+  if (!skillAmendmentActorKeys(actor).length
+      || (summary.approvals ?? []).some((entry) => skillAmendmentSameHuman(entry.actor, actor))) {
+    skillAmendmentFail('SKP_AMENDMENT_REVIEWER_INELIGIBLE',
+      'A distinct configured Git identity is required for each skill-version decision.');
+  }
+  const policy = skillAmendmentPolicy(workflow, summary.skillId);
+  for (const [index, previous] of (summary.approvals ?? []).entries()) {
+    const path = skillAmendmentPath(config, workflow, proposalId,
+      `review-${String(index + 1).padStart(3, '0')}`);
+    if (previous.reviewPath !== path) {
+      skillAmendmentFail('SKP_AMENDMENT_INVALID',
+        'A prior reviewer record is outside its immutable Story slot.');
+    }
+    const recorded = await committedSkillAmendmentRecord(root, path,
+      previous.reviewSha256, 'Prior skill-version review', 'skill-version-adoption-review');
+    if (recorded.decision !== 'approve'
+        || recorded.proposalSha256 !== summary.proposalSha256
+        || recorded.impactSha256 !== summary.impactSha256
+        || canonicalJson(recorded.actor) !== canonicalJson(previous.actor)
+        || recorded.authorityGroup !== previous.authorityGroup
+        || recorded.identityAssurance !== previous.identityAssurance
+        || recorded.at !== previous.at) {
+      skillAmendmentFail('SKP_AMENDMENT_STALE',
+        'A prior approval no longer matches its committed reviewer record.');
+    }
+    if (decision === 'approve') {
+      const stillAuthorized = requireApprovalAuthority(
+        currentAuthorities,
+        policy, previous.actor, { preferredAuthorities: [previous.authorityGroup] });
+      if (stillAuthorized.authorityGroup !== previous.authorityGroup) {
+        skillAmendmentFail('SKP_AMENDMENT_AUTHORITY_CHANGED',
+          'A prior reviewer no longer holds the approved configuration authority group.');
+      }
+    }
+  }
+  if (policy.allowSelfApproval === false && skillAmendmentSameHuman(summary.proposedBy, actor)) {
+    skillAmendmentFail('SKP_AMENDMENT_REVIEWER_INELIGIBLE',
+      'The pinned phase policy prohibits proposer self-approval.');
+  }
+  const pinned = requireApprovalAuthority(workflow.resolution.approvalAuthorities,
+    policy, actor);
+  const current = requireApprovalAuthority(currentAuthorities,
+    policy, actor, { preferredAuthorities: [pinned.authorityGroup] });
+  if (current.authorityGroup !== pinned.authorityGroup) {
+    skillAmendmentFail('SKP_AMENDMENT_AUTHORITY_CHANGED',
+      'The reviewer no longer holds the pinned authority group in approved configuration.');
+  }
+  const approvals = [...summary.approvals.map((entry) => ({ ...entry,
+    decision: 'approved' })), {
+    actor, authorityGroup: pinned.authorityGroup,
+    identityAssurance: pinned.identityAssurance, at: nowIso(), decision: 'approved'
+  }];
+  const willApply = decision === 'approve' && approvalRequirementsMet(policy, approvals);
+  const planSha256 = skillAmendmentDigest({
+    operation: 'skill-version.decide', gitHead: head(root), proposalId, decision,
+    reason: String(reason ?? '').trim() || null,
+    proposalSha256: summary.proposalSha256,
+    impactSha256: summary.impactSha256,
+    approvedConfigurationCommit: approvedConfigurationSnapshot.sourceCommit,
+    actor, authorityGroup: pinned.authorityGroup,
+    priorApprovals: summary.approvals,
+    willApply, workflowSnapshot: workflow.workflowSnapshot
+  });
+  return { schemaVersion: 1, status: 'ready', proposalId, decision, planSha256,
+    actor, authorityGroup: pinned.authorityGroup,
+    identityAssurance: pinned.identityAssurance, willApply,
+    proposalSha256: summary.proposalSha256, impactSha256: summary.impactSha256,
+    affectedPhaseIds: summary.affectedPhaseIds,
+    preservedPhaseIds: summary.preservedPhaseIds };
+}
+
+export function storySkillVersionStatus(workflow) {
+  return {
+    schemaVersion: 1, resultType: 'skill-version-adoption-status',
+    workId: workflow.workItem.id,
+    snapshotRevision: workflow.workflowSnapshot?.revision ?? null,
+    selectedPackages: [...new Map((workflow.resolution?.phases ?? [])
+      .filter((phase) => phase.kind === 'skill')
+      .map((phase) => [phase.skillBinding?.bindingRefs?.skill?.id,
+        phase.skillBinding?.bindingRefs?.skill?.packageSha256]))]
+      .map(([skillId, packageSha256]) => ({ skillId, packageSha256 })),
+    proposals: structuredClone(workflow.skillVersionAmendments ?? [])
+  };
+}
+
+/** Reopen only proven affected phases; retained independent decisions are never rewritten. */
+export function applySkillAmendmentSelectiveReopen(workflow, amendment, at) {
+  const first = assertSelectableSkillAmendmentReopen(workflow, amendment);
+  const affectedSet = new Set(amendment.affectedPhaseIds);
+  for (const phaseId of amendment.affectedPhaseIds) {
+    const phase = workflow.phases[phaseId];
+    const index = workflow.phaseOrder.indexOf(phaseId);
+    for (const item of phase.approvals ?? []) {
+      if (!item.invalidatedAt) item.invalidatedAt = at;
+    }
+    phase.status = index === first ? 'in_progress' : 'not_started';
+    phase.submittedAt = null; phase.approvedAt = null; phase.approvedBy = null;
+    phase.submissionArchitectureDecision = null;
+    phase.skillAmendmentRevalidation = {
+      id: amendment.id, state: 'affected', adoptedAt: at,
+      generationAtAdoption: phase.generation
+    };
+  }
+  // No loop over preservedPhaseIds here: receipts, approvals, and even phase status remain
+  // byte-identical. The linear transition owner skips preserved approved phases later.
+  if (!affectedSet.has(workflow.phaseOrder[first])) {
+    skillAmendmentFail('SKP_AMENDMENT_DEPENDENCY_UNPROVEN',
+      'The first reopened phase is not in the accepted impact set.');
+  }
+  workflow.currentPhase = workflow.phaseOrder[first];
+  workflow.status = 'in_progress';
+  return workflow.currentPhase;
+}
+
+/**
+ * The generation baseline is lifecycle authority, not an optional display field. A local edit
+ * could otherwise remove it while leaving the accepted WFA reference and an old publication in
+ * place. Anchor every affected phase's marker to the exact Story record in the verified revision
+ * acceptance commit; later ordinary lifecycle commits may advance generation but cannot rewrite
+ * or erase that baseline.
+ */
+async function verifyAcceptedSkillAmendmentRevalidation(root, config, workflow,
+  verifiedSnapshot = null) {
+  if (Number(workflow.workflowSnapshot?.revision ?? 1) <= 1) return;
+  const verified = verifiedSnapshot ?? await verifyWorkflowSnapshot(root, config, workflow, {
+    requireAccepted: true
+  });
+  const commit = verified.acceptanceCommit;
+  if (!/^[a-f0-9]{40,64}$/u.test(commit ?? '')) {
+    skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
+      'The accepted skill-version revision has no immutable Story acceptance commit.');
+  }
+  const relative = `${workDirRelative(config, workflow.workItem.id)}/workflow.json`;
+  const bytes = exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024 });
+  let accepted;
+  try {
+    if (!bytes) throw new Error('missing accepted Story record');
+    accepted = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
+      'The accepted skill-version Story record cannot be read exactly.');
+  }
+  if (canonicalJson(accepted.workflowSnapshot) !== canonicalJson(workflow.workflowSnapshot)) {
+    skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
+      'The Story no longer selects its accepted skill-version revision.');
+  }
+  const approved = accepted.skillVersionAmendments?.filter((item) => item?.status === 'approved');
+  if (!approved?.length) {
+    skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
+      'The accepted skill-version revision has no reviewed affected-phase record.');
+  }
+  const mostRecentForPhase = new Map();
+  for (const amendment of approved) {
+    for (const phaseId of amendment.affectedPhaseIds ?? []) {
+      mostRecentForPhase.set(phaseId, amendment);
+    }
+  }
+  if (!mostRecentForPhase.size) {
+    skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
+      'The accepted skill-version revision has no affected phases to revalidate.');
+  }
+  const newestId = approved.at(-1).id;
+  for (const [phaseId, amendment] of mostRecentForPhase) {
+    const anchoredPhase = accepted.phases?.[phaseId];
+    const marker = anchoredPhase?.skillAmendmentRevalidation;
+    const expected = {
+      id: amendment.id, state: 'affected', adoptedAt: amendment.decidedAt,
+      generationAtAdoption: marker?.generationAtAdoption
+    };
+    if (!anchoredPhase || !Number.isSafeInteger(marker?.generationAtAdoption)
+        || marker.generationAtAdoption < 0
+        || !Number.isSafeInteger(anchoredPhase.generation)
+        || marker.generationAtAdoption > anchoredPhase.generation
+        || (amendment.id === newestId
+          && marker.generationAtAdoption !== anchoredPhase.generation)
+        || canonicalJson(marker) !== canonicalJson(expected)
+        || canonicalJson(workflow.phases?.[phaseId]?.skillAmendmentRevalidation)
+          !== canonicalJson(marker)) {
+      skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
+        `Phase '${phaseId}' revalidation baseline differs from its accepted skill-version amendment.`);
+    }
+  }
+}
+
+export async function decideStorySkillVersion(root, config, workflow, options = {}) {
+  if (Object.hasOwn(options, 'actor') || Object.hasOwn(options, 'approvals')) {
+    skillAmendmentFail('SKP_AMENDMENT_REVIEWER_INELIGIBLE',
+      'Reviewer identities and approvals are read from current Git authority, not caller input.');
+  }
+  const { confirmPreviewDigest, ...selection } = options;
+  const preview = await previewStorySkillVersionDecision(root, config, workflow, selection);
+  if (!SKILL_AMENDMENT_SHA.test(confirmPreviewDigest ?? '')
+      || confirmPreviewDigest !== preview.planSha256) {
+    skillAmendmentFail('SKP_AMENDMENT_PREVIEW_STALE',
+      'Skill-version decision confirmation differs from the current exact preview.');
+  }
+  const eventType = selection.decision === 'reject'
+    ? LIFECYCLE_EVENT.SKILL_AMENDMENT_REJECTED : LIFECYCLE_EVENT.SKILL_AMENDMENT_APPROVED;
+  let applied = false;
+  let newReference = null;
+  try {
+    const publication = await commitAndPublish(root, config, workflow, {
+      type: eventType, phaseId: workflow.currentPhase,
+      actor: preview.actor, authorityGroup: preview.authorityGroup,
+      payload: { proposalId: preview.proposalId, decision: selection.decision,
+        proposalSha256: preview.proposalSha256, impactSha256: preview.impactSha256,
+        willApply: preview.willApply }
+    }, `[${workflow.workItem.id}][skill-version:${selection.decision}] ${preview.proposalId}`, [], {
+      beforeStateWrite: async () => {
+        const live = await previewStorySkillVersionDecision(root, config, workflow, selection);
+        if (live.planSha256 !== confirmPreviewDigest) {
+          skillAmendmentFail('SKP_AMENDMENT_PREVIEW_STALE',
+            'Story, reviewer authority, or approved package changed since the reviewed preview.');
+        }
+        const summary = workflow.skillVersionAmendments.find((entry) =>
+          entry.id === live.proposalId);
+        const priorWorkflow = structuredClone(workflow);
+        const at = nowIso();
+        const review = {
+          schemaVersion: currentSchemaVersion('skill-version-adoption-review'),
+          kind: 'skill-version-adoption-review',
+          id: live.proposalId, workId: workflow.workItem.id,
+          decision: selection.decision, actor: structuredClone(live.actor),
+          authorityGroup: live.authorityGroup,
+          identityAssurance: live.identityAssurance, at,
+          reason: String(selection.reason ?? '').trim() || null,
+          proposalSha256: live.proposalSha256,
+          impactSha256: live.impactSha256
+        };
+        const reviewPath = skillAmendmentPath(config, workflow, live.proposalId,
+          `review-${String(summary.approvals.length + 1).padStart(3, '0')}`);
+        const reviewSafe = await secureRepositoryPath(root, reviewPath, {
+          label: 'Story skill-version human review'
+        });
+        if (reviewSafe.exists) skillAmendmentFail('SKP_AMENDMENT_CONFLICT',
+          'The next immutable skill-version review slot already exists.');
+        await mkdir(path.dirname(reviewSafe.absolute), { recursive: true });
+        await writeText(reviewSafe.absolute, canonicalJson(review));
+        const reviewSha256 = skillAmendmentDigest(review);
+        const approval = {
+          actor: structuredClone(live.actor), authorityGroup: live.authorityGroup,
+          identityAssurance: live.identityAssurance, at, reviewPath, reviewSha256
+        };
+        if (selection.decision === 'reject') {
+          summary.status = 'rejected';
+          summary.decidedAt = at;
+        } else {
+          summary.approvals.push(approval);
+        }
+        if (live.willApply) {
+          const candidate = await skillAmendmentCandidate(root, config, workflow,
+            summary.skillId, selection.approvedConfigurationSnapshot);
+          const decisionPath = skillAmendmentPath(config, workflow,
+            live.proposalId, 'decision');
+          const finalDecision = {
+            schemaVersion: currentSchemaVersion('skill-version-adoption-decision'),
+            kind: 'skill-version-adoption-decision', id: live.proposalId,
+            workId: workflow.workItem.id, status: 'approved',
+            proposedBy: structuredClone(summary.proposedBy),
+            proposalSha256: summary.proposalSha256,
+            impactSha256: summary.impactSha256,
+            approvedAt: at,
+            approvals: summary.approvals.map((entry) => ({
+              actor: entry.actor, authorityGroup: entry.authorityGroup,
+              identityAssurance: entry.identityAssurance, at: entry.at
+            })),
+            from: structuredClone(summary.from),
+            to: {
+              revision: priorWorkflow.workflowSnapshot.revision + 1,
+              policySha256: candidate.proposedResolution.policySha256,
+              configurationCommit: candidate.sourceCommit,
+              skillId: summary.skillId,
+              packageSha256: candidate.packageSha256,
+              phaseBindings: skillAmendmentBindings(candidate.proposedResolution,
+                summary.skillId)
+            }
+          };
+          const decisionSafe = await secureRepositoryPath(root, decisionPath, {
+            label: 'Approved Story skill-version decision'
+          });
+          if (decisionSafe.exists) skillAmendmentFail('SKP_AMENDMENT_CONFLICT',
+            'The immutable skill-version decision slot already exists.');
+          await writeText(decisionSafe.absolute, canonicalJson(finalDecision));
+          const decisionSha256 = skillAmendmentDigest(finalDecision);
+          workflow.resolution = candidate.proposedResolution;
+          for (const phaseId of summary.affectedPhaseIds) {
+            const acceptedPhase = workflow.resolution.phases.find((entry) => entry.id === phaseId);
+            if (acceptedPhase?.kind === 'skill'
+                && acceptedPhase.skillBinding?.bindingRefs?.skill?.id === summary.skillId) {
+              workflow.phases[phaseId].skillBinding = structuredClone(acceptedPhase.skillBinding);
+            }
+          }
+          newReference = await captureWorkflowSnapshotAmendment(
+            root, config, priorWorkflow, workflow, {
+              approvedConfigurationSnapshot: selection.approvedConfigurationSnapshot,
+              amendmentDecision: { path: decisionPath, sha256: decisionSha256 }
+            }
+          );
+          workflow.workflowSnapshot = newReference;
+          workflow.schemaVersion = currentSchemaVersion('story-workflow');
+          summary.status = 'approved'; summary.decidedAt = at;
+          summary.decisionPath = decisionPath;
+          summary.decisionSha256 = decisionSha256;
+          applySkillAmendmentSelectiveReopen(workflow, summary, at);
+          PROSPECTIVE_SKILL_AMENDMENT.set(workflow, {
+            reference: structuredClone(newReference),
+            policySha256: resolutionPolicySha256(workflow.resolution)
+          });
+          applied = true;
+        }
+        workflow.history.push({
+          at, actor: actorKey(live.actor),
+          event: selection.decision === 'reject' ? 'skill_version_rejected'
+            : live.willApply ? 'skill_version_adopted' : 'skill_version_approved',
+          phase: workflow.currentPhase,
+          detail: `${live.proposalId}: ${summary.skillId}${live.willApply
+            ? ` snapshot revision ${newReference.revision}` : ''}`
+        });
+        return { proposalId: live.proposalId, reviewSha256,
+          applied: live.willApply, reference: newReference };
+      }
+    });
+    return { ...publication, proposalId: preview.proposalId, applied,
+      workflowSnapshot: newReference };
+  } finally {
+    PROSPECTIVE_SKILL_AMENDMENT.delete(workflow);
+  }
+}
+
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
   beforeStateWrite = null,
   afterOwnedWrites = null,
@@ -7168,14 +7901,31 @@ export async function syncPublication(root, config, workflow, { fault = null } =
  */
 export async function validateWorkflow(root, config, workflow, { strict = false, offline = false } = {}) {
   const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
+  const prospective = PROSPECTIVE_SKILL_AMENDMENT.get(workflow);
+  const prospectiveValid = Boolean(prospective
+    && canonicalJson(prospective.reference) === canonicalJson(workflow.workflowSnapshot)
+    && prospective.policySha256 === resolutionPolicySha256(workflow.resolution));
+  const amendedRevision = Number(workflow.workflowSnapshot?.revision ?? 1) > 1;
   let workflowSnapshotStatus = null;
   try {
-    workflowSnapshotStatus = await verifyWorkflowSnapshot(root, config, workflow);
+    // An accepted amendment is authority only when its complete append-only Git chain verifies.
+    // The private prospective token applies solely to the aggregate owned by this transaction.
+    workflowSnapshotStatus = await verifyWorkflowSnapshot(root, config, workflow,
+      amendedRevision && !prospectiveValid ? { requireAccepted: true } : {});
+    if (amendedRevision && !prospectiveValid) {
+      await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow,
+        workflowSnapshotStatus);
+    }
     if (workflowSnapshotStatus.enrolled) {
       const initial = initialWorkflowRecord(root, config, workflow.workItem.id);
       const genesisReference = initial?.record?.workflowSnapshot ?? null;
-      if (genesisReference && canonicalJson(genesisReference) !== canonicalJson(workflow.workflowSnapshot)) {
+      if (genesisReference && !amendedRevision
+          && canonicalJson(genesisReference) !== canonicalJson(workflow.workflowSnapshot)) {
         errors.push('Workflow snapshot reference differs from the immutable Story creation commit.');
+      }
+      if (amendedRevision && !prospectiveValid
+          && workflowSnapshotStatus.snapshotHash !== workflow.workflowSnapshot.snapshotHash) {
+        errors.push('Story amendment differs from its accepted snapshot lineage tip.');
       }
     } else {
       warnings.push('Story has no captured WFA closure; portability is unproven.');
@@ -7187,7 +7937,8 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
   let creationPolicySha256 = null;
   try {
     creationPolicySha256 = committedResolutionPolicySha256(root, config, workflow.workItem.id);
-    if (creationPolicySha256 && creationPolicySha256 !== currentPolicySha256) {
+    if (creationPolicySha256 && creationPolicySha256 !== currentPolicySha256
+        && !(amendedRevision && workflowSnapshotStatus?.enrolled)) {
       errors.push('Resolved Story policy differs from the immutable creation commit.');
     }
   } catch (error) {

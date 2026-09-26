@@ -2896,6 +2896,7 @@ export async function startCommand(positionals, options) {
           workType,
           agent: selectedAgent.agent,
           resolved: resolvedWorkType,
+          approvedConfigurationSnapshot,
           capabilityId: workflowCapabilityId,
           // Always carry the verified catalog digest across the preflight/creation boundary. The
           // creation guard applies it only when resolution selected a capability, including one

@@ -144,6 +144,8 @@ test('specialized workspace, choice, world-model, document and Story routes are 
     ['singularity-flow story return WRK-1', 'sf-return'],
     ['singularity-flow story rework WRK-1', 'sf-reject'],
     ['singularity-flow story intent-amendment propose --file amended.md', 'sf-reject'],
+    ['singularity-flow story skill-version preview rule-check', 'sf-story-skill-version'],
+    ['singularity-flow story skill-version decide SAM-001 --decision approve', 'sf-story-skill-version'],
     ['singularity-flow story adjudicate WRK-1 --disposition rework', 'sf-converge'],
     ['singularity-flow story converge --work-id WRK-1', 'sf-converge'],
     ['singularity-flow story submit', 'sf-submit'],

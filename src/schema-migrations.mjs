@@ -2671,7 +2671,30 @@ const families = [
     paths: [/^\$git\/adhoc\/AHS-[^/]+\/promotion-checkpoint\.json$/]
   }),
   family({ id: 'harness-event', currentVersion: 1, paths: [/^\$git\/harness-events\/[0-9a-f-]{36}\.json$/], immutable: true }),
-  family({ id: 'workflow-snapshot-reference', currentVersion: 1, immutable: true }),
+  family({
+    id: 'workflow-snapshot-reference', currentVersion: 2, immutable: true,
+    // Historical template references retain their stored v1 identity. The v2 read projection
+    // only registers the new skill-Story reference dialect; it cannot upgrade a stored v1
+    // reference into authority for a skill snapshot.
+    steps: [migration(1, 2, identity(2))]
+  }),
+  family({
+    id: 'skill-version-adoption-decision', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-decision\.json$/]
+  }),
+  family({
+    id: 'skill-version-adoption-proposal', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-proposal\.json$/]
+  }),
+  family({
+    id: 'skill-version-adoption-impact', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-impact\.json$/]
+  }),
+  family({
+    id: 'skill-version-adoption-review', currentVersion: 1, immutable: true,
+    paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-review-[0-9]{3}\.json$/]
+  }),
+  family({ id: 'workflow-snapshot-amendment', currentVersion: 1, immutable: true }),
   family({
     id: 'story-reference-repository-set', currentVersion: 1, immutable: true,
     paths: [
@@ -2679,18 +2702,20 @@ const families = [
     ]
   }),
   family({
-    id: 'workflow-snapshot', currentVersion: 2, immutable: true,
-    // The v1 manifest and its hash remain immutable. This is only an in-memory read
-    // projection; WFA verifies the stored v1 bytes with the original hash domain.
+    id: 'workflow-snapshot', currentVersion: 3, immutable: true,
+    // Historical v1/v2 manifests and hashes remain immutable. These are in-memory read
+    // projections only; WFA verifies every stored version under its original hash domain.
     steps: [migration(1, 2, (source) => ({
       ...clone(source), schemaVersion: 2, skillPackages: []
+    })), migration(2, 3, (source) => ({
+      ...clone(source), schemaVersion: 3, amendment: null
     }))],
     paths: [
       /^(?:singularity|\.sdlc)\/work-items\/[^/]+\/config\/wfa\/snapshots\/\d{6}\/manifest\.json$/
     ]
   }),
   family({
-    id: 'story-workflow', currentVersion: 9,
+    id: 'story-workflow', currentVersion: 10,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
@@ -2701,7 +2726,10 @@ const families = [
       migration(7, 8, storyWorkflowV7ToV8),
       // Existing template Stories remain semantically unchanged; v9 only registers the new
       // optional skill binding shape. It never infers a skill producer from legacy fields.
-      migration(8, 9, identity(9))
+      migration(8, 9, identity(9)),
+      // v10 registers the explicit reviewed skill-version amendment lineage. A historical
+      // v9 Story cannot gain an amendment or new WFA authority through read-side migration.
+      migration(9, 10, identity(10))
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),

@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -85,18 +85,30 @@ HostModule._load = function loadWithVscodeHost(request, parent, isMain) {
  * when the bundle cannot be made current, and every test reports that reason rather than skipping in
  * silence.
  */
+function newestSource(directory) {
+  let newest = 0;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestSource(target) : statSync(target).mtimeMs);
+  }
+  return newest;
+}
+
+function newestBundleInput(root) {
+  const extensionRoot = path.join(root, 'apps', 'vscode');
+  // The extension bundles top-level engine modules too. Watching only apps/vscode/src let a newly
+  // generated Story schema reach the CLI while these host tests kept using an older gateway bundle.
+  return Math.max(
+    newestSource(path.join(extensionRoot, 'src')),
+    newestSource(path.join(root, 'src')),
+    statSync(path.join(extensionRoot, 'esbuild.mjs')).mtimeMs,
+    statSync(path.join(root, 'scripts', 'reproducible-build.mjs')).mtimeMs
+  );
+}
+
 function bundleState() {
   const extensionRoot = path.join(packageRoot, 'apps', 'vscode');
-  const newestSource = (directory) => {
-    let newest = 0;
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const target = path.join(directory, entry.name);
-      newest = Math.max(newest, entry.isDirectory() ? newestSource(target) : statSync(target).mtimeMs);
-    }
-    return newest;
-  };
-
-  const sources = newestSource(path.join(extensionRoot, 'src'));
+  const sources = newestBundleInput(packageRoot);
   const built = existsSync(bundle) ? statSync(bundle).mtimeMs : 0;
   if (built > sources) return { reason: null };
 
@@ -116,6 +128,29 @@ function bundleState() {
 }
 
 const BUNDLE = bundleState();
+
+test('the host bundle freshness check covers engine sources and build inputs', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bundle-freshness-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const extensionRoot = path.join(root, 'apps', 'vscode');
+  const inputs = [
+    path.join(extensionRoot, 'src', 'extension.ts'),
+    path.join(root, 'src', 'state.mjs'),
+    path.join(extensionRoot, 'esbuild.mjs'),
+    path.join(root, 'scripts', 'reproducible-build.mjs')
+  ];
+  for (const input of inputs) {
+    await mkdir(path.dirname(input), { recursive: true });
+    await writeFile(input, '// fixture\n');
+  }
+  const baseline = new Date('2020-01-01T00:00:00Z');
+  for (const input of inputs) await utimes(input, baseline, baseline);
+  for (const [index, input] of inputs.entries()) {
+    const newest = new Date(baseline.getTime() + (index + 1) * 10_000);
+    await utimes(input, newest, newest);
+    assert.equal(newestBundleInput(root), statSync(input).mtimeMs, input);
+  }
+});
 
 /** Every test in this file needs a current bundle; none of them may quietly run without one. */
 function requireBundle(t) {

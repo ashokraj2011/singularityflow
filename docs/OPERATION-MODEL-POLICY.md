@@ -549,6 +549,12 @@ Every public operation is classified before its implementation module is importe
 | story.references.verify | read | never | — | — |
 | story.return | read | never | — | — |
 | story.rework | mutation | never | — | — |
+| story.skill-version.decide | mutation | never | — | — |
+| story.skill-version.decide.preview | read | never | — | — |
+| story.skill-version.preview | read | never | — | — |
+| story.skill-version.propose | mutation | never | — | — |
+| story.skill-version.propose.preview | read | never | — | — |
+| story.skill-version.status | read | never | — | — |
 | story.start | mutation | never | — | — |
 | story.status | read | never | — | — |
 | story.submit | mutation | never | — | — |

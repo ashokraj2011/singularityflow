@@ -85,9 +85,11 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
     'src/revision/approved-runner-boundary.mjs',
     'src/revision/approved-runner-contract.mjs',
     'src/revision/publication-adapter.mjs',
+    'src/skp-amendment-plan.mjs',
     'src/wel-readiness-foundation.mjs',
     'src/wel-test-lifecycle.mjs',
     'schemas/revision-runner-artifact-admission.schema.json',
+    'schemas/skill-version-adoption-decision.schema.json',
     'schemas/wel-test-lifecycle.schema.json'
   ]) {
     assert.ok(VSIX_REQUIRED_CLI_RUNTIME.includes(required),
@@ -182,6 +184,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'build-info.mjs'), buildInfoSource),
     writeFile(path.join(repository, 'src', 'safe-command-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'phase-preparation-guidance.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'skp-amendment-plan.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'gal-async-read.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'revision', 'approved-runner-boundary.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'revision', 'approved-runner-contract.mjs'), '// fixture\n'),
@@ -196,6 +199,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(
       repository, 'schemas', 'story-world-model-history-pin.schema.json'
     ), '{}\n'),
+    writeFile(path.join(repository, 'schemas', 'skill-version-adoption-decision.schema.json'), '{}\n'),
     ...VSIX_REQUIRED_CLI_RUNTIME
       .filter((relative) => relative.startsWith('schemas/revision-')
         || relative.startsWith('schemas/wel-'))
@@ -227,6 +231,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   ]);
   runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs',
     'src/safe-command-guidance.mjs', 'src/phase-preparation-guidance.mjs',
+    'src/skp-amendment-plan.mjs',
     'src/gal-async-read.mjs',
     'src/revision/approved-runner-boundary.mjs',
     'src/revision/approved-runner-contract.mjs',
@@ -237,6 +242,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/workflow-transfer.mjs',
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
+    'schemas/skill-version-adoption-decision.schema.json',
     ...VSIX_REQUIRED_CLI_RUNTIME.filter((relative) => relative.startsWith('schemas/revision-')
       || relative.startsWith('schemas/wel-')),
     'plugin/skills/sflow-sgos/SKILL.md', 'package.json',

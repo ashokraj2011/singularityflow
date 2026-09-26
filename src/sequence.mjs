@@ -23,6 +23,14 @@ export function sequenceGateMode(workflow, gate) {
 }
 
 export function phaseNeedsGeneration(workflow, phase) {
+  // A reviewed skill-version amendment invalidates only its affected phases. Their earlier
+  // publication remains in the audit trail but is not fresh evidence under the new WFA pin.
+  const amendment = phase?.skillAmendmentRevalidation;
+  if (amendment?.state === 'affected') {
+    const baseline = amendment.generationAtAdoption;
+    if (!Number.isSafeInteger(baseline) || baseline < 0
+        || !Number.isSafeInteger(phase.generation) || phase.generation <= baseline) return true;
+  }
   if (phase?.generationPolicy?.requirement === 'none') return false;
   if (!phase || phase.generation < 1) return true;
   if (!phase.rejectedAt) return false;

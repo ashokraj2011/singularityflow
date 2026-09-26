@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
     "workflowSnapshot": {
       "anyOf": [
         { "type": "null" },
@@ -23,6 +23,10 @@
           "additionalProperties": false
         }
       ]
+    },
+    "skillVersionAmendments": {
+      "type": "array", "maxItems": 64,
+      "items": { "$ref": "#/$defs/skillVersionAmendmentSummary" }
     },
     "executionOrigin": {
       "type": "object",
@@ -265,6 +269,17 @@
                 "additionalProperties": false
               }
             ]
+          },
+          "skillAmendmentRevalidation": {
+            "type": "object",
+            "required": ["id", "state", "adoptedAt", "generationAtAdoption"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^SAM-[0-9]{3,6}$" },
+              "state": { "const": "affected" },
+              "adoptedAt": { "type": "string", "format": "date-time" },
+              "generationAtAdoption": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
           }
         },
         "allOf": [{ "$ref": "#/$defs/skpPhaseMarker" }],
@@ -296,14 +311,113 @@
       },
       "then": {
         "properties": {
-          "schemaVersion": { "const": 9 },
+          "schemaVersion": { "enum": [9, 10] },
           "workflowSnapshot": { "type": "object", "properties": { "schemaVersion": { "const": 2 } } }
         },
         "required": ["workflowSnapshot"]
       }
+    },
+    {
+      "if": {
+        "properties": { "skillVersionAmendments": {
+          "contains": { "type": "object", "required": ["status"],
+            "properties": { "status": { "const": "approved" } } }
+        } },
+        "required": ["skillVersionAmendments"]
+      },
+      "then": {
+        "required": ["workflowSnapshot"],
+        "properties": {
+          "schemaVersion": { "const": 10 },
+          "workflowSnapshot": {
+            "type": "object", "required": ["revision"],
+            "properties": { "schemaVersion": { "const": 2 },
+              "revision": { "type": "integer", "minimum": 2 } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "workflowSnapshot": {
+          "type": "object", "required": ["revision"],
+          "properties": { "revision": { "minimum": 2 } }
+        } },
+        "required": ["workflowSnapshot"]
+      },
+      "then": {
+        "required": ["skillVersionAmendments"],
+        "properties": {
+          "schemaVersion": { "const": 10 },
+          "skillVersionAmendments": {
+            "contains": { "type": "object", "required": ["status"],
+              "properties": { "status": { "const": "approved" } } }
+          }
+        }
+      }
     }
   ],
   "$defs": {
+    "skillVersionAmendmentSummary": {
+      "type": "object",
+      "required": ["id", "status", "skillId", "proposalPath", "proposalSha256",
+        "impactPath", "impactSha256", "from", "to", "proposedBy", "proposedAt",
+        "approvals", "affectedPhaseIds", "preservedPhaseIds"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^SAM-[0-9]{3,6}$" },
+        "status": { "enum": ["proposed", "approved", "rejected"] },
+        "skillId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "proposalPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "proposalSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "impactPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "impactSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "from": {
+          "type": "object", "required": ["revision", "snapshotHash", "policySha256"],
+          "properties": {
+            "revision": { "type": "integer", "minimum": 1 },
+            "snapshotHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "policySha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          }, "additionalProperties": false
+        },
+        "to": {
+          "type": "object", "required": ["configurationCommit", "packageSha256"],
+          "properties": {
+            "configurationCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+            "packageSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          }, "additionalProperties": false
+        },
+        "proposedBy": { "type": "object" },
+        "proposedAt": { "type": "string", "format": "date-time" },
+        "approvals": {
+          "type": "array", "maxItems": 32,
+          "items": {
+            "type": "object", "required": ["actor", "authorityGroup", "identityAssurance",
+              "at", "reviewPath", "reviewSha256"],
+            "properties": {
+              "actor": { "type": "object" },
+              "authorityGroup": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+              "identityAssurance": { "enum": ["configured-local", "github-authenticated"] },
+              "at": { "type": "string", "format": "date-time" },
+              "reviewPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "reviewSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+            }, "additionalProperties": false
+          }
+        },
+        "affectedPhaseIds": { "type": "array", "minItems": 1,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
+        "preservedPhaseIds": { "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
+        "decidedAt": { "type": "string", "format": "date-time" },
+        "decisionPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "decisionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "allOf": [{
+        "if": { "properties": { "status": { "const": "approved" } }, "required": ["status"] },
+        "then": { "required": ["decidedAt", "decisionPath", "decisionSha256"],
+          "properties": { "approvals": { "minItems": 1 } } }
+      }],
+      "additionalProperties": false
+    },
     "skpPhaseMarker": {
       "if": { "required": ["kind"], "properties": { "kind": { "const": "skill" } } },
       "then": { "required": ["skillBinding"] },

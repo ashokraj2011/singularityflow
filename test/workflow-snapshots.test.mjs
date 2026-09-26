@@ -109,6 +109,8 @@ test('a Story snapshot closes policy, template, and governed-agent bytes for off
     value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
       value.root, value.config, value.workflow
     );
+    assert.equal(value.workflow.workflowSnapshot.schemaVersion, 1,
+      'template Stories retain their historical v1 reference identity');
     assert.equal(value.workflow.resolution.templates.implementation.source, 'workflow-snapshot');
     assert.match(value.workflow.resolution.templates.implementation.path,
       /config\/wfa\/blobs\/sha256\/[a-f0-9]{64}$/);
@@ -480,6 +482,7 @@ test('Story execution rejects a self-rehashed mutable closure that differs from 
     value.workflow.workflowSnapshot.snapshotHash = manifest.snapshotHash;
     value.workflow.workflowSnapshot.genesisSnapshotHash = manifest.snapshotHash;
     await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    await acceptSnapshot(value, 'record forged self-rehashed closure');
 
     let modelInvocations = 0;
     await assert.rejects(

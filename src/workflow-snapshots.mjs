@@ -7,6 +7,7 @@ import { canonicalJson } from './records.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { approvalRequirementsMet, matchApprovalAuthority } from './approval-authority.mjs';
 import { syncAgent } from './agents.mjs';
 import { inspectApprovedSkillPackage } from './configuration-branch.mjs';
 import { SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
@@ -29,8 +30,11 @@ const MAXIMUM_SKILL_SNAPSHOT_BYTES = MAXIMUM_BUNDLE_BYTES + MAXIMUM_SKILL_BUNDLE
 const MAXIMUM_SKILL_ASSETS = 8192;
 const MAXIMUM_SKILL_PACKAGES = 32;
 const MAXIMUM_V2_MANIFEST_BYTES = 8 * 1024 * 1024;
+const MAXIMUM_AMENDMENT_REVISIONS = 64;
+const MAXIMUM_AMENDMENT_DECISION_BYTES = 1024 * 1024;
 const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const QUALIFIED_SHA256 = /^sha256:[a-f0-9]{64}$/;
+const AMENDMENT_ID = /^SAM-[0-9]{3,6}$/;
 const DEPENDENCY_KINDS = new Set(['skill', 'template', 'generated']);
 const DEPENDENCY_AVAILABILITY = new Set(['remote-optional', 'remote-required']);
 const CURRENT_DEPENDENCY_FIELDS = Object.freeze([
@@ -44,6 +48,8 @@ const LEGACY_DEPENDENCY_FIELDS = Object.freeze([
 // option would let any caller weaken accepted execution; a WeakMap entry cannot survive reload,
 // cloning, or process restart and cannot be manufactured outside this module.
 const RETAINED_CREATION_DRAFTS = new WeakMap();
+const RETAINED_AMENDMENT_DRAFTS = new WeakMap();
+const ACCEPTED_REVISION_AUTHORITY = Symbol('accepted-workflow-snapshot-revision');
 const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md';
 // Snapshot objects are opaque bytes, not checkout text. Without a nearer attribute rule,
 // core.autocrlf or a repository-wide `text` rule can rewrite a CRLF agent/template while `git
@@ -378,6 +384,280 @@ function selectedSkillBindings(policy) {
   return [...packages.values()].sort((left, right) => compareText(left.skillId, right.skillId));
 }
 
+function selectedAmendmentPackage(previousPolicy, proposedPolicy) {
+  const before = selectedSkillBindings(previousPolicy);
+  const after = selectedSkillBindings(proposedPolicy);
+  if (!before.length || before.length !== after.length) {
+    fail('A skill-version amendment cannot add or remove selected skill packages.',
+      'WFA_AMENDMENT_UNSUPPORTED');
+  }
+  const changed = [];
+  for (let index = 0; index < before.length; index += 1) {
+    const prior = before[index];
+    const next = after[index];
+    if (prior.skillId !== next.skillId) {
+      fail('A skill-version amendment cannot replace a selected skill identity.',
+        'WFA_AMENDMENT_UNSUPPORTED');
+    }
+    if (prior.packageSha256 !== next.packageSha256) changed.push({ prior, next });
+    else if (canonicalJson(prior.phaseBindings) !== canonicalJson(next.phaseBindings)) {
+      fail(`Unchanged skill '${prior.skillId}' cannot acquire a new phase binding.`,
+        'WFA_AMENDMENT_UNSUPPORTED');
+    }
+  }
+  if (!changed.length) {
+    fail('Skill-version amendment did not select a new approved package version.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  if (changed.length !== 1) {
+    fail('One reviewed amendment may update exactly one selected skill package.',
+      'WFA_AMENDMENT_UNSUPPORTED');
+  }
+  return { before, after, changed: changed[0] };
+}
+
+function amendmentDecisionPath(config, workId, id) {
+  if (!AMENDMENT_ID.test(id ?? '')) {
+    fail('Skill-version amendment has an invalid reviewed decision ID.', 'WFA_AMENDMENT_INVALID');
+  }
+  return storyRelative(config, workId, `context/skill-amendments/${id}-decision.json`);
+}
+
+function amendmentDecisionId(config, workId, relative) {
+  const prefix = `${storyRelative(config, workId, 'context/skill-amendments')}/`;
+  const suffix = String(relative ?? '').startsWith(prefix)
+    ? String(relative).slice(prefix.length) : '';
+  const match = /^(SAM-[0-9]{3,6})-decision\.json$/.exec(suffix);
+  if (!match || amendmentDecisionPath(config, workId, match[1]) !== relative) {
+    fail('Skill-version amendment decision path is outside its immutable Story slot.',
+      'WFA_PATH_REFUSED');
+  }
+  return match[1];
+}
+
+function actorIdentityKeys(actor) {
+  if (!actor || typeof actor !== 'object' || Array.isArray(actor)) return [];
+  const email = String(actor.email ?? '').trim().toLowerCase();
+  const login = String(actor.login ?? actor.githubLogin ?? '').trim().toLowerCase();
+  return [email ? `email:${email}` : null, login ? `github:${login}` : null].filter(Boolean);
+}
+
+function validateAmendmentDecision(config, workId, decision, {
+  previous, next, decisionPath
+}) {
+  try { readRecord('skill-version-adoption-decision', decision); }
+  catch { fail('Skill-version amendment decision has no supported registered reader.',
+    'WFA_AMENDMENT_INVALID'); }
+  assertExactFields(decision, [
+    'schemaVersion', 'kind', 'id', 'workId', 'status', 'proposedBy', 'proposalSha256',
+    'impactSha256', 'approvedAt', 'approvals', 'from', 'to'
+  ], 'Skill-version amendment decision');
+  if (decision.kind !== 'skill-version-adoption-decision'
+      || decision.status !== 'approved' || decision.workId !== workId
+      || amendmentDecisionPath(config, workId, decision.id) !== decisionPath
+      || !QUALIFIED_SHA256.test(decision.proposalSha256 ?? '')
+      || !QUALIFIED_SHA256.test(decision.impactSha256 ?? '')
+      || !Number.isFinite(Date.parse(decision.approvedAt ?? ''))
+      || !Array.isArray(decision.approvals) || !decision.approvals.length
+      || decision.approvals.length > 32 || !actorIdentityKeys(decision.proposedBy).length) {
+    fail('Skill-version amendment has an incomplete approved decision.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  assertExactFields(decision.from, ['revision', 'snapshotHash', 'policySha256'],
+    'Skill-version amendment prior binding');
+  assertExactFields(decision.to, [
+    'revision', 'policySha256', 'configurationCommit', 'skillId', 'packageSha256',
+    'phaseBindings'
+  ], 'Skill-version amendment next binding');
+  const selection = selectedAmendmentPackage(previous.policy, next.policy);
+  const updated = selection.changed.next;
+  if (previous.reference.revision + 1 !== next.reference.revision
+      || decision.from.revision !== previous.reference.revision
+      || decision.from.snapshotHash !== previous.reference.snapshotHash
+      || decision.from.policySha256 !== previous.policy.policySha256
+      || decision.to.revision !== next.reference.revision
+      || decision.to.policySha256 !== next.policy.policySha256
+      || decision.to.configurationCommit !== next.policy.configurationSource?.commit
+      || decision.to.configurationCommit === previous.policy.configurationSource?.commit
+      || decision.to.skillId !== updated.skillId
+      || decision.to.packageSha256 !== updated.packageSha256
+      || canonicalJson(decision.to.phaseBindings) !== canonicalJson(updated.phaseBindings)
+      || !/^[a-f0-9]{40,64}$/.test(decision.to.configurationCommit ?? '')
+      || !QUALIFIED_SHA256.test(decision.to.policySha256 ?? '')) {
+    fail('Skill-version amendment decision does not bind the exact parent and proposed policy.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  amendmentPolicyScope(previous.policy, next.policy, updated.skillId);
+  const affected = (previous.policy.phases ?? []).filter((phase) => phase.kind === 'skill'
+    && phase.skillBinding?.bindingRefs?.skill?.id === updated.skillId);
+  if (!affected.length) {
+    fail('Skill-version amendment did not replace a selected accepted package.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const approvalPolicy = affected[0].approval;
+  if (affected.some((phase) => canonicalJson(phase.approval) !== canonicalJson(approvalPolicy))
+      || approvalPolicy?.mode !== 'required' || !(approvalPolicy.minimum >= 1)) {
+    fail('Skill-version amendment requires one unambiguous pinned human approval policy.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const seen = new Set();
+  const proposerKeys = new Set(actorIdentityKeys(decision.proposedBy));
+  const approved = [];
+  for (const entry of decision.approvals) {
+    assertExactFields(entry, ['actor', 'authorityGroup', 'identityAssurance', 'at'],
+      'Skill-version amendment human approval');
+    const keys = actorIdentityKeys(entry.actor);
+    if (!keys.length || !Number.isFinite(Date.parse(entry.at ?? ''))
+        || keys.some((key) => seen.has(key))
+        || !approvalPolicy.allowSelfApproval && keys.some((key) => proposerKeys.has(key))) {
+      fail('Skill-version amendment human approvals are not distinct and eligible.',
+        'WFA_AMENDMENT_INVALID');
+    }
+    keys.forEach((key) => seen.add(key));
+    let match;
+    try {
+      match = matchApprovalAuthority(previous.policy.approvalAuthorities, approvalPolicy,
+        entry.actor, { preferredAuthorities: [entry.authorityGroup] });
+    } catch {
+      fail('Skill-version amendment approval authority is unavailable.',
+        'WFA_AMENDMENT_INVALID');
+    }
+    if (!match.authorized || match.authorityGroup !== entry.authorityGroup
+        || match.identityAssurance !== entry.identityAssurance) {
+      fail('Skill-version amendment approval does not match the pinned Story authority.',
+        'WFA_AMENDMENT_INVALID');
+    }
+    approved.push({ ...entry, decision: 'approved' });
+  }
+  if (!approvalRequirementsMet(approvalPolicy, approved)) {
+    fail('Skill-version amendment has not reached its pinned human approval threshold.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  return decision;
+}
+
+function amendmentPolicyScope(previous, proposed, selectedSkillId) {
+  const oldPolicy = clonePolicy(previous);
+  const nextPolicy = clonePolicy(proposed);
+  for (const policy of [oldPolicy, nextPolicy]) {
+    delete policy.policySha256;
+    delete policy.configurationSource;
+  }
+  if (!Array.isArray(oldPolicy.phases) || !Array.isArray(nextPolicy.phases)
+      || oldPolicy.phases.length !== nextPolicy.phases.length) {
+    fail('Skill-version amendment cannot change the Story phase topology.',
+      'WFA_AMENDMENT_UNSUPPORTED');
+  }
+  const oldPhases = oldPolicy.phases;
+  const nextPhases = nextPolicy.phases;
+  delete oldPolicy.phases;
+  delete nextPolicy.phases;
+  if (canonicalJson(oldPolicy) !== canonicalJson(nextPolicy)) {
+    fail('Skill-version amendment cannot change unrelated accepted Story policy.',
+      'WFA_AMENDMENT_UNSUPPORTED');
+  }
+  for (let index = 0; index < oldPhases.length; index += 1) {
+    const prior = oldPhases[index];
+    const next = nextPhases[index];
+    if (prior?.id !== next?.id || prior?.kind !== next?.kind) {
+      fail('Skill-version amendment cannot change Story phase identity or producer kind.',
+        'WFA_AMENDMENT_UNSUPPORTED');
+    }
+    const selected = prior.kind === 'skill'
+      && prior.skillBinding?.bindingRefs?.skill?.id === selectedSkillId;
+    if (selected) {
+      const priorPinned = structuredClone(prior);
+      const nextPinned = structuredClone(next);
+      delete priorPinned.skillBinding;
+      delete nextPinned.skillBinding;
+      if (canonicalJson(priorPinned) !== canonicalJson(nextPinned)) {
+        fail('Skill-version amendment cannot replace policy outside the selected skill binding.',
+          'WFA_AMENDMENT_UNSUPPORTED');
+      }
+    } else if (canonicalJson(prior) !== canonicalJson(next)) {
+      fail(`Skill-version amendment changed unrelated phase '${prior.id}'.`,
+        'WFA_AMENDMENT_UNSUPPORTED');
+    }
+  }
+  if (previous.configurationSource?.repository !== proposed.configurationSource?.repository) {
+    fail('Skill-version amendment cannot change the configuration authority repository.',
+      'WFA_AMENDMENT_UNSUPPORTED');
+  }
+}
+
+function assertAmendmentClosureScope(previous, current, updatedSkillId) {
+  const priorManifest = previous.manifest;
+  const nextManifest = current.manifest;
+  const nextSource = current.policy.configurationSource;
+  if (canonicalJson(priorManifest.story) !== canonicalJson(nextManifest.story)
+      || canonicalJson(priorManifest.executionDependencies)
+        !== canonicalJson(nextManifest.executionDependencies)
+      || canonicalJson(nextManifest.provenance?.configuration) !== canonicalJson({
+        repository: sanitizeRemote(nextSource?.repository) || null,
+        commit: nextSource?.commit ?? null,
+        filesSha256: nextSource?.filesSha256 ?? null
+      })) {
+    fail('Amended Story changed retained identity, dependencies, or source provenance.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const oldProvenance = structuredClone(priorManifest.provenance);
+  const newProvenance = structuredClone(nextManifest.provenance);
+  delete oldProvenance.configuration;
+  delete newProvenance.configuration;
+  const oldSemantics = structuredClone(priorManifest.semantics);
+  const newSemantics = structuredClone(nextManifest.semantics);
+  delete oldSemantics.snapshot;
+  delete newSemantics.snapshot;
+  delete oldSemantics.amendment;
+  delete newSemantics.amendment;
+  if (canonicalJson(oldProvenance) !== canonicalJson(newProvenance)
+      || canonicalJson(oldSemantics) !== canonicalJson(newSemantics)) {
+    fail('Amended Story changed unrelated retained interpretation provenance.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const oldPackages = new Map(priorManifest.skillPackages.map((entry) => [entry.skillId, entry]));
+  const newPackages = new Map(nextManifest.skillPackages.map((entry) => [entry.skillId, entry]));
+  if (oldPackages.size !== newPackages.size) {
+    fail('Amended Story changed the selected skill package set.', 'WFA_AMENDMENT_INVALID');
+  }
+  for (const [skillId, prior] of oldPackages) {
+    const next = newPackages.get(skillId);
+    if (!next || (skillId !== updatedSkillId
+        && canonicalJson(prior) !== canonicalJson(next))) {
+      fail(`Amended Story changed unrelated skill package '${skillId}'.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+  }
+  const carried = (asset) => asset.purpose !== 'skill-package-file'
+    || asset.source?.skillId !== updatedSkillId;
+  const oldAssets = new Map(priorManifest.assets.filter(carried)
+    .map((asset) => [asset.logicalId, asset]));
+  const newAssets = new Map(nextManifest.assets.filter(carried)
+    .map((asset) => [asset.logicalId, asset]));
+  if (oldAssets.size !== newAssets.size) {
+    fail('Amended Story changed the retained complement asset set.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  for (const [logicalId, prior] of oldAssets) {
+    const next = newAssets.get(logicalId);
+    const oldBytes = previous.assetBytes.get(logicalId);
+    const newBytes = current.assetBytes.get(logicalId);
+    if (!next || canonicalJson(prior) !== canonicalJson(next)
+        || !oldBytes || !newBytes || !oldBytes.equals(newBytes)) {
+      fail(`Amended Story changed retained complement asset '${logicalId}'.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+  }
+  for (const asset of nextManifest.assets) {
+    if (asset.purpose === 'skill-package-file'
+        && asset.source?.skillId === updatedSkillId
+        && asset.source?.configurationCommit !== nextSource?.commit) {
+      fail(`Updated skill '${updatedSkillId}' has no exact approved source commit.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+  }
+}
+
 async function captureApprovedSkillPackages(root, config, workId, selected, approvedSnapshot,
   retainedDraftSkillPackages = null, pinnedConfigurationCommit = null) {
   if (!selected.length) return { assets: [], skillPackages: [], bytes: 0 };
@@ -566,7 +846,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
   const manifest = {
     // Template-only Stories preserve the original v1 manifest and hash semantics. v2 is used
     // only when the accepted policy selects at least one skill producer.
-    schemaVersion: selectedSkills.length ? currentSchemaVersion(SNAPSHOT_FAMILY) : 1,
+    schemaVersion: selectedSkills.length ? 2 : 1,
     kind: SNAPSHOT_FAMILY,
     story: {
       repositoryId: domainHash('wfa.repository.v1', configurationSource?.repository ?? 'local-authority'),
@@ -614,11 +894,187 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
   await mkdir(path.dirname(target.absolute), { recursive: true });
   await writeJson(target.absolute, manifest);
   const reference = {
-    enrollment: 'wfa', schemaVersion: currentSchemaVersion(SNAPSHOT_REFERENCE_FAMILY), revision: 1,
+    enrollment: 'wfa',
+    schemaVersion: selectedSkills.length ? currentSchemaVersion(SNAPSHOT_REFERENCE_FAMILY) : 1,
+    revision: 1,
     snapshotHash: manifest.snapshotHash, manifestPath,
     genesisSnapshotHash: manifest.snapshotHash
   };
   RETAINED_CREATION_DRAFTS.set(workflow, Object.freeze(structuredClone(reference)));
+  return reference;
+}
+
+/**
+ * Build one reviewed, append-only skill-version snapshot inside the caller's governed Story
+ * publication transaction. This writes no workflow state, commit, or push. A direct call can only
+ * leave an unaccepted draft: execution still requires the matching decision, manifest and Story
+ * reference to appear together in a verified Git commit.
+ */
+export async function captureWorkflowSnapshotAmendment(root, config, currentWorkflow,
+  proposedWorkflow, { approvedConfigurationSnapshot, amendmentDecision } = {}) {
+  const workId = currentWorkflow?.workItem?.id;
+  if (!workId || proposedWorkflow?.workItem?.id !== workId
+      || canonicalJson(proposedWorkflow.phaseOrder) !== canonicalJson(currentWorkflow.phaseOrder)
+      || !approvedConfigurationSnapshot || !amendmentDecision?.path
+      || !QUALIFIED_SHA256.test(amendmentDecision.sha256 ?? '')) {
+    fail('Skill-version amendment requires one exact Story, approved source, and decision binding.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const previous = await verifyWorkflowSnapshot(root, config, currentWorkflow, {
+    requireAccepted: true, retainBytes: true
+  });
+  if (!previous.enrolled || !previous.manifest || !previous.policy
+      || previous.revision >= MAXIMUM_AMENDMENT_REVISIONS
+      || canonicalJson(clonePolicy(currentWorkflow.resolution)) !== canonicalJson(previous.policy)) {
+    fail('Skill-version amendment has no exact current accepted Story closure.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const selection = selectedAmendmentPackage(previous.policy, proposedWorkflow.resolution);
+  const updatedSkillId = selection.changed.next.skillId;
+  amendmentPolicyScope(previous.policy, proposedWorkflow.resolution, updatedSkillId);
+  const priorSource = previous.policy.configurationSource;
+  const nextSource = proposedWorkflow.resolution.configurationSource;
+  if (!/^[a-f0-9]{40,64}$/.test(nextSource?.commit ?? '')
+      || nextSource.commit === priorSource?.commit
+      || nextSource.repository !== priorSource?.repository) {
+    fail('Skill-version amendment requires a newer approved configuration revision at the same authority.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const policyForDigest = clonePolicy(proposedWorkflow.resolution);
+  delete policyForDigest.policySha256;
+  proposedWorkflow.resolution.policySha256 = qualified(sha256(Buffer.from(canonicalJson(policyForDigest))));
+  const decisionId = amendmentDecisionId(config, workId, amendmentDecision.path);
+  const decisionSafe = await secureRepositoryPath(root, amendmentDecision.path, {
+    label: 'Skill-version adoption decision', mustExist: true, type: 'file'
+  });
+  const decisionBytes = await stableFile(decisionSafe.absolute,
+    'Skill-version adoption decision');
+  if (decisionBytes.size > MAXIMUM_AMENDMENT_DECISION_BYTES
+      || qualified(decisionBytes.sha256) !== amendmentDecision.sha256) {
+    fail('Skill-version amendment decision bytes differ from the reviewed binding.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  let decision;
+  try { decision = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decisionBytes.bytes)); }
+  catch { fail('Skill-version amendment decision is not valid UTF-8 JSON.',
+    'WFA_AMENDMENT_INVALID'); }
+  if (decision.id !== decisionId) {
+    fail('Skill-version amendment decision ID differs from its immutable path.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const revision = previous.revision + 1;
+  const provisionalReference = { revision };
+  validateAmendmentDecision(config, workId, decision, {
+    previous: {
+      reference: currentWorkflow.workflowSnapshot,
+      policy: previous.policy
+    },
+    next: {
+      reference: provisionalReference,
+      policy: proposedWorkflow.resolution
+    },
+    decisionPath: amendmentDecision.path
+  });
+  const manifestPath = storyRelative(config, workId,
+    `config/wfa/snapshots/${String(revision).padStart(6, '0')}/manifest.json`);
+  const target = await secureRepositoryPath(root, manifestPath, {
+    label: 'New skill-version snapshot manifest'
+  });
+  if (target.exists) {
+    fail(`Workflow snapshot revision ${revision} already exists.`, 'WFA_REVISION_CONFLICT');
+  }
+  const skillClosure = await captureApprovedSkillPackages(
+    root, config, workId, [selection.changed.next], approvedConfigurationSnapshot, null,
+    nextSource.commit
+  );
+  const retainedSkillPackages = previous.manifest.skillPackages
+    .filter((entry) => entry.skillId !== updatedSkillId)
+    .map((entry) => structuredClone(entry));
+  const retainedAssets = previous.manifest.assets
+    .filter((asset) => asset.purpose !== 'skill-package-file'
+      || asset.source?.skillId !== updatedSkillId)
+    .map((asset) => structuredClone(asset));
+  for (const asset of retainedAssets) {
+    const bytes = previous.assetBytes.get(asset.logicalId);
+    if (!bytes || bytes.byteLength !== asset.blob.bytes) {
+      fail(`Unchanged Story dependency '${asset.logicalId}' has no retained accepted bytes.`,
+        'WFA_DEPENDENCY_UNAVAILABLE');
+    }
+    const blob = await installBlob(root, config, workId, {
+      bytes, size: bytes.byteLength, sha256: digestHex(asset.blob.sha256,
+        `Retained asset '${asset.logicalId}'`), mediaType: asset.blob.mediaType
+    });
+    if (canonicalJson(blob) !== canonicalJson(asset.blob)) {
+      fail(`Unchanged Story dependency '${asset.logicalId}' changed during amendment capture.`,
+        'WFA_SNAPSHOT_INVALID');
+    }
+  }
+  const assets = [...retainedAssets, ...skillClosure.assets]
+    .sort((left, right) => compareText(left.logicalId, right.logicalId));
+  if (assets.length > MAXIMUM_SKILL_ASSETS) {
+    fail('Amended Story snapshot has too many retained assets.', 'WFA_LIMIT_REACHED');
+  }
+  const skillBytes = assets.filter((asset) => asset.purpose === 'skill-package-file')
+    .reduce((sum, asset) => sum + asset.blob.bytes, 0);
+  if (skillBytes > MAXIMUM_SKILL_BUNDLE_BYTES) {
+    fail('Amended Story skill packages exceed the aggregate retention limit.',
+      'WFA_LIMIT_REACHED');
+  }
+  const policyBytes = Buffer.from(canonicalJson(clonePolicy(proposedWorkflow.resolution)));
+  if (policyBytes.byteLength > MAXIMUM_BUNDLE_BYTES) {
+    fail('Amended Story policy exceeds its retained policy limit.', 'WFA_LIMIT_REACHED');
+  }
+  const policyBlob = await installBlob(root, config, workId, {
+    bytes: policyBytes, size: policyBytes.byteLength, sha256: sha256(policyBytes),
+    mediaType: 'application/json; profile=singularity-flow-effective-policy-v1'
+  });
+  const totalBytes = policyBlob.bytes + assets.reduce((sum, asset) => sum + asset.blob.bytes, 0);
+  if (totalBytes > MAXIMUM_SKILL_SNAPSHOT_BYTES) {
+    fail('Amended Story snapshot exceeds its aggregate retention limit.',
+      'WFA_LIMIT_REACHED');
+  }
+  const manifest = {
+    schemaVersion: currentSchemaVersion(SNAPSHOT_FAMILY),
+    kind: SNAPSHOT_FAMILY,
+    story: structuredClone(previous.manifest.story),
+    revision, parentSnapshotHash: currentWorkflow.workflowSnapshot.snapshotHash,
+    policy: policyBlob, assets,
+    executionDependencies: structuredClone(previous.manifest.executionDependencies),
+    skillPackages: [...retainedSkillPackages, ...skillClosure.skillPackages]
+      .sort((left, right) => compareText(left.skillId, right.skillId)),
+    amendment: {
+      schemaVersion: currentSchemaVersion('workflow-snapshot-amendment'),
+      decisionPath: amendmentDecision.path,
+      decisionSha256: amendmentDecision.sha256
+    },
+    provenance: {
+      ...structuredClone(previous.manifest.provenance),
+      configuration: {
+        repository: sanitizeRemote(nextSource.repository) || null,
+        commit: nextSource.commit,
+        filesSha256: nextSource.filesSha256 ?? null
+      }
+    },
+    semantics: {
+      ...structuredClone(previous.manifest.semantics),
+      snapshot: 'wfa-snapshot-v3',
+      policyReaderMinimum: 9,
+      amendment: 'skill-version-adoption/v1'
+    },
+    configFoldHash: domainHash('wfa.fold.v1', clonePolicy(proposedWorkflow.resolution)),
+    createdAt: decision.approvedAt,
+    limits: { assets: assets.length, bytes: totalBytes },
+    snapshotHash: null
+  };
+  manifest.snapshotHash = domainHash('wfa.snapshot.v3', manifestCore(manifest));
+  await mkdir(path.dirname(target.absolute), { recursive: true });
+  await writeJson(target.absolute, manifest);
+  const reference = {
+    enrollment: 'wfa', schemaVersion: currentSchemaVersion(SNAPSHOT_REFERENCE_FAMILY),
+    revision, snapshotHash: manifest.snapshotHash, manifestPath,
+    genesisSnapshotHash: currentWorkflow.workflowSnapshot.genesisSnapshotHash
+  };
+  RETAINED_AMENDMENT_DRAFTS.set(proposedWorkflow, Object.freeze(structuredClone(reference)));
   return reference;
 }
 
@@ -968,6 +1424,380 @@ function initialSnapshotAuthority(root, config, workId) {
   return { commit, workflow, workflowRelative };
 }
 
+function firstAddedCommit(root, relative, label) {
+  // Read-only Git history queries: each constructed Story-local amendment path must be added
+  // exactly once and never modified or deleted, even if later restored to identical bytes.
+  const history = run('git', [
+    'log', '--full-history', '--format=%H', '--diff-filter=A', '--', relative
+  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  const touches = run('git', [
+    'log', '--full-history', '--format=%H', '--', relative
+  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  if (history.length > 1 || touches.length > 1
+      || (touches.length === 1 && touches[0] !== history[0])) {
+    fail(`${label} changed after its immutable first-add commit.`, 'WFA_AMENDMENT_INVALID');
+  }
+  return history[0] ?? null;
+}
+
+function commitIsAncestor(root, earlier, later) {
+  // Read-only ancestry predicate for ordered proposal, review, and acceptance commits.
+  return run('git', [
+    'merge-base', '--is-ancestor', earlier, later
+  ], { cwd: root, allowFailure: true }).status === 0;
+}
+
+function readCommittedJson(root, commit, relative, label,
+  maximumBytes = MAXIMUM_V2_MANIFEST_BYTES) {
+  const bytes = gitTreeEntries(root, commit, [relative], label, {
+    maximumBytes, maximumObjectBytes: maximumBytes
+  }).get(relative);
+  let record;
+  try { record = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+  catch { fail(`${label} is not valid UTF-8 JSON.`, 'WFA_SNAPSHOT_INVALID'); }
+  return { bytes, record };
+}
+
+function immutableAmendmentEvidence(root, relative, expectedSha256, label, family) {
+  if (!QUALIFIED_SHA256.test(expectedSha256 ?? '')) {
+    fail(`${label} has no qualified reviewed SHA-256.`, 'WFA_AMENDMENT_INVALID');
+  }
+  const commit = firstAddedCommit(root, relative, label);
+  if (!commit) fail(`${label} has no append-only Git creation.`, 'WFA_AMENDMENT_INVALID');
+  const { bytes, record } = readCommittedJson(root, commit, relative, label,
+    MAXIMUM_AMENDMENT_DECISION_BYTES);
+  const atHead = gitTreeEntries(root, 'HEAD', [relative], `${label} at accepted head`, {
+    maximumBytes: MAXIMUM_AMENDMENT_DECISION_BYTES,
+    maximumObjectBytes: MAXIMUM_AMENDMENT_DECISION_BYTES
+  }).get(relative);
+  let storedVersion;
+  try { storedVersion = readRecord(family, record).storedVersion; }
+  catch { fail(`${label} has no registered immutable reader.`, 'WFA_AMENDMENT_INVALID'); }
+  if (storedVersion !== 1 || !bytes.equals(atHead)
+      || qualified(sha256(bytes)) !== expectedSha256
+      || canonicalJson(record) !== bytes.toString('utf8')) {
+    fail(`${label} differs from its exact reviewed immutable bytes.`,
+      'WFA_AMENDMENT_INVALID');
+  }
+  return { commit, record };
+}
+
+function amendmentSummaries(workflow) {
+  const entries = workflow?.skillVersionAmendments ?? [];
+  if (!Array.isArray(entries)) {
+    fail('Story skill-version amendment summaries are malformed.', 'WFA_AMENDMENT_INVALID');
+  }
+  return entries;
+}
+
+function approvedAmendmentSummaries(workflow) {
+  return amendmentSummaries(workflow).filter((entry) => entry?.status === 'approved');
+}
+
+function stableAmendmentSummary(entry) {
+  return {
+    id: entry?.id, skillId: entry?.skillId,
+    proposalPath: entry?.proposalPath, proposalSha256: entry?.proposalSha256,
+    impactPath: entry?.impactPath, impactSha256: entry?.impactSha256,
+    from: entry?.from, to: entry?.to, proposedBy: entry?.proposedBy,
+    proposedAt: entry?.proposedAt,
+    affectedPhaseIds: entry?.affectedPhaseIds,
+    preservedPhaseIds: entry?.preservedPhaseIds
+  };
+}
+
+function validateAcceptedAmendmentEvidence(root, config, workId, {
+  workflow, workflowRelative, previousReference, previousCommit,
+  acceptanceCommit, decision, decisionPath, decisionSha256
+}) {
+  if (!decision || typeof decision !== 'object' || Array.isArray(decision)
+      || decision.id !== amendmentDecisionId(config, workId, decisionPath)
+      || !decision.to || !Array.isArray(decision.approvals)) {
+    fail('Accepted skill decision is not a complete immutable review record.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const matches = amendmentSummaries(workflow).filter((entry) =>
+    entry?.id === decision.id);
+  const summary = matches.length === 1 ? matches[0] : null;
+  const base = storyRelative(config, workId,
+    `context/skill-amendments/${decision.id}`);
+  const proposalPath = `${base}-proposal.json`;
+  const impactPath = `${base}-impact.json`;
+  const storyDialect = readRecord('story-workflow', workflow).storedVersion;
+  if (storyDialect < 10 || !summary || summary.status !== 'approved'
+      || summary.skillId !== decision.to.skillId
+      || summary.proposalPath !== proposalPath
+      || summary.impactPath !== impactPath
+      || summary.proposalSha256 !== decision.proposalSha256
+      || summary.impactSha256 !== decision.impactSha256
+      || summary.decisionPath !== decisionPath
+      || summary.decisionSha256 !== decisionSha256
+      || summary.decidedAt !== decision.approvedAt
+      || canonicalJson(summary.proposedBy) !== canonicalJson(decision.proposedBy)
+      || canonicalJson(summary.from) !== canonicalJson(decision.from)
+      || summary.to?.configurationCommit !== decision.to.configurationCommit
+      || summary.to?.packageSha256 !== decision.to.packageSha256
+      || !Array.isArray(summary.approvals)
+      || summary.approvals.length !== decision.approvals.length
+      || canonicalJson(summary.approvals.map((entry) => ({
+        actor: entry.actor, authorityGroup: entry.authorityGroup,
+        identityAssurance: entry.identityAssurance, at: entry.at
+      }))) !== canonicalJson(decision.approvals)) {
+    fail('Accepted Story does not retain the exact reviewed skill decision summary.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const proposal = immutableAmendmentEvidence(root, proposalPath,
+    decision.proposalSha256, 'Skill-version proposal', 'skill-version-adoption-proposal');
+  const impact = immutableAmendmentEvidence(root, impactPath,
+    decision.impactSha256, 'Skill-version impact', 'skill-version-adoption-impact');
+  if (proposal.commit !== impact.commit || proposal.commit === previousCommit
+      || proposal.commit === acceptanceCommit
+      || !commitIsAncestor(root, previousCommit, proposal.commit)
+      || !commitIsAncestor(root, proposal.commit, acceptanceCommit)
+      || proposal.record.kind !== 'skill-version-adoption-proposal'
+      || proposal.record.id !== decision.id || proposal.record.workId !== workId
+      || proposal.record.skillId !== decision.to.skillId
+      || proposal.record.impactSha256 !== decision.impactSha256
+      || canonicalJson(proposal.record.proposedBy) !== canonicalJson(decision.proposedBy)
+      || canonicalJson(proposal.record.from) !== canonicalJson(decision.from)
+      || proposal.record.to?.configurationCommit !== decision.to.configurationCommit
+      || proposal.record.to?.packageSha256 !== decision.to.packageSha256
+      || proposal.record.to?.policySha256 !== decision.to.policySha256
+      || canonicalJson(proposal.record.to?.phaseBindings)
+        !== canonicalJson(decision.to.phaseBindings)
+      || impact.record.kind !== 'skill-version-adoption-impact'
+      || impact.record.proposalId !== decision.id || impact.record.workId !== workId
+      || impact.record.status !== 'ready'
+      || canonicalJson(impact.record.affectedPhaseIds)
+        !== canonicalJson(summary.affectedPhaseIds)
+      || canonicalJson(impact.record.preservedPhaseIds)
+        !== canonicalJson(summary.preservedPhaseIds)) {
+    fail('Accepted skill decision has no exact earlier proposal and impact commit.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const proposedWorkflow = readCommittedJson(root, proposal.commit, workflowRelative,
+    'Story at skill-version proposal').record;
+  const parentWorkflow = readCommittedJson(root, previousCommit, workflowRelative,
+    'Story at prior accepted snapshot').record;
+  const parentResolution = canonicalJson(parentWorkflow.resolution);
+  const proposedSummary = amendmentSummaries(proposedWorkflow)
+    .filter((entry) => entry?.id === decision.id);
+  if (canonicalJson(proposedWorkflow.workflowSnapshot) !== canonicalJson(previousReference)
+      || canonicalJson(proposedWorkflow.resolution) !== parentResolution
+      || proposedSummary.length !== 1 || proposedSummary[0].status !== 'proposed'
+      || canonicalJson(stableAmendmentSummary(proposedSummary[0]))
+        !== canonicalJson(stableAmendmentSummary(summary))
+      || Object.hasOwn(proposedSummary[0], 'decidedAt')
+      || Object.hasOwn(proposedSummary[0], 'decisionPath')
+      || Object.hasOwn(proposedSummary[0], 'decisionSha256')
+      || !Array.isArray(proposedSummary[0].approvals)
+      || proposedSummary[0].approvals.length !== 0) {
+    fail('Skill-version proposal was not selected by its earlier Story commit.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  let priorReviewCommit = proposal.commit;
+  for (let index = 0; index < summary.approvals.length; index += 1) {
+    const approval = summary.approvals[index];
+    const reviewPath = `${base}-review-${String(index + 1).padStart(3, '0')}.json`;
+    if (approval.reviewPath !== reviewPath) {
+      fail('Skill-version review path differs from its ordered immutable Story slot.',
+        'WFA_AMENDMENT_INVALID');
+    }
+    const review = immutableAmendmentEvidence(root, reviewPath,
+      approval.reviewSha256, `Skill-version review ${index + 1}`,
+      'skill-version-adoption-review');
+    if (review.commit === priorReviewCommit
+        || !commitIsAncestor(root, priorReviewCommit, review.commit)
+        || !commitIsAncestor(root, review.commit, acceptanceCommit)
+        || (index === summary.approvals.length - 1 && review.commit !== acceptanceCommit)
+        || review.record.kind !== 'skill-version-adoption-review'
+        || review.record.id !== decision.id || review.record.workId !== workId
+        || review.record.decision !== 'approve'
+        || review.record.proposalSha256 !== decision.proposalSha256
+        || review.record.impactSha256 !== decision.impactSha256
+        || canonicalJson(review.record.actor) !== canonicalJson(approval.actor)
+        || review.record.authorityGroup !== approval.authorityGroup
+        || review.record.identityAssurance !== approval.identityAssurance
+        || review.record.at !== approval.at) {
+      fail(`Skill-version review ${index + 1} does not bind its accepted human approval.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+    const reviewWorkflow = readCommittedJson(root, review.commit, workflowRelative,
+      `Story at skill-version review ${index + 1}`).record;
+    const reviewSummary = amendmentSummaries(reviewWorkflow)
+      .filter((entry) => entry?.id === decision.id);
+    if (reviewSummary.length !== 1
+        || canonicalJson(stableAmendmentSummary(reviewSummary[0]))
+          !== canonicalJson(stableAmendmentSummary(summary))
+        || !Array.isArray(reviewSummary[0].approvals)
+        || canonicalJson(reviewSummary[0].approvals)
+          !== canonicalJson(summary.approvals.slice(0, index + 1))
+        || (review.commit !== acceptanceCommit
+          && (reviewSummary[0].status !== 'proposed'
+            || canonicalJson(reviewWorkflow.workflowSnapshot)
+              !== canonicalJson(previousReference)
+            || canonicalJson(reviewWorkflow.resolution) !== parentResolution
+            || Object.hasOwn(reviewSummary[0], 'decidedAt')
+            || Object.hasOwn(reviewSummary[0], 'decisionPath')
+            || Object.hasOwn(reviewSummary[0], 'decisionSha256')))
+        || (review.commit === acceptanceCommit
+          && canonicalJson(reviewSummary[0]) !== canonicalJson(summary))) {
+      fail(`Skill-version review ${index + 1} was not selected by its Story commit.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+    priorReviewCommit = review.commit;
+  }
+}
+
+function acceptedAmendmentChain(root, config, workId, requestedReference) {
+  const initial = initialSnapshotAuthority(root, config, workId);
+  const genesis = initial.workflow?.workflowSnapshot;
+  if (!genesis || genesis.revision !== 1 || !QUALIFIED_SHA256.test(genesis.snapshotHash ?? '')
+      || genesis.genesisSnapshotHash !== genesis.snapshotHash) {
+    fail('Story creation commit has no valid genesis snapshot authority.',
+      'WFA_SNAPSHOT_INVALID');
+  }
+  const requestedRevision = requestedReference?.revision;
+  if (!Number.isSafeInteger(requestedRevision) || requestedRevision < 1
+      || requestedRevision > MAXIMUM_AMENDMENT_REVISIONS) {
+    fail('Story snapshot revision or genesis authority is invalid.', 'WFA_AMENDMENT_INVALID');
+  }
+  const current = readCommittedJson(root, 'HEAD', initial.workflowRelative,
+    'Current accepted Story workflow record');
+  if (canonicalJson(current.record.workflowSnapshot) !== canonicalJson(requestedReference)) {
+    fail('Current Story snapshot reference differs from its accepted Git head.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  // An accepted revision can never be silently rolled back, even by a later commit that restores
+  // both the old Story reference and policy. Every valid lineage is contiguous, so an added next
+  // manifest in reachable history proves the requested revision is no longer the accepted tip.
+  if (requestedRevision < MAXIMUM_AMENDMENT_REVISIONS) {
+    const nextManifestPath = storyRelative(config, workId,
+      `config/wfa/snapshots/${String(requestedRevision + 1).padStart(6, '0')}/manifest.json`);
+    if (firstAddedCommit(root, nextManifestPath,
+      `Workflow snapshot revision ${requestedRevision + 1}`)) {
+      fail('Story selected a superseded workflow snapshot revision.', 'WFA_AMENDMENT_INVALID');
+    }
+  }
+  if (requestedRevision === 1) {
+    if (canonicalJson(requestedReference) !== canonicalJson(genesis)) {
+      fail(`Story '${workId}' workflow snapshot reference differs from its immutable creation commit.`,
+        'WFA_SNAPSHOT_INVALID');
+    }
+    if (canonicalJson(approvedAmendmentSummaries(current.record))
+        !== canonicalJson(approvedAmendmentSummaries(initial.workflow))) {
+      fail('Story genesis claims an unaccepted skill-version decision.', 'WFA_AMENDMENT_INVALID');
+    }
+    return [{ ...initial, creationCommit: initial.commit, final: true }];
+  }
+  if (requestedReference.genesisSnapshotHash !== genesis.snapshotHash) {
+    fail('Story amendment does not descend from its immutable genesis snapshot.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const chain = [{ ...initial, creationCommit: initial.commit, final: false }];
+  const acceptedSummaries = [];
+  let previous = genesis;
+  let previousCommit = initial.commit;
+  for (let revision = 2; revision <= requestedRevision; revision += 1) {
+    const manifestPath = storyRelative(config, workId,
+      `config/wfa/snapshots/${String(revision).padStart(6, '0')}/manifest.json`);
+    const commit = firstAddedCommit(root, manifestPath,
+      `Workflow snapshot revision ${revision}`);
+    // Read-only ancestry predicate: a retained amendment cannot jump onto a sibling branch.
+    if (!commit || commit === previousCommit
+        || !commitIsAncestor(root, previousCommit, commit)) {
+      fail(`Workflow snapshot revision ${revision} has no append-only accepted commit.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+    const committedWorkflow = readCommittedJson(root, commit, initial.workflowRelative,
+      `Workflow snapshot revision ${revision} Story record`).record;
+    const reference = committedWorkflow?.workflowSnapshot;
+    const referenceStoredVersion = reference
+      ? readRecord(SNAPSHOT_REFERENCE_FAMILY, reference).storedVersion : null;
+    if (referenceStoredVersion !== 2 || reference?.revision !== revision
+        || reference?.manifestPath !== manifestPath
+        || reference?.genesisSnapshotHash !== genesis.snapshotHash) {
+      fail(`Workflow snapshot revision ${revision} was not selected by its acceptance commit.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+    const { bytes: manifestBytes, record: manifest } = readCommittedJson(root, commit,
+      manifestPath, `Workflow snapshot revision ${revision} manifest`);
+    const headManifest = gitTreeEntries(root, 'HEAD', [manifestPath],
+      `Current workflow snapshot revision ${revision} manifest`, {
+        maximumBytes: MAXIMUM_V2_MANIFEST_BYTES,
+        maximumObjectBytes: MAXIMUM_V2_MANIFEST_BYTES
+      }).get(manifestPath);
+    const manifestStoredVersion = readRecord(SNAPSHOT_FAMILY, manifest).storedVersion;
+    const amendmentVersion = manifest.amendment?.schemaVersion;
+    if (!manifestBytes.equals(headManifest)
+        || manifestStoredVersion !== 3 || manifest.revision !== revision
+        || manifest.parentSnapshotHash !== previous.snapshotHash
+        || manifest.snapshotHash !== reference.snapshotHash
+        || amendmentVersion !== currentSchemaVersion('workflow-snapshot-amendment')
+        || !QUALIFIED_SHA256.test(manifest.amendment.decisionSha256 ?? '')) {
+      fail(`Workflow snapshot revision ${revision} changed or has an invalid parent.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+    const decisionPath = manifest.amendment.decisionPath;
+    amendmentDecisionId(config, workId, decisionPath);
+    if (firstAddedCommit(root, decisionPath,
+      `Workflow snapshot revision ${revision} decision`) !== commit) {
+      fail(`Workflow snapshot revision ${revision} decision was not accepted with its manifest.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+    const { bytes: decisionBytes, record: decision } = readCommittedJson(root, commit,
+      decisionPath, `Workflow snapshot revision ${revision} decision`);
+    const headDecision = gitTreeEntries(root, 'HEAD', [decisionPath],
+      `Current workflow snapshot revision ${revision} decision`, {
+        maximumBytes: MAXIMUM_AMENDMENT_DECISION_BYTES,
+        maximumObjectBytes: MAXIMUM_AMENDMENT_DECISION_BYTES
+      }).get(decisionPath);
+    if (decisionBytes.byteLength > MAXIMUM_AMENDMENT_DECISION_BYTES
+        || !decisionBytes.equals(headDecision)
+        || qualified(sha256(decisionBytes)) !== manifest.amendment.decisionSha256) {
+      fail(`Workflow snapshot revision ${revision} decision bytes changed.`,
+        'WFA_AMENDMENT_INVALID');
+    }
+    validateAcceptedAmendmentEvidence(root, config, workId, {
+      workflow: committedWorkflow, workflowRelative: initial.workflowRelative,
+      previousReference: previous, previousCommit, acceptanceCommit: commit,
+      decision, decisionPath, decisionSha256: manifest.amendment.decisionSha256
+    });
+    acceptedSummaries.push(amendmentSummaries(committedWorkflow).find((entry) =>
+      entry?.id === decision.id));
+    if (canonicalJson(approvedAmendmentSummaries(committedWorkflow))
+        !== canonicalJson(acceptedSummaries)) {
+      fail('Accepted Story changed an earlier approved skill-version summary.',
+        'WFA_AMENDMENT_INVALID');
+    }
+    chain.push({
+      commit, workflow: committedWorkflow, workflowRelative: initial.workflowRelative,
+      creationCommit: initial.commit, final: revision === requestedRevision,
+      decision, decisionPath
+    });
+    previous = reference;
+    previousCommit = commit;
+  }
+  if (canonicalJson(chain.at(-1).workflow.workflowSnapshot)
+      !== canonicalJson(requestedReference)) {
+    fail('Story selected a snapshot that is not the accepted lineage tip.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  if (canonicalJson(approvedAmendmentSummaries(current.record))
+      !== canonicalJson(acceptedSummaries)) {
+    fail('Current Story changed an accepted skill-version decision summary.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  return chain;
+}
+
+function hasRetainedAmendmentDraft(root, workflow) {
+  const retained = workflow && RETAINED_AMENDMENT_DRAFTS.get(workflow);
+  return Boolean(retained
+    && canonicalJson(retained) === canonicalJson(workflow.workflowSnapshot)
+    && !firstAddedCommit(root, retained.manifestPath, 'Workflow amendment draft'));
+}
+
 function validateBlobReference(config, workId, blob, label) {
   if (!blob || typeof blob !== 'object') fail(`${label} has no blob reference.`);
   const digest = digestHex(blob.sha256, `${label} blob`);
@@ -1162,13 +1992,16 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
     }
     return;
   }
-  if (storedVersion !== 2 || !selected.length || !Array.isArray(declared)
+  if (![2, 3].includes(storedVersion) || !selected.length || !Array.isArray(declared)
       || declared.length !== selected.length || declared.length > MAXIMUM_SKILL_PACKAGES
-      || manifest.semantics?.snapshot !== 'wfa-snapshot-v2'
+      || manifest.semantics?.snapshot !== (storedVersion === 3
+        ? 'wfa-snapshot-v3' : 'wfa-snapshot-v2')
       || manifest.semantics?.policyReaderMinimum !== 9
       || manifest.semantics?.skillPackageReader !== SKP_PACKAGE_FORMAT
       || manifest.semantics?.skillTextParser !== SKP_PARSER_PROFILE
-      || manifest.semantics?.skillPhaseBinding !== 'skp-contract/v1') {
+      || manifest.semantics?.skillPhaseBinding !== 'skp-contract/v1'
+      || (storedVersion === 3
+        && manifest.semantics?.amendment !== 'skill-version-adoption/v1')) {
     fail('Story skill snapshot has an unsupported or incomplete interpretation profile.',
       'WFA_RUNTIME_INCOMPATIBLE');
   }
@@ -1212,8 +2045,10 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
           || asset.source?.skillId !== choice.skillId
           || asset.source?.packageSha256 !== choice.packageSha256
           || asset.source?.path !== file.path
-          || (manifest.provenance?.configuration?.commit
+          || (storedVersion === 2 && manifest.provenance?.configuration?.commit
             && asset.source?.configurationCommit !== manifest.provenance.configuration.commit)
+          || (storedVersion === 3
+            && !/^[a-f0-9]{40,64}$/.test(asset.source?.configurationCommit ?? ''))
           || asset.source?.sha256 !== file.sha256) {
         fail(`Skill '${choice.skillId}' file '${file.path}' has no exact retained bytes.`,
           'WFA_DEPENDENCY_UNAVAILABLE');
@@ -1236,27 +2071,71 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
   }
 }
 
-export async function verifyWorkflowSnapshot(root, config, workflow, {
-  retainBytes = false, requireAccepted = false
-} = {}) {
+export async function verifyWorkflowSnapshot(root, config, workflow, options = {}) {
+  const { retainBytes = false, requireAccepted = false } = options;
   let storedReference = workflow.workflowSnapshot ?? null;
   if (!storedReference) return {
     status: 'legacy', enrolled: false, closure: 'unproven', reason: 'snapshot-reference-absent'
   };
-  let accepted = null;
   if (requireAccepted) {
-    accepted = initialSnapshotAuthority(root, config, workflow.workItem.id);
+    const chain = acceptedAmendmentChain(root, config, workflow.workItem.id,
+      storedReference);
+    let previous = null;
+    let current = null;
+    for (const authority of chain) {
+      current = await verifyWorkflowSnapshot(root, config, authority.workflow, {
+        retainBytes: true,
+        [ACCEPTED_REVISION_AUTHORITY]: authority
+      });
+      if (previous) {
+        validateAmendmentDecision(config, workflow.workItem.id, authority.decision, {
+          previous: {
+            reference: previous.reference,
+            policy: previous.result.policy
+          },
+          next: {
+            reference: authority.workflow.workflowSnapshot,
+            policy: current.policy
+          },
+          decisionPath: authority.decisionPath
+        });
+        assertAmendmentClosureScope(previous.result, current, authority.decision.to.skillId);
+        if (current.manifest?.amendment?.decisionPath !== authority.decisionPath
+            || current.manifest?.createdAt !== authority.decision.approvedAt
+            || current.manifest?.parentSnapshotHash !== previous.reference.snapshotHash) {
+          fail('Accepted skill-version amendment does not bind its approved parent decision.',
+            'WFA_AMENDMENT_INVALID');
+        }
+      }
+      previous = { reference: authority.workflow.workflowSnapshot, result: current };
+    }
+    if (!retainBytes) {
+      const summary = { ...current };
+      delete summary.manifest;
+      delete summary.policy;
+      delete summary.assetBytes;
+      return summary;
+    }
+    return current;
+  }
+  let accepted = options[ACCEPTED_REVISION_AUTHORITY] ?? null;
+  if (accepted) {
     const acceptedReference = accepted.workflow?.workflowSnapshot ?? null;
     if (!acceptedReference
         || canonicalJson(acceptedReference) !== canonicalJson(storedReference)) {
       fail(
-        `Story '${workflow.workItem.id}' workflow snapshot reference differs from its immutable creation commit.`,
+        `Story '${workflow.workItem.id}' workflow snapshot reference differs from its accepted revision commit.`,
         'WFA_SNAPSHOT_INVALID'
       );
     }
     storedReference = acceptedReference;
+  } else if (storedReference.revision > 1
+      && !hasRetainedAmendmentDraft(root, workflow)) {
+    fail('Story amendment snapshot is not accepted in a verified revision chain.',
+      'WFA_AMENDMENT_UNACCEPTED');
   }
-  const reference = readRecord(SNAPSHOT_REFERENCE_FAMILY, storedReference).record;
+  const openedReference = readRecord(SNAPSHOT_REFERENCE_FAMILY, storedReference);
+  const reference = openedReference.record;
   if (reference.enrollment !== 'wfa'
       || !Number.isSafeInteger(reference.revision) || reference.revision < 1
       || !/^sha256:[a-f0-9]{64}$/.test(reference.snapshotHash ?? '')
@@ -1303,35 +2182,51 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
     // closure as a runtime incompatibility hides the actual recovery. Inspect only the bounded
     // cardinality/accounting fields before schema projection; all semantic validation remains in
     // the registered immutable reader below.
-    const v2 = rawVersion === 2;
+    const skillDialect = rawVersion === 2 || rawVersion === 3;
     const tooManyAssets = Array.isArray(source?.assets)
-      && source.assets.length > (v2 ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS);
+      && source.assets.length > (skillDialect ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS);
     const tooManyDependencies = Array.isArray(source?.executionDependencies)
       && source.executionDependencies.length > MAXIMUM_ASSETS;
     const tooManyDeclaredBytes = Number.isFinite(source?.limits?.bytes)
-      && source.limits.bytes > (v2 ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES);
+      && source.limits.bytes > (skillDialect
+        ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES);
     if (tooManyAssets || tooManyDependencies || tooManyDeclaredBytes) {
       fail('Workflow snapshot exceeds its accepted resource limits.', 'WFA_LIMIT_REACHED');
     }
     const opened = readRecord(SNAPSHOT_FAMILY, source);
-    // Keep historical v1 bytes and schema stamp visible to Story consumers. The registered
-    // v1→v2 projection proves readability, but it is not the immutable v1 identity being run.
-    manifest = opened.storedVersion === 1 ? source : opened.record;
+    // Keep every historical manifest's stored bytes and version visible. Read projections prove
+    // compatibility, but never change the identity or semantics accepted for v1/v2 genesis.
+    manifest = source;
     storedVersion = opened.storedVersion;
   }
   catch (error) {
     if (error instanceof SingularityFlowError && String(error.code ?? '').startsWith('WFA_')) throw error;
     fail('Workflow snapshot manifest cannot be read with this runtime.', 'WFA_RUNTIME_INCOMPATIBLE');
   }
+  if (storedVersion >= 2 && openedReference.storedVersion !== 2) {
+    fail('A skill Story requires a version-2 snapshot reference.', 'WFA_SNAPSHOT_INVALID');
+  }
   if (manifest.kind !== SNAPSHOT_FAMILY || manifest.story?.workId !== workflow.workItem.id
       || manifest.revision !== reference.revision
       || manifest.snapshotHash !== reference.snapshotHash
-      || domainHash(storedVersion === 2 ? 'wfa.snapshot.v2' : 'wfa.snapshot.v1',
+      || domainHash(`wfa.snapshot.v${storedVersion}`,
         manifestCore(sourceManifest)) !== manifest.snapshotHash) {
     fail('Workflow snapshot manifest identity does not match its accepted Story reference.');
   }
   if (manifest.revision === 1 && manifest.parentSnapshotHash !== null) {
     fail('Workflow snapshot genesis has an unexpected parent.');
+  }
+  if (manifest.revision === 1 && storedVersion === 3) {
+    fail('Workflow amendment dialect cannot replace a Story genesis snapshot.',
+      'WFA_AMENDMENT_INVALID');
+  }
+  const amendmentVersion = manifest.amendment?.schemaVersion;
+  if (manifest.revision > 1 && (storedVersion !== 3
+      || !QUALIFIED_SHA256.test(manifest.parentSnapshotHash ?? '')
+      || amendmentVersion !== currentSchemaVersion('workflow-snapshot-amendment')
+      || !QUALIFIED_SHA256.test(manifest.amendment.decisionSha256 ?? ''))) {
+    fail('Workflow amendment snapshot has no versioned parent and decision binding.',
+      'WFA_AMENDMENT_INVALID');
   }
   const closureReferences = [
     { blob: manifest.policy, label: 'Effective workflow policy' },
@@ -1349,7 +2244,7 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
   const acceptedBlobBytes = accepted
     ? gitTreeEntries(root, accepted.commit,
         closureReferences.map((entry) => entry.blob.path), 'Workflow snapshot closure', {
-          maximumBytes: storedVersion === 2
+          maximumBytes: storedVersion >= 2
             ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES
         })
     : null;
@@ -1372,17 +2267,31 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
   let creationPolicy = compatibilityPolicy;
   if (accepted) {
     creationPolicy = clonePolicy(accepted.workflow?.resolution);
-    let persisted;
-    try {
-      const currentWorkflow = await secureRepositoryPath(root, accepted.workflowRelative, {
-        label: 'Current Story workflow record', mustExist: true, type: 'file'
-      });
-      persisted = await readJson(currentWorkflow.absolute);
-    } catch (error) {
-      if (error instanceof SingularityFlowError) throw error;
-      fail(`Current Story workflow record cannot be read: ${error.message}`);
+    if (accepted.final) {
+      let persisted;
+      try {
+        const currentWorkflow = await secureRepositoryPath(root, accepted.workflowRelative, {
+          label: 'Current Story workflow record', mustExist: true, type: 'file'
+        });
+        persisted = await readJson(currentWorkflow.absolute);
+      } catch (error) {
+        if (error instanceof SingularityFlowError) throw error;
+        fail(`Current Story workflow record cannot be read: ${error.message}`);
+      }
+      if (canonicalJson(persisted?.workflowSnapshot)
+          !== canonicalJson(accepted.workflow?.workflowSnapshot)) {
+        fail('Current Story reference differs from the accepted revision commit.',
+          'WFA_AMENDMENT_INVALID');
+      }
+      if (canonicalJson(approvedAmendmentSummaries(persisted))
+          !== canonicalJson(approvedAmendmentSummaries(accepted.workflow))) {
+        fail('Current Story skill-version approvals differ from accepted Git history.',
+          'WFA_AMENDMENT_INVALID');
+      }
+      compatibilityPolicy = clonePolicy(persisted?.resolution);
+    } else {
+      compatibilityPolicy = creationPolicy;
     }
-    compatibilityPolicy = clonePolicy(persisted?.resolution);
   }
   if (canonicalJson(capturedPolicy) !== canonicalJson(creationPolicy)
       || canonicalJson(capturedPolicy) !== canonicalJson(compatibilityPolicy)
@@ -1390,7 +2299,8 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
     fail('Workflow compatibility projection differs from its accepted snapshot policy.');
   }
   if (!Array.isArray(manifest.assets)
-      || manifest.assets.length > (storedVersion === 2 ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS)) {
+      || manifest.assets.length > (storedVersion >= 2
+        ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS)) {
     fail('Workflow snapshot asset manifest is invalid.', 'WFA_LIMIT_REACHED');
   }
   let totalBytes = policy.size;
@@ -1412,7 +2322,7 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
   }
   assertDependencyClosure(manifest, assetByLogicalId);
   assertSkillPackageClosure(manifest, storedVersion, capturedPolicy, assetByLogicalId, retainedAssets);
-  if (totalBytes > (storedVersion === 2 ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES)
+  if (totalBytes > (storedVersion >= 2 ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES)
       || manifest.limits?.bytes !== totalBytes
       || manifest.limits?.assets !== manifest.assets.length) {
     fail('Workflow snapshot closure does not match its accepted resource accounting.', 'WFA_LIMIT_REACHED');
@@ -1427,7 +2337,8 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
       phaseIds: entry.phaseBindings.map((binding) => binding.phaseId)
     })),
     provenance: manifest.provenance, semantics: manifest.semantics,
-    creationCommit: accepted?.commit ?? null
+    creationCommit: accepted?.creationCommit ?? accepted?.commit ?? null,
+    acceptanceCommit: accepted?.commit ?? null
   };
   if (retainBytes) {
     result.manifest = structuredClone(manifest);
@@ -1438,7 +2349,10 @@ export async function verifyWorkflowSnapshot(root, config, workflow, {
 }
 
 export async function workflowSnapshotDrift(root, config, workflow, observedConfiguration = null) {
-  const snapshot = await verifyWorkflowSnapshot(root, config, workflow);
+  const snapshot = await verifyWorkflowSnapshot(root, config, workflow, {
+    requireAccepted: workflow.workflowSnapshot?.revision > 1
+      && !hasRetainedAmendmentDraft(root, workflow)
+  });
   if (!snapshot.enrolled) return { ...snapshot, drift: 'unknown', reason: 'legacy-closure-unproven' };
   const pinned = snapshot.provenance?.configuration ?? null;
   if (!observedConfiguration) return { ...snapshot, drift: 'unavailable', observed: null };

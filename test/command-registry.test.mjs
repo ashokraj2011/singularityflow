@@ -61,6 +61,12 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(classify('inputs', ['inputs'], { 'dry-run': true }), 'read');
   assert.equal(classify('inputs', ['inputs'], { 'dry-run': 'true' }), 'read');
   assert.equal(classify('inputs', ['inputs'], { 'dry-run': 'false' }), 'mutation');
+  assert.equal(classify('story', ['story', 'skill-version', 'status']), 'read');
+  assert.equal(classify('story', ['story', 'skill-version', 'preview']), 'read');
+  assert.equal(classify('story', ['story', 'skill-version', 'propose']), 'read');
+  assert.equal(classify('story', ['story', 'skill-version', 'propose'], { confirm: 'sha256:reviewed' }), 'mutation');
+  assert.equal(classify('story', ['story', 'skill-version', 'decide']), 'read');
+  assert.equal(classify('story', ['story', 'skill-version', 'decide'], { confirm: 'sha256:reviewed' }), 'mutation');
   const mapTeam = resolveOperation({
     requestedCommand: 'capability', positionals: ['capability', 'map-team', 'payments-team']
   });

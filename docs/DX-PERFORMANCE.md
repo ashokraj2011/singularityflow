@@ -382,6 +382,15 @@ policy-union hardening, measures 28,046,165 bytes. The affected entries are 8,56
 no source modules. Only those four entry ceilings and the aggregate ceiling move to the next 5,000-byte
 boundary; all other byte and module ceilings remain unchanged.
 
+The SKP M2 candidate adds reviewed Story skill-version adoption and exact approved-package
+checks to the shared CLI closure. The final isolated build on 2026-09-26 measures 28,894,109
+JavaScript bytes in eight entries, below the existing 28,900,000-byte aggregate ceiling. The
+four entries that crossed their prior limits measure 8,922,464 (`gateway-runtime.cjs`),
+4,027,757 (`help-runtime.cjs`), 3,834,639 (`support-runtime.cjs`), and 8,977,916 bytes
+(`world-model-build.cjs`). Only these four byte ceilings move to the next 5,000-byte boundary;
+the aggregate and every source-module ceiling remain unchanged. The 5,891-byte aggregate
+headroom means unrelated bundle growth still fails the gate.
+
 ## Bounded aggregate verification
 
 `npm test` and `npm run test:cli` no longer start one unbounded all-files process. They create eight

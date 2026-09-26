@@ -27,7 +27,10 @@ import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
 import { CAPABILITIES_PATH } from '../capabilities.mjs';
 import { resolveLifecycleCapability } from '../capability-context.mjs';
 import { assertPlannedClaimsReady, resolveWorkType } from '../config.mjs';
-import { readConfigurationSource } from '../configuration-branch.mjs';
+import {
+  loadStoryConfigurationSnapshot, readConfigurationSource,
+  resolveNewStoryConfigurationAuthority
+} from '../configuration-branch.mjs';
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import {
   adjudicatedConvergenceProjection, advancementBlocked, assertConvergenceIntegrity,
@@ -61,9 +64,10 @@ import {
 } from '../specifications.mjs';
 import {
   StoryStateStore, acknowledgeIntentAmendment, actorKey, commitAndPublish, createWorkflow,
-  currentPhase, decideIntentAmendment, loadConfig, loadStoryAggregate, preparePhase,
-  previewReworkRollForward, rejectPhase, rollForwardRework, saveStoryDraft, sourceTreeHash,
-  workflowPublicationBranch, workDir
+  currentPhase, decideIntentAmendment, decideStorySkillVersion, loadConfig, loadStoryAggregate,
+  preparePhase, previewReworkRollForward, previewStorySkillVersionDecision,
+  previewStorySkillVersionProposal, proposeStorySkillVersion, rejectPhase, rollForwardRework,
+  saveStoryDraft, sourceTreeHash, storySkillVersionStatus, workflowPublicationBranch, workDir
 } from '../state-stores.mjs';
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeBytes, writeJson, writeText } from '../util.mjs';
@@ -116,6 +120,210 @@ function printCommandRoutes(command, { skill = null, indent = '', label = null }
   }
   console.log(`${indent}Shell: ${guidance.command}`);
   console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
+}
+
+function skillVersionGuidance(argv) {
+  return safeCommandGuidance({
+    executable: 'singularity-flow', argv, skill: '/sf-story-skill-version'
+  });
+}
+
+function skillVersionNext(guidance) {
+  return guidance ? {
+    command: guidance.command, copilotCommand: guidance.copilotCommand,
+    argv: guidance.argv, copyable: guidance.copyable,
+    platformCommands: guidance.platformCommands
+  } : null;
+}
+
+function printSkillVersionGuidance(argv, label) {
+  const guidance = skillVersionGuidance(argv);
+  console.log(`${label}:`);
+  console.log(`  Shell: ${guidance?.command ?? 'unavailable — review story skill-version --help'}`);
+  console.log(`  Copilot: ${guidance?.copilotCommand ?? '/sf-story-skill-version'}`);
+  return guidance;
+}
+
+function boundedSkillVersionStatus(workflow) {
+  const source = storySkillVersionStatus(workflow);
+  // Status is a navigation surface, not a dump of every immutable review record.
+  // Keep pending work visible while bounding both terminal and JSON output as the
+  // append-only Story history grows. Exact review bytes remain in the Story slots.
+  const latest = source.proposals.slice(-50);
+  const visibleIds = new Set(latest.map((entry) => entry.id));
+  const visible = [
+    ...source.proposals.filter((entry) => entry.status === 'proposed'
+      && !visibleIds.has(entry.id)).slice(0, 50), ...latest
+  ];
+  return {
+    ...source,
+    selectedPackages: source.selectedPackages.slice(0, 50),
+    selectedPackagesOmitted: Math.max(0, source.selectedPackages.length - 50),
+    proposals: visible.map((entry) => ({
+      id: entry.id, status: entry.status, skillId: entry.skillId,
+      packageSha256: entry.to?.packageSha256 ?? null,
+      approvalsRecorded: entry.approvals?.length ?? 0,
+      affectedPhaseCount: entry.affectedPhaseIds?.length ?? 0,
+      preservedPhaseCount: entry.preservedPhaseIds?.length ?? 0
+    })),
+    proposalsOmitted: source.proposals.length - visible.length
+  };
+}
+
+function requiredSkillVersionReason(options, label) {
+  const reason = optionString(options, 'reason');
+  if (!reason?.trim()) {
+    throw new SingularityFlowError(`A reviewed skill-version ${label} needs --reason TEXT.`, {
+      code: 'SKP_AMENDMENT_REASON_REQUIRED'
+    });
+  }
+  if (reason.length > 4096 || /[\u0000-\u001f\u007f]/u.test(reason)) {
+    throw new SingularityFlowError('Skill-version review reason must be at most 4096 characters of ordinary text.', {
+      code: 'SKP_AMENDMENT_REASON_INVALID'
+    });
+  }
+  return reason;
+}
+
+async function currentApprovedSkillVersionSnapshot(root, workflow) {
+  const pinnedRemote = workflow.resolution?.configurationSource?.repository ?? null;
+  const authority = await resolveNewStoryConfigurationAuthority(root, { pinnedRemote });
+  if (!authority) {
+    throw new SingularityFlowError(
+      'No current approved configuration authority is available for a reviewed Story skill-version change. Refresh workspace configuration and retry; the Story pin was not changed.',
+      { code: 'SKP_APPROVED_AUTHORITY_UNAVAILABLE' }
+    );
+  }
+  return loadStoryConfigurationSnapshot(authority);
+}
+
+async function storySkillVersionCommand(positionals, options, root) {
+  const action = positionals[2] ?? 'status';
+  if (!['status', 'preview', 'propose', 'decide'].includes(action)) {
+    throw new SingularityFlowError(`Unknown Story skill-version action '${action}'.`);
+  }
+  const accepted = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
+  const { config, workflow } = accepted;
+  if (action === 'status') {
+    const result = boundedSkillVersionStatus(workflow);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Story ${result.workId} · accepted workflow snapshot revision ${result.snapshotRevision ?? 'legacy'}`);
+    if (!result.selectedPackages.length) console.log('No selected skill phases are pinned in this Story.');
+    for (const selected of result.selectedPackages) {
+      console.log(`${selected.skillId ?? 'unknown'} @ ${selected.packageSha256 ?? 'unavailable'}`);
+    }
+    for (const proposal of result.proposals) {
+      console.log(`${proposal.id}: ${proposal.status} · ${proposal.skillId} @ ${proposal.packageSha256 ?? 'unavailable'}`);
+    }
+    if (result.proposalsOmitted) console.log(`${result.proposalsOmitted} older proposal(s) omitted from this status summary.`);
+    return;
+  }
+  if (action === 'preview' || action === 'propose') {
+    const skillId = requirePositional(positionals, 3, 'skill ID');
+    const reason = requiredSkillVersionReason(options, 'proposal');
+    const approvedConfigurationSnapshot = await currentApprovedSkillVersionSnapshot(root, workflow);
+    const selection = { skillId, reason, approvedConfigurationSnapshot };
+    const confirmPreviewDigest = action === 'propose' ? optionString(options, 'confirm') : null;
+    if (action === 'preview' && options.confirm !== undefined) {
+      throw new SingularityFlowError('A read-only skill-version preview does not accept --confirm.', {
+        code: 'SKP_AMENDMENT_CONFIRM_UNEXPECTED'
+      });
+    }
+    if (!confirmPreviewDigest) {
+      const result = await previewStorySkillVersionProposal(root, config, workflow, selection);
+      const nextArgv = [
+        'story', 'skill-version', 'propose', skillId, '--reason', reason,
+        '--work-id', workflow.workItem.id, '--confirm', result.planSha256
+      ];
+      const guidance = skillVersionGuidance(nextArgv);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+        ...result, next: skillVersionNext(guidance)
+      }, null, 2));
+      console.log(`Reviewed skill-version proposal preview ${result.proposalId} for Story ${workflow.workItem.id}.`);
+      const selectedPhase = workflow.resolution?.phases?.find((phase) =>
+        phase.kind === 'skill' && phase.skillBinding?.bindingRefs?.skill?.id === skillId);
+      console.log(`Current package: ${selectedPhase?.skillBinding?.bindingRefs?.skill?.packageSha256 ?? 'unavailable'}`);
+      console.log(`Proposed package: ${result.proposal?.to?.packageSha256 ?? 'unavailable'}`);
+      console.log(`Approved configuration: ${result.proposal?.to?.configurationCommit ?? 'unavailable'}`);
+      console.log(`Affected phases: ${result.affectedPhaseIds.join(', ') || 'none'}`);
+      console.log(`Preserved phases: ${result.preservedPhaseIds.join(', ') || 'none'}`);
+      console.log(`Exact confirmation digest: ${result.planSha256}`);
+      console.log('No Story state, files, commits, or external systems were changed.');
+      printSkillVersionGuidance(nextArgv, 'After human review, propose');
+      return;
+    }
+    const result = await proposeStorySkillVersion(root, config, workflow, {
+      ...selection, confirmPreviewDigest
+    });
+    const decisionPreviewArgv = [
+      'story', 'skill-version', 'decide', result.proposalId,
+      '--decision', 'approve', '--reason', '<REVIEW-REASON>',
+      '--work-id', workflow.workItem.id
+    ];
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+      ...result, next: skillVersionNext(skillVersionGuidance(decisionPreviewArgv))
+    }, null, 2));
+    console.log(`Skill-version proposal ${result.proposalId} published for Story ${workflow.workItem.id}. The pinned skill has not changed.`);
+    printSkillVersionGuidance(decisionPreviewArgv, 'Review authority decision (preview first)');
+    return;
+  }
+  const proposalId = requirePositional(positionals, 3, 'skill-version proposal ID');
+  const decision = optionString(options, 'decision');
+  if (!['approve', 'reject'].includes(decision)) {
+    throw new SingularityFlowError('Skill-version decision requires --decision approve|reject.', {
+      code: 'SKP_AMENDMENT_DECISION_INVALID'
+    });
+  }
+  const reason = requiredSkillVersionReason(options, 'decision');
+  const approvedConfigurationSnapshot = await currentApprovedSkillVersionSnapshot(root, workflow);
+  const selection = { proposalId, decision, reason, approvedConfigurationSnapshot };
+  const confirmPreviewDigest = optionString(options, 'confirm');
+  if (!confirmPreviewDigest) {
+    const result = await previewStorySkillVersionDecision(root, config, workflow, selection);
+    const nextArgv = [
+      'story', 'skill-version', 'decide', proposalId, '--decision', decision,
+      '--reason', reason, '--work-id', workflow.workItem.id,
+      '--confirm', result.planSha256
+    ];
+    const guidance = skillVersionGuidance(nextArgv);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+      ...result, next: skillVersionNext(guidance)
+    }, null, 2));
+    console.log(`Reviewed decision preview for ${result.proposalId} in Story ${workflow.workItem.id}.`);
+    console.log(`Decision: ${result.decision} · authority: ${result.authorityGroup}`);
+    console.log(`Will adopt a new snapshot now: ${result.willApply ? 'yes' : 'no'}`);
+    console.log(`Affected phases: ${result.affectedPhaseIds.join(', ') || 'none'}`);
+    console.log(`Preserved phases: ${result.preservedPhaseIds.join(', ') || 'none'}`);
+    console.log(`Exact confirmation digest: ${result.planSha256}`);
+    console.log('No Story state, files, commits, or external systems were changed.');
+    printSkillVersionGuidance(nextArgv, 'After human review, record decision');
+    return;
+  }
+  const result = await decideStorySkillVersion(root, config, workflow, {
+    ...selection, confirmPreviewDigest
+  });
+  const nextArgv = result.applied
+    ? ['resume', workflow.workItem.id, '--fetch']
+    : ['story', 'skill-version', 'status', '--work-id', workflow.workItem.id];
+  const nextGuidance = result.applied
+    ? safeCommandGuidance({ executable: 'singularity-flow', argv: nextArgv })
+    : skillVersionGuidance(nextArgv);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+    ...result, next: skillVersionNext(nextGuidance)
+  }, null, 2));
+  console.log(`${decision === 'reject' ? 'Rejected' : result.applied ? 'Approved and adopted' : 'Recorded approval for'} ${proposalId} in Story ${workflow.workItem.id}.`);
+  if (result.applied) {
+    console.log(`New accepted snapshot revision: ${result.workflowSnapshot?.revision ?? 'unavailable'}. Affected phases require revalidation; preserved evidence was not rewritten.`);
+    printCommandRoutes(`singularity-flow resume ${workflow.workItem.id} --fetch`, {
+      label: 'Reattach to the reopened phase'
+    });
+  } else {
+    console.log('The pinned skill package remains unchanged.');
+  }
+  printSkillVersionGuidance([
+    'story', 'skill-version', 'status', '--work-id', workflow.workItem.id
+  ], 'Verify Story skill-version status');
+  return;
 }
 
 /**
@@ -515,6 +723,7 @@ export async function storyCommand(positionals, options) {
     return;
   }
   if (subcommand === 'return') return storyReturnCommand(positionals, options, root);
+  if (subcommand === 'skill-version') return storySkillVersionCommand(positionals, options, root);
   if (subcommand === 'start') {
     const storyKey = requirePositional(positionals, 2, 'Jira Story key');
     return (await router()).startCommand(['start', storyKey], { ...options, jira: true });
@@ -588,7 +797,11 @@ export async function storyCommand(positionals, options) {
     const workId = positionals[3] ?? optionString(options, 'work-id');
     const workflow = await loadStoryAggregate(root, config, workId);
     if (action === 'show' || action === 'verify') {
-      const verification = await verifyWorkflowSnapshot(root, config, workflow);
+      // A mid-Story skill adoption is an accepted snapshot revision, not an in-place
+      // rewrite of genesis. Verify the committed decision chain when reading it.
+      const verification = await verifyWorkflowSnapshot(root, config, workflow, {
+        requireAccepted: (workflow.workflowSnapshot?.revision ?? 1) > 1
+      });
       const result = {
         workId: workflow.workItem.id,
         reference: workflow.workflowSnapshot ?? null,

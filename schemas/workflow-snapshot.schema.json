@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "kind", "story", "revision", "parentSnapshotHash", "policy", "assets", "executionDependencies", "provenance", "semantics", "configFoldHash", "createdAt", "limits", "snapshotHash"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2] },
+    "schemaVersion": { "enum": [1, 2, 3] },
     "kind": { "const": "workflow-snapshot" },
     "story": {
       "type": "object",
@@ -22,6 +22,12 @@
     "assets": { "type": "array", "maxItems": 8192, "items": { "$ref": "#/$defs/asset" } },
     "executionDependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/executionDependency" } },
     "skillPackages": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/skillPackage" } },
+    "amendment": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/amendment" }
+      ]
+    },
     "provenance": { "type": "object" },
     "semantics": { "type": "object" },
     "configFoldHash": { "$ref": "#/$defs/sha256" },
@@ -50,13 +56,44 @@
             }
           }
         },
-        "not": { "required": ["skillPackages"] }
+        "not": { "anyOf": [{ "required": ["skillPackages"] }, { "required": ["amendment"] }] }
       },
-      "else": { "required": ["skillPackages"] }
+      "else": {
+        "if": { "properties": { "schemaVersion": { "const": 2 } }, "required": ["schemaVersion"] },
+        "then": {
+          "required": ["skillPackages"],
+          "not": { "required": ["amendment"] }
+        },
+        "else": { "required": ["skillPackages", "amendment"] }
+      }
+    },
+    {
+      "if": { "properties": { "revision": { "minimum": 2 } }, "required": ["revision"] },
+      "then": {
+        "properties": {
+          "schemaVersion": { "const": 3 },
+          "parentSnapshotHash": { "$ref": "#/$defs/sha256" },
+          "amendment": { "$ref": "#/$defs/amendment" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "schemaVersion": { "const": 3 } }, "required": ["schemaVersion"] },
+      "then": { "properties": { "revision": { "minimum": 2 } } }
     }
   ],
   "$defs": {
     "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "amendment": {
+      "type": "object",
+      "required": ["schemaVersion", "decisionPath", "decisionSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "decisionPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "decisionSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
     "skillPackage": {
       "type": "object",
       "required": ["skillId", "manifest", "phaseBindings", "files"],

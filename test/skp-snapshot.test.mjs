@@ -123,6 +123,8 @@ test('accepted Story keeps the selected approved entry and resource after source
     value.storyRoot, value.config, value.workflow,
     { approvedConfigurationSnapshot: value.approved }
   );
+  assert.equal(value.workflow.workflowSnapshot.schemaVersion, 2,
+    'skill Stories must use the registered v2 snapshot-reference dialect');
   const manifest = JSON.parse(await readFile(path.join(value.storyRoot,
     value.workflow.workflowSnapshot.manifestPath), 'utf8'));
   assert.equal(manifest.schemaVersion, 2);
@@ -155,6 +157,20 @@ test('capture refuses a confirmed digest that differs from approved package byte
   value.workflow.resolution.phases[0].skillBinding.bindingRefs.skill.packageSha256 = H('0');
   await assert.rejects(captureWorkflowSnapshot(value.storyRoot, value.config, value.workflow,
     { approvedConfigurationSnapshot: value.approved }), { code: 'SKP_SKILL_DRIFT' });
+});
+
+test('a v2 skill snapshot cannot be relabelled with a legacy v1 reference', async (t) => {
+  const value = await fixture(t);
+  value.workflow.workflowSnapshot = await captureWorkflowSnapshot(
+    value.storyRoot, value.config, value.workflow,
+    { approvedConfigurationSnapshot: value.approved }
+  );
+  const legacyReference = {
+    ...value.workflow.workflowSnapshot, schemaVersion: 1
+  };
+  await assert.rejects(verifyWorkflowSnapshot(value.storyRoot, value.config, {
+    ...value.workflow, workflowSnapshot: legacyReference
+  }), { code: 'WFA_SNAPSHOT_INVALID' });
 });
 
 test('missing retained resource cannot be replaced by its approved source or package name', async (t) => {

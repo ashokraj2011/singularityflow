@@ -21,6 +21,10 @@ test('the lifecycle vocabulary owns immutable symbols, descriptors, and a stable
   assert.equal(LIFECYCLE_EVENT.ARTIFACT_GENERATED, 'artifact-generated');
   assert.equal(LIFECYCLE_EVENT.DESIGN_SOURCE_PROMOTED, 'design-source-promoted');
   assert.equal(LIFECYCLE_EVENT.REWORK_ROLLED_FORWARD, 'rework-rolled-forward');
+  assert.equal(LIFECYCLE_EVENT.SKILL_AMENDMENT_PROPOSED, 'skill-amendment-proposed');
+  assert.equal(LIFECYCLE_EVENT.SKILL_AMENDMENT_APPROVED, 'skill-amendment-approved');
+  assert.equal(LIFECYCLE_EVENT.SKILL_AMENDMENT_REJECTED, 'skill-amendment-rejected');
+  assert.equal(LIFECYCLE_EVENT_VOCABULARY.descriptors['skill-amendment-approved'].since, 5);
   assert.equal(LIFECYCLE_EVENT_TYPES.includes('generation-started'), false);
   assert.equal(LIFECYCLE_EVENT_VOCABULARY.descriptors['artifact-generated'].class, 'core-governing');
   assert.match(LIFECYCLE_EVENT_VOCABULARY.manifest.sha256, /^sha256:[0-9a-f]{64}$/);

@@ -5,7 +5,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { validateAutoContractRecord } from '../src/auto/auto-contract-records.mjs';
-import { currentSchemaVersion, migrationRegistrySnapshot, readRecord } from '../src/schema-migrations.mjs';
+import {
+  currentSchemaVersion, familyForStoredPath, migrationRegistrySnapshot, readRecord
+} from '../src/schema-migrations.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureFile = path.join(root, 'test', 'fixtures', 'schema-migrations', 'goldens.json');
@@ -48,6 +50,55 @@ test('previous-release durable corpus remains completely readable', async () => 
     assert.ok(oldest, family.id);
     assert.equal(readRecord(family.id, oldest).record.schemaVersion, family.currentVersion);
   }
+});
+
+test('template snapshot references keep their stored v1 identity under the v2 reader', () => {
+  const historical = {
+    enrollment: 'wfa', schemaVersion: 1, revision: 1,
+    snapshotHash: `sha256:${'a'.repeat(64)}`,
+    manifestPath: 'singularity/work-items/OLD-1/config/wfa/snapshots/000001/manifest.json',
+    genesisSnapshotHash: `sha256:${'a'.repeat(64)}`
+  };
+  const opened = readRecord('workflow-snapshot-reference', historical);
+  assert.equal(opened.storedVersion, 1);
+  assert.deepEqual(opened.migratedThrough, [{ from: 1, to: 2 }]);
+  assert.equal(opened.record.schemaVersion, 2);
+  assert.equal(historical.schemaVersion, 1, 'read-side projection rewrote the stored identity');
+});
+
+test('story-workflow v9 read projection cannot invent a reviewed skill amendment', () => {
+  const historical = {
+    schemaVersion: 9,
+    workflowSnapshot: {
+      enrollment: 'wfa', schemaVersion: 2, revision: 1,
+      snapshotHash: `sha256:${'a'.repeat(64)}`,
+      manifestPath: 'singularity/work-items/SKP-1/config/wfa/snapshots/000001/manifest.json',
+      genesisSnapshotHash: `sha256:${'a'.repeat(64)}`
+    }
+  };
+  const opened = readRecord('story-workflow', historical);
+  assert.deepEqual(opened.migratedThrough, [{ from: 9, to: 10 }]);
+  assert.equal(opened.record.schemaVersion, 10);
+  assert.equal(opened.record.workflowSnapshot.revision, 1);
+  assert.equal(Object.hasOwn(opened.record, 'skillVersionAmendments'), false);
+  assert.equal(historical.schemaVersion, 9);
+});
+
+test('Story skill-version review records have exact immutable migration families', () => {
+  const prefix = 'singularity/work-items/SKP-1/context/skill-amendments/SAM-001-';
+  for (const [suffix, familyId] of [
+    ['proposal.json', 'skill-version-adoption-proposal'],
+    ['impact.json', 'skill-version-adoption-impact'],
+    ['review-001.json', 'skill-version-adoption-review']
+  ]) {
+    const family = familyForStoredPath(`${prefix}${suffix}`);
+    assert.equal(family?.id, familyId);
+    assert.equal(family.immutable, true);
+    assert.equal(currentSchemaVersion(familyId), 1);
+    assert.equal(familyForStoredPath(`custom/work-items/SKP-1/context/skill-amendments/SAM-001-${suffix}`,
+      { workItemRoot: 'custom/work-items' })?.id, familyId);
+  }
+  assert.equal(familyForStoredPath(`${prefix}review-1.json`), null);
 });
 
 test('legacy planned claim maps migrate without inventing a test waiver', () => {
@@ -147,7 +198,7 @@ test('story-workflow v6 migration repairs only the shipped Spec-Driven Release c
   const result = readRecord('story-workflow', source);
   const migrated = result.record;
   assert.deepEqual(result.migratedThrough, [
-    { from: 6, to: 7 }, { from: 7, to: 8 }, { from: 8, to: 9 }
+    { from: 6, to: 7 }, { from: 7, to: 8 }, { from: 8, to: 9 }, { from: 9, to: 10 }
   ]);
   assert.equal(migrated.schemaVersion, currentSchemaVersion('story-workflow'));
   for (const release of [
@@ -186,7 +237,9 @@ test('story-workflow v7 migration cannot acquire WMP authority from an open lega
     }
   };
   const result = readRecord('story-workflow', crafted);
-  assert.deepEqual(result.migratedThrough, [{ from: 7, to: 8 }, { from: 8, to: 9 }]);
+  assert.deepEqual(result.migratedThrough, [
+    { from: 7, to: 8 }, { from: 8, to: 9 }, { from: 9, to: 10 }
+  ]);
   assert.equal(Object.hasOwn(result.record.resolution, 'worldModelHistoryPin'), false);
   assert.notEqual(crafted.resolution.worldModelHistoryPin, null,
     'read-side migration rewrote the historical source object');

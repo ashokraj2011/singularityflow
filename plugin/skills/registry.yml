@@ -226,6 +226,7 @@ skills:
   sflow-story-inbox: { class: echo, executionBoundary: repository }
   sflow-work-interval: { class: mutation }
   sflow-story-start: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
+  sflow-story-skill-version: { class: mutation }
   sflow-submit: { class: review }
   sflow-telemetry: { class: echo, executionBoundary: repository }
   sflow-upload: { class: mutation, executionBoundary: repository }

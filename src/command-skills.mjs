@@ -148,7 +148,8 @@ const entries = {
   ],
   story: [
     'sf-inspect', 'sf-story-start', 'sf-story-inbox', 'sf-story-fetch', 'sf-story-branch',
-    'sf-story-checks', 'sf-work-interval', 'sf-return', 'sf-reject', 'sf-converge', 'sf-submit', 'sf-finalize'
+    'sf-story-checks', 'sf-work-interval', 'sf-story-skill-version', 'sf-return', 'sf-reject',
+    'sf-converge', 'sf-submit', 'sf-finalize'
   ],
   workspace: [
     'sf-workspace', 'sf-workspace-bootstrap', 'sf-workspaces', 'sf-workspace-session',
@@ -308,6 +309,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     return: 'sf-return',
     rework: 'sf-reject',
     'intent-amendment': 'sf-reject',
+    'skill-version': 'sf-story-skill-version',
     adjudicate: 'sf-converge',
     converge: 'sf-converge',
     submit: 'sf-submit',

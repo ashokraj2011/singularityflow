@@ -7,8 +7,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
-  CONFIGURATION_BRANCH, ensureConfigurationBranch, inspectApprovedSkillPackage,
-  loadStoryConfigurationSnapshot, resolveStoryConfigurationAuthority
+  CONFIGURATION_BRANCH, approvedStoryApprovalAuthorities, ensureConfigurationBranch,
+  inspectApprovedSkillPackage,
+  loadStoryConfigurationSnapshot, resolveApprovedStoryWorkType,
+  resolveStoryConfigurationAuthority
 } from '../src/configuration-branch.mjs';
 import { skillInspectionView } from '../src/skp-package.mjs';
 import { run } from '../src/util.mjs';
@@ -86,6 +88,31 @@ test('approved inspection consumes one verified snapshot and detects in-memory d
     item.relative === 'singularity/skills/threat-model/SKILL.md');
   entry.contents[0] ^= 1;
   await assert.rejects(inspectApprovedSkillPackage(snapshot, 'threat-model'),
+    { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' });
+});
+
+test('approved work-type resolution refuses mutable binding and reviewer authority projections', async (t) => {
+  const { checkout } = await approvedSkillFixture(t);
+  const authority = await resolveStoryConfigurationAuthority(checkout);
+  const snapshot = await loadStoryConfigurationSnapshot(authority);
+  const original = resolveApprovedStoryWorkType(snapshot, 'feature');
+  assert.deepEqual(original.approvalAuthorities, snapshot.definition.approvalAuthorities);
+  const reviewers = approvedStoryApprovalAuthorities(snapshot);
+  assert.deepEqual(reviewers, original.approvalAuthorities);
+  reviewers['engineering-reviewers'].allowAnyGitIdentity = true;
+  assert.notDeepEqual(approvedStoryApprovalAuthorities(snapshot), reviewers);
+
+  snapshot.definition.phases.requirements.skillBinding = {
+    bindingRefs: { skill: { id: 'threat-model', packageSha256: `sha256:${'0'.repeat(64)}` } }
+  };
+  assert.throws(() => resolveApprovedStoryWorkType(snapshot, 'feature'),
+    { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' });
+  assert.throws(() => approvedStoryApprovalAuthorities(snapshot),
+    { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' });
+  delete snapshot.definition.phases.requirements.skillBinding;
+
+  snapshot.definition.approvalAuthorities['engineering-reviewers'].allowAnyGitIdentity = true;
+  assert.throws(() => resolveApprovedStoryWorkType(snapshot, 'feature'),
     { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' });
 });
 

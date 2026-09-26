@@ -23,7 +23,7 @@ const observational = (value, description) => ({
 /** The sole owner of first-party Story, Initiative, ad hoc landing, and governed Goal members. */
 export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
   id: 'lifecycle-event-type',
-  version: 4,
+  version: 5,
   defaultClass: 'core-observational',
   entries: {
     BINDING: governing('binding', 'Binds a governed subject to its lifecycle identity and branch.'),
@@ -36,6 +36,18 @@ export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
     INTENT_AMENDMENT_APPROVED: governing('intent-amendment-approved', 'Approves a governed intent amendment.'),
     INTENT_AMENDMENT_REJECTED: governing('intent-amendment-rejected', 'Rejects a governed intent amendment.'),
     INTENT_AMENDMENT_ACKNOWLEDGED: governing('intent-amendment-acknowledged', 'Acknowledges the outcome of a governed intent amendment.'),
+    SKILL_AMENDMENT_PROPOSED: {
+      ...governing('skill-amendment-proposed', 'Proposes an exact reviewed skill-version adoption for one Story.'),
+      since: 5
+    },
+    SKILL_AMENDMENT_APPROVED: {
+      ...governing('skill-amendment-approved', 'Approves and applies an exact skill-version adoption with a new Story snapshot.'),
+      since: 5
+    },
+    SKILL_AMENDMENT_REJECTED: {
+      ...governing('skill-amendment-rejected', 'Rejects a proposed Story skill-version adoption.'),
+      since: 5
+    },
     WORKFLOW_REOPENED: governing('workflow-reopened', 'Reopens a completed or previously decided workflow boundary.'),
     REWORK_ROLLED_FORWARD: {
       ...governing('rework-rolled-forward', 'Abandons a returned rework cone and restores its exact forward checkpoint.'),

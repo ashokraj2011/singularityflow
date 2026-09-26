@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -20,11 +22,21 @@ import { loadWorkflow, previewStorySkillVersionProposal,
 import { run } from '../src/util.mjs';
 import { verifyWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
+import { captureSkillConfigurationAncestry, verifySkillConfigurationAncestry }
+  from '../src/skp-amendment-audit.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { identity } from '../src/git.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const H = (digit) => `sha256:${digit.repeat(64)}`;
 
 function git(cwd, ...args) { return run('git', args, { cwd }).stdout.trim(); }
+
+function setActor(root, name, email) {
+  git(root, 'config', 'user.name', name);
+  git(root, 'config', 'user.email', email);
+  process.env.SINGULARITY_FLOW_TEST_IDENTITY = name;
+}
 
 function flow(cwd, ...args) {
   const result = run(process.execPath, [CLI, ...args], { cwd, allowFailure: true });
@@ -137,6 +149,18 @@ async function publishSkill(publisher, version, {
 }
 
 async function fixture(t, { independentSkill = false, approvalMinimum = 1 } = {}) {
+  const priorTestIdentity = process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  const priorNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'test';
+  process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Story Proposer';
+  t.after(() => {
+    if (priorTestIdentity === undefined) delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+    else process.env.SINGULARITY_FLOW_TEST_IDENTITY = priorTestIdentity;
+    if (priorNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = priorNodeEnv;
+  });
+  // These private bare repositories have no GitHub account authority. Keep fixtures local and
+  // deterministic; the diagnostic regression below separately exercises the live identity path.
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-skp-state-amendment-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'application');
@@ -144,8 +168,7 @@ async function fixture(t, { independentSkill = false, approvalMinimum = 1 } = {}
   const publisher = path.join(base, 'publisher');
   await mkdir(root);
   git(root, 'init', '-q', '-b', 'main');
-  git(root, 'config', 'user.name', 'Story Proposer');
-  git(root, 'config', 'user.email', 'proposer@example.invalid');
+  setActor(root, 'Story Proposer', 'proposer@example.invalid');
   flow(root, 'init');
   await writeFile(path.join(root, 'README.md'), '# Application\n');
   git(root, 'add', '-A');
@@ -183,9 +206,109 @@ async function fixture(t, { independentSkill = false, approvalMinimum = 1 } = {}
     firstPackageSha256, secondPackageSha256 };
 }
 
+test('skill adoption exact previews bind human identity, not GitHub lookup cache diagnostics', async (t) => {
+  const { root, config, workflow, approved } = await fixture(t);
+  await captureSkillConfigurationAncestry(approved, workflow.resolution.configurationSource);
+  const originalNetwork = process.env.SINGULARITY_FLOW_NO_NETWORK;
+  process.env.SINGULARITY_FLOW_NO_NETWORK = '1';
+  delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  const cacheFile = path.join(root, '.git', 'singularity-flow', 'github-account.json');
+  const read = fs.readFileSync;
+  let cacheReads = 0;
+  let login = null;
+  const cacheMock = t.mock.method(fs, 'readFileSync', function (file, ...options) {
+    if (String(file) !== cacheFile) return read.call(this, file, ...options);
+    cacheReads += 1;
+    if (cacheReads % 2 === 0) throw Object.assign(new Error('cache miss'), { code: 'ENOENT' });
+    return JSON.stringify({ at: Date.now(), stdout: JSON.stringify({ login }) });
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    cacheMock.mock.restore();
+    syncBuiltinESMExports();
+    if (originalNetwork === undefined) delete process.env.SINGULARITY_FLOW_NO_NETWORK;
+    else process.env.SINGULARITY_FLOW_NO_NETWORK = originalNetwork;
+  });
+  const warm = identity(root);
+  const cold = identity(root);
+  assert.equal(warm.githubLookup, 'resolved');
+  assert.equal(cold.githubLookup, 'not-checked');
+  assert.deepEqual({ name: warm.name, email: warm.email, login: warm.login },
+    { name: cold.name, email: cold.email, login: cold.login });
+  const selection = {
+    skillId: 'threat-model', approvedConfigurationSnapshot: approved,
+    reason: 'Review unchanged human identity across cache-only provenance changes.'
+  };
+  const proposal = await previewStorySkillVersionProposal(root, config, workflow, selection);
+  const next = await previewStorySkillVersionProposal(root, config, workflow, selection);
+  assert.equal(next.planSha256, proposal.planSha256,
+    'the same human must retain the exact plan when only lookup provenance changes');
+  assert.deepEqual(proposal.proposal.proposedBy, {
+    name: 'Story Proposer', email: 'proposer@example.invalid', login: null
+  });
+  for (const [field, replacement, original] of [
+    ['name', 'Changed Proposer', 'Story Proposer'],
+    ['email', 'changed-proposer@example.invalid', 'proposer@example.invalid'],
+    ['login', 'changed-proposer', null]
+  ]) {
+    if (field === 'login') { login = replacement; cacheReads = 0; }
+    else git(root, 'config', `user.${field}`, replacement);
+    const changed = await previewStorySkillVersionProposal(root, config, workflow, selection);
+    assert.notEqual(changed.planSha256, proposal.planSha256, `${field} remains exact-plan bound`);
+    if (field === 'login') cacheReads = 0;
+    await assert.rejects(proposeStorySkillVersion(root, config, workflow, {
+      ...selection, confirmPreviewDigest: proposal.planSha256
+    }), { code: 'SKP_AMENDMENT_PREVIEW_STALE' });
+    if (field === 'login') login = original;
+    else git(root, 'config', `user.${field}`, original);
+  }
+  await proposeStorySkillVersion(root, config, workflow, {
+    ...selection, confirmPreviewDigest: proposal.planSha256
+  });
+  assert.equal(workflow.skillVersionAmendments[0].status, 'proposed');
+  assert.deepEqual(workflow.skillVersionAmendments[0].proposedBy,
+    proposal.proposal.proposedBy);
+  git(root, 'config', 'user.name', 'Story Reviewer');
+  git(root, 'config', 'user.email', 'reviewer@example.invalid');
+  const reviewOptions = {
+    proposalId: proposal.proposalId, decision: 'approve',
+    approvedConfigurationSnapshot: approved, reason: 'Review the same exact authority.'
+  };
+  const review = await previewStorySkillVersionDecision(root, config, workflow, reviewOptions);
+  const nextReview = await previewStorySkillVersionDecision(root, config, workflow, reviewOptions);
+  assert.equal(nextReview.planSha256, review.planSha256);
+  assert.deepEqual(review.actor, {
+    name: 'Story Reviewer', email: 'reviewer@example.invalid', login: null
+  });
+  for (const [field, replacement, original] of [
+    ['name', 'Changed Reviewer', 'Story Reviewer'],
+    ['email', 'changed-reviewer@example.invalid', 'reviewer@example.invalid'],
+    ['login', 'changed-reviewer', null]
+  ]) {
+    if (field === 'login') { login = replacement; cacheReads = 0; }
+    else git(root, 'config', `user.${field}`, replacement);
+    const changed = await previewStorySkillVersionDecision(root, config, workflow, reviewOptions);
+    assert.notEqual(changed.planSha256, review.planSha256, `${field} remains reviewer bound`);
+    if (field === 'login') cacheReads = 0;
+    await assert.rejects(decideStorySkillVersion(root, config, workflow, {
+      ...reviewOptions, confirmPreviewDigest: review.planSha256
+    }), { code: 'SKP_AMENDMENT_PREVIEW_STALE' });
+    if (field === 'login') login = original;
+    else git(root, 'config', `user.${field}`, original);
+  }
+  await decideStorySkillVersion(root, config, workflow, {
+    ...reviewOptions, confirmPreviewDigest: review.planSha256
+  });
+  assert.deepEqual(workflow.skillVersionAmendments[0].approvals[0].actor, review.actor);
+  assert.equal((await verifyWorkflowSnapshot(root, config, workflow, {
+    requireAccepted: true
+  })).revision, 2);
+});
+
 test('reviewed two-step skill adoption commits proposal, distinct decision, and WFA revision', async (t) => {
   const value = await fixture(t);
   const { root, config, workflow, approved } = value;
+  const priorSource = structuredClone(workflow.resolution.configurationSource);
   assert.equal(workflow.workflowSnapshot.revision, 1);
   const proposal = await previewStorySkillVersionProposal(root, config, workflow, {
     skillId: 'threat-model', approvedConfigurationSnapshot: approved,
@@ -200,8 +323,7 @@ test('reviewed two-step skill adoption commits proposal, distinct decision, and 
   });
   assert.equal(workflow.skillVersionAmendments[0].status, 'proposed');
   assert.equal(workflow.workflowSnapshot.revision, 1);
-  git(root, 'config', 'user.name', 'Story Reviewer');
-  git(root, 'config', 'user.email', 'reviewer@example.invalid');
+  setActor(root, 'Story Reviewer', 'reviewer@example.invalid');
   const decision = await previewStorySkillVersionDecision(root, config, workflow, {
     proposalId: proposal.proposalId, decision: 'approve',
     approvedConfigurationSnapshot: approved,
@@ -216,7 +338,7 @@ test('reviewed two-step skill adoption commits proposal, distinct decision, and 
   });
   assert.equal(result.applied, true);
   assert.equal(workflow.workflowSnapshot.revision, 2);
-  assert.equal(workflow.schemaVersion, 10);
+  assert.equal(workflow.schemaVersion, currentSchemaVersion('story-workflow'));
   assert.equal(workflow.skillVersionAmendments[0].status, 'approved');
   assert.equal(workflow.phases['threat-model'].status, 'in_progress');
   const verified = await verifyWorkflowSnapshot(root, config, workflow, {
@@ -225,6 +347,24 @@ test('reviewed two-step skill adoption commits proposal, distinct decision, and 
   assert.equal(verified.revision, 2);
   assert.equal(verified.skillPackages[0].packageSha256, value.secondPackageSha256);
   assert.equal((await validateWorkflow(root, config, workflow)).valid, true);
+  const decisionRecord = JSON.parse(await readFile(path.join(root,
+    workflow.skillVersionAmendments[0].decisionPath), 'utf8'));
+  assert.equal(decisionRecord.schemaVersion, 2);
+  assert.equal(verifySkillConfigurationAncestry(decisionRecord.configurationAncestry, {
+    repository: priorSource.repository, ancestorCommit: priorSource.commit,
+    descendantCommit: approved.sourceCommit
+  }), true);
+  const clone = path.join(path.dirname(root), 'fresh-story');
+  git(path.dirname(root), 'clone', '--quiet', '--no-local', '--single-branch',
+    '--branch', 'SKP-ADOPT-1', root, clone);
+  assert.notEqual(run('git', ['cat-file', '-e', approved.sourceCommit], {
+    cwd: clone, allowFailure: true
+  }).status, 0, 'fresh Story clone must not rely on configuration objects being present');
+  const freshConfig = await loadDefinition(clone);
+  const fresh = await loadWorkflow(clone, freshConfig, 'SKP-ADOPT-1');
+  assert.equal((await verifyWorkflowSnapshot(clone, freshConfig, fresh, {
+    requireAccepted: true
+  })).revision, 2, 'portable ancestry replays solely from retained decision bytes');
 });
 
 test('accepted amendment binds generation baseline despite local marker deletion or alteration', async (t) => {
@@ -240,8 +380,7 @@ test('accepted amendment binds generation baseline despite local marker deletion
   await proposeStorySkillVersion(root, config, workflow, {
     ...selection, confirmPreviewDigest: proposal.planSha256
   });
-  git(root, 'config', 'user.name', 'Story Reviewer');
-  git(root, 'config', 'user.email', 'reviewer@example.invalid');
+  setActor(root, 'Story Reviewer', 'reviewer@example.invalid');
   const review = {
     proposalId: proposal.proposalId, decision: 'approve',
     approvedConfigurationSnapshot: approved, reason: 'The old generation must be regenerated.'
@@ -301,8 +440,7 @@ test('adopting one of two pinned packages preserves the independent skill phase'
   await proposeStorySkillVersion(root, config, workflow, {
     ...selection, confirmPreviewDigest: proposal.planSha256
   });
-  git(root, 'config', 'user.name', 'Story Reviewer');
-  git(root, 'config', 'user.email', 'reviewer@example.invalid');
+  setActor(root, 'Story Reviewer', 'reviewer@example.invalid');
   const decision = await previewStorySkillVersionDecision(root, config, workflow, {
     proposalId: proposal.proposalId, decision: 'approve',
     approvedConfigurationSnapshot: approved,
@@ -329,15 +467,6 @@ test('two distinct recorded reviewers satisfy a pinned two-person amendment thre
   const { root, config, workflow, approved } = await fixture(t, {
     approvalMinimum: 2
   });
-  const priorTestIdentity = process.env.SINGULARITY_FLOW_TEST_IDENTITY;
-  const priorNodeEnv = process.env.NODE_ENV;
-  t.after(() => {
-    if (priorTestIdentity === undefined) delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
-    else process.env.SINGULARITY_FLOW_TEST_IDENTITY = priorTestIdentity;
-    if (priorNodeEnv === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = priorNodeEnv;
-  });
-  process.env.NODE_ENV = 'test';
   const selection = {
     skillId: 'threat-model', approvedConfigurationSnapshot: approved,
     reason: 'Review a new version under the two-person policy.'
@@ -346,9 +475,7 @@ test('two distinct recorded reviewers satisfy a pinned two-person amendment thre
   await proposeStorySkillVersion(root, config, workflow, {
     ...selection, confirmPreviewDigest: proposal.planSha256
   });
-  git(root, 'config', 'user.name', 'First Reviewer');
-  git(root, 'config', 'user.email', 'first-reviewer@example.invalid');
-  process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'First Reviewer';
+  setActor(root, 'First Reviewer', 'first-reviewer@example.invalid');
   const firstOptions = {
     proposalId: proposal.proposalId, decision: 'approve',
     approvedConfigurationSnapshot: approved, reason: 'First independent approval.'
@@ -360,9 +487,7 @@ test('two distinct recorded reviewers satisfy a pinned two-person amendment thre
   });
   assert.equal(workflow.skillVersionAmendments[0].approvals.length, 1);
   assert.equal(workflow.workflowSnapshot.revision, 1);
-  git(root, 'config', 'user.name', 'Second Reviewer');
-  git(root, 'config', 'user.email', 'second-reviewer@example.invalid');
-  process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Second Reviewer';
+  setActor(root, 'Second Reviewer', 'second-reviewer@example.invalid');
   const secondOptions = {
     proposalId: proposal.proposalId, decision: 'approve',
     approvedConfigurationSnapshot: approved, reason: 'Second independent approval.'
@@ -394,8 +519,7 @@ test('a stale proposed package can be rejected without adopting it or trapping t
   const newerApproved = await loadStoryConfigurationSnapshot({
     remote, branch: CONFIGURATION_BRANCH
   });
-  git(root, 'config', 'user.name', 'Story Reviewer');
-  git(root, 'config', 'user.email', 'reviewer@example.invalid');
+  setActor(root, 'Story Reviewer', 'reviewer@example.invalid');
   await assert.rejects(previewStorySkillVersionDecision(root, config, workflow, {
     proposalId: proposal.proposalId, decision: 'reject',
     approvedConfigurationSnapshot: {
@@ -418,6 +542,24 @@ test('a stale proposed package can be rejected without adopting it or trapping t
   const reloaded = await loadWorkflow(root, config, 'SKP-ADOPT-1');
   assert.equal(reloaded.workflowSnapshot.revision, 1);
   assert.equal(reloaded.skillVersionAmendments[0].status, 'rejected');
+  assert.equal(reloaded.skillVersionAmendments[0].schemaVersion, 2);
+  const rejectionBinding = reloaded.skillVersionAmendments[0].rejection;
+  assert.equal(rejectionBinding.schemaVersion, 1);
+  assert.equal(rejectionBinding.actor.email, 'story.reviewer@example.com');
+  assert.equal(rejectionBinding.at, reloaded.skillVersionAmendments[0].decidedAt);
+  for (const change of [
+    (copy) => { delete copy.skillVersionAmendments[0].rejection; },
+    (copy) => { delete copy.skillVersionAmendments[0].schemaVersion;
+      delete copy.skillVersionAmendments[0].rejection; },
+    (copy) => { copy.skillVersionAmendments[0].rejection.reviewSha256 = H('0'); },
+    (copy) => { copy.skillVersionAmendments = []; },
+    (copy) => { copy.skillVersionAmendments[0].status = 'proposed'; }
+  ]) {
+    const corrupt = structuredClone(reloaded); change(corrupt);
+    await assert.rejects(verifyWorkflowSnapshot(root, config, corrupt, {
+      requireAccepted: true
+    }), { code: 'WFA_AMENDMENT_INVALID' });
+  }
   const status = JSON.parse(flow(root, 'story', 'skill-version', 'status', '--json'));
   assert.equal(status.resultType, 'skill-version-adoption-status');
   assert.equal(status.proposals[0].status, 'rejected');
@@ -428,4 +570,60 @@ test('a stale proposed package can be rejected without adopting it or trapping t
     reason: 'Review the current package after rejecting stale version two.'
   });
   assert.equal(third.proposalId, 'SAM-002');
+  const summaryRemoved = structuredClone(reloaded);
+  summaryRemoved.skillVersionAmendments = [];
+  await writeFile(workflowPath(root, config, reloaded.workItem.id),
+    `${JSON.stringify(summaryRemoved, null, 2)}\n`);
+  git(root, 'add', '-A');
+  git(root, 'commit', '-qm', 'attempt to erase the rejected Story summary');
+  await assert.rejects(loadWorkflow(root, config, reloaded.workItem.id), {
+    code: 'WFA_AMENDMENT_INVALID'
+  });
+  for (const relative of [reloaded.skillVersionAmendments[0].proposalPath,
+    reloaded.skillVersionAmendments[0].impactPath, rejectionBinding.reviewPath]) {
+    await rm(path.join(root, relative));
+  }
+  git(root, 'add', '-A');
+  git(root, 'commit', '-qm', 'attempt to erase the entire rejected evidence namespace');
+  await assert.rejects(loadWorkflow(root, config, reloaded.workItem.id), {
+    code: 'WFA_AMENDMENT_INVALID'
+  });
+});
+
+test('rewritten same-authority configuration history cannot be proposed as a newer skill version', async (t) => {
+  const { root, remote, publisher, config, workflow } = await fixture(t);
+  git(publisher, 'checkout', '--quiet', '--orphan', 'unrelated-approved-configuration');
+  git(publisher, 'add', '-A');
+  git(publisher, 'commit', '--quiet', '-m', 'unrelated configuration genesis');
+  git(publisher, 'push', '--quiet', '--force', 'origin', `HEAD:${CONFIGURATION_BRANCH}`);
+  const unrelated = await loadStoryConfigurationSnapshot({ remote, branch: CONFIGURATION_BRANCH });
+  const before = git(root, 'rev-parse', 'HEAD');
+  await assert.rejects(previewStorySkillVersionProposal(root, config, workflow, {
+    skillId: 'threat-model', approvedConfigurationSnapshot: unrelated,
+    reason: 'Attempt to adopt a package after unrelated authority rewrite.'
+  }), { code: 'SKP_AMENDMENT_ANCESTRY_UNAVAILABLE' });
+  assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+  assert.equal(workflow.workflowSnapshot.revision, 1);
+  assert.equal(workflow.skillVersionAmendments?.length ?? 0, 0);
+});
+
+test('configuration ancestry proof rejects tampered commit bytes and a mismatched authority', async (t) => {
+  const { approved, workflow } = await fixture(t);
+  const prior = workflow.resolution.configurationSource;
+  const proof = await captureSkillConfigurationAncestry(approved, prior);
+  const subject = { repository: prior.repository, ancestorCommit: prior.commit,
+    descendantCommit: approved.sourceCommit };
+  assert.equal(verifySkillConfigurationAncestry(proof, subject), true);
+  const corrupted = structuredClone(proof);
+  corrupted.commits[0].bytesBase64 = Buffer.from('forged commit').toString('base64');
+  assert.throws(() => verifySkillConfigurationAncestry(corrupted, subject), {
+    code: 'SKP_AMENDMENT_ANCESTRY_INVALID'
+  });
+  assert.throws(() => verifySkillConfigurationAncestry(proof, {
+    ...subject, repository: '/other-authority.git'
+  }), { code: 'SKP_AMENDMENT_ANCESTRY_INVALID' });
+  const missing = structuredClone(proof); missing.commits = [];
+  assert.throws(() => verifySkillConfigurationAncestry(missing, subject), {
+    code: 'SKP_AMENDMENT_ANCESTRY_INVALID'
+  });
 });

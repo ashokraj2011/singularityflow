@@ -514,6 +514,21 @@ export function configurationPhaseFromCompiledSkill(compiled) {
   return JSON.parse(canonicalJson(phase));
 }
 
+/** The configured phase reader and policy projections share one closed binding-header reader. */
+export function validateSkillPhaseBindingHeader(binding, phaseId = null) {
+  const label = phaseId == null ? 'Skill phase' : `Skill phase '${phaseId}'`;
+  closed(binding, ['schemaVersion', 'compiler', 'compilationSha256', 'parserProfile', 'bindingRefs'],
+    `${label} binding`, 'SKP_PHASE_BINDING_INVALID');
+  const bindingVersion = binding.schemaVersion;
+  if (bindingVersion !== SKP_PHASE_BINDING_VERSION
+      || binding.compiler !== SKP_CONTRACT_COMPILER
+      || binding.parserProfile !== SKP_PARSER_PROFILE) {
+    fail('SKP_PHASE_BINDING_UNSUPPORTED', `${label} has an unsupported binding or parser version.`);
+  }
+  checkedDigest(binding.compilationSha256, `${label} compilation digest`);
+  return binding;
+}
+
 /**
  * Admission check for an approved, compiled configuration phase. It proves internal consistency,
  * not WCA actor confirmation or package retention; those remain the configuration and WFA owners.
@@ -529,16 +544,7 @@ export function validateConfiguredSkillPhase(phase, phaseId) {
       fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' contains uncompiled field '${field}'.`);
     }
   }
-  const binding = phase.skillBinding;
-  closed(binding, ['schemaVersion', 'compiler', 'compilationSha256', 'parserProfile', 'bindingRefs'],
-    `Skill phase '${phaseId}' binding`, 'SKP_PHASE_BINDING_INVALID');
-  const bindingVersion = binding.schemaVersion;
-  if (bindingVersion !== SKP_PHASE_BINDING_VERSION
-      || binding.compiler !== SKP_CONTRACT_COMPILER
-      || binding.parserProfile !== SKP_PARSER_PROFILE) {
-    fail('SKP_PHASE_BINDING_UNSUPPORTED', `Skill phase '${phaseId}' has an unsupported binding or parser version.`);
-  }
-  checkedDigest(binding.compilationSha256, `Skill phase '${phaseId}' compilation digest`);
+  const binding = validateSkillPhaseBindingHeader(phase.skillBinding, phaseId);
   const refs = binding.bindingRefs;
   closed(refs, [
     'skill', 'contractSha256', 'catalogSha256', 'confirmation', 'inputs', 'outputs',

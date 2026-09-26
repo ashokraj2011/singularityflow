@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
     "workflowSnapshot": {
       "anyOf": [
         { "type": "null" },
@@ -311,7 +311,7 @@
       },
       "then": {
         "properties": {
-          "schemaVersion": { "enum": [9, 10] },
+          "schemaVersion": { "enum": [9, 10, 11] },
           "workflowSnapshot": { "type": "object", "properties": { "schemaVersion": { "const": 2 } } }
         },
         "required": ["workflowSnapshot"]
@@ -328,7 +328,7 @@
       "then": {
         "required": ["workflowSnapshot"],
         "properties": {
-          "schemaVersion": { "const": 10 },
+          "schemaVersion": { "enum": [10, 11] },
           "workflowSnapshot": {
             "type": "object", "required": ["revision"],
             "properties": { "schemaVersion": { "const": 2 },
@@ -348,7 +348,7 @@
       "then": {
         "required": ["skillVersionAmendments"],
         "properties": {
-          "schemaVersion": { "const": 10 },
+          "schemaVersion": { "enum": [10, 11] },
           "skillVersionAmendments": {
             "contains": { "type": "object", "required": ["status"],
               "properties": { "status": { "const": "approved" } } }
@@ -364,6 +364,7 @@
         "impactPath", "impactSha256", "from", "to", "proposedBy", "proposedAt",
         "approvals", "affectedPhaseIds", "preservedPhaseIds"],
       "properties": {
+        "schemaVersion": { "const": 2 },
         "id": { "type": "string", "pattern": "^SAM-[0-9]{3,6}$" },
         "status": { "enum": ["proposed", "approved", "rejected"] },
         "skillId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
@@ -409,12 +410,29 @@
           "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
         "decidedAt": { "type": "string", "format": "date-time" },
         "decisionPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
-        "decisionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        "decisionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "rejection": {
+          "type": "object",
+          "required": ["schemaVersion", "actor", "authorityGroup", "identityAssurance", "at", "reviewPath", "reviewSha256"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "actor": { "type": "object" },
+            "authorityGroup": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+            "identityAssurance": { "enum": ["configured-local", "github-authenticated"] },
+            "at": { "type": "string", "format": "date-time" },
+            "reviewPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+            "reviewSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          }, "additionalProperties": false
+        }
       },
       "allOf": [{
         "if": { "properties": { "status": { "const": "approved" } }, "required": ["status"] },
         "then": { "required": ["decidedAt", "decisionPath", "decisionSha256"],
           "properties": { "approvals": { "minItems": 1 } } }
+      }, {
+        "if": { "required": ["schemaVersion", "status"],
+          "properties": { "schemaVersion": { "const": 2 }, "status": { "const": "rejected" } } },
+        "then": { "required": ["decidedAt", "rejection"] }
       }],
       "additionalProperties": false
     },

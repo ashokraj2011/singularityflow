@@ -12,7 +12,15 @@ import {
   lstat, mkdir, open, readFile, readdir, rename, rm, writeFile
 } from 'node:fs/promises';
 import YAML from 'yaml';
-import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { configurationReadRoot, configurationReadSnapshot } from './configuration-read-scope.mjs';
+import { inspectApprovedSkillPackage } from './configuration-branch.mjs';
+import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
+import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { SKP_CONTRACT_COMPILER, validateConfiguredSkillPhase } from './skp-contract.mjs';
+import {
+  inspectSkillPackageContents, SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
+  verifySkillPackage
+} from './skp-package.mjs';
 import {
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
@@ -25,6 +33,7 @@ import {
   PORTFOLIO_PATH, validatePortfolio, validatePortfolioWorldModelViews
 } from './initiative-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { recordSha256 } from './records.mjs';
 import { isTemplateReference, parseTemplateReference } from './template-catalog.mjs';
 import { secureRepositoryPath, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
 
@@ -36,8 +45,15 @@ const MAX_ASSETS = 2048;
 const MAX_ASSET_BYTES = 1024 * 1024;
 const MAX_ASSET_BYTES_TOTAL = 16 * 1024 * 1024;
 const MAX_BUNDLE_BYTES = 20 * 1024 * 1024;
+const MAX_SKILL_BYTES_TOTAL = 64 * 1024 * 1024;
+const MAX_SKILL_PACKAGES = 32;
+const MAX_SKILL_BUNDLE_BYTES = 112 * 1024 * 1024;
 const MAX_OBJECTS = 8192;
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SKILL_SEMANTICS = Object.freeze({
+  skillPackageReader: SKP_PACKAGE_FORMAT, skillTextParser: SKP_PARSER_PROFILE,
+  skillPhaseBinding: SKP_CONTRACT_COMPILER
+});
 
 const STORE = Object.freeze({
   story: Object.freeze({
@@ -99,7 +115,7 @@ function textAssetFormat(bytes) {
 }
 
 function importedAssetReuse(asset, targetBytes) {
-  const incomingBytes = Buffer.from(asset.content, 'utf8');
+  const incomingBytes = assetBytes(asset);
   if (!/^text\//i.test(asset.mediaType)) {
     return { reusable: incomingBytes.equals(targetBytes), reason: 'same path has different content' };
   }
@@ -111,6 +127,120 @@ function importedAssetReuse(asset, targetBytes) {
     reusable: incomingBytes.equals(targetBytes) || incoming.normalized === target.normalized,
     reason: 'same path has different content'
   };
+}
+
+function assetBytes(asset) {
+  return Buffer.from(asset.content, asset.encoding === 'base64' ? 'base64' : 'utf8');
+}
+
+function exactFields(value, fields, label) {
+  if (!plainObject(value) || canonicalJson(Object.keys(value).sort()) !== canonicalJson([...fields].sort())) {
+    fail(`${label} has unknown or missing fields.`, 'SKP_WORKFLOW_PACKAGE_INVALID');
+  }
+}
+
+function selectedSkillBindings(bundle, storedVersion = WORKFLOW_BUNDLE_SCHEMA_VERSION) {
+  const selected = new Map();
+  for (const [phaseId, phase] of Object.entries(bundle.objects.story.phases)) {
+    if (phase.kind !== 'skill' && phase.skillBinding == null) continue;
+    if (storedVersion === 1) {
+      fail(`Workflow bundle v1 cannot transfer skill phase 'story:${phaseId}' without its approved package.`,
+        'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+    }
+    const binding = validateConfiguredSkillPhase(phase, phaseId);
+    const { id, packageSha256 } = binding.bindingRefs.skill;
+    const prior = selected.get(id);
+    if (prior && prior.packageSha256 !== packageSha256) {
+      fail(`Workflow bundle selects conflicting versions of skill '${id}'.`, 'SKP_WORKFLOW_PACKAGE_INVALID');
+    }
+    const record = prior ?? { skillId: id, packageSha256, phaseBindings: [] };
+    record.phaseBindings.push({
+      governs: 'story', phaseId, contractSha256: binding.bindingRefs.contractSha256,
+      compilationSha256: binding.compilationSha256, bindingSha256: digest(binding)
+    });
+    selected.set(id, record);
+    if (selected.size > MAX_SKILL_PACKAGES) {
+      fail('Workflow bundle selects too many skill packages.', 'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
+    }
+  }
+  return [...selected.values()].sort((left, right) => left.skillId.localeCompare(right.skillId))
+    .map((record) => ({ ...record, phaseBindings: record.phaseBindings
+      .sort((left, right) => left.phaseId.localeCompare(right.phaseId)) }));
+}
+
+function validateSkillPackages(bundle, storedVersion) {
+  const selected = selectedSkillBindings(bundle, storedVersion);
+  if (storedVersion === 1) {
+    if (bundle.skillPackages != null || bundle.semantics != null) {
+      fail('Workflow bundle v1 cannot carry version-2 skill package metadata.', 'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+    }
+    return;
+  }
+  if (!Array.isArray(bundle.skillPackages) || bundle.skillPackages.length > MAX_SKILL_PACKAGES
+      || canonicalJson(bundle.semantics) !== canonicalJson(SKILL_SEMANTICS)
+      || bundle.skillPackages.length !== selected.length) {
+    fail('Workflow bundle is missing its exact selected skill inventory or interpretation profile.',
+      'SKP_WORKFLOW_PACKAGE_INVALID');
+  }
+  let total = 0;
+  for (const [index, record] of bundle.skillPackages.entries()) {
+    exactFields(record, ['skillId', 'manifest', 'source', 'phaseBindings', 'files'], 'Workflow skill package');
+    const choice = selected[index];
+    if (record.skillId !== choice.skillId || record.manifest?.skillId !== choice.skillId
+        || record.manifest?.packageSha256 !== choice.packageSha256
+        || canonicalJson(record.phaseBindings) !== canonicalJson(choice.phaseBindings)
+        || !Array.isArray(record.files) || record.files.length > SKP_CAPTURE_LIMITS.files) {
+      fail(`Workflow bundle skill '${choice.skillId}' differs from its selected compiled bindings.`,
+        'SKP_WORKFLOW_PACKAGE_INVALID');
+    }
+    exactFields(record.source, ['kind', 'branch', 'commit'], `Skill '${choice.skillId}' provenance`);
+    if (record.source.kind !== 'approved-configuration' || record.source.branch !== 'sflow/config'
+        || !/^[a-f0-9]{40,64}$/.test(record.source.commit ?? '')) {
+      fail(`Workflow bundle skill '${choice.skillId}' has invalid source provenance.`,
+        'SKP_WORKFLOW_PACKAGE_INVALID');
+    }
+    const contents = new Map();
+    for (const file of record.files) {
+      exactFields(file, ['path', 'encoding', 'content'], `Skill '${choice.skillId}' file`);
+      if (file.encoding !== 'base64' || typeof file.content !== 'string'
+          || file.content.length > Math.ceil(SKP_CAPTURE_LIMITS.referenceBytes / 3) * 4
+          || contents.has(file.path)) {
+        fail(`Workflow bundle skill '${choice.skillId}' has invalid or duplicate file bytes.`,
+          'SKP_WORKFLOW_PACKAGE_INVALID');
+      }
+      const bytes = Buffer.from(file.content, 'base64');
+      if (bytes.toString('base64') !== file.content) {
+        fail(`Workflow bundle skill '${choice.skillId}' has non-canonical byte encoding.`,
+          'SKP_WORKFLOW_PACKAGE_INVALID');
+      }
+      contents.set(file.path, bytes);
+    }
+    const capture = inspectSkillPackageContents(choice.skillId, contents, {
+      expectedPackageSha256: choice.packageSha256
+    });
+    if (canonicalJson(capture.manifest) !== canonicalJson(record.manifest)
+        || canonicalJson(record.files.map((file) => file.path))
+          !== canonicalJson(record.manifest.files.map((file) => file.path))) {
+      fail(`Workflow bundle skill '${choice.skillId}' differs from its complete package manifest.`,
+        'SKP_WORKFLOW_PACKAGE_INVALID');
+    }
+    total += verifySkillPackage(capture).bytes;
+  }
+  if (total > MAX_SKILL_BYTES_TOTAL) {
+    fail('Workflow bundle skill bytes exceed the aggregate retention limit.', 'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
+  }
+}
+
+function skillFileAssets(bundle) {
+  return (bundle.skillPackages ?? []).flatMap((record) => record.files.map((file) => {
+    const metadata = record.manifest.files.find((entry) => entry.path === file.path);
+    return {
+      kind: 'skill-package-file', skillId: record.skillId,
+      path: `singularity/skills/${record.skillId}/${file.path}`,
+      mediaType: 'application/octet-stream', size: metadata.bytes, sha256: metadata.sha256,
+      encoding: 'base64', content: file.content
+    };
+  }));
 }
 
 function plainObject(value) {
@@ -347,7 +477,9 @@ function summarizeBundle(bundle) {
     agents: bundle.assets.filter((asset) => asset.kind === 'agent').length,
     agentLocks: Object.keys(bundle.agentLocks ?? {}).length,
     templates: bundle.assets.filter((asset) => asset.kind === 'template').length,
-    assets: bundle.assets.length
+    assets: bundle.assets.length,
+    skillPackages: bundle.skillPackages?.length ?? 0,
+    skillFiles: (bundle.skillPackages ?? []).reduce((total, record) => total + record.files.length, 0)
   };
 }
 
@@ -371,7 +503,11 @@ function dependencyInventory(bundle) {
     ].sort(),
     mcpServers: objectIds('story', 'mcpServers'),
     applicabilityPolicies: objectIds('initiative', 'applicabilityPolicies'),
-    worldModelViews: [...(bundle.requirements?.worldModelViews ?? [])].sort()
+    worldModelViews: [...(bundle.requirements?.worldModelViews ?? [])].sort(),
+    skillPackages: (bundle.skillPackages ?? []).map((record) => ({
+      skillId: record.skillId, packageSha256: record.manifest.packageSha256,
+      phases: record.phaseBindings.map((binding) => `${binding.governs}:${binding.phaseId}`)
+    }))
   };
 }
 
@@ -388,8 +524,8 @@ function validateBundleClosure(bundle, agents) {
     const definition = bundle.objects[workflow.governs][store.workflows][workflow.id];
     for (const [phaseId, override] of Object.entries(definition.phaseOverrides ?? {})) {
       if (override?.kind === 'skill' || override?.skillBinding != null) {
-        fail(`Workflow bundle v1 cannot transfer skill phase override '${workflow.governs}:${phaseId}' without its approved package.`,
-          'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+        fail(`Workflow bundle cannot override compiled skill phase '${workflow.governs}:${phaseId}'.`,
+          'SKP_PHASE_BINDING_INVALID');
       }
     }
     collectNamedDependencies(definition, dependencies, { governs: workflow.governs });
@@ -411,12 +547,8 @@ function validateBundleClosure(bundle, agents) {
         fail(`Workflow bundle is missing phase '${governs}:${phaseId}'.`,
           'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
       }
-      // Bundle v1 has no skill-package asset member. A phase binding without its exact entry,
-      // resources, and interpretation profile would look portable while losing its authority.
-      // Refuse both export and imported/hand-authored bundles until a versioned transfer format
-      // can retain and validate the complete selected package closure.
-      if (phase.kind === 'skill' || phase.skillBinding != null) {
-        fail(`Workflow bundle v1 cannot transfer skill phase '${governs}:${phaseId}' without its approved package.`,
+      if (governs !== 'story' && (phase.kind === 'skill' || phase.skillBinding != null)) {
+        fail(`Workflow bundle cannot transfer unsupported Initiative skill phase '${phaseId}'.`,
           'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
       }
       collectNamedDependencies(phase, dependencies, { governs });
@@ -785,8 +917,8 @@ async function buildBundle(root, workflowIds) {
     const definition = config[store.workflows][id];
     for (const [phaseId, override] of Object.entries(definition.phaseOverrides ?? {})) {
       if (override?.kind === 'skill' || override?.skillBinding != null) {
-        fail(`Workflow bundle v1 cannot transfer skill phase override '${governs}:${phaseId}' without its approved package.`,
-          'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+        fail(`Workflow bundle cannot override compiled skill phase '${governs}:${phaseId}'.`,
+          'SKP_PHASE_BINDING_INVALID');
       }
     }
     const targetMap = governs === 'story' ? objects.story.workTypes : objects.initiative.initiativeProfiles;
@@ -805,8 +937,8 @@ async function buildBundle(root, workflowIds) {
       const phase = config?.[store.phases]?.[phaseId];
       if (!phase) fail(`Workflow dependency phase '${governs}:${phaseId}' is not defined.`,
         'WORKFLOW_DEPENDENCY_MISSING');
-      if (phase.kind === 'skill' || phase.skillBinding != null) {
-        fail(`Workflow bundle v1 cannot transfer skill phase '${governs}:${phaseId}' without its approved package.`,
+      if (governs !== 'story' && (phase.kind === 'skill' || phase.skillBinding != null)) {
+        fail(`Workflow bundle cannot transfer unsupported Initiative skill phase '${phaseId}'.`,
           'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
       }
       const targetMap = governs === 'story' ? objects.story.phases : objects.initiative.initiativePhases;
@@ -988,6 +1120,8 @@ async function buildBundle(root, workflowIds) {
     kind: WORKFLOW_BUNDLE_KIND,
     workflows: workflows.sort((a, b) => `${a.governs}:${a.id}`.localeCompare(`${b.governs}:${b.id}`)),
     objects,
+    skillPackages: [],
+    semantics: SKILL_SEMANTICS,
     agentLocks,
     assets: assets.sort((a, b) => `${a.kind}:${a.governs ?? ''}:${a.path}`
       .localeCompare(`${b.kind}:${b.governs ?? ''}:${b.path}`)),
@@ -1004,16 +1138,53 @@ async function buildBundle(root, workflowIds) {
       dependencyMaterialization: Object.keys(agentLocks).length ? 'hash-verified-refetch' : 'none'
     }
   };
+  const selectedSkills = selectedSkillBindings(bundle);
+  let selectedSkillBytes = 0;
+  if (selectedSkills.length) {
+    const snapshot = configurationReadSnapshot(root);
+    if (!snapshot || configs.story.version !== 3) {
+      fail('Skill workflow export requires the exact verified approved configuration snapshot.',
+        'SKP_APPROVED_CONFIGURATION_REQUIRED');
+    }
+    for (const choice of selectedSkills) {
+      for (const binding of choice.phaseBindings) {
+        if (canonicalJson(configs.story.phases[binding.phaseId])
+            !== canonicalJson(snapshot.definition.phases[binding.phaseId])) {
+          fail(`Skill phase '${binding.phaseId}' differs from its approved configuration.`,
+            'SKP_APPROVED_CONFIGURATION_REQUIRED');
+        }
+      }
+      const capture = await inspectApprovedSkillPackage(snapshot, choice.skillId, {
+        expectedPackageSha256: choice.packageSha256
+      });
+      selectedSkillBytes += verifySkillPackage(capture).bytes;
+      if (selectedSkillBytes > MAX_SKILL_BYTES_TOTAL) {
+        fail('Workflow bundle skill bytes exceed the aggregate retention limit.', 'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
+      }
+      bundle.skillPackages.push({
+        skillId: choice.skillId, manifest: clone(capture.manifest), source: clone(capture.source),
+        phaseBindings: choice.phaseBindings,
+        files: capture.manifest.files.map((file) => ({
+          path: file.path, encoding: 'base64', content: capture.contents.get(file.path).toString('base64')
+        }))
+      });
+    }
+  }
   bundle.bundleSha256 = digest(bundleWithoutDigest(bundle));
   return bundle;
 }
 
 async function validateBundle(raw) {
-  const { record } = readRecord(WORKFLOW_BUNDLE_FAMILY, raw);
-  raw = record;
+  // The registry supplies compatibility, while the transfer reader verifies the original stored
+  // identity. A v1 bundle is never re-hashed or republished as an approved v2 skill package.
+  const { storedVersion } = readRecord(WORKFLOW_BUNDLE_FAMILY, raw);
   if (!plainObject(raw) || raw.kind !== WORKFLOW_BUNDLE_KIND) {
     fail(`Workflow bundle must use ${WORKFLOW_BUNDLE_KIND} schema version ${WORKFLOW_BUNDLE_SCHEMA_VERSION}.`);
   }
+  const fields = ['schemaVersion', 'kind', 'workflows', 'objects', 'agentLocks', 'assets',
+    'requirements', 'bundleSha256'];
+  if (storedVersion > 1) fields.push('skillPackages', 'semantics');
+  exactFields(raw, fields, 'Workflow bundle');
   if (!Array.isArray(raw.workflows) || !raw.workflows.length || !plainObject(raw.objects)
       || !plainObject(raw.objects.story) || !plainObject(raw.objects.initiative)
       || !plainObject(raw.agentLocks) || !Array.isArray(raw.assets) || !plainObject(raw.requirements)
@@ -1103,6 +1274,7 @@ async function validateBundle(raw) {
     }
   }
   validateBundleClosure(raw, agents);
+  validateSkillPackages(raw, storedVersion);
 
   let objectCount = 0;
   for (const [governs, section] of Object.entries(raw.objects)) {
@@ -1165,12 +1337,16 @@ export async function exportWorkflowBundle(root, workflowIds, outPath = null) {
 export async function readWorkflowBundle(filePath) {
   const file = path.resolve(filePath);
   const info = await regularFile(file, 'Workflow bundle');
-  if (info.size > MAX_BUNDLE_BYTES) fail('Workflow bundle file exceeds its size limit.',
+  if (info.size > MAX_SKILL_BUNDLE_BYTES) fail('Workflow bundle file exceeds its size limit.',
     'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
   const text = await readFile(file, 'utf8');
   let parsed;
   try { parsed = JSON.parse(text); }
   catch (error) { fail(`Workflow bundle is not valid JSON: ${error.message}`); }
+  const { storedVersion } = readRecord(WORKFLOW_BUNDLE_FAMILY, parsed);
+  if (storedVersion === 1 && info.size > MAX_BUNDLE_BYTES) {
+    fail('Workflow bundle file exceeds its size limit.', 'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
+  }
   return validateBundle(parsed);
 }
 
@@ -1201,7 +1377,7 @@ function linkedDependencyKind(governs, section) {
 }
 
 function targetTemplatePath(asset, storyValue, initiativeValue) {
-  if (asset.kind === 'agent') return asset.path;
+  if (asset.kind === 'agent' || asset.kind === 'skill-package-file') return asset.path;
   const governs = asset.governs;
   const targetRoot = configuredTemplateRoot(
     governs === 'story' ? storyValue : initiativeValue, governs, storyValue
@@ -1262,11 +1438,180 @@ function validateStoryImportCandidate(value, agentCatalog) {
   return candidate;
 }
 
+function validateSkillTargetPolicy(bundle, existing, targetAgents = []) {
+  const selected = selectedSkillBindings(bundle);
+  if (!selected.length) return;
+  if (existing.version !== 3) {
+    fail('Target configuration must already admit the registered version-3 skill phase dialect.',
+      'SKP_TARGET_POLICY_INCOMPATIBLE');
+  }
+  const incomingAgents = bundle.assets.filter((asset) => asset.kind === 'agent')
+    .map((asset) => parseAgentDependencies(asset.content, { source: asset.path, agentId: asset.id }));
+  const targetAgentById = new Map(targetAgents.map((agent) => [agent.id, agent]));
+  // A governed session can explicitly select any retained agent, including a non-default agent
+  // or an audited compatibility override. Phase labels therefore cannot narrow this admission
+  // check: no agent in a skill-bearing bundle may widen the destination's approved limits.
+  for (const agent of incomingAgents) {
+    const targetAgent = targetAgentById.get(agent.id);
+    if (agent.tools.some((tool) => !targetAgent?.tools.includes(tool))
+        || (agent.dependencies.length && (!targetAgent
+          || canonicalJson(agent.dependencies) !== canonicalJson(targetAgent.dependencies)))) {
+      fail(`Skill workflow agent '${agent.id}' requests unapproved target tools or dependencies.`,
+        'SKP_TARGET_PERMISSION_UNAPPROVED');
+    }
+  }
+  const approvedChecks = new Set();
+  for (const phase of Object.values(existing.phases ?? {})) {
+    for (const [index, command] of (phase.qualityCommands ?? []).entries()) {
+      approvedChecks.add(`sha256:${recordSha256(normalizeExternalCommand(command, index))}`);
+    }
+  }
+  for (const workflow of Object.values(existing.workTypes ?? {})) {
+    for (const phase of Object.values(workflow.phaseOverrides ?? {})) {
+      for (const [index, command] of (phase.qualityCommands ?? []).entries()) {
+        approvedChecks.add(`sha256:${recordSha256(normalizeExternalCommand(command, index))}`);
+      }
+    }
+  }
+  for (const choice of selected) {
+    for (const { phaseId } of choice.phaseBindings) {
+      const phase = bundle.objects.story.phases[phaseId];
+      const refs = phase.skillBinding.bindingRefs;
+      // An imported approval catalog is descriptive transfer metadata. It cannot enroll new
+      // reviewers or grant a phase authority that this target has not already approved.
+      for (const authority of new Set([
+        ...phase.approval.authorities, ...(phase.approval.requiredAuthorities ?? [])
+      ])) {
+        if (!Object.hasOwn(existing.approvalAuthorities ?? {}, authority)
+            || canonicalJson(existing.approvalAuthorities[authority])
+              !== canonicalJson(bundle.objects.story.approvalAuthorities[authority])) {
+          fail(`Skill phase '${phaseId}' requires an already-approved target authority '${authority}'.`,
+            'SKP_TARGET_PERMISSION_UNAPPROVED');
+        }
+      }
+      for (const check of refs.checks) {
+        if (!approvedChecks.has(check.definitionSha256)) {
+          fail(`Skill phase '${phaseId}' requires an already-approved target check '${check.id}'.`,
+            'SKP_TARGET_PERMISSION_UNAPPROVED');
+        }
+      }
+      if (refs.codeDeliverySha256 != null
+          && refs.codeDeliverySha256 !== `sha256:${recordSha256(normalizeCodeDeliveryPolicy(existing.codeDelivery))}`) {
+        fail(`Skill phase '${phaseId}' differs from the target code-delivery policy.`,
+          'SKP_TARGET_POLICY_INCOMPATIBLE');
+      }
+      // Read/source scopes are compiled against an approved authoring catalog, not a portable
+      // grant. Until a target catalog re-admits those exact scopes, only a target's existing
+      // approved effect binding can establish equivalence. Current host checks still govern use.
+      if (refs.sourceScope != null || refs.readScope.sourcePaths.length) {
+        const targetRefs = existing.phases?.[phaseId]?.kind === 'skill'
+          ? existing.phases[phaseId].skillBinding?.bindingRefs : null;
+        if (!targetRefs || canonicalJson(targetRefs.readScope) !== canonicalJson(refs.readScope)
+            || canonicalJson(targetRefs.sourceScope) !== canonicalJson(refs.sourceScope)) {
+          fail(`Skill phase '${phaseId}' source effects require exact prior target admission.`,
+            'SKP_TARGET_PERMISSION_UNAPPROVED');
+        }
+      }
+    }
+  }
+}
+
+async function validateSkillTargetMembership(root, bundle, conflicts) {
+  for (const record of bundle.skillPackages ?? []) {
+    const prefix = `singularity/skills/${record.skillId}`;
+    const expected = new Set(record.files.map((file) => `${prefix}/${file.path}`));
+    const queue = [prefix];
+    let directories = 0;
+    while (queue.length) {
+      const relative = queue.shift();
+      const file = await assertSafeTarget(root, relative);
+      const info = await lstat(file).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+      if (!info) continue;
+      if (!info.isDirectory() || info.isSymbolicLink()) {
+        conflicts.push(entry('skill-package', relative, { reason: 'skill package target is not an ordinary directory' }));
+        continue;
+      }
+      directories += 1;
+      if (directories > SKP_CAPTURE_LIMITS.directories
+          || relative.slice(prefix.length).split('/').length > SKP_CAPTURE_LIMITS.depth + 1) {
+        conflicts.push(entry('skill-package', prefix, { reason: 'target package directory membership exceeds its retention limits' }));
+        break;
+      }
+      const children = await readdir(file, { withFileTypes: true });
+      if (children.length > SKP_CAPTURE_LIMITS.files + SKP_CAPTURE_LIMITS.directories) {
+        conflicts.push(entry('skill-package', prefix, { reason: 'target package membership exceeds its retention limits' }));
+        break;
+      }
+      for (const child of children) {
+        const childPath = `${relative}/${child.name}`;
+        if (child.isDirectory()) queue.push(childPath);
+        else if (!child.isFile() || child.isSymbolicLink() || !expected.has(childPath)) {
+          conflicts.push(entry('skill-package', childPath, {
+            reason: 'target package contains an unclaimed or non-regular entry'
+          }));
+        }
+      }
+    }
+  }
+}
+
+async function skillGitAttributes(root, bundle) {
+  if (!bundle.skillPackages?.length) return null;
+  const relative = 'singularity/.gitattributes';
+  const portableState = await portableTargetState(root, relative);
+  if (portableState.caseConflict) {
+    fail(`Skill package Git attributes collide with '${portableState.caseConflict}'.`,
+      'WORKFLOW_IMPORT_TARGET_INVALID');
+  }
+  const file = await assertSafeTarget(root, relative);
+  const secured = await secureRepositoryPath(root, relative, {
+    label: 'Retained skill package Git attributes', type: 'file'
+  });
+  let previous = '';
+  if (secured.exists) {
+    if (secured.entry.size > MAX_ASSET_BYTES) {
+      fail('Skill package Git attributes exceed their configuration file limit.', 'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
+    }
+    const bytes = await readFile(file);
+    const format = textAssetFormat(bytes);
+    if (!format.valid) {
+      fail(`Skill package Git attributes ${format.reason}.`, 'WORKFLOW_IMPORT_TARGET_INVALID');
+    }
+    previous = bytes.toString('utf8');
+  }
+  // This nearest parent attribute is retained by the ordinary configuration owner. Keep the
+  // selected package byte-for-byte through Git staging without adding a new file to its manifest.
+  // The explicit IDs cannot affect another package or repository application files.
+  const retained = '# Retain selected skill package bytes.\n'
+    + bundle.skillPackages.map((record) => `skills/${record.skillId}/** -text\n`).join('');
+  const alreadyRetained = previous.replaceAll('\r\n', '\n').endsWith(retained);
+  const content = alreadyRetained ? previous
+    : `${previous}${previous && !previous.endsWith('\n') ? '\n' : ''}${retained}`;
+  if (Buffer.byteLength(content) > MAX_ASSET_BYTES) {
+    fail('Skill package Git attributes exceed their configuration file limit.', 'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
+  }
+  return {
+    asset: {
+      kind: 'skill-package-attributes', path: relative, mediaType: 'text/plain; charset=utf-8',
+      content, size: Buffer.byteLength(content), sha256: digest(content)
+    },
+    relative, previousSha256: digest(previous), changed: !alreadyRetained
+  };
+}
+
 export async function planWorkflowImport(root, bundleOrPath) {
   const bundle = await normalizedBundle(bundleOrPath);
   const target = await targetSnapshot(root, bundle);
   const values = { story: target.story?.value ?? {}, initiative: target.initiative?.value ?? {} };
   const add = []; const reuse = []; const conflicts = [];
+  const targetAgents = await discoverAgents(target.root);
+  try { validateSkillTargetPolicy(bundle, values.story, targetAgents); }
+  catch (error) {
+    conflicts.push(entry('story.configuration', WORKFLOW_PATH, {
+      reason: error?.message ?? String(error), code: error?.code ?? 'SKP_TARGET_POLICY_INCOMPATIBLE'
+    }));
+  }
+  await validateSkillTargetMembership(target.root, bundle, conflicts);
   for (const { governs, section, values: incoming } of configSections(bundle)) {
     const existing = values[governs][section] ?? {};
     for (const [id, value] of Object.entries(incoming)) {
@@ -1285,8 +1630,26 @@ export async function planWorkflowImport(root, bundleOrPath) {
   }
   const assetTargets = [];
   const targetPaths = new Map();
-  for (const asset of bundle.assets) {
+  const attributes = await skillGitAttributes(target.root, bundle);
+  if (attributes) {
+    const operation = entry(attributes.asset.kind, attributes.relative, { sha256: attributes.asset.sha256 });
+    (attributes.changed ? add : reuse).push(operation);
+    assetTargets.push({ asset: attributes.asset, relative: attributes.relative });
+    targetPaths.set(portableFilesystemPathIdentity(attributes.relative), {
+      ...attributes.asset, targetPath: attributes.relative
+    });
+  }
+  const incomingSkillAssets = skillFileAssets(bundle);
+  const expectedSkillFiles = new Map(incomingSkillAssets.map((asset) => [asset.path, asset.sha256]));
+  for (const asset of [...bundle.assets, ...incomingSkillAssets]) {
     const relative = targetTemplatePath(asset, values.story, values.initiative);
+    if ((bundle.skillPackages ?? []).some((record) =>
+      relative.startsWith(`singularity/skills/${record.skillId}/`))
+        && expectedSkillFiles.get(relative) !== asset.sha256) {
+      conflicts.push(entry('skill-package', relative, {
+        reason: 'another imported asset would change the selected package membership or bytes'
+      }));
+    }
     const targetIdentity = portableFilesystemPathIdentity(relative);
     const prior = targetPaths.get(targetIdentity);
     if (prior) {
@@ -1359,6 +1722,7 @@ export async function planWorkflowImport(root, bundleOrPath) {
   const state = {
     story: digest(target.story?.text ?? ''), initiative: digest(target.initiative?.text ?? ''),
     agentLock: digest(target.agentLock.text),
+    skillGitAttributes: attributes?.previousSha256 ?? null,
     assets: [...targetPaths.values()].map(({ targetPath: relative }) => relative).sort().map((relative) => {
       const operation = [...add, ...reuse, ...conflicts].find((item) => item.id === relative);
       return { path: relative, state: operation?.reason ?? operation?.sha256 ?? operation?.kind ?? 'unknown' };
@@ -1369,7 +1733,7 @@ export async function planWorkflowImport(root, bundleOrPath) {
   if (add.some((item) => item.kind.startsWith('initiative.'))) changedPaths.add(PORTFOLIO_PATH);
   if (add.some((item) => item.kind === 'agent-lock')) changedPaths.add(AGENT_LOCK_PATH);
   for (const item of add) {
-    if (item.kind === 'agent' || item.kind === 'template' || item.kind === 'asset') changedPaths.add(item.id);
+    if (['agent', 'template', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
   }
   const planCore = {
     schemaVersion: 1, resultType: 'workflow-import-plan', bundleSha256: bundle.bundleSha256,
@@ -1484,6 +1848,7 @@ export async function applyWorkflowImport(root, bundleOrPath, { expectedPlanSha2
     initiative: candidateDocuments.initiative?.document.toJS() ?? target.initiative?.value ?? {}
   };
   const agentCatalog = await mergedImportAgentCatalog(target.root, bundle);
+  validateSkillTargetPolicy(bundle, target.story?.value ?? {}, await discoverAgents(target.root));
   if (incomingConfiguration.story) validateStoryImportCandidate(candidateValues.story, agentCatalog);
   if (incomingConfiguration.initiative) {
     const portfolioCandidate = validatePortfolio(clone(candidateValues.initiative));
@@ -1505,7 +1870,7 @@ export async function applyWorkflowImport(root, bundleOrPath, { expectedPlanSha2
   for (const { asset, relative } of assetTargets) {
     if (!plan.operations.add.some((item) => item.id === relative
         && (item.kind === asset.kind || item.kind === 'asset'))) continue;
-    outputs.push({ file: await assertSafeTarget(target.root, relative), content: asset.content });
+    outputs.push({ file: await assertSafeTarget(target.root, relative), content: assetBytes(asset) });
   }
   await applyFiles(outputs);
   return {
@@ -1556,7 +1921,7 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label } = {})
     Object.keys(values)
       .filter((id) => !(governs === located.governs && section === located.store.workflows && id === source))
       .map((id) => entry(linkedDependencyKind(governs, section), id)));
-  for (const asset of closure.assets) reuse.push(entry(asset.kind, asset.path));
+  for (const asset of [...closure.assets, ...skillFileAssets(closure)]) reuse.push(entry(asset.kind, asset.path));
   for (const id of Object.keys(closure.agentLocks)) reuse.push(entry('agent-lock', id));
   const core = {
     schemaVersion: 1, resultType: 'workflow-copy-plan', sourceId: source,

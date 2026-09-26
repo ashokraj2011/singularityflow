@@ -12,6 +12,7 @@ import {
   applicationPathContext, isApplicationChangePath, isApplicationPath
 } from './application-paths.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
+import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 
 const CLAUSE_TYPES = new Set(['REQ', 'BEH', 'IFC', 'AC', 'CON']);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -51,12 +52,33 @@ export function canonicalJson(value) {
 }
 
 /**
- * Only producer artifacts that define requirements may contribute clauses to
- * the authoritative specification universe. Reports and convergence/release
- * documents can cite clauses, but their citations must never become new
- * requirements merely because they contain an anchor.
+ * Read the declared role of the exact primary output after the configuration/Story owner has
+ * verified the compiled binding. A secondary report, a phase name, and clause-like text cannot
+ * promote the primary artifact to a normative source.
+ */
+export function skillPhasePrimaryOutputRole(phase) {
+  if (!phase || typeof phase !== 'object' || phase.kind !== 'skill') return null;
+  let binding;
+  try { binding = validateSkillPhaseBindingHeader(phase.skillBinding, phase.id); }
+  catch { return null; }
+  const artifact = phase.requiredArtifact ?? phase.artifact;
+  const outputs = binding.bindingRefs?.outputs;
+  if (!Array.isArray(outputs)) return null;
+  const matches = outputs.filter((output) =>
+    output?.path === artifact?.path && output.kind === artifact?.kind && output.required === true);
+  return matches.length === 1 ? matches[0].claimRole : null;
+}
+
+/**
+ * Only producer artifacts that define requirements may contribute clauses to the authoritative
+ * specification universe. Reports may cite clauses without creating new requirements.
  */
 export function isSpecificationDefinitionPhase(phase) {
+  // Skill contracts use their reviewed role even when the chosen artifact kind happens to be
+  // called requirements. Findings and evidence therefore remain references, never new law.
+  if (typeof phase === 'object' && (phase?.kind === 'skill' || phase?.skillBinding != null)) {
+    return skillPhasePrimaryOutputRole(phase) === 'criteria';
+  }
   const kind = typeof phase === 'string'
     ? phase
     : phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;

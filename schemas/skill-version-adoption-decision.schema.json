@@ -8,7 +8,7 @@
     "proposalSha256", "impactSha256", "approvedAt", "approvals", "from", "to"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "enum": [1, 2] },
     "kind": { "const": "skill-version-adoption-decision" },
     "id": { "type": "string", "pattern": "^SAM-[0-9]{3,6}$" },
     "workId": { "type": "string", "minLength": 1, "maxLength": 128 },
@@ -17,6 +17,28 @@
     "proposalSha256": { "$ref": "#/$defs/sha256" },
     "impactSha256": { "$ref": "#/$defs/sha256" },
     "approvedAt": { "type": "string", "format": "date-time" },
+    "configurationAncestry": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "repository", "ancestorCommit", "descendantCommit", "objectFormat", "commits"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "skill-configuration-ancestry" },
+        "repository": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "ancestorCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "descendantCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "objectFormat": { "enum": ["sha1", "sha256"] },
+        "commits": {
+          "type": "array", "minItems": 1, "maxItems": 128,
+          "items": {
+            "type": "object", "required": ["oid", "bytesBase64"],
+            "properties": {
+              "oid": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+              "bytesBase64": { "type": "string", "minLength": 1, "maxLength": 87384 }
+            }, "additionalProperties": false
+          }
+        }
+      }, "additionalProperties": false
+    },
     "approvals": {
       "type": "array", "minItems": 1, "maxItems": 32,
       "items": {
@@ -69,6 +91,11 @@
       "additionalProperties": false
     }
   },
+  "allOf": [{
+    "if": { "properties": { "schemaVersion": { "const": 2 } }, "required": ["schemaVersion"] },
+    "then": { "required": ["configurationAncestry"] },
+    "else": { "not": { "required": ["configurationAncestry"] } }
+  }],
   "$defs": {
     "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "kebabId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128 },

@@ -2327,8 +2327,12 @@ const families = [
   // Portable workflow bundles are immutable, digest-bound configuration transfer records. They
   // deliberately have no repository path because contributors choose an external export path.
   family({
-    id: 'workflow-bundle', currentVersion: 1, immutable: true,
-    migrationPolicy: 'frozen-identity'
+    id: 'workflow-bundle', currentVersion: 2, immutable: true,
+    // Historical bundle bytes and bundleSha256 stay under their stored v1 identity. This
+    // compatibility projection cannot manufacture retained packages or approval provenance.
+    steps: [migration(1, 2, (source) => ({
+      ...clone(source), schemaVersion: 2, skillPackages: []
+    }))]
   }),
   family({
     id: 'learning-progress', currentVersion: 2, immutable: false,
@@ -2679,9 +2683,15 @@ const families = [
     steps: [migration(1, 2, identity(2))]
   }),
   family({
-    id: 'skill-version-adoption-decision', currentVersion: 1, immutable: true,
+    id: 'skill-version-adoption-decision', currentVersion: 2, immutable: true,
+    // Old decisions retain their stored identity and never acquire ancestry proof by migration.
+    steps: [migration(1, 2, identity(2))],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-decision\.json$/]
   }),
+  family({ id: 'skill-configuration-ancestry', currentVersion: 1, immutable: true }),
+  family({ id: 'skill-version-adoption-summary', currentVersion: 2, unversionedAs: 1,
+    steps: [migration(1, 2, identity(2))] }),
+  family({ id: 'skill-version-rejection-binding', currentVersion: 1, immutable: true }),
   family({
     id: 'skill-version-adoption-proposal', currentVersion: 1, immutable: true,
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-proposal\.json$/]
@@ -2715,7 +2725,7 @@ const families = [
     ]
   }),
   family({
-    id: 'story-workflow', currentVersion: 10,
+    id: 'story-workflow', currentVersion: 11,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
@@ -2729,7 +2739,9 @@ const families = [
       migration(8, 9, identity(9)),
       // v10 registers the explicit reviewed skill-version amendment lineage. A historical
       // v9 Story cannot gain an amendment or new WFA authority through read-side migration.
-      migration(9, 10, identity(10))
+      migration(9, 10, identity(10)),
+      // v11 registers audited summaries; historical rejected reviews gain no invented binding.
+      migration(10, 11, identity(11))
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),

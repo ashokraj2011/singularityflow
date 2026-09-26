@@ -22,7 +22,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 16
+version: 17
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -85,6 +85,39 @@ costs are not included in those metrics. It checks the retained file hashes in
 memory and does not write to the checkout. A supplied expected digest must match exactly. The
 inspection still does not admit execution or assert that an active Story contains the same revision.
 
+## Diagnose a retained Story skill
+
+Check the exact accepted Story phase rather than a live skill folder:
+
+```bash
+singularity-flow skill doctor threat-model --story security-review --phase threat-model --json
+singularity-flow skill doctor threat-model --story security-review --phase threat-model \
+  --source ./skills/threat-model --json
+```
+
+Copilot: `/sf-skill doctor threat-model --story security-review --phase threat-model`.
+The optional source is comparison only. The report verifies retained bytes, identifies a newer
+package without adopting it, and reports host qualification as unavailable. It neither edits nor
+repins the Story. Use the separately reviewed `/sf-story-skill-version` amendment route for adoption.
+
+## Preview a skills workflow
+
+Preview a new workflow using exact approved skill/mixed phase contracts:
+
+```bash
+singularity-flow workflow skills-recipe security-evidence \
+  --label "Security evidence" --phases threat-model --json
+```
+
+Copilot: `/sf-workflows skills-recipe security-evidence --label "Security evidence" --phases threat-model`.
+The CLI adds the existing intake and conformance phases, validates the sequence, and returns the
+approved source revision and digest. Code workflows additionally require explicit
+`--planned-claims required --clause-phases <CRITERIA-PHASE> --claim-owners <CODE-PHASE=PLAN-PHASE>`.
+Acceptance criteria must precede the planning owner, which must precede code. A findings or evidence
+output is not an acceptance-criteria source. This preview does not confirm a shared draft, create a
+proposal, or execute a skill. The returned ordinary workflow proposal is a separate authorized action.
+Imported skill phases remain non-executable until host enforcement is qualified.
+
 ## Shared configuration proposals
 
 Workflow definitions are reusable workspace configuration, not Story deliverables. The approved
@@ -128,6 +161,11 @@ dependencies are hash-verified when the destination fetches them; the bundle nev
 or credential. Repository-wide policy and installed World Model view contracts are prerequisites:
 import validates them on the destination but never overwrites them. It does not include local caches,
 runtime ledgers, work-item artifacts, or application source.
+
+For approved skill phases, bundle v2 includes the exact package manifest, binary-preserving retained
+file bytes, and compiled binding. Import preserves CRLF/binary bytes through Git and checks the
+destination's policy and tool/read/check constraints; it cannot widen them. Pure template workflows
+retain the historical bundle dialect. A copied or imported skill still requires separate host admission.
 
 ```bash
 singularity-flow workflow export \

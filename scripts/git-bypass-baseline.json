@@ -1122,6 +1122,12 @@
       },
       "digest": "0d2e9c485ec1af420095cbf194ca840725d3e2ddf19482f2755f75fb7dbf1e94"
     },
+    "src/skp-amendment-audit.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "f2c8007a40a7874a58a2618c55cebc40ab74eab5bf47d38b4ceab8ff176ca19a"
+    },
     "src/snapshot-coordinator.mjs": {
       "counts": {
         "command-run": 1

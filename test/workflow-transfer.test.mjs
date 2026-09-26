@@ -120,13 +120,16 @@ test('workflow export captures a deduplicated multi-workflow dependency closure'
   );
 });
 
-test('workflow bundle v1 refuses skill phases until it can carry exact approved package bytes', async (t) => {
+test('workflow bundle v1 cannot acquire skill authority through a self-rehashed binding', async (t) => {
   const source = await initializedRepository(t, 'sflow-skp-transfer-source-');
   const bundle = await exportWorkflowBundle(source, ['story:feature']);
 
   // An imported or hand-authored v1 bundle must not appear portable merely because its
   // phase binding and outer bundle digest are internally consistent.
   const incomplete = structuredClone(bundle);
+  incomplete.schemaVersion = 1;
+  delete incomplete.skillPackages;
+  delete incomplete.semantics;
   incomplete.objects.story.phases.implementation.kind = 'skill';
   incomplete.objects.story.phases.implementation.skillBinding = {
     bindingRefs: { skill: { id: 'example', packageSha256: `sha256:${'a'.repeat(64)}` } }
@@ -138,6 +141,9 @@ test('workflow bundle v1 refuses skill phases until it can carry exact approved 
   );
 
   const overridden = structuredClone(bundle);
+  overridden.schemaVersion = 1;
+  delete overridden.skillPackages;
+  delete overridden.semantics;
   overridden.objects.story.workTypes.feature.phaseOverrides ??= {};
   overridden.objects.story.workTypes.feature.phaseOverrides.implementation = {
     kind: 'skill', skillBinding: incomplete.objects.story.phases.implementation.skillBinding
@@ -148,7 +154,7 @@ test('workflow bundle v1 refuses skill phases until it can carry exact approved 
   overridden.bundleSha256 = bundleDigest(overridden);
   await assert.rejects(
     () => planWorkflowImport(source, overridden),
-    (error) => error.code === 'SKP_WORKFLOW_TRANSFER_UNSUPPORTED'
+    (error) => error.code === 'SKP_PHASE_BINDING_INVALID'
   );
 
   const configuration = await workflowConfiguration(source);
@@ -156,7 +162,7 @@ test('workflow bundle v1 refuses skill phases until it can carry exact approved 
   await writeWorkflowConfiguration(source, configuration);
   await assert.rejects(
     () => exportWorkflowBundle(source, ['story:feature']),
-    (error) => error.code === 'SKP_WORKFLOW_TRANSFER_UNSUPPORTED'
+    (error) => error.code === 'SKP_PHASE_BINDING_INVALID'
   );
 });
 
@@ -271,7 +277,7 @@ test('workflow bundle rejects content tampering and non-portable asset paths', a
   );
 
   const future = structuredClone(bundle);
-  future.schemaVersion = 2;
+  future.schemaVersion = 3;
   future.bundleSha256 = bundleDigest(future);
   await assert.rejects(
     () => planWorkflowImport(root, future),

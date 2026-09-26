@@ -159,7 +159,7 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
 import {
   captureWorkflowSnapshot, captureWorkflowSnapshotAmendment, finalizeDraftWorkflowSnapshot,
-  verifyWorkflowSnapshot
+  verifyWorkflowSnapshot, verifyRejectedSkillVersionReviews
 } from './workflow-snapshots.mjs';
 import {
   prepareStoryWorldModelHistoryPin
@@ -200,6 +200,7 @@ import {
   verifySkillPhaseApproval, verifySkillPhasePublication
 } from './skp-phase-evidence.mjs';
 import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
+import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -1179,6 +1180,7 @@ export async function loadWorkflow(root, config, id = undefined) {
   if (Number(workflow.workflowSnapshot?.revision ?? 1) > 1) {
     await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
   }
+  verifyRejectedSkillVersionReviews(root, config, workflow);
   return workflow;
 }
 
@@ -6486,6 +6488,14 @@ function skillAmendmentFail(code, message) {
   throw new SingularityFlowError(message, { code });
 }
 
+function skillAmendmentActorSnapshot(root) {
+  const actor = identity(root);
+  // Exact consent binds the human identity, not whether the GitHub lookup cache was warm.
+  // Always re-read identity: real name/email/login changes must still invalidate the plan.
+  // Historical immutable actors remain byte-exact; this shapes only newly reviewed records.
+  return { name: actor.name, email: actor.email, login: actor.login };
+}
+
 function skillAmendmentActorKeys(actor) {
   const email = String(actor?.email ?? '').trim().toLowerCase();
   const login = String(actor?.login ?? actor?.githubLogin ?? '').trim().toLowerCase();
@@ -6588,6 +6598,8 @@ async function skillAmendmentCandidate(root, config, workflow, skillId, approved
     skillAmendmentFail('SKP_AMENDMENT_STALE',
       'The approved candidate must select a newer skill package from the same configuration authority.');
   }
+  const configurationAncestry = await captureSkillConfigurationAncestry(
+    approvedConfigurationSnapshot, previousSource);
   const resolved = resolveApprovedStoryWorkType(approvedConfigurationSnapshot,
     workflow.workItem.workType);
   if (canonicalJson(resolved.phases.map((phase) => phase.id))
@@ -6624,7 +6636,7 @@ async function skillAmendmentCandidate(root, config, workflow, skillId, approved
   }
   assertSelectableSkillAmendmentReopen(workflow, impact);
   skillAmendmentPolicy(workflow, skillId);
-  return { accepted, proposedResolution, impact, packageSha256, sourceCommit,
+  return { accepted, proposedResolution, impact, packageSha256, sourceCommit, configurationAncestry,
     priorPackageSha256 };
 }
 
@@ -6642,7 +6654,7 @@ export async function previewStorySkillVersionProposal(root, config, workflow, {
   }
   const candidate = await skillAmendmentCandidate(root, config, workflow, skillId,
     approvedConfigurationSnapshot);
-  const actor = identity(root);
+  const actor = skillAmendmentActorSnapshot(root);
   if (!skillAmendmentActorKeys(actor).length) {
     skillAmendmentFail('SKP_AMENDMENT_IDENTITY_UNAVAILABLE', 'Configure a Git email or login first.');
   }
@@ -6681,6 +6693,7 @@ export async function previewStorySkillVersionProposal(root, config, workflow, {
   }
   const planSha256 = skillAmendmentDigest({
     operation: 'skill-version.propose', gitHead: head(root),
+    configurationAncestrySha256: skillAmendmentDigest(candidate.configurationAncestry),
     proposalSha256, impactSha256, workflowSnapshot: workflow.workflowSnapshot
   });
   return {
@@ -6720,8 +6733,10 @@ export async function proposeStorySkillVersion(root, config, workflow, options =
         await writeText(safe.absolute, canonicalJson(reviewPayload));
       }
       const at = nowIso();
+      workflow.schemaVersion = currentSchemaVersion('story-workflow');
       workflow.skillVersionAmendments ??= [];
       workflow.skillVersionAmendments.push({
+        schemaVersion: currentSchemaVersion('skill-version-adoption-summary'),
         id: live.proposalId, status: 'proposed', skillId: selection.skillId,
         proposalPath: skillAmendmentPath(config, workflow, live.proposalId, 'proposal'),
         proposalSha256: live.proposalSha256,
@@ -6844,7 +6859,7 @@ export async function previewStorySkillVersionDecision(root, config, workflow, {
     }
   }
   const currentAuthorities = approvedStoryApprovalAuthorities(approvedConfigurationSnapshot);
-  const actor = identity(root);
+  const actor = skillAmendmentActorSnapshot(root);
   if (!skillAmendmentActorKeys(actor).length
       || (summary.approvals ?? []).some((entry) => skillAmendmentSameHuman(entry.actor, actor))) {
     skillAmendmentFail('SKP_AMENDMENT_REVIEWER_INELIGIBLE',
@@ -7063,6 +7078,7 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
           entry.id === live.proposalId);
         const priorWorkflow = structuredClone(workflow);
         const at = nowIso();
+        workflow.schemaVersion = currentSchemaVersion('story-workflow');
         const review = {
           schemaVersion: currentSchemaVersion('skill-version-adoption-review'),
           kind: 'skill-version-adoption-review',
@@ -7089,8 +7105,12 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
           identityAssurance: live.identityAssurance, at, reviewPath, reviewSha256
         };
         if (selection.decision === 'reject') {
+          summary.schemaVersion = currentSchemaVersion('skill-version-adoption-summary');
           summary.status = 'rejected';
           summary.decidedAt = at;
+          summary.rejection = {
+            schemaVersion: currentSchemaVersion('skill-version-rejection-binding'), ...approval
+          };
         } else {
           summary.approvals.push(approval);
         }
@@ -7106,6 +7126,7 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
             proposedBy: structuredClone(summary.proposedBy),
             proposalSha256: summary.proposalSha256,
             impactSha256: summary.impactSha256,
+            configurationAncestry: candidate.configurationAncestry,
             approvedAt: at,
             approvals: summary.approvals.map((entry) => ({
               actor: entry.actor, authorityGroup: entry.authorityGroup,

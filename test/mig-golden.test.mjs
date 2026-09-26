@@ -77,11 +77,25 @@ test('story-workflow v9 read projection cannot invent a reviewed skill amendment
     }
   };
   const opened = readRecord('story-workflow', historical);
-  assert.deepEqual(opened.migratedThrough, [{ from: 9, to: 10 }]);
-  assert.equal(opened.record.schemaVersion, 10);
+  assert.deepEqual(opened.migratedThrough, [{ from: 9, to: 10 }, { from: 10, to: 11 }]);
+  assert.equal(opened.record.schemaVersion, 11);
   assert.equal(opened.record.workflowSnapshot.revision, 1);
   assert.equal(Object.hasOwn(opened.record, 'skillVersionAmendments'), false);
   assert.equal(historical.schemaVersion, 9);
+});
+
+test('historical skill decisions and rejection summaries cannot gain ancestry or review bindings by migration', () => {
+  const decision = { schemaVersion: 1, kind: 'skill-version-adoption-decision' };
+  const opened = readRecord('skill-version-adoption-decision', decision);
+  assert.equal(opened.storedVersion, 1);
+  assert.equal(opened.record.schemaVersion, 2);
+  assert.equal(Object.hasOwn(opened.record, 'configurationAncestry'), false);
+  const story = { schemaVersion: 10,
+    skillVersionAmendments: [{ id: 'SAM-001', status: 'rejected' }] };
+  const migrated = readRecord('story-workflow', story).record;
+  assert.equal(migrated.schemaVersion, 11);
+  assert.deepEqual(migrated.skillVersionAmendments, story.skillVersionAmendments);
+  assert.equal(Object.hasOwn(migrated.skillVersionAmendments[0], 'rejection'), false);
 });
 
 test('Story skill-version review records have exact immutable migration families', () => {
@@ -198,7 +212,7 @@ test('story-workflow v6 migration repairs only the shipped Spec-Driven Release c
   const result = readRecord('story-workflow', source);
   const migrated = result.record;
   assert.deepEqual(result.migratedThrough, [
-    { from: 6, to: 7 }, { from: 7, to: 8 }, { from: 8, to: 9 }, { from: 9, to: 10 }
+    { from: 6, to: 7 }, { from: 7, to: 8 }, { from: 8, to: 9 }, { from: 9, to: 10 }, { from: 10, to: 11 }
   ]);
   assert.equal(migrated.schemaVersion, currentSchemaVersion('story-workflow'));
   for (const release of [
@@ -238,7 +252,7 @@ test('story-workflow v7 migration cannot acquire WMP authority from an open lega
   };
   const result = readRecord('story-workflow', crafted);
   assert.deepEqual(result.migratedThrough, [
-    { from: 7, to: 8 }, { from: 8, to: 9 }, { from: 9, to: 10 }
+    { from: 7, to: 8 }, { from: 8, to: 9 }, { from: 9, to: 10 }, { from: 10, to: 11 }
   ]);
   assert.equal(Object.hasOwn(result.record.resolution, 'worldModelHistoryPin'), false);
   assert.notEqual(crafted.resolution.worldModelHistoryPin, null,

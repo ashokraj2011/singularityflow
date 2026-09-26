@@ -205,6 +205,7 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'reinitialize'], options: { 'confirm-plan': 'cfgp-1' } }).id, 'workspace.reinitialize');
   assert.equal(resolveOperation({ requestedCommand: 'copilot', positionals: ['copilot'], options: { 'dry-run': true } }).id, 'copilot.preview');
   for (const [subcommand, options, id, classification] of [
+    ['skills-recipe', {}, 'workflow.skills-recipe', 'read'],
     ['export', {}, 'workflow.export', 'mutation'],
     ['import', { 'dry-run': true }, 'workflow.import.preview', 'read'],
     ['import', {}, 'workflow.import', 'mutation'],

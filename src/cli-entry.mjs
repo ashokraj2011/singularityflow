@@ -72,7 +72,7 @@ export function excludesActiveWorkspaceRouting(
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
     // Local skill inspection reads an explicit directory and remains repository-independent.
     // Approved inspection selects the current repository or active workspace's authority.
-    || (command === 'skill' && subcommand !== 'approved')
+    || (command === 'skill' && subcommand === 'inspect')
     // Documentation topics remain machine-local and repository-independent. Code explanation is
     // deliberately repository-bound and may use the repository selected by `workspace use` when
     // Copilot starts from a neutral directory.
@@ -507,7 +507,7 @@ export async function main(argv) {
   // Git before the command even reached its strict no-repository transaction boundary.
   const localOnlyRequest = effectiveArgv[0] === 'reinstall'
     || (effectiveArgv[0] === 'skill'
-      && parseArgs(effectiveArgv).positionals[1] !== 'approved');
+      && parseArgs(effectiveArgv).positionals[1] === 'inspect');
   let root = null;
   const argvSha256 = createHash('sha256').update(JSON.stringify(effectiveArgv)).digest('hex');
   /**
@@ -569,6 +569,12 @@ export async function main(argv) {
       operation: { id: 'help.command', modelPolicy: 'never', classification: 'read', output: 'human' },
       modelMode, root, argvSha256, argvHash: `sha256:${argvSha256}`, command: 'help', startedAt: new Date().toISOString()
     }, () => console.log(renderCommandHelp(definition.name)));
+  }
+  // Skill option errors must precede repository discovery/routing. In particular, a diagnostic
+  // without an explicit Story and phase cannot accidentally select an active workspace first.
+  if (definition.name === 'skill') {
+    const { validateSkillRequest } = await import('./commands/skill.mjs');
+    validateSkillRequest({ positionals, options });
   }
   const timingInput = {
     started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),

@@ -49,7 +49,7 @@ import { constitutionPolicy } from './constitution.mjs';
 import { assertModelTask } from './model-tasks.mjs';
 import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, resolveTemplate } from './template-catalog.mjs';
 import { normalizeMcpServers, normalizePhaseMcpPolicy, validateMcpAgentTools } from './mcp.mjs';
-import { isSpecificationDefinitionPhase, normalizeSpecPolicy } from './specifications.mjs';
+import { isSpecificationDefinitionPhase, normalizeSpecPolicy, skillPhasePrimaryOutputRole } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
@@ -413,6 +413,17 @@ export function normalizePlannedClaimsPolicy(value, {
     };
   }
 
+  // SKP is an explicit forward authoring boundary. Existing template-only opt-outs retain their
+  // historical semantics; a mixed/skill code workflow must pin its reviewed complete topology.
+  if (phases.some((phase) => phase.kind === 'skill')
+      && (value?.mode !== 'required' || !Array.isArray(value.clausePhases)
+        || !value.owners || typeof value.owners !== 'object')) {
+    throw new SingularityFlowError(
+      `${label} for a skill code workflow must explicitly declare mode required, clausePhases, and owners.`,
+      { code: 'SKP_CLAIM_TOPOLOGY_UNRESOLVED' }
+    );
+  }
+
   if (value?.mode === 'opt-out') {
     if (authoritative.length) {
       throw new SingularityFlowError(
@@ -452,7 +463,7 @@ export function normalizePlannedClaimsPolicy(value, {
     if (!phase) throw new SingularityFlowError(`${label}.clausePhases references inactive phase '${phaseId}'.`);
     if (!currentSpecificationDefinitionPhase(phase)) {
       throw new SingularityFlowError(
-        `${label}.clausePhases '${phaseId}' is not authoritative: artifact.kind must be requirements or implementation-spec. `
+        `${label}.clausePhases '${phaseId}' is not authoritative: artifact.kind must be requirements or implementation-spec, or an exact compiled skill output must declare criteria. `
         + `Eligible phases in this workflow: ${authoritative.map((candidate) => candidate.id).join(', ') || 'none'}.`
       );
     }
@@ -488,6 +499,10 @@ export function normalizePlannedClaimsPolicy(value, {
     }
     if (phaseRequiresCodeDelivery(owner)) {
       topologyErrors.push(`owner '${owner.id}' for code phase '${codePhase.id}' is itself a code-delivery phase`);
+      continue;
+    }
+    if (owner.kind === 'skill' && skillPhasePrimaryOutputRole(owner) !== 'planning') {
+      topologyErrors.push(`skill owner '${owner.id}' for code phase '${codePhase.id}' must declare the primary output role planning`);
       continue;
     }
     if (!clausePhases.some((phaseId) => phaseById.get(phaseId).order <= owner.order)) {

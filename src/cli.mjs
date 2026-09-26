@@ -8325,6 +8325,9 @@ function configurationProposalFileSubject(root, requestedPath) {
 
 async function workflowCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'workflow subcommand'); const root = repoRoot();
+  if (subcommand === 'skills-recipe') {
+    return (await import('./commands/workflow-skills-recipe.mjs')).run(root, positionals, options);
+  }
   if (subcommand === 'list') {
     return withApprovedConfigurationRead(root, async () => {
       const catalog = (await workflowCatalog(root)).map((item) => ({ ...item, governs: 'story' }));

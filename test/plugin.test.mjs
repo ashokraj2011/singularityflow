@@ -53,12 +53,12 @@ test('session and progress skills ground every follow-up command in the resolved
   const progress = await readFile(path.join(pluginRoot, 'skills', 'sflow-progress', 'SKILL.md'), 'utf8');
   assert.match(session, /session attach <WORK-ID> --json/);
   assert.match(session, /--workspace <WORKSPACE> --repository <REPOSITORY-ID>/);
-  assert.match(session, /found through bounded remote metadata is still eligible for attachment/);
-  assert.match(session, /materializes only its selected deferred repository/);
-  assert.match(session, /never switches an unrelated Story worktree/);
-  assert.match(session, /exact `repositoryPath` returned/);
-  assert.match(session, /same returned `repositoryPath`/);
-  assert.match(session, /Tell a shell contributor to `cd` to the exact returned path/);
+  assert.match(session, /session open-local <WORK-ID> --json/);
+  assert.match(session, /Candidate `repositoryPath` is only the scan source/);
+  assert.match(session, /synchronizes the selected remote Story and returns its checkout/);
+  assert.match(session, /At the returned `repositoryPath`/);
+  assert.match(session, /There run `singularity-flow session context/);
+  assert.match(session, /Tell shell users to `cd` there/);
   assert.match(progress, /session current --json/);
   assert.match(progress, /explicit Work ID[\s\S]*do not require or change the active Story/i);
   assert.match(progress, /Without an ID[\s\S]*session current --json[\s\S]*exact `repositoryPath`/i);
@@ -556,16 +556,16 @@ test('session skill synchronizes work-item state and activates the phase agent a
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   assert.match(content, /session candidates --json/);
   assert.match(content, /session attach <WORK-ID>/);
-  assert.match(content, /work ID or Jira ID/i);
-  assert.match(content, /default governed agent is activated automatically/);
-  assert.match(content, /Never manually create branches\/worktrees, merge, rebase, reset, force-checkout, stash, or discard work/);
-  assert.match(content, /session-setup-only skill/);
-  assert.match(content, /every.*returned `actions` entry/i);
+  assert.match(content, /ask for an exact ID if missing/i);
+  assert.match(content, /confirm `ready`, `workId`, and `activeAgent`/);
+  assert.match(content, /Never manually merge, rebase, reset, force-checkout, stash, or discard work/);
+  assert.match(content, /Session setup only: no raw Git, source reads, edits, or lifecycle work/);
+  assert.match(content, /For each action preserve order, timing, reason/i);
   assert.match(content, /`Copilot: <copilotCommand>`.*`Shell: <command>`/s);
-  assert.match(content, /Copy both route fields from the same action object/);
-  assert.match(content, /Never collapse prepare, phase publish, submit, approve/);
-  assert.match(content, /or omit either surface/i);
-  assert.match(content, /End the turn immediately/);
+  assert.match(content, /from that same object/);
+  assert.match(content, /Do not merge distinct actions or invent missing routes/);
+  assert.match(content, /Only `SESSION_LOCAL_STORY_UNAVAILABLE` or `SESSION_LOCAL_REPOSITORY_UNAVAILABLE` permits remote fallback/);
+  assert.match(content, /End the turn; do not continue into Story work/);
 });
 
 test('inbox skill presents remote pending approvals before an explicit reviewer decision', async () => {

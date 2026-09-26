@@ -5,17 +5,18 @@ import { SingularityFlowError } from '../util.mjs';
 
 const INSPECT_OPTIONS = new Set(['json', 'skill-id']);
 const APPROVED_OPTIONS = new Set(['json', 'expected-package-sha256']);
+const DOCTOR_OPTIONS = new Set(['json', 'story', 'phase', 'source']);
 
 /**
  * SKP inspection is intentionally separate from workflow authoring. This operation reads the
  * exact selected local directory and returns inert suggestions; it never admits a phase, installs
  * a native host skill, or makes a configuration proposal.
  */
-export async function run(_argv, { positionals, options }) {
+export function validateSkillRequest({ positionals, options }) {
   const subcommand = positionals[1];
-  if (subcommand !== 'inspect' && subcommand !== 'approved') {
+  if (!['inspect', 'approved', 'doctor'].includes(subcommand)) {
     throw new SingularityFlowError(
-      `Unknown skill action '${subcommand ?? 'none'}'. Use 'singularity-flow skill inspect <LOCAL-DIRECTORY> --json' or 'singularity-flow skill approved <ID> --json'.`,
+      `Unknown skill action '${subcommand ?? 'none'}'. Use 'singularity-flow skill inspect <LOCAL-DIRECTORY> --json', 'singularity-flow skill approved <ID> --json', or 'singularity-flow skill doctor <ID> --story <WORK-ID> --phase <PHASE-ID> --json'.`,
       { code: 'SKP_ACTION_UNKNOWN' }
     );
   }
@@ -27,7 +28,8 @@ export async function run(_argv, { positionals, options }) {
       { code: 'SKP_SKILL_MISSING' }
     );
   }
-  const allowed = subcommand === 'inspect' ? INSPECT_OPTIONS : APPROVED_OPTIONS;
+  const allowed = subcommand === 'inspect' ? INSPECT_OPTIONS
+    : subcommand === 'doctor' ? DOCTOR_OPTIONS : APPROVED_OPTIONS;
   for (const key of Object.keys(options)) {
     if (!allowed.has(key)) {
       throw new SingularityFlowError(
@@ -51,10 +53,56 @@ export async function run(_argv, { positionals, options }) {
     throw new SingularityFlowError('--expected-package-sha256 requires one exact package digest.',
       { code: 'SKP_OPTION_UNSUPPORTED' });
   }
-  if (subcommand === 'approved'
+  if (subcommand !== 'inspect'
       && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(positionals[2])) {
     throw new SingularityFlowError('Skill ID must be a portable lowercase kebab-case name.',
       { code: 'SKP_ID_CASE_COLLISION' });
+  }
+  if (subcommand === 'doctor') {
+    for (const key of ['story', 'phase', 'source']) {
+      if ((key !== 'source' || options[key] !== undefined)
+          && (typeof options[key] !== 'string' || !options[key].trim())) {
+        throw new SingularityFlowError(`Skill doctor requires an explicit --${key} value.`,
+          { code: 'SKP_OPTION_UNSUPPORTED' });
+      }
+    }
+  }
+  return subcommand;
+}
+
+export async function run(_argv, { positionals, options }) {
+  const subcommand = validateSkillRequest({ positionals, options });
+  if (subcommand === 'doctor') {
+    const [{ repoRoot }, { loadConfig, resolveWorkItem }, { resolveStorySkillPackage },
+      { withApprovedConfigurationRead }, { diagnoseRetainedSkillPackage }] = await Promise.all([
+      import('../git.mjs'), import('../state.mjs'), import('../story-execution-context.mjs'),
+      import('../approved-configuration-reader.mjs'), import('../skp-doctor.mjs')
+    ]);
+    const root = repoRoot();
+    const retained = await withApprovedConfigurationRead(root, async () => {
+      const config = await loadConfig(root);
+      const selected = await resolveWorkItem(root, config, options.story);
+      if (!selected.workflow) throw new SingularityFlowError(
+        'Skill diagnostics require a readable retained Story, not a ledger-only reference.',
+        { code: 'WFA_DEPENDENCY_UNAVAILABLE' });
+      return resolveStorySkillPackage(root, config, selected.workflow, { phaseId: options.phase });
+    });
+    if (!retained || retained.skillId !== positionals[2]) {
+      throw new SingularityFlowError('The selected Story phase does not retain the selected skill ID.',
+        { code: 'SKP_SKILL_MISSING' });
+    }
+    const source = options.source === undefined ? null
+      : await inspectSkillPackage(options.source, { skillId: positionals[2] });
+    const diagnostic = diagnoseRetainedSkillPackage(retained, { source });
+    // Only the accepted Story owner above proves provenance. The pure byte diagnostic does not.
+    diagnostic.provenance = { status: 'verified-story-snapshot' };
+    return emitCommandResult(commandResult({
+      operation: { id: 'skill.doctor', classification: 'read' },
+      subject: { kind: 'story', id: options.story },
+      outcome: succeeded('skill.diagnosed', { skillId: diagnostic.skillId,
+        sourceStatus: diagnostic.source.status }),
+      effects: effects(), restState: 'informational', data: { diagnostic }
+    }), { json: Boolean(options.json), restStateWhenIdle: 'informational' });
   }
   let capture;
   if (subcommand === 'inspect') {

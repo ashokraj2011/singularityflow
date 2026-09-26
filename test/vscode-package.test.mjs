@@ -894,14 +894,14 @@ test('the extension package contains every explicit lazy runtime used by the act
   assert.match(bundle, /support-runtime\.cjs/);
   assert.match(bundle, /world-model-build\.cjs/);
   assert.match(gatewayContext, /gateway-runtime\.cjs/);
-  assert.match(gatewayContext, /function activeRepositoryContext\(/,
+  assert.match(gatewayContext, /\bfunction\s+activeRepositoryContext\s*\(/u,
     'the shared lightweight entry owns repository routing for every lazy bundle');
   assert.match(gateway, /investigate-problem/,
     'the lazy gateway runtime omitted the conversation router');
-  assert.match(gateway, /function primaryAction\(/,
+  assert.match(gateway, /\bfunction\s+primaryAction\s*\(/u,
     'the lazy gateway runtime omitted the result selector');
-  assert.match(help, /var HelpPanel = class/);
-  assert.doesNotMatch(panels, /var HelpPanel = class/,
+  assert.match(help, /\bvar\s+HelpPanel\s*=\s*class\b/u);
+  assert.doesNotMatch(panels, /\bvar\s+HelpPanel\s*=\s*class\b/u,
     'the frequent Help surface must not parse the complete panel graph');
   const extensionSources = JSON.parse(extensionSourceMap).sources;
   const helpSources = JSON.parse(helpSourceMap).sources;
@@ -914,7 +914,7 @@ test('the extension package contains every explicit lazy runtime used by the act
   assert.ok(!panelSources.some((source) => source.endsWith('/src/schema-migrations.mjs')
     || source.endsWith('/src/records.mjs')),
   'opening a panel must not load durable-record migrations just to stamp a frozen v1 contract');
-  assert.match(worker, /process\.on\(["']message["']/);
+  assert.match(worker, /\bprocess\s*\.\s*on\s*\(\s*["']message["']/u);
   assert.match(support, /recordHelpMetric/);
   assert.match(worldModel, /showGovernedWorldModelBuild/);
 });

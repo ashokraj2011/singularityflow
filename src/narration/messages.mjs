@@ -17,6 +17,14 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'skill.recipe-previewed': {
+    headline: (s) => `Previewed candidate skill workflow ${slot(s.workflowId)}. No configuration was changed, approved, or activated; no skill ran.`,
+    preserves: true
+  },
+  'skill.diagnosed': {
+    headline: (s) => `Retained Story skill ${slot(s.skillId)} is intact; original source: ${slot(s.sourceStatus)}. No skill ran or version changed. Host execution remains unavailable.`,
+    preserves: true
+  },
   'skill.inspected': {
     headline: (s) => `Inspected candidate skill ${slot(s.skillId)} (${slot(s.files)} files, ${slot(s.proposedFields)} proposed fields, ${slot(s.findings)} findings). Inspection did not approve or execute the package. Use --json for exact candidates and package identity.`,
     preserves: true

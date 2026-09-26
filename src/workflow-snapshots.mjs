@@ -5,11 +5,13 @@ import path from 'node:path';
 
 import { canonicalJson } from './records.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
+import { exactTreePathsAtObject, head } from './git.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { approvalRequirementsMet, matchApprovalAuthority } from './approval-authority.mjs';
 import { syncAgent } from './agents.mjs';
 import { inspectApprovedSkillPackage } from './configuration-branch.mjs';
+import { verifySkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
   verifySkillPackage } from './skp-package.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -445,12 +447,14 @@ function actorIdentityKeys(actor) {
 function validateAmendmentDecision(config, workId, decision, {
   previous, next, decisionPath
 }) {
-  try { readRecord('skill-version-adoption-decision', decision); }
+  let decisionVersion;
+  try { decisionVersion = readRecord('skill-version-adoption-decision', decision).storedVersion; }
   catch { fail('Skill-version amendment decision has no supported registered reader.',
     'WFA_AMENDMENT_INVALID'); }
   assertExactFields(decision, [
     'schemaVersion', 'kind', 'id', 'workId', 'status', 'proposedBy', 'proposalSha256',
-    'impactSha256', 'approvedAt', 'approvals', 'from', 'to'
+    'impactSha256', 'approvedAt', 'approvals', 'from', 'to',
+    ...(decisionVersion >= 2 ? ['configurationAncestry'] : [])
   ], 'Skill-version amendment decision');
   if (decision.kind !== 'skill-version-adoption-decision'
       || decision.status !== 'approved' || decision.workId !== workId
@@ -488,6 +492,18 @@ function validateAmendmentDecision(config, workId, decision, {
       'WFA_AMENDMENT_INVALID');
   }
   amendmentPolicyScope(previous.policy, next.policy, updated.skillId);
+  if (decisionVersion >= 2) {
+    try {
+      verifySkillConfigurationAncestry(decision.configurationAncestry, {
+        repository: previous.policy.configurationSource?.repository,
+        ancestorCommit: previous.policy.configurationSource?.commit,
+        descendantCommit: next.policy.configurationSource?.commit
+      });
+    } catch {
+      fail('Skill-version amendment has no exact portable configuration ancestry proof.',
+        'WFA_AMENDMENT_INVALID');
+    }
+  }
   const affected = (previous.policy.phases ?? []).filter((phase) => phase.kind === 'skill'
     && phase.skillBinding?.bindingRefs?.skill?.id === updated.skillId);
   if (!affected.length) {
@@ -1494,6 +1510,160 @@ function approvedAmendmentSummaries(workflow) {
   return amendmentSummaries(workflow).filter((entry) => entry?.status === 'approved');
 }
 
+function amendmentAuditVersion(summary) {
+  try { return readRecord('skill-version-adoption-summary', summary).storedVersion; }
+  catch { fail('Skill-version summary has no registered audit reader.', 'WFA_AMENDMENT_INVALID'); }
+}
+
+function rejectionBindingVersion(binding) {
+  try { return readRecord('skill-version-rejection-binding', binding).storedVersion; }
+  catch { fail('Rejected review binding has no registered audit reader.', 'WFA_AMENDMENT_INVALID'); }
+}
+
+/** Audited rejections remain bound to the immutable decision commit without selecting a new pin. */
+export function verifyRejectedSkillVersionReviews(root, config, workflow) {
+  const workId = workflow?.workItem?.id;
+  const workflowRelative = storyRelative(config, workId, 'workflow.json');
+  const entries = amendmentSummaries(workflow);
+  if (!entries.length && !(workflow.resolution?.phases ?? []).some((phase) => phase.kind === 'skill')) return;
+  const headCommit = head(root);
+  const committed = readCommittedJson(root, headCommit, workflowRelative,
+    'Story rejection audit at the committed head').record;
+  const reviewPrefix = `${storyRelative(config, workId, 'context/skill-amendments')}/`;
+  const paths = exactTreePathsAtObject(root, headCommit, [reviewPrefix]);
+  if (!paths || paths.length > MAXIMUM_AMENDMENT_REVISIONS * 35) {
+    fail('Story rejected-review inventory is unavailable or exceeds its bound.', 'WFA_AMENDMENT_INVALID');
+  }
+  // Durable amendment IDs and review slots are contiguous. Include their first-add history so
+  // deleting a summary together with all its evidence cannot hide a recorded rejection from HEAD.
+  const present = new Set(paths);
+  const reviewCommits = new Map();
+  // Every admitted proposal owns at least its proposal and impact paths. One additional slot
+  // detects removal of the whole trailing namespace; rejected proposals need not adopt a revision.
+  const maximumProposals = Math.floor(MAXIMUM_AMENDMENT_REVISIONS * 35 / 2);
+  for (let revision = 1; revision <= maximumProposals + 1; revision += 1) {
+    const prefix = `${reviewPrefix}SAM-${String(revision).padStart(3, '0')}`;
+    const proposalPath = `${prefix}-proposal.json`;
+    const proposalCommit = firstAddedCommit(root, proposalPath, 'Story immutable skill proposal');
+    if (!proposalCommit) break;
+    if (!present.has(proposalPath)) {
+      fail('The Story removed an immutable skill-version proposal.', 'WFA_AMENDMENT_INVALID');
+    }
+    for (let slot = 1; slot <= 32; slot += 1) {
+      const relative = `${prefix}-review-${String(slot).padStart(3, '0')}.json`;
+      const commit = firstAddedCommit(root, relative, 'Story immutable skill review');
+      if (!commit) break;
+      if (!present.has(relative)) {
+        fail('The Story removed an immutable skill-version review.', 'WFA_AMENDMENT_INVALID');
+      }
+      reviewCommits.set(relative, commit);
+    }
+  }
+  const reviews = paths.filter((relative) => relative.startsWith(reviewPrefix)
+    && /^SAM-[0-9]{3,6}-review-[0-9]{3}\.json$/u.test(relative.slice(reviewPrefix.length)));
+  for (const [relative, bytes] of gitTreeEntries(root, headCommit, reviews,
+    'Story immutable review inventory')) {
+    let record;
+    try { record = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+    catch { fail('Story immutable review inventory is invalid.', 'WFA_AMENDMENT_INVALID'); }
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      fail('Story immutable review inventory is not a record.', 'WFA_AMENDMENT_INVALID');
+    }
+    const first = reviewCommits.get(relative)
+      ?? firstAddedCommit(root, relative, 'Story immutable skill review');
+    if (!first) fail('Rejected review has no immutable first-add commit.', 'WFA_AMENDMENT_INVALID');
+    if (record.decision !== 'reject') continue;
+    const original = readCommittedJson(root, first, workflowRelative,
+      'Story selecting the immutable rejected review').record;
+    const originalSummary = amendmentSummaries(original).find((entry) => entry?.id === record.id);
+    if (originalSummary && amendmentAuditVersion(originalSummary) === 2) {
+      const current = entries.filter((entry) => entry?.id === record.id);
+      if (current.length !== 1 || canonicalJson(current[0]) !== canonicalJson(originalSummary)) {
+        fail('The Story removed or changed an immutable rejected-review summary.', 'WFA_AMENDMENT_INVALID');
+      }
+    }
+  }
+  for (const original of amendmentSummaries(committed)) {
+    if (original?.status !== 'rejected' || amendmentAuditVersion(original) !== 2) continue;
+    const current = entries.filter((entry) => entry?.id === original.id);
+    if (current.length !== 1 || canonicalJson(current[0]) !== canonicalJson(original)) {
+      fail('The Story removed or changed an immutable rejected-review summary.', 'WFA_AMENDMENT_INVALID');
+    }
+  }
+  for (const summary of entries) {
+    if (summary?.status !== 'rejected') continue;
+    const prefix = storyRelative(config, workId, `context/skill-amendments/${summary.id}`);
+    const reviewPath = `${prefix}-review-${String((summary.approvals?.length ?? 0) + 1).padStart(3, '0')}.json`;
+    const binding = summary.rejection;
+    // Historical v10 summaries remain readable, but cannot acquire an audited rejection claim.
+    if (amendmentAuditVersion(summary) === 1 && binding == null) {
+      const recorded = firstAddedCommit(root, reviewPath, 'Historical skill-version rejection');
+      if (recorded) {
+        const original = readCommittedJson(root, recorded, workflowRelative,
+          'Story at historical skill-version rejection').record;
+        const selected = amendmentSummaries(original).find((entry) => entry?.id === summary.id);
+        if (selected && (amendmentAuditVersion(selected) !== 1 || selected.rejection != null)) {
+          fail('An audited rejection cannot be downgraded to a historical summary.', 'WFA_AMENDMENT_INVALID');
+        }
+      }
+      continue;
+    }
+    if (amendmentAuditVersion(summary) !== 2 || !binding || rejectionBindingVersion(binding) !== 1
+        || binding.reviewPath !== reviewPath || summary.decidedAt !== binding.at) {
+      fail('Rejected skill-version summary has no versioned immutable review binding.',
+        'WFA_AMENDMENT_INVALID');
+    }
+    assertExactFields(binding, ['schemaVersion', 'actor', 'authorityGroup', 'identityAssurance',
+      'at', 'reviewPath', 'reviewSha256'], 'Rejected skill-version review binding');
+    const review = immutableAmendmentEvidence(root, reviewPath, binding.reviewSha256,
+      'Rejected skill-version human review', 'skill-version-adoption-review');
+    const original = readCommittedJson(root, review.commit, workflowRelative,
+      'Story at rejected skill-version review').record;
+    const matches = amendmentSummaries(original).filter((entry) => entry?.id === summary.id);
+    if (matches.length !== 1 || canonicalJson(matches[0]) !== canonicalJson(summary)
+        || original.workflowSnapshot?.revision !== summary.from?.revision
+        || original.workflowSnapshot?.snapshotHash !== summary.from?.snapshotHash
+        || original.resolution?.policySha256 !== summary.from?.policySha256
+        || review.record.kind !== 'skill-version-adoption-review'
+        || review.record.id !== summary.id || review.record.workId !== workId
+        || review.record.decision !== 'reject' || review.record.at !== binding.at
+        || review.record.proposalSha256 !== summary.proposalSha256
+        || review.record.impactSha256 !== summary.impactSha256
+        || canonicalJson(review.record.actor) !== canonicalJson(binding.actor)
+        || review.record.authorityGroup !== binding.authorityGroup
+        || review.record.identityAssurance !== binding.identityAssurance) {
+      fail('Rejected skill-version review differs from its immutable Story decision.',
+        'WFA_AMENDMENT_INVALID');
+    }
+    if (summary.proposalPath !== `${prefix}-proposal.json`
+        || summary.impactPath !== `${prefix}-impact.json`) {
+      fail('Rejected skill-version proposal paths differ from their immutable Story slots.',
+        'WFA_AMENDMENT_INVALID');
+    }
+    const proposal = immutableAmendmentEvidence(root, summary.proposalPath,
+      summary.proposalSha256, 'Rejected skill-version proposal', 'skill-version-adoption-proposal');
+    const impact = immutableAmendmentEvidence(root, summary.impactPath,
+      summary.impactSha256, 'Rejected skill-version impact', 'skill-version-adoption-impact');
+    if (proposal.commit !== impact.commit || proposal.commit === review.commit
+        || !commitIsAncestor(root, proposal.commit, review.commit)
+        || proposal.record.impactSha256 !== summary.impactSha256
+        || canonicalJson(proposal.record.from) !== canonicalJson(summary.from)) {
+      fail('Rejected review has no exact preceding proposal and impact lineage.', 'WFA_AMENDMENT_INVALID');
+    }
+    const phase = original.resolution?.phases?.find((entry) => entry.kind === 'skill'
+      && entry.skillBinding?.bindingRefs?.skill?.id === summary.skillId);
+    const match = matchApprovalAuthority(original.resolution?.approvalAuthorities,
+      phase?.approval, binding.actor, { preferredAuthorities: [binding.authorityGroup] });
+    const selfReview = actorIdentityKeys(binding.actor).some((key) =>
+      actorIdentityKeys(summary.proposedBy).includes(key));
+    if (!match.authorized || match.authorityGroup !== binding.authorityGroup
+        || match.identityAssurance !== binding.identityAssurance
+        || (phase?.approval?.allowSelfApproval === false && selfReview)) {
+      fail('Rejected review has no eligible pinned human authority.', 'WFA_AMENDMENT_INVALID');
+    }
+  }
+}
+
 function stableAmendmentSummary(entry) {
   return {
     id: entry?.id, skillId: entry?.skillId,
@@ -2073,6 +2243,7 @@ function assertSkillPackageClosure(manifest, storedVersion, policy, assetByLogic
 
 export async function verifyWorkflowSnapshot(root, config, workflow, options = {}) {
   const { retainBytes = false, requireAccepted = false } = options;
+  if (requireAccepted) verifyRejectedSkillVersionReviews(root, config, workflow);
   let storedReference = workflow.workflowSnapshot ?? null;
   if (!storedReference) return {
     status: 'legacy', enrolled: false, closure: 'unproven', reason: 'snapshot-reference-absent'

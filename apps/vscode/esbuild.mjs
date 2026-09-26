@@ -80,6 +80,9 @@ const options = {
   platform: 'node',
   target: 'node20',
   format: 'cjs',
+  // Ship compact whitespace while preserving identifiers and expression semantics. Source maps
+  // retain readable sources; do not inflate every lazy runtime for formatting-only bytes.
+  minifyWhitespace: true,
   external: ['vscode'],
   define: { __SFLOW_BUILD__: JSON.stringify(BUILD) },
   plugins: [packageRootPlugin, siblingGatewayRuntimePlugin],

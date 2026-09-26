@@ -280,6 +280,10 @@ Usage:
   singularity-flow skill inspect <LOCAL-DIRECTORY> [--skill-id ID] [--json]    read-only candidate package inspection
   singularity-flow skill approved <ID> [--expected-package-sha256 SHA256] [--json]
                                                         inspect a skill in verified approved configuration
+  singularity-flow skill doctor <ID> --story WORK-ID --phase PHASE-ID [--source LOCAL-DIRECTORY] [--json]
+                                                        inspect exact retained Story bytes; never adopts a newer source
+  singularity-flow workflow skills-recipe <ID> --label TEXT --phases a,b,c [--planned-claims required --clause-phases CRITERIA --claim-owners CODE=PLAN] [--json]
+                                                        read-only BYO/mixed recipe preview; no activation or host launch
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]
     [--loop from:to:maxAttempts[:resetOnPhase]]...  bounded reviewer-directed Story rework
     [--planned-claims required --clause-phases a,b --claim-owners code=plan]

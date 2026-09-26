@@ -4558,8 +4558,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ]);
           repositories = status.repositories.map((entry) => ({
             id: entry.id,
-            absolutePath: entry.id === current.repositoryId
-              ? scope.repository : entry.absolutePath ?? '',
+            // Store the manifest's canonical member path in the Story catalog. The current
+            // window may be inside a linked Story worktree for this same repository; recording
+            // that checkout as the mapped path makes the attach guard falsely report a move.
+            // Git refs are shared by its canonical checkout and managed Story worktrees.
+            absolutePath: entry.absolutePath ?? '',
             state: entry.state ?? 'unknown',
             url: entry.url ?? null,
             configurationUrl: status.workspace.capabilityAuthority?.url
@@ -5082,7 +5085,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             };
             try {
               return await attachmentClient.run<StorySelection>([
-                args[0], 'open-local', ...args.slice(2)
+                'session', 'open-local', ...args.slice(2)
               ]);
             } catch (error) {
               const refusal = error instanceof CliError && error.result

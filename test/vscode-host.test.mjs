@@ -5500,6 +5500,100 @@ test('clicking an ahead local Story opens its checkout and resumes Copilot there
   assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
 });
 
+test('Inbox opens another Story while the selected workspace points at a managed Story worktree', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-worktree-catalog-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active-workspace.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+
+  const source = path.join(base, 'source');
+  await mkdir(source);
+  run('git', ['init', '-q', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: source });
+  run('git', ['config', 'user.email', EMAIL], { cwd: source });
+  const cli = (args, cwd = source) => spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args],
+    { cwd, encoding: 'utf8', env: process.env });
+  const initialized = cli(['init']);
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const workflowFile = path.join(source, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  workflow.worldModel.grounding = 'off';
+  workflow.phases.intake.worldModel.depth = 'light';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-qm', 'Initialize Story workspace fixture'], { cwd: source });
+  const remote = path.join(base, 'source.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: source });
+  run('git', ['push', '-q', '-u', 'origin', 'main'], { cwd: source });
+
+  const created = cli([
+    'workspace', 'create', '--local', '--json', '--id', 'story-workspace',
+    '--base', path.join(base, 'workspaces'), '--lead', 'finalui1',
+    '--repository', `finalui1=${source}`, '--confirm', 'story-workspace', '--clone'
+  ]);
+  assert.equal(created.status, 0, created.stderr);
+  const canonical = path.join(base, 'workspaces', 'story-workspace', 'repos', 'finalui1');
+  const makeStory = (id) => {
+    const started = cli([
+      'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+      '--work-type', 'feature', '--title', id, '--description', `Continue ${id} in its own checkout.`
+    ], canonical);
+    assert.equal(started.status, 0, started.stderr);
+    return JSON.parse(started.stdout).data.repositoryPath;
+  };
+  const currentStory = makeStory('STORY-WORKTREE-FIRST');
+  const targetStory = makeStory('STORY-WORKTREE-TARGET');
+  run('git', ['push', '-q', '-u', 'origin', 'STORY-WORKTREE-FIRST'], { cwd: currentStory });
+  run('git', ['push', '-q', '-u', 'origin', 'STORY-WORKTREE-TARGET'], { cwd: targetStory });
+  const selected = cli([
+    'session', 'open-local', 'STORY-WORKTREE-FIRST', '--workspace',
+    path.join(base, 'workspaces', 'story-workspace'), '--repository', 'finalui1', '--json'
+  ], canonical);
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.equal(path.resolve(JSON.parse(selected.stdout).repositoryPath), path.resolve(currentStory));
+
+  const values = new Map();
+  const host = stubVscode();
+  host.api.workspace.workspaceFolders = [{ uri: { fsPath: currentStory } }];
+  const extension = loadExtension(host.api);
+  await extension.activate(context(values));
+  await host.registered.commands.get('singularityFlow.openInbox')();
+  const inbox = host.registered.panels.find((entry) => entry.id === 'singularityFlow.inboxPanel');
+  assert.ok(inbox);
+  await inbox.post({ type: 'refresh-stories' });
+  const targetButton = await until(() => inbox.webview.html.match(
+    /data-story="STORY-WORKTREE-TARGET" data-repository-id="(finalui1)"/
+  ), { what: 'the other Story to appear in the selected workspace Inbox' });
+  assert.equal(targetButton[1], 'finalui1');
+
+  await inbox.post({ type: 'attach-story', id: 'STORY-WORKTREE-TARGET', repositoryId: targetButton[1] });
+  const opened = await until(() => host.registered.executedCommands.find(
+    (entry) => entry.id === 'vscode.openFolder'
+  ), { what: 'the target Story checkout to open' });
+  assert.equal(path.resolve(opened.args[0].fsPath), path.resolve(targetStory));
+  assert.equal(opened.args[1], false);
+  assert.equal(host.registered.errors.some((message) => /moved since Story discovery/.test(message)), false,
+    'a selected linked worktree must not be confused with a moved workspace repository');
+  const pending = values.get('singularityFlow.pendingCopilotHandoff');
+  assert.equal(pending?.kind, 'story');
+  assert.equal(pending?.workId, 'STORY-WORKTREE-TARGET');
+  assert.equal(path.resolve(pending.repository), path.resolve(targetStory));
+});
+
 test('clicking a remote Story without a local checkout attaches it and opens Copilot', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-remote-story-click-'));

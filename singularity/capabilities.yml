@@ -1,0 +1,11 @@
+version: 1
+capabilities:
+  s-flow:
+    name: sflow
+    kind: delivery
+    parent: null
+    repository: singularityflow
+    jira:
+      projectKey: sflow
+    teams:
+      - sflow

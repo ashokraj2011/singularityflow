@@ -9,10 +9,11 @@ import { codeOnly } from './source-text.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('VS Code activation keeps heavyweight webview panels behind explicit lazy bundles', async () => {
-  const [source, runtime, helpRuntime] = await Promise.all([
+  const [source, runtime, helpRuntime, helpClient] = await Promise.all([
     readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'),
     readFile(path.join(root, 'apps/vscode/src/lazy-panels-runtime.ts'), 'utf8'),
-    readFile(path.join(root, 'apps/vscode/src/help-runtime.ts'), 'utf8')
+    readFile(path.join(root, 'apps/vscode/src/help-runtime.ts'), 'utf8'),
+    readFile(path.join(root, 'apps/vscode/src/help-runtime-client.ts'), 'utf8')
   ]);
   const panels = [
     'workspace-panel', 'journey', 'reconciliation', 'approvals', 'inbox', 'stories', 'impact',
@@ -39,7 +40,9 @@ test('VS Code activation keeps heavyweight webview panels behind explicit lazy b
     'Help is absent from its dedicated lazy runtime');
   assert.doesNotMatch(runtime, /from ['"]\.\/views\/help\.ts['"]/,
     'Help still loads the complete panel runtime');
-  assert.match(source, /require\(path\.join\(__dirname, 'help-runtime\.cjs'\)\)/);
+  assert.match(source, /from ['"]\.\/help-runtime-client\.ts['"]/,
+    'activation and chat must share the measured Help runtime client');
+  assert.match(helpClient, /require\(path\.join\(__dirname, 'help-runtime\.cjs'\)\)/);
   assert.match(source, /require\(path\.join\(__dirname, 'lazy-panels-runtime\.cjs'\)\)/);
 });
 
@@ -136,10 +139,40 @@ test('capability readiness stays lazy when the confirmed repository has no capab
   const extension = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
   const readiness = extension.slice(extension.indexOf('const refreshReadiness'),
     extension.indexOf('new ConfigurationValidator'));
-  assert.match(readiness, /if \(!store\.current\.snapshot\?\.capabilityMap\)/,
-    'an unmapped repository still spawns capability discovery during activation and Refresh');
+  assert.match(readiness, /const capabilityMap = current\.snapshot\?\.capabilityMap;\s*if \(!capabilityMap\)/,
+    'an unmapped repository must not spawn capability discovery during activation and Refresh');
   assert.ok(readiness.indexOf('snapshot?.capabilityMap') < readiness.indexOf("['capability', 'leads', '--json']"),
-    'the local capability-map gate runs after the remote discovery it is meant to avoid');
+    'the local capability-map gate must run before remote discovery');
+  assert.match(readiness, /capabilityMap\.authorityRepository\?\.trim\(\)/,
+    'a confirmed map authority should avoid a redundant leads CLI process');
+  assert.ok(readiness.indexOf('capabilityMap.authorityRepository?.trim()')
+    < readiness.indexOf("['capability', 'leads', '--json']"),
+    'the confirmed authority must be considered before the compatibility fallback');
+});
+
+test('automatic Story discovery does not repeat the initial snapshot or load a closed Inbox', async () => {
+  const extension = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
+  const discovery = extension.slice(extension.indexOf('const refreshRemoteStories'),
+    extension.indexOf('refreshStoriesAfterMapping ='));
+  assert.match(discovery, /if \(refreshSnapshot\) await store\.refresh\(\)/);
+  assert.match(discovery, /lazyPanelsRuntime\?\.InboxPanel\.refreshCurrent\(\)/);
+  assert.doesNotMatch(discovery, /lazyPanels\(\)\.InboxPanel\.refreshCurrent\(\)/);
+  const auxiliary = extension.slice(extension.indexOf('const startAuxiliaryReadsAfterConfirmedSnapshot'),
+    extension.indexOf('context.subscriptions.push(store.onDidChange',
+      extension.indexOf('const startAuxiliaryReadsAfterConfirmedSnapshot')));
+  assert.match(auxiliary, /refreshRemoteStories\(\{ refreshSnapshot: false \}\)/);
+  assert.doesNotMatch(auxiliary, /refreshWorkspaceLogsTree\(\)/,
+    'collapsed Logs still scans 500 entries on cold start');
+  const logsRefresh = extension.slice(extension.indexOf("'singularityFlow.refreshWorkspaceLogs': async () =>"),
+    extension.indexOf("'singularityFlow.openPromptAudit': async () =>"));
+  assert.match(logsRefresh, /lazyPanelsRuntime\?\.WorkspaceLogsPanel\.refreshCurrent\(\)/);
+  assert.doesNotMatch(logsRefresh, /lazyPanels\(\)/,
+    'opening only the Logs section loads the full panels bundle');
+  const initial = extension.slice(extension.indexOf('const completeInitialRepositoryRead'),
+    extension.indexOf('const pendingStartWizard', extension.indexOf('const completeInitialRepositoryRead')));
+  assert.ok(initial.indexOf('startAuxiliaryReadsAfterConfirmedSnapshot()')
+    < initial.indexOf('await runFirstRunHealth()'),
+  'first-run health holds confirmed Story discovery behind a slow CLI probe');
 });
 
 test('nothing on the activation path stops the extension host with a synchronous subprocess', async () => {

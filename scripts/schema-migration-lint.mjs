@@ -27,6 +27,19 @@ const TRANSIENT_SCHEMA_CONSTANTS = new Set([
   'src/workspace.mjs'
 ]);
 
+// The world-model view contract is a durable frozen-identity family: its record schema stays v1
+// forever, and migration-registry validation rejects a different version for this policy. Sharing
+// this exact constant with the view registry avoids loading the full migration table in VS Code
+// panels. Keep the exception bound to this one file, declaration, and registered family.
+function frozenViewContractSchemaVersion(file, line, migrationSource) {
+  return file === 'src/world-model/view-contract-schema-version.mjs'
+    && line.trim() === 'export const WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION = 1;'
+    && migrationSource.includes(
+      "import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './world-model/view-contract-schema-version.mjs';"
+    )
+    && /family\(\{\s*id:\s*'world-model-view-contract',\s*currentVersion:\s*WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION,\s*immutable:\s*true,\s*migrationPolicy:\s*'frozen-identity'/.test(migrationSource);
+}
+
 const VERSION_BRANCH_HOME = new Set([
   'src/schema-migrations.mjs',
   'src/schema-census.mjs'
@@ -154,7 +167,9 @@ function sourceEntries(sources) {
 
 export function schemaMigrationLint(sources) {
   const violations = [];
-  for (const [rawName, source] of sourceEntries(sources)) {
+  const entries = sourceEntries(sources);
+  const migrationSource = String(entries.find(([name]) => normalizedName(name) === 'src/schema-migrations.mjs')?.[1] ?? '');
+  for (const [rawName, source] of entries) {
     const file = normalizedName(rawName);
     const lines = String(source).split(/\r?\n/);
     if (file === 'src/schema-migrations.mjs'
@@ -208,6 +223,7 @@ export function schemaMigrationLint(sources) {
         });
       }
       if (!TRANSIENT_SCHEMA_CONSTANTS.has(file)
+          && !frozenViewContractSchemaVersion(file, line, migrationSource)
           && /(?:export\s+)?const\s+[A-Z][A-Z0-9_]*SCHEMA_VERSION\s*=\s*\d+\b/.test(line)) {
         violations.push({
           file, line: index + 1,

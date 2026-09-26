@@ -300,11 +300,11 @@
     },
     "scripts/vscode-host-benchmark.mjs": {
       "counts": {
-        "command-git": 11,
+        "command-git": 15,
         "process-import": 1,
         "process-launch": 6
       },
-      "digest": "16da9835b2240344a5eff92cdcdb4ec94a08a05b71c0f00e2ddbbc297876f2a1"
+      "digest": "f2be1c821201564e1f4d85493da59c49098aef943f77f5ac8eebdb6f06c0b8f2"
     },
     "scripts/wel-benchmark.mjs": {
       "counts": {

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import * as vscode from 'vscode';
 
-import { resolveHelp } from '../../../src/help-service.mjs';
+import { resolveHelp } from './help-runtime-client.ts';
 import { recordHelpMetric } from './support-runtime-client.ts';
 import { PACKAGE_ROOT } from '../../../src/package-root.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';

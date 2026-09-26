@@ -162,7 +162,11 @@ export class InboxPanel {
     this.storyCatalog = storyCatalog;
     this.repositoryPath = repositoryPath;
     this.catalogIssue = catalogIssue;
-    this.subscription = store.onDidChange(() => this.render());
+    // The Inbox does not display the shared snapshot spinner. Replacing its entire webview for a
+    // loading-only event is expensive and discards the user's scroll/focus for no content change.
+    this.subscription = store.onDidChange((_state, change) => {
+      if (change.kind !== 'loading') this.render();
+    });
     /**
      * The messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
      *

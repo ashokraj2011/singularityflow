@@ -6,3 +6,4 @@
  * lifecycle panel, then pay a delayed garbage-collection pause after the command completed.
  */
 export { HelpPanel } from './views/help.ts';
+export { resolveHelp } from '../../../src/help-service.mjs';

@@ -19,6 +19,40 @@ test('durable writer literals outside the registry fail', () => {
   assert.match(violations[0].message, /currentSchemaVersion/);
 });
 
+test('only the registered frozen v1 world-model view contract may use its shared durable constant', () => {
+  const file = 'src/world-model/view-contract-schema-version.mjs';
+  const declaration = 'export const WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION = 1;\n';
+  const migration = [
+    "import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './world-model/view-contract-schema-version.mjs';",
+    "family({ id: 'world-model-view-contract', currentVersion: WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, immutable: true, migrationPolicy: 'frozen-identity' });"
+  ].join('\n');
+  const sources = (name = file, text = declaration, registry = migration) => new Map([
+    ['src/schema-migrations.mjs', registry], [name, text]
+  ]);
+
+  assert.deepEqual(schemaMigrationLint(sources()), []);
+  for (const [name, text, registry] of [
+    ['src/other-view-contract-schema-version.mjs', declaration, migration],
+    [file, 'export const OTHER_FAMILY_SCHEMA_VERSION = 1;\n', migration],
+    [file, 'export const WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION = 2;\n', migration],
+    [file, declaration, migration.replace("'frozen-identity'", "'migrate-on-read'")],
+    [file, declaration, migration.replace("'world-model-view-contract'", "'other-family'")]
+  ]) {
+    const violations = schemaMigrationLint(sources(name, text, registry));
+    assert.equal(violations.length, 1, `${name}: ${text.trim()}`);
+    assert.match(violations[0].message, /durable schema constants/);
+  }
+
+  const ordinary = schemaMigrationLint(new Map([
+    ...sources(),
+    ['src/ordinary-family.mjs', 'export const ORDINARY_SCHEMA_VERSION = 1;\n'],
+    ['src/ordinary-writer.mjs', 'await writeJson(file, { schemaVersion: 1 });\n']
+  ]));
+  assert.equal(ordinary.length, 2);
+  assert.ok(ordinary.some((violation) => violation.file === 'src/ordinary-family.mjs'));
+  assert.ok(ordinary.some((violation) => violation.file === 'src/ordinary-writer.mjs'));
+});
+
 test('inline durable writes cannot stamp a numeric schema literal', () => {
   const violations = schemaMigrationLint(new Map([
     ['src/new-family.mjs', 'await writeJson(file, { schemaVersion: 1, value: true });\n']

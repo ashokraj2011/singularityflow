@@ -3406,6 +3406,64 @@ test('active workspace context resolves friendly references and adds governed St
   await assert.rejects(() => buildWorkspaceContext(registry, created.workspace.id, { repositoryId: 'missing' }), /not part of workspace/);
 });
 
+test('active workspace context checks only its selected member and still rejects stale selections', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-selected-workspace-context-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'active.json');
+  const platform = await remoteRepository(root, 'platform');
+  const mobile = await remoteRepository(root, 'mobile');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' },
+    mobile: { url: mobile, defaultBranch: 'main', required: true, path: 'repos/mobile' }
+  }), { confirmation: 'PAY-100' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+
+  const selectedObservations = [];
+  const selected = await activateWorkspaceContext(registry, selection, created.workspace.id, {
+    repositoryId: 'mobile', detectStory: false, gitReadMode: 'shadow',
+    onGitShadowComparison: (observation) => selectedObservations.push(observation)
+  });
+  assert.equal(selected.repositoryId, 'mobile');
+  assert.equal(selected.repositoryPath, await realpath(path.join(created.workspace.path, 'repos/mobile')));
+  assert.equal(selectedObservations.length, 1,
+    'selecting one member must perform only one fresh Git projection');
+
+  const inventoryObservations = [];
+  const inventory = await workspaceStatus(created.workspace.path, {
+    level: 'readiness', gitReadMode: 'shadow',
+    onGitShadowComparison: (observation) => inventoryObservations.push(observation)
+  });
+  assert.deepEqual(inventory.repositories.map((repository) => repository.id), ['platform', 'mobile']);
+  assert.equal(inventoryObservations.length, 2,
+    'the default workspace status still inspects every member');
+
+  const unselectedCheckout = path.join(created.workspace.path, 'repos/platform');
+  await rename(unselectedCheckout, `${unselectedCheckout}-unavailable`);
+  const fresh = await readActiveWorkspaceContext(selection, registry);
+  assert.equal(fresh.repositoryId, 'mobile');
+  assert.equal(fresh.selectionStatus, 'ready',
+    'an unavailable sibling must not reroute or invalidate the selected repository');
+
+  const selectedStory = await activateWorkspaceContext(registry, selection, created.workspace.id, {
+    repositoryId: 'mobile', storyId: 'MOB-UNATTACHED', detectStory: false
+  });
+  assert.equal(selectedStory.storyId, 'MOB-UNATTACHED');
+  const stale = await readActiveWorkspaceContext(selection, registry);
+  assert.equal(stale.selectionStatus, 'stale');
+  assert.equal(stale.storyId, 'MOB-UNATTACHED');
+  assert.equal(stale.checkoutPath, null,
+    'an unproved Story must never fall back to the canonical member checkout');
+
+  const manifestFile = path.join(created.workspace.path, 'workspace.json');
+  const manifest = await readWorkspace(created.workspace.path);
+  delete manifest.repositories.mobile;
+  await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  assert.equal(await readActiveWorkspaceContext(selection, registry), null,
+    'removing the selected member clears its machine-local routing pointer');
+  await assert.rejects(() => readFile(selection, 'utf8'), /ENOENT/);
+});
+
 test('workspace Copilot launcher dry-run uses the selected repository and session name', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-copilot-'));
   const registry = path.join(root, 'registry.json');

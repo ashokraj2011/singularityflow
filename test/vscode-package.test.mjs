@@ -866,7 +866,8 @@ test('the extension package contains every explicit lazy runtime used by the act
   const built = spawnSync(process.execPath, ['esbuild.mjs'], { cwd: extension, encoding: 'utf8' });
   assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
   const manifest = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
-  const [bundle, gatewayContext, gateway, help, panels, worker, support, worldModel] = await Promise.all([
+  const [bundle, gatewayContext, gateway, help, panels, worker, support, worldModel,
+    extensionSourceMap, helpSourceMap, panelSourceMap] = await Promise.all([
     readFile(path.join(extension, 'dist', 'extension.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'gateway-context-runtime.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'gateway-runtime.cjs'), 'utf8'),
@@ -874,7 +875,10 @@ test('the extension package contains every explicit lazy runtime used by the act
     readFile(path.join(extension, 'dist', 'lazy-panels-runtime.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'gateway-status-worker.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'support-runtime.cjs'), 'utf8'),
-    readFile(path.join(extension, 'dist', 'world-model-build.cjs'), 'utf8')
+    readFile(path.join(extension, 'dist', 'world-model-build.cjs'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'extension.cjs.map'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'help-runtime.cjs.map'), 'utf8'),
+    readFile(path.join(extension, 'dist', 'lazy-panels-runtime.cjs.map'), 'utf8')
   ]);
   assert.equal(manifest.activationEvents.includes('workspaceContains:workspace.json'), false);
   assert.match(bundle, /gateway-context-runtime\.cjs/);
@@ -893,6 +897,17 @@ test('the extension package contains every explicit lazy runtime used by the act
   assert.match(help, /var HelpPanel = class/);
   assert.doesNotMatch(panels, /var HelpPanel = class/,
     'the frequent Help surface must not parse the complete panel graph');
+  const extensionSources = JSON.parse(extensionSourceMap).sources;
+  const helpSources = JSON.parse(helpSourceMap).sources;
+  const panelSources = JSON.parse(panelSourceMap).sources;
+  assert.ok(helpSources.some((source) => source.endsWith('/src/help-service.mjs')),
+    'the Help runtime serves both the Help Center and @sflow');
+  assert.ok(!extensionSources.some((source) => source.endsWith('/src/help-service.mjs')
+    || source.endsWith('/src/docs-topics.mjs') || source.includes('/node_modules/yaml/')),
+  'activation must not parse help topics or their YAML dependency');
+  assert.ok(!panelSources.some((source) => source.endsWith('/src/schema-migrations.mjs')
+    || source.endsWith('/src/records.mjs')),
+  'opening a panel must not load durable-record migrations just to stamp a frozen v1 contract');
   assert.match(worker, /process\.on\(["']message["']/);
   assert.match(support, /recordHelpMetric/);
   assert.match(worldModel, /showGovernedWorldModelBuild/);

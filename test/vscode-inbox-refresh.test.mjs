@@ -55,6 +55,14 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
     return new Promise((resolve, reject) => pending.push({ resolve, reject }));
   }, () => catalog, () => '/repo/a', () => catalogIssue);
 
+  const initialPage = panel.webview.html;
+  store.changed(store.current, { kind: 'loading', revisionChanged: false, changedSlices: [] });
+  assert.equal(panel.webview.html, initialPage,
+    'a loading-only store event must not rebuild the Inbox webview');
+  store.changed(store.current, { kind: 'snapshot', revisionChanged: true, changedSlices: ['lifecycle'] });
+  assert.notEqual(panel.webview.html, initialPage,
+    'the Inbox still renders a changed snapshot');
+
   assert.match(panel.webview.html, /data-refresh-stories/,
     'refresh must remain available when the local snapshot has no Story');
   const script = [...panel.webview.html.matchAll(/<script nonce="[^"]+">([\s\S]*?)<\/script>/g)]
@@ -89,7 +97,7 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
       status: 'published', generation: 1, sha256: 'a'.repeat(64) }],
     workItems: [{ id: 'STORY-7', title: 'Half done on another laptop', status: 'in_progress', currentPhase: 'design' }]
   };
-  store.changed();
+  store.changed(store.current, { kind: 'snapshot', revisionChanged: true, changedSlices: ['lifecycle'] });
   pending[1].resolve();
   await tick();
   assert.match(panel.webview.html, /STORY-7/);

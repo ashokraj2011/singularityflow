@@ -78,6 +78,7 @@ test('real-host cold/warm samples produce bounded aggregate metrics without reta
   });
   assert.equal(report.status, 'passed');
   assert.equal(report.protocol.host, 'real-vscode-extension-host');
+  assert.equal(report.protocol.network, 'restricted-local-git');
   assert.equal(report.metrics.cachedFirstPaintMs.p95, 20);
   assert.equal(report.metrics.extensionLoadAndActivateMs.p95, 120);
   assert.equal(report.metrics.helpRuntimeLoadMs.p95, 17);
@@ -176,6 +177,12 @@ test('the benchmark launcher uses VS Code extensionTestsPath and fails closed wi
   assert.match(launcher, /CFBundleExecutable/);
   assert.match(launcher, /PlistBuddy/);
   assert.match(launcher, /'Code', 'Electron'/);
+  assert.match(launcher, /activateWorkspaceContext\(/,
+    'the benchmark must select a governed workspace before measuring Story discovery');
+  assert.match(launcher, /GIT_ALLOW_PROTOCOL: 'file'/,
+    'the local fixture must not permit external Git transports');
+  assert.match(launcher, /HTTP_PROXY: refusedProxy/,
+    'ordinary HTTP clients must use the loopback-refusal proxy');
   assert.doesNotMatch(launcher, /stubVscode|simulated-extension-host/);
   assert.match(runner, /workbench\.view\.extension\.singularityFlowNavigator/);
   assert.match(runner, /monitorEventLoopDelay/);

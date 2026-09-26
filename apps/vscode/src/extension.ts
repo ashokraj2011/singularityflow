@@ -104,6 +104,7 @@ import {
   type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-runtime-client.ts';
 import { registerSflowChat } from './sflow-chat.ts';
+import { helpRuntime } from './help-runtime-client.ts';
 import { readRecord, recordHelpMetric } from './support-runtime-client.ts';
 import { storyCheckoutIssue, unsavedRepositoryPaths } from './generation-guards.ts';
 import { renderReworkRollForwardPreview } from './views/rework-roll-forward-preview.ts';
@@ -137,16 +138,6 @@ function lazyPanels(): LazyPanelsRuntime {
   lazyPanelsRuntime = require(path.join(__dirname, 'lazy-panels-runtime.cjs')) as LazyPanelsRuntime;
   recordHostRuntimeLoad('panels', performance.now() - started);
   return lazyPanelsRuntime;
-}
-
-type HelpRuntime = typeof import('./help-runtime.ts');
-let helpRuntimeValue: HelpRuntime | null = null;
-function helpRuntime(): HelpRuntime {
-  if (helpRuntimeValue) return helpRuntimeValue;
-  const started = performance.now();
-  helpRuntimeValue = require(path.join(__dirname, 'help-runtime.cjs')) as HelpRuntime;
-  recordHostRuntimeLoad('help', performance.now() - started);
-  return helpRuntimeValue;
 }
 
 interface PendingCopilotHandoff {
@@ -4499,15 +4490,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // empty answer and delays every explicit Refresh. The confirmed snapshot is the exact local
     // authority for whether this slice exists; map creation changes its slice revision and the next
     // refresh naturally enables the remote read.
-    if (!store.current.snapshot?.capabilityMap) {
+    const current = store.current;
+    const capabilityMap = current.snapshot?.capabilityMap;
+    if (!capabilityMap) {
       readiness = {};
       return;
     }
     const scope = repositoryEpoch.capture();
     try {
-      const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
-      if (!repositoryEpoch.isCurrent(scope)) return;
-      const url = leads.find((lead) => lead.url)?.url;
+      // The confirmed snapshot already identifies the exact approved map authority. Avoid a
+      // second CLI process to rediscover it; older snapshots retain the leads fallback.
+      let url = !current.stale && !current.error && !capabilityMap.error
+        ? capabilityMap.authorityRepository?.trim() : undefined;
+      if (!url) {
+        const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
+        if (!repositoryEpoch.isCurrent(scope)) return;
+        url = leads.find((lead) => lead.url)?.url;
+      }
       if (!url) return;
       const organisation = await client.run<{ readiness?: CapabilityReadiness }>(
         ['capability', 'organisation', url, '--readiness', ...(force ? ['--refresh'] : []), '--json']);
@@ -4535,7 +4534,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   sidebar.bind('inbox', inboxTree);
   sidebar.bind('configuration', configurationTree);
   const storyRefreshGate = new StoryRefreshGate();
-  const refreshRemoteStories = (afterCurrent = false): Promise<void> => {
+  const refreshRemoteStories = ({ afterCurrent = false, refreshSnapshot = true }: {
+    afterCurrent?: boolean; refreshSnapshot?: boolean;
+  } = {}): Promise<void> => {
     const scope = repositoryEpoch.capture();
     return storyRefreshGate.run(scope.epoch, async (): Promise<void> => {
       let issue: string | null = null;
@@ -4608,15 +4609,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       if (!repositoryEpoch.isCurrent(scope)) return;
       workspaceStoryCatalogIssue = issue;
-      // Even when remote discovery is offline, Refresh still updates the ordinary local Inbox.
-      await store.refresh();
+      // Explicit Refresh must re-read the local lifecycle even when remote discovery is offline.
+      // Initial discovery follows a just-confirmed snapshot, so reading that same snapshot again
+      // only adds a CLI process. The remote Story catalog is a separate Inbox projection.
+      if (refreshSnapshot) await store.refresh();
       if (!repositoryEpoch.isCurrent(scope)) return;
-      inboxTree.refresh();
-      lazyPanels().InboxPanel.refreshCurrent();
+      if (!refreshSnapshot) {
+        inboxTree.refresh();
+        // A closed Inbox must not load the multi-panel runtime just to refresh an absent view.
+        lazyPanelsRuntime?.InboxPanel.refreshCurrent();
+      }
       if (issue) throw new Error(issue);
     }, afterCurrent);
   };
-  refreshStoriesAfterMapping = () => refreshRemoteStories(true);
+  refreshStoriesAfterMapping = () => refreshRemoteStories({ afterCurrent: true });
   // Readiness may touch a remote and logs load a second legacy CLI process. Neither may compete
   // with the initial snapshot that establishes which repository and Story this window represents.
   // A failed initial read leaves these deferred; the first later confirmed snapshot starts them.
@@ -4629,8 +4635,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!forceReadiness && auxiliaryEpoch === scope.epoch) return;
     auxiliaryEpoch = scope.epoch;
     void refreshReadiness(forceReadiness);
-    void refreshWorkspaceLogsTree();
-    void refreshRemoteStories().catch((error) => {
+    // The Logs section is collapsed by default and already has an Open action. Reading up to 500
+    // events here delays a new window for a summary nobody has requested yet; opening that section
+    // or an explicit Refresh loads it instead. A repository switch still clears the old summary.
+    if (scope.epoch > 0) {
+      logsTree.replace([{
+        kind: 'action', id: 'logs:open', label: 'Open workspace logs',
+        description: 'activity · prompts · Copilot · workspace', icon: 'commit',
+        runCommand: 'singularityFlow.openWorkspaceLogs'
+      }]);
+    }
+    void refreshRemoteStories({ refreshSnapshot: false }).catch((error) => {
       if (repositoryEpoch.isCurrent(scope)) {
         output.appendLine(`Story discovery needs attention: ${(error as Error).message}`);
       }
@@ -7135,8 +7150,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.refreshWorkspaceLogs': async () => {
       await refreshWorkspaceLogsTree();
-      const { WorkspaceLogsPanel } = lazyPanels();
-      WorkspaceLogsPanel.refreshCurrent();
+      // Expanding the sidebar Logs section needs its summary, not the whole panels bundle.
+      lazyPanelsRuntime?.WorkspaceLogsPanel.refreshCurrent();
     },
     'singularityFlow.openPromptAudit': async () => {
       const { WorkspaceLogsPanel } = lazyPanels();
@@ -7249,12 +7264,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (store.current.snapshot && !store.current.error && !store.current.stale) {
       markHostPerformance('confirmedSnapshotPublished');
     }
+    // Auxiliary reads are read-only and scoped to this confirmed snapshot. Do not hold them behind
+    // a first-run health probe whose CLI timeout can be much longer than the repository read.
+    initialRefreshCompleted = true;
+    startAuxiliaryReadsAfterConfirmedSnapshot();
     await runFirstRunHealth().catch((error) => {
       firstRunBlocked = true;
       output.appendLine(`First-run health check failed: ${(error as Error).message}`);
     });
-    initialRefreshCompleted = true;
-    startAuxiliaryReadsAfterConfirmedSnapshot();
     const pendingStartWizard = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
     if (pendingStartWizard?.step === 'work' && pendingStartWizard.resumeOnActivation) {
       // Clear only the auto-resume bit before opening the form. A second reload must not repeatedly

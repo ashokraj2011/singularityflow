@@ -7,6 +7,7 @@
  */
 import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './world-model/view-contract-schema-version.mjs';
 
 function plainObject(value) {
   if (value == null || typeof value !== 'object' || Array.isArray(value) || value instanceof Uint8Array) return false;
@@ -2937,7 +2938,7 @@ const families = [
   family({ id: 'world-model-human-confirmed-knowledge-import', currentVersion: 1, immutable: true }),
   family({ id: 'world-model-human-confirmed-knowledge', currentVersion: 1, immutable: true }),
   family({
-    id: 'world-model-view-contract', currentVersion: 1, immutable: true,
+    id: 'world-model-view-contract', currentVersion: WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, immutable: true,
     migrationPolicy: 'frozen-identity'
   }),
   family({ id: 'world-model-projection-contract', currentVersion: 1, immutable: true }),

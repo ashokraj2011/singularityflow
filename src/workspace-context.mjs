@@ -273,14 +273,15 @@ export async function buildWorkspaceContext(registryFile, reference, {
   const { readWorkspace, workspaceStatus } = await workspaceModule();
   const entry = await resolveWorkspaceReference(registryFile, reference);
   const workspace = await readWorkspace(entry.path);
+  const selectedRepositoryId = String(repositoryId ?? workspace.leadRepository).trim();
   const status = await workspaceStatus(workspace.path, {
     // Context selection needs identity/readiness, branch and HEAD. It does not need dirty-path
-    // enumeration, world-model manifests, or staged-document inspection.
+    // enumeration, world-model manifests, staged-document inspection, or sibling Git probes.
     level: 'readiness',
     gitReadMode,
-    onGitShadowComparison
+    onGitShadowComparison,
+    repositoryId: selectedRepositoryId
   });
-  const selectedRepositoryId = String(repositoryId ?? workspace.leadRepository).trim();
   const repository = status.repositories.find((item) => item.id === selectedRepositoryId);
   if (!repository) {
     throw new SingularityFlowError(

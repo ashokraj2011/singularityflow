@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { schemaFamily } from '../src/schema-migrations.mjs';
 import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import {
@@ -13,13 +14,28 @@ import {
 } from '../src/world-model/materialize/overview-view.mjs';
 import {
   BUILTIN_VIEW_REFERENCES, normalizeBuiltInViewReference, normalizeWmpOverviewViewReference,
+  resolveBuiltInViewContract,
   resolveWmpOverviewViewContract, WMP_OVERVIEW_VIEW_ALIASES, WMP_OVERVIEW_VIEW_REFERENCES,
   WMP_OVERVIEW_VIEW_REGISTRY
 } from '../src/world-model/registry/views.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
+import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from '../src/world-model/view-contract-schema-version.mjs';
 
 const MODEL_PAYLOAD_SHA256 = sha256({ kind: 'fixture-model-payload', version: 1 });
 const VIEW_INPUTS_SHA256 = sha256({ kind: 'fixture-view-inputs', version: 1 });
+
+test('builtin view contracts use the frozen durable record schema version', () => {
+  const family = schemaFamily('world-model-view-contract');
+  assert.equal(family.migrationPolicy, 'frozen-identity');
+  assert.equal(WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, 1);
+  assert.equal(family.currentVersion, WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION);
+  for (const reference of BUILTIN_VIEW_REFERENCES) {
+    assert.equal(resolveBuiltInViewContract(reference).schemaVersion, family.currentVersion);
+  }
+  for (const reference of WMP_OVERVIEW_VIEW_REFERENCES) {
+    assert.equal(resolveWmpOverviewViewContract(reference).schemaVersion, family.currentVersion);
+  }
+});
 
 function renderPersistedOverviewView(options) {
   return renderPersistedOverviewViewRuntime({

@@ -4712,7 +4712,8 @@ export async function workspaceStatus(workspacePath, {
   level = 'full',
   env = process.env,
   gitReadMode = 'reference',
-  onGitShadowComparison = null
+  onGitShadowComparison = null,
+  repositoryId = null
 } = {}) {
   if (!['readiness', 'summary', 'full'].includes(level)) {
     throw new SingularityFlowError(`Unknown workspace status level '${level}'.`);
@@ -4723,7 +4724,12 @@ export async function workspaceStatus(workspacePath, {
     });
   }
   const workspace = await readWorkspace(workspacePath);
-  const repositoryValues = Object.values(workspace.repositories);
+  // A context read needs only its selected member's fresh Git identity and readiness. Keep the
+  // default full inventory for status screens and callers that ask about the entire workspace.
+  const repositoryValues = repositoryId === null
+    ? Object.values(workspace.repositories)
+    : Object.hasOwn(workspace.repositories, repositoryId)
+      ? [workspace.repositories[repositoryId]] : [];
   const repositories = await mapLimit(
     repositoryValues,
     gitWorkerCount(repositoryValues.length, { env }),

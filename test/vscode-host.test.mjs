@@ -1136,6 +1136,8 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
     'an empty installation opens guided setup from the workspace selector');
   assert.match(navigation.webview.html, /<span class="next-heading">Next step<\/span>/);
   assert.match(navigation.webview.html, /Review capability changes/);
+  assert.match(navigation.webview.html, /details\[data-section="logs"\]>summary/,
+    'opening Logs requests its summary instead of scanning it during activation');
   assert.ok(navigation.webview.html.indexOf('data-section="workspaces"')
     < navigation.webview.html.indexOf('data-section="inbox"'),
   'setup precedes Inbox until a workspace exists');

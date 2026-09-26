@@ -1,5 +1,5 @@
 import { canonicalJson, compareText, deepFreeze, sealRecord } from '../canonicalize.mjs';
-import { currentSchemaVersion } from '../../schema-migrations.mjs';
+import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from '../view-contract-schema-version.mjs';
 import {
   VIEW_ID_PATTERN, assertBoolean, assertCanonicalOrder, assertExactKeys, assertInteger,
   assertPlainRecord, assertSchemaKind, assertSelfHash, assertSha256, assertString,
@@ -21,7 +21,7 @@ function contract({ id, title, sections, requiredFactTypes, optionalFactTypes, r
   maximumSelectedFacts, tldrMaximumWords, sectionMaximumWords, totalMaximumWords,
   version = 4, modelMode = 'optional' }) {
   return sealRecord({
-    schemaVersion: currentSchemaVersion('world-model-view-contract'),
+    schemaVersion: WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION,
     kind: 'world-model-view-contract',
     id,
     version,

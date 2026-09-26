@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { buildHostPerformanceReport } from '../src/vscode-host-performance.mjs';
+import { activateWorkspaceContext } from '../src/workspace-context.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const option = (name) => process.argv.find((argument) => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -75,15 +76,22 @@ function git(cwd, args) {
 }
 
 async function createFixture(parent) {
-  const repository = path.join(parent, 'repository');
+  const workspace = path.join(parent, 'workspace');
+  const repository = path.join(workspace, 'repos', 'application');
+  const remote = path.join(parent, 'origin.git');
   await mkdir(path.join(repository, 'src'), { recursive: true });
+  // The four additional audited Git sites below only create/connect/publish this disposable
+  // filesystem remote. They never address a network host or a user's repository.
+  git(parent, ['init', '--bare', '-q', remote]);
   git(repository, ['init', '-q', '-b', 'main']);
   git(repository, ['config', 'user.name', 'SFlow Host Benchmark']);
   git(repository, ['config', 'user.email', 'host-benchmark@example.invalid']);
+  git(repository, ['remote', 'add', 'origin', remote]);
   await writeFile(path.join(repository, 'README.md'), '# Extension-host benchmark fixture\n', 'utf8');
   await writeFile(path.join(repository, 'src', 'index.txt'), 'fixture\n', 'utf8');
   git(repository, ['add', '.']);
   git(repository, ['commit', '-q', '-m', 'Fixture application']);
+  git(repository, ['push', '-q', '-u', 'origin', 'main']);
   git(repository, ['switch', '-q', '-c', 'sflow/config']);
   await mkdir(path.join(repository, 'singularity', 'templates', 'chore'), { recursive: true });
   await writeFile(path.join(repository, 'singularity', 'templates', 'chore', 'intake.md'),
@@ -112,8 +120,40 @@ async function createFixture(parent) {
   ].join('\n'), 'utf8');
   git(repository, ['add', '.']);
   git(repository, ['commit', '-q', '-m', 'Approved benchmark configuration']);
+  git(repository, ['push', '-q', '-u', 'origin', 'sflow/config']);
   git(repository, ['switch', '-q', 'main']);
-  return repository;
+  await writeFile(path.join(workspace, 'workspace.json'), `${JSON.stringify({
+    version: 1,
+    id: 'benchmark',
+    name: 'Extension host benchmark',
+    anchor: { provider: 'workspace', key: 'benchmark', title: 'Extension host benchmark' },
+    leadRepository: 'application',
+    capabilities: [],
+    repositories: {
+      application: { url: remote, defaultBranch: 'main', path: 'repos/application', capabilities: [] }
+    }
+  }, null, 2)}\n`, 'utf8');
+  return { repository, workspace };
+}
+
+async function selectFixtureWorkspace(fixture, stateRoot) {
+  const machine = path.join(stateRoot, 'm');
+  await mkdir(machine, { recursive: true });
+  const registry = path.join(machine, 'workspaces.json');
+  const selection = path.join(machine, 'active-workspace.json');
+  await writeFile(registry, `${JSON.stringify([{
+    id: 'benchmark', name: 'Extension host benchmark', path: fixture.workspace,
+    anchorKey: 'benchmark', anchorType: 'Workspace', openedAt: '2026-01-01T00:00:00.000Z'
+  }], null, 2)}\n`, 'utf8');
+  // Use the same context writer as workspace selection so the fixture stays valid when the
+  // selection schema changes. All Git authority here is the temporary, local bare repository.
+  const selected = await activateWorkspaceContext(registry, selection, 'benchmark', {
+    repositoryId: 'application', detectStory: false
+  });
+  if (selected.repositoryState !== 'ready'
+      || selected.repositoryPath !== await realpath(fixture.repository)) {
+    throw new Error('The benchmark fixture did not select its governed delivery repository.');
+  }
 }
 
 function terminate(child) {
@@ -181,13 +221,27 @@ async function runScenario(editor, repository, stateRoot, scenario, reportPath) 
   }, null, 2)}\n`, 'utf8');
   const machine = path.join(stateRoot, 'm');
   await mkdir(machine, { recursive: true });
+  // This fixture's approved Git authority is a local bare repository. NO_NETWORK rejects even
+  // filesystem ls-remote/fetch calls, so constrain Git to the file protocol instead and make
+  // ordinary HTTP clients fail at a loopback-only proxy. No public remote is configured here.
+  const refusedProxy = 'http://127.0.0.1:1';
   const env = {
     ...process.env,
     SINGULARITY_FLOW_VSCODE_HOST_BENCHMARK: '1',
     SINGULARITY_FLOW_VSCODE_HOST_SCENARIO: scenario,
     SINGULARITY_FLOW_VSCODE_HOST_REPORT: reportPath,
     SINGULARITY_FLOW_NO_MODEL: '1',
-    SINGULARITY_FLOW_NO_NETWORK: '1',
+    SINGULARITY_FLOW_NO_NETWORK: '0',
+    GIT_ALLOW_PROTOCOL: 'file',
+    GIT_PROTOCOL_FROM_USER: '0',
+    HTTP_PROXY: refusedProxy,
+    HTTPS_PROXY: refusedProxy,
+    ALL_PROXY: refusedProxy,
+    http_proxy: refusedProxy,
+    https_proxy: refusedProxy,
+    all_proxy: refusedProxy,
+    NO_PROXY: '',
+    no_proxy: '',
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machine, 'active-workspace.json'),
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machine, 'workspaces.json'),
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machine, 'leads.json'),
@@ -219,8 +273,10 @@ async function main() {
     for (let index = 0; index < samples; index += 1) {
       const pairRoot = path.join(working, `p${index + 1}`);
       await mkdir(pairRoot, { recursive: true });
-      const repository = await createFixture(pairRoot);
+      const fixture = await createFixture(pairRoot);
+      const { repository } = fixture;
       const stateRoot = path.join(pairRoot, 'h');
+      await selectFixtureWorkspace(fixture, stateRoot);
       const coldPath = path.join(pairRoot, 'c.json');
       const warmPath = path.join(pairRoot, 'w.json');
       if (!json) process.stderr.write(`VS Code ${profile} sample ${index + 1}/${samples}: cold\n`);

@@ -237,9 +237,13 @@ npm run vscode:host-benchmark -- --profile=minimum --samples=30 --enforce \
 ```
 
 The reviewed limits live in `benchmarks/dx/vscode-host-budgets.json`. `minimum` refuses anything
-other than VS Code 1.90.x; `current` refuses versions older than 1.90. Network and model access are
-disabled, every fixture is disposable, and reports contain no repository path, Work ID, identity,
-question, artifact, command output, or source bytes. Linux records peak child RSS from `/proc`;
+other than VS Code 1.90.x; `current` refuses versions older than 1.90. Model access is disabled.
+The fixture selects a governed workspace backed by a temporary local bare Git remote. Its host
+allows only Git's `file` transport and points HTTP(S) proxy clients at a loopback-refusal endpoint;
+the report calls this `restricted-local-git`. This is not a process-wide network sandbox, so do not
+use the benchmark as evidence that arbitrary direct sockets are denied. Every fixture is disposable.
+Reports contain no repository path, Work ID, identity, question, artifact, command output, or source
+bytes. Linux records peak child RSS from `/proc`;
 other platforms report that measurement as unavailable instead of inventing it. Platform-specific
 budgets declare their applicability in the reviewed budget file; an enforced report records the
 host platform and every not-applicable metric. An unavailable Linux-only child-RSS measurement is

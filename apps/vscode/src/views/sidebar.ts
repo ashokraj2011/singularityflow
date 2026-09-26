@@ -822,6 +822,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         document.addEventListener('click',(event)=>{
           const removeFavorite=event.target.closest('[data-remove-favorite]'); if(removeFavorite){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'favorite-remove',action:removeFavorite.dataset.removeFavorite});return;}
           const action=event.target.closest('[data-action]'); if(action){event.preventDefault();event.stopPropagation();markLastOpened(action);vscode.postMessage({type:'action',action:action.dataset.action});return;}
+          const logsHeading=event.target.closest('details[data-section="logs"]>summary'); if(logsHeading&&!logsHeading.parentElement.open){vscode.postMessage({type:'action',action:'logs-refresh'});}
           const workspaceAction=event.target.closest('[data-workspace-action]'); if(workspaceAction){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'workspace',action:workspaceAction.dataset.workspaceAction,key:workspaceAction.dataset.workspaceKey});return;}
           const openNode=event.target.closest('[data-open-node]'); if(openNode){event.preventDefault();event.stopPropagation();markLastOpened(openNode.closest('.node-row'));vscode.postMessage({type:'node',key:openNode.dataset.openNode});return;}
           const node=event.target.closest('[data-node]'); if(node&&!event.target.closest('summary')){markLastOpened(node);vscode.postMessage({type:'node',key:node.dataset.node});}

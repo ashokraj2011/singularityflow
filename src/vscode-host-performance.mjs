@@ -186,7 +186,7 @@ export function buildHostPerformanceReport({
     protocol: Object.freeze({
       host: 'real-vscode-extension-host',
       activation: 'onView',
-      network: 'disabled',
+      network: 'restricted-local-git',
       modelCalls: 'disabled',
       questionsOrContentCaptured: false,
       coldAndWarmProcessPerPair: true

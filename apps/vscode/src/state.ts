@@ -146,6 +146,37 @@ export function changedSnapshotSlices(
   return Object.freeze(before === after && before !== null ? [] : [...included]);
 }
 
+/** Compare a revision-only receipt without serializing the cached snapshot's payload. */
+function sameSnapshotReceipt(previous: RepositorySnapshot, receipt: RepositorySnapshot): boolean {
+  const beforeIncluded = previous.included ?? [];
+  const afterIncluded = receipt.included ?? previous.included ?? [];
+  if (beforeIncluded.length !== afterIncluded.length
+    || beforeIncluded.some((slice, index) => slice !== afterIncluded[index])) return false;
+
+  const before = previous.revision;
+  const after = receipt.revision ?? before;
+  if (before === after) return true;
+  if (!before || !after) return false;
+  const beforeFields = Object.keys(before) as Array<keyof typeof before>;
+  const afterFields = Object.keys(after);
+  if (beforeFields.length !== afterFields.length
+    || beforeFields.some((field) => !Object.hasOwn(after, field))) return false;
+  for (const field of beforeFields) {
+    if (field === 'slices') {
+      if ((before.slices === undefined) !== (after.slices === undefined)) return false;
+      const beforeSlices = before.slices ?? {};
+      const afterSlices = after.slices ?? {};
+      const keys = Object.keys(beforeSlices) as SnapshotSlice[];
+      if (keys.length !== Object.keys(afterSlices).length
+        || keys.some((slice) => !Object.hasOwn(afterSlices, slice)
+          || beforeSlices[slice] !== afterSlices[slice])) return false;
+    } else if (before[field] !== after[field]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class WorkspaceStore {
   private readonly client: SingularityFlowClient;
   private readonly cache: SnapshotCache | null;
@@ -436,16 +467,20 @@ export class WorkspaceStore {
 
       if (snapshot) {
         if (snapshot.notModified && this.state.snapshot) {
-          const confirmed = {
-            ...this.state.snapshot,
-            included: snapshot.included ?? this.state.snapshot.included,
-            revision: snapshot.revision ?? this.state.snapshot.revision,
+          const previous = this.state.snapshot;
+          const receiptChanged = previous.notModified === true || !sameSnapshotReceipt(previous, snapshot);
+          const confirmed = receiptChanged ? {
+            ...previous,
+            included: snapshot.included ?? previous.included,
+            revision: snapshot.revision ?? previous.revision,
             notModified: false
-          };
+          } : previous;
           this.publish({ snapshot: confirmed, error: null, loading: false, stale: false }, {
             kind: 'snapshot', revisionChanged: false, changedSlices: Object.freeze([])
           });
-          try { this.cache?.write(confirmed); } catch { /* A cache that cannot be written is not a failure. */ }
+          if (receiptChanged) {
+            try { this.cache?.write(confirmed); } catch { /* A cache that cannot be written is not a failure. */ }
+          }
           return;
         }
         const changedSlices = changedSnapshotSlices(this.state.snapshot, snapshot);

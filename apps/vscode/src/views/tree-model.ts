@@ -50,6 +50,8 @@ export interface TreeNode {
   openPath?: string;
   /** Exact mapped repository identity for an Inbox Story, including deferred repositories. */
   storyRepositoryId?: string;
+  /** Open a fresh governed Copilot chat after the exact Story checkout is selected. */
+  openCopilotAfterAttach?: boolean;
   /**
    * A command this node runs when clicked. For rows that exist to be acted on rather than read —
    * an empty state offering the way out of itself.
@@ -389,9 +391,10 @@ function activeStorySummaries(snapshot: RepositorySnapshot, excludeId?: string):
       description: [item.currentPhase, item.status]
         .filter(Boolean).map((value) => String(value).replaceAll('_', ' ')).join(' · ')
         || item.title || 'Active Story',
-      tooltip: `${item.title ?? item.id}\nSelect to synchronize and open its governed checkout.`,
+      tooltip: `${item.title ?? item.id}\nOpen its verified checkout and continue in Copilot. Existing local work is preserved.`,
       icon: 'statusCurrent',
       command: ['session', 'attach', item.id],
+      openCopilotAfterAttach: true,
       runCommand: 'singularityFlow.runAction',
       contextValue: 'sflow.story.active.summary'
     }));

@@ -9331,8 +9331,14 @@ async function sessionDiscoveryConfiguration(root, authority = null, { storyBoot
   );
 }
 
-async function resolveSessionRepository({ workspaceReference = null, repositoryId = null } = {}) {
-  const governed = (candidate) => sessionRepositoryAuthority(candidate);
+async function resolveSessionRepository({
+  workspaceReference = null, repositoryId = null, localStoryOnly = false
+} = {}) {
+  // An existing managed checkout proves its governance through its accepted Story aggregate.
+  // Resolving that local candidate must not probe a remote for configuration authority.
+  const governed = (candidate) => localStoryOnly
+    ? candidate ? { source: 'local-story-candidate', remote: null } : null
+    : sessionRepositoryAuthority(candidate);
 
   if (repositoryId != null && workspaceReference == null) throw new SingularityFlowError(
     '--repository requires --workspace for session candidates or attach.',
@@ -9523,8 +9529,8 @@ async function sessionCommand(positionals, options) {
   const selectedRepositoryId = optionString(options, 'repository');
   if (subcommand !== 'workspace'
       && (workspaceReference != null || selectedRepositoryId != null)
-      && !['candidates', 'attach'].includes(subcommand)) throw new SingularityFlowError(
-    '--workspace and --repository are supported by session candidates and attach.',
+      && !['candidates', 'attach', 'open-local'].includes(subcommand)) throw new SingularityFlowError(
+    '--workspace and --repository are supported by session candidates, attach, and open-local.',
     { code: 'SESSION_WORKSPACE_SELECTION_INVALID' }
   );
   if (repositoryUrl != null && workspaceReference != null) throw new SingularityFlowError(
@@ -9815,6 +9821,93 @@ async function sessionCommand(positionals, options) {
     };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Selected Story ${workId} at ${result.repositoryPath}. No Git state was changed.`);
+    return result;
+  }
+  if (subcommand === 'open-local') {
+    const workId = requirePositional(positionals, 2, 'work ID');
+    const resolved = await resolveSessionRepository({
+      workspaceReference, repositoryId: selectedRepositoryId, localStoryOnly: true
+    });
+    if (!resolved.root) throw new SingularityFlowError(
+      `No ready repository is available for local Story '${workId}'. Select its exact workspace and repository, or use session attach to materialize it.`,
+      { code: 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE' }
+    );
+    const root = resolved.workspaceContext?.canonicalRepositoryPath ?? resolved.root;
+    const { listStoryWorktrees } = await import('./story-worktree.mjs');
+    const commonDir = gitCommonDir(root);
+    const matches = [];
+    for (const registered of listStoryWorktrees(root)) {
+      const checkout = registered.repositoryPath;
+      try {
+        // The Git worktree registry supplies paths, never a webview or caller-supplied path.
+        // A same-named Story in another workspace repository cannot satisfy this selection.
+        if (!samePlatformPath(gitCommonDir(checkout), commonDir)
+            || branch(checkout) !== registered.branch) continue;
+        const accepted = await loadAcceptedStoryExecution(checkout);
+        const workflow = accepted.workflow;
+        if (workflow.workItem?.id !== workId
+            || workflow.workItem?.branch !== registered.branch
+            || (workflow.lineage?.canonicalBranch ?? registered.branch) !== registered.branch) continue;
+        matches.push({ checkout, accepted });
+      } catch {
+        // A stale or damaged registered worktree is not an authority for local selection.
+        // Remote attachment remains available and retains its strict synchronization gate.
+      }
+    }
+    if (matches.length !== 1) throw new SingularityFlowError(
+      matches.length
+        ? `More than one managed checkout claims Story '${workId}'. Inspect the registered worktrees before selecting it.`
+        : `No verified managed checkout owns local Story '${workId}'. Use session attach to synchronize or materialize it.`,
+      { code: matches.length ? 'SESSION_LOCAL_STORY_AMBIGUOUS' : 'SESSION_LOCAL_STORY_UNAVAILABLE' }
+    );
+    const { checkout, accepted } = matches[0];
+    // A repository-local caller may win resolution even while the machine's selected workspace
+    // points at another repository. Refuse that ambiguity before changing phase session metadata.
+    if (!workspaceReference) {
+      const active = await readActiveWorkspaceContext(
+        activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
+      );
+      if (active && !samePlatformPath(
+        gitCommonDir(active.canonicalRepositoryPath ?? active.repositoryPath), commonDir
+      )) throw new SingularityFlowError(
+        `Local Story '${workId}' belongs to a different repository than the active workspace. Select its exact workspace and repository before opening it.`,
+        { code: 'SESSION_LOCAL_WORKSPACE_MISMATCH' }
+      );
+    }
+    const session = await activateWorkItemSession(checkout, accepted.definition, accepted.workflow);
+    const readiness = await agentSessionStatus(checkout, accepted.definition, accepted.workflow);
+    if (!readiness.ready) throw new SingularityFlowError(
+      `Local Story '${workId}' could not bind its current phase agent. No Git state was changed.`,
+      { code: 'SESSION_LOCAL_AGENT_UNAVAILABLE' }
+    );
+    if (workspaceReference && resolved.workspaceContext) await activateWorkspaceContext(
+      workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspaceId,
+      { repositoryId: resolved.workspaceContext.repositoryId, detectStory: false }
+    );
+    const selection = await activateWorkspaceStoryContext(
+      activeWorkspaceFile(), workspaceRegistryFile(), checkout,
+      { storyId: workId, selectionSource: 'session-open-local' }
+    );
+    if (!selection) {
+      const active = await readActiveWorkspaceContext(
+        activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
+      );
+      if (resolved.workspaceContext || active) throw new SingularityFlowError(
+        `Local Story '${workId}' could not be selected in its mapped workspace repository. No Git state was changed.`,
+        { code: 'SESSION_LOCAL_WORKSPACE_MISMATCH' }
+      );
+    }
+    const result = {
+      ready: true, localOnly: true, remoteSynchronized: false,
+      workId, branch: branch(checkout), head: head(checkout), repositoryPath: checkout,
+      workspaceId: selection?.workspaceId ?? resolved.workspaceId ?? null,
+      repositoryId: selection?.repositoryId ?? null,
+      phase: accepted.workflow.currentPhase, status: accepted.workflow.status,
+      agent: session.selectedAgent ?? readiness.activeAgent ?? null,
+      materialization: 'opened-existing-managed-story-worktree'
+    };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Opened local Story ${workId} at ${checkout}. Remote synchronization was not attempted.`);
     return result;
   }
   let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId });

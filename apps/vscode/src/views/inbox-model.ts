@@ -374,7 +374,7 @@ export function buildInboxTree(
   }, ...(stories.length ? [{
     kind: 'group' as const, id: 'inbox:active-stories', label: 'Workspace Stories',
     description: String(stories.length), icon: 'list-tree',
-    tooltip: 'Open a Story checkout. A deferred repository is materialized only when you select its Story.',
+      tooltip: 'Open a Story checkout and continue in Copilot. A deferred repository is materialized only when you select its Story.',
     children: stories.map((item) => ({
       kind: 'story' as const,
       id: item.attachable && item.repositoryPath === currentRepositoryPath
@@ -383,11 +383,12 @@ export function buildInboxTree(
       label: item.workId,
       description: `${item.repositoryId} · ${item.phase}${item.terminal ? ` · ${item.status}` : ''}${item.current ? ' · current' : ''}${item.materialized ? '' : ' · materialize and open'}`,
       tooltip: `${item.title}\n${item.repositoryPath || item.repositoryUrl || item.repositoryId}\n${item.status}\n${item.materialized
-        ? 'Select to synchronize and open this Story checkout.'
-        : 'Select to materialize this repository and open its Story checkout.'}`,
+        ? 'Select to open this verified Story checkout and continue in Copilot.'
+        : 'Select to materialize this repository, open its Story checkout, and continue in Copilot.'}`,
       icon: item.attachable ? item.current ? 'check' : 'statusCurrent' : 'warning',
       ...(item.attachable ? {
         command: ['session', 'attach', item.workId], runCommand: 'singularityFlow.runAction',
+        openCopilotAfterAttach: true,
         ...(catalog.some((row) => row.id === item.workId && row.repositoryId === item.repositoryId)
           ? { storyRepositoryId: item.repositoryId } : {}),
         ...(item.repositoryPath && item.repositoryPath !== currentRepositoryPath

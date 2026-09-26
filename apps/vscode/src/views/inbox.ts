@@ -57,7 +57,7 @@ function storyCards(inbox: Inbox): string {
   if (!inbox.stories.length) return '';
   return `<section class="active-story-switcher" aria-labelledby="active-stories-heading">
     <div class="section-heading"><div><h2 id="active-stories-heading">${icon('story')}Workspace Stories</h2>
-      <p class="muted">Open a Story's isolated checkout in this window. Selecting a remote-only Story materializes its mapped repository first.</p></div>
+      <p class="muted">Open a Story's isolated checkout and continue in Copilot. Existing local work is preserved; a remote-only Story materializes its mapped repository first.</p></div>
       <span class="count-badge">${inbox.stories.length}</span></div>
     <div class="active-story-grid">${inbox.stories.map((story) => `
       <button type="button" class="active-story-card${story.current ? ' current' : ''}"
@@ -66,7 +66,7 @@ function storyCards(inbox: Inbox): string {
         <span class="active-story-phase">${escape(story.repositoryId)} · ${escape(story.phase)}${story.terminal ? ` · ${escape(story.status)}` : ''}</span>
         <small>${escape(story.title)}</small>
         ${story.attachable
-    ? `<span class="active-story-action">${story.current ? 'Current checkout' : story.materialized ? 'Open checkout' : 'Materialize &amp; open'}${icon('next')}</span>`
+    ? `<span class="active-story-action">${story.current ? 'Continue in Copilot' : story.materialized ? 'Open &amp; continue' : 'Materialize &amp; continue'}${icon('next')}</span>`
     : '<small>Repository mapping is unavailable</small>'}
       </button>`).join('')}</div>
   </section>`;

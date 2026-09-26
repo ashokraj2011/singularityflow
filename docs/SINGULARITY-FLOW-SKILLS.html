@@ -7931,7 +7931,7 @@ argument-hint: &quot;scan [--staged] | protect&quot;
     <details>
       <summary>
         <span class="skill-number">122</span>
-        <span class="skill-title"><strong>sflow-session</strong><span>Select a work or Jira ID, synchronize its latest committed remote branch, and activate the current phase&#39;s governed agent.</span></span>
+        <span class="skill-title"><strong>sflow-session</strong><span>Select an exact Story, open its managed local checkout or attach from remote, and bind its phase agent.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -7940,7 +7940,7 @@ argument-hint: &quot;scan [--staged] | protect&quot;
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~798 body tokens</span>
+          <span class="pill">~654 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-session</code></dd></div>
@@ -7954,7 +7954,7 @@ argument-hint: &quot;scan [--staged] | protect&quot;
         </div>
         <pre data-source="sflow-session"><code>---
 name: sflow-session
-description: Select a work or Jira ID, synchronize its latest committed remote branch, and activate the current phase&#39;s governed agent.
+description: Select an exact Story, open its managed local checkout or attach from remote, and bind its phase agent.
 disable-model-invocation: true
 
 ---
@@ -7965,18 +7965,18 @@ disable-model-invocation: true
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; an exact selected workspace/repository is also valid before checkout exists; refuse if neither resolves; never search `$HOME`/parents.
 
-This is a session-setup-only skill: no raw Git, source reads, edits, or lifecycle work before status. A deferred path is not cwd.
+Session setup only: no raw Git, source reads, edits, or lifecycle work. A deferred path is not cwd.
 
 1. Run `singularity-flow session status --json`.
-2. If uninitialized, check `singularity-flow workspace current --json`. An exact deferred selection can attach; otherwise ask. Never guess URLs.
-3. Run `singularity-flow session candidates --json` (`--diagnostics` for gaps). An exact selection uses `--workspace &lt;WORKSPACE&gt; --repository &lt;REPOSITORY-ID&gt;` to override cwd. Show IDs, titles, phases, statuses, commits. Match an explicit ID or `ask_user` for the exact work ID or Jira ID. Never infer one. A candidate found through bounded remote metadata is still eligible for attachment; candidates&#39; `repositoryPath` is only the scan source.
-4. Run `singularity-flow session attach &lt;WORK-ID&gt; --json` with the same selectors. Attach verifies the Story and materializes only its selected deferred repository. It reuses a managed worktree, creates one from another Story worktree, or switches a clean canonical checkout; it never switches an unrelated Story worktree. Read the exact `repositoryPath` returned. Refuse dirty (unless exact remote HEAD), ahead, diverged, missing, malformed, or unverifiable state. Never manually create branches/worktrees, merge, rebase, reset, force-checkout, stash, or discard work.
-5. Run `singularity-flow session status --json` at the same returned `repositoryPath`; use it for later commands. Tell a shell contributor to `cd` to the exact returned path; VS Code opens it after attach. Child commands cannot change parent cwd. The current phase&#39;s default governed agent is activated automatically.
-6. Confirm `ready`, selected `workId`, and phase `activeAgent`; `/sf-agent` is only for an explicit agent request.
-7. At that path, run `singularity-flow session context --work-id &lt;WORK-ID&gt; --slice brief --max-output-bytes 32768 --json`. Never preload the repository.
-8. At that path, run `singularity-flow nextsteps &lt;WORK-ID&gt; --json`; report work, commit, agent, phase. For every returned `actions` entry, preserve order and render `&lt;TIMING&gt; — &lt;reason&gt;`, `Copilot: &lt;copilotCommand&gt;`, `Shell: &lt;command&gt;`. Copy both route fields from the same action object. Never collapse prepare, phase publish, submit, approve, or another action into prose or omit either surface. Print `unavailable` for missing fields, never guess. Stories use `singularity-flow nextsteps`, not `singularity-flow initiative next`.
+2. If uninitialized, check `singularity-flow workspace current --json`; ask for missing selection. Never guess URLs.
+3. For an explicitly chosen work ID, try `singularity-flow session open-local &lt;WORK-ID&gt; --json` with exact workspace/repository selectors. Success opens a registered managed checkout without remote sync; report `localOnly: true`. Only `SESSION_LOCAL_STORY_UNAVAILABLE` or `SESSION_LOCAL_REPOSITORY_UNAVAILABLE` permits remote fallback. Stop on other refusals.
+4. Otherwise run `singularity-flow session candidates --json` (`--diagnostics` for gaps). Use `--workspace &lt;WORKSPACE&gt; --repository &lt;REPOSITORY-ID&gt;` when selected. Show IDs, titles, phases, statuses, commits; ask for an exact ID if missing. Candidate `repositoryPath` is only the scan source.
+5. If local opening did not succeed, run `singularity-flow session attach &lt;WORK-ID&gt; --json` with the same selectors. This synchronizes the selected remote Story and returns its checkout. Ahead, diverged, dirty, missing, malformed, or unverifiable state may refuse. Never manually merge, rebase, reset, force-checkout, stash, or discard work.
+6. At the returned `repositoryPath`, run `singularity-flow session status --json`; confirm `ready`, `workId`, and `activeAgent`. Tell shell users to `cd` there. `/sf-agent` requires an explicit override request.
+7. There run `singularity-flow session context --work-id &lt;WORK-ID&gt; --slice brief --max-output-bytes 32768 --json`. Never preload the repository.
+8. There run `singularity-flow nextsteps &lt;WORK-ID&gt; --json`; report work, commit, agent, phase. For each action preserve order, timing, reason, `Copilot: &lt;copilotCommand&gt;`, and `Shell: &lt;command&gt;` from that same object. Do not merge distinct actions or invent missing routes.
 9. For hook refusals, read `singularity-flow logs --event hook --level warn`; `hook.session.initiative` means no Story selection.
-10. End the turn immediately; do not continue into the Story.
+10. End the turn; do not continue into Story work.
 </code></pre>
       </div>
     </details>

@@ -325,7 +325,7 @@ const STORY_SUBCOMMANDS = Object.freeze([
   ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
-const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'repair-selection']);
+const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'open-local', 'repair-selection']);
 const SESSION_SUBCOMMANDS = Object.freeze([...SESSION_READ_SUBCOMMANDS, ...SESSION_MUTATION_SUBCOMMANDS]);
 const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
   'tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads',

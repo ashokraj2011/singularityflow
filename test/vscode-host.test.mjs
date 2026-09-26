@@ -5407,6 +5407,192 @@ test('the Copilot handoff switches this window to the governed repository before
   assert.match(registered.infos.at(-1), /Switching this window to that repository/);
 });
 
+test('clicking an ahead local Story opens its checkout and resumes Copilot there', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-story-click-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'application');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# Story click test\n');
+  const cli = (args, cwd = root) => spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args],
+    { cwd, encoding: 'utf8', env: process.env });
+  const initialized = cli(['init']);
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  workflow.worldModel.grounding = 'off';
+  workflow.phases.intake.worldModel.depth = 'light';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-qm', 'Initialize governed Story click fixture'], { cwd: root });
+  const remote = path.join(base, 'application.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-q', '-u', 'origin', 'main'], { cwd: root });
+
+  const workId = 'STORY-LOCAL-CLICK';
+  const started = cli([
+    'start', workId, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Keep local checkout',
+    '--description', 'Resume unpublished Story work from its managed checkout.'
+  ]);
+  assert.equal(started.status, 0, started.stderr);
+  const storyRoot = JSON.parse(started.stdout).data.repositoryPath;
+  const grounded = cli(['wm', 'light', '--phase', 'intake'], storyRoot);
+  assert.equal(grounded.status, 0, grounded.stderr);
+  run('git', ['push', '-q', '-u', 'origin', workId], { cwd: storyRoot });
+  await writeFile(path.join(storyRoot, 'ahead.txt'), 'unpublished Story commit\n');
+  run('git', ['add', 'ahead.txt'], { cwd: storyRoot });
+  run('git', ['commit', '-qm', 'Keep unpublished Story work'], { cwd: storyRoot });
+  await writeFile(path.join(storyRoot, 'README.md'), '# Uncommitted Story edit\n');
+  const storyHead = run('git', ['rev-parse', 'HEAD'], { cwd: storyRoot }).stdout.trim();
+  const storyStatus = run('git', ['status', '--porcelain'], { cwd: storyRoot }).stdout;
+  assert.notEqual(storyHead, run('git', ['rev-parse', `origin/${workId}`], { cwd: root }).stdout.trim(),
+    'the clicked Story has an unpublished local commit');
+  assert.match(storyStatus, /README\.md/, 'the clicked Story also has uncommitted work');
+
+  const values = new Map();
+  const host = stubVscode();
+  host.api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(host.api);
+  await extension.activate(context(values));
+  await host.registered.commands.get('singularityFlow.openInbox')();
+  const inbox = host.registered.panels.find((entry) => entry.id === 'singularityFlow.inboxPanel');
+  assert.ok(inbox);
+  await inbox.post({ type: 'refresh-stories' });
+  const storyButton = await until(() => inbox.webview.html.match(
+    /data-story="STORY-LOCAL-CLICK" data-repository-id="([^"]+)"/
+  ), { what: 'the published Story to appear in the Inbox' });
+  // The remote was needed for discovery; opening this already managed checkout is local-only.
+  run('git', ['remote', 'set-url', 'origin', path.join(base, 'unavailable.git')], { cwd: root });
+  await inbox.post({ type: 'attach-story', id: workId, repositoryId: storyButton[1] });
+
+  const opened = await until(() => host.registered.executedCommands.find(
+    (entry) => entry.id === 'vscode.openFolder'
+  ), { what: 'the existing local Story checkout to open' });
+  assert.equal(path.resolve(opened.args[0].fsPath), path.resolve(storyRoot));
+  assert.equal(opened.args[1], false);
+  assert.equal(host.registered.executedCommands.some((entry) => entry.id === 'workbench.action.chat.open'), false,
+    'Copilot waits until VS Code has switched to the Story checkout');
+  const pending = values.get('singularityFlow.pendingCopilotHandoff');
+  assert.equal(pending?.kind, 'story');
+  assert.equal(pending?.workId, workId);
+  assert.equal(path.resolve(pending.repository), path.resolve(storyRoot));
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: storyRoot }).stdout.trim(), storyHead);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: storyRoot }).stdout, storyStatus);
+
+  const resumedHost = stubVscode();
+  resumedHost.api.workspace.workspaceFolders = [{ uri: { fsPath: storyRoot } }];
+  const resumedExtension = loadExtension(resumedHost.api);
+  await resumedExtension.activate(context(values));
+  const fresh = resumedHost.registered.executedCommands.find(
+    (entry) => entry.id === 'workbench.action.chat.newChat');
+  const chat = resumedHost.registered.executedCommands.find(
+    (entry) => entry.id === 'workbench.action.chat.open');
+  assert.ok(fresh, 'the Story opens in a fresh Copilot chat');
+  assert.ok(chat, 'the Story prompt is handed to Copilot after the checkout opens');
+  assert.match(chat.args[0].query, /Story: STORY-LOCAL-CLICK/);
+  assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
+});
+
+test('clicking a remote Story without a local checkout attaches it and opens Copilot', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-remote-story-click-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'application');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# Remote Story click test\n');
+  const cli = (args, cwd = root) => spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args],
+    { cwd, encoding: 'utf8', env: process.env });
+  const initialized = cli(['init']);
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  workflow.worldModel.grounding = 'off';
+  workflow.phases.intake.worldModel.depth = 'light';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-qm', 'Initialize remote Story fixture'], { cwd: root });
+  const remote = path.join(base, 'application.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-q', '-u', 'origin', 'main'], { cwd: root });
+
+  const start = (id) => {
+    const result = cli([
+      'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+      '--work-type', 'feature', '--title', id,
+      '--description', `Open ${id} from its exact repository.`
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout).data.repositoryPath;
+  };
+  const first = start('STORY-OPEN-FIRST');
+  const second = start('STORY-OPEN-REMOTE');
+  run('git', ['push', '-q', '-u', 'origin', 'STORY-OPEN-FIRST'], { cwd: first });
+  run('git', ['push', '-q', '-u', 'origin', 'STORY-OPEN-REMOTE'], { cwd: second });
+  run('git', ['worktree', 'remove', '--', second], { cwd: root });
+  await writeFile(path.join(first, 'unfinished-first.txt'), 'preserve the current Story\n');
+  const firstHead = run('git', ['rev-parse', 'HEAD'], { cwd: first }).stdout.trim();
+
+  const values = new Map();
+  const host = stubVscode();
+  host.api.workspace.workspaceFolders = [{ uri: { fsPath: first } }];
+  const extension = loadExtension(host.api);
+  await extension.activate(context(values));
+  await host.registered.commands.get('singularityFlow.openInbox')();
+  const inbox = host.registered.panels.find((entry) => entry.id === 'singularityFlow.inboxPanel');
+  assert.ok(inbox);
+  await inbox.post({ type: 'refresh-stories' });
+  const storyButton = await until(() => inbox.webview.html.match(
+    /data-story="STORY-OPEN-REMOTE" data-repository-id="([^"]+)"/
+  ), { what: 'the remote Story to appear in the Inbox' });
+  await inbox.post({ type: 'attach-story', id: 'STORY-OPEN-REMOTE', repositoryId: 'wrong-repository' });
+  await settle();
+  assert.equal(host.registered.executedCommands.some((entry) => entry.id === 'vscode.openFolder'), false,
+    'a repository ID that does not match the discovered Story cannot open a checkout');
+  assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
+
+  await inbox.post({ type: 'attach-story', id: 'STORY-OPEN-REMOTE', repositoryId: storyButton[1] });
+  const opened = await until(() => host.registered.executedCommands.find(
+    (entry) => entry.id === 'vscode.openFolder'
+  ), { what: 'strict attach to create and open the remote Story checkout' });
+  assert.equal(path.resolve(opened.args[0].fsPath), path.resolve(second));
+  assert.equal(opened.args[1], false);
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: second }).stdout.trim(), 'STORY-OPEN-REMOTE');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: first }).stdout.trim(), firstHead);
+  assert.equal(await readFile(path.join(first, 'unfinished-first.txt'), 'utf8'),
+    'preserve the current Story\n');
+  const pending = values.get('singularityFlow.pendingCopilotHandoff');
+  assert.equal(pending?.kind, 'story');
+  assert.equal(pending?.workId, 'STORY-OPEN-REMOTE');
+  assert.equal(path.resolve(pending.repository), path.resolve(second));
+
+  const grounded = cli(['wm', 'light', '--phase', 'intake'], second);
+  assert.equal(grounded.status, 0, grounded.stderr);
+  const resumedHost = stubVscode();
+  resumedHost.api.workspace.workspaceFolders = [{ uri: { fsPath: second } }];
+  const resumedExtension = loadExtension(resumedHost.api);
+  await resumedExtension.activate(context(values));
+  assert.ok(resumedHost.registered.executedCommands.some(
+    (entry) => entry.id === 'workbench.action.chat.newChat'));
+  const chat = resumedHost.registered.executedCommands.find(
+    (entry) => entry.id === 'workbench.action.chat.open');
+  assert.ok(chat, 'Copilot opens after strict attachment switches to the Story checkout');
+  assert.match(chat.args[0].query, /Story: STORY-OPEN-REMOTE/);
+  assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
+});
+
 test('a command-palette action attaches Copilot to any saved workspace', async (t) => {
   if (!requireBundle(t)) return;
   const org = await organisation();

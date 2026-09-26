@@ -94,6 +94,7 @@ Usage:
   singularity-flow session current|status|candidates|doctor [--json]
   singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID] [--json]
   singularity-flow session attach <WORK-ID> [--json]
+  singularity-flow session open-local <WORK-ID> [--workspace WORKSPACE --repository ID] [--json]
   singularity-flow session repair-selection <WORK-ID> --confirm <WORK-ID> [--json]
   singularity-flow session context [--work-id WORK-ID] [--flight-plan CFP-ID]
     [--slice brief|impact|world-model|ast|evidence|history|observation]

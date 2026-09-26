@@ -985,6 +985,172 @@ test('session attach reuses the managed Story worktree instead of switching its 
   assert.equal(status.ready, true);
 });
 
+test('session open-local opens an ahead, dirty managed Story without fetching or changing Git state', async (t) => {
+  const { base, root } = await repository(t);
+  const id = 'ISO-OPEN-LOCAL-1';
+  const env = {
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspace-registry.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active-workspace.json')
+  };
+  const started = JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Open unpublished work',
+    '--description', 'Keep local Story commits and uncommitted edits in their existing checkout.'
+  ], root, { env }).stdout);
+  const worktree = started.data.repositoryPath;
+  run('git', ['push', '-q', '-u', 'origin', id], worktree);
+  await writeFile(path.join(worktree, 'ahead.txt'), 'local unpublished commit\n');
+  run('git', ['add', 'ahead.txt'], worktree);
+  run('git', ['commit', '-qm', 'keep unpublished Story work'], worktree);
+  await writeFile(path.join(worktree, 'README.md'), '# dirty Story work remains\n');
+  await writeFile(path.join(worktree, 'untracked.txt'), 'keep this too\n');
+  await writeFile(path.join(root, 'launch-note.txt'), 'unrelated checkout\n');
+  // The local-open route must be usable when the publication remote is unavailable.
+  run('git', ['remote', 'set-url', 'origin', path.join(base, 'unavailable.git')], root);
+
+  const before = {
+    refs: git(root, ['show-ref']),
+    worktrees: git(root, ['worktree', 'list', '--porcelain']),
+    sourceHead: git(root, ['rev-parse', 'HEAD']),
+    sourceStatus: git(root, ['status', '--porcelain=v1']),
+    storyHead: git(worktree, ['rev-parse', 'HEAD']),
+    storyStatus: git(worktree, ['status', '--porcelain=v1'])
+  };
+  const gitTrace = path.join(base, 'open-local-git-trace.json');
+  const opened = JSON.parse(run(process.execPath, [cli,
+    'session', 'open-local', id, '--json'
+  ], root, { env: { ...env, GIT_TRACE2_EVENT: gitTrace } }).stdout);
+
+  assert.equal(opened.workId, id);
+  assert.equal(path.resolve(opened.repositoryPath), path.resolve(worktree));
+  assert.equal(opened.branch, id);
+  assert.equal(opened.ready, true);
+  assert.equal(opened.localOnly, true);
+  assert.equal(git(root, ['show-ref']), before.refs);
+  assert.equal(git(root, ['worktree', 'list', '--porcelain']), before.worktrees);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), before.sourceHead);
+  assert.equal(git(root, ['status', '--porcelain=v1']), before.sourceStatus);
+  assert.equal(git(worktree, ['rev-parse', 'HEAD']), before.storyHead);
+  assert.equal(git(worktree, ['status', '--porcelain=v1']), before.storyStatus);
+  assert.equal(await readFile(path.join(worktree, 'untracked.txt'), 'utf8'), 'keep this too\n');
+  const gitStarts = (await readFile(gitTrace, 'utf8')).split(/\r?\n/).filter(Boolean)
+    .map((line) => JSON.parse(line)).filter((event) => event.event === 'start');
+  assert.ok(gitStarts.length > 0, 'the Git trace must cover the local verification commands');
+  assert.equal(gitStarts.some((event) => (event.argv ?? []).some((arg) =>
+    ['ls-remote', 'fetch', 'pull', 'push', 'clone'].includes(arg))), false,
+    'opening an existing Story must not invoke Git transport');
+});
+
+test('session open-local refuses a checkout outside the active workspace repository', async (t) => {
+  const { base, root } = await repository(t);
+  const { root: otherRoot } = await repository(t);
+  const workId = 'ISO-OPEN-CROSS-REPO';
+  const selectionFile = path.join(base, 'active-workspace.json');
+  const env = {
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspace-registry.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selectionFile
+  };
+  const started = JSON.parse(run(process.execPath, [cli,
+    'start', workId, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Different active repository',
+    '--description', 'Refuse to route governed work into the previously selected repository.'
+  ], root, { env }).stdout);
+  const checkout = started.data.repositoryPath;
+  const priorSelection = `${JSON.stringify({
+    schemaVersion: 1, workspaceId: 'local--other', workspaceName: 'Other workspace',
+    workspacePath: path.dirname(otherRoot), anchorKey: 'other', repositoryId: 'repository',
+    repositoryPath: otherRoot, canonicalRepositoryPath: otherRoot, checkoutPath: otherRoot,
+    repositoryState: 'ready', branch: 'main', storyId: null,
+    selectionSource: 'workspace', selectionStatus: 'ready',
+    selectedAt: new Date().toISOString()
+  })}\n`;
+  await writeFile(selectionFile, priorSelection);
+  const before = {
+    head: git(checkout, ['rev-parse', 'HEAD']),
+    status: git(checkout, ['status', '--porcelain=v1'])
+  };
+
+  const refused = run(process.execPath, [cli,
+    'session', 'open-local', workId, '--json'
+  ], root, { allowFailure: true, env });
+
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /SESSION_LOCAL_WORKSPACE_MISMATCH/);
+  assert.equal(await readFile(selectionFile, 'utf8'), priorSelection);
+  assert.equal(git(checkout, ['rev-parse', 'HEAD']), before.head);
+  assert.equal(git(checkout, ['status', '--porcelain=v1']), before.status);
+});
+
+test('session open-local resolves the requested Story rather than the caller’s Story', async (t) => {
+  const { base, root } = await repository(t);
+  const env = {
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspace-registry.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active-workspace.json')
+  };
+  const start = (id) => JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', id, '--description', `Keep ${id} isolated.`
+  ], root, { env }).stdout).data.repositoryPath;
+  const first = start('ISO-OPEN-A');
+  const second = start('ISO-OPEN-B');
+  const secondHead = git(second, ['rev-parse', 'HEAD']);
+
+  const opened = JSON.parse(run(process.execPath, [cli,
+    'session', 'open-local', 'ISO-OPEN-A', '--json'
+  ], second, { env }).stdout);
+
+  assert.equal(opened.workId, 'ISO-OPEN-A');
+  assert.equal(opened.branch, 'ISO-OPEN-A');
+  assert.equal(path.resolve(opened.repositoryPath), path.resolve(first));
+  assert.equal(opened.ready, true);
+  assert.equal(opened.localOnly, true);
+  assert.equal(git(second, ['branch', '--show-current']), 'ISO-OPEN-B');
+  assert.equal(git(second, ['rev-parse', 'HEAD']), secondHead);
+
+  // A Git worktree registration alone is insufficient: its branch must still carry the
+  // governed Story named by the request. Rename B's branch while retaining B's Story snapshot.
+  run('git', ['branch', '-m', 'ISO-OPEN-FORGED'], second);
+  const refsBeforeRefusal = git(root, ['show-ref']);
+  const rejected = run(process.execPath, [cli,
+    'session', 'open-local', 'ISO-OPEN-FORGED', '--json'
+  ], root, { allowFailure: true, env });
+  assert.notEqual(rejected.status, 0);
+  assert.equal(git(root, ['show-ref']), refsBeforeRefusal);
+  assert.equal(git(second, ['branch', '--show-current']), 'ISO-OPEN-FORGED');
+  assert.equal(git(second, ['rev-parse', 'HEAD']), secondHead);
+});
+
+test('session open-local refuses a Story branch without a managed checkout', async (t) => {
+  const { base, root } = await repository(t);
+  const id = 'ISO-OPEN-MISSING';
+  const env = {
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspace-registry.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active-workspace.json')
+  };
+  const started = JSON.parse(run(process.execPath, [cli,
+    'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Missing managed checkout',
+    '--description', 'A local branch alone is insufficient for open-local.'
+  ], root, { env }).stdout);
+  const worktree = started.data.repositoryPath;
+  run('git', ['worktree', 'remove', '--', worktree], root);
+  const before = {
+    head: git(root, ['rev-parse', 'HEAD']),
+    refs: git(root, ['show-ref']),
+    worktrees: git(root, ['worktree', 'list', '--porcelain'])
+  };
+
+  const refused = run(process.execPath, [cli,
+    'session', 'open-local', id, '--json'
+  ], root, { allowFailure: true, env });
+
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /managed.*(?:Story|checkout|worktree)/i);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), before.head);
+  assert.equal(git(root, ['show-ref']), before.refs);
+  assert.equal(git(root, ['worktree', 'list', '--porcelain']), before.worktrees);
+});
+
 test('session attach from Story A creates Story B worktree without switching or discarding A', async (t) => {
   const { root } = await repository(t);
   const start = (id) => JSON.parse(run(process.execPath, [cli,

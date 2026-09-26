@@ -499,6 +499,7 @@ Every public operation is classified before its implementation module is importe
 | session.context | read | never | — | — |
 | session.current | read | never | — | — |
 | session.doctor | read | never | — | — |
+| session.open-local | mutation | never | — | — |
 | session.repair-selection | mutation | never | — | — |
 | session.status | read | never | — | — |
 | session.workspace | mutation | never | — | — |

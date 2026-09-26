@@ -16,7 +16,7 @@ import { access, lstat, readFile, readdir, realpath as fsRealpath, rm } from 'no
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
 import {
-  formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
+  CliError, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
   terminalCommand,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory
@@ -5021,10 +5021,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
     }
-    // Session attachment can resolve to a managed Story worktree. Refreshing the launch clone after
-    // that succeeds leaves every view on the previous Story and discards the most important field
-    // in the command result: `repositoryPath`. Run this one selection operation as JSON, then move
-    // the window to the checkout the engine proved. The CLI still owns fetching and validation.
+    // A registered local Story checkout may contain unpublished work ahead of its remote. Opening
+    // that checkout must not be misrepresented as a remote attachment (which correctly refuses
+    // ahead history). First ask the engine to prove an existing managed checkout without Git
+    // synchronization; only a genuine local miss may fall through to the strict remote attach.
+    // Both routes return the verified repositoryPath that this window must open.
     if (argv[0] === 'session' && argv[1] === 'attach') {
       try {
         let args = argv.includes('--json') ? argv : [...argv, '--json'];
@@ -5073,10 +5074,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           onOutput: (value) => output.append(value)
         });
         const attached = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Attaching ${argv[2] ?? 'Story'}…` },
-          () => attachmentClient.run<{
-            workId?: string; repositoryPath?: string; branch?: string; phase?: string; status?: string;
-          }>(args)
+          { location: vscode.ProgressLocation.Notification, title: `Opening ${argv[2] ?? 'Story'}…` },
+          async () => {
+            type StorySelection = {
+              workId?: string; repositoryPath?: string; branch?: string; phase?: string; status?: string;
+              localOnly?: boolean;
+            };
+            try {
+              return await attachmentClient.run<StorySelection>([
+                args[0], 'open-local', ...args.slice(2)
+              ]);
+            } catch (error) {
+              const refusal = error instanceof CliError && error.result
+                && typeof error.result === 'object'
+                ? (error.result as { error?: { code?: unknown } }).error?.code : null;
+              if (!['SESSION_LOCAL_STORY_UNAVAILABLE', 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE'].includes(
+                String(refusal ?? '')
+              )) throw error;
+              return attachmentClient.run<StorySelection>(args);
+            }
+          }
         );
         const checkout = attached.repositoryPath ? path.resolve(attached.repositoryPath) : null;
         if (!checkout) {
@@ -5086,13 +5103,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         }
         if (checkout !== path.resolve(repository)) {
+          if (node.openCopilotAfterAttach && attached.workId) {
+            const pending: PendingCopilotHandoff = {
+              kind: 'story', repository: checkout, workId: attached.workId,
+              requestedAt: new Date().toISOString()
+            };
+            await context.globalState.update(COPILOT_HANDOFF_KEY, pending);
+          }
           void vscode.window.showInformationMessage(
-            `Story ${attached.workId ?? argv[2]} is ready in its isolated checkout. Opening it now.`
+            `Story ${attached.workId ?? argv[2]} is ready in its isolated checkout${attached.localOnly ? ' (local work preserved; remote not synchronized)' : ''}. Opening it now.`
           );
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(checkout), false);
           return;
         }
         await refreshAfterKnownMutation();
+        if (node.openCopilotAfterAttach && attached.workId) await openGovernedCopilot(attached.workId);
       } catch (error) {
         output.appendLine(`Story attachment failed: ${(error as Error).message}`);
         showRefusal(error, { headline: `Could not attach Story ${argv[2] ?? ''}`.trim() });
@@ -5696,6 +5721,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return runNode({
         kind: 'story', id: `inbox:active-story:${message.workId}`, label: message.workId,
         command: ['session', 'attach', message.workId],
+        openCopilotAfterAttach: true,
         ...(workspaceStoryCatalog.some((row) => row.id === story.workId
           && row.repositoryId === story.repositoryId)
           ? { storyRepositoryId: story.repositoryId }

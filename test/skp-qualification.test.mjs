@@ -40,7 +40,13 @@ test('fixed target classes distinguish policy fixtures, independent Git clients,
   assert.equal(policy.evidenceClass, 'unit-fixtures'); assert.ok(policy.files.includes('test/skp-host-admission.test.mjs'));
   assert.ok(policy.files.includes('test/wca-shared-phase-changes.test.mjs'));
   assert.ok(policy.files.includes('test/wca-simulation.test.mjs'));
+  assert.ok(policy.files.includes('test/skp-platform-owners.test.mjs'));
   assert.match(policy.meaning, /structural shared-impact\/lifecycle projections/u);
+  assert.match(policy.meaning, /synthetic host and Windows\/Linux owner policy/u);
+  const retained = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'retained-local-owner-fixtures');
+  assert.ok(retained.files.includes('test/vscode-workflow-drafts-portable-recovery.test.mjs'));
+  assert.equal(retained.evidenceClass, 'actual-local-git-and-filesystem-fixtures');
+  assert.match(retained.meaning, /on the observed OS/u);
   const clients = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'independent-local-git-clients');
   assert.equal(clients.evidenceClass, 'actual-two-client-local-git-fixtures'); assert.match(clients.meaning, /not two physical machines/);
   const pty = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'direct-terminal-local-review');

@@ -98,8 +98,8 @@ export function resolveTemplate(definition, value, { label = 'Template' } = {}) 
   if (value == null) return null;
   if (isTemplateReference(value)) {
     const id = parseTemplateReference(value, label);
-    const entry = definition?.templates?.[id];
-    if (!entry) {
+    const raw = Object.hasOwn(definition?.templates ?? {}, id) ? definition.templates[id] : null;
+    if (raw == null) {
       const known = Object.keys(definition?.templates ?? {});
       throw new SingularityFlowError(
         `${label} references template '${id}', which the catalog does not declare.`
@@ -107,6 +107,9 @@ export function resolveTemplate(definition, value, { label = 'Template' } = {}) 
         { code: 'TEMPLATE_UNKNOWN', details: { id, known } }
       );
     }
+    // validateDefinition checks a normalized local view, but intentionally retains raw YAML.
+    // Resolve both historical string declarations and object rows through this same owner.
+    const entry = typeof raw === 'string' ? normalizeTemplateCatalog({ [id]: raw })[id] : raw;
     return { source: 'catalog', id, path: entry.path, label: entry.label, kind: entry.kind };
   }
   if (typeof value === 'string' && value.startsWith('agent:')) {

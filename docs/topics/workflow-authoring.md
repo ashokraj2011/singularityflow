@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 26
+version: 27
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -259,8 +259,9 @@ No existing Story is repinned. Impact is configuration-only, not a complete reta
 cross-repository inventory; external dependency content and host enforcement are not inferred.
 A stale parent, approved source or plan requires a fresh Preview and separate terminal review.
 Submission still creates only a configuration review proposal, not approval, activation or
-execution. The explicit shared-phase review profile below supports bounded ordinary phase edits;
-shared agent/template/skill/effect changes and imported-skill execution remain unavailable.
+execution. The explicit shared-object review profiles below support bounded ordinary phase,
+agent-body and template-content edits. Agent metadata/effects, skill binding changes and imported
+skill execution still require separate owners and cannot be enabled by these profiles.
 
 ### Review an ordinary shared phase change
 
@@ -288,6 +289,46 @@ Save the advanced draft through the existing authoring owner, then use Shell
 `/sf-workflows author submit WFD-<ID> --revision <N> --json` follows the existing terminal review.
 The proposal overlays only selected raw phase definitions in the approved YAML. It does not
 rewrite application files, approve configuration, repin a Story or grant execution.
+
+### Review shared Agent Markdown or template content
+
+These additive `sflow-workflow-request@2` profiles use `intent: edit` and the same saved-draft
+Preview and separately confirmed submission commands above. They cannot be mixed with workflow
+changes, each other, candidate creation or new execution bindings.
+
+| Object | Explicit change row | Paired definition |
+|---|---|---|
+| Existing repository agent | `profile: wca-shared-agent-text-impact/v1`, `kind: agent`, exact `id`, `operation: edit`, `expectedTextSha256` | `definitions.agents` contains `{id, text}` with the entire literal Agent Markdown |
+| Existing template | `profile: wca-shared-template-content-impact/v1`, `kind: template`, exact `id`, `operation: edit`, `expectedDefinitionSha256`, `expectedContentSha256` | `definitions.templates` contains `{id, content}` and optionally the complete named `definition` |
+
+An agent replacement may change body prose only. Exact frontmatter bytes, phase/default mappings,
+tools and remote resource declarations remain unchanged. It cannot replace an installed agent,
+alter native metadata or preserve eligibility by copying a privileged installed identity.
+Template IDs are `template:<catalog-ID>` or `path:<existing-relative-path>`; the latter uses
+`expectedDefinitionSha256: null`. Named template declarations may change label/description, but
+not their existing path or kind. Hidden/native discovery roots and non-Markdown paths are not
+editable through this content profile. Required visible headings, supported template tokens,
+world-model prompt references and every affected workflow are checked by shared pure validators.
+An unclosed HTML comment is invalid; a required heading hidden inside a comment does not count.
+
+The compiler captures original committed bytes through the verified configuration owner while
+its Git objects are available. Public snapshot fields or later live-file reads are not original
+identity. This extra bounded raw-byte capture is explicit authoring-only work; ordinary workspace
+and Story reads do not pay for it. A materialized EOL/filter mismatch refuses the new exact-parent
+profile instead of silently authoring against different bytes. Historical ordinary authoring and
+Story projection semantics remain unchanged. Limits refuse the whole impact, including repeated
+blob/path retention, rather than dropping consumers.
+
+In **Shared workflow drafts → Team & skills**, an explicitly prepared shared agent/template
+request shows its supported literal content editor. It does not convert the request into a new
+candidate or add competing policy fields. Phase replacements and metadata use advanced JSON.
+Uniform captured Agent Markdown line endings survive browser textarea normalization; mixed or
+bare-CR source requires explicitly escaped advanced JSON instead of a guessed metadata rewrite.
+**Preview** shows changed objects, direct/transitive consumers, affected workflows and masked
+overrides. Bounded summaries disclose their row limits; the exact JSON retains the complete
+report. A change affecting a confirmed skill contract or its producer text requires separately
+recompiled consent and is refused by this profile. Retained Story/history and other-repository
+inventory remain excluded; existing Story pins do not move.
 
 ## Simulate a Story workflow before submitting it
 
@@ -537,8 +578,13 @@ singularity-flow skill doctor threat-model --story security-review --phase threa
 
 Copilot: `/sf-skill doctor threat-model --story security-review --phase threat-model`.
 The optional source is comparison only. The report verifies retained bytes, identifies a newer
-package without adopting it, and reports host qualification as unavailable. It neither edits nor
-repins the Story. Use the separately reviewed `/sf-story-skill-version` amendment route for adoption.
+package without adopting it, and reports host qualification as unavailable. Its source-capability
+report identifies the registered ACP seam and the missing pre-effect enforcement, authenticated
+mediated confirmation and exact delivery owners. This is not an installed-host probe, attestation
+or execution grant. Lifecycle refusals route to this read-only diagnostic and state the external
+host prerequisite; they never suggest rewriting intact Story evidence or retrying approval to
+bypass it. It neither edits nor repins the Story. Use the separately reviewed
+`/sf-story-skill-version` amendment route for adoption.
 
 ## Preview a skills workflow
 

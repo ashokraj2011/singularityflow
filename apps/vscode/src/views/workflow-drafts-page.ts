@@ -1,7 +1,7 @@
 /** Escaped, nonce-shell content. Draft JSON is never executable webview markup. */
 import { WORKFLOW_DRAFT_INPUT_MAX_BYTES, type SharedWorkflowDraftView } from './workflow-drafts-model.ts';
 import { escape } from './webview.ts';
-import { workflowDraftContent, workflowDraftEnvelope, workflowDraftGuide, workflowDraftSkillProducerClassification,
+import { workflowDraftAgentTextMode, workflowDraftContent, workflowDraftEnvelope, workflowDraftGuide, workflowDraftSharedObjectKind, workflowDraftSkillProducerClassification,
   WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE, WORKFLOW_DRAFT_STAGES, type WorkflowDraftGuideField } from './workflow-drafts-guide.ts';
 
 export function workflowDraftDurabilityLabel(view: SharedWorkflowDraftView): string {
@@ -29,9 +29,11 @@ export function workflowDraftRecoveryLabel(view: SharedWorkflowDraftView): strin
 function lifecycleSimulationHtml(preview: Record<string, unknown>): string {
   const value = preview.simulation;
   const simulation = value && typeof value === 'object' ? value as Record<string, unknown> : null;
-  if (!simulation || !Array.isArray(simulation.workflows)) return '<p>Structural lifecycle simulation was not reported. This is not a complete lifecycle verdict.</p>';
+  const exactReport = `<details><summary>Exact saved-revision Preview JSON</summary><pre><code>${escape(JSON.stringify(preview, null, 2))}</code></pre></details>`;
+  if (!simulation || !Array.isArray(simulation.workflows)) return `<p>Structural lifecycle simulation was not reported. This is not a complete lifecycle verdict.</p>${exactReport}`;
   return `<section aria-labelledby="draft-simulation-title"><h3 id="draft-simulation-title">Structural lifecycle simulation · ${escape(simulation.status)}</h3>
     <p>Profile: <code>${escape(simulation.profile)}</code>. Hypothetical transitions only: no tests, models, human decisions or external operations were executed. This is not Ready to run.</p>
+    <p>Workflow summary: first ${Math.min(simulation.workflows.length, 16)} of ${simulation.workflows.length}. The exact Preview JSON retains every bounded workflow report.</p>
     ${simulation.workflows.slice(0, 16).map((raw) => {
       const report = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
       const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
@@ -46,7 +48,7 @@ function lifecycleSimulationHtml(preview: Record<string, unknown>): string {
         <p>Excluded: ${escape(Array.isArray(coverage.excluded) ? coverage.excluded.join(', ') : 'not reported')}.</p>
       </details>`;
     }).join('')}
-    <details><summary>Exact saved-revision Preview JSON</summary><pre><code>${escape(JSON.stringify(preview, null, 2))}</code></pre></details></section>`;
+    ${exactReport}</section>`;
 }
 
 function workflowChangeImpactHtml(preview: Record<string, unknown>): string {
@@ -74,13 +76,42 @@ function workflowChangeImpactHtml(preview: Record<string, unknown>): string {
     }).join('')}</tbody></table></section>`;
 }
 
+function sharedObjectChangeImpactHtml(preview: Record<string, unknown>): string {
+  const value = preview.sharedObjectChanges;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  const change = value as Record<string, unknown>;
+  const row = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+  const impact = row(change.impact);
+  const replacements = Array.isArray(change.replacements) ? change.replacements : [];
+  const consumers = Array.isArray(impact.consumers) ? impact.consumers : [];
+  const workflows = Array.isArray(impact.affectedWorkflows) ? impact.affectedWorkflows : [];
+  const list = (value: unknown): string => Array.isArray(value) ? value.map(String).join(', ') : 'not reported';
+  return `<section aria-labelledby="draft-shared-impact"><h3 id="draft-shared-impact">Shared object change impact · ${escape(change.status)}</h3>
+    <p>Profile: <code>${escape(change.profile)}</code>. Only the captured approved catalog was assessed. Existing Story pins: ${escape(impact.retainedStories)}. Other repositories: ${escape(impact.otherRepositories)}. Eligibility is not execution; approval, activation and native host permission are not granted.</p>
+    <p>Replacements: first ${Math.min(replacements.length, 16)} of ${replacements.length}. Consumers: first ${Math.min(consumers.length, 64)} of ${consumers.length}. Workflows: first ${Math.min(workflows.length, 64)} of ${workflows.length}. The exact Preview JSON retains the full bounded impact and source identities.</p>
+    <table><thead><tr><th>Changed object</th><th>Exact parent</th><th>Changed fields</th></tr></thead><tbody>${replacements.slice(0, 16).map((value) => {
+      const item = row(value);
+      return `<tr><td>${escape(item.kind)}:<code>${escape(item.id)}</code>${item.path ? `<br>${escape(item.path)}` : ''}</td><td><code>${escape(item.expectedDefinitionSha256 ?? item.beforeDefinitionSha256 ?? item.expectedTextSha256 ?? item.beforeTextSha256 ?? item.expectedContentSha256 ?? item.beforeContentSha256 ?? 'not reported')}</code></td><td>${escape(list(item.changedFields))}</td></tr>`;
+    }).join('')}</tbody></table>
+    <table><thead><tr><th>Declared consumer</th><th>Relationship</th></tr></thead><tbody>${consumers.slice(0, 64).map((value) => {
+      const item = row(value); return `<tr><td>${escape(item.kind)}:<code>${escape(item.id)}</code></td><td>${escape(item.relation)}</td></tr>`;
+    }).join('')}</tbody></table>
+    <table><thead><tr><th>Affected workflow</th><th>Effective impact</th><th>Phase overrides</th></tr></thead><tbody>${workflows.slice(0, 64).map((value) => {
+      const item = row(value); const phases = Array.isArray(item.effectivePhases) ? item.effectivePhases : [];
+      return `<tr><td><code>${escape(item.id)}</code></td><td>${escape(item.status)}</td><td>${phases.slice(0, 32).map((value) => {
+        const phase = row(value); return `<div><code>${escape(phase.id)}</code> · ${escape(phase.status)} · override fields: ${escape(list(phase.overrideFields))} · template override: ${escape(phase.templateOverride === true ? 'yes' : phase.templateOverride === false ? 'no' : 'not reported')}</div>`;
+      }).join('')}${phases.length > 32 ? `<p>First 32 of ${phases.length} phases; see exact JSON.</p>` : ''}</td></tr>`;
+    }).join('')}</tbody></table><p>Excluded: ${escape(list(impact.excluded))}.</p></section>`;
+}
+
 function guidedHtml(view: SharedWorkflowDraftView): string {
   const editor = view.editor!; const disabled = view.busy || editor.readOnlyReason ? ' disabled' : '';
   const navigationDisabled = view.busy ? ' disabled' : '';
   const text = (value: unknown): string => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : Array.isArray(value) ? value.join(', ') : '';
   const answer = (field: WorkflowDraftGuideField, label: string, value: unknown, index = 0): string => {
     const id = `guide-${field}-${index}`;
-    return `<label for="${id}">${escape(label)}<textarea id="${id}" rows="${['agent-prompt', 'skill-instructions', 'template-content', 'description', 'rationale'].includes(field) ? 4 : 1}" spellcheck="false"${view.busy || editor.readOnlyReason ? ' readonly' : ''}>${escape(text(value))}</textarea></label>
+    return `<label for="${id}">${escape(label)}<textarea id="${id}" rows="${['agent-prompt', 'shared-agent-text', 'skill-instructions', 'template-content', 'description', 'rationale'].includes(field) ? 6 : 1}" spellcheck="false"${view.busy || editor.readOnlyReason ? ' readonly' : ''}>${escape(text(value))}</textarea></label>
       <button type="button" class="secondary" data-draft-action="guide-answer" data-guide-field="${field}" data-guide-input="${id}" data-guide-index="${index}"${disabled}>Apply answer</button>`;
   };
   const producerClassification = (skill: Record<string, unknown>, index: number): string => {
@@ -109,7 +140,21 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
   try {
     const guide = workflowDraftGuide(editor.inputText);
     const envelope = workflowDraftEnvelope(editor.inputText);
-    if (view.stage === 1) content = '<p>What should this workflow help people complete? Leave a field empty when undecided; no meaning is guessed.</p>'
+    const sharedKind = workflowDraftSharedObjectKind(guide.payload);
+    if (sharedKind !== null) {
+      content = `<p>Exact-parent shared ${escape(sharedKind)} changes. Parent hashes, approved base, literal originals and dependent contracts require fresh Preview. Application files and existing Story pins are not changed.</p>`;
+      if (sharedKind === 'unsupported') content += '<p class="warning">Unsupported or mixed shared-object profile retained. No guided policy or content rewrite is available; resolve it explicitly in advanced JSON.</p>';
+      else if (view.stage === 3) {
+        if (sharedKind === 'agent') content += guide.agents.map((agent, index) => `<details open><summary>${escape(agent.id)} · existing shared agent</summary><p>Change body prose only. Preserve exact frontmatter and remote resource declarations; the compiler refuses metadata, tools, eligibility or permission changes.</p>${workflowDraftAgentTextMode(agent.text) === 'advanced-only'
+          ? '<p class="warning">Mixed or bare-CR source line endings require escaped advanced JSON. No guided text edit is available; exact metadata bytes are not normalized.</p>'
+          : `<p>Uniform captured source line endings are retained when the browser normalizes textarea input.</p>${answer('shared-agent-text', 'Complete Agent Markdown (exact metadata must remain unchanged)', agent.text, index)}`}</details>`).join('');
+        else if (sharedKind === 'template') content += guide.templates.map((template, index) => `<details open><summary>${escape(template.id)} · existing shared template</summary><p>Preserve the path, kind and parent identities. Required headings and supported tokens are validated for every affected workflow.</p>${answer('template-content', 'Literal template content', template.content, index)}</details>`).join('');
+        else content += '<p>Complete phase replacements use advanced JSON. The guide does not infer nested artifact, input or review policy.</p>';
+      }
+      if (view.stage === 5) content += answer('rationale', 'Review explanation', guide.payload.rationale);
+      if (view.stage === 6) content += '<p>Save and Preview the exact revision, then use the separate terminal review. Headless Copilot cannot mint authenticated consent. Submission creates an inactive proposal, not approval or execution.</p>'
+        + `<button type="button" class="secondary" data-draft-action="submit-review"${view.busy || view.recovery?.candidateAvailable || ['failed', 'checking'].includes(view.recovery?.status) ? ' disabled' : ''}>Copy rooted Shell submission-review command</button><button type="button" class="secondary" data-draft-action="copilot-submit-review"${view.busy || view.recovery?.candidateAvailable || ['failed', 'checking'].includes(view.recovery?.status) ? ' disabled' : ''}>Copy Copilot submission handoff</button>`;
+    } else if (view.stage === 1) content = '<p>What should this workflow help people complete? Leave a field empty when undecided; no meaning is guessed.</p>'
       + answer('id', 'Package identity (lower-case kebab-case)', guide.payload.id)
       + answer('label', 'Package label', guide.payload.label) + answer('description', 'Goal / purpose', guide.payload.description)
       + '<p>For an empty component package, select an exact approved workflow to edit or make a linked copy. Omitted advanced policy is preserved. A copy shares existing phases, agents, templates and skills; it does not change those objects or existing Story pins.</p>'
@@ -216,6 +261,7 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
     ${view.preview ? `<section id="draft-preview"><h2>Exact saved-package Preview · read-only</h2><p>Plan: <code>${escape(view.preview.planSha256)}</code>. Authoring: ${escape((view.preview.readiness as Record<string, unknown>)?.authoring)}. Host: ${escape((view.preview.readiness as Record<string, unknown>)?.host)}. Execution: ${escape((view.preview.readiness as Record<string, unknown>)?.execution)}.</p>
       <p>Static validity is not Ready to run. Human confirmation, membership, native host enforcement and activation remain separate; no operation was executed.</p>
       ${workflowChangeImpactHtml(view.preview)}
+      ${sharedObjectChangeImpactHtml(view.preview)}
       ${lifecycleSimulationHtml(view.preview)}
       <ul>${Array.isArray(view.preview.findings) ? view.preview.findings.slice(0, 128).map((finding) => {
         const item = finding && typeof finding === 'object' ? finding as Record<string, unknown> : {};

@@ -1550,13 +1550,20 @@ export async function worldModelPromptViewReferences(root, definition) {
 
 export async function validateWorldModelPromptViewReferences(root, definition) {
   if (!definition.worldModel?.views && definition.worldModel?.format !== 'registered-v4') return new Map();
+  const references = await worldModelPromptViewReferences(root, definition);
+  validateWorldModelPromptReferences(definition, references);
+  return references;
+}
+
+/** Pure counterpart for exact captured text; it neither discovers files nor grants views. */
+export function validateWorldModelPromptReferences(definition, references) {
+  if (!definition.worldModel?.views && definition.worldModel?.format !== 'registered-v4') return references;
   const normalizeView = definition.worldModel.format === 'registered-v4'
     ? (view) => normalizeBuiltInViewReference(view).viewId
     : (view) => view;
   const declared = definition.worldModel.views
     ?? BUILTIN_VIEW_IDS;
   const configured = new Set(declared.map(normalizeView));
-  const references = await worldModelPromptViewReferences(root, definition);
   for (const [view, files] of references) {
     // Legacy builder and governed-agent prose may still name reader-facing v3 artifacts while an
     // explicitly migrated repository uses registered-v4. They are dormant documentation under
@@ -1649,38 +1656,60 @@ export async function validateAgentBriefHeadingContracts(root, definition) {
           parsed = parseMarkdownStructure(await readFile(file.absolute, 'utf8'));
           parsedByTemplate.set(producer.template, parsed);
         }
-        if (parsed.unclosedComments.length) {
-          throw new SingularityFlowError(
-            `Template '${producer.template}' has an unclosed HTML comment beginning at line ${parsed.unclosedComments[0].line}; preserved-heading contracts cannot be validated.`,
-            {
-              code: 'TEMPLATE_COMMENT_UNCLOSED',
-              details: { workType: workTypeId, phase: producer.id, template: producer.template,
-                line: parsed.unclosedComments[0].line }
-            }
-          );
-        }
-        for (const requested of declaration.preserve) {
-          const normalized = normalizeMarkdownHeading(requested);
-          const matches = parsed.headings.filter((heading) => heading.normalized === normalized);
-          if (matches.length !== 1) {
-            throw new SingularityFlowError(
-              matches.length
-                ? `Work type '${workTypeId}' phase '${consumer.id}' preserves ambiguous heading '${requested}' from ${producer.template}; matching headings are at lines ${matches.map((heading) => heading.line).join(', ')}.`
-                : `Work type '${workTypeId}' phase '${consumer.id}' preserves heading '${requested}', but ${producer.template} has no visible heading with that name.`,
-              {
-                code: matches.length
-                  ? 'AGENT_BRIEF_PRESERVE_HEADING_AMBIGUOUS'
-                  : 'AGENT_BRIEF_PRESERVE_HEADING_MISSING',
-                details: {
-                  workType: workTypeId, consumerPhase: consumer.id, producerPhase: producer.id,
-                  template: producer.template, heading: requested,
-                  matchingLines: matches.map((heading) => heading.line)
-                }
-              }
-            );
-          }
-        }
+        validateAgentBriefHeadingStructure(parsed, { workTypeId, consumer, producer, declaration });
       }
+    }
+  }
+}
+
+function validateAgentBriefHeadingStructure(parsed, { workTypeId, consumer, producer, declaration }) {
+  if (parsed.unclosedComments.length) {
+    throw new SingularityFlowError(
+      `Template '${producer.template}' has an unclosed HTML comment beginning at line ${parsed.unclosedComments[0].line}; preserved-heading contracts cannot be validated.`,
+      { code: 'TEMPLATE_COMMENT_UNCLOSED', details: { workType: workTypeId, phase: producer.id,
+        template: producer.template, line: parsed.unclosedComments[0].line } }
+    );
+  }
+  for (const requested of declaration.preserve) {
+    const normalized = normalizeMarkdownHeading(requested);
+    const matches = parsed.headings.filter((heading) => heading.normalized === normalized);
+    if (matches.length !== 1) {
+      throw new SingularityFlowError(
+        matches.length
+          ? `Work type '${workTypeId}' phase '${consumer.id}' preserves ambiguous heading '${requested}' from ${producer.template}; matching headings are at lines ${matches.map((heading) => heading.line).join(', ')}.`
+          : `Work type '${workTypeId}' phase '${consumer.id}' preserves heading '${requested}', but ${producer.template} has no visible heading with that name.`,
+        { code: matches.length ? 'AGENT_BRIEF_PRESERVE_HEADING_AMBIGUOUS' : 'AGENT_BRIEF_PRESERVE_HEADING_MISSING',
+          details: { workType: workTypeId, consumerPhase: consumer.id, producerPhase: producer.id,
+            template: producer.template, heading: requested, matchingLines: matches.map((heading) => heading.line) } }
+      );
+    }
+  }
+}
+
+/** Validate preserved sections from an exact caller-captured Map, without any filesystem read. */
+export function validateCapturedAgentBriefHeadingContracts(definition, templates) {
+  const parsedByTemplate = new Map();
+  for (const workTypeId of Object.keys(definition.workTypes ?? {})) {
+    const resolved = resolveWorkType(definition, workTypeId);
+    const phaseById = new Map(resolved.phases.map((phase) => [phase.id, phase]));
+    for (const consumer of resolved.phases) for (const declaration of consumer.inputs ?? []) {
+      if (declaration.projection !== 'approved-summary' || !(declaration.preserve?.length)) continue;
+      const producer = phaseById.get(declaration.phase);
+      if (!producer) continue;
+      if (producer.kind === 'skill') throw new SingularityFlowError(
+        `Work type '${workTypeId}' phase '${consumer.id}' cannot prevalidate preserved headings from skill phase '${producer.id}'.`,
+        { code: 'SKP_INPUT_PROJECTION_UNSUPPORTED' });
+      if (isAgentTemplateReference(producer.template)) throw new SingularityFlowError(
+        `Work type '${workTypeId}' phase '${consumer.id}' cannot declare preserved headings for dynamic Agent template '${producer.template}'. Use a governed repository template so the heading contract can be validated before Story start.`,
+        { code: 'AGENT_BRIEF_PRESERVE_TEMPLATE_DYNAMIC' });
+      let parsed = parsedByTemplate.get(producer.template);
+      if (!parsed) {
+        const content = templates.get(`${definition.templatesRoot}/${producer.template}`);
+        if (typeof content !== 'string') throw new SingularityFlowError('An exact captured producer template is unavailable.',
+          { code: 'WCA_CONTENT_UNRESOLVED' });
+        parsed = parseMarkdownStructure(content); parsedByTemplate.set(producer.template, parsed);
+      }
+      validateAgentBriefHeadingStructure(parsed, { workTypeId, consumer, producer, declaration });
     }
   }
 }
@@ -2322,6 +2351,17 @@ export function normalizeArtifactTemplateCompatibility(text, variables) {
   return text.replaceAll('{{WORK_ID}}', variables.id ?? '');
 }
 
+/** Exact same token admission as the renderer, usable before any artifact is written. */
+export function validateArtifactTemplateText(sourceText, variables = {}, phaseId = 'captured') {
+  const text = normalizeArtifactTemplateCompatibility(sourceText, variables);
+  const supported = new Set(Object.values(ARTIFACT_TEMPLATE_TOKENS));
+  const unsupported = [...new Set(text.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])].filter((token) => !supported.has(token));
+  if (unsupported.length) throw new SingularityFlowError(
+    `Artifact template for phase '${phaseId}' contains unsupported token(s): ${unsupported.join(', ')}. Supported tokens: ${[...supported].join(', ')}.`
+  );
+  return text;
+}
+
 export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {
   let sourceText;
   if (variables.retainedTemplate) {
@@ -2361,7 +2401,7 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
     }
     sourceText = await readFile(file.absolute, 'utf8');
   }
-  let text = normalizeArtifactTemplateCompatibility(sourceText, variables);
+  let text = validateArtifactTemplateText(sourceText, variables, resolvedPhase.id);
   const replacements = {
     [ARTIFACT_TEMPLATE_TOKENS.workId]: variables.id,
     [ARTIFACT_TEMPLATE_TOKENS.workTitle]: variables.title,
@@ -2370,14 +2410,6 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
     [ARTIFACT_TEMPLATE_TOKENS.phaseLabel]: resolvedPhase.label,
     [ARTIFACT_TEMPLATE_TOKENS.inputs]: variables.inputs ?? ''
   };
-  const unsupported = [...new Set(text.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])]
-    .filter((token) => !Object.hasOwn(replacements, token));
-  if (unsupported.length) {
-    throw new SingularityFlowError(
-      `Artifact template for phase '${resolvedPhase.id}' contains unsupported token(s): ${unsupported.join(', ')}. `
-      + `Supported tokens: ${Object.keys(replacements).join(', ')}.`
-    );
-  }
   for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
   return text;
 }

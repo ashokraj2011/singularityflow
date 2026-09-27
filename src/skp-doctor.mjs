@@ -1,6 +1,6 @@
 /** Read-only diagnostics. Package identity, host admission, and approval are separate claims. */
 import { verifySkillPackage } from './skp-package.mjs';
-import { SKP_HOST_DIMENSIONS } from './skp-host-admission.mjs';
+import { diagnoseSkillHostReadiness } from './skp-host-readiness.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export function diagnoseRetainedSkillPackage(retained, { source = null } = {}) {
@@ -26,12 +26,11 @@ export function diagnoseRetainedSkillPackage(retained, { source = null } = {}) {
       bytes: retained.manifest.files.reduce((sum, file) => sum + file.bytes, 0) },
     provenance: { status: 'not-checked' },
     source: { status: sourceStatus, packageSha256: source?.manifest.packageSha256 ?? null },
-    host: { status: 'unavailable', code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE',
-      unavailableDimensions: [...SKP_HOST_DIMENSIONS] },
+    host: diagnoseSkillHostReadiness(),
     execution: 'not-run', checks: 'not-run', approval: 'not-checked',
     executable: false, mutationRequired: false,
     guidance: sourceStatus === 'update-available'
       ? 'The original source changed. The retained package is unchanged; adoption requires a separate reviewed amendment.'
-      : 'Retained bytes are intact. Skill execution remains unavailable until a qualified host proves enforcement and exact delivery.'
+      : 'Retained bytes are intact. Skill execution remains unavailable: pre-effect enforcement, authenticated mediated confirmation and exact host delivery owners are missing. The host diagnostic identifies the registered source integration seam and prerequisites; it grants no execution permission.'
   };
 }

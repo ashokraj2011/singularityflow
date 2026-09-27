@@ -67,6 +67,11 @@ const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-autho
 // mutable. Keep the verified definition in a private slot so later Story policy/authority reads
 // cannot be widened by changing snapshot.definition after the approved bytes were loaded.
 const STORY_CONFIGURATION_VERIFIED_DEFINITIONS = new WeakMap();
+// New authoring replacements require committed object bytes. Do not reinterpret the historical
+// Story projection, whose ordinary assets may preserve checked-out EOL/filter compatibility.
+const STORY_CONFIGURATION_AUTHORING_GIT_BYTES = new WeakMap();
+const MIRROR_AUTHORING_GIT_BYTES = new WeakMap();
+const AUTHORING_GIT_BYTE_LIMITS = Object.freeze({ assets: 1024, objectBytes: 8 * 1024 * 1024, totalBytes: 16 * 1024 * 1024 });
 const SNAPSHOT_TYPED_ARRAY = Object.getPrototypeOf(Uint8Array.prototype);
 const SNAPSHOT_BYTE_LENGTH = Object.getOwnPropertyDescriptor(SNAPSHOT_TYPED_ARRAY, 'byteLength').get;
 const SNAPSHOT_ARRAY_BUFFER = Object.getOwnPropertyDescriptor(SNAPSHOT_TYPED_ARRAY, 'buffer').get;
@@ -1262,7 +1267,8 @@ async function cloneConfiguration(remote, target, { env = process.env } = {}) {
 async function copyVerifiedStateConfiguration(remote, destination, branch = STATE_CONFIGURATION_BRANCH, {
   env = process.env,
   allowUnmarked = false,
-  expectedCommit = null
+  expectedCommit = null,
+  captureAuthoringBytes = false
 } = {}) {
   const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-config-read-'));
   try {
@@ -1396,6 +1402,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
     // filesystem read of the materialized package cannot re-establish its committed identity.
     const skillEntries = approvedSkillTreeEntries(source, frozen.env, mirrorCommit);
     const skillBlobs = approvedSkillBlobs(source, skillEntries, frozen.env, manifest.files);
+    const authoringBytes = captureAuthoringBytes === true ? captureAuthoringGitBytes(source, treeEntries, frozen.env) : null;
     const copied = await copyConfigurationAssetsFromRef(source, 'HEAD', destination, {
       env: frozen.env
     });
@@ -1415,7 +1422,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
     // Hash integrity is necessary but not sufficient. A mirror is usable only when its complete
     // workflow, agent, prompt and template contract is operational under this engine build.
     const definition = await loadDefinition(destination);
-    return {
+    const result = {
       remote, branch, mirrorCommit,
       sourceBranch: CONFIGURATION_BRANCH,
       sourceCommit: manifest.source.commit,
@@ -1425,6 +1432,8 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
       skillEntries, skillBlobs,
       definition
     };
+    if (captureAuthoringBytes === true) MIRROR_AUTHORING_GIT_BYTES.set(result, authoringBytes);
+    return result;
   } finally {
     await removeTemporaryTree(source);
   }
@@ -1452,6 +1461,7 @@ async function storyConfigurationAuthorityObservation(remote, {
 }
 
 export async function resolveRemoteStoryConfigurationAuthority(remote, options = {}) {
+  const captureAuthoringBytes = options.captureAuthoringBytes === true;
   const selected = await storyConfigurationAuthorityObservation(remote, options);
   const { url, configurationCommit, stateCommit } = selected;
   if (!url) return null;
@@ -1463,7 +1473,8 @@ export async function resolveRemoteStoryConfigurationAuthority(remote, options =
   try {
     const mirror = await copyVerifiedStateConfiguration(url, scratch, STATE_CONFIGURATION_BRANCH, {
       allowUnmarked: true,
-      expectedCommit: stateCommit
+      expectedCommit: stateCommit,
+      captureAuthoringBytes
     });
     if (!mirror) return null;
     const authority = {
@@ -1475,7 +1486,8 @@ export async function resolveRemoteStoryConfigurationAuthority(remote, options =
       observedCommit: mirror.mirrorCommit,
       sourceCommit: mirror.sourceCommit,
       mirror,
-      definition: mirror.definition
+      definition: mirror.definition,
+      captureAuthoringBytes
     });
     Object.defineProperty(authority, STORY_CONFIGURATION_AUTHORITY_SNAPSHOT, {
       configurable: false, enumerable: false, writable: false, value: retainedSnapshot
@@ -1534,7 +1546,8 @@ function configuredStoryRemote(root, remoteName) {
 
 /** Find a Story-readable authority in this repository or its active workspace lead. */
 export async function resolveStoryConfigurationAuthority(root, remoteName = 'origin', {
-  session = new GitRemoteSession({ cwd: root })
+  session = new GitRemoteSession({ cwd: root }),
+  captureAuthoringBytes = false
 } = {}) {
   const workspace = await activeWorkspaceForRepository(root);
   // A capability-derived workspace records the organisation repository that actually owns
@@ -1542,19 +1555,19 @@ export async function resolveStoryConfigurationAuthority(root, remoteName = 'ori
   // workspace/runtime state, so it must win over both the member's origin and the delivery lead.
   const configuredAuthority = workspace?.capabilityAuthority?.url;
   if (configuredAuthority) {
-    return resolveRemoteStoryConfigurationAuthority(configuredAuthority, { session });
+    return resolveRemoteStoryConfigurationAuthority(configuredAuthority, { session, captureAuthoringBytes });
   }
 
   const own = configuredStoryRemote(root, remoteName);
   // Candidate order is authority precedence. A failed higher-priority observation must throw and
   // may never be converted to absence merely because a lower-priority lead happens to answer.
   const ownAuthority = own.url
-    ? await resolveRemoteStoryConfigurationAuthority(own.url, { session })
+    ? await resolveRemoteStoryConfigurationAuthority(own.url, { session, captureAuthoringBytes })
     : null;
   if (ownAuthority) return ownAuthority;
 
   const lead = workspace?.repositories?.[workspace.leadRepository]?.url;
-  return lead ? resolveRemoteStoryConfigurationAuthority(lead, { session }) : null;
+  return lead ? resolveRemoteStoryConfigurationAuthority(lead, { session, captureAuthoringBytes }) : null;
 }
 
 /**
@@ -1765,7 +1778,8 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   sourceCommit,
   mirror = null,
   definition: retainedDefinition = null,
-  env = process.env
+  env = process.env,
+  captureAuthoringBytes = false
 }) {
   // A remote authority must use reviewed workspace repair, not repository-local init advice.
   const workflow = await lstat(path.join(scratch, 'singularity/workflow.yml')).catch((error) => {
@@ -1782,6 +1796,9 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   const treeEntries = mirror?.assets
     ? new Map(Object.entries(mirror.assets))
     : configurationTreeEntries(scratch, 'HEAD', null, { env: gitEnv });
+  const authoringBytes = captureAuthoringBytes === true
+    ? (mirror ? MIRROR_AUTHORING_GIT_BYTES.get(mirror) : captureAuthoringGitBytes(scratch, treeEntries, gitEnv))
+    : null;
   // Both direct clones and recovery mirrors retain skill bytes directly from exact commit objects.
   // Materialized package paths are never authority to replace that already captured byte closure.
   if (mirror && (!(mirror.skillEntries instanceof Map) || !(mirror.skillBlobs instanceof Map))) {
@@ -1864,7 +1881,41 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
     definition: structuredClone(definition),
     definitionSha256: recordSha256(definition)
   }));
+  if (captureAuthoringBytes === true) STORY_CONFIGURATION_AUTHORING_GIT_BYTES.set(snapshot, authoringBytes ?? { unavailable: true });
   return snapshot;
+}
+
+function captureAuthoringGitBytes(root, treeEntries, env) {
+  incrementCommandCounter('configuration.authoring-byte-capture');
+  // Keep the additive bounded profile unavailable on overflow without changing old Story reads.
+  try {
+    const selected = [...treeEntries].filter(([relative]) => !relative.startsWith('singularity/skills/'));
+    if (selected.length > AUTHORING_GIT_BYTE_LIMITS.assets || selected.some(([, entry]) => !/^100(?:644|755)$/u.test(entry.mode))) {
+      return { unavailable: true };
+    }
+    const blobs = readLocalGitBlobs(root, selected.map(([, entry]) => entry.object), {
+      env, maximumBytes: AUTHORING_GIT_BYTE_LIMITS.totalBytes,
+      maximumObjectBytes: AUTHORING_GIT_BYTE_LIMITS.objectBytes,
+      maximumBatchBytes: AUTHORING_GIT_BYTE_LIMITS.totalBytes,
+      code: 'APPROVED_CONFIGURATION_EXACT_BYTES_UNAVAILABLE', limitCode: 'APPROVED_CONFIGURATION_EXACT_BYTES_UNAVAILABLE',
+      label: 'Exact approved authoring content'
+    });
+    // The batch reader deduplicates Git object IDs. Retention copies per path, so account for
+    // repeated identical blobs before allocating any path-owned buffers.
+    let retainedBytes = 0;
+    for (const [, entry] of selected) {
+      const contents = blobs.get(entry.object);
+      if (!Buffer.isBuffer(contents) || (retainedBytes += SNAPSHOT_BYTE_LENGTH.call(contents)) > AUTHORING_GIT_BYTE_LIMITS.totalBytes) {
+        return { unavailable: true };
+      }
+    }
+    const files = new Map(selected.map(([relative, entry]) => {
+      const contents = Buffer.from(blobs.get(entry.object));
+      return [relative, { relative, contents, sha256: createHash('sha256').update(contents).digest('hex'),
+        mode: entry.mode === '100755' ? 0o755 : 0o644, object: entry.object }];
+    }));
+    return { files };
+  } catch { return { unavailable: true }; }
 }
 
 function verifiedStoryDefinition(snapshot) {
@@ -1907,8 +1958,10 @@ export function approvedStoryApprovalAuthorities(snapshot) {
  * operation. The bounded configuration payload is retained in memory after the disposable clone
  * is removed, so validation and later branch materialization cannot perform two network clones or
  * observe two different authority revisions.
+ * The separate raw Git authoring-byte profile is opt-in; ordinary Story snapshots neither read
+ * its additional blob batch nor retain its additional private copies.
  */
-export async function loadStoryConfigurationSnapshot(authority, { env = process.env } = {}) {
+export async function loadStoryConfigurationSnapshot(authority, { env = process.env, captureAuthoringBytes = false } = {}) {
   if (!authority?.remote || !authority?.branch) {
     throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
   }
@@ -1923,8 +1976,10 @@ export async function loadStoryConfigurationSnapshot(authority, { env = process.
         { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
       );
     }
-    incrementCommandCounter('configuration.snapshot-reused');
-    return retained;
+    if (captureAuthoringBytes !== true || STORY_CONFIGURATION_AUTHORING_GIT_BYTES.has(retained)) {
+      incrementCommandCounter('configuration.snapshot-reused');
+      return retained;
+    }
   }
   let lastMoved = null;
   // A mutable authority ref can advance between its ls-remote observation and the bounded clone.
@@ -1939,7 +1994,8 @@ export async function loadStoryConfigurationSnapshot(authority, { env = process.
       let mirror = null;
       if (authority.branch === STATE_CONFIGURATION_BRANCH) {
         mirror = await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch, {
-          env
+          env,
+          captureAuthoringBytes
         });
         observedCommit = mirror.mirrorCommit;
         sourceCommit = mirror.sourceCommit;
@@ -1974,7 +2030,8 @@ export async function loadStoryConfigurationSnapshot(authority, { env = process.
         sourceCommit,
         mirror,
         definition: mirror?.definition ?? null,
-        env
+        env,
+        captureAuthoringBytes
       });
     } catch (error) {
       if (error?.code !== 'STORY_CONFIGURATION_AUTHORITY_STALE') throw error;
@@ -2097,6 +2154,33 @@ function captureStoryConfigurationSnapshotAssets(snapshot, { selectPaths = null 
     captured.push({ ...entry, contents });
   }
   return captured;
+}
+
+/** Read-only extraction from private verified membership; returned bytes are independent copies. */
+export function captureVerifiedConfigurationAssetBytes(snapshot, { selectPaths } = {}) {
+  assertVerifiedStorySnapshot(snapshot);
+  if (types.isProxy(selectPaths) || !Array.isArray(selectPaths) || Object.getPrototypeOf(selectPaths) !== Array.prototype || !selectPaths.length
+      || selectPaths.length > 1024 || Object.keys(selectPaths).length !== selectPaths.length
+      || Reflect.ownKeys(selectPaths).some((key) => key !== 'length' && (typeof key !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(key)))
+      || Object.values(Object.getOwnPropertyDescriptors(selectPaths)).some((entry) => !Object.hasOwn(entry, 'value'))
+      || selectPaths.some((relative) => typeof relative !== 'string')) {
+    throw new SingularityFlowError('Exact approved byte extraction requires a bounded literal selected-path array.', {
+      code: 'APPROVED_CONFIGURATION_SELECTION_INVALID'
+    });
+  }
+  if (!selectPaths.includes('singularity/workflow.yml')) throw new SingularityFlowError('Exact approved byte selection must include singularity/workflow.yml.', {
+    code: 'APPROVED_CONFIGURATION_SELECTION_INVALID'
+  });
+  const retained = STORY_CONFIGURATION_AUTHORING_GIT_BYTES.get(snapshot);
+  if (!retained?.files) throw new SingularityFlowError('The bounded immutable approved authoring byte capture is unavailable; no live file fallback is allowed.', {
+    code: 'APPROVED_CONFIGURATION_EXACT_BYTES_UNAVAILABLE'
+  });
+  return Object.freeze([...new Set(selectPaths)].sort().map((relative) => {
+    const entry = retained.files.get(relative);
+    if (!entry) throw new SingularityFlowError('An exact selected approved Git asset is unavailable.', { code: 'APPROVED_CONFIGURATION_INCOMPLETE' });
+    const contents = Buffer.alloc(SNAPSHOT_BYTE_LENGTH.call(entry.contents)); SNAPSHOT_COPY_BYTES.call(contents, entry.contents);
+    return Object.freeze({ relative, mode: entry.mode, sha256: entry.sha256, contents });
+  }));
 }
 
 async function writeCapturedStoryConfigurationAssets(captured, destination) {

@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { CONFIGURATION_BRANCH, STATE_CONFIGURATION_MANIFEST, configurationAssetPaths,
   ensureConfigurationBranch, inspectApprovedSkillPackage, loadStoryConfigurationSnapshot,
+  captureVerifiedConfigurationAssetBytes,
   materializeConfigurationSnapshot, resolveStoryConfigurationAuthority,
   withStoryConfigurationSnapshotRead } from '../src/configuration-branch.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
@@ -19,6 +20,7 @@ import { gitRepositoryComparisonKey } from '../src/git-repository-identity.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { inspectSkillPackageContents, readSealedSkillPackage } from '../src/skp-package.mjs';
 import { run } from '../src/util.mjs';
+import { withCommandTiming } from '../src/dx-timing-context.mjs';
 
 const skillId = 'mirror-exact-skill';
 const entryBytes = Buffer.from('# Exact approved mirror\r\nRead [reference](references/guide.bin).\r\n');
@@ -75,6 +77,44 @@ async function fixture(t) {
     sourceCommit: resolved.sourceCommit, source: resolved.source };
   return { checkout, remote, sourceCommit, authority };
 }
+
+test('ordinary verified recovery-mirror reads omit authoring capture while explicit fresh authoring uses one bounded private capture', async (t) => {
+  const value = await fixture(t); const counts = new Map();
+  const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); } };
+  const refs = git(value.checkout, 'show-ref'); const status = git(value.checkout, 'status', '--porcelain');
+  await withCommandTiming(timer, () => withApprovedConfigurationRead(value.checkout, () => {
+    const snapshot = configurationReadSnapshot(value.checkout);
+    assert.throws(() => captureVerifiedConfigurationAssetBytes(snapshot, { selectPaths: ['singularity/workflow.yml'] }),
+      { code: 'APPROVED_CONFIGURATION_EXACT_BYTES_UNAVAILABLE' });
+  }, { freshOwnerCapture: true }));
+  assert.equal(counts.get('configuration.authoring-byte-capture') ?? 0, 0);
+  await withCommandTiming(timer, () => withApprovedConfigurationRead(value.checkout, () => {
+    const snapshot = configurationReadSnapshot(value.checkout);
+    assert.equal(captureVerifiedConfigurationAssetBytes(snapshot, { selectPaths: ['singularity/workflow.yml'] }).length, 1);
+  }, { freshOwnerCapture: true, captureAuthoringBytes: true }));
+  assert.equal(counts.get('configuration.authoring-byte-capture'), 1, 'mirror resolution retains its opted-in raw profile for loader reuse');
+  assert.equal(git(value.checkout, 'show-ref'), refs); assert.equal(git(value.checkout, 'status', '--porcelain'), status);
+});
+
+test('an ordinary retained mirror snapshot cannot be promoted to authoring bytes without another exact verified owner read', async (t) => {
+  const value = await fixture(t); const counts = new Map();
+  const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); } };
+  await withCommandTiming(timer, async () => {
+    const authority = await resolveStoryConfigurationAuthority(value.checkout);
+    const ordinary = await loadStoryConfigurationSnapshot(authority);
+    assert.equal(counts.get('configuration.snapshot-reused'), 1);
+    assert.equal(counts.get('configuration.authoring-byte-capture') ?? 0, 0);
+    assert.throws(() => captureVerifiedConfigurationAssetBytes(ordinary, { selectPaths: ['singularity/workflow.yml'] }),
+      { code: 'APPROVED_CONFIGURATION_EXACT_BYTES_UNAVAILABLE' });
+    const explicit = await loadStoryConfigurationSnapshot(authority, { captureAuthoringBytes: true });
+    assert.notEqual(explicit, ordinary); assert.equal(explicit.sourceCommit, ordinary.sourceCommit);
+    assert.equal(explicit.observedCommit, ordinary.observedCommit);
+    assert.equal(counts.get('configuration.authoring-byte-capture'), 1);
+    assert.equal(captureVerifiedConfigurationAssetBytes(explicit, { selectPaths: ['singularity/workflow.yml'] }).length, 1);
+    assert.throws(() => captureVerifiedConfigurationAssetBytes(ordinary, { selectPaths: ['singularity/workflow.yml'] }),
+      { code: 'APPROVED_CONFIGURATION_EXACT_BYTES_UNAVAILABLE' }, 'the original cached snapshot is not mutated or elevated');
+  });
+});
 
 test('state-mirror package capture uses original verified Git blobs despite a post-hash materialized-file replacement', async (t) => {
   const value = await fixture(t); const before = git(value.checkout, 'status', '--porcelain');

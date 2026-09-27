@@ -35,11 +35,21 @@ test('skill doctor distinguishes retained integrity and unavailable host without
   assert.equal(report.source.status, 'not-checked');
   assert.equal(report.host.status, 'unavailable');
   assert.equal(report.host.unavailableDimensions.length, 7);
+  assert.equal(report.host.observationScope, 'source-capabilities-only');
+  assert.equal(report.host.installedHost, 'not-checked');
+  assert.equal(report.host.integrationSeam.modelProviderId, 'copilot-cli');
+  assert.equal(report.host.integrationSeam.qualifiedSkillAdapter, false);
+  assert.deepEqual(report.host.missingOwners.map((owner) => owner.id), [
+    'pre-effect-enforcement', 'authenticated-mediated-confirmation', 'exact-host-delivery'
+  ]);
+  assert.equal(report.host.launchAuthorized, false);
+  assert.equal(report.host.nextAction.executionAuthorized, false);
   assert.equal(report.executable, false);
   assert.equal(report.execution, 'not-run');
   assert.equal(report.approval, 'not-checked');
   assert.equal(report.provenance.status, 'not-checked');
   assert.equal(report.mutationRequired, false);
+  assert.match(report.guidance, /authenticated mediated confirmation/);
   assert.doesNotMatch(JSON.stringify(report), /Private checklist|Exact approved procedure/);
 });
 
@@ -217,6 +227,14 @@ test('actual doctor CLI verifies a retained Story and does not substitute delete
   assert.equal(response.data.diagnostic.provenance.status, 'verified-story-snapshot');
   assert.equal(response.data.diagnostic.source.status, 'not-checked');
   assert.equal(response.data.diagnostic.host.status, 'unavailable');
+  assert.equal(response.data.diagnostic.host.observationScope, 'source-capabilities-only');
+  assert.equal(response.data.diagnostic.host.installedHost, 'not-checked');
+  assert.equal(response.data.diagnostic.host.integrationSeam.qualifiedSkillAdapter, false);
+  assert.equal(response.data.diagnostic.host.launchAuthorized, false);
+  assert.equal(response.data.diagnostic.host.nextAction.kind, 'external-prerequisite');
+  assert.deepEqual(response.data.diagnostic.host.missingOwners.map((owner) => owner.id), [
+    'pre-effect-enforcement', 'authenticated-mediated-confirmation', 'exact-host-delivery'
+  ]);
   assert.equal(response.data.diagnostic.executable, false);
   assert.doesNotMatch(result.stdout, /Private checklist|Exact approved procedure/);
   const mismatched = value.refused('skill', 'doctor', 'different-report', '--story', 'SKP-DIAG-1',

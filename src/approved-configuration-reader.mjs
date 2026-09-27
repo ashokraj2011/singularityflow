@@ -418,6 +418,8 @@ export async function withRepositoryConfigurationCommitRead(root, {
  * catalog even when launched from that older Story checkout. `freshOwnerCapture` additionally
  * suspends all caller overlays and forces the canonical freshly verified authority path. It is
  * not a caller-provided approval witness; absence cannot fall back to local or working-tree input.
+ * `captureAuthoringBytes` adds bounded immutable raw Git bytes for exact authoring replacements
+ * only. Ordinary Story/workspace reads do not pay for or expose that extra private byte profile.
  */
 export async function withApprovedConfigurationRead(root, fn, {
   preferAuthority = false,
@@ -426,7 +428,8 @@ export async function withApprovedConfigurationRead(root, fn, {
   requireAuthorityRefresh = false,
   canonicalRemote = null,
   selectPaths = null,
-  freshOwnerCapture = false
+  freshOwnerCapture = false,
+  captureAuthoringBytes = false
 } = {}) {
   if (freshOwnerCapture) {
     return withoutConfigurationReadScope(() => withApprovedConfigurationRead(root, fn, {
@@ -435,7 +438,8 @@ export async function withApprovedConfigurationRead(root, fn, {
       refreshAuthority: true,
       requireAuthorityRefresh: true,
       canonicalRemote: null,
-      selectPaths
+      selectPaths,
+      captureAuthoringBytes
     }));
   }
   const existingScope = configurationReadScope(root);
@@ -464,9 +468,9 @@ export async function withApprovedConfigurationRead(root, fn, {
       hasStoryConfigurationAuthorityCandidate, loadStoryConfigurationSnapshot,
       resolveStoryConfigurationAuthority, withStoryConfigurationSnapshotRead
     } = await import('./configuration-branch.mjs');
-    const resolved = await resolveStoryConfigurationAuthority(root);
+    const resolved = await resolveStoryConfigurationAuthority(root, 'origin', { captureAuthoringBytes });
     if (resolved) {
-      const snapshot = await loadStoryConfigurationSnapshot(resolved);
+      const snapshot = await loadStoryConfigurationSnapshot(resolved, { captureAuthoringBytes });
       return withStoryConfigurationSnapshotRead(root, snapshot, fn, { selectPaths });
     }
     if (requireAuthorityRefresh) return fn(null);

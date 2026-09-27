@@ -10,6 +10,39 @@ import {
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
+test('skill-host refusal distinguishes an external prerequisite from repairable Story content', () => {
+  for (const code of ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED']) {
+    const error = Object.assign(new Error('Host unavailable'), { code,
+      details: { skillId: 'notes-writer', workId: 'team-notes', phase: 'write-note',
+        retry: { command: 'singularity-flow phase publish write-note' } } });
+    const plan = refusalRemediationPlan(error, ['phase', 'publish', 'write-note']);
+    assert.equal(plan.context.strategy, 'external-host-prerequisite');
+    assert.equal(plan.steps[0].command,
+      'singularity-flow skill doctor notes-writer --story team-notes --phase write-note --json');
+    assert.deepEqual(plan.steps[0].argv, ['skill', 'doctor', 'notes-writer', '--story', 'team-notes', '--phase', 'write-note', '--json']);
+    assert.equal(plan.steps[0].copilotCommand, '/sf-skill');
+    assert.equal(plan.steps[1].kind, 'external-prerequisite');
+    assert.equal(plan.steps[1].command, null);
+    assert.equal(plan.retry.automatic, false); assert.equal(plan.retry.command, null);
+    assert.match(plan.retry.label, /Diagnostics cannot enable execution/u);
+    const rendered = renderRefusalPlan(plan);
+    assert.match(rendered, /Shell: singularity-flow skill doctor/u);
+    assert.match(rendered, /Copilot: \/sf-skill/u);
+    assert.doesNotMatch(rendered, /repair in place|singularity-flow recover|phase publish/u);
+  }
+});
+
+test('skill-host approval and invalid selectors cannot suggest evidence edits, approval retries or injected commands', () => {
+  const error = Object.assign(new Error('Host unavailable'), { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE',
+    details: { skillId: 'notes-writer;evil', workId: 'team-notes', phase: 'write-note',
+      diagnosticAction: { command: 'singularity-flow phase publish write-note' } } });
+  const plan = refusalRemediationPlan(error, ['approve', 'write-note']);
+  assert.equal(plan.steps[0].command, 'singularity-flow skill --help');
+  assert.equal(plan.steps.length, 3); assert.match(plan.steps[2].label, /End this approval-only turn/u);
+  assert.equal(plan.retry.command, null);
+  assert.doesNotMatch(JSON.stringify(plan), /evil|phase publish|sf-reject|singularity-flow recover/u);
+});
+
 test('an Auto policy refusal gives a capability-aware bounded plan without executing it', () => {
   const error = Object.assign(new Error('Auto mode is disabled by repository policy.'), {
     code: 'AUTO_DISABLED'

@@ -516,15 +516,24 @@ export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
         killer.removeListener?.('error', onError);
         killer.removeListener?.('close', onClose);
       };
-      const finish = (treeAccepted) => {
+      const finish = (treeAccepted, helperClosed = false) => {
         if (settled) return;
         settled = true;
         cleanup();
+        if (!helperClosed) {
+          // An unresponsive taskkill utility is not evidence that the tree closed. Release only
+          // our local process handle so failed cleanup cannot keep the parent's event loop alive.
+          // A late spawn/error acknowledgement must also not become an unhandled exception.
+          const ignoreLateError = () => {};
+          killer.on?.('error', ignoreLateError);
+          killer.once?.('close', () => killer.removeListener?.('error', ignoreLateError));
+          try { killer.unref?.(); } catch { /* This does not change signal acceptance. */ }
+        }
         const directAccepted = treeAccepted ? false : signalDirectChild();
         resolve(treeAccepted || (!requireTree && directAccepted));
       };
       const onError = () => finish(false);
-      const onClose = (code) => finish(code === 0);
+      const onClose = (code) => finish(code === 0, true);
 
       killer.once?.('error', onError);
       killer.once?.('close', onClose);

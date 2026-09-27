@@ -3,10 +3,17 @@ import { createHash } from 'node:crypto';
 import { types } from 'node:util';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
-import { resolveWorkType, validateDefinition } from './config.mjs';
+import { resolveWorkType, validateDefinition, validateArtifactTemplateText,
+  validateCapturedAgentBriefHeadingContracts, validateWorldModelPromptReferences } from './config.mjs';
+import { parseAgentDependencies } from './agents.mjs';
+import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
+import { normalizeTemplateCatalog } from './template-catalog.mjs';
+import { markdownWorldModelViews } from './world-model-views.mjs';
 
 export const WCA_WORKFLOW_CHANGES_PROFILE = 'wca-workflow-only-changes/v1';
 export const WCA_SHARED_PHASE_CHANGES_PROFILE = 'wca-shared-phase-impact/v1';
+export const WCA_SHARED_AGENT_CHANGES_PROFILE = 'wca-shared-agent-text-impact/v1';
+export const WCA_SHARED_TEMPLATE_CHANGES_PROFILE = 'wca-shared-template-content-impact/v1';
 export const WCA_WORKFLOW_CHANGE_LIMITS = Object.freeze({ changes: 16, workflows: 256,
   phases: 512, agents: 256, catalogEntries: 512, nodes: 4096, edges: 8192,
   inputNodes: 100000, depth: 32, inputBytes: 8 * 1024 * 1024, outputBytes: 2 * 1024 * 1024 });
@@ -17,6 +24,7 @@ const SHARED_PHASE_FIELDS = ['label', 'description', 'artifact', 'artifactSet', 
   'inputs', 'approval', 'repairBudget', 'clarification', 'specificationQuality', 'testEvidenceFrom'];
 const GROUPS = ['workflows', 'phases', 'agents', 'skills', 'templates'];
 const digest = (value) => `sha256:${recordSha256(value)}`;
+const textDigest = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const plain = (value) => value !== null && typeof value === 'object'
   && !types.isProxy(value) && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
@@ -96,6 +104,20 @@ export function phaseDefinitionSha256(rawPhase) {
   return digest(value);
 }
 
+/** Exact UTF-8 bytes, never parsed metadata or a discovered display name. */
+export function agentTextSha256(text) {
+  const value = copyJson(text);
+  if (typeof value !== 'string') fail('WCA_CHANGE_INVALID', 'Exact agent source text is required.');
+  return textDigest(value);
+}
+
+/** A named template's raw string/object declaration owns this identity. */
+export function templateDefinitionSha256(rawTemplate) {
+  const value = copyJson(rawTemplate);
+  if (typeof value !== 'string' && !plain(value)) fail('WCA_CHANGE_INVALID', 'An exact raw template declaration is required.');
+  return digest(value);
+}
+
 function catalog(value, maximum) {
   if (value === undefined) return {};
   if (!plain(value)) fail('WCA_CHANGE_INVALID', 'An approved dependency catalog is unavailable.');
@@ -120,7 +142,7 @@ function phaseIds(value) {
   return values;
 }
 
-function dependencyGraph(definition, agents, replacements, { fullCatalog = false } = {}) {
+function dependencyGraph(definition, agents, replacements, { fullCatalog = false, sharedContent = false, templateContents = [] } = {}) {
   const nodes = new Map(); const edges = new Map();
   const key = (kind, id) => `${kind}:${stableId(id)}`;
   const addNode = (kind, id, value, extras = {}) => {
@@ -142,6 +164,7 @@ function dependencyGraph(definition, agents, replacements, { fullCatalog = false
   const authorities = catalog(definition.approvalAuthorities, WCA_WORKFLOW_CHANGE_LIMITS.catalogEntries);
   const servers = catalog(definition.mcpServers, WCA_WORKFLOW_CHANGE_LIMITS.catalogEntries);
   const viewDeclarations = new Map(list(definition.worldModel?.views ?? [], 'Declared world-model views').map((view) => [stableId(view), view]));
+  const contentMap = new Map(templateContents.map((entry) => [entry.path, entry.content]));
   bound(viewDeclarations.size, WCA_WORKFLOW_CHANGE_LIMITS.catalogEntries);
   for (const [kind, values] of [['workflow', workflows], ['phase', phases], ['template', templates],
     ['artifact-set', sets], ['approval-authority', authorities], ['mcp-server', servers]]) {
@@ -192,6 +215,13 @@ function dependencyGraph(definition, agents, replacements, { fullCatalog = false
       }
       addNode('template-path', reference, { path: reference, root: definition.templatesRoot ?? 'singularity/templates' }, { availability: 'content-verified-by-compiler' });
       link(from, 'template-path', reference, 'template');
+      if (sharedContent) {
+        const contentPath = `${definition.templatesRoot ?? 'singularity/templates'}/${reference}`;
+        if (contentMap.has(contentPath)) {
+          addNode('template-content', contentPath, { path: contentPath, contentSha256: textDigest(contentMap.get(contentPath)) });
+          link(key('template-path', reference), 'template-content', contentPath, 'exact-local-content');
+        }
+      }
     }
   };
   const named = (from, value) => {
@@ -276,7 +306,10 @@ function dependencyGraph(definition, agents, replacements, { fullCatalog = false
       // Eligibility is not execution or a tool grant. Unrestricted roles are eligible for every
       // configured phase; dormant installed declarations outside this exact catalog stay dormant.
       for (const id of (agent.phases ?? []).length ? agent.phases : Object.keys(phases)) {
-        if (Object.hasOwn(phases, id)) link(from, 'phase', id, 'agent-phase-eligibility');
+        if (Object.hasOwn(phases, id)) {
+          link(from, 'phase', id, 'agent-phase-eligibility');
+          if (sharedContent) link(key('phase', id), 'agent', agent.id, 'eligible-agent-not-executed');
+        }
       }
       for (const id of agent.defaultFor ?? []) if (Object.hasOwn(phases, id)) link(from, 'phase', id, 'agent-default-for');
       for (const [id, server] of Object.entries(servers)) if (!(server.agents ?? []).length) {
@@ -434,14 +467,14 @@ function validatedSharedPhaseDefinition(definition, agents, { prospective = fals
   }
 }
 
-function reverseSharedPhaseImpact(before, after, phaseIds) {
+function reverseSharedPhaseImpact(before, after, phaseIds, rootKeys = null) {
   const nodeMap = new Map([...before.nodes, ...after.nodes].map((node) => [`${node.kind}:${node.id}`, node]));
   const incoming = new Map();
   const edgeMap = new Map([...before.edges, ...after.edges].map((edge) => [canonicalJson(edge), edge]));
   for (const edge of edgeMap.values()) {
     const values = incoming.get(edge.to) ?? new Set(); values.add(edge.from); incoming.set(edge.to, values);
   }
-  const roots = new Set(phaseIds.map((id) => `phase:${id}`));
+  const roots = new Set(rootKeys ?? phaseIds.map((id) => `phase:${id}`));
   const selected = new Set(roots); const pending = [...roots];
   for (let index = 0; index < pending.length; index += 1) for (const from of incoming.get(pending[index]) ?? []) {
     if (!selected.has(from)) { selected.add(from); pending.push(from); }
@@ -583,4 +616,216 @@ export function planSharedPhaseChanges(input = {}) {
       message: error.message, category: 'submission-blocker', resolvingAction: 'workflow.author.edit' }] };
     return freeze({ ...result, planSha256: digest(result) });
   }
+}
+
+function contentPath(value) {
+  if (typeof value !== 'string' || !value || value.includes('\\') || value.startsWith('/')
+      || value.split('/').some((part) => !isPortableRepositoryPathComponent(part))) {
+    fail('WCA_CHANGE_INVALID', 'Shared content requires an exact portable captured path.');
+  }
+  return value;
+}
+function agentFrontmatter(text) {
+  const offset = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const opening = /^---\r?\n/u.exec(text.slice(offset));
+  if (!opening) fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'A complete existing Agent Markdown frontmatter is required.');
+  const remainder = text.slice(offset + opening[0].length);
+  const closing = /\r?\n---(?:\r?\n|$)/u.exec(remainder);
+  if (!closing) fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'The existing Agent Markdown frontmatter is unavailable.');
+  return text.slice(0, offset + opening[0].length + closing.index + closing[0].length);
+}
+function agentResourceTableBytes(text) {
+  const lines = text.match(/[^\n]*\n|[^\n]+$/gu) ?? [];
+  const tables = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/^## remote (?:skills|artifact templates|generated artifacts)$/u.test(lines[index].trim().toLowerCase())) continue;
+    const start = index; while (lines[index + 1]?.trim() === '') index += 1;
+    while (lines[index + 1]?.trim().startsWith('|')) index += 1;
+    tables.push(lines.slice(start, index + 1).join(''));
+  }
+  return tables;
+}
+function capturedAgent(agent) {
+  if (!plain(agent) || typeof agent.text !== 'string') fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'Complete captured agent source text is required.');
+  let parsed;
+  try { parsed = parseAgentDependencies(agent.text, { source: agent.source ?? `${agent.id}.agent.md`, agentId: identifier(agent.id) }); }
+  catch { fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'The captured Agent Markdown is invalid under its existing owner.'); }
+  for (const field of ['phases', 'defaultFor', 'tools', 'worldModelViews', 'dependencies']) {
+    if (digest(parsed[field]) !== digest(agent[field] ?? [])) fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'Captured agent metadata differs from its exact source text.');
+  }
+  return { ...agent, ...parsed };
+}
+function templateSelection(definition, reference) {
+  stableId(reference);
+  const named = reference.startsWith('template:');
+  if (!named && !reference.startsWith('path:')) fail('WCA_SHARED_CONTENT_UNSUPPORTED', 'Select template:<catalog-id> or path:<existing-relative-path>; remote Agent resources are not hydrated.');
+  const id = named ? identifier(reference.slice(9)) : null;
+  if (named && !Object.hasOwn(definition.templates ?? {}, id)) fail('WCA_SHARED_CONTENT_SOURCE_UNAVAILABLE', 'The exact named template is absent from the captured catalog.');
+  const raw = named ? definition.templates[id] : null;
+  const relative = contentPath(named ? (typeof raw === 'string' ? raw : raw.path) : reference.slice(5));
+  const path = contentPath(`${definition.templatesRoot ?? 'singularity/templates'}/${relative}`);
+  const identity = portableFilesystemPathIdentity(path);
+  if (!identity.endsWith('.md') || identity.split('/')[0].startsWith('.')) {
+    fail('WCA_SHARED_CONTENT_UNSUPPORTED', 'This template profile replaces Markdown outside native discovery/configuration roots only; it cannot act as an Agent, skill, workflow or executable editor.');
+  }
+  return { id, named, raw, relative, path };
+}
+function textContracts(definition, templates, changedTexts, changedTemplates) {
+  try {
+    for (const { content } of changedTemplates) validateArtifactTemplateText(content);
+    validateCapturedAgentBriefHeadingContracts(definition, templates);
+    const references = new Map();
+    for (const entry of changedTexts) for (const view of markdownWorldModelViews(entry.content)) {
+      const paths = references.get(view) ?? []; paths.push(entry.path); references.set(view, paths);
+    }
+    validateWorldModelPromptReferences(definition, references);
+  } catch (error) {
+    fail(error?.code?.startsWith('SKP_') ? 'WCA_SHARED_CONTENT_SKP_RECOMPILE_REQUIRED' : 'WCA_SHARED_CONTENT_CONTRACT_INVALID',
+      'The prospective exact text violates an existing template, preserved-heading or world-model view contract.');
+  }
+}
+
+/** Pure exact text impact; arbitrary JSON is never approved provenance or a writer capability. */
+function planSharedContentChanges(input, profile, kind) {
+  const empty = { profile, status: 'blocked', source: null, replacements: [], dependencyLocks: [],
+    graph: { before: { nodes: [], edges: [] }, after: { nodes: [], edges: [] } },
+    impact: { scope: 'captured-approved-configuration-only', consumers: [], affectedWorkflows: [],
+      retainedStories: 'unchanged-not-inventoried', otherRepositories: 'unknown-not-inventoried',
+      permissions: 'not-granted', execution: 'not-run', activation: 'inactive', submission: 'unavailable-from-this-planning-profile' }, findings: [] };
+  try {
+    const copied = copyJson(input); closed(copied, ['approvedDefinition', 'agents', 'templateContents', 'changes'], 'Shared content planner input');
+    const definition = copied.approvedDefinition;
+    if (!plain(definition)) fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'Exact captured raw configuration data is required.');
+    const agents = list(copied.agents, 'Complete captured agents').map(capturedAgent);
+    bound(agents.length, WCA_WORKFLOW_CHANGE_LIMITS.agents);
+    const contents = list(copied.templateContents ?? [], 'Captured template contents');
+    bound(contents.length, WCA_WORKFLOW_CHANGE_LIMITS.catalogEntries);
+    const templates = new Map();
+    for (const entry of contents) {
+      closed(entry, ['path', 'content'], 'Captured template content'); const path = contentPath(entry.path);
+      if (typeof entry.content !== 'string' || templates.has(path)) fail('WCA_SHARED_CONTENT_SOURCE_INVALID', 'Captured template content must have exact unique UTF-8 text paths.');
+      templates.set(path, entry.content);
+    }
+    const graphOptions = { fullCatalog: true, sharedContent: true, templateContents: contents };
+    const before = dependencyGraph(definition, agents, [], graphOptions);
+    const validatedBefore = validatedSharedPhaseDefinition(definition, agents);
+    const candidate = structuredClone(definition); const nextAgents = [...agents]; const nextTemplates = new Map(templates);
+    const changes = list(copied.changes, 'Explicit shared content changes');
+    bound(changes.length, WCA_WORKFLOW_CHANGE_LIMITS.changes);
+    if (!changes.length) fail('WCA_CHANGE_INVALID', 'Select an explicit exact shared content replacement.');
+    const seen = new Set(); const selectedPaths = new Set(); const replacements = []; const roots = [];
+    for (const change of changes) {
+      closed(change, kind === 'agent' ? ['kind', 'id', 'operation', 'expectedTextSha256', 'replacement']
+        : ['kind', 'id', 'operation', 'expectedDefinitionSha256', 'expectedContentSha256', 'replacement'], 'Shared content replacement');
+      if (change.kind !== kind || change.operation !== 'edit' || seen.has(change.id)) fail('WCA_SHARED_CONTENT_UNSUPPORTED', 'Only unique exact existing content edits from this profile are supported, not deletion, forks or mixed kinds.');
+      seen.add(change.id);
+      if (kind === 'agent') {
+        const id = identifier(change.id); const index = agents.findIndex((agent) => agent.id === id); const source = agents[index];
+        if (!source || source.scope !== 'repository' || id.startsWith('sf-') || id.startsWith('sflow-')
+            || !/^\.github\/agents\/[^/]+(?:\.agent)?\.md$/u.test(source.source ?? '')) {
+          fail('WCA_SHARED_CONTENT_SOURCE_UNAVAILABLE', 'Only the exact existing nonprivileged repository Agent Markdown file can be replaced.');
+        }
+        const path = contentPath(source.source); closed(change.replacement, ['text'], 'Agent text replacement');
+        const text = change.replacement.text;
+        if (typeof text !== 'string' || !text.trim()) fail('WCA_CHANGE_INVALID', 'Agent replacement needs exact nonempty literal UTF-8 text.');
+        if (change.expectedTextSha256 !== agentTextSha256(source.text)) fail('WCA_CHANGE_PARENT_STALE', 'The exact agent text parent changed; recapture and review the current source.');
+        let parsed;
+        try { parsed = parseAgentDependencies(text, { source: path, agentId: id }); }
+        catch { fail('WCA_SHARED_CONTENT_CONTRACT_INVALID', 'The prospective Agent Markdown is invalid under its existing owner.'); }
+        if (agentFrontmatter(text) !== agentFrontmatter(source.text)
+            || digest(parsed.dependencies) !== digest(source.dependencies)
+            || digest(agentResourceTableBytes(text)) !== digest(agentResourceTableBytes(source.text))) {
+          fail('WCA_SHARED_AGENT_EFFECT_CHANGE_UNSUPPORTED', 'This profile edits body prose only. Exact frontmatter, tools, eligibility, metadata and remote resource tables must remain unchanged.');
+        }
+        if (Object.entries(definition.phases ?? {}).some(([phaseId, phase]) => phase.kind === 'skill'
+            && (!(source.phases ?? []).length || source.phases.includes(phaseId) || source.defaultFor.includes(phaseId)))) {
+          fail('WCA_SHARED_CONTENT_SKP_RECOMPILE_REQUIRED', 'An eligible configured skill phase requires a new exact reviewed agent/binding proof; old skill consent cannot cover replacement prose.');
+        }
+        nextAgents[index] = { ...source, ...parsed, text };
+        roots.push(`agent:${id}`); replacements.push({ kind, id, operation: 'edit', path,
+          beforeTextSha256: agentTextSha256(source.text), afterTextSha256: agentTextSha256(text), text,
+          changedFields: source.text === text ? [] : ['body'] });
+      } else {
+        const selection = templateSelection(definition, change.id); const { path, named, raw, id } = selection;
+        if (!templates.has(path) || !before.graph.nodes.some((node) => node.kind === 'template-content' && node.id === path)) {
+          fail('WCA_SHARED_CONTENT_SOURCE_UNAVAILABLE', 'The selected local template is not retained in the exact captured catalog closure.');
+        }
+        if (selectedPaths.has(path)) fail('WCA_CHANGE_INVALID', 'Aliases of one physical template cannot receive separate replacements.'); selectedPaths.add(path);
+        closed(change.replacement, ['content', 'definition'], 'Template text replacement');
+        const content = change.replacement.content;
+        if (typeof content !== 'string' || !content.trim()) fail('WCA_CHANGE_INVALID', 'Template replacement needs exact nonempty literal UTF-8 text.');
+        if (change.expectedContentSha256 !== textDigest(templates.get(path))
+            || change.expectedDefinitionSha256 !== (named ? templateDefinitionSha256(raw) : null)) {
+          fail('WCA_CHANGE_PARENT_STALE', 'The exact raw template declaration or content parent changed; recapture it before reviewing an edit.');
+        }
+        let declaration = raw;
+        if (change.replacement.definition !== undefined) {
+          if (!named) fail('WCA_SHARED_CONTENT_UNSUPPORTED', 'Legacy path templates have no named declaration to replace.');
+          declaration = change.replacement.definition;
+          const oldValue = normalizeTemplateCatalog({ [id]: raw })[id]; const nextValue = normalizeTemplateCatalog({ [id]: declaration })[id];
+          if (oldValue.path !== nextValue.path || oldValue.kind !== nextValue.kind) fail('WCA_SHARED_TEMPLATE_EFFECT_CHANGE_UNSUPPORTED', 'Template paths and artifact kinds stay exact; only named label and description prose may change.');
+          for (const field of ['label', 'description']) if (nextValue[field] !== null && (typeof nextValue[field] !== 'string'
+              || Buffer.byteLength(nextValue[field]) > (field === 'label' ? 512 : 30000) || /[\u0000-\u001f\u007f]/u.test(nextValue[field]))) {
+            fail('WCA_CHANGE_INVALID', 'Named template display prose requires bounded literal text.');
+          }
+          candidate.templates[id] = declaration;
+        }
+        nextTemplates.set(path, content); roots.push(`template-content:${path}`);
+        if (named) roots.push(`template:${id}`);
+        replacements.push({ kind, id: change.id, operation: 'edit', path,
+          beforeDefinitionSha256: named ? templateDefinitionSha256(raw) : null,
+          afterDefinitionSha256: named ? templateDefinitionSha256(declaration) : null,
+          beforeContentSha256: textDigest(templates.get(path)), afterContentSha256: textDigest(content), content,
+          ...(named ? { catalogId: id, definition: declaration } : {}) });
+      }
+    }
+    const nextContents = [...nextTemplates].map(([path, content]) => ({ path, content }));
+    const after = dependencyGraph(candidate, nextAgents, [], { ...graphOptions, templateContents: nextContents });
+    const validatedAfter = validatedSharedPhaseDefinition(candidate, nextAgents, { prospective: true });
+    const impact = reverseSharedPhaseImpact(before.graph, after.graph, [], roots);
+    if (replacements.some((row) => kind === 'template' ? row.beforeContentSha256 !== row.afterContentSha256 : row.beforeTextSha256 !== row.afterTextSha256)
+        && impact.consumers.some((row) => row.kind === 'phase' && candidate.phases[row.id]?.kind === 'skill')) {
+      fail('WCA_SHARED_CONTENT_SKP_RECOMPILE_REQUIRED', 'The changed producer text closure reaches a confirmed skill contract; this profile cannot silently reuse its old consent.');
+    }
+    const changedTexts = replacements.map((row) => ({ path: row.path, content: row.text ?? row.content }));
+    textContracts(validatedAfter, nextTemplates, changedTexts, kind === 'template' ? replacements : []);
+    const affectedWorkflows = impact.consumers.filter((row) => row.kind === 'workflow').map((row) => {
+      const oldResolved = resolveWorkType(validatedBefore, row.id); const nextResolved = resolveWorkType(validatedAfter, row.id);
+      const effectivePhases = nextResolved.phases.filter((phase) => kind === 'agent'
+        ? replacements.some((replacement) => { const agent = agents.find((value) => value.id === replacement.id);
+          return !agent.phases.length || agent.phases.includes(phase.id); })
+        : replacements.some((replacement) => `${candidate.templatesRoot}/${phase.template}` === replacement.path)).map((phase) => ({
+          id: phase.id, beforeSha256: effectiveSharedPhaseSha256(oldResolved.phases.find((value) => value.id === phase.id)),
+          afterSha256: effectiveSharedPhaseSha256(phase), status: 'phase-policy-unchanged-content-consumer',
+          templateOverride: Object.hasOwn(definition.workTypes[row.id].templateOverrides ?? {}, phase.id),
+          ...(kind === 'agent' ? { agentSelection: replacements.some((replacement) => agents.find((agent) => agent.id === replacement.id).defaultFor.includes(phase.id))
+            ? 'existing-default' : 'eligible-alternative-not-selected' } : {}) }));
+      return { id: row.id, relation: row.relation, effectivePhases,
+        status: effectivePhases.length ? 'effective-content-consumer' : 'declared-dependency-only' };
+    });
+    replacements.sort((a, b) => compare(a.id, b.id));
+    const result = { ...empty, status: 'ready-for-review', source: { definitionSha256: digest(definition),
+      agentCatalogSha256: digest(before.graph.nodes.filter((node) => node.kind === 'agent')),
+      templateContentsSha256: digest(contents.map(({ path, content }) => ({ path, sha256: textDigest(content) })).sort((a, b) => compare(a.path, b.path))) },
+      replacements, dependencyLocks: before.dependencyLocks, graph: { before: before.graph, after: after.graph },
+      impact: { ...empty.impact, consumers: impact.consumers, consumerEdges: impact.edges, affectedWorkflows,
+        coverage: 'complete-declared-catalog-reference-impact-within-bounds;eligibility-is-not-execution',
+        validation: 'existing-definition-and-captured-text-owners;full-agent-catalog-validation-required-from-compiler-owner',
+        excluded: ['retained-story-inventory', 'other-repository-inventory', 'packaged-agent-catalog-provenance', 'unselected-session-overrides', 'external-dependency-hydration',
+          'real-human-availability', 'host-qualification', 'authorization', 'submission'] } };
+    const planned = { ...result, planSha256: digest(result) }; bound(Buffer.byteLength(canonicalJson(planned)), WCA_WORKFLOW_CHANGE_LIMITS.outputBytes);
+    return freeze(planned);
+  } catch (error) {
+    if (!(error instanceof SingularityFlowError)) throw error;
+    const result = { ...empty, findings: [{ code: error.code, fieldPath: error.fieldPath ?? 'changes', message: error.message,
+      category: 'submission-blocker', resolvingAction: 'workflow.author.edit' }] };
+    return freeze({ ...result, planSha256: digest(result) });
+  }
+}
+
+export function planSharedAgentChanges(input = {}) {
+  return planSharedContentChanges(input, WCA_SHARED_AGENT_CHANGES_PROFILE, 'agent');
+}
+export function planSharedTemplateChanges(input = {}) {
+  return planSharedContentChanges(input, WCA_SHARED_TEMPLATE_CHANGES_PROFILE, 'template');
 }

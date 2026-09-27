@@ -205,6 +205,7 @@ import {
 } from './skp-phase-evidence.mjs';
 import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
+import { diagnoseSkillHostReadiness } from './skp-host-readiness.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -226,10 +227,16 @@ function assertSkillPhaseHostReady(workflow, phase, operation) {
   // M2 pins and verifies skill bytes and phase evidence, but does not grant execution authority.
   // In particular, a model host or direct CLI call cannot reinterpret the accepted SKILL.md as
   // instructions until the qualified containment and delivery-receipt boundary is installed.
+  const skillId = pinned?.skillBinding?.bindingRefs?.skill?.id
+    ?? pinned?.skill?.id ?? phase?.skillBinding?.bindingRefs?.skill?.id ?? phase?.skill?.id;
   throw new SingularityFlowError(
     `Cannot ${operation} skill phase '${phase.id}': the qualified skill host and delivery receipt are not installed. `
     + 'The approved Story package remains pinned; no template or live skill folder was used.',
-    { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE', details: { phase: phase.id, operation } }
+    { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE', details: {
+      phase: phase.id, operation, workId: workflow.workItem?.id,
+      ...(typeof skillId === 'string' ? { skillId } : {}),
+      hostReadiness: diagnoseSkillHostReadiness()
+    } }
   );
 }
 

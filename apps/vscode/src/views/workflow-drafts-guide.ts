@@ -1,6 +1,11 @@
 /** Deterministic partial-request edits. These values are proposals, never catalog authority. */
 export const WORKFLOW_DRAFT_STAGES = ['Goal', 'Stages', 'Team & skills', 'Access & review', 'Review package', 'Submit & next steps'] as const;
 export const WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE = 'local-reviewed-artifact-producer/v1';
+const SHARED_OBJECT_PROFILES: Record<string, string> = {
+  'wca-shared-phase-impact/v1': 'phase',
+  'wca-shared-agent-text-impact/v1': 'agent',
+  'wca-shared-template-content-impact/v1': 'template'
+};
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 export interface WorkflowDraftGuide {
@@ -64,10 +69,29 @@ export function workflowDraftGuide(text: string): WorkflowDraftGuide {
 }
 
 export const WORKFLOW_DRAFT_GUIDE_FIELDS = ['id', 'label', 'description', 'phase-label', 'phase-inputs',
-  'agent-description', 'agent-prompt', 'skill-description', 'skill-instructions', 'skill-producer-classification', 'template-content', 'agent-tools', 'phase-review', 'rationale',
+  'agent-description', 'agent-prompt', 'shared-agent-text', 'skill-description', 'skill-instructions', 'skill-producer-classification', 'template-content', 'agent-tools', 'phase-review', 'rationale',
   'phase-artifact-path', 'phase-artifact-kind', 'phase-artifact-minimum', 'phase-artifact-maximum', 'phase-write-scope', 'workflow-label', 'workflow-description'] as const;
 export type WorkflowDraftGuideField = typeof WORKFLOW_DRAFT_GUIDE_FIELDS[number];
 const strings = (value: string): string[] => value.split(',').map((item) => item.trim()).filter(Boolean);
+
+/** Presentation classification only: not schema acceptance, source verification or consent. */
+export function workflowDraftSharedObjectKind(payload: Record<string, unknown>): string | null {
+  if (!Array.isArray(payload.changes) || !payload.changes.some((value) => object(value) && Object.hasOwn(value, 'profile'))) return null;
+  const changes = payload.changes;
+  const first = object(changes[0]) ? changes[0] : {};
+  const profile = typeof first.profile === 'string' ? first.profile : '';
+  const kind = Object.hasOwn(SHARED_OBJECT_PROFILES, profile) ? SHARED_OBJECT_PROFILES[profile]! : null;
+  return kind && changes.every((value) => object(value) && value.profile === profile
+    && value.kind === kind && value.operation === 'edit') ? kind : 'unsupported';
+}
+
+/** Textareas normalize CRLF. Preserve a uniform captured source dialect, never guess mixed bytes. */
+export function workflowDraftAgentTextMode(value: unknown): 'literal' | 'crlf' | 'advanced-only' {
+  if (typeof value !== 'string') return 'advanced-only';
+  const hasCrlf = value.includes('\r\n'); const remainder = value.replace(/\r\n/gu, '');
+  if (remainder.includes('\r') || hasCrlf && remainder.includes('\n')) return 'advanced-only';
+  return hasCrlf ? 'crlf' : 'literal';
+}
 
 /** Display a recognized request only; an unknown advanced declaration must not become "none". */
 export function workflowDraftSkillProducerClassification(skill: Record<string, unknown>): string | null {
@@ -90,6 +114,13 @@ export function editWorkflowDraftGuide(text: string, field: WorkflowDraftGuideFi
       || !Number.isSafeInteger(index) || index < 0 || index >= 32) throw new Error('The guided answer exceeds its fixed field/index bounds.');
   const envelope = workflowDraftEnvelope(text); const guide = workflowDraftGuide(text);
   const payload = guide.payload; envelope.payload = payload;
+  const sharedKind = workflowDraftSharedObjectKind(payload);
+  if (sharedKind !== null && field !== 'rationale'
+      && !(sharedKind === 'agent' && field === 'shared-agent-text')
+      && !(sharedKind === 'template' && field === 'template-content')) {
+    throw new Error('This exact-parent shared-object profile supports only its literal content field and review explanation in the guide. Source, parent hashes, metadata and policy require explicit advanced JSON and fresh Preview.');
+  }
+  if (field === 'shared-agent-text' && sharedKind !== 'agent') throw new Error('Shared Agent Markdown editing requires the exact existing-agent text profile. No candidate prompt was replaced.');
   if (['id', 'label', 'description', 'rationale'].includes(field)) {
     if (field === 'id' && value && (value.length > 64 || !ID.test(value))) throw new Error('Package identity must be bounded lower-case kebab-case, or left unresolved.');
     payload[field] = value;
@@ -99,15 +130,22 @@ export function editWorkflowDraftGuide(text: string, field: WorkflowDraftGuideFi
     workflow[field === 'workflow-label' ? 'label' : 'description'] = value;
     payload.definitions = { ...guide.definitions, workflows: guide.workflows };
   } else {
-    const key: 'phases' | 'agents' | 'skills' | 'templates' = field.startsWith('phase-') ? 'phases' : field.startsWith('agent-') ? 'agents'
+    const key: 'phases' | 'agents' | 'skills' | 'templates' = field.startsWith('phase-') ? 'phases' : field.startsWith('agent-') || field === 'shared-agent-text' ? 'agents'
       : field.startsWith('skill-') ? 'skills' : 'templates';
     const entries = guide[key]; const selected = entries[index];
     if (!selected) throw new Error('Create or select a candidate component before answering this question.');
+    if (field === 'shared-agent-text') {
+      const mode = workflowDraftAgentTextMode(selected.text);
+      if (mode === 'advanced-only' || value.replace(/\r\n/gu, '').includes('\r')) {
+        throw new Error('Mixed or bare-CR Agent Markdown requires explicit escaped advanced JSON; the guide cannot infer exact metadata line endings. No content was changed.');
+      }
+      if (mode === 'crlf') value = value.replace(/\r?\n/gu, '\r\n');
+    }
     if (selected.kind === 'skill' && (['phase-inputs', 'phase-review', 'phase-write-scope'].includes(field) || field.startsWith('phase-artifact-'))) {
       throw new Error('SKP inputs, outputs, access and review contracts require advanced JSON. No competing ordinary-phase field was added.');
     }
     const property: Record<string, string> = { 'phase-label': 'label', 'phase-inputs': 'inputs',
-      'agent-description': 'description', 'agent-prompt': 'prompt', 'skill-description': 'description', 'skill-instructions': 'instructions',
+      'agent-description': 'description', 'agent-prompt': 'prompt', 'shared-agent-text': 'text', 'skill-description': 'description', 'skill-instructions': 'instructions',
       'template-content': 'content', 'agent-tools': 'toolBindings', 'phase-review': 'approvalBinding', 'phase-write-scope': 'writeScope' };
     if (field === 'skill-producer-classification') {
       if (value !== '' && value !== WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE) throw new Error('Choose no classification or the exact artifact-only terminal-review request. This choice never grants eligibility.');
@@ -171,6 +209,7 @@ export function addWorkflowDraftStage(text: string, namespace: string): string {
 
 export function reorderWorkflowDraftStage(text: string, index: number, direction: number): string {
   const envelope = workflowDraftEnvelope(text); const guide = workflowDraftGuide(text);
+  if (workflowDraftSharedObjectKind(guide.payload) !== null) throw new Error('Shared-object changes cannot reorder workflow stages through this guide.');
   const workflow = guide.workflows[0]; const order = workflow?.phases;
   if (guide.workflows.length !== 1 || !Array.isArray(order) || order.length > 32 || order.some((entry) => typeof entry !== 'string')
       || !Number.isSafeInteger(index) || ![-1, 1].includes(direction) || index < 0 || index >= order.length
@@ -184,6 +223,7 @@ export function reorderWorkflowDraftStage(text: string, index: number, direction
 export function selectWorkflowDraftCatalog(text: string, kind: string, id: string, index: number): string {
   const envelope = workflowDraftEnvelope(text); const guide = workflowDraftGuide(text);
   // Existing catalog IDs are literal identifiers, not newly authored pathname components.
+  if (workflowDraftSharedObjectKind(guide.payload) !== null) throw new Error('Shared-object changes cannot add or replace catalog bindings through this guide.');
   if (!id || Buffer.byteLength(id, 'utf8') > 512 || /[\0\r\n]/u.test(id)
       || Buffer.from(id, 'utf8').toString('utf8') !== id || !Number.isSafeInteger(index) || index < 0 || index >= 32) {
     throw new Error('Choose a bounded captured catalog reference.');

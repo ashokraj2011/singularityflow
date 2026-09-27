@@ -44,7 +44,14 @@ async function assertNoMutationOnHostRefusal(value, attempt) {
   const marker = pendingPublicationPath(value.root, value.config, value.workflow.workItem.id);
   assert.equal(existsSync(storyPath), false);
   assert.equal(existsSync(marker), false);
-  await assert.rejects(attempt, { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE' });
+  await assert.rejects(attempt, (error) => {
+    assert.equal(error.code, 'SKP_HOST_ENFORCEMENT_UNAVAILABLE');
+    assert.equal(error.details.workId, value.workflow.workItem.id);
+    assert.equal(error.details.hostReadiness.observationScope, 'source-capabilities-only');
+    assert.equal(error.details.hostReadiness.launchAuthorized, false);
+    assert.equal(error.details.hostReadiness.missingOwners.length, 3);
+    return true;
+  });
   assert.deepEqual(value.workflow, before, 'host refusal must not mutate in-memory lifecycle state');
   assert.deepEqual(await readdir(value.root), filesBefore,
     'host refusal must not create a Story file or a local publication marker');

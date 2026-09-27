@@ -38,7 +38,7 @@ Code recipes also require `--planned-claims required --clause-phases <CRITERIA> 
 
 ## Remaining work
 
-1. Implement/integrate authenticated mediated-host confirmation and broader shared-agent/template/skill edits; qualify installed-host/crash/Linux/Windows private recovery. Exact ordinary shared-phase edits now bind every declared consumer in the captured catalog, but do not cover global Story/history inventory or native provider-principal/revocation qualification. Simulation now projects prospective package-amendment invalidation; historical receipt validation and contract/parser/adapter/runtime changes remain separate. Terminal-local inactive finalization is not full M4 readiness.
+1. Implement/integrate authenticated mediated-host confirmation and broader shared-agent metadata/skill-contract edits; qualify installed-host/crash/Linux/Windows private recovery. Exact ordinary shared-phase, agent-body and template-content edits now bind declared consumers in the captured catalog, but do not cover global Story/history inventory or native provider-principal/revocation qualification. Skill-connected producer changes require separately recompiled consent, not stale binding reuse. Simulation projects prospective package-amendment invalidation; historical receipt validation and contract/parser/adapter/runtime changes remain separate. Terminal-local inactive finalization is not full M4 readiness.
 2. Qualify live-directory capture against hostile ancestor swaps and implement a real M5 host adapter with native enforcement and exact delivery evidence. Keep execution closed meanwhile.
 3. Run actual two-client shared-authoring and mixed/code/non-code Story pilots and collect M6 release evidence.
 
@@ -73,6 +73,48 @@ containment. Local staged-prompt verification is not exact host delivery acknowl
 Connecting supplied evidence labels to lifecycle admission would not fix those missing controls.
 M5 requires an approved existing host/runner and observed enforcement; M6 requires actual human
 clients and end-to-end accepted Stories. The test harness is tooling, not their completion.
+
+### Follow-up: shared text review and portable owner hardening
+
+- **Agent/template review:** `wca-shared-agent-text-impact/v1` replaces only exact existing
+  repository-agent body prose while preserving raw frontmatter and remote resource tables.
+  `wca-shared-template-content-impact/v1` replaces exact existing Markdown content and safe named
+  display metadata without changing path/kind. Fresh Preview binds all captured consumers,
+  effective overrides, text contracts and every affected workflow simulation. Producer text
+  consumed by a confirmed skill cannot reuse a stale binding. Existing terminal proposal owners
+  publish only reviewed raw YAML/text; application files, approved refs and Story pins stay intact.
+  Actual local PTY tests cover both proposals, including refusal paths. This is not authenticated
+  native consent or execution. `test/wca-shared-content-changes.test.mjs`,
+  `test/wca-authoring-text-contracts.test.mjs`, `test/wca-compiler.test.mjs`.
+- **Exact capture and compatibility:** raw committed parent bytes are retained privately through
+  the configuration owner, with explicit authoring-only capture and per-path budgets. Default
+  Story/workspace snapshots perform no extra authoring blob batch, cannot expose these bytes and
+  cannot be silently promoted. New replacement profiles refuse materialization/filter drift;
+  ordinary historical CRLF authoring and Story projection remain compatible. Template string
+  catalog aliases resolve through the same existing catalog owner as object declarations.
+- **UI:** Shared workflow drafts shows the supported exact agent/template content controls and
+  complete bounded-impact JSON alongside disclosed consumer/workflow summary tables. Unknown or
+  mixed profiles cannot become ordinary candidate fields or permission changes. Review buttons
+  copy the existing rooted Shell and Copilot routes; they cannot submit or authenticate consent.
+  `test/vscode-workflow-shared-content.test.mjs`.
+- **Host diagnostics:** `skill doctor` and lifecycle refusal use a source-only capability report
+  behind the model-runner registry boundary. It names the missing live enforcement, authenticated
+  mediated confirmation and exact delivery owners without caller evidence or native probes.
+  Host-blocked phases preserve evidence and do not route to content repair or automatic approval
+  retry. `test/skp-host-readiness.test.mjs`, `test/skp-state-lifecycle.test.mjs`,
+  `test/refusal-remediation.test.mjs`.
+- **Portable cleanup/recovery:** the Windows taskkill helper releases its local event-loop handle
+  after an unacknowledged deadline and absorbs late helper errors without claiming tree closure.
+  Portable policy tests and real local encrypted-store tests cover long Unicode paths, restart,
+  exact scope isolation, conflicting writes and refusal of foreign/unknown lock domains. These
+  run in the fixed harness but remain observed-local/synthetic policy evidence, not Windows or
+  Linux native qualification. `test/skp-platform-owners.test.mjs`,
+  `test/vscode-workflow-drafts-portable-recovery.test.mjs`.
+
+Remaining implementation includes a real approved pre-effect host adapter, authenticated native
+mediated confirmation, broader agent metadata/skill-contract edit owners and global Story/history
+inventory. Actual installed-host/OS qualification and real code/non-code human pilots are also
+pending. None can be declared complete from these local fixtures or a supplied attestation label.
 
 ## Delivered terminal-local skill finalization
 

@@ -162,6 +162,26 @@ function phaseContainmentSteps(context) {
   return [recover, show].filter(Boolean);
 }
 
+function skillHostPrerequisiteSteps(error, context) {
+  const skillId = lowerKebab(error?.details?.skillId);
+  const workId = safeWorkId(error?.details?.workId);
+  const phase = lowerKebab(error?.details?.phase);
+  const diagnostic = skillId && workId && phase
+    ? `singularity-flow skill doctor ${skillId} --story ${workId} --phase ${phase} --json`
+    : 'singularity-flow skill --help';
+  return [
+    step('inspect-retained-skill-host',
+      'Inspect the retained skill and missing host controls read-only; intact package bytes are not execution permission.',
+      diagnostic, 'diagnostic', '/sf-skill'),
+    step('provide-qualified-skill-host',
+      'An approved isolated host with pre-effect enforcement, authenticated mediated confirmation and exact package delivery acknowledgement is required. No current Shell or Copilot command can install or enable those controls; keep the Story pin and authored work unchanged.',
+      null, 'external-prerequisite'),
+    ...(context?.turn === 'new-turn' ? [step('leave-skill-approval-turn',
+      'End this approval-only turn without recording approval. Installing or qualifying a host is a separate operation; do not rewrite or reject intact Story evidence to bypass this gate.',
+      null, 'remediation')] : [])
+  ].filter(Boolean);
+}
+
 function artifactAuthoringSubject(argv, error) {
   const phase = artifactAuthoringPhase(argv, error);
   if (!phase) return null;
@@ -376,6 +396,7 @@ function deduplicate(steps) {
 
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
+  const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
   const phaseContext = phaseRemediationContext(argv, error);
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
@@ -401,7 +422,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
-  const ordered = phaseContext
+  const ordered = skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
@@ -413,7 +434,9 @@ export function refusalRemediationPlan(error, argv = []) {
       ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
       : [...nonDuplicateExplicit, ...known, ...genericSteps(argv)];
   const steps = deduplicate(ordered);
-  const retryLabel = phaseContext?.turn === 'new-turn'
+  const retryLabel = skillHostBlocked
+    ? 'Do not retry generation, publication, submission or approval until the approved live host controls and exact delivery owner are implemented and qualified. Diagnostics cannot enable execution.'
+    : phaseContext?.turn === 'new-turn'
     ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
     : code === 'CLARIFICATION_MODE_OFF'
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
@@ -424,15 +447,17 @@ export function refusalRemediationPlan(error, argv = []) {
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked',
     code,
-    ...(phaseContext ? { context: phaseContext } : {}),
+    ...(phaseContext ? { context: skillHostBlocked
+      ? Object.freeze({ ...phaseContext, strategy: 'external-host-prerequisite', recoveryCommand: null, retryCommand: null, retrySkill: null })
+      : phaseContext } : {}),
     steps: Object.freeze(steps),
     retry: Object.freeze({
       label: retryLabel,
       automatic: false,
       ...(phaseContext ? {
         turn: phaseContext.turn,
-        command: phaseContext.retryCommand,
-        skill: phaseContext.retrySkill
+        command: skillHostBlocked ? null : phaseContext.retryCommand,
+        skill: skillHostBlocked ? null : phaseContext.retrySkill
       } : {})
     })
   });
@@ -468,7 +493,9 @@ export function renderRefusalPlan(plan) {
   const lines = ['Recovery plan:'];
   if (plan.context?.scope === 'phase') {
     lines.push(
-      `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`
+      plan.context.strategy === 'external-host-prerequisite'
+        ? `  Scope: phase ${plan.context.phaseId} — external host prerequisite; do not rewrite Story evidence or bypass the gate.`
+        : `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`
     );
     if (plan.context.turn === 'new-turn') {
       lines.push('  Turn boundary: end the current approval turn; remediation starts in a new turn.');

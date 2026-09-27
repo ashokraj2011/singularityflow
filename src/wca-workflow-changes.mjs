@@ -10,6 +10,7 @@ import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
 import { normalizeTemplateCatalog } from './template-catalog.mjs';
 import { markdownWorldModelViews } from './world-model-views.mjs';
 import { compileSkillPhaseProposal } from './skp-contract.mjs';
+import { sharedSkillContractCatalog } from './wca-skill-contract-review.mjs';
 
 export const WCA_WORKFLOW_CHANGES_PROFILE = 'wca-workflow-only-changes/v1';
 export const WCA_SHARED_PHASE_CHANGES_PROFILE = 'wca-shared-phase-impact/v1';
@@ -17,6 +18,8 @@ export const WCA_SHARED_AGENT_CHANGES_PROFILE = 'wca-shared-agent-text-impact/v1
 export const WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE = 'wca-shared-agent-metadata-impact/v1';
 export const WCA_SHARED_TEMPLATE_CHANGES_PROFILE = 'wca-shared-template-content-impact/v1';
 export const WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE = 'wca-shared-skill-contract-review/v1';
+export const WCA_SHARED_SKILL_CONTRACT_GROUP_PLAN_PROFILE = 'wca-shared-skill-contract-group-plan/v1';
+export const WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE = 'wca-shared-skill-contract-group-review/v1';
 export const WCA_WORKFLOW_CHANGE_LIMITS = Object.freeze({ changes: 16, workflows: 256,
   phases: 512, agents: 256, catalogEntries: 512, nodes: 4096, edges: 8192,
   inputNodes: 100000, depth: 32, inputBytes: 8 * 1024 * 1024, outputBytes: 2 * 1024 * 1024 });
@@ -954,6 +957,123 @@ export function planSharedSkillContractChanges(input = {}) {
     if (!(error instanceof SingularityFlowError)) throw error;
     const result = { ...empty, findings: [{ code: error.code, fieldPath: error.fieldPath ?? 'changes', message: error.message,
       category: 'submission-blocker', resolvingAction: 'workflow.author.edit' }] };
+    return freeze({ ...result, planSha256: digest(result) });
+  }
+}
+
+/**
+ * Review the complete declared impact of several coupled skill contracts as one bounded unit.
+ * This pure planner has no consent, submission or writer capability. A separate versioned group
+ * owner must bind its result to exact retained packages and one terminal confirmation.
+ */
+export function planSharedSkillContractGroupChanges(input = {}) {
+  const empty = { profile: WCA_SHARED_SKILL_CONTRACT_GROUP_PLAN_PROFILE, status: 'blocked', source: null,
+    replacements: [], dependencyLocks: [], graph: { before: { nodes: [], edges: [] }, after: { nodes: [], edges: [] } },
+    impact: { scope: 'captured-approved-configuration-only', consumers: [], affectedWorkflows: [],
+      retainedStories: 'unchanged-not-inventoried', otherRepositories: 'unknown-not-inventoried', permissions: 'not-granted',
+      execution: 'not-run', activation: 'inactive', submission: 'unavailable-from-this-planning-profile' }, findings: [] };
+  try {
+    const copied = copyJson(input);
+    closed(copied, ['approvedDefinition', 'agents', 'changes', 'catalogs'], 'Shared skill group planner input');
+    const { approvedDefinition: definition, changes, catalogs } = copied;
+    if (!plain(definition) || !plain(catalogs)) fail('WCA_SHARED_SKILL_CONTRACT_SOURCE_INVALID', 'Complete exact approved skill policy and lowering catalogs are required.');
+    const agents = list(copied.agents, 'Complete captured agents').map(capturedAgent);
+    bound(agents.length, WCA_WORKFLOW_CHANGE_LIMITS.agents);
+    if (!agents.length) fail('WCA_SHARED_SKILL_CONTRACT_SOURCE_INVALID', 'The complete captured agent catalog is required.');
+    list(changes, 'Explicit skill contract group');
+    if (changes.length < 2 || changes.length > WCA_WORKFLOW_CHANGE_LIMITS.changes) {
+      fail('WCA_SHARED_SKILL_CONTRACT_GROUP_INVALID', 'Select two to sixteen distinct existing skill phases for one complete group review.');
+    }
+    if (Object.keys(catalogs).length !== changes.length) {
+      fail('WCA_SHARED_SKILL_CONTRACT_GROUP_INVALID', 'Supply exactly one source-derived lowering catalog per selected skill phase.');
+    }
+    const before = dependencyGraph(definition, agents, [], { fullCatalog: true, sharedContent: true });
+    validatedSharedPhaseDefinition(definition, agents);
+    const prospective = structuredClone(definition); const seen = new Set(); const replacements = [];
+    for (const change of changes) {
+      closed(change, ['kind', 'id', 'operation', 'expectedDefinitionSha256', 'replacement'], 'Shared skill group replacement');
+      const id = identifier(change.id); const source = definition.phases?.[id];
+      if (seen.has(id)) fail('WCA_SHARED_SKILL_CONTRACT_GROUP_INVALID', 'A skill phase occurs more than once in the selected group.');
+      seen.add(id);
+      if (change.kind !== 'phase' || change.operation !== 'edit' || source?.kind !== 'skill'
+          || id.startsWith('sf-') || id.startsWith('sflow-')) {
+        fail('WCA_SHARED_SKILL_CONTRACT_UNSUPPORTED', 'Select existing nonprivileged confirmed skill phases only.');
+      }
+      const beforeDefinitionSha256 = phaseDefinitionSha256(source);
+      if (change.expectedDefinitionSha256 !== beforeDefinitionSha256) {
+        fail('WCA_CHANGE_PARENT_STALE', 'A selected confirmed skill parent changed; recapture the complete group.');
+      }
+      const replacement = change.replacement;
+      closed(replacement, ['id', 'kind', 'label', 'skill', 'contract', 'agent'], 'Shared skill phase declaration');
+      if (replacement.id !== id || replacement.kind !== 'skill'
+          || digest(replacement.skill) !== digest(source.skillBinding.bindingRefs.skill)) {
+        fail('WCA_SHARED_SKILL_CONTRACT_EFFECT_CHANGE_UNSUPPORTED', 'Group review preserves every exact phase identity and retained package selection.');
+      }
+      const reference = typeof replacement.agent === 'string'
+        ? { source: 'catalog', kind: 'agent', id: replacement.agent } : replacement.agent?.ref ?? replacement.agent;
+      closed(reference, ['source', 'kind', 'id'], 'Exact retained producer agent');
+      if (reference.source !== 'catalog' || reference.kind !== 'agent'
+          || !agents.some((agent) => agent.id === reference.id && agent.defaultFor?.includes(id))) {
+        fail('WCA_SHARED_SKILL_CONTRACT_AGENT_UNAVAILABLE', 'Each group member must retain its exact approved default producer.');
+      }
+      if (!Object.hasOwn(catalogs, id)
+          || canonicalJson(catalogs[id]) !== canonicalJson(sharedSkillContractCatalog(definition, id))) {
+        fail('WCA_SHARED_SKILL_CONTRACT_CATALOG_STALE', 'A group lowering catalog differs from the exact approved source policy.');
+      }
+      const orders = Object.values(definition.workTypes ?? {}).filter((workflow) => workflow.phases?.includes(id))
+        .map((workflow) => phaseIds(workflow.phases));
+      if (!orders.length || orders.some((order) => digest(order) !== digest(orders[0]))) {
+        fail('WCA_SHARED_SKILL_CONTRACT_ORDER_UNSUPPORTED', 'Each selected skill needs one identical declared consumer order for its exact candidate binding.');
+      }
+      const { agent: unusedAgent, ...phase } = replacement;
+      const proposal = compileSkillPhaseProposal({ phase, catalog: catalogs[id], phaseOrder: orders[0] });
+      const refs = source.skillBinding.bindingRefs;
+      if (source.writeScope !== 'artifact-only' || proposal.phasePolicy.writeScope !== 'artifact-only'
+          || source.generation.task === 'code' || proposal.phasePolicy.generation.task !== source.generation.task
+          || refs.sourceScope !== null || proposal.bindingRefs.sourceScope !== null
+          || refs.readScope.sourcePaths.length || proposal.bindingRefs.readScope.sourcePaths.length
+          || digest(refs.readScope) !== digest(proposal.bindingRefs.readScope)
+          || refs.codeDeliverySha256 !== null || proposal.bindingRefs.codeDeliverySha256 !== null
+          || digest(proposal.phasePolicy.qualityCommands) !== digest(source.qualityCommands)
+          || digest(proposal.bindingRefs.outputs.map(({ id: outputId, path }) => ({ id: outputId, path })))
+            !== digest(refs.outputs.map(({ id: outputId, path }) => ({ id: outputId, path })))) {
+        fail('WCA_SHARED_SKILL_CONTRACT_EFFECT_CHANGE_UNSUPPORTED', 'Group review preserves artifact paths, task, checks and artifact-only read/write boundaries.');
+      }
+      prospective.phases[id] = { kind: 'skill', ...proposal.phasePolicy, skillBinding: { bindingRefs: proposal.bindingRefs } };
+      replacements.push({ kind: 'phase', id, operation: 'edit', beforeDefinitionSha256,
+        beforeDefinition: source, definition: replacement, phase, phaseOrder: orders[0], proposal });
+    }
+    const after = dependencyGraph(prospective, agents, [], { fullCatalog: true, sharedContent: true });
+    const selected = new Set(replacements.map((row) => row.id));
+    const impact = reverseSharedPhaseImpact(before.graph, after.graph, [...selected]);
+    const missing = impact.consumers.filter((consumer) => consumer.kind === 'phase'
+      && definition.phases[consumer.id]?.kind === 'skill' && !selected.has(consumer.id));
+    if (missing.length) {
+      fail('WCA_SHARED_SKILL_CONTRACT_DEPENDENT_RECOMPILE_REQUIRED',
+        'The selected group omits a confirmed skill consumer; include its exact current contract and recompile it under group consent.');
+    }
+    const affectedWorkflows = impact.consumers.filter((row) => row.kind === 'workflow').map((row) => ({
+      id: row.id, relation: row.relation, status: 'requires-fresh-confirmed-contract-simulation' }));
+    if (!affectedWorkflows.length || affectedWorkflows.length > 64) {
+      fail('WCA_CHANGE_LIMIT', 'The complete group impact needs one to sixty-four affected workflow simulations.');
+    }
+    replacements.sort((a, b) => compare(a.id, b.id));
+    const result = { ...empty, status: 'ready-for-impact-review',
+      source: { definitionSha256: digest(definition), catalogsSha256: digest(catalogs) }, replacements,
+      dependencyLocks: before.dependencyLocks, graph: { before: before.graph, after: after.graph },
+      impact: { ...empty.impact, consumers: impact.consumers, consumerEdges: impact.edges, affectedWorkflows,
+        selectedSkillPhaseIds: replacements.map((row) => row.id),
+        coverage: 'complete-declared-catalog-reference-impact-within-bounds',
+        validation: 'source-derived-proposal-only-contract-lowering;consent-and-emission-separate',
+        excluded: ['retained-story-inventory', 'other-repository-inventory', 'external-dependency-hydration',
+          'host-qualification', 'authorization', 'submission'] } };
+    const planned = { ...result, planSha256: digest(result) };
+    bound(Buffer.byteLength(canonicalJson(planned)), WCA_WORKFLOW_CHANGE_LIMITS.outputBytes);
+    return freeze(planned);
+  } catch (error) {
+    if (!(error instanceof SingularityFlowError)) throw error;
+    const result = { ...empty, findings: [{ code: error.code, fieldPath: error.fieldPath ?? 'changes',
+      message: error.message, category: 'submission-blocker', resolvingAction: 'workflow.author.edit' }] };
     return freeze({ ...result, planSha256: digest(result) });
   }
 }

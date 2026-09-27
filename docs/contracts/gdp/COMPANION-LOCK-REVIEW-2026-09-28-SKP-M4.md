@@ -1,0 +1,14 @@
+# GDP companion authority review — SKP shared-contract completion — 2026-09-28
+
+**Review boundary:** `main@1db884355c182c01cc55fe13130ecc6d04f9fdd7` plus the exact SKP M4 implementation patch reviewed below. The M0 baseline remains `70db564e59224b03729bab0f9a340807f3086c61`.
+
+The companion lock was already stale at this review boundary: the committed `action-authorization` and `migration-registry` bytes differed from its accepted digests. This review reconciles those two authorities after examining their path-affecting changes and the new grouped SKP registry additions. No other GDP-locked companion changed. This is not a bulk hash refresh or a new approval authority.
+
+| Companion | Authority change reviewed | Previous digest | Accepted digest |
+| --- | --- | --- | --- |
+| `action-authorization` | Commits `0251c9a8` and `4e0942da` add a process-local, one-use direct-terminal presentation witness and exact card-hash comparison for WCA review. Consumption checks root, plan, action, subject, revision, actor and expiry before the existing authorization claim. This is configured local review, **not** authenticated mediated-host identity or proof that a human rather than TTY automation typed the label. | `sha256:3e54ed8cdeced17401b318a164e0812f1277afaacebc0e92c880bd3cb1231dd3` | `sha256:63de1360825c9024fa9d21fdc69375d2950948bdb648987b4398f55b18e152b7` |
+| `migration-registry` | Commits `2a86de1d`, `0251c9a8`, `4e0942da`, `82b123b6`, `d71cbc4b`, `7533ebc4`, and `f2fcdb69` register versioned workflow bundle, Story/adoption, draft, capability-cache, and SKP finalization/replacement records. The present patch adds separate immutable pre-consent, finalization and submission-snapshot families for bounded grouped artifact-only replacement. Historical readers keep their stored dialects; migrations do not fabricate review, Git ancestry, package provenance, host enforcement or execution. | `sha256:60aa3f6d85c78619e74ad175c3adfc081a88f173957de9c9bd2dae5d7d03659b` | `sha256:527e182feaa3415f5de395deaa1ab938b527837deae27e0c1c7f95912fdc12e3` |
+
+The reviewed authorization path does not make a model or persisted receipt a confirmation source. The grouped SKP path produces an inactive configuration proposal only. Its retained reader recomputes the exact source dependency-lock closure and rejects fully resealed family downgrade, changed template bytes and omitted consumers. Imported skill launch and delivery remain unavailable without a qualified host adapter.
+
+Validation at this boundary: action/WCA owner tests passed 74/74; migration/transfer tests passed 63/63; cache/amendment tests passed 55/55; grouped WCA/migration tests passed 164/164. The GDP companion-lock suite must pass against these exact accepted digests. Native host qualification and mediated human confirmation are not claimed by this review.

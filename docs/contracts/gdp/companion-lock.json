@@ -4,9 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "05684f0301931b11706520c9c8b91ca2bb938f8e",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-26-SKP-M2-AMENDMENT.md",
+    "reviewedAtCommit": "1db884355c182c01cc55fe13130ecc6d04f9fdd7",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-28-SKP-M4.md",
     "companionIds": [
+      "action-authorization",
       "migration-registry"
     ]
   },
@@ -94,12 +95,12 @@
     {
       "id": "action-authorization",
       "path": "src/action-authorization.mjs",
-      "sha256": "sha256:3e54ed8cdeced17401b318a164e0812f1277afaacebc0e92c880bd3cb1231dd3"
+      "sha256": "sha256:63de1360825c9024fa9d21fdc69375d2950948bdb648987b4398f55b18e152b7"
     },
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:60aa3f6d85c78619e74ad175c3adfc081a88f173957de9c9bd2dae5d7d03659b"
+      "sha256": "sha256:527e182feaa3415f5de395deaa1ab938b527837deae27e0c1c7f95912fdc12e3"
     },
     {
       "id": "smart-initialization-v1",

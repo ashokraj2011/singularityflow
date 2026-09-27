@@ -13,6 +13,9 @@ import { validateWorkflowAuthorRequest } from '../src/commands/workflow-author.m
 import { lookupStorySkillUsage, SKP_STORY_USAGE_LIMITS } from '../src/skp-story-usage.mjs';
 import { lookupLocalStorySkillUsageInventory, parseLocalStoryInventorySubjects,
   SKP_STORY_INVENTORY_LIMITS } from '../src/skp-story-usage-inventory.mjs';
+import { lookupCrossRepositoryStorySkillUsageInventory,
+  parseCrossRepositoryStoryInventorySubjects, captureCrossRepositoryStoryInventoryRequest,
+  SKP_CROSS_REPOSITORY_INVENTORY_LIMITS } from '../src/skp-cross-repository-story-inventory.mjs';
 import { parseArgs, run } from '../src/util.mjs';
 import { withLocalReadDeadline } from '../src/local-read-deadline.mjs';
 import { captureWorkflowSnapshot, captureWorkflowSnapshotAmendment, verifyWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
@@ -668,4 +671,113 @@ test('inventory CLI preflight accepts only explicit bounded windows and keeps ex
     assert.throws(() => validateWorkflowAuthorRequest(parse(...args)),
       (error) => /^(?:WCA_AUTHOR_REQUEST_INVALID|SKP_STORY_INVENTORY_(?:INVALID|LIMIT|DISCLOSURE_BLOCKED))$/u.test(error.code));
   }
+});
+
+test('explicit cross-repository inventory verifies each retained Story and binds global pages to both local refs', async (t) => {
+  const first = await fixture(t); const second = await fixture(t);
+  await rm(first.remote, { recursive: true, force: true });
+  await rm(second.remote, { recursive: true, force: true });
+  await writeFile(first.workflowPath, '{ uncommitted first Story');
+  await writeFile(second.workflowPath, '{ uncommitted second Story');
+  const beforeFirst = await sourceState(first.root); const beforeSecond = await sourceState(second.root);
+  const repositories = [first, second].map((entry) => ({ root: entry.root,
+    subjects: [{ workId: 'SKP-1', ref: 'refs/heads/published-story' }] }));
+  const request = { skillId: 'threat-model', repositories, limit: 1 };
+  const page = await lookupCrossRepositoryStorySkillUsageInventory(request);
+  assert.equal(page.format, 'sflow-cross-repository-story-skill-inventory/v1');
+  assert.equal(page.source.repositories.length, 2);
+  assert.equal(page.observations.length, 2);
+  assert.equal(page.page.total, 4); assert.equal(page.page.nextCursor, 1);
+  assert.equal(page.references[0].repositoryIndex, 0);
+  assert.equal(page.readScope.network, 'not-contacted');
+  assert.equal(page.readScope.authenticatedPrincipal, 'not-established');
+  assert.equal(page.coverage.otherRepositories, 'not-searched');
+  const next = await lookupCrossRepositoryStorySkillUsageInventory({ ...request,
+    cursor: 2, expectedSource: page.sourceSha256 });
+  assert.equal(next.sourceSha256, page.sourceSha256);
+  assert.equal(next.references[0].repositoryIndex, 1);
+  assert.deepEqual(await sourceState(first.root), beforeFirst);
+  assert.deepEqual(await sourceState(second.root), beforeSecond);
+  await assert.rejects(lookupCrossRepositoryStorySkillUsageInventory({ ...request,
+    repositories: [...repositories].reverse(), cursor: 1, expectedSource: page.sourceSha256 }),
+  { code: 'SKP_CROSS_STORY_INVENTORY_SOURCE_CHANGED' });
+  git(second.root, 'commit', '--allow-empty', '-qm', 'advance selected second ref');
+  git(second.root, 'branch', '-f', 'published-story', 'HEAD');
+  await assert.rejects(lookupCrossRepositoryStorySkillUsageInventory({ ...request,
+    cursor: 1, expectedSource: page.sourceSha256 }),
+  { code: 'SKP_CROSS_STORY_INVENTORY_SOURCE_CHANGED' });
+});
+
+test('cross-repository CLI reaches only supplied local roots and remains a model-free read', async (t) => {
+  const first = await fixture(t); const second = await fixture(t);
+  await rm(first.remote, { recursive: true, force: true });
+  await rm(second.remote, { recursive: true, force: true });
+  const selectors = `${first.root}#SKP-1=refs/heads/published-story,${second.root}#SKP-1=refs/heads/published-story`;
+  const beforeFirst = await sourceState(first.root); const beforeSecond = await sourceState(second.root);
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_DISABLE_MODELS: '1', SINGULARITY_FLOW_NO_NETWORK: '1',
+    SINGULARITY_FLOW_LOG_LEVEL: 'off', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(first.base, 'private-workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(first.base, 'private-active.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(first.base, 'private-leads.json') };
+  const result = run(process.execPath, [CLI, 'workflow', 'author', 'where-used', 'threat-model',
+    '--repository-story-refs', selectors, '--limit', '1', '--json'], { cwd: first.root, allowFailure: true,
+    env });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.operation.id, 'workflow.author.where-used');
+  assert.equal(report.operation.classification, 'read');
+  assert.equal(report.operation.modelPolicy, 'never');
+  assert.equal(report.data.usage.page.total, 4);
+  assert.equal(report.scope.selectedRepositoryStoryInventory.repositories.length, 2);
+  const next = run(process.execPath, [CLI, 'workflow', 'author', 'where-used', 'threat-model',
+    '--repository-story-refs', selectors, '--limit', '1', '--cursor', '2',
+    '--expected-source', report.data.usage.sourceSha256, '--json'],
+  { cwd: first.root, allowFailure: true, env });
+  assert.equal(next.status, 0, next.stderr);
+  assert.equal(JSON.parse(next.stdout).data.usage.references[0].repositoryIndex, 1);
+  assert.deepEqual(report.effects, { stateChanged: false, filesChanged: false,
+    publicationCreated: false, externalSystemsChanged: false });
+  assert.deepEqual(await sourceState(first.root), beforeFirst);
+  assert.deepEqual(await sourceState(second.root), beforeSecond);
+});
+
+test('cross-repository selectors refuse implied discovery, invalid shapes and incomplete repositories', async (t) => {
+  const f = await fixture(t);
+  const pair = `${f.root}#SKP-1=refs/heads/published-story`;
+  assert.equal(SKP_CROSS_REPOSITORY_INVENTORY_LIMITS.repositories, 4);
+  assert.deepEqual(parseCrossRepositoryStoryInventorySubjects(pair),
+    [{ root: f.root, subjects: [{ workId: 'SKP-1', ref: 'refs/heads/published-story', historyDepth: 1 }] }]);
+  for (const request of [
+    { skillId: 'threat-model', repositories: [] },
+    { skillId: 'threat-model', repositories: [{ root: f.root, subjects: [{ workId: 'SKP-1', ref: 'HEAD' }] }], cursor: 1 },
+    { skillId: 'threat-model', repositories: [{ root: f.root, subjects: [{ workId: 'SKP-1', ref: 'HEAD' }] },
+      { root: f.root, subjects: [{ workId: 'SKP-1', ref: 'HEAD' }] }] },
+    { skillId: 'threat-model', repositories: [{ root: '/not-contacted', subjects: [{ workId: 'SKP-1', ref: 'refs/heads/*' }] }] },
+    { skillId: 'threat-model', repositories: [{ root: f.root, subjects: [{ workId: 'SKP-1', ref: 'HEAD' }] }], packageSha256: 'latest' },
+    { skillId: 'threat-model', repositories: Array.from({ length: 5 }, (_, index) => ({ root: `/not-contacted-${index}`,
+      subjects: [{ workId: 'SKP-1', ref: 'HEAD' }] })) }
+  ]) assert.throws(() => captureCrossRepositoryStoryInventoryRequest(request),
+    (error) => /^(?:SKP_CROSS_STORY_INVENTORY_(?:INVALID|LIMIT)|SKP_STORY_INVENTORY_(?:INVALID|LIMIT))$/u.test(error.code));
+  const accessor = { skillId: 'threat-model' }; let getterRead = false;
+  Object.defineProperty(accessor, 'repositories', { enumerable: true,
+    get: () => { getterRead = true; return []; } });
+  assert.throws(() => captureCrossRepositoryStoryInventoryRequest(accessor),
+    { code: 'SKP_CROSS_STORY_INVENTORY_INVALID' });
+  assert.equal(getterRead, false);
+  for (const text of ['SKP-1=HEAD', `${f.root}#SKP-1=refs/heads/*`, `${f.root}#SKP-1=HEAD,${f.root}#SKP-1=HEAD`]) {
+    assert.throws(() => parseCrossRepositoryStoryInventorySubjects(text));
+  }
+  const parse = (...args) => parseArgs(['workflow', 'author', 'where-used', 'threat-model', ...args]);
+  assert.equal(validateWorkflowAuthorRequest(parse('--repository-story-refs', pair, '--json')), 'where-used');
+  for (const args of [
+    ['--repository-story-refs', pair, '--story', 'SKP-1'],
+    ['--repository-story-refs', pair, '--story-refs', 'SKP-1=HEAD'],
+    ['--repository-story-refs', pair, '--cursor', '1'],
+    ['--repository-story-refs', `${f.root}#SKP-1=refs/heads/*`],
+    ['--repository-story-refs', pair, '--history-depth', '17']
+  ]) assert.throws(() => validateWorkflowAuthorRequest(parse(...args)));
+  await assert.rejects(lookupCrossRepositoryStorySkillUsageInventory({ skillId: 'threat-model', repositories: [
+    { root: f.root, subjects: [{ workId: 'SKP-1', ref: 'refs/heads/published-story' }] },
+    { root: '/not-contacted', subjects: [{ workId: 'SKP-1', ref: 'HEAD' }] }
+  ] }));
 });

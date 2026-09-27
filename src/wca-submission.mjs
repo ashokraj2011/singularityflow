@@ -20,6 +20,7 @@ import { simulateResolvedWorkflowLifecycle } from './workflow-lifecycle-simulati
 const FAMILY = 'workflow-authoring-submission-snapshot';
 const SKILL_FAMILY = 'workflow-authoring-skill-submission-snapshot';
 const SKILL_REPLACEMENT_FAMILY = 'workflow-authoring-skill-replacement-submission-snapshot';
+const SKILL_GROUP_REPLACEMENT_FAMILY = 'workflow-authoring-skill-group-replacement-submission-snapshot';
 const LIMIT = 16 * 1024 * 1024;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
 const digest = (value) => `sha256:${recordSha256(value)}`;
@@ -97,7 +98,7 @@ function snapshot(captured, review, authorization) {
 
 /** Inspect retained evidence; it cannot be interpreted as an approval or live execution grant. */
 export function validateWorkflowDraftSubmissionSnapshot(value) {
-  if ([SKILL_FAMILY, SKILL_REPLACEMENT_FAMILY].includes(value?.kind)) return validateWorkflowDraftSkillSubmissionSnapshot(value);
+  if ([SKILL_FAMILY, SKILL_REPLACEMENT_FAMILY, SKILL_GROUP_REPLACEMENT_FAMILY].includes(value?.kind)) return validateWorkflowDraftSkillSubmissionSnapshot(value);
   if (!value || typeof value !== 'object' || Array.isArray(value)
       || Object.keys(value).sort().join('\0') !== ['schemaVersion', 'kind', 'snapshotId', 'sourceDraft',
         'approvedSource', 'planSha256', 'actionPlanSha256', 'candidateTreeSha256', 'inputs', 'preview',
@@ -175,7 +176,8 @@ export function validateWorkflowDraftSubmissionSnapshot(value) {
 function skillSnapshot(captured, pendingPreview) {
   const record = captured.preview.skillFinalization?.record;
   if (!record) fail('The compiler did not retain exact terminal-consumed finalization.');
-  const family = record.kind === 'workflow-authoring-skp-replacement-finalization' ? SKILL_REPLACEMENT_FAMILY : SKILL_FAMILY;
+  const family = record.kind === 'workflow-authoring-skp-group-replacement-finalization' ? SKILL_GROUP_REPLACEMENT_FAMILY
+    : record.kind === 'workflow-authoring-skp-replacement-finalization' ? SKILL_REPLACEMENT_FAMILY : SKILL_FAMILY;
   const core = { schemaVersion: currentSchemaVersion(family), kind: family,
     snapshotId: record.finalizationSha256.slice(7), sourceDraft: captured.preview.source,
     approvedSource: captured.preview.approvedSource, preConsentPreview: pendingPreview,
@@ -188,7 +190,8 @@ function skillSnapshot(captured, pendingPreview) {
 
 /** A retained local-review record proves consistency, never fresh consent or host enforcement. */
 export function validateWorkflowDraftSkillSubmissionSnapshot(value) {
-  const family = value?.kind === SKILL_REPLACEMENT_FAMILY ? SKILL_REPLACEMENT_FAMILY : SKILL_FAMILY;
+  const family = value?.kind === SKILL_GROUP_REPLACEMENT_FAMILY ? SKILL_GROUP_REPLACEMENT_FAMILY
+    : value?.kind === SKILL_REPLACEMENT_FAMILY ? SKILL_REPLACEMENT_FAMILY : SKILL_FAMILY;
   const fields = ['schemaVersion', 'kind', 'snapshotId', 'sourceDraft', 'approvedSource', 'preConsentPreview',
     'preview', 'inputs', 'files', 'confirmation', 'finalizationSha256', 'operationRef', 'approval', 'activation', 'execution', 'snapshotSha256'];
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -206,8 +209,14 @@ export function validateWorkflowDraftSkillSubmissionSnapshot(value) {
   const { planSha256: pendingHash, ...pendingCore } = pending;
   const { planSha256: previewHash, ...previewCore } = preview;
   const subject = preview.skillFinalization?.subject; const finalization = preview.skillFinalization?.record;
-  if ((family === SKILL_REPLACEMENT_FAMILY) !== (subject?.kind === 'workflow-authoring-skp-replacement-preconsent-subject')) {
+  if ((family === SKILL_REPLACEMENT_FAMILY) !== (subject?.kind === 'workflow-authoring-skp-replacement-preconsent-subject')
+      || (family === SKILL_GROUP_REPLACEMENT_FAMILY)
+        !== (subject?.kind === 'workflow-authoring-skp-group-replacement-preconsent-subject')) {
     fail('The retained snapshot cannot downgrade or substitute its replacement dialect.');
+  }
+  if (family === SKILL_FAMILY && (value.inputs.request?.intent !== 'create'
+      || pending.sharedObjectChanges !== undefined || preview.sharedObjectChanges !== undefined)) {
+    fail('An ordinary skill submission cannot retain a shared replacement request or its reverse impact.');
   }
   const review = pending.skillFinalization?.review;
   if (digest(core) !== snapshotSha256 || digest(pendingCore) !== pendingHash || digest(previewCore) !== previewHash
@@ -232,9 +241,11 @@ export function validateWorkflowDraftSkillSubmissionSnapshot(value) {
   const assetPolicy = retainedAssetPolicy(preview.approvedAssetPolicy);
   for (const file of value.files) if (!isConfigurationReadPath(file.path, assetPolicy)) fail('A retained skill file is outside the approved asset scope.');
   validateWorkflowSkillFinalizationRecord({ subject, record: finalization, definition: preview.candidateDefinition, files: value.files, retainedInputs: value.inputs });
-  if (family === SKILL_REPLACEMENT_FAMILY) {
-    const impact = pending.sharedObjectChanges; const workflows = subject.replacement.affectedWorkflowIds;
-    if (subject.replacement.consumerImpactSha256 !== digest(impact)
+  if ([SKILL_REPLACEMENT_FAMILY, SKILL_GROUP_REPLACEMENT_FAMILY].includes(family)) {
+    const impact = pending.sharedObjectChanges;
+    const replacement = family === SKILL_GROUP_REPLACEMENT_FAMILY ? subject.replacementGroup : subject.replacement;
+    const workflows = replacement.affectedWorkflowIds;
+    if (replacement.consumerImpactSha256 !== digest(impact)
         || canonicalJson(impact) !== canonicalJson(preview.sharedObjectChanges)
         || canonicalJson(workflows) !== canonicalJson(impact.impact.affectedWorkflows.map((workflow) => workflow.id))
         || preview.simulation?.status !== 'complete-for-profile' || preview.simulation.workflows?.length !== workflows.length) {
@@ -307,8 +318,9 @@ export async function createWorkflowDraftReviewProposal(root, options = {}) {
     review.action, { requireTerminalPresentation: true });
   const retained = validateWorkflowDraftSubmissionSnapshot(skill ? skillSnapshot(captured, pendingPreview) : snapshot(captured, review, authorization));
   const subjectId = skill ? retained.snapshotId.slice(0, 24) : review.plan.planHash.slice(0, 24);
-  const retainedPath = skill ? `singularity/${retained.kind === SKILL_REPLACEMENT_FAMILY
-    ? 'workflow-authoring-skill-replacements' : 'workflow-authoring-skill-submissions'}/${retained.snapshotId}.json`
+  const retainedPath = skill ? `singularity/${retained.kind === SKILL_GROUP_REPLACEMENT_FAMILY
+    ? 'workflow-authoring-skill-group-replacements' : retained.kind === SKILL_REPLACEMENT_FAMILY
+      ? 'workflow-authoring-skill-replacements' : 'workflow-authoring-skill-submissions'}/${retained.snapshotId}.json`
     : `singularity/workflow-authoring-submissions/${review.plan.planHash}.json`;
   // The proposal owner freshly verifies the exact pre-change authority again and handles push
   // recovery. Any changed draft/catalog/base invalidates the reviewed card before candidate I/O.

@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   SKP_HOST_DIMENSIONS,
   assessSkillHostLaunchAdmission,
+  assessSkillHostDelivery,
   assertSkillHostLaunchAdmission,
   assertSkillHostDelivery
 } from '../src/skp-host-admission.mjs';
@@ -55,17 +56,20 @@ test('SKP refuses launch with no proven host controls', () => {
   );
 });
 
-test('SKP admits only exact, operation-bound pre-effect enforcement for every dimension', () => {
+test('SKP checks exact operation-bound evidence shape without authorizing launch', () => {
   const { required, observed } = fixture();
-  const admission = assertSkillHostLaunchAdmission({ required, observed });
-  assert.equal(admission.status, 'ready');
-  assert.equal(admission.bindingMatches, true);
-  assert.deepEqual(admission.unavailableDimensions, []);
+  const preview = assessSkillHostLaunchAdmission({ required, observed });
+  assert.equal(preview.status, 'matching-shape');
+  assert.equal(preview.launchAuthorized, false);
+  assert.equal(preview.bindingMatches, true);
+  assert.deepEqual(preview.unavailableDimensions, []);
   for (const dimension of SKP_HOST_DIMENSIONS) {
-    assert.equal(admission.dimensions[dimension].required, hash('a'));
-    assert.equal(admission.dimensions[dimension].verified.evidenceId,
+    assert.equal(preview.dimensions[dimension].required, hash('a'));
+    assert.equal(preview.dimensions[dimension].matchingEvidence.evidenceId,
       `qualified-adapter:${dimension}`);
   }
+  assert.throws(() => assertSkillHostLaunchAdmission({ required, observed }),
+    { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE' });
 });
 
 test('SKP refuses missing policy dimension, changed policy, and different operation binding', () => {
@@ -108,30 +112,29 @@ test('SKP does not count prompt, permission, or final-diff claims as host enforc
 
 test('SKP refuses unacknowledged or inexact package delivery', () => {
   const { required, observed, expected, acknowledgement } = fixture();
-  const admission = assertSkillHostLaunchAdmission({ required, observed });
-  assert.throws(() => assertSkillHostDelivery(admission, expected, null),
-    { code: 'SKP_HOST_DELIVERY_UNCONFIRMED' });
-  assert.throws(() => assertSkillHostDelivery(admission, expected, {
+  const preview = assessSkillHostLaunchAdmission({ required, observed });
+  assert.equal(assessSkillHostDelivery(preview, expected, null).status, 'unavailable');
+  assert.equal(assessSkillHostDelivery(preview, expected, {
     ...acknowledgement, resourceManifestSha256: hash('e')
-  }), { code: 'SKP_HOST_DELIVERY_UNCONFIRMED' });
-  assert.throws(() => assertSkillHostDelivery(admission, expected, {
+  }).status, 'unavailable');
+  assert.equal(assessSkillHostDelivery(preview, expected, {
     ...acknowledgement, channel: 'model-output'
-  }), { code: 'SKP_HOST_DELIVERY_UNCONFIRMED' });
-  assert.throws(() => assertSkillHostDelivery(admission, expected, {
+  }).status, 'unavailable');
+  assert.equal(assessSkillHostDelivery(preview, expected, {
     ...acknowledgement, operationId: 'different-attempt'
-  }), { code: 'SKP_HOST_DELIVERY_UNCONFIRMED' });
+  }).status, 'unavailable');
 });
 
-test('SKP delivery accepts an exact trusted-host receipt only after launch admission', () => {
+test('SKP never treats a matching caller receipt as authenticated delivery', () => {
   const value = fixture();
-  const forgedAdmission = assessSkillHostLaunchAdmission(value);
+  const preview = assessSkillHostLaunchAdmission(value);
+  const delivery = assessSkillHostDelivery(preview, value.expected, value.acknowledgement);
+  assert.equal(delivery.status, 'matching-shape');
+  assert.equal(delivery.deliveryConfirmed, false);
   assert.throws(() => assertSkillHostDelivery(
-    forgedAdmission, value.expected, value.acknowledgement
-  ), { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE' });
-
-  const admission = assertSkillHostLaunchAdmission(value);
-  const delivery = assertSkillHostDelivery(admission, value.expected, value.acknowledgement);
-  assert.equal(delivery.status, 'confirmed');
-  assert.equal(delivery.receiptId, 'receipt-17');
-  assert.equal(delivery.packageSha256, value.expected.packageSha256);
+    preview, value.expected, value.acknowledgement
+  ), { code: 'SKP_HOST_DELIVERY_UNCONFIRMED' });
+  assert.throws(() => assertSkillHostLaunchAdmission(value),
+    { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE' });
+  assert.equal(delivery.receiptId, undefined);
 });

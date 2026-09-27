@@ -52,6 +52,9 @@ test('readiness identifies concrete missing live owners and the limits of existi
   assert.match(permissionOwner.limitation, /Read\/search notifications can be post-effect/);
   const authoringOwner = report.sourceOwners.find((owner) => owner.id === 'terminal-local-authoring-review');
   assert.match(authoringOwner.limitation, /not authenticated native-host mediated consent/);
+  const admissionOwner = report.sourceOwners.find((owner) => owner.id === 'host-admission-validator');
+  assert.match(admissionOwner.scope, /Non-authorizing shape checks/);
+  assert.match(admissionOwner.limitation, /launch and delivery assertions refuse/);
   assert.ok(report.sourceOwners.every((owner) => owner.status === 'implemented-source-only'));
   assert.equal(report.nextAction.kind, 'external-prerequisite');
   assert.equal(report.nextAction.executionAuthorized, false);

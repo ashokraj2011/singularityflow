@@ -14,12 +14,17 @@ import { verifySkillPackage } from './skp-package.mjs';
 import { parseAgentDependencies } from './agents.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
 import { sharedSkillContractCatalog } from './wca-skill-contract-review.mjs';
-import { planSharedSkillContractChanges } from './wca-workflow-changes.mjs';
+import { resolveTemplate } from './template-catalog.mjs';
+import { validateDefinition, resolveWorkType } from './config.mjs';
+import { planSharedSkillContractChanges, planSharedSkillContractGroupChanges,
+  WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE } from './wca-workflow-changes.mjs';
 
 export const WCA_SKP_PRECONSENT_PROFILE = 'wca-skp-preconsent/v1';
 export const WCA_SKP_FINALIZATION_PROFILE = 'wca-skp-finalization/v1';
 export const WCA_SKP_REPLACEMENT_PRECONSENT_PROFILE = 'wca-skp-replacement-preconsent/v1';
 export const WCA_SKP_REPLACEMENT_FINALIZATION_PROFILE = 'wca-skp-replacement-finalization/v1';
+export const WCA_SKP_GROUP_REPLACEMENT_PRECONSENT_PROFILE = 'wca-skp-group-replacement-preconsent/v1';
+export const WCA_SKP_GROUP_REPLACEMENT_FINALIZATION_PROFILE = 'wca-skp-group-replacement-finalization/v1';
 export const WCA_SKP_LOCAL_PRODUCER_PROFILE = 'local-reviewed-artifact-producer/v1';
 export const WCA_SKP_FINALIZATION_LIMITS = Object.freeze({
   phases: 64, files: 256, nodes: 100_000, depth: 32,
@@ -106,6 +111,7 @@ function nativeSkillDiscovery(file) {
   return /^\.[^/]+\/skills(?:\/|$)/iu.test(file.path.normalize('NFKC'));
 }
 function replacementReview(data, rows) {
+  if (data.groupReplacement !== undefined) return null;
   if (data.phaseReplacements === undefined && data.approvedWorkflow === undefined) return null;
   if (!Array.isArray(data.phaseReplacements) || data.phaseReplacements.length !== 1 || rows.length !== 1
       || data.classificationRequests?.length) fail('The replacement dialect requires one existing confirmed phase without reclassification.');
@@ -182,6 +188,148 @@ function replacementReview(data, rows) {
     fail('The replacement dialect cannot widen artifact paths, task, checks or source read/write effects.');
   }
   return { profile: 'wca-shared-skill-contract-review/v1', ...replacement, approvedWorkflow: workflow };
+}
+function groupReplacementReview(data, rows) {
+  if (data.groupReplacement === undefined) return null;
+  if (data.phaseReplacements !== undefined || data.classificationRequests?.length
+      || !Array.isArray(rows) || rows.length < 2 || rows.length > 16) {
+    fail('Grouped replacement needs two to sixteen existing confirmed phases without reclassification.');
+  }
+  const group = data.groupReplacement;
+  closed(group, ['phaseReplacements', 'consumerImpactSha256', 'affectedWorkflowIds', 'agentImpactCatalog', 'approvedTemplateFiles']);
+  if (!Array.isArray(group.phaseReplacements) || group.phaseReplacements.length !== rows.length) fail('Grouped replacement parents are incomplete.');
+  sha(group.consumerImpactSha256);
+  const [workflow] = files([data.approvedWorkflow], WCA_SKP_FINALIZATION_LIMITS.packageBytes);
+  if (workflow.path !== 'singularity/workflow.yml' || workflow.sha256 !== data.approvedSource.workflowSha256) {
+    fail('The exact approved workflow bytes do not bind the grouped replacement parents.', 'WCA_SKP_SOURCE_STALE');
+  }
+  let source;
+  try { source = YAML.parse(Buffer.from(workflow.contentBase64, 'base64').toString('utf8')); }
+  catch { fail('The retained grouped replacement source YAML is invalid.'); }
+  const parent = structuredClone(data.candidateDefinition);
+  const parents = new Map();
+  for (const replacement of group.phaseReplacements) {
+    closed(replacement, ['phaseId', 'beforeDefinitionSha256', 'beforeDefinition', 'catalog']);
+    id(replacement.phaseId); sha(replacement.beforeDefinitionSha256);
+    if (parents.has(replacement.phaseId) || replacement.beforeDefinitionSha256 !== digest(replacement.beforeDefinition)) {
+      fail('The grouped replacement has duplicate or changed exact parents.', 'WCA_SKP_SOURCE_STALE');
+    }
+    validateConfiguredSkillPhase(replacement.beforeDefinition, replacement.phaseId);
+    parents.set(replacement.phaseId, replacement);
+    parent.phases[replacement.phaseId] = structuredClone(replacement.beforeDefinition);
+  }
+  if (canonicalJson(parent) !== canonicalJson(source)) fail('The grouped pending definition differs from its exact approved raw parent.', 'WCA_SKP_SOURCE_STALE');
+  const request = data.retainedInputs.request;
+  const declarations = request.definitions?.phases; const changes = request.changes;
+  if (request.intent !== 'edit' || !Array.isArray(declarations) || declarations.length !== rows.length
+      || !Array.isArray(changes) || changes.length !== rows.length
+      || Object.entries(request.definitions ?? {}).some(([kind, values]) => kind !== 'phases' && values?.length)
+      || Object.keys(request.bindings ?? {}).length || request.assets?.length || data.retainedInputs.assets.length
+      || request.target?.hosts?.length || request.executionProposals?.length) {
+    fail('The grouped replacement differs from its exact retained request.', 'WCA_SKP_SOURCE_STALE');
+  }
+  const declarationMap = new Map(); const changeMap = new Map();
+  for (const declaration of declarations) {
+    if (!plain(declaration) || declarationMap.has(declaration.id)) fail('Grouped phase declarations repeat or are malformed.');
+    declarationMap.set(declaration.id, declaration);
+  }
+  for (const change of changes) {
+    if (!plain(change) || changeMap.has(change.id)) fail('Grouped phase changes repeat or are malformed.');
+    changeMap.set(change.id, change);
+  }
+  const packageFiles = new Map();
+  for (const entry of data.phases) {
+    const prefix = `singularity/skills/${entry.phase.skill.id}/`;
+    for (const file of entry.package.files) {
+      const selected = { ...file, path: `${prefix}${file.path}` };
+      const prior = packageFiles.get(selected.path);
+      if (prior && canonicalJson(prior) !== canonicalJson(selected)) fail('Grouped phases disagree on exact package bytes.');
+      packageFiles.set(selected.path, selected);
+    }
+  }
+  if (canonicalJson([...packageFiles.values()].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+      !== canonicalJson(data.pendingFiles)) fail('The grouped pending closure contains absent or unreviewed package bytes.');
+  if (!Array.isArray(group.agentImpactCatalog) || !group.agentImpactCatalog.length || group.agentImpactCatalog.length > 256) {
+    fail('Complete bounded captured agent inputs are required for grouped impact.');
+  }
+  for (const agent of group.agentImpactCatalog) {
+    closed(agent, ['id', 'scope', 'source', 'text', 'phases', 'defaultFor', 'tools', 'worldModelViews', 'dependencies']);
+    id(agent.id); body(agent.text, 256 * 1024);
+    if (!['repository', 'plugin', 'bundled'].includes(agent.scope)
+        || (agent.scope === 'repository' ? !/^\.github\/agents\/[^/]+(?:\.agent)?\.md$/u.test(agent.source)
+          : agent.source !== `${agent.scope}/${agent.id}.agent.md`)) fail('A grouped impact agent has an unsupported source.');
+    const origin = agent.scope === 'repository' ? 'approved-catalog' : 'installed-agent-registry';
+    const locks = data.dependencyLocks.filter((lock) => lock.kind === 'agent' && lock.id === agent.id);
+    if (locks.length !== 1 || locks[0].source !== origin || locks[0].definitionSha256 !== digest({
+      id: agent.id, scope: agent.scope, textSha256: bytesDigest(Buffer.from(agent.text)) })) {
+      fail('A grouped impact agent differs from its exact source/scope lock.', 'WCA_SKP_SOURCE_STALE');
+    }
+  }
+  if (data.dependencyLocks.filter((lock) => lock.kind === 'agent').length !== group.agentImpactCatalog.length) {
+    fail('The grouped impact agent catalog omitted a locked source.');
+  }
+  const planningChanges = []; const catalogs = {};
+  for (const row of rows) {
+    const replacement = parents.get(row.phaseId); const declaration = declarationMap.get(row.phaseId);
+    if (!replacement || !declaration || canonicalJson({ ...row.phase, agent: declaration.agent }) !== canonicalJson(declaration)
+        || canonicalJson(source.phases?.[row.phaseId]) !== canonicalJson(replacement.beforeDefinition)
+        || canonicalJson(sharedSkillContractCatalog(source, row.phaseId)) !== canonicalJson(replacement.catalog)
+        || canonicalJson(changeMap.get(row.phaseId)) !== canonicalJson({ profile: WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE,
+          kind: 'phase', id: row.phaseId, operation: 'edit', expectedDefinitionSha256: replacement.beforeDefinitionSha256 })) {
+      fail('A grouped declaration, catalog or change differs from its retained parent.', 'WCA_SKP_SOURCE_STALE');
+    }
+    catalogs[row.phaseId] = replacement.catalog;
+    planningChanges.push({ kind: 'phase', id: row.phaseId, operation: 'edit',
+      expectedDefinitionSha256: replacement.beforeDefinitionSha256, replacement: declaration });
+    const proposal = compileSkillPhaseProposal({ phase: row.phase, catalog: replacement.catalog, phaseOrder: row.phaseOrder });
+    if (proposal.proposalSha256 !== row.proposalSha256 || proposal.eligibility !== 'candidate-producer') {
+      fail('A grouped proposal differs from its exact approved lowering catalog.');
+    }
+  }
+  const impact = planSharedSkillContractGroupChanges({ approvedDefinition: source,
+    agents: group.agentImpactCatalog, changes: planningChanges, catalogs });
+  if (impact.status !== 'ready-for-impact-review' || digest(impact) !== group.consumerImpactSha256
+      || canonicalJson(impact.impact.affectedWorkflows.map((item) => item.id)) !== canonicalJson(group.affectedWorkflowIds)) {
+    fail('The retained complete grouped reverse impact differs from its approved source.');
+  }
+  const impactAgents = new Map(group.agentImpactCatalog.map((agent) => [agent.id, agent]));
+  const expectedLocks = impact.dependencyLocks.map((lock) => {
+    const agent = lock.kind === 'agent' ? impactAgents.get(lock.id) : null;
+    if (lock.kind === 'agent' && !agent) fail('The grouped impact omitted an exact captured agent source.', 'WCA_SKP_SOURCE_STALE');
+    return { source: lock.kind === 'execution-task' ? 'installed-runtime-registry'
+      : lock.source === 'installed-agent-registry' ? 'installed-agent-registry' : 'approved-catalog',
+    kind: lock.kind, id: lock.id, definitionSha256: agent
+      ? digest({ id: agent.id, scope: agent.scope, textSha256: bytesDigest(Buffer.from(agent.text)) })
+      : lock.definitionSha256,
+    baseRevision: data.approvedSource.baseRevision };
+  });
+  const selectedPhaseIds = new Set(rows.map((row) => row.phaseId));
+  const expectedTemplatePaths = new Set();
+  const normalizedSource = validateDefinition(structuredClone(source));
+  for (const workflowId of group.affectedWorkflowIds) {
+    if (!normalizedSource.workTypes?.[workflowId]) fail('A grouped template consumer is absent from the exact approved workflow.', 'WCA_SKP_SOURCE_STALE');
+    for (const phase of resolveWorkType(normalizedSource, workflowId).phases) {
+      if (selectedPhaseIds.has(phase.id) || phase.kind === 'skill') continue;
+      const template = resolveTemplate(normalizedSource, phase.template ?? phase.defaultTemplate);
+      if (template?.path) expectedTemplatePaths.add(`${normalizedSource.templatesRoot}/${template.path}`);
+    }
+  }
+  const templateFiles = files(group.approvedTemplateFiles, WCA_SKP_FINALIZATION_LIMITS.packageBytes);
+  if (canonicalJson(templateFiles.map((file) => file.path)) !== canonicalJson([...expectedTemplatePaths].sort())) {
+    fail('The grouped template byte capture omits or adds an affected approved template.', 'WCA_SKP_SOURCE_STALE');
+  }
+  for (const file of templateFiles) expectedLocks.push({ source: 'approved-catalog', kind: 'template-content',
+    id: file.path, definitionSha256: file.sha256, baseRevision: data.approvedSource.baseRevision });
+  expectedLocks.sort((left, right) => left.kind < right.kind ? -1 : left.kind > right.kind ? 1
+    : left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  if (canonicalJson(expectedLocks) !== canonicalJson(data.dependencyLocks)) {
+    fail('The grouped dependency locks differ from the complete source-derived impact plan.', 'WCA_SKP_SOURCE_STALE');
+  }
+  if (!Array.isArray(group.affectedWorkflowIds) || !group.affectedWorkflowIds.length || group.affectedWorkflowIds.length > 64
+      || canonicalJson([...new Set(group.affectedWorkflowIds)].sort()) !== canonicalJson(group.affectedWorkflowIds)) {
+    fail('The grouped review must bind all bounded affected workflows.');
+  }
+  return { profile: WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE, ...group, approvedWorkflow: workflow };
 }
 function validateSource(source, approvedSource, inputs) {
   closed(source, ['kind', 'schemaVersion', 'repository', 'workspaceId', 'draftId', 'revision', 'lifecycleEpoch', 'revisionSha256', 'head', 'payloadSha256', 'assetManifestSha256', 'lifecycle']);
@@ -313,7 +461,7 @@ function reviewForSubject(subject) {
  */
 export function prepareWorkflowSkillFinalization(input) {
   const data = copy(input);
-  closed(data, ['source', 'approvedSource', 'retainedInputs', 'phases', 'dependencyLocks', 'policySha256', 'classificationRequests', 'candidateDefinition', 'pendingFiles', 'phaseReplacements', 'approvedWorkflow'],
+  closed(data, ['source', 'approvedSource', 'retainedInputs', 'phases', 'dependencyLocks', 'policySha256', 'classificationRequests', 'candidateDefinition', 'pendingFiles', 'phaseReplacements', 'groupReplacement', 'approvedWorkflow'],
     ['source', 'approvedSource', 'retainedInputs', 'phases', 'dependencyLocks', 'policySha256']);
   closed(data.retainedInputs, ['request', 'assets']);
   if (!plain(data.retainedInputs.request)) fail('The exact retained workflow request is required.');
@@ -386,8 +534,11 @@ export function prepareWorkflowSkillFinalization(input) {
   }).sort((left, right) => left.phaseId < right.phaseId ? -1 : left.phaseId > right.phaseId ? 1 : 0);
   if (usedClassifications.size !== classifications.size) fail('Every reviewed producer classification must bind a selected exact phase package.', 'WCA_SKP_PRODUCER_CLASSIFICATION_UNAVAILABLE');
   const replacement = replacementReview(data, rows);
-  const subjectFamily = replacement ? 'workflow-authoring-skp-replacement-preconsent-subject' : 'workflow-authoring-skp-preconsent-subject';
-  const subjectProfile = replacement ? WCA_SKP_REPLACEMENT_PRECONSENT_PROFILE : WCA_SKP_PRECONSENT_PROFILE;
+  const replacementGroup = groupReplacementReview(data, rows);
+  const subjectFamily = replacementGroup ? 'workflow-authoring-skp-group-replacement-preconsent-subject'
+    : replacement ? 'workflow-authoring-skp-replacement-preconsent-subject' : 'workflow-authoring-skp-preconsent-subject';
+  const subjectProfile = replacementGroup ? WCA_SKP_GROUP_REPLACEMENT_PRECONSENT_PROFILE
+    : replacement ? WCA_SKP_REPLACEMENT_PRECONSENT_PROFILE : WCA_SKP_PRECONSENT_PROFILE;
   const core = { schemaVersion: currentSchemaVersion(subjectFamily), kind: subjectFamily, profile: subjectProfile,
     source: data.source, approvedSource: data.approvedSource, retainedInputsSha256: digest(data.retainedInputs),
     policySha256: data.policySha256, dependencyLocks: data.dependencyLocks,
@@ -397,6 +548,7 @@ export function prepareWorkflowSkillFinalization(input) {
     classificationDecisions: requests.map((request) => ({ ...request, manifest: packages.get(request.skillId),
       effect: 'inactive-review-candidate-only', approvedCatalogChanged: false })),
     ...(replacement ? { replacement } : {}),
+    ...(replacementGroup ? { replacementGroup } : {}),
     intendedEffect: 'create-inactive-configuration-review-proposal', sourceProvenance: 'requires-approved-compiler-capture',
     consent: 'absent', approval: 'not-granted', activation: 'inactive', execution: 'not-started', effects: effects() };
   if (Buffer.byteLength(canonicalJson(core)) > WCA_SKP_FINALIZATION_LIMITS.subjectBytes) fail('The exact review subject exceeds its display budget.', 'WCA_SKP_FINALIZATION_LIMIT');
@@ -413,7 +565,7 @@ export function workflowSkillFinalizationReview(prepared) { return captured(prep
 /** Compiler-facing adapter: exact pending bytes are supplied by its owner, never read from disk. */
 export function prepareWorkflowSkillConsent(input) {
   const data = copy(input, 24 * 1024 * 1024);
-  closed(data, ['source', 'approvedSource', 'request', 'snapshotInputs', 'candidateDefinition', 'pendingFiles', 'entries', 'dependencyLocks', 'policySha256', 'phaseReplacements', 'approvedWorkflow'],
+  closed(data, ['source', 'approvedSource', 'request', 'snapshotInputs', 'candidateDefinition', 'pendingFiles', 'entries', 'dependencyLocks', 'policySha256', 'phaseReplacements', 'groupReplacement', 'approvedWorkflow'],
     ['source', 'approvedSource', 'request', 'snapshotInputs', 'candidateDefinition', 'pendingFiles', 'entries']);
   closed(data.snapshotInputs, ['request', 'assets']);
   if (canonicalJson(data.request) !== canonicalJson(data.snapshotInputs.request)) fail('The compiler request differs from the exact retained input closure.', 'WCA_SKP_SOURCE_STALE');
@@ -450,7 +602,8 @@ export function prepareWorkflowSkillConsent(input) {
     dependencyLocks: data.dependencyLocks ?? [], policySha256: data.policySha256 ?? digest(data.candidateDefinition),
     candidateDefinition: data.candidateDefinition, pendingFiles,
     classificationRequests: [...classifications.values()], ...(data.phaseReplacements ? {
-      phaseReplacements: data.phaseReplacements, approvedWorkflow: data.approvedWorkflow } : {}) });
+      phaseReplacements: data.phaseReplacements, approvedWorkflow: data.approvedWorkflow } : {}),
+    ...(data.groupReplacement ? { groupReplacement: data.groupReplacement, approvedWorkflow: data.approvedWorkflow } : {}) });
 }
 
 export function assertWorkflowSkillPreConsentIdentity(prepared, expectedSubjectSha256) {
@@ -485,8 +638,9 @@ export function compileConsentedWorkflowSkillPhases(prepared, consent) {
     return { phaseId: compiled.phaseId, configuredPhase: configurationPhaseFromCompiledSkill(compiled), compilationSha256: compiled.compilationSha256 };
   }).sort((left, right) => left.phaseId < right.phaseId ? -1 : left.phaseId > right.phaseId ? 1 : 0);
   const authorization = accepted.authorization;
-  const result = freeze({ kind: 'workflow-authoring-skp-confirmed-projection', profile: prepared.subject.replacement
-    ? WCA_SKP_REPLACEMENT_FINALIZATION_PROFILE : WCA_SKP_FINALIZATION_PROFILE,
+  const result = freeze({ kind: 'workflow-authoring-skp-confirmed-projection', profile: prepared.subject.replacementGroup
+    ? WCA_SKP_GROUP_REPLACEMENT_FINALIZATION_PROFILE : prepared.subject.replacement
+      ? WCA_SKP_REPLACEMENT_FINALIZATION_PROFILE : WCA_SKP_FINALIZATION_PROFILE,
     preConsentSubjectSha256: prepared.subject.subjectSha256, phases,
     classificationDecisions: prepared.subject.classificationDecisions,
     confirmation: { authorizationId: authorization.authorizationId, questionId: authorization.questionId,
@@ -538,7 +692,8 @@ export function sealWorkflowSkillFinalization(projection, input) {
     })) fail('The emitted closure differs from the exact reviewed skill package.');
   }
   if (emitted.some(nativeSkillDiscovery)) fail('An inactive review closure cannot install native skill discovery bytes.');
-  const family = retained.prepared.subject.replacement ? 'workflow-authoring-skp-replacement-finalization' : 'workflow-authoring-skp-finalization';
+  const family = retained.prepared.subject.replacementGroup ? 'workflow-authoring-skp-group-replacement-finalization'
+    : retained.prepared.subject.replacement ? 'workflow-authoring-skp-replacement-finalization' : 'workflow-authoring-skp-finalization';
   const core = { schemaVersion: currentSchemaVersion(family), kind: family, profile: projection.profile,
     source: retained.selected.data.source, approvedSource: retained.selected.data.approvedSource,
     preConsentSubjectSha256: projection.preConsentSubjectSha256,
@@ -558,13 +713,19 @@ export function validateWorkflowSkillFinalizationRecord(input) {
   const data = copy(input, 24 * 1024 * 1024); closed(data, ['subject', 'record', 'definition', 'files', 'retainedInputs']);
   const { subject, record, definition } = data;
   const replacing = subject?.kind === 'workflow-authoring-skp-replacement-preconsent-subject';
-  const subjectFamily = replacing ? 'workflow-authoring-skp-replacement-preconsent-subject' : 'workflow-authoring-skp-preconsent-subject';
-  const recordFamily = replacing ? 'workflow-authoring-skp-replacement-finalization' : 'workflow-authoring-skp-finalization';
-  const subjectProfile = replacing ? WCA_SKP_REPLACEMENT_PRECONSENT_PROFILE : WCA_SKP_PRECONSENT_PROFILE;
-  const recordProfile = replacing ? WCA_SKP_REPLACEMENT_FINALIZATION_PROFILE : WCA_SKP_FINALIZATION_PROFILE;
+  const groupReplacing = subject?.kind === 'workflow-authoring-skp-group-replacement-preconsent-subject';
+  const subjectFamily = groupReplacing ? 'workflow-authoring-skp-group-replacement-preconsent-subject'
+    : replacing ? 'workflow-authoring-skp-replacement-preconsent-subject' : 'workflow-authoring-skp-preconsent-subject';
+  const recordFamily = groupReplacing ? 'workflow-authoring-skp-group-replacement-finalization'
+    : replacing ? 'workflow-authoring-skp-replacement-finalization' : 'workflow-authoring-skp-finalization';
+  const subjectProfile = groupReplacing ? WCA_SKP_GROUP_REPLACEMENT_PRECONSENT_PROFILE
+    : replacing ? WCA_SKP_REPLACEMENT_PRECONSENT_PROFILE : WCA_SKP_PRECONSENT_PROFILE;
+  const recordProfile = groupReplacing ? WCA_SKP_GROUP_REPLACEMENT_FINALIZATION_PROFILE
+    : replacing ? WCA_SKP_REPLACEMENT_FINALIZATION_PROFILE : WCA_SKP_FINALIZATION_PROFILE;
   closed(subject, ['schemaVersion', 'kind', 'profile', 'source', 'approvedSource', 'retainedInputsSha256', 'policySha256', 'dependencyLocks',
     'candidateDefinitionSha256', 'pendingFilesSha256', 'packages', 'phases', 'classificationDecisions', 'intendedEffect', 'sourceProvenance',
-    'consent', 'approval', 'activation', 'execution', 'effects', 'subjectSha256', ...(replacing ? ['replacement'] : [])]);
+    'consent', 'approval', 'activation', 'execution', 'effects', 'subjectSha256', ...(replacing ? ['replacement'] : []),
+    ...(groupReplacing ? ['replacementGroup'] : [])]);
   closed(record, ['schemaVersion', 'kind', 'profile', 'source', 'approvedSource', 'preConsentSubjectSha256', 'confirmedBindingsSha256',
     'emittedDefinitionSha256', 'emittedClosureSha256', 'confirmation', 'bindingDialect', 'classificationDecisions', 'approval', 'activation', 'execution', 'effects', 'finalizationSha256']);
   if (readRecord(subjectFamily, subject).storedVersion !== 1 || readRecord(recordFamily, record).storedVersion !== 1
@@ -595,6 +756,9 @@ export function validateWorkflowSkillFinalizationRecord(input) {
   data.retainedInputs.assets = files(data.retainedInputs.assets, WCA_SKP_FINALIZATION_LIMITS.packageBytes);
   if (digest(data.retainedInputs) !== subject.retainedInputsSha256) fail('The retained agent request closure differs from the reviewed subject.');
   validateSource(subject.source, subject.approvedSource, data.retainedInputs);
+  if (!replacing && !groupReplacing && data.retainedInputs.request.intent !== 'create') {
+    fail('An ordinary skill finalization cannot downgrade an edit or replacement request.', 'WCA_SKP_SOURCE_STALE');
+  }
   closed(record.confirmation, ['authorizationId', 'questionId', 'channel', 'assurance', 'actor', 'actionPlanSha256', 'authenticatedNativeHost']);
   const review = reviewForSubject(subject);
   if (!UUID.test(record.confirmation.authorizationId ?? '') || record.confirmation.questionId !== recordSha256({ planId: review.plan.planId, actionId: review.action.actionId, channel: 'terminal' }).slice(0, 24)
@@ -682,6 +846,19 @@ export function validateWorkflowSkillFinalizationRecord(input) {
       approvedSource: subject.approvedSource, retainedInputs: data.retainedInputs, dependencyLocks: subject.dependencyLocks,
       pendingFiles: emitted.filter((file) => file.path !== 'singularity/workflow.yml').map(({ mode, ...file }) => file) }, subject.phases);
     if (canonicalJson(recomputed) !== canonicalJson(subject.replacement)) fail('The retained replacement review is inconsistent.');
+  }
+  if (groupReplacing) {
+    closed(subject.replacementGroup, ['profile', 'phaseReplacements', 'consumerImpactSha256', 'affectedWorkflowIds',
+      'agentImpactCatalog', 'approvedTemplateFiles', 'approvedWorkflow']);
+    const { profile, approvedWorkflow, ...groupReplacement } = subject.replacementGroup;
+    const recomputed = groupReplacementReview({ groupReplacement, approvedWorkflow,
+      candidateDefinition: originalDefinition, approvedSource: subject.approvedSource,
+      retainedInputs: data.retainedInputs, dependencyLocks: subject.dependencyLocks,
+      pendingFiles: emitted.filter((file) => file.path !== 'singularity/workflow.yml').map(({ mode, ...file }) => file),
+      phases: subject.phases.map((row) => ({ phase: row.phase, package: {
+        files: emitted.filter((file) => file.path.startsWith(`singularity/skills/${row.phase.skill.id}/`))
+          .map(({ mode, ...file }) => ({ ...file, path: file.path.slice(`singularity/skills/${row.phase.skill.id}/`.length) })) } })) }, subject.phases);
+    if (canonicalJson(recomputed) !== canonicalJson(subject.replacementGroup)) fail('The retained grouped replacement review is inconsistent.');
   }
   return freeze({ structurallyConsistent: true, profile: recordProfile, subjectSha256, finalizationSha256,
     authority: 'none', consent: 'historical-local-review-only', approval: 'not-granted', activation: 'inactive', execution: 'not-started', effects: effects() });

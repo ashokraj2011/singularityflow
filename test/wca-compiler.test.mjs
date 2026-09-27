@@ -11,11 +11,16 @@ import { openGitDraftStore } from '../src/wca-git-drafts.mjs';
 import { captureWorkflowCompilerContext, captureWorkflowDraftCompilerSource, compileWorkflowDraftPackage, previewWorkflowDraftPackage, revalidateWorkflowDraftPackage, workflowCompilerCatalogChoices, workflowDraftPackageProposalFiles, captureWorkflowDraftPackageProposal, WCA_REQUEST_SCHEMA } from '../src/wca-compiler.mjs';
 import { compileConfirmedSkillPhase, compileSkillPhaseProposal, configurationPhaseFromCompiledSkill, skillCandidateCatalogSha256, skillContractSha256, skillPhaseCandidateSha256 } from '../src/skp-contract.mjs';
 import { configurationAssetPolicy } from '../src/configuration-assets.mjs';
-import { recordSha256 } from '../src/records.mjs';
+import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { inspectSkillPackageContents } from '../src/skp-package.mjs';
+import { validateWorkflowSkillFinalizationRecord } from '../src/wca-skp-finalization.mjs';
 import { workflowDefinitionSha256, phaseDefinitionSha256, agentTextSha256, templateDefinitionSha256,
   WCA_SHARED_PHASE_CHANGES_PROFILE, WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE,
-  WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE, WCA_SHARED_TEMPLATE_CHANGES_PROFILE } from '../src/wca-workflow-changes.mjs';
+  WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE, WCA_SHARED_SKILL_CONTRACT_GROUP_PLAN_PROFILE,
+  WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE, planSharedSkillContractGroupChanges,
+  WCA_SHARED_TEMPLATE_CHANGES_PROFILE } from '../src/wca-workflow-changes.mjs';
+import { sharedSkillContractCatalog } from '../src/wca-skill-contract-review.mjs';
+import { parseAgentDependencies } from '../src/agents.mjs';
 import { validateWorkflowDraftSubmissionSnapshot } from '../src/wca-submission.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
@@ -23,6 +28,81 @@ import { captureVerifiedConfigurationAssetBytes } from '../src/configuration-bra
 import { withCommandTiming } from '../src/dx-timing-context.mjs';
 
 function git(root, ...argv) { const result = spawnSync('git', argv, { cwd: root, encoding: 'utf8', timeout: 30_000 }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); }
+const testDigest = (value) => `sha256:${recordSha256(value)}`;
+const testDomainDigest = (domain, value) => `sha256:${createHash('sha256').update(`${domain}\0`).update(canonicalJson(value)).digest('hex')}`;
+function resealGroupedHistorical(value) {
+  const { subject, record, definition, files } = value;
+  const { subjectSha256: omittedSubjectSha256, ...subjectCore } = subject;
+  subject.subjectSha256 = testDomainDigest(subject.profile, subjectCore);
+  const reviewCore = { schemaVersion: 1, kind: 'workflow-authoring-skp-consent-plan', subject,
+    revision: subject.subjectSha256, effect: subject.intendedEffect,
+    approval: 'not-granted', activation: 'inactive', execution: 'not-started' };
+  const reviewHash = recordSha256(reviewCore);
+  const planId = `wca-skp-${reviewHash.slice(0, 24)}`;
+  const actionId = `workflow-skp-confirm-${reviewHash.slice(0, 24)}`;
+  record.preConsentSubjectSha256 = subject.subjectSha256;
+  record.confirmation.actionPlanSha256 = `sha256:${reviewHash}`;
+  record.confirmation.questionId = recordSha256({ planId, actionId, channel: 'terminal' }).slice(0, 24);
+  const phases = subject.phases.map((row) => {
+    const configuredPhase = definition.phases[row.phaseId];
+    configuredPhase.skillBinding.bindingRefs.confirmation.planSha256 = subject.subjectSha256;
+    const { kind: omittedKind, skillBinding, ...phasePolicy } = configuredPhase;
+    skillBinding.compilationSha256 = testDigest({ compiler: skillBinding.compiler,
+      phaseId: row.phaseId, phasePolicy, bindingRefs: skillBinding.bindingRefs });
+    return { phaseId: row.phaseId, configuredPhase, compilationSha256: skillBinding.compilationSha256 };
+  }).sort((a, b) => a.phaseId < b.phaseId ? -1 : a.phaseId > b.phaseId ? 1 : 0);
+  record.confirmedBindingsSha256 = testDigest(phases);
+  record.emittedDefinitionSha256 = testDigest(definition);
+  const workflow = files.find((file) => file.path === 'singularity/workflow.yml');
+  const bytes = Buffer.from(YAML.stringify(definition));
+  Object.assign(workflow, { bytes: bytes.length,
+    sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    contentBase64: bytes.toString('base64') });
+  record.emittedClosureSha256 = testDigest(files.map(({ path: file, mode, bytes: size, sha256 }) =>
+    ({ path: file, mode, bytes: size, sha256 })));
+  const { finalizationSha256: omittedFinalizationSha256, ...recordCore } = record;
+  record.finalizationSha256 = testDomainDigest(record.profile, recordCore);
+  return value;
+}
+function resealGroupedAsOrdinarySnapshot(value) {
+  const subject = value.preview.skillFinalization.subject;
+  const record = value.preview.skillFinalization.record;
+  delete subject.replacementGroup;
+  subject.kind = 'workflow-authoring-skp-preconsent-subject';
+  subject.profile = 'wca-skp-preconsent/v1';
+  record.kind = 'workflow-authoring-skp-finalization';
+  record.profile = 'wca-skp-finalization/v1';
+  record.bindingDialect = subject.profile;
+  resealGroupedHistorical({ subject, record, definition: value.preview.candidateDefinition,
+    files: value.files, retainedInputs: value.inputs });
+  const pending = value.preConsentPreview;
+  pending.skillFinalization.subject = structuredClone(subject);
+  const reviewCore = { schemaVersion: 1, kind: 'workflow-authoring-skp-consent-plan', subject,
+    revision: subject.subjectSha256, effect: subject.intendedEffect,
+    approval: 'not-granted', activation: 'inactive', execution: 'not-started' };
+  const planHash = recordSha256(reviewCore);
+  pending.skillFinalization.review = { plan: { ...reviewCore, planId: `wca-skp-${planHash.slice(0, 24)}`, planHash },
+    action: { actionId: `workflow-skp-confirm-${planHash.slice(0, 24)}`, label: 'Review skill contracts',
+      effect: subject.intendedEffect, confirmation: { required: true, mode: 'one-time-authorization' } } };
+  const { planSha256: omittedPendingSha256, ...pendingCore } = pending;
+  pending.planSha256 = testDigest(pendingCore);
+  const workflowFile = value.files.find((file) => file.path === 'singularity/workflow.yml');
+  const workflowAsset = value.preview.assets.find((asset) => asset.path === workflowFile.path);
+  Object.assign(workflowAsset, { content: Buffer.from(workflowFile.contentBase64, 'base64').toString('utf8'),
+    bytes: workflowFile.bytes, sha256: workflowFile.sha256 });
+  value.preview.candidateAssetManifestSha256 = testDigest(value.preview.assets.map(({ path: file, bytes, sha256 }) =>
+    ({ path: file, bytes, sha256 })));
+  const { planSha256: omittedPreviewSha256, ...previewCore } = value.preview;
+  value.preview.planSha256 = testDigest(previewCore);
+  value.kind = 'workflow-authoring-skill-submission-snapshot';
+  value.confirmation = structuredClone(record.confirmation);
+  value.finalizationSha256 = record.finalizationSha256;
+  value.snapshotId = record.finalizationSha256.slice(7);
+  value.operationRef = { owner: 'configuration-proposal', operation: 'author', subject: value.snapshotId.slice(0, 24) };
+  const { snapshotSha256: omittedSnapshotSha256, ...snapshotCore } = value;
+  value.snapshotSha256 = testDigest(snapshotCore);
+  return value;
+}
 async function fixture(t, configure = () => {}, approvedSkills = []) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wca-compiler-')); t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'client'); const remote = path.join(base, 'authority.git'); await mkdir(root);
@@ -107,6 +187,64 @@ async function skillContractFixture(t) {
     definitions: { phases: [{ ...replacement, agent: { source: 'catalog', kind: 'agent', id: 'skill-note-owner' } }] } } };
 }
 
+async function multiSkillContractFixture(t, { distinctPackages = false, templateOverrides = false } = {}) {
+  const f = await skillContractFixture(t);
+  const first = structuredClone(f.replacementRequest.definitions.phases[0]);
+  first.contract.produces[0].minimumBytes = 20;
+  const second = structuredClone(first);
+  second.id = 'skill-summary'; second.label = 'Skill summary';
+  second.contract.consumes = [{ phase: 'skill-note', output: 'report', required: true, state: 'approved' }];
+  second.contract.produces[0].path = 'artifacts/skill-summary/report.md';
+  second.agent = { source: 'catalog', kind: 'agent', id: 'skill-summary-owner' };
+  const order = ['intake', 'skill-note', 'skill-summary', 'conformance'];
+  const declaration = ({ agent, ...phase }) => phase;
+  const initialCatalog = sharedSkillContractCatalog(f.definition, 'skill-note');
+  if (distinctPackages) {
+    const contents = new Map([['SKILL.md', Buffer.from('---\nname: summary-note\ndescription: Approved summary procedure\n---\nSummarize only approved inputs.\n')]]);
+    const { manifest } = inspectSkillPackageContents('summary-note', contents);
+    second.skill = { id: 'summary-note', packageSha256: manifest.packageSha256 };
+    initialCatalog.skillPackages['summary-note'] = { packageSha256: manifest.packageSha256, eligibility: 'candidate-producer' };
+    await mkdir(path.join(f.root, 'singularity/skills/summary-note'), { recursive: true });
+    await writeFile(path.join(f.root, 'singularity/skills/summary-note/SKILL.md'), contents.get('SKILL.md'));
+  }
+  const initialProposal = compileSkillPhaseProposal({ phase: declaration(second), catalog: initialCatalog, phaseOrder: order });
+  f.definition.phases['skill-summary'] = configurationPhaseFromCompiledSkill(compileConfirmedSkillPhase({
+    phase: declaration(second), catalog: initialCatalog, phaseOrder: order,
+    confirmation: { contractSha256: initialProposal.bindingRefs.contractSha256, catalogSha256: initialProposal.bindingRefs.catalogSha256,
+      packageSha256: second.skill.packageSha256, candidateSha256: initialProposal.candidateSha256,
+      planSha256: `sha256:${'b'.repeat(64)}`, draftRevision: 1 } }));
+  for (const workflow of Object.values(f.definition.workTypes)) workflow.phases = [...order];
+  for (const phase of [first, second]) {
+    const catalog = sharedSkillContractCatalog(f.definition, phase.id);
+    const proposal = compileSkillPhaseProposal({ phase: declaration(phase), catalog, phaseOrder: order });
+    f.definition.phases[phase.id] = configurationPhaseFromCompiledSkill(compileConfirmedSkillPhase({
+      phase: declaration(phase), catalog, phaseOrder: order,
+      confirmation: { contractSha256: proposal.bindingRefs.contractSha256, catalogSha256: proposal.bindingRefs.catalogSha256,
+        packageSha256: phase.skill.packageSha256, candidateSha256: proposal.candidateSha256,
+        planSha256: `sha256:${'c'.repeat(64)}`, draftRevision: 2 } }));
+  }
+  if (templateOverrides) {
+    f.definition.workTypes.baseline.templateOverrides = { intake: 'common/alternate.md' };
+    await writeFile(path.join(f.root, f.definition.templatesRoot, 'common/alternate.md'), '# Exact approved alternate template\n');
+  }
+  await writeFile(path.join(f.root, 'singularity/workflow.yml'), YAML.stringify(f.definition));
+  await writeFile(path.join(f.root, '.github/agents/skill-summary-owner.agent.md'),
+    '---\nname: skill-summary-owner\ndescription: Exact summary role\ntools: []\nmetadata:\n  sflow-phases: skill-summary\n  sflow-default-for: skill-summary\n---\nRead only exact approved inputs.\n');
+  git(f.root, 'add', '.'); git(f.root, 'commit', '-m', 'approved dependent skill');
+  git(f.root, 'branch', '-f', 'sflow/config', 'HEAD'); git(f.root, 'push', 'origin', 'main', 'sflow/config');
+  f.commit = git(f.root, 'rev-parse', 'HEAD');
+  const replacements = [first, second].map((phase) => {
+    const replacement = structuredClone(phase); replacement.contract.produces[0].minimumBytes = 32;
+    return replacement;
+  });
+  f.groupRequest = { schema: WCA_REQUEST_SCHEMA, intent: 'edit', id: 'skill-group-plan', label: 'Dependent skill contract impact',
+    baseRevision: f.commit, target: f.request.target,
+    changes: replacements.map((phase) => ({ profile: WCA_SHARED_SKILL_CONTRACT_GROUP_PLAN_PROFILE,
+      kind: 'phase', id: phase.id, operation: 'edit', expectedDefinitionSha256: phaseDefinitionSha256(f.definition.phases[phase.id]) })),
+    definitions: { phases: replacements } };
+  return f;
+}
+
 test('shared metadata review binds display and complete default-agent changes to all affected simulations', async (t) => {
   const f = await fixture(t, (definition) => { definition.workTypes.sibling = structuredClone(definition.workTypes.baseline); });
   const request = await sharedAgentRequest(f); request.changes[0].profile = WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE;
@@ -152,6 +290,153 @@ test('existing skill contract preview discards old binding, retains exact parent
   assert.deepEqual(p.result.sharedObjectChanges.impact.affectedWorkflows.map((row) => row.id), ['baseline', 'sibling']);
   assert.deepEqual(p.result.assets, []); assert.deepEqual(p.result.fileOperations, []);
   assert.throws(() => workflowDraftPackageProposalFiles(p.result), { code: 'WCA_PACKAGE_NOT_SUBMITTABLE' });
+});
+
+test('multi-skill impact preview binds dependent phase plans to one exact saved source without offering submission', async (t) => {
+  const f = await multiSkillContractFixture(t);
+  const approved = await readFile(path.join(f.root, 'singularity/workflow.yml'));
+  const p = await preview(f, f.groupRequest);
+  assert.equal(p.result.sharedObjectChanges.status, 'ready-for-impact-review', JSON.stringify(p.result.findings));
+  assert.deepEqual(p.result.sharedObjectChanges.impact.selectedSkillPhaseIds, ['skill-note', 'skill-summary']);
+  assert.deepEqual(p.result.sharedObjectChanges.impact.affectedWorkflows.map((row) => row.id), ['baseline', 'sibling']);
+  assert.ok(p.result.sharedObjectChanges.impact.consumerEdges.some((row) => row.from === 'phase:skill-summary' && row.to === 'phase:skill-note'));
+  assert.ok(p.result.findings.some((finding) => finding.code === 'WCA_SHARED_SKILL_CONTRACT_GROUP_OWNER_UNAVAILABLE'));
+  assert.equal(p.result.readiness.authoring, 'unavailable');
+  assert.equal(Object.hasOwn(p.result, 'skillFinalization'), false);
+  assert.deepEqual(p.result.skillProposals, []);
+  assert.deepEqual(p.result.assets, []); assert.deepEqual(p.result.fileOperations, []);
+  assert.deepEqual(await readFile(path.join(f.root, 'singularity/workflow.yml')), approved);
+  assert.throws(() => workflowDraftPackageProposalFiles(p.result), { code: 'WCA_PACKAGE_NOT_SUBMITTABLE' });
+});
+
+test('grouped artifact-only skill replacement prepares one exact terminal subject for all selected bindings', async (t) => {
+  const f = await multiSkillContractFixture(t);
+  const request = structuredClone(f.groupRequest);
+  for (const change of request.changes) change.profile = WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE;
+  const p = await preview(f, request);
+  assert.equal(p.result.readiness.authoring, 'review-required', JSON.stringify(p.result.findings));
+  assert.equal(p.result.skillFinalization.status, 'requires-exact-terminal-consent');
+  assert.equal(p.result.skillFinalization.subject.kind, 'workflow-authoring-skp-group-replacement-preconsent-subject');
+  assert.equal(p.result.skillFinalization.subject.phases.length, 2);
+  assert.deepEqual(p.result.skillFinalization.subject.replacementGroup.phaseReplacements.map((row) => row.phaseId),
+    ['skill-note', 'skill-summary']);
+  assert.equal(p.result.skillProposals.length, 2);
+  assert.equal(p.result.candidateDefinition.phases['skill-note'], undefined);
+  assert.equal(p.result.candidateDefinition.phases['skill-summary'], undefined);
+  assert.deepEqual(p.result.assets, []); assert.deepEqual(p.result.fileOperations, []);
+  assert.throws(() => workflowDraftPackageProposalFiles(p.result), { code: 'WCA_PACKAGE_NOT_SUBMITTABLE' });
+});
+
+test('grouped review captures effective template overrides as exact approved byte locks', async (t) => {
+  const f = await multiSkillContractFixture(t, { templateOverrides: true });
+  const request = structuredClone(f.groupRequest);
+  for (const change of request.changes) change.profile = WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE;
+  const p = await preview(f, request);
+  assert.equal(p.result.readiness.authoring, 'review-required', JSON.stringify(p.result.findings));
+  const subject = p.result.skillFinalization.subject;
+  const paths = subject.replacementGroup.approvedTemplateFiles.map((file) => file.path);
+  assert.deepEqual(paths, ['singularity/templates/common/alternate.md', 'singularity/templates/common/empty.md']);
+  assert.deepEqual(subject.dependencyLocks.filter((lock) => lock.kind === 'template-content').map((lock) => lock.id), paths);
+});
+
+test('grouped review captures two distinct retained packages and refuses effect or parent drift without candidate bytes', async (t) => {
+  for (const [name, mutate, expected] of [
+    ['distinct', () => {}, 'review-required'],
+    ['parent', (request) => { request.changes[1].expectedDefinitionSha256 = `sha256:${'0'.repeat(64)}`; }, 'invalid'],
+    ['effect', (request) => { request.definitions.phases[1].contract.produces[0].path = 'artifacts/skill-summary/new.md'; }, 'invalid'],
+    ['read-scope', (request) => { request.definitions.phases[1].contract.readScope.inputs = false; }, 'invalid'],
+    ['mixed', (request) => { request.definitions.templates = [{ id: 'unreviewed', content: '# Not paired' }]; }, 'invalid']
+  ]) await t.test(name, async (child) => {
+    const f = await multiSkillContractFixture(child, { distinctPackages: true });
+    const request = structuredClone(f.groupRequest);
+    for (const change of request.changes) change.profile = WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE;
+    mutate(request);
+    const p = await preview(f, request);
+    assert.equal(p.result.readiness.authoring, expected, JSON.stringify(p.result.findings));
+    assert.deepEqual(p.result.assets, []); assert.deepEqual(p.result.fileOperations, []);
+    if (name === 'distinct') {
+      assert.deepEqual(p.result.skillFinalization.subject.packages.map((item) => item.skillId), ['inert-note', 'summary-note']);
+      assert.equal(p.result.skillFinalization.subject.phases.length, 2);
+    } else assert.equal(p.result.skillFinalization, undefined);
+  });
+});
+
+test('grouped review refuses executable mode in any selected retained package before consent', async (t) => {
+  const f = await multiSkillContractFixture(t, { distinctPackages: true });
+  git(f.root, 'update-index', '--chmod=+x', 'singularity/skills/summary-note/SKILL.md');
+  git(f.root, 'commit', '-m', 'Approved executable summary resource mode');
+  git(f.root, 'branch', '-f', 'sflow/config', 'HEAD'); git(f.root, 'push', 'origin', 'main', 'sflow/config');
+  const request = structuredClone(f.groupRequest);
+  request.baseRevision = git(f.root, 'rev-parse', 'HEAD');
+  for (const change of request.changes) change.profile = WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE;
+  const created = await f.store.create({ draftId: 'WFD-COMPILER1', displayName: 'Grouped mode refusal',
+    expectedHead: null, payload: request, operationId: 'grouped-mode-refusal' });
+  const context = await captureWorkflowCompilerContext(f.root);
+  await assert.rejects(captureWorkflowDraftCompilerSource(context, { draftId: created.record.draftId }),
+    { code: 'SKP_PACKAGE_MODE_UNSUPPORTED' });
+  assert.equal(git(f.root, '--git-dir', f.remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-change/'), '');
+});
+
+test('multi-skill group planner refuses stale catalogs, stale parents and effect changes as a whole', async (t) => {
+  const f = await multiSkillContractFixture(t);
+  const agentIds = ['product-owner', 'skill-note-owner', 'skill-summary-owner', 'qa'];
+  const agents = await Promise.all(agentIds.map(async (agentId) => {
+    const source = `.github/agents/${agentId}.agent.md`;
+    const text = await readFile(path.join(f.root, source), 'utf8');
+    const parsed = parseAgentDependencies(text, { source });
+    return { id: agentId, source, scope: 'repository', text, phases: parsed.phases, defaultFor: parsed.defaultFor,
+      tools: parsed.tools, worldModelViews: parsed.worldModelViews, dependencies: parsed.dependencies };
+  }));
+  const input = { approvedDefinition: f.definition, agents,
+    changes: f.groupRequest.changes.map((change, index) => {
+      const { profile, ...row } = change;
+      return { ...row, replacement: f.groupRequest.definitions.phases[index] };
+    }), catalogs: Object.fromEntries(f.groupRequest.changes.map((change) =>
+      [change.id, sharedSkillContractCatalog(f.definition, change.id)])) };
+  const source = structuredClone(input);
+  const ready = planSharedSkillContractGroupChanges(input);
+  assert.equal(ready.status, 'ready-for-impact-review', JSON.stringify(ready.findings));
+  assert.deepEqual(input, source);
+  assert.equal(ready.impact.submission, 'unavailable-from-this-planning-profile');
+  assert.equal(Object.isFrozen(ready.replacements[0].proposal), true);
+  const staleCatalog = structuredClone(input); staleCatalog.catalogs['skill-summary'].phases['skill-note'].outputs[0].path = 'artifacts/wrong.md';
+  assert.equal(planSharedSkillContractGroupChanges(staleCatalog).findings[0].code, 'WCA_SHARED_SKILL_CONTRACT_CATALOG_STALE');
+  const staleParent = structuredClone(input); staleParent.changes[0].expectedDefinitionSha256 = `sha256:${'0'.repeat(64)}`;
+  assert.equal(planSharedSkillContractGroupChanges(staleParent).findings[0].code, 'WCA_CHANGE_PARENT_STALE');
+  const effect = structuredClone(input); effect.changes[1].replacement.contract.produces[0].path = 'artifacts/skill-summary/changed.md';
+  assert.equal(planSharedSkillContractGroupChanges(effect).findings[0].code, 'WCA_SHARED_SKILL_CONTRACT_EFFECT_CHANGE_UNSUPPORTED');
+  const duplicate = structuredClone(input); duplicate.changes[1] = structuredClone(duplicate.changes[0]);
+  assert.equal(planSharedSkillContractGroupChanges(duplicate).findings[0].code, 'WCA_SHARED_SKILL_CONTRACT_GROUP_INVALID');
+
+  const omitted = structuredClone(input);
+  const third = structuredClone(omitted.changes[1].replacement);
+  third.id = 'skill-audit'; third.label = 'Skill audit';
+  third.agent = { source: 'catalog', kind: 'agent', id: 'skill-audit-owner' };
+  third.contract.consumes = [{ phase: 'intake', output: 'primary', required: true, state: 'approved' }];
+  third.contract.produces[0].path = 'artifacts/skill-audit/report.md';
+  third.contract.produces[0].minimumBytes = 20;
+  const { agent: unusedAgent, ...thirdPhase } = third;
+  const order = ['intake', 'skill-note', 'skill-summary', 'skill-audit', 'conformance'];
+  const firstCatalog = sharedSkillContractCatalog(omitted.approvedDefinition, 'skill-note');
+  const firstProposal = compileSkillPhaseProposal({ phase: thirdPhase, catalog: firstCatalog, phaseOrder: order });
+  omitted.approvedDefinition.phases['skill-audit'] = configurationPhaseFromCompiledSkill(compileConfirmedSkillPhase({
+    phase: thirdPhase, catalog: firstCatalog, phaseOrder: order,
+    confirmation: { contractSha256: firstProposal.bindingRefs.contractSha256,
+      catalogSha256: firstProposal.bindingRefs.catalogSha256, candidateSha256: firstProposal.candidateSha256,
+      packageSha256: third.skill.packageSha256, planSha256: `sha256:${'d'.repeat(64)}`, draftRevision: 3 } }));
+  for (const workflow of Object.values(omitted.approvedDefinition.workTypes)) workflow.phases = [...order];
+  const text = '---\nname: skill-audit-owner\ndescription: Exact audit role\ntools: []\nmetadata:\n  sflow-phases: skill-audit\n  sflow-default-for: skill-audit\n---\nRead only approved inputs.\n';
+  const parsed = parseAgentDependencies(text, { source: '.github/agents/skill-audit-owner.agent.md' });
+  omitted.agents.push({ id: 'skill-audit-owner', source: '.github/agents/skill-audit-owner.agent.md',
+    scope: 'repository', text, phases: parsed.phases, defaultFor: parsed.defaultFor, tools: parsed.tools,
+    worldModelViews: parsed.worldModelViews, dependencies: parsed.dependencies });
+  third.contract.produces[0].minimumBytes = 32;
+  omitted.changes = [omitted.changes[0], { kind: 'phase', id: 'skill-audit', operation: 'edit',
+    expectedDefinitionSha256: phaseDefinitionSha256(omitted.approvedDefinition.phases['skill-audit']), replacement: third }];
+  omitted.catalogs = Object.fromEntries(omitted.changes.map((change) =>
+    [change.id, sharedSkillContractCatalog(omitted.approvedDefinition, change.id)]));
+  assert.equal(planSharedSkillContractGroupChanges(omitted).findings[0].code,
+    'WCA_SHARED_SKILL_CONTRACT_DEPENDENT_RECOMPILE_REQUIRED');
 });
 
 test('ordinary context/catalog/preview performs zero extra package captures and executable retained modes refuse only explicit replacements', async (t) => {
@@ -248,6 +533,98 @@ test('real terminal skill replacement recompiles one binding, simulates every co
     ]) {
       const changed = structuredClone(retained); mutate(changed); assert.throws(() => validateWorkflowDraftSubmissionSnapshot(changed));
     }
+  });
+
+test('one terminal review finalizes a grouped dependent skill replacement and retains an independently checked inactive proposal',
+  { skip: process.platform !== 'darwin' || !existsSync('/usr/bin/expect') }, async (t) => {
+    const f = await multiSkillContractFixture(t);
+    const request = structuredClone(f.groupRequest);
+    for (const change of request.changes) change.profile = WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE;
+    const pending = await preview(f, request);
+    assert.equal(pending.result.readiness.authoring, 'review-required', JSON.stringify(pending.result.findings));
+    const before = { yaml: await readFile(path.join(f.root, 'singularity/workflow.yml')),
+      index: await readFile(path.join(f.root, '.git/index')),
+      head: git(f.root, 'rev-parse', 'HEAD'), approved: git(f.root, '--git-dir', f.remote, 'rev-parse', 'refs/heads/sflow/config') };
+    const code = `
+      import {previewWorkflowDraftPackage} from ${JSON.stringify(new URL('../src/wca-compiler.mjs', import.meta.url).href)};
+      import {workflowDraftSubmissionPlan,createWorkflowDraftReviewProposal} from ${JSON.stringify(new URL('../src/wca-submission.mjs', import.meta.url).href)};
+      import {captureTerminalActionAuthorization} from ${JSON.stringify(new URL('../src/action-authorization.mjs', import.meta.url).href)};
+      const root=${JSON.stringify(f.root)};
+      try {
+        const pending=await previewWorkflowDraftPackage(root,{draftId:'WFD-COMPILER1',revision:1});
+        const review=workflowDraftSubmissionPlan(pending);
+        const grant=await captureTerminalActionAuthorization(root,review.plan,review.action,{label:'Review grouped contracts'});
+        const result=await createWorkflowDraftReviewProposal(root,{draftId:'WFD-COMPILER1',revision:1,expectedPlanSha256:pending.planSha256,confirmation:grant.token});
+        let replay;try{await createWorkflowDraftReviewProposal(root,{draftId:'WFD-COMPILER1',revision:1,expectedPlanSha256:pending.planSha256,confirmation:grant.token});}catch(e){replay=e.code;}
+        console.log('SKILL_GROUP_RESULT:'+JSON.stringify({ok:true,result,replay}));
+      }catch(e){console.log('SKILL_GROUP_RESULT:'+JSON.stringify({ok:false,code:e.code,message:e.message}));}
+    `;
+    const script = 'set timeout 45\nspawn -noecho $env(SF_GROUP_NODE) --input-type=module -e $env(SF_GROUP_CODE)\nexpect {\n -exact {Type Review grouped contracts} { send -- "Review grouped contracts\\r" }\n timeout {exit 124}\n eof {exit 125}\n}\nexpect {eof {} timeout {exit 124}}\nset result [wait]\nexit [lindex $result 3]\n';
+    const observed = await new Promise((resolve, reject) => {
+      const child = spawn('/usr/bin/expect', ['-c', script], { cwd: f.root, env: { ...process.env, NODE_ENV: 'test',
+        SINGULARITY_FLOW_TEST_IDENTITY: 'Group Fixture', SINGULARITY_FLOW_DISABLE_MODELS: '1',
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(f.root, '.test-workspaces.json'),
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(f.root, '.test-active-workspace.json'),
+        SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, '.test-leads.json'),
+        SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(path.dirname(f.root), 'transport-outbox'),
+        SF_GROUP_NODE: process.execPath, SF_GROUP_CODE: code }, stdio: ['pipe', 'pipe', 'pipe'] });
+      let output = ''; const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Grouped PTY fixture timed out')); }, 50000);
+      child.stdout.on('data', (chunk) => { output += chunk; }); child.stderr.on('data', (chunk) => { output += chunk; });
+      child.on('error', (error) => { clearTimeout(timer); reject(error); }); child.on('close', (status) => { clearTimeout(timer); resolve({ status, output }); });
+    });
+    assert.equal(observed.status, 0, observed.output);
+    const marker = observed.output.split(/\r?\n/u).find((line) => line.startsWith('SKILL_GROUP_RESULT:')); assert.ok(marker, observed.output);
+    const acknowledged = JSON.parse(marker.slice('SKILL_GROUP_RESULT:'.length)); assert.equal(acknowledged.ok, true, JSON.stringify(acknowledged));
+    assert.ok(acknowledged.replay, 'one terminal authorization cannot finalize the group twice');
+    const result = acknowledged.result;
+    const retained = validateWorkflowDraftSubmissionSnapshot(JSON.parse(git(f.root, '--git-dir', f.remote, 'show', `${result.commit}:${result.snapshotPath}`)));
+    assert.equal(retained.kind, 'workflow-authoring-skill-group-replacement-submission-snapshot');
+    assert.match(result.snapshotPath, /^singularity\/workflow-authoring-skill-group-replacements\/[a-f0-9]{64}\.json$/u);
+    assert.equal(retained.preview.skillFinalization.record.kind, 'workflow-authoring-skp-group-replacement-finalization');
+    assert.equal(retained.preview.simulation.status, 'complete-for-profile');
+    assert.equal(retained.preview.simulation.workflows.length, 2);
+    for (const phaseId of ['skill-note', 'skill-summary']) {
+      const configured = retained.preview.candidateDefinition.phases[phaseId];
+      assert.equal(configured.artifact.minimumBytes, 32);
+      assert.notEqual(configured.skillBinding.compilationSha256, f.definition.phases[phaseId].skillBinding.compilationSha256);
+      assert.equal(configured.skillBinding.bindingRefs.confirmation.planSha256, retained.preview.skillFinalization.subject.subjectSha256);
+    }
+    assert.deepEqual(git(f.root, '--git-dir', f.remote, 'diff-tree', '--no-commit-id', '--name-only', '-r', result.commit).split('\n').sort(),
+      ['singularity/workflow.yml', result.snapshotPath].sort());
+    assert.equal(git(f.root, '--git-dir', f.remote, 'rev-parse', 'refs/heads/sflow/config'), before.approved);
+    assert.equal(git(f.root, 'rev-parse', 'HEAD'), before.head);
+    assert.deepEqual(await readFile(path.join(f.root, '.git/index')), before.index);
+    assert.deepEqual(await readFile(path.join(f.root, 'singularity/workflow.yml')), before.yaml);
+    const evidence = { subject: structuredClone(retained.preview.skillFinalization.subject),
+      record: structuredClone(retained.preview.skillFinalization.record),
+      definition: structuredClone(retained.preview.candidateDefinition),
+      files: structuredClone(retained.files), retainedInputs: structuredClone(retained.inputs) };
+    assert.equal(validateWorkflowSkillFinalizationRecord(evidence).structurallyConsistent, true);
+    for (const mutate of [
+      (value) => { value.subject.replacementGroup.phaseReplacements[0].beforeDefinition.label = 'Forged reviewed parent'; },
+      (value) => { value.subject.replacementGroup.consumerImpactSha256 = `sha256:${'f'.repeat(64)}`; },
+      (value) => { value.subject.replacementGroup.agentImpactCatalog.find((agent) => agent.id === 'skill-summary-owner').defaultFor = []; },
+      (value) => { value.subject.dependencyLocks.find((lock) => lock.kind === 'phase').definitionSha256 = `sha256:${'e'.repeat(64)}`; },
+      (value) => { value.subject.dependencyLocks.find((lock) => lock.kind === 'template-content').definitionSha256 = `sha256:${'d'.repeat(64)}`; },
+      (value) => { delete value.subject.replacementGroup; value.subject.kind = 'workflow-authoring-skp-preconsent-subject';
+        value.subject.profile = 'wca-skp-preconsent/v1'; value.record.kind = 'workflow-authoring-skp-finalization';
+        value.record.profile = 'wca-skp-finalization/v1'; value.record.bindingDialect = value.subject.profile; }
+    ]) {
+      const changed = structuredClone(evidence); mutate(changed); resealGroupedHistorical(changed);
+      assert.throws(() => validateWorkflowSkillFinalizationRecord(changed), (error) =>
+        ['WCA_SKP_SOURCE_STALE', 'WCA_SKP_FINALIZATION_INVALID'].includes(error.code));
+    }
+    for (const mutate of [
+      (value) => { value.kind = 'workflow-authoring-skill-replacement-submission-snapshot'; },
+      (value) => { value.preview.skillFinalization.subject.replacementGroup.phaseReplacements[0].beforeDefinition.label = 'Forged'; },
+      (value) => { value.preview.candidateDefinition.phases['skill-summary'].skillBinding = structuredClone(f.definition.phases['skill-summary'].skillBinding); }
+    ]) { const changed = structuredClone(retained); mutate(changed); assert.throws(() => validateWorkflowDraftSubmissionSnapshot(changed)); }
+    const downgraded = resealGroupedAsOrdinarySnapshot(structuredClone(retained));
+    const { snapshotSha256, ...snapshotCore } = downgraded;
+    assert.equal(snapshotSha256, testDigest(snapshotCore), 'downgrade regression must reseal the outer snapshot');
+    assert.equal(downgraded.preConsentPreview.planSha256, testDigest((({ planSha256, ...core }) => core)(downgraded.preConsentPreview)));
+    assert.equal(downgraded.preview.planSha256, testDigest((({ planSha256, ...core }) => core)(downgraded.preview)));
+    assert.throws(() => validateWorkflowDraftSubmissionSnapshot(downgraded), { code: 'WCA_SUBMISSION_INVALID' });
   });
 
 test('shared agent body and legacy template byte edits use retained capture, simulate all consumers and preserve raw YAML', async (t) => {

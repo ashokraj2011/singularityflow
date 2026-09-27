@@ -41,6 +41,7 @@ test('fixed target classes distinguish policy fixtures, independent Git clients,
   assert.ok(policy.files.includes('test/wca-shared-phase-changes.test.mjs'));
   assert.ok(policy.files.includes('test/wca-simulation.test.mjs'));
   assert.ok(policy.files.includes('test/skp-platform-owners.test.mjs'));
+  assert.ok(policy.files.includes('test/skp-docker-hash-probe.test.mjs'));
   assert.match(policy.meaning, /structural shared-impact\/lifecycle projections/u);
   assert.match(policy.meaning, /synthetic host and Windows\/Linux owner policy/u);
   const retained = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'retained-local-owner-fixtures');
@@ -54,9 +55,11 @@ test('fixed target classes distinguish policy fixtures, independent Git clients,
   const inventory = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'explicit-local-story-history');
   assert.deepEqual(inventory.files, ['test/skp-story-usage.test.mjs', 'test/local-read-deadline.test.mjs', 'test/fos-preparation-cleanup.test.mjs']);
   assert.equal(inventory.evidenceClass, 'actual-local-git-and-filesystem-fixtures');
+  assert.match(inventory.meaning, /selected cross-repository/u);
   const replacement = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'shared-replacement-terminal-review');
   assert.deepEqual(replacement.platforms, ['darwin']); assert.equal(replacement.requiresExpect, true);
   assert.match(replacement.pattern, /real terminal skill replacement/u);
+  assert.match(replacement.pattern, /grouped dependent skill replacement/u);
   assert.match(replacement.meaning, /No authenticated mediated host/u);
   for (const target of SKP_QUALIFICATION_TARGETS) {
     assert.ok(Object.isFrozen(target)); assert.ok(Object.isFrozen(target.files));

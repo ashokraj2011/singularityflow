@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
   collectExecutionSites, collectPackageScriptSites, compareWithBaseline, REGISTERED_OWNERS, summarizeSites
@@ -71,4 +72,23 @@ test('registered process owners are separate from frozen legacy allowance', () =
   const file = REGISTERED_OWNERS[0];
   const actual = { [file]: collectExecutionSites("run('git', ['status']);", file) };
   assert.deepEqual(compareWithBaseline(actual, {}), []);
+});
+
+test('Docker hash candidate remains a frozen process site, not a registered owner', async () => {
+  const file = 'src/skp-docker-hash-probe.mjs';
+  assert.equal(REGISTERED_OWNERS.includes(file), false);
+  const [source, baselineRaw] = await Promise.all([
+    readFile(new URL('../src/skp-docker-hash-probe.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../scripts/git-bypass-baseline.json', import.meta.url), 'utf8')
+  ]);
+  const sites = collectExecutionSites(source, file);
+  assert.deepEqual(sites.map((site) => [site.id.split(':')[0], site.count]), [
+    ['process-import', 1], ['process-launch', 1]
+  ]);
+  const baseline = JSON.parse(baselineRaw).sites[file];
+  assert.deepEqual(compareWithBaseline({ [file]: sites }, { [file]: baseline }), []);
+  const changed = source.replace('spawn(executable, args, {', 'spawn(unreviewedExecutable, args, {');
+  assert.notEqual(changed, source);
+  assert.match(compareWithBaseline({ [file]: collectExecutionSites(changed, file) },
+    { [file]: baseline })[0], /differ from reviewed baseline/u);
 });

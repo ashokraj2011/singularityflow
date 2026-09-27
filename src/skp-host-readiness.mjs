@@ -63,8 +63,8 @@ export function diagnoseSkillHostReadiness() {
         id: 'host-admission-validator',
         source: 'src/skp-host-admission.mjs',
         status: 'implemented-source-only',
-        scope: 'Operation/policy-bound launch-evidence and exact-delivery validation.',
-        limitation: 'The validator does not supply a trusted live adapter or authenticate caller-written evidence.'
+        scope: 'Non-authorizing shape checks for operation/policy-bound launch evidence and exact-delivery digests.',
+        limitation: 'No trusted live adapter is connected; launch and delivery assertions refuse even when caller-written evidence has a matching shape.'
       }
     ],
     missingOwners: [{

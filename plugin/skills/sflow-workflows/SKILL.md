@@ -14,35 +14,36 @@ argument-hint: "[list|author list|author where-used SKILL-ID|author preview WFD-
 
 Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
-For `author`, use only the opened Git root.
-`list|read|history|show|preview|catalog|where-used|op-status` is read-only; relay revision/coverage/gaps.
+Run `author` from opened root; only explicit `--repository-story-refs` may read other local roots.
+`list|read|history|show|preview|catalog|where-used|op-status` is read-only; relay coverage/gaps.
 `author where-used <SKILL-ID> --json`: approved configuration; explicit `--story <ID>` selects
 one accepted local Story. Preserve `--ref`, `--commit`, `--snapshot-revision`; no fetch.
-`--story-refs 'STORY=refs/heads/branch,...' --history-depth N`: explicit local first-parent windows,
-not all-ref discovery. Never invent selectors; unavailable history refuses, not empty usage.
-Relay coverage/pages; require returned `--expected-source` on later pages. No repairs.
-Create/Save: user direction, unique operation ID, observed head, matching `--expected-authority`.
-Inert JSON only; no rebase, replay edits or deleted-draft recreation. Lost acknowledgement:
+`--story-refs 'STORY=refs/heads/branch,...' --history-depth N`: explicit local first-parent windows.
+Never invent selectors; unavailable history refuses, not empty usage.
+`--repository-story-refs '/root#STORY=refs/heads/branch,...' --history-depth N` names at most
+four local roots and their Story/ref windows; no provider scan or fetch. Later pages require
+returned `--expected-source`. No repairs.
+Create/Save: user direction, operation ID, observed head, matching `--expected-authority`.
+Inert JSON only; no rebase, replay or deleted-draft recreation. Lost acknowledgement:
 `author op-status <ID> --json`.
 Headless `author submit <WFD-ID> --revision N` or `author delete` only hands off:
-never supply receipts, answers or tokens. Direct terminal captures the named human action.
+never supply receipts, answers or tokens. Direct terminal captures the human action.
 Submit creates only an exact review proposal; no approval, activation or execution.
 
 Install: preview first; no unconfirmed `--replace` or auto-commit.
 
-BYO preview: `singularity-flow workflow skills-recipe <NEW-ID> --label <TEXT>
---phases <APPROVED-PHASE-IDS> --json`. Code requires `--planned-claims required
---clause-phases <CRITERIA> --claim-owners <CODE=PLAN>`. Relay revision, sequence and readiness;
-never infer opt-out, confirmation or execution. Proposals need separate authorization.
+BYO: `singularity-flow workflow skills-recipe <NEW-ID> --label <TEXT>
+--phases <APPROVED-PHASE-IDS> --json`; requires `--planned-claims required
+--clause-phases <CRITERIA> --claim-owners <CODE=PLAN>`. Never infer opt-out or execution.
+Proposals need separate authorization.
 
-Export explicit selections to a new file:
 `singularity-flow workflow export --workflow <ID> [--workflow <ID>...] --out <FILE> --json`.
 Relay complete dependency closure/locks; Policy/World Model prerequisites remain. Never edit bundles.
 
 Import preview: `singularity-flow workflow import <FILE> --dry-run --propose --json`.
-Skill invocation is not confirmation. After digest/path/collision review and explicit acceptance run
+After digest/path/collision review and explicit acceptance run
 `singularity-flow workflow import <FILE> --confirm <PLAN-SHA256> --propose --json` once.
-Never substitute digests, overwrite collisions or retry stale destination plans.
+Skill invocation is not confirmation. Never substitute digests, overwrite or retry stale destination plans.
 
 `duplicate` aliases `copy`. Require a distinct lower-kebab target and label. Preview:
 `singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label <TEXT> --dry-run --propose --json`.
@@ -50,4 +51,4 @@ Qualify ambiguous IDs. Linked dependencies stay shared; later edits affect both.
 `singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label <TEXT> --confirm <PLAN-SHA256> --propose --json`.
 Run once; never overwrite, bypass review, commit, activate, merge or refresh automatically.
 
-On refusal stop; relay paired Shell/Copilot routes.
+On refusal, relay routes.

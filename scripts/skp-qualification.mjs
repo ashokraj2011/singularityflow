@@ -51,6 +51,7 @@ export const SKP_QUALIFICATION_TARGETS = freeze([
     'test/wca-shared-phase-changes.test.mjs', 'test/wca-shared-content-changes.test.mjs',
     'test/wca-authoring-text-contracts.test.mjs', 'test/wca-simulation.test.mjs',
     'test/skp-platform-owners.test.mjs', 'test/skp-host-readiness.test.mjs',
+    'test/skp-docker-hash-probe.test.mjs',
     'test/vscode-workflow-shared-content.test.mjs'],
     meaning: 'Static contracts, byte/path negative cases, synthetic host and Windows/Linux owner policy, and structural shared-impact/lifecycle projections. No actual native host enforcement.' },
   { id: 'retained-local-owner-fixtures', evidenceClass: 'actual-local-git-and-filesystem-fixtures', files: [
@@ -68,11 +69,11 @@ export const SKP_QUALIFICATION_TARGETS = freeze([
     meaning: 'Actual macOS PTY and existing local terminal consent. No authenticated native host or actual human acceptance.' },
   { id: 'explicit-local-story-history', evidenceClass: 'actual-local-git-and-filesystem-fixtures',
     files: ['test/skp-story-usage.test.mjs', 'test/local-read-deadline.test.mjs', 'test/fos-preparation-cleanup.test.mjs'],
-    meaning: 'Explicit local Story/ref first-parent windows, retained package/lineage reads, stale pagination and native CLI refusal. No provider principal, global repository scan or remote fetch.' },
+    meaning: 'Explicit local and selected cross-repository Story/ref first-parent windows, retained package/lineage reads, stale pagination and native CLI refusal. No provider principal, global repository scan or remote fetch.' },
   { id: 'shared-replacement-terminal-review', evidenceClass: 'actual-os-pty-local-review-fixtures',
     files: ['test/wca-compiler.test.mjs'], platforms: ['darwin'], requiresExpect: true,
-    pattern: '^(real terminal skill replacement recompiles one binding|actual terminal shared agent body/metadata/template review proposals)',
-    meaning: 'Actual macOS PTY replacement consent, raw configuration/package fences and shared metadata proposals. No authenticated mediated host, imported execution or human pilot.' }
+    pattern: '^(real terminal skill replacement recompiles one binding|one terminal review finalizes a grouped dependent skill replacement|actual terminal shared agent body/metadata/template review proposals)',
+    meaning: 'Actual macOS PTY single and grouped replacement consent, raw configuration/package fences and shared metadata proposals. No authenticated mediated host, imported execution or human pilot.' }
 ]);
 
 export function parseQualificationOptions(argv) {

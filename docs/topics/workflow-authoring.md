@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 28
+version: 29
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -364,6 +364,19 @@ source/code effects, new checks, mixed edits, changed packages and another affec
 are refused. It captures only the explicitly selected package; ordinary catalog and authoring reads
 do not add package hydration. Existing Stories keep their pins.
 
+For two to sixteen coupled skill phases, pair each exact `changes` row with one complete
+`definitions.phases` declaration using the same format above. Use
+`wca-shared-skill-contract-group-plan/v1` for a read-only saved-draft impact Preview, or
+`wca-shared-skill-contract-group-review/v1` for one reviewed inactive proposal. Both reconstruct
+each lowering catalog from approved configuration, compare exact parent hashes, enforce unchanged
+package and artifact-only effect boundaries, report complete declared reverse impact and refuse a
+group that omits a dependent confirmed skill. The review profile captures every selected retained
+package, then one fresh terminal confirmation binds all recompiled phases and their affected
+workflow simulations. It retains a separate group pre-consent/finalization/submission record;
+older one-skill records retain their original dialect. The plan-only profile emits no files and
+cannot submit. Both profiles leave existing Stories pinned and grant no skill execution. Retained
+Stories, other repositories and native host effects remain outside this group review.
+
 For either profile, save the exact advanced request and use Shell
 `singularity-flow workflow author preview WFD-<ID> --revision <N> --json` or Copilot
 `/sf-workflows author preview WFD-<ID> --revision <N> --json`. Then request separate review using Shell
@@ -636,6 +649,33 @@ Do not combine `--story-refs` with `--story`, `--ref`, `--commit` or `--snapshot
 This is a bounded declared-usage inventory, not proof of execution or authenticated provider/team
 membership. Other repositories, unselected refs, earlier commits outside the window and merge-side
 parent inventories remain explicitly outside coverage. It does not grant execution or edit any Story.
+
+### Inventory selected Stories across local repositories
+
+Name every local repository root, Story and ref explicitly:
+
+```bash
+singularity-flow workflow author where-used threat-model \
+  --repository-story-refs '/work/api#SECURITY-101=refs/heads/security-review,/work/ui#SECURITY-102=refs/heads/second-review' \
+  --history-depth 2 --limit 32 --cursor 0 --json
+```
+
+The `#` separates an absolute repository root from a Story ID; `=` separates the Story from its
+local ref, and commas separate entries. The CLI selector cannot represent roots containing `#` or
+commas. The command runs from an opened repository but reads only the roots named in this option.
+It does not discover repositories, enumerate refs, contact providers or fetch missing objects.
+
+At most four distinct local repositories, eight Story/ref windows and 32 first-parent commit
+observations can be selected. Every repository uses the same accepted Story and retained-closure
+verification as the single-repository inventory. An unavailable selected repository, Story or
+revision refuses the whole result. Rows are ordered by the supplied repositories and selectors;
+the aggregate is capped at 2,048 references and each page at 64 rows/256 KiB. Later pages require
+the returned `--expected-source`; it binds the requested roots and all selected local ref tips.
+Do not combine `--repository-story-refs` with `--story-refs` or single-Story selectors.
+
+Coverage remains limited to those selected local windows under existing Git read permissions.
+Other repositories and refs, provider membership and revocation, and actual execution are not
+assessed; the read cannot authorize skill execution or change a Story.
 
 ## Diagnose a retained Story skill
 

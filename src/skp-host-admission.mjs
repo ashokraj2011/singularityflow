@@ -1,11 +1,10 @@
 /**
  * SKP host admission is deliberately separate from prompt composition and final-diff validation.
- * Only a trusted host adapter may supply `observed`; this module checks that the adapter's
- * dimension-by-dimension, operation-bound evidence satisfies the normalized phase policy. It does
- * not itself establish that a named sandbox or broker exists on the machine.
+ * This module checks the shape and operation binding of dimension-by-dimension evidence. It does
+ * not establish that the evidence came from a trusted adapter or that a sandbox or broker exists.
  *
- * Launch admission happens before exposing skill bytes to a host. Delivery acknowledgement is a
- * separate check after handoff and before its output may be treated as governed phase evidence.
+ * No installed, qualified adapter is connected yet. Authorizing entry points therefore remain
+ * closed even when caller-supplied evidence has a consistent shape.
  */
 import { SingularityFlowError } from './util.mjs';
 
@@ -24,7 +23,6 @@ const MECHANISMS = Object.freeze({
   controlPlane: new Set(['os-sandbox', 'pre-effect-broker']),
   cancellation: new Set(['process-supervisor'])
 });
-const admittedLaunches = new WeakSet();
 
 function nonempty(value) {
   return typeof value === 'string' && value.trim() === value && value.length > 0;
@@ -54,9 +52,9 @@ function unconfirmed(message, details) {
 
 /**
  * Pure, non-authorizing preview. Every dimension is required as an explicit policy binding; an
- * omitted dimension is not interpreted as permission to leave it unconfined. `observed` must come
- * from a qualified host adapter, never from a skill, prompt, model response, or final file diff.
- * A string such as "prompt says no network" cannot satisfy a native enforcement requirement.
+ * omitted dimension is not interpreted as permission to leave it unconfined. `observed` is
+ * caller-supplied and this check cannot establish its origin. A string such as "prompt says no
+ * network" cannot satisfy even the evidence-shape requirement.
  */
 export function assessSkillHostLaunchAdmission({ required, observed } = {}) {
   const binding = required?.binding;
@@ -69,21 +67,22 @@ export function assessSkillHostLaunchAdmission({ required, observed } = {}) {
   const dimensions = Object.fromEntries(SKP_HOST_DIMENSIONS.map((dimension) => {
     const policySha256 = required?.dimensions?.[dimension]?.policySha256 ?? null;
     const evidence = observed?.dimensions?.[dimension];
-    const verified = bindingMatches && evidence?.status === 'enforced-before-effect'
+    const matches = bindingMatches && evidence?.status === 'enforced-before-effect'
       && evidence.policySha256 === policySha256
       && MECHANISMS[dimension].has(evidence.mechanism)
       && validIdentity(evidence.evidenceId);
     return [dimension, Object.freeze({
       required: policySha256,
-      verified: verified ? Object.freeze({
+      matchingEvidence: matches ? Object.freeze({
         mechanism: evidence.mechanism, evidenceId: evidence.evidenceId
       }) : null
     })];
   }));
-  const unavailableDimensions = SKP_HOST_DIMENSIONS.filter((dimension) => !dimensions[dimension].verified);
+  const unavailableDimensions = SKP_HOST_DIMENSIONS.filter((dimension) => !dimensions[dimension].matchingEvidence);
   return Object.freeze({
     schemaVersion: 1,
-    status: unavailableDimensions.length ? 'unavailable' : 'ready',
+    status: unavailableDimensions.length ? 'unavailable' : 'matching-shape',
+    launchAuthorized: false,
     binding: validBinding(binding) ? Object.freeze({ ...binding }) : null,
     bindingMatches: Boolean(bindingMatches),
     dimensions: Object.freeze(dimensions),
@@ -91,55 +90,52 @@ export function assessSkillHostLaunchAdmission({ required, observed } = {}) {
   });
 }
 
-/** Refuse before starting a skill-producing host when any required control is unproven. */
+/** Refuse launch until a qualified host adapter owns the live enforcement and evidence channel. */
 export function assertSkillHostLaunchAdmission(input) {
   const result = assessSkillHostLaunchAdmission(input);
-  if (result.status !== 'ready') {
-    unavailable('The selected host has not proven every required skill-phase enforcement dimension before launch.', {
-      bindingMatches: result.bindingMatches,
-      unavailableDimensions: [...result.unavailableDimensions]
-    });
-  }
-  admittedLaunches.add(result);
-  return result;
+  unavailable('No qualified skill host adapter is connected to prove enforcement before launch.', {
+    bindingMatches: result.bindingMatches,
+    unavailableDimensions: [...result.unavailableDimensions],
+    trustedAdapterAvailable: false
+  });
 }
 
 /**
- * An exact host acknowledgement is required before attributing a candidate to the selected skill.
- * Prompt construction, process exit, model text, and a clean final diff are not acknowledgements.
+ * Pure shape check for an exact host acknowledgement. A matching string-labelled receipt remains
+ * caller data; prompt construction, process exit, model text and a clean diff prove no delivery.
  */
-export function assertSkillHostDelivery(admission, expected, acknowledgement) {
-  if (!admittedLaunches.has(admission)) {
-    unavailable('Skill host delivery requires a successful, operation-bound launch admission.', {
-      unavailableDimensions: [...SKP_HOST_DIMENSIONS]
-    });
-  }
-  const binding = admission.binding;
+export function assessSkillHostDelivery(admission, expected, acknowledgement) {
+  const binding = admission?.binding;
   const digests = ['packageSha256', 'projectedEntrySha256', 'resourceManifestSha256'];
   const expectedValid = expected && digests.every((key) => isSha256(expected[key]));
-  const matches = expectedValid && acknowledgement?.status === 'acknowledged'
+  const matches = admission?.status === 'matching-shape' && admission?.launchAuthorized === false
+    && validBinding(binding) && expectedValid && acknowledgement?.status === 'acknowledged'
     && acknowledgement?.channel === 'trusted-host-adapter'
     && validIdentity(acknowledgement.receiptId)
     && ['operationId', 'profileId', 'adapterId', 'adapterVersion']
       .every((key) => acknowledgement[key] === binding[key])
     && digests.every((key) => acknowledgement[key] === expected[key]);
-  if (!matches) {
-    unconfirmed('The host has not acknowledged the exact selected skill package, projection, and resources.', {
-      operationId: binding.operationId,
-      missingOrMismatched: !expectedValid ? ['expected-digests'] : digests.filter((key) => (
-        acknowledgement?.[key] !== expected[key]
-      ))
+  return Object.freeze({
+    schemaVersion: 1,
+    status: matches ? 'matching-shape' : 'unavailable',
+    deliveryConfirmed: false,
+    binding: validBinding(binding) ? Object.freeze({ ...binding }) : null,
+    missingOrMismatched: !expectedValid ? Object.freeze(['expected-digests'])
+      : Object.freeze(digests.filter((key) => acknowledgement?.[key] !== expected[key]))
+  });
+}
+
+/** Refuse delivery attribution until a live adapter establishes an authenticated receipt. */
+export function assertSkillHostDelivery(admission, expected, acknowledgement) {
+  if (admission?.status !== 'matching-shape' || admission?.launchAuthorized !== false) {
+    unavailable('Skill delivery has no matching launch evidence, and no qualified host adapter is connected.', {
+      unavailableDimensions: [...SKP_HOST_DIMENSIONS], trustedAdapterAvailable: false
     });
   }
-  return Object.freeze({
-    schemaVersion: 1, status: 'confirmed',
-    operationId: binding.operationId,
-    profileId: binding.profileId,
-    adapterId: binding.adapterId,
-    adapterVersion: binding.adapterVersion,
-    receiptId: acknowledgement.receiptId,
-    packageSha256: expected.packageSha256,
-    projectedEntrySha256: expected.projectedEntrySha256,
-    resourceManifestSha256: expected.resourceManifestSha256
+  const result = assessSkillHostDelivery(admission, expected, acknowledgement);
+  unconfirmed('No qualified skill host adapter can confirm exact package delivery.', {
+    operationId: result.binding?.operationId ?? null,
+    missingOrMismatched: [...result.missingOrMismatched],
+    trustedAdapterAvailable: false
   });
 }

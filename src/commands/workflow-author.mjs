@@ -11,6 +11,7 @@ import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { draftDeletePlan, openGitDraftStore } from '../wca-git-drafts.mjs';
 import { SingularityFlowError, isPortableRepositoryPathComponent } from '../util.mjs';
 import { parseLocalStoryInventorySubjects, SKP_STORY_INVENTORY_LIMITS } from '../skp-story-inventory-request.mjs';
+import { parseCrossRepositoryStoryInventorySubjects } from '../skp-cross-repository-story-inventory.mjs';
 
 export const WORKFLOW_AUTHOR_INPUT_MAX_BYTES = 5 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES = 256 * 1024;
@@ -28,7 +29,7 @@ const OPTIONS = {
   preview: new Set(['json', 'revision']),
   catalog: new Set(['json', 'kind', 'limit', 'cursor']),
   submit: new Set(['json', 'revision']),
-  'where-used': new Set(['json', 'package-sha256', 'limit', 'cursor', 'expected-source', 'story', 'ref', 'commit', 'snapshot-revision', 'story-refs', 'history-depth'])
+  'where-used': new Set(['json', 'package-sha256', 'limit', 'cursor', 'expected-source', 'story', 'ref', 'commit', 'snapshot-revision', 'story-refs', 'repository-story-refs', 'history-depth'])
 };
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
 const OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u;
@@ -70,14 +71,18 @@ export function validateWorkflowAuthorRequest({ positionals, options }) {
     for (const key of ['package-sha256', 'expected-source']) {
       if (options[key] !== undefined && !/^sha256:[a-f0-9]{64}$/u.test(options[key])) fail(`--${key} requires one exact SHA-256 digest.`);
     }
-    const inventory = options['story-refs'] !== undefined;
+    const crossInventory = options['repository-story-refs'] !== undefined;
+    const inventory = options['story-refs'] !== undefined || crossInventory;
     if (numberOption(options, 'cursor', 0, inventory ? SKP_STORY_INVENTORY_LIMITS.references : 1024, 0) > 0 && options['expected-source'] === undefined) fail('Later usage pages require --expected-source from the preceding page.');
+    if (crossInventory && options['story-refs'] !== undefined) fail('Select either local --story-refs or explicit --repository-story-refs.');
     if (inventory) {
       if (['story', 'ref', 'commit', 'snapshot-revision'].some((key) => options[key] !== undefined)) {
-        fail('--story-refs cannot be mixed with the single-Story revision selectors.');
+        fail('Story inventories cannot be mixed with single-Story revision selectors.');
       }
-      parseLocalStoryInventorySubjects(options['story-refs'], numberOption(options, 'history-depth', 1, SKP_STORY_INVENTORY_LIMITS.historyDepth, 1));
-    } else if (options['history-depth'] !== undefined) fail('--history-depth requires explicit --story-refs; no Story scan is performed.');
+      const historyDepth = numberOption(options, 'history-depth', 1, SKP_STORY_INVENTORY_LIMITS.historyDepth, 1);
+      if (crossInventory) parseCrossRepositoryStoryInventorySubjects(options['repository-story-refs'], historyDepth);
+      else parseLocalStoryInventorySubjects(options['story-refs'], historyDepth);
+    } else if (options['history-depth'] !== undefined) fail('--history-depth requires explicit Story/ref selectors; no Story scan is performed.');
     if (options.story !== undefined && (options.story.length > 64 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(options.story)
         || !isPortableRepositoryPathComponent(options.story))) fail('--story requires one exact bounded portable Story ID.');
     if (options.story === undefined && ['ref', 'commit', 'snapshot-revision'].some((key) => options[key] !== undefined)) fail('Historical selectors require one explicitly selected --story; no Story scan is performed.');
@@ -110,7 +115,8 @@ export function validateWorkflowAuthorRequest({ positionals, options }) {
     fail('--expected-authority requires one bounded exact repository observation. It never selects a destination.');
   }
   numberOption(options, 'limit', 1, 64, 20);
-  numberOption(options, 'cursor', 0, action === 'where-used' && options['story-refs'] !== undefined ? SKP_STORY_INVENTORY_LIMITS.references : 1024, 0);
+  numberOption(options, 'cursor', 0, action === 'where-used' && (options['story-refs'] !== undefined
+    || options['repository-story-refs'] !== undefined) ? SKP_STORY_INVENTORY_LIMITS.references : 1024, 0);
   numberOption(options, 'revision', 1, 256, null);
   numberOption(options, 'epoch', 1, 1, 1);
   if (action === 'submit' && options.revision === undefined) fail('Submission requires one exact --revision from a saved preview.');
@@ -293,12 +299,17 @@ function emit(value, json) {
 export async function run(root, positionals, options, { scope } = {}) {
   const action = validateWorkflowAuthorRequest({ positionals, options });
   if (action === 'where-used') {
-    const inventory = options['story-refs'] !== undefined;
+    const crossInventory = options['repository-story-refs'] !== undefined;
+    const inventory = options['story-refs'] !== undefined || crossInventory;
     const selected = {
       skillId: positionals[3], packageSha256: options['package-sha256'],
       limit: numberOption(options, 'limit', 1, 64, 32), cursor: numberOption(options, 'cursor', 0, inventory ? SKP_STORY_INVENTORY_LIMITS.references : 1024, 0),
       expectedSource: options['expected-source'] };
-    const usage = inventory
+    const usage = crossInventory
+      ? await (await import('../skp-cross-repository-story-inventory.mjs')).lookupCrossRepositoryStorySkillUsageInventory({
+        ...selected, repositories: parseCrossRepositoryStoryInventorySubjects(options['repository-story-refs'],
+          numberOption(options, 'history-depth', 1, SKP_STORY_INVENTORY_LIMITS.historyDepth, 1)) })
+      : inventory
       ? await (await import('../skp-story-usage-inventory.mjs')).lookupLocalStorySkillUsageInventory(root, {
         ...selected, subjects: parseLocalStoryInventorySubjects(options['story-refs'],
           numberOption(options, 'history-depth', 1, SKP_STORY_INVENTORY_LIMITS.historyDepth, 1)) })
@@ -309,7 +320,8 @@ export async function run(root, positionals, options, { scope } = {}) {
         snapshotRevision: numberOption(options, 'snapshot-revision', 1, 64, undefined) });
     return emit({ resultType: 'workflow-author', operation: { id: 'workflow.author.where-used',
       modelPolicy: 'never', classification: 'read' }, status: 'read',
-      scope: inventory ? { selectedStoryInventory: usage.source }
+      scope: crossInventory ? { selectedRepositoryStoryInventory: usage.source }
+        : inventory ? { selectedStoryInventory: usage.source }
         : options.story === undefined ? { approvedConfiguration: usage.source } : { selectedStory: usage.subject, source: usage.source },
       effects: EFFECTS_NONE, data: { usage } }, Boolean(options.json));
   }

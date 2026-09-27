@@ -1143,6 +1143,13 @@
       },
       "digest": "f2c8007a40a7874a58a2618c55cebc40ab74eab5bf47d38b4ceab8ff176ca19a"
     },
+    "src/skp-docker-hash-probe.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "08efba8842927c9cfff248e13b21f3f9c6a679dcedca5a27adef57ce0a22b1c1"
+    },
     "src/snapshot-coordinator.mjs": {
       "counts": {
         "command-run": 1

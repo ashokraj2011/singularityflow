@@ -110,17 +110,30 @@ test('actual independent replace/delete clients cannot discard a newer unknown o
   }
 });
 
-test('unqualified Windows-domain and mismatched Linux-namespace lock records stay unknown without native repair authority', async (t) => {
+test('unqualified Windows guesses and mismatched native-domain records stay unknown without repair authority', async (t) => {
   const f = await fixture(t); const cp = checkpoint(f.scope); await f.store.write(cp);
   const original = await readFile(fileFor(f, f.scope)); const key = await readFile(f.keyFile);
   const name = `.${scopeHash(f.scope)}.lock`; const location = path.join(f.directory, name);
   // Persisted record fixtures only: no OS probe, native platform, PID or death result is replaced.
-  for (const domain of [null, { profile: 'linux-boot-pid-namespace/v1', sha256: '0'.repeat(64) }]) {
+  for (const domain of [null,
+    { profile: 'linux-boot-pid-namespace/v1', sha256: '0'.repeat(64) },
+    { profile: 'macos-boot-session/v1', sha256: '0'.repeat(64) },
+    { profile: 'windows-kernel-boot-process-domain/v1', sha256: '0'.repeat(64) },
+    { profile: 'windows-wmi-boot-time/v1', sha256: '0'.repeat(64) },
+    { profile: 'windows-hostname-session-id/v1', sha256: '0'.repeat(64) },
+    { profile: 'linux-boot-pid-namespace/v1', sha256: '0'.repeat(64), confirmedDead: true }
+  ]) {
     const bytes = JSON.stringify({ schemaVersion: 1, kind: 'workflow-draft-recovery-lock', purpose: 'mutation', target: 'scope',
       directorySha256: hash(f.directory), scopeSha256: scopeHash(f.scope),
       owner: { pid: process.pid, processNonce: randomUUID(), domain }, lockNonce: randomUUID(), createdAt: '1999-01-01T00:00:00.000Z' });
     await writeFile(location, bytes); const report = await f.store.inspectLocks(f.scope); const lock = report.locks.find((entry) => entry.kind === 'scope');
     assert.equal(lock.status, 'unknown'); assert.equal(lock.repairSupported, false); assert.equal(lock.reviewId, null);
+    if (domain?.profile.startsWith('windows-') || domain?.confirmedDead) {
+      assert.equal(lock.reason, 'LOCK_OWNER_RECORD_INVALID_OR_UNBOUNDED',
+        'unqualified Windows profiles and supplied death attestations do not enter the native owner ABI');
+    } else if (process.platform === 'win32') {
+      assert.equal(lock.reason, 'WINDOWS_NATIVE_BOOT_PROCESS_DOMAIN_UNQUALIFIED');
+    }
     let confirmations = 0;
     await assert.rejects(f.store.repairLock(f.scope, randomUUID(), async () => { confirmations += 1; return true; }),
       { code: 'WORKFLOW_DRAFT_RECOVERY_LOCK_REVIEW_REQUIRED' });

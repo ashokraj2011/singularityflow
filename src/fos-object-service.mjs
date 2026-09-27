@@ -69,6 +69,17 @@ function gitExecutable(env, root) {
   }
 }
 
+function profileFailureCode(result, controller) {
+  // A cancelled request can stop awaiting the service-wide profile before its Git setup has
+  // retired. Interrupted GAL outcomes do not prove a portable process-tree cleanup boundary;
+  // preserve that fact for close(), rather than replacing it with a caller cancellation label.
+  const diagnostic = result?.diagnostic;
+  if (result?.code === 'GAL_CLEANUP_INCOMPLETE' || diagnostic?.timedOut || diagnostic?.cancelled
+      || diagnostic?.outputOverflow || diagnostic?.signal) return 'GAL_CLEANUP_INCOMPLETE';
+  return controller.signal.reason === 'timeout' ? 'OBJECT_REQUEST_TIMEOUT'
+    : controller.signal.aborted ? 'OBJECT_REQUEST_CANCELLED' : result?.code;
+}
+
 async function repositoryProfile(root, executable, env, { signal = null, timeoutMs = 30_000 } = {}) {
   const controller = new AbortController();
   const onAbort = () => controller.abort('cancelled');
@@ -81,14 +92,12 @@ async function repositoryProfile(root, executable, env, { signal = null, timeout
       deadlineMs: timeoutMs
     });
     if (!runtimeResult.ok) throw error('Git object service could not inspect the repository.',
-      controller.signal.reason === 'timeout' ? 'OBJECT_REQUEST_TIMEOUT'
-        : controller.signal.aborted ? 'OBJECT_REQUEST_CANCELLED' : runtimeResult.code);
+      profileFailureCode(runtimeResult, controller));
     const runtime = runtimeResult.value;
     try {
       const opened = await runtime.openRepository(root);
       if (!opened.ok) throw error('Git object service could not inspect the repository.',
-        controller.signal.reason === 'timeout' ? 'OBJECT_REQUEST_TIMEOUT'
-          : controller.signal.aborted ? 'OBJECT_REQUEST_CANCELLED' : opened.code);
+        profileFailureCode(opened, controller));
       const { gitDir, commonDir, objectFormat } = opened.value.identity;
       return Object.freeze({ gitDir, commonDir, objectFormat });
     } finally { await runtime.dispose(); }
@@ -443,6 +452,7 @@ export class FosGitObjectService {
   #closureOutcome = null;
   #cleanupVerified = true;
   #profileController = new AbortController();
+  #ownsProfilePreparation = false;
 
   constructor(root, {
     spawnCommand = spawn, maxQueued = 128, maxObjectBytes = 32 * 1024 * 1024,
@@ -551,9 +561,12 @@ export class FosGitObjectService {
   async #prepare(oids, signal, began) {
     if (this.#closed) throw error('Git object service is closed.', 'OBJECT_SERVICE_CLOSED');
     if (signal?.aborted) throw error('Git object request was cancelled.', 'OBJECT_REQUEST_CANCELLED');
-    this.#profile ??= repositoryProfile(this.#root, this.#executable, this.#env, {
-      signal: this.#profileController.signal, timeoutMs: this.#timeoutMs
-    });
+    if (!this.#profile) {
+      this.#ownsProfilePreparation = true;
+      this.#profile = repositoryProfile(this.#root, this.#executable, this.#env, {
+        signal: this.#profileController.signal, timeoutMs: this.#timeoutMs
+      });
+    }
     const profile = await awaitProfile(this.#profile, this.#timeoutMs, signal);
     if (!['sha1', 'sha256'].includes(profile.objectFormat)) {
       throw error('Git object service could not establish the repository storage format.', 'OBJECT_FORMAT_UNSUPPORTED');
@@ -918,16 +931,20 @@ export class FosGitObjectService {
     this.#buffered = 0; this.#headOffset = 0;
     const child = this.#child; this.#child = null;
     const capability = this.#capabilityPromise;
+    const preparation = this.#ownsProfilePreparation ? this.#profile : null;
     for (const request of requests) this.#finishOperation(request, 'reject', error('Git object service was closed.', 'OBJECT_SERVICE_CLOSED'));
     const retiring = this.#retiring;
     this.#closing = (async () => {
-      const [retired, workerTerminated, capabilityTerminated] = await Promise.all([
+      const [retired, workerTerminated, capabilityTerminated, preparationTerminated] = await Promise.all([
         retiring ?? true,
         stopChild(child, false),
-        awaitCapabilityCleanup(capability)
+        awaitCapabilityCleanup(capability),
+        // The same bounded cleanup wait covers internally owned GAL preparation. An injected
+        // profile value/promise is not a process started by this service and is not awaited here.
+        awaitCapabilityCleanup(preparation)
       ]);
       const terminated = workerTerminated && retired && capabilityTerminated
-        && this.#cleanupVerified;
+        && preparationTerminated && this.#cleanupVerified;
       this.#closureOutcome = Object.freeze({ closed: true, terminated });
       return this.#closureOutcome;
     })();

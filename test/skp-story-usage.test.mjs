@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,8 +9,12 @@ import { CONFIGURATION_BRANCH, ensureConfigurationBranch, inspectApprovedSkillPa
   loadStoryConfigurationSnapshot } from '../src/configuration-branch.mjs';
 import { EXACT_STORY_REVISION_LIMITS, withExactLocalStoryRevision } from '../src/git-exact-story-revision.mjs';
 import { canonicalJson } from '../src/records.mjs';
+import { validateWorkflowAuthorRequest } from '../src/commands/workflow-author.mjs';
 import { lookupStorySkillUsage, SKP_STORY_USAGE_LIMITS } from '../src/skp-story-usage.mjs';
-import { run } from '../src/util.mjs';
+import { lookupLocalStorySkillUsageInventory, parseLocalStoryInventorySubjects,
+  SKP_STORY_INVENTORY_LIMITS } from '../src/skp-story-usage-inventory.mjs';
+import { parseArgs, run } from '../src/util.mjs';
+import { withLocalReadDeadline } from '../src/local-read-deadline.mjs';
 import { captureWorkflowSnapshot, captureWorkflowSnapshotAmendment, verifyWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
 
 const H = (character) => `sha256:${character.repeat(64)}`;
@@ -71,7 +75,7 @@ async function fixture(t, { objectFormat = 'sha1' } = {}) {
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'accepted retained Story');
   const genesisCommit = git(root, 'rev-parse', 'HEAD');
   git(root, 'branch', 'published-story');
-  return { base, root, remote, publisher, config, capture, workflow, workflowPath, genesisCommit };
+  return { base, root, remote, publisher, config, capture, approved, workflow, workflowPath, genesisCommit };
 }
 async function acceptAmendment(f) {
   const prior = await verifyWorkflowSnapshot(f.root, f.config, f.workflow, { requireAccepted: true, retainBytes: true });
@@ -387,4 +391,277 @@ test('installed CLI routes one explicit historical Story lookup without configur
   assert.equal(result.data.usage.source.commit, f.genesisCommit);
   assert.equal(result.data.usage.page.nextCursor, 1); assert.equal(result.capability, undefined);
   assert.deepEqual(await sourceState(f.root), before);
+});
+
+const inventory = (subjects, extra = {}) => ({ skillId: 'threat-model', subjects, ...extra });
+
+test('explicit local inventory verifies two selected Stories offline and deduplicates identical states without hiding commit observations', async (t) => {
+  const f = await fixture(t);
+  const second = structuredClone(f.workflow); second.workItem.id = 'SKP-2'; delete second.workflowSnapshot;
+  second.workflowSnapshot = await captureWorkflowSnapshot(f.root, f.config, second,
+    { approvedConfigurationSnapshot: f.approved });
+  const secondPath = path.join(f.root, 'singularity/work-items/SKP-2/workflow.json');
+  await writeFile(secondPath, `${JSON.stringify(second, null, 2)}\n`);
+  git(f.root, 'add', '.'); git(f.root, 'commit', '-qm', 'second accepted Story');
+  git(f.root, 'branch', 'second-story'); git(f.root, 'commit', '--allow-empty', '-qm', 'same retained state later tip');
+  await rm(f.remote, { recursive: true, force: true });
+  await writeFile(f.workflowPath, '{ invalid live Story JSON');
+  await writeFile(path.join(f.root, 'README.md'), 'Dirty application work remains local.\n');
+  const before = await sourceState(f.root);
+  const result = await lookupLocalStorySkillUsageInventory(f.root, inventory([
+    { workId: 'SKP-1', ref: 'refs/heads/main', historyDepth: 2 },
+    { workId: 'SKP-1', ref: 'refs/heads/published-story' },
+    { workId: 'SKP-2', ref: 'refs/heads/second-story' }
+  ]));
+  assert.equal(result.format, 'sflow-local-story-skill-inventory/v1');
+  assert.equal(result.observations.length, 4); assert.equal(result.references.length, 4);
+  assert.equal(result.observations.filter((row) => row.duplicateOf).length, 2);
+  assert.deepEqual([...new Set(result.references.map((row) => row.workId))], ['SKP-1', 'SKP-2']);
+  assert.ok(result.observations.every((row) => row.status === 'verified-matching-pin'));
+  assert.equal(result.coverage.retainedClosures, 'verified');
+  assert.equal(result.coverage.otherStories, 'not-searched');
+  assert.equal(result.coverage.mergeSideParentInventory, 'not-searched');
+  assert.equal(result.readScope.authenticatedPrincipal, 'not-established');
+  assert.equal(result.readScope.network, 'not-contacted');
+  for (const text of ['Retained private checklist', 'private prompt bytes', 'SKILL.md', 'reader@example.invalid']) {
+    assert.ok(!JSON.stringify(result).includes(text));
+  }
+  assert.deepEqual(await sourceState(f.root), before);
+});
+
+test('inventory retains distinct historical amended packages and distinguishes verified nonmatching filters', async (t) => {
+  const f = await fixture(t); const amendment = await acceptAmendment(f);
+  await rm(f.remote, { recursive: true, force: true });
+  const subjects = [{ workId: 'SKP-1', ref: 'refs/heads/main', historyDepth: 2 },
+    { workId: 'SKP-1', ref: 'refs/heads/published-story' }];
+  const before = await sourceState(f.root);
+  const all = await lookupLocalStorySkillUsageInventory(f.root, inventory(subjects));
+  assert.equal(all.observations.length, 3);
+  assert.deepEqual(new Set(all.references.map((row) => row.packageSha256)),
+    new Set([f.capture.manifest.packageSha256, amendment.capture.manifest.packageSha256]));
+  assert.equal(all.references[0].snapshotRevision, 2);
+  assert.equal(all.references[0].commit, amendment.commit);
+  const original = await lookupLocalStorySkillUsageInventory(f.root, inventory(subjects,
+    { packageSha256: f.capture.manifest.packageSha256 }));
+  assert.equal(original.observations[0].status, 'verified-other-package');
+  assert.ok(original.references.every((row) => row.packageSha256 === f.capture.manifest.packageSha256));
+  const absent = await lookupLocalStorySkillUsageInventory(f.root, inventory(subjects, { skillId: 'absent-skill' }));
+  assert.equal(absent.references.length, 0); assert.equal(absent.page.complete, true);
+  assert.ok(absent.observations.every((row) => row.status === 'verified-no-selected-pin'));
+  assert.equal(absent.coverage.retainedClosures, 'verified', 'zero matches is supported only after exact accepted closure verification');
+  assert.deepEqual(await sourceState(f.root), before);
+});
+
+test('inventory pagination binds all explicit selectors and exact ref commits, including byte-identical movement', async (t) => {
+  const f = await fixture(t);
+  const subjects = [{ workId: 'SKP-1', ref: 'refs/heads/main' }, { workId: 'SKP-1', ref: 'refs/heads/published-story' }];
+  const first = await lookupLocalStorySkillUsageInventory(f.root, inventory(subjects, { limit: 1 }));
+  assert.equal(first.page.nextCursor, 1); assert.equal(first.references[0].phaseId, 'threat-model');
+  const next = await lookupLocalStorySkillUsageInventory(f.root, inventory(subjects,
+    { cursor: 1, limit: 1, expectedSource: first.sourceSha256 }));
+  assert.equal(next.sourceSha256, first.sourceSha256); assert.equal(next.references[0].phaseId, 'privacy-review');
+  await assert.rejects(lookupLocalStorySkillUsageInventory(f.root, inventory([...subjects].reverse(),
+    { cursor: 1, expectedSource: first.sourceSha256 })), { code: 'SKP_STORY_INVENTORY_SOURCE_CHANGED' });
+  git(f.root, 'commit', '--allow-empty', '-qm', 'same bytes moved selected ref');
+  const before = await sourceState(f.root);
+  await assert.rejects(lookupLocalStorySkillUsageInventory(f.root, inventory(subjects,
+    { cursor: 1, expectedSource: first.sourceSha256 })), { code: 'SKP_STORY_INVENTORY_SOURCE_CHANGED' });
+  assert.deepEqual(await sourceState(f.root), before);
+});
+
+test('inventory snapshots closed subject arrays and selectors before asynchronous local reads', async (t) => {
+  const f = await fixture(t);
+  const input = inventory([{ workId: 'SKP-1', ref: 'refs/heads/published-story', historyDepth: 1 }]);
+  const promise = lookupLocalStorySkillUsageInventory(f.root, input);
+  input.skillId = 'other-skill'; input.subjects[0].workId = 'OTHER-1';
+  input.subjects[0].ref = 'refs/heads/absent'; input.subjects.push({ workId: 'FOREIGN-1', ref: 'HEAD' });
+  const result = await promise;
+  assert.equal(result.subject.skillId, 'threat-model');
+  assert.equal(result.source.selections.length, 1);
+  assert.equal(result.source.selections[0].workId, 'SKP-1');
+  assert.equal(result.source.selections[0].ref, 'refs/heads/published-story');
+});
+
+test('inventory refuses malformed, privileged or over-budget selectors before repository contact', async () => {
+  const subjects = [{ workId: 'SKP-1', ref: 'HEAD' }];
+  for (const extra of [{ subjects: [] }, { subjects: [{ workId: '../other', ref: 'HEAD' }] },
+    { subjects: [{ workId: 'FOREIGN-1', ref: 'refs/heads/*' }] },
+    { subjects: [{ workId: 'SKP-1', remote: '/unknown', ref: 'HEAD' }] },
+    { subjects: [{ workId: 'SKP-1', ref: 'refs/heads/../other' }] },
+    { subjects: [...subjects, ...subjects] }, { subjects: new Array(1) },
+    { subjects: [{ workId: 'SKP-1', ref: 'HEAD', historyDepth: 17 }] },
+    { subjects: [{ workId: 'CON', ref: 'HEAD' }] }, { limit: 65 }, { cursor: 1 },
+    { cursor: 2049, expectedSource: H('a') }, { confirmed: true }, { packageSha256: 'latest' }]) {
+    await assert.rejects(lookupLocalStorySkillUsageInventory('/not-contacted', inventory(subjects, extra)),
+      { code: 'SKP_STORY_INVENTORY_INVALID' });
+  }
+  const accessor = inventory(subjects); let read = false;
+  Object.defineProperty(accessor, 'skillId', { enumerable: true, get: () => { read = true; return 'threat-model'; } });
+  await assert.rejects(lookupLocalStorySkillUsageInventory('/not-contacted', accessor), { code: 'SKP_STORY_INVENTORY_INVALID' });
+  assert.equal(read, false);
+  await assert.rejects(lookupLocalStorySkillUsageInventory('/not-contacted', inventory(
+    Array.from({ length: 8 }, (_, index) => ({ workId: `SKP-${index}`, ref: 'HEAD', historyDepth: 5 })))),
+  { code: 'SKP_STORY_INVENTORY_LIMIT' });
+  assert.deepEqual(parseLocalStoryInventorySubjects('SKP-1=refs/heads/main,SKP-2=HEAD', 2),
+    [{ workId: 'SKP-1', ref: 'refs/heads/main', historyDepth: 2 }, { workId: 'SKP-2', ref: 'HEAD', historyDepth: 2 }]);
+  for (const text of ['SKP-1', 'SKP-1=HEAD=extra', 'SKP-1=refs/heads/*', 'SKP-1=HEAD,SKP-1=HEAD']) {
+    assert.throws(() => parseLocalStoryInventorySubjects(text), { code: 'SKP_STORY_INVENTORY_INVALID' });
+  }
+  assert.ok(Object.isFrozen(SKP_STORY_INVENTORY_LIMITS));
+});
+
+test('a missing selected Story/ref or unavailable older state refuses the whole inventory, not partial matches', async (t) => {
+  const f = await fixture(t); const before = await sourceState(f.root);
+  for (const second of [{ workId: 'ABSENT-1', ref: 'refs/heads/main' },
+    { workId: 'SKP-1', ref: 'refs/heads/foreign-unavailable' }]) {
+    await assert.rejects(lookupLocalStorySkillUsageInventory(f.root, inventory([
+      { workId: 'SKP-1', ref: 'refs/heads/published-story' }, second
+    ])), (error) => ['SKP_STORY_USAGE_STORY_UNAVAILABLE', 'SKP_STORY_INVENTORY_UNAVAILABLE'].includes(error.code));
+  }
+  await assert.rejects(lookupLocalStorySkillUsageInventory(f.root, inventory([
+    { workId: 'SKP-1', ref: 'refs/heads/main', historyDepth: 2 }
+  ])), { code: 'SKP_STORY_USAGE_UNAVAILABLE' });
+  assert.deepEqual(await sourceState(f.root), before);
+});
+
+test('inventory never substitutes a verified older pin for a corrupted selected tip', async (t) => {
+  const f = await fixture(t); f.workflow.workflowSnapshot.snapshotHash = H('a');
+  await writeFile(f.workflowPath, `${JSON.stringify(f.workflow, null, 2)}\n`);
+  git(f.root, 'add', '.'); git(f.root, 'commit', '-qm', 'corrupted later closure');
+  const before = await sourceState(f.root);
+  await assert.rejects(lookupLocalStorySkillUsageInventory(f.root, inventory([
+    { workId: 'SKP-1', ref: 'refs/heads/published-story' }, { workId: 'SKP-1', ref: 'refs/heads/main' }
+  ])), { code: 'WFA_SNAPSHOT_INVALID' });
+  assert.deepEqual(await sourceState(f.root), before);
+});
+
+test('inventory credentials, shallow history and oversized disclosure fail visibly without fetch or silent truncation', async (t) => {
+  const f = await fixture(t); const token = `xoxb-${'a'.repeat(16)}`;
+  await assert.rejects(lookupLocalStorySkillUsageInventory('/not-contacted', inventory([
+    { workId: 'SKP-1', ref: 'HEAD' }], { skillId: token })), { code: 'SKP_STORY_INVENTORY_DISCLOSURE_BLOCKED' });
+  const shallow = path.join(f.base, 'inventory-shallow');
+  git(f.base, 'clone', '-q', '--depth=1', '--branch=main', pathToFileURL(f.root).href, shallow);
+  const shallowBefore = await sourceState(shallow);
+  await assert.rejects(lookupLocalStorySkillUsageInventory(shallow, inventory([
+    { workId: 'SKP-1', ref: 'HEAD' }
+  ])), { code: 'SKP_STORY_USAGE_UNAVAILABLE' });
+  assert.deepEqual(await sourceState(shallow), shallowBefore);
+  f.workflow.phases['threat-model'].status = 'x'.repeat(SKP_STORY_INVENTORY_LIMITS.pageBytes);
+  await writeFile(f.workflowPath, `${JSON.stringify(f.workflow, null, 2)}\n`);
+  git(f.root, 'add', '.'); git(f.root, 'commit', '-qm', 'excessive disclosure metadata');
+  const before = await sourceState(f.root);
+  await assert.rejects(lookupLocalStorySkillUsageInventory(f.root, inventory([
+    { workId: 'SKP-1', ref: 'HEAD' }
+  ])), { code: 'SKP_STORY_INVENTORY_LIMIT' });
+  assert.deepEqual(await sourceState(f.root), before);
+});
+
+test('actual local ref movement after first observation refuses inventory rather than mixing source snapshots', async (t) => {
+  const f = await fixture(t);
+  const tree = git(f.root, 'rev-parse', 'HEAD^{tree}');
+  const moved = git(f.root, 'commit-tree', tree, '-p', f.genesisCommit, '-m', 'concurrent same-byte publication');
+  const realGit = run('which', ['git']).stdout.trim();
+  const bin = path.join(f.base, 'moving-ref-fixture'); await mkdir(bin);
+  const marker = path.join(f.base, 'ref-moved'); const wrapper = path.join(bin, 'git');
+  await writeFile(wrapper, `#!${process.execPath}\nconst {spawn,spawnSync}=require('node:child_process');\nconst {existsSync,writeFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('cat-file')){const c=spawn(${JSON.stringify(realGit)},a,{stdio:'inherit',env:process.env});c.on('exit',(status)=>{process.exitCode=status??1;});}else{\nconst r=spawnSync(${JSON.stringify(realGit)},a,{encoding:null,env:process.env});\nif(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);\nif(a.includes('show-ref')&&a.includes('--hash')&&a.includes('refs/heads/main')&&!existsSync(${JSON.stringify(marker)})){writeFileSync(${JSON.stringify(marker)},'fixture');const m=spawnSync(${JSON.stringify(realGit)},['-C',${JSON.stringify(f.root)},'update-ref','refs/heads/main',${JSON.stringify(moved)}],{env:process.env});if(m.status!==0)process.exit(1);}\nprocess.exitCode=r.status??1;}\n`);
+  await chmod(wrapper, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${originalPath}`;
+  try {
+    await assert.rejects(lookupLocalStorySkillUsageInventory(f.root, inventory([
+      { workId: 'SKP-1', ref: 'refs/heads/main' }
+    ])), { code: 'SKP_STORY_INVENTORY_SOURCE_CHANGED' });
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
+  }
+  assert.equal(git(f.root, 'rev-parse', 'refs/heads/main'), moved);
+  assert.equal(await readFile(marker, 'utf8'), 'fixture');
+});
+
+test('shared inventory deadline reaches a delayed synchronous retained read without restarting its budget or changing source', async (t) => {
+  const f = await fixture(t); const before = await sourceState(f.root);
+  const realGit = run('which', ['git']).stdout.trim();
+  const bin = path.join(f.base, 'deadline-git-fixture'); await mkdir(bin);
+  const marker = path.join(f.base, 'delayed-retained-read.json'); const wrapper = path.join(bin, 'git');
+  await writeFile(wrapper, `#!${process.execPath}\nconst {spawn,spawnSync}=require('node:child_process');\nconst {writeFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('log')){writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,cwd:process.cwd()}));Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000);process.exit(1);}\nif(a.includes('cat-file')){const c=spawn(${JSON.stringify(realGit)},a,{stdio:'inherit',env:process.env});c.on('exit',status=>{process.exitCode=status??1;});}else{const r=spawnSync(${JSON.stringify(realGit)},a,{encoding:null,env:process.env});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
+  await chmod(wrapper, 0o755);
+  const originalPath = process.env.PATH; process.env.PATH = `${bin}${path.delimiter}${originalPath}`;
+  const began = performance.now();
+  try {
+    await assert.rejects(withLocalReadDeadline(5_000, () => lookupLocalStorySkillUsageInventory(f.root, inventory([
+      { workId: 'SKP-1', ref: 'HEAD' }
+    ]))), (error) => error.code === 'SKP_STORY_INVENTORY_LIMIT'
+      && error.details?.cleanupUnproven === true && error.details?.temporaryProjectionRetained === true
+      && /private temporary projection was retained/u.test(error.message)
+      && !error.message.includes(f.base));
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
+  }
+  assert.ok(performance.now() - began < 10_000, 'one shared budget plus awaited bounded cleanup, not another 120-second retained budget');
+  const delayed = JSON.parse(await readFile(marker, 'utf8'));
+  assert.match(path.basename(delayed.cwd), /^sflow-story-usage-/u);
+  assert.throws(() => process.kill(delayed.pid, 0), { code: 'ESRCH' });
+  // Production conservatively retains this projection on the unknown sync-child tree outcome.
+  // This fixture created no descendants in its delayed branch and proves that child is gone.
+  await rm(delayed.cwd, { recursive: true, force: true });
+  assert.deepEqual(await sourceState(f.root), before);
+  const healthy = await lookupLocalStorySkillUsageInventory(f.root, inventory([{ workId: 'SKP-1', ref: 'HEAD' }]));
+  assert.equal(healthy.coverage.retainedClosures, 'verified');
+});
+
+test('installed CLI explicit local inventory works offline and preserves branch/index/application state', async (t) => {
+  const f = await fixture(t); git(f.root, 'commit', '--allow-empty', '-qm', 'same accepted snapshot at later commit');
+  await rm(f.remote, { recursive: true, force: true });
+  const before = await sourceState(f.root);
+  const result = run(process.execPath, [CLI, 'workflow', 'author', 'where-used', 'threat-model',
+    '--story-refs', 'SKP-1=refs/heads/main,SKP-1=refs/heads/published-story', '--history-depth', '2',
+    '--limit', '1', '--json'], { cwd: f.root, allowFailure: true,
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_DISABLE_MODELS: '1', SINGULARITY_FLOW_NO_NETWORK: '1',
+      SINGULARITY_FLOW_LOG_LEVEL: 'off', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(f.base, 'private-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(f.base, 'private-active.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.base, 'private-leads.json') } });
+  // Published genesis has a pre-Story parent, so the exact requested window must refuse rather
+  // than claim a partial match. A first-page narrower request succeeds through the same route.
+  assert.notEqual(result.status, 0);
+  assert.equal(JSON.parse(result.stderr).error.code, 'SKP_STORY_USAGE_UNAVAILABLE');
+  assert.deepEqual(await sourceState(f.root), before);
+  const value = run(process.execPath, [CLI, 'workflow', 'author', 'where-used', 'threat-model',
+    '--story-refs', 'SKP-1=refs/heads/main', '--history-depth', '2', '--limit', '1', '--json'],
+  { cwd: f.root, allowFailure: true, env: { ...process.env, NODE_ENV: 'test',
+    SINGULARITY_FLOW_DISABLE_MODELS: '1', SINGULARITY_FLOW_NO_NETWORK: '1',
+    SINGULARITY_FLOW_LOG_LEVEL: 'off', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(f.base, 'private-workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(f.base, 'private-active.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.base, 'private-leads.json') } });
+  assert.equal(value.status, 0, value.stderr);
+  const report = JSON.parse(value.stdout);
+  assert.equal(report.operation.modelPolicy, 'never'); assert.equal(report.operation.classification, 'read');
+  assert.equal(report.data.usage.format, 'sflow-local-story-skill-inventory/v1');
+  assert.equal(report.data.usage.observations.length, 2); assert.equal(report.data.usage.page.nextCursor, 1);
+  assert.equal(report.capability, undefined);
+  assert.deepEqual(report.effects, { stateChanged: false, filesChanged: false, publicationCreated: false, externalSystemsChanged: false });
+  assert.deepEqual(await sourceState(f.root), before);
+});
+
+test('inventory CLI preflight accepts only explicit bounded windows and keeps existing Story selectors separate', () => {
+  const parse = (...args) => parseArgs(['workflow', 'author', 'where-used', 'threat-model', ...args]);
+  assert.equal(validateWorkflowAuthorRequest(parse('--story-refs', 'SKP-1=refs/heads/main,SKP-2=HEAD',
+    '--history-depth', '2', '--limit', '64', '--cursor', '2048', '--expected-source', H('a'), '--json')), 'where-used');
+  for (const args of [
+    ['--history-depth', '2'], ['--story', 'SKP-1', '--story-refs', 'SKP-1=HEAD'],
+    ['--story-refs', 'SKP-1=HEAD', '--ref', 'HEAD'],
+    ['--story-refs', 'SKP-1=HEAD', '--commit', 'a'.repeat(40)],
+    ['--story-refs', 'SKP-1=HEAD', '--snapshot-revision', '1'],
+    ['--story-refs', 'SKP-1=refs/heads/*'], ['--story-refs', 'SKP-1=HEAD,SKP-1=HEAD'],
+    ['--story-refs', 'SKP-1=HEAD', '--history-depth', '17'],
+    ['--story-refs', 'SKP-1=HEAD', '--history-depth', '0'],
+    ['--story-refs', 'SKP-1=HEAD', '--cursor', '1'],
+    ['--story-refs', 'SKP-1=HEAD', '--cursor', '2049', '--expected-source', H('a')],
+    ['--story-refs', 'SKP-1=HEAD', '--all'],
+    ['--story-refs', Array.from({ length: 8 }, (_, index) => `SKP-${index}=HEAD`).join(','), '--history-depth', '5']
+  ]) {
+    assert.throws(() => validateWorkflowAuthorRequest(parse(...args)),
+      (error) => /^(?:WCA_AUTHOR_REQUEST_INVALID|SKP_STORY_INVENTORY_(?:INVALID|LIMIT|DISCLOSURE_BLOCKED))$/u.test(error.code));
+  }
 });

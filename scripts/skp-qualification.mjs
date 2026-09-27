@@ -65,7 +65,14 @@ export const SKP_QUALIFICATION_TARGETS = freeze([
     meaning: 'Real CLI-backed clients with controller integration in one local OS fixture; not installed VSCode/Copilot UI.' },
   { id: 'direct-terminal-local-review', evidenceClass: 'actual-os-pty-local-review-fixtures',
     files: ['test/wca-skp-submission.test.mjs'], platforms: ['darwin'], requiresExpect: true,
-    meaning: 'Actual macOS PTY and existing local terminal consent. No authenticated native host or actual human acceptance.' }
+    meaning: 'Actual macOS PTY and existing local terminal consent. No authenticated native host or actual human acceptance.' },
+  { id: 'explicit-local-story-history', evidenceClass: 'actual-local-git-and-filesystem-fixtures',
+    files: ['test/skp-story-usage.test.mjs', 'test/local-read-deadline.test.mjs', 'test/fos-preparation-cleanup.test.mjs'],
+    meaning: 'Explicit local Story/ref first-parent windows, retained package/lineage reads, stale pagination and native CLI refusal. No provider principal, global repository scan or remote fetch.' },
+  { id: 'shared-replacement-terminal-review', evidenceClass: 'actual-os-pty-local-review-fixtures',
+    files: ['test/wca-compiler.test.mjs'], platforms: ['darwin'], requiresExpect: true,
+    pattern: '^(real terminal skill replacement recompiles one binding|actual terminal shared agent body/metadata/template review proposals)',
+    meaning: 'Actual macOS PTY replacement consent, raw configuration/package fences and shared metadata proposals. No authenticated mediated host, imported execution or human pilot.' }
 ]);
 
 export function parseQualificationOptions(argv) {

@@ -5,7 +5,7 @@ import { parseAgentDependencies } from '../src/agents.mjs';
 import { compileConfirmedSkillPhase, configurationPhaseFromCompiledSkill, skillCandidateCatalogSha256,
   skillContractSha256, skillPhaseCandidateSha256 } from '../src/skp-contract.mjs';
 import { recordSha256 } from '../src/records.mjs';
-import { agentTextSha256, templateDefinitionSha256, planSharedAgentChanges, planSharedTemplateChanges,
+import { agentTextSha256, templateDefinitionSha256, planSharedAgentChanges, planSharedAgentMetadataChanges, planSharedTemplateChanges,
   WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_TEMPLATE_CHANGES_PROFILE } from '../src/wca-workflow-changes.mjs';
 
 const sha = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -91,6 +91,24 @@ test('agent frontmatter, native unknown fields and remote resource identities ca
   blocked(planSharedAgentChanges, good, 'WCA_SHARED_AGENT_EFFECT_CHANGE_UNSUPPORTED');
   const rowBytes = agentInput(f); rowBytes.changes[0].replacement.text = rowBytes.changes[0].replacement.text.replace('| guide |', '|  guide |');
   blocked(planSharedAgentChanges, rowBytes, 'WCA_SHARED_AGENT_EFFECT_CHANGE_UNSUPPORTED');
+});
+
+test('metadata applicability edits cannot expand existing tools, view context, remote resources or unknown native extensions', () => {
+  for (const specialize of [
+    (text) => text.replace('tools: []', 'tools: [read]'),
+    (text) => text.replace('sflow-phases: intake', 'sflow-world-model-views: security\n  sflow-phases: intake'),
+    (text) => text + '\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n| --- | --- | --- | --- | --- |\n| guide | https://example.test/guide.md | intake | true | 1024 |\n',
+    (text) => text.replace('tools: []', 'tools: []\ncustom-native-effect: preserved')
+  ]) {
+    const f = fixture(); const source = f.agents[0];
+    source.text = specialize(source.text.replace('custom-native-field:\n  preserved: true\n', ''));
+    Object.assign(source, parseAgentDependencies(source.text, { source: source.source }));
+    const input = { ...f, changes: [{ kind: 'agent', id: source.id, operation: 'edit', expectedTextSha256: agentTextSha256(source.text),
+      replacement: { text: source.text.replace('sflow-phases: intake', 'sflow-phases: intake,review') } }] };
+    blocked(planSharedAgentMetadataChanges, input, 'WCA_SHARED_AGENT_MAPPING_EFFECT_UNSUPPORTED');
+    input.changes[0].replacement.text = source.text.replace('description: Exact role', 'description: Reviewed display prose');
+    assert.equal(planSharedAgentMetadataChanges(input).status, 'ready-for-review');
+  }
 });
 
 test('agent parent is exact text including whitespace, source must be repository-owned and output is source-bound', () => {

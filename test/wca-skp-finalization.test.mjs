@@ -10,9 +10,12 @@ import YAML from 'yaml';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { inspectSkillPackageContents } from '../src/skp-package.mjs';
-import { compileConfirmedSkillPhase, configurationPhaseFromCompiledSkill } from '../src/skp-contract.mjs';
+import { compileConfirmedSkillPhase, compileSkillPhaseProposal, configurationPhaseFromCompiledSkill } from '../src/skp-contract.mjs';
 import { issueActionAuthorization } from '../src/action-authorization.mjs';
 import { removeTemporaryTree } from '../src/util.mjs';
+import { sharedSkillContractCatalog } from '../src/wca-skill-contract-review.mjs';
+import { planSharedSkillContractChanges } from '../src/wca-workflow-changes.mjs';
+import { parseAgentDependencies } from '../src/agents.mjs';
 import {
   WCA_SKP_PRECONSENT_PROFILE, WCA_SKP_FINALIZATION_PROFILE, WCA_SKP_LOCAL_PRODUCER_PROFILE,
   prepareWorkflowSkillFinalization, prepareWorkflowSkillConsent, workflowSkillFinalizationReview,
@@ -82,6 +85,44 @@ function adapter(input) {
       agent: { ...entry.agent, definitionSha256: hash({ id: entry.agent.id, scope: entry.agent.scope, textSha256: byteHash(Buffer.from(entry.agent.text)) }) },
       ...(input.classificationRequests ? { producerClassification: declaration() } : {}) }], dependencyLocks: input.dependencyLocks, policySha256: input.policySha256 };
 }
+function replacementFixture() {
+  const input = fixture(); const entry = input.phases[0];
+  const proposal = compileSkillPhaseProposal({ phase: entry.phase, catalog: entry.catalog, phaseOrder: entry.phaseOrder });
+  const before = configurationPhaseFromCompiledSkill(compileConfirmedSkillPhase({ phase: entry.phase, catalog: entry.catalog, phaseOrder: entry.phaseOrder,
+    confirmation: { contractSha256: proposal.bindingRefs.contractSha256, catalogSha256: proposal.bindingRefs.catalogSha256,
+      packageSha256: entry.phase.skill.packageSha256, candidateSha256: proposal.candidateSha256, planSha256: H('a'), draftRevision: 1 } }));
+  const ordinary = (id) => ({ label: id, artifact: { path: `artifacts/${id}/${id}.md`, minimumBytes: 20, maximumBytes: 16384 },
+    inputs: [], defaultTemplate: 'common/empty.md', approval: { mode: 'none' }, writeScope: 'artifact-only',
+    generation: { requirement: 'optional', defaultProducer: 'human', allowedProducers: ['human'], task: 'analyze' } });
+  const raw = { version: 3, templatesRoot: 'singularity/templates', worldModel: { views: ['security'] },
+    approvalAuthorities: entry.catalog.approvalAuthorities, approvalSecurity: entry.catalog.approvalSecurity,
+    phases: { intake: ordinary('intake'), requirements: ordinary('requirements'), 'threat-model': before, conformance: ordinary('conformance') },
+    workTypes: { 'threat-notes': { label: 'Threat notes', phases: entry.phaseOrder }, indirect: { label: 'Indirect', phases: ['conformance'] } } };
+  entry.agent.text = entry.agent.text.replace('sflow-phases: threat-model', 'sflow-phases: threat-model,conformance');
+  entry.catalog = sharedSkillContractCatalog(raw, 'threat-model');
+  entry.phase.contract.produces[0].minimumBytes = 32;
+  input.candidateDefinition = structuredClone(raw); delete input.candidateDefinition.phases['threat-model'];
+  input.retainedInputs.request.intent = 'edit';
+  input.retainedInputs.request.definitions = { phases: [{ ...structuredClone(entry.phase), agent: { source: 'catalog', kind: 'agent', id: entry.agent.id } }] };
+  input.retainedInputs.request.changes = [{ profile: 'wca-shared-skill-contract-review/v1', kind: 'phase', id: entry.phase.id,
+    operation: 'edit', expectedDefinitionSha256: hash(before) }];
+  const agentImpactCatalog = [entry.agent, ...['intake', 'requirements', 'conformance'].map((phaseId) => ({ id: `${phaseId}-owner`, scope: 'repository',
+    text: `---\nname: ${phaseId}-owner\ndescription: Exact retained role\ntools: []\nmetadata:\n  sflow-phases: ${phaseId}\n  sflow-default-for: ${phaseId}\n---\nRead exact retained inputs.\n` }))].map((agent) => {
+    const source = `.github/agents/${agent.id}.agent.md`; const parsed = parseAgentDependencies(agent.text, { source });
+    return { id: agent.id, scope: agent.scope, source, text: agent.text, phases: parsed.phases, defaultFor: parsed.defaultFor,
+      tools: parsed.tools, worldModelViews: parsed.worldModelViews, dependencies: parsed.dependencies };
+  });
+  for (const agent of agentImpactCatalog) input.dependencyLocks.push({ source: 'approved-catalog', kind: 'agent', id: agent.id,
+    definitionSha256: hash({ id: agent.id, scope: agent.scope, textSha256: byteHash(Buffer.from(agent.text)) }), baseRevision: input.approvedSource.baseRevision });
+  input.pendingFiles = input.pendingFiles.filter((item) => item.path.startsWith('singularity/skills/'));
+  const impact = planSharedSkillContractChanges({ approvedDefinition: raw, agents: agentImpactCatalog, catalog: entry.catalog,
+    changes: [{ kind: 'phase', id: entry.phase.id, operation: 'edit', expectedDefinitionSha256: hash(before), replacement: input.retainedInputs.request.definitions.phases[0] }] });
+  assert.equal(impact.status, 'ready-for-contract-review', JSON.stringify(impact.findings));
+  input.phaseReplacements = [{ phaseId: entry.phase.id, beforeDefinitionSha256: hash(before), beforeDefinition: before, catalog: entry.catalog,
+    consumerImpactSha256: hash(impact), affectedWorkflowIds: impact.impact.affectedWorkflows.map((workflow) => workflow.id), agentImpactCatalog }];
+  input.approvedWorkflow = file('singularity/workflow.yml', YAML.stringify(raw)); input.approvedSource.workflowSha256 = input.approvedWorkflow.sha256;
+  return bindSource(input);
+}
 // This deliberately creates only historical structural JSON: it has no live owner brands or
 // terminal witness, and the validator must never turn it into a consumed capability.
 function historicalFixture(input = fixture()) {
@@ -97,10 +138,11 @@ function historicalFixture(input = fixture()) {
         planSha256: subject.subjectSha256, draftRevision: subject.source.revision }
     }));
   }
+  const family = subject.replacement ? 'workflow-authoring-skp-replacement-finalization' : 'workflow-authoring-skp-finalization';
   const result = { subject, definition, files: [...input.pendingFiles.map((item) => ({ ...item, mode: '100644' })), file('singularity/workflow.yml', YAML.stringify(definition), true)],
-    retainedInputs: structuredClone(input.retainedInputs), record: { schemaVersion: currentSchemaVersion('workflow-authoring-skp-finalization'),
-      kind: 'workflow-authoring-skp-finalization', profile: WCA_SKP_FINALIZATION_PROFILE, source: subject.source, approvedSource: subject.approvedSource,
-      bindingDialect: WCA_SKP_PRECONSENT_PROFILE, classificationDecisions: [],
+    retainedInputs: structuredClone(input.retainedInputs), record: { schemaVersion: currentSchemaVersion(family),
+      kind: family, profile: subject.replacement ? 'wca-skp-replacement-finalization/v1' : WCA_SKP_FINALIZATION_PROFILE, source: subject.source, approvedSource: subject.approvedSource,
+      bindingDialect: subject.profile, classificationDecisions: [],
       confirmation: { authorizationId: randomUUID(), channel: 'terminal', assurance: 'configured-local-review',
         actor: { name: 'Offline fixture', email: 'fixture@example.test', login: null, githubLookup: 'not-checked' }, authenticatedNativeHost: false },
       approval: 'not-granted', activation: 'inactive', execution: 'not-started', effects: structuredClone(prepared.effects) } };
@@ -111,7 +153,7 @@ function resealHistorical(value) {
   const { subjectSha256, ...subjectCore } = value.subject;
   value.subject.pendingFilesSha256 = hash(value.files.filter((item) => item.path !== 'singularity/workflow.yml').map(({ mode, ...rest }) => rest));
   subjectCore.pendingFilesSha256 = value.subject.pendingFilesSha256;
-  value.subject.subjectSha256 = domainHash(WCA_SKP_PRECONSENT_PROFILE, subjectCore);
+  value.subject.subjectSha256 = domainHash(value.subject.profile, subjectCore);
   const planCore = { schemaVersion: 1, kind: 'workflow-authoring-skp-consent-plan', subject: value.subject,
     revision: value.subject.subjectSha256, effect: value.subject.intendedEffect, approval: 'not-granted', activation: 'inactive', execution: 'not-started' };
   const planHash = recordSha256(planCore); const planId = `wca-skp-${planHash.slice(0, 24)}`; const actionId = `workflow-skp-confirm-${planHash.slice(0, 24)}`;
@@ -130,9 +172,73 @@ function resealHistorical(value) {
   Object.assign(value.files.find((item) => item.path === 'singularity/workflow.yml'), file('singularity/workflow.yml', YAML.stringify(value.definition), true));
   value.record.emittedClosureSha256 = hash(value.files.map(({ path, mode, bytes, sha256 }) => ({ path, mode, bytes, sha256 })));
   const { finalizationSha256, ...recordCore } = value.record;
-  value.record.finalizationSha256 = domainHash(WCA_SKP_FINALIZATION_PROFILE, recordCore);
+  value.record.finalizationSha256 = domainHash(value.record.profile, recordCore);
   return value;
 }
+
+test('replacement subject and historical reader independently reconstruct raw parent and current catalog in a distinct dialect', () => {
+  const input = replacementFixture(); const prepared = prepareWorkflowSkillFinalization(input);
+  assert.equal(prepared.subject.profile, 'wca-skp-replacement-preconsent/v1');
+  assert.equal(prepared.finalization, 'requires-exact-terminal-consent');
+  assert.equal(prepared.subject.replacement.beforeDefinitionSha256, input.retainedInputs.request.changes[0].expectedDefinitionSha256);
+  assert.deepEqual(prepared.subject.replacement.affectedWorkflowIds, ['indirect', 'threat-notes']);
+  const historical = historicalFixture(input); const report = validateWorkflowSkillFinalizationRecord(historical);
+  assert.equal(report.profile, 'wca-skp-replacement-finalization/v1'); assert.equal(report.authority, 'none');
+  assert.throws(() => compileConsentedWorkflowSkillPhases(prepared, report), { code: 'WCA_SKP_CONSENT_REQUIRED' });
+  for (const edit of [
+    (value) => { value.subject.replacement.beforeDefinition.label = 'Substituted raw parent'; value.subject.replacement.beforeDefinitionSha256 = hash(value.subject.replacement.beforeDefinition); },
+    (value) => { value.subject.replacement.catalog.approvalAuthorities.reviewers.members[0].email = 'different@example.test'; },
+    (value) => { value.subject.replacement.approvedWorkflow.contentBase64 = Buffer.from('version: 3\nphases: {}\n').toString('base64'); },
+    (value) => { value.definition.phases['threat-model'].skillBinding = structuredClone(input.phaseReplacements[0].beforeDefinition.skillBinding); },
+    (value) => { value.subject.replacement.affectedWorkflowIds = ['threat-notes']; },
+    (value) => { value.subject.replacement.agentImpactCatalog.pop(); },
+    (value) => { value.files.push(file('.github/agents/unrequested.agent.md', '---\nname: unrequested\ndescription: Unreviewed native role\ntools: [shell]\n---\nUnreviewed role.\n', true)); }
+  ]) {
+    const changed = structuredClone(historical); edit(changed); resealHistorical(changed);
+    assert.throws(() => validateWorkflowSkillFinalizationRecord(changed), (error) =>
+      ['WCA_SKP_FINALIZATION_INVALID', 'WCA_SKP_SOURCE_STALE', 'SKP_PHASE_BINDING_INVALID'].includes(error.code));
+  }
+  const downgrade = structuredClone(historical); downgrade.subject.kind = 'workflow-authoring-skp-preconsent-subject';
+  downgrade.subject.profile = WCA_SKP_PRECONSENT_PROFILE; downgrade.record.kind = 'workflow-authoring-skp-finalization';
+  downgrade.record.profile = WCA_SKP_FINALIZATION_PROFILE; downgrade.record.bindingDialect = WCA_SKP_PRECONSENT_PROFILE;
+  resealHistorical(downgrade); assert.throws(() => validateWorkflowSkillFinalizationRecord(downgrade), { code: 'WCA_SKP_FINALIZATION_INVALID' });
+});
+
+test('fully resealed replacement impact cannot substitute metadata arrays behind an unchanged exact agent text lock', () => {
+  const input = replacementFixture(); const historical = historicalFixture(input);
+  const review = input.phaseReplacements[0]; const approvedDefinition = YAML.parse(Buffer.from(input.approvedWorkflow.contentBase64, 'base64').toString('utf8'));
+  const changes = [{ kind: 'phase', id: review.phaseId, operation: 'edit', expectedDefinitionSha256: review.beforeDefinitionSha256,
+    replacement: input.retainedInputs.request.definitions.phases[0] }];
+  const agentId = input.phases[0].agent.id;
+  for (const [field, replacement] of [['phases', ['threat-model']], ['defaultFor', []], ['tools', ['shell']],
+    ['worldModelViews', ['security']], ['dependencies', [{ id: 'unreviewed', type: 'skill', phases: ['conformance'] }]]]) {
+    const agents = structuredClone(review.agentImpactCatalog); agents.find((agent) => agent.id === agentId)[field] = replacement;
+    const result = planSharedSkillContractChanges({ approvedDefinition, agents, catalog: review.catalog, changes });
+    assert.equal(result.status, 'blocked'); assert.equal(result.findings[0].code, 'WCA_SHARED_CONTENT_SOURCE_INVALID', field);
+  }
+
+  // Build the exact incomplete impact an owner trusting caller arrays would see. The legitimate
+  // narrowed text exists only to construct that graph; the resealed subject keeps the original
+  // text and its unchanged source lock while substituting just the eligibility array.
+  const narrowedAgents = structuredClone(review.agentImpactCatalog); const narrowed = narrowedAgents.find((agent) => agent.id === agentId);
+  narrowed.text = narrowed.text.replace('sflow-phases: threat-model,conformance', 'sflow-phases: threat-model'); narrowed.phases = ['threat-model'];
+  const incompleteImpact = structuredClone(planSharedSkillContractChanges({ approvedDefinition, agents: narrowedAgents, catalog: review.catalog, changes }));
+  assert.equal(incompleteImpact.status, 'ready-for-contract-review');
+  assert.deepEqual(incompleteImpact.impact.affectedWorkflows.map((workflow) => workflow.id), ['threat-notes']);
+  const original = review.agentImpactCatalog.find((agent) => agent.id === agentId);
+  const untrustedIdentitySha256 = hash({ id: narrowed.id, scope: narrowed.scope, textSha256: byteHash(Buffer.from(original.text)),
+    phases: narrowed.phases, defaultFor: narrowed.defaultFor, tools: narrowed.tools, worldModelViews: narrowed.worldModelViews, dependencies: narrowed.dependencies });
+  for (const rows of [incompleteImpact.dependencyLocks, incompleteImpact.graph.before.nodes, incompleteImpact.graph.after.nodes]) {
+    rows.find((row) => row.kind === 'agent' && row.id === agentId).definitionSha256 = untrustedIdentitySha256;
+  }
+  const { planSha256, ...impactCore } = incompleteImpact; incompleteImpact.planSha256 = hash(impactCore);
+  const changed = structuredClone(historical); const retained = changed.subject.replacement.agentImpactCatalog.find((agent) => agent.id === agentId);
+  retained.phases = ['threat-model']; changed.subject.replacement.consumerImpactSha256 = hash(incompleteImpact);
+  changed.subject.replacement.affectedWorkflowIds = ['threat-notes'];
+  assert.equal(retained.text, original.text); assert.deepEqual(changed.subject.dependencyLocks, historical.subject.dependencyLocks);
+  resealHistorical(changed);
+  assert.throws(() => validateWorkflowSkillFinalizationRecord(changed), { code: 'WCA_SKP_FINALIZATION_INVALID' });
+});
 
 test('pre-consent subject is deterministic, bounded, byte-exact and contains no future receipt or final hash', () => {
   const input = fixture(); const before = structuredClone(input);

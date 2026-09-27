@@ -5,13 +5,13 @@ import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { configurationReadRoot, configurationReadScope, configurationReadSnapshot } from './configuration-read-scope.mjs';
-import { captureVerifiedConfigurationAssetBytes } from './configuration-branch.mjs';
+import { captureVerifiedConfigurationAssetBytes, inspectApprovedSkillPackage } from './configuration-branch.mjs';
 import { loadDefinition, validateDefinition, resolveWorkType, assertPlannedClaimsReady, applyWorkflowCompatibility } from './config.mjs';
 import { discoverAgents, parseAgentDependencies, validateAgentCatalog } from './agents.mjs';
 import { MODEL_TASKS, assertModelTask } from './model-tasks.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { normalizeApprovalPolicy } from './approval-authority.mjs';
-import { inspectSkillPackageContents } from './skp-package.mjs';
+import { inspectSkillPackageContents, readSealedSkillPackage } from './skp-package.mjs';
 import { validateConfiguredSkillPhase, compileSkillPhaseProposal } from './skp-contract.mjs';
 import { normalizeTemplateCatalog, resolveTemplate } from './template-catalog.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
@@ -23,12 +23,15 @@ import { captureEnvironmentDeclaration, matchEnvironmentLocalPath, withEnvironme
   ENVIRONMENT_DECLARATION_PATH } from './environment-declaration.mjs';
 import { simulateResolvedWorkflowLifecycle, WORKFLOW_LIFECYCLE_SIMULATION_PROFILE } from './workflow-lifecycle-simulation.mjs';
 import { planWorkflowOnlyChanges, workflowDefinitionSha256, planSharedPhaseChanges,
-  planSharedAgentChanges, planSharedTemplateChanges, WCA_SHARED_PHASE_CHANGES_PROFILE,
-  WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_TEMPLATE_CHANGES_PROFILE } from './wca-workflow-changes.mjs';
+  planSharedAgentChanges, planSharedAgentMetadataChanges, planSharedTemplateChanges, planSharedSkillContractChanges,
+  WCA_SHARED_PHASE_CHANGES_PROFILE, WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE,
+  WCA_SHARED_TEMPLATE_CHANGES_PROFILE, WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE } from './wca-workflow-changes.mjs';
 import { prepareWorkflowSkillConsent, workflowSkillFinalizationReview,
   consumeWorkflowSkillFinalizationConsent, finalizeWorkflowSkillConsent,
   workflowSkillFinalizedProjection, sealWorkflowSkillFinalization,
   renderWorkflowSkillCandidateAgent, WCA_SKP_LOCAL_PRODUCER_PROFILE } from './wca-skp-finalization.mjs';
+import { sharedSkillContractCatalog } from './wca-skill-contract-review.mjs';
+import { incrementCommandCounter } from './dx-timing-context.mjs';
 
 export const WCA_COMPILER_PROFILE = 'wca-complete-package/v4';
 export const WCA_PREVIEW_KIND = 'workflow-authoring-package-preview';
@@ -181,7 +184,7 @@ export async function captureWorkflowCompilerContext(root) {
     const view = freeze({ kind: 'workflow-authoring-compiler-context', schemaVersion: 1,
       source: { kind: authority.kind, repository, ref: authority.ref, observedCommit: authority.commit, baseRevision,
         workflowSha256: bytesDigest(before) }, profile: WCA_COMPILER_PROFILE });
-    CONTEXTS.set(view, { root, sourceRoot, definition: structuredClone(definition), rawDefinition: YAML.parse(before.toString('utf8')), agents, skills, files, exactFiles, repository, baseRevision, assetPolicy,
+    CONTEXTS.set(view, { root, sourceRoot, definition: structuredClone(definition), rawDefinition: YAML.parse(before.toString('utf8')), agents, skills, files, exactFiles, retainedSnapshot, repository, baseRevision, assetPolicy,
       environmentDeclaration: environmentCapture?.declaration ?? null, environmentSha256: environmentCapture ? bytesDigest(environmentCapture.bytes) : null,
       expectedAuthority: { kind: authority.kind, commit: authority.commit, sourceCommit: baseRevision, remoteFingerprint: remoteFingerprint(repository) } });
     return view;
@@ -206,12 +209,24 @@ export async function captureWorkflowDraftCompilerSource(context, { draftId, rev
   const captured = CONTEXTS.get(context); if (!captured) fail('Use an owner-captured compiler context.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
   const store = openGitDraftStore({ root: captured.root, remote: captured.repository, workspaceId: 'configuration', environmentDeclaration: captured.environmentDeclaration });
   const read = await store.readRevision({ draftId, revision });
+  const payload = safeCopy(read.payload); const retainedPackages = new Map();
+  if (payload.intent === 'edit' && payload.changes?.length === 1
+      && payload.changes[0]?.profile === WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE
+      && payload.definitions?.phases?.length === 1 && payload.definitions.phases[0]?.id === payload.changes[0].id) {
+    const phase = captured.rawDefinition.phases[payload.changes[0].id]; const selected = phase?.skillBinding?.bindingRefs?.skill;
+    if (phase?.kind === 'skill' && selected && captured.retainedSnapshot) {
+      incrementCommandCounter('wca.replacement-package-capture');
+      const capture = await inspectApprovedSkillPackage(captured.retainedSnapshot, selected.id, {
+        expectedPackageSha256: selected.packageSha256, requireInertGitMode: true });
+      retainedPackages.set(selected.id, readSealedSkillPackage(capture));
+    }
+  }
   const source = freeze({ kind: 'workflow-authoring-draft-source', schemaVersion: 1, repository: captured.repository,
     workspaceId: read.record.workspaceId, draftId: read.record.draftId, revision: read.record.revision,
     lifecycleEpoch: read.record.lifecycleEpoch, revisionSha256: read.record.revisionSha256, head: read.head,
     payloadSha256: read.record.content.payloadSha256, assetManifestSha256: read.record.content.assetManifestSha256,
     lifecycle: read.tombstone ? 'deleted' : 'live' });
-  SOURCES.set(source, { context, payload: safeCopy(read.payload), assets: read.assets.map((asset) => ({ path: asset.path, content: Buffer.from(asset.content) })) });
+  SOURCES.set(source, { context, payload, retainedPackages, assets: read.assets.map((asset) => ({ path: asset.path, content: Buffer.from(asset.content) })) });
   return source;
 }
 
@@ -290,6 +305,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   const candidate = structuredClone(captured.definition); const files = new Map(); const symbols = Object.fromEntries(GROUPS.map((group) => [group, new Map()]));
   const replacementFiles = new Map(); const agents = [...captured.agents];
   let acceptedRequest = false; let workflowChanges = null; let sharedObjectChanges = null;
+  let phaseReplacements = null;
   const simulation = { schemaVersion: 1, kind: 'workflow-authoring-lifecycle-simulation',
     profile: WORKFLOW_LIFECYCLE_SIMULATION_PROFILE, status: 'incomplete', workflows: [],
     prerequisites: 'candidate-not-validated', execution: 'not-run', humanAvailability: 'not-verified', hostEnforcement: 'unavailable' };
@@ -324,7 +340,11 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
             request, snapshotInputs: { request, assets: draft.assets.map((asset) => ({ path: asset.path,
               bytes: asset.content.length, sha256: bytesDigest(asset.content), contentBase64: asset.content.toString('base64') })) },
             candidateDefinition: { ...candidate, version: 3 }, pendingFiles: pendingSkillFiles,
-            entries: skillEntries, dependencyLocks: locks, policySha256: core.policySha256 })));
+            entries: skillEntries, dependencyLocks: locks, policySha256: core.policySha256,
+            ...(phaseReplacements ? { phaseReplacements, approvedWorkflow: { path: 'singularity/workflow.yml',
+              bytes: captured.exactFiles.get('singularity/workflow.yml').length,
+              sha256: bytesDigest(captured.exactFiles.get('singularity/workflow.yml')),
+              contentBase64: captured.exactFiles.get('singularity/workflow.yml').toString('base64') } } : {}) })));
         } catch (error) {
           core.findings.push({ code: error.code ?? 'WCA_SKP_FINALIZATION_INVALID', fieldPath: 'skillFinalization', message: error.message,
             category: 'submission-blocker', requiredFor: 'package-preview', sourceRule: WCA_COMPILER_PROFILE, resolvingAction: 'workflow.author.edit' });
@@ -357,7 +377,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   const sharedPhaseRequest = request.intent === 'edit'
     && request.changes?.some((change) => change?.profile === WCA_SHARED_PHASE_CHANGES_PROFILE);
   const contentProfile = request.intent === 'edit' ? request.changes?.find((change) =>
-    [WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_TEMPLATE_CHANGES_PROFILE].includes(change?.profile))?.profile : null;
+    [WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE, WCA_SHARED_TEMPLATE_CHANGES_PROFILE].includes(change?.profile))?.profile : null;
+  const skillContractRequest = request.intent === 'edit' && request.changes?.some((change) => change?.profile === WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE);
   if (sharedPhaseRequest) {
     attempt('changes', () => {
       const patches = request.definitions?.phases;
@@ -400,7 +421,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   } else if (contentProfile) {
     attempt('changes', () => {
       assertExactReplacementCapture(captured);
-      const group = contentProfile === WCA_SHARED_AGENT_CHANGES_PROFILE ? 'agents' : 'templates';
+      const group = [WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE].includes(contentProfile) ? 'agents' : 'templates';
       const patches = request.definitions?.[group];
       if (!Array.isArray(patches) || !patches.length || patches.length > WCA_COMPILER_LIMITS.objects) fail('Shared text changes need bounded complete paired replacements.');
       for (const other of GROUPS.filter((name) => name !== group)) if ((request.definitions?.[other] ?? []).length) fail('Shared text profiles cannot mix object kinds or create new configuration objects.', 'WCA_SHARED_CONTENT_UNSUPPORTED');
@@ -424,7 +445,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       });
       const input = { approvedDefinition: captured.rawDefinition, agents: captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
         id, scope, source, text, phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [], worldModelViews: worldModelViews ?? [], dependencies: dependencies ?? [] })), templateContents, changes };
-      sharedObjectChanges = group === 'agents' ? planSharedAgentChanges(input) : planSharedTemplateChanges(input);
+      sharedObjectChanges = group === 'agents' ? contentProfile === WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE
+        ? planSharedAgentMetadataChanges(input) : planSharedAgentChanges(input) : planSharedTemplateChanges(input);
     });
     for (const finding of sharedObjectChanges?.findings ?? []) add(finding.code, finding.fieldPath ?? 'changes', finding.message);
     if (findings.length || sharedObjectChanges?.status !== 'ready-for-review') return output();
@@ -443,6 +465,65 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     for (const lock of sharedObjectChanges.dependencyLocks) locks.push({ source: lock.kind === 'execution-task'
       ? 'installed-runtime-registry' : lock.source === 'installed-agent-registry' ? 'installed-agent-registry' : 'approved-catalog',
       kind: lock.kind, id: lock.id, definitionSha256: lock.definitionSha256, baseRevision: captured.baseRevision });
+  } else if (skillContractRequest) {
+    attempt('changes', () => {
+      assertExactReplacementCapture(captured);
+      if (request.changes.length !== 1 || request.definitions?.phases?.length !== 1
+          || GROUPS.filter((group) => group !== 'phases').some((group) => request.definitions?.[group]?.length)
+          || Object.keys(request.bindings ?? {}).length || request.assets?.length || draft.assets.length
+          || request.executionProposals?.length || request.target.hosts?.length) {
+        fail('Skill contract review selects one existing phase without mixed objects, attachments, hosts or executable proposals.', 'WCA_SHARED_SKILL_CONTRACT_UNSUPPORTED');
+      }
+      const change = request.changes[0];
+      closed(change, ['profile', 'kind', 'id', 'operation', 'expectedDefinitionSha256'], 'Shared skill contract change');
+      if (change.profile !== WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE || change.id !== request.definitions.phases[0].id) fail('Pair the exact contract profile and existing phase declaration.');
+      const sourcePhase = captured.rawDefinition.phases[change.id]; const selected = sourcePhase?.skillBinding?.bindingRefs?.skill;
+      if (sourcePhase?.kind !== 'skill' || !selected) fail('Select one exact existing confirmed skill phase.', 'WCA_SHARED_SKILL_CONTRACT_UNSUPPORTED');
+      const prefix = `singularity/skills/${selected.id}/`;
+      const retainedPackage = draft.retainedPackages.get(selected.id);
+      if (!retainedPackage) fail('Exact approved retained package bytes are unavailable; no live folder fallback is allowed.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
+      const inspected = readSealedSkillPackage(retainedPackage);
+      const contents = inspected.contents;
+      if (inspected.manifest.packageSha256 !== selected.packageSha256) fail('The exact approved skill package changed from its confirmed binding.', 'SKP_SKILL_DRIFT');
+      for (const [relative, bytes] of contents) {
+        if (!Buffer.from(bytes.toString('utf8')).equals(bytes)) fail('This text proposal dialect cannot replace or reinterpret binary retained packages.', 'WCA_SHARED_SKILL_CONTRACT_PACKAGE_UNSUPPORTED');
+        replacementFiles.set(`${prefix}${relative}`, bytes.toString('utf8'));
+      }
+      const catalog = sharedSkillContractCatalog(captured.rawDefinition, change.id);
+      const { profile, ...row } = change;
+      const agentImpactCatalog = captured.agents.map(({ id, scope, source, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
+        id, scope, source: scope === 'repository' ? source : `${scope}/${id}.agent.md`, text, phases: phases ?? [], defaultFor: defaultFor ?? [],
+        tools: tools ?? [], worldModelViews: worldModelViews ?? [], dependencies: dependencies ?? [] }));
+      sharedObjectChanges = planSharedSkillContractChanges({ approvedDefinition: captured.rawDefinition,
+        agents: agentImpactCatalog,
+        changes: [{ ...row, replacement: request.definitions.phases[0] }], catalog });
+      if (sharedObjectChanges.status !== 'ready-for-contract-review') return;
+      const replacement = sharedObjectChanges.replacements[0];
+      const exactAgent = captured.agents.find((agent) => agent.defaultFor.includes(replacement.id));
+      for (const lock of sharedObjectChanges.dependencyLocks) locks.push({ source: lock.kind === 'execution-task'
+        ? 'installed-runtime-registry' : lock.source === 'installed-agent-registry' ? 'installed-agent-registry' : 'approved-catalog',
+        kind: lock.kind, id: lock.id, definitionSha256: lock.kind === 'agent'
+          ? digest({ id: lock.id, scope: captured.agents.find((agent) => agent.id === lock.id).scope,
+            textSha256: bytesDigest(Buffer.from(captured.agents.find((agent) => agent.id === lock.id).text)) }) : lock.definitionSha256,
+        baseRevision: captured.baseRevision });
+      phaseReplacements = [{ phaseId: replacement.id, beforeDefinitionSha256: replacement.beforeDefinitionSha256,
+        beforeDefinition: replacement.beforeDefinition, catalog,
+        consumerImpactSha256: digest(sharedObjectChanges), affectedWorkflowIds: sharedObjectChanges.impact.affectedWorkflows.map((workflow) => workflow.id), agentImpactCatalog }];
+      for (const key of Object.keys(candidate)) delete candidate[key]; Object.assign(candidate, structuredClone(captured.rawDefinition));
+      delete candidate.phases[replacement.id];
+      skillEntries.push({ phase: replacement.phase, catalog, phaseOrder: replacement.phaseOrder,
+        agent: { id: exactAgent.id, scope: exactAgent.scope, text: exactAgent.text }, packageManifest: inspected.manifest });
+      if (finalizedPhases.has(replacement.id)) candidate.phases[replacement.id] = structuredClone(finalizedPhases.get(replacement.id));
+      else { skillProposals.push(replacement.proposal); add('WCA_SKP_CONFIRMATION_BINDING_PENDING', `definitions.phases.${replacement.id}`,
+        'The existing skill contract is lowered without its old binding. A fresh one-use terminal review must compile and simulate the exact replacement before inactive proposal emission.'); }
+    });
+    for (const finding of sharedObjectChanges?.findings ?? []) add(finding.code, finding.fieldPath ?? 'changes', finding.message);
+    if (findings.some((finding) => finding.code !== 'WCA_SKP_CONFIRMATION_BINDING_PENDING') || sharedObjectChanges?.status !== 'ready-for-contract-review') return output();
+    const affected = sharedObjectChanges.impact.affectedWorkflows;
+    if (!affected.length || affected.length > WCA_COMPILER_LIMITS.sharedAffectedWorkflows) {
+      add('WCA_COMPILER_LIMIT', 'changes', 'Skill contract review requires all affected workflow simulations within the 64-workflow budget.'); return output();
+    }
+    for (const workflow of affected) symbols.workflows.set(workflow.id, { id: workflow.id });
   } else if (request.intent !== 'create') {
     workflowChanges = planWorkflowOnlyChanges({ request, approvedDefinition: captured.rawDefinition,
       agents: captured.agents.map(({ id, scope, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
@@ -457,7 +538,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   if (request.target.hosts?.length) add('WCA_HOST_CONTRACT_UNAVAILABLE', 'target.hosts', 'No installed exact host/tool mapping contract has been verified by this compiler.');
   for (const group of GROUPS) attempt(`definitions.${group}`, () => {
     if (sharedObjectChanges && (sharedPhaseRequest && group === 'phases'
-        || contentProfile === WCA_SHARED_AGENT_CHANGES_PROFILE && group === 'agents'
+        || skillContractRequest && group === 'phases'
+        || [WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE].includes(contentProfile) && group === 'agents'
         || contentProfile === WCA_SHARED_TEMPLATE_CHANGES_PROFILE && group === 'templates')) return;
     const values = request.definitions?.[group] ?? [];
     if (!Array.isArray(values) || values.length > (group === 'workflows' ? WCA_COMPILER_LIMITS.workflows : WCA_COMPILER_LIMITS.objects)) fail('Candidate collection exceeds its bounded object budget.', 'WCA_COMPILER_LIMIT');
@@ -544,7 +626,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     portable(relative, 'Managed output path');
     if (matchEnvironmentLocalPath(captured.environmentDeclaration, relative)) fail('Approved environment-local paths cannot become shared candidate assets.', 'WCA_ENVIRONMENT_LOCAL_CONTENT_UNADMITTED');
     if ([...files.keys()].some((key) => key.normalize('NFC').toLowerCase() === relative.normalize('NFC').toLowerCase())) fail('Managed output paths collide.', 'WCA_ASSET_COLLISION');
-    const before = captured.files.get(relative);
+    const skillPath = skillContractRequest ? /^singularity\/skills\/([^/]+)\/(.+)$/u.exec(relative) : null;
+    const before = captured.files.get(relative) ?? (skillPath ? draft.retainedPackages.get(skillPath[1])?.contents.get(skillPath[2]) : null);
     if (before && relative !== 'singularity/workflow.yml'
         && (!replacementFiles.has(relative) || replacementFiles.get(relative) !== content)) fail('Managed output already exists; explicit reviewed update is required.', 'WCA_OBJECT_COLLISION');
     admit([{ path: relative, content, forceScan: true }]); files.set(relative, content);
@@ -748,6 +831,9 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       : simulation.workflows.length === symbols.workflows.size && simulation.workflows.every((report) => report.status === 'complete-for-profile') ? 'complete-for-profile' : 'incomplete';
   }
   locks.sort((a, b) => a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  if (skillContractRequest) attempt('candidate.pending-package', () => {
+    for (const [relative, content] of replacementFiles) emit(relative, content);
+  });
   pendingSkillFiles = [...files].map(([file, content]) => ({ path: file, content, bytes: Buffer.byteLength(content), sha256: bytesDigest(Buffer.from(content)) }));
   if (!findings.length) attempt('candidate.files', () => {
     // Workflow-only edits must not serialize loadDefinition defaults back into unrelated shared
@@ -757,10 +843,11 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       emittedDefinition.workTypes[replacement.id] = structuredClone(replacement.definition);
     }
     if (sharedObjectChanges) for (const replacement of sharedObjectChanges.replacements) {
-      if (replacement.kind === 'phase') emittedDefinition.phases[replacement.id] = structuredClone(replacement.definition);
+      if (replacement.kind === 'phase') emittedDefinition.phases[replacement.id] = structuredClone(skillContractRequest
+        ? finalizedPhases.get(replacement.id) : replacement.definition);
       else if (replacement.kind === 'template' && replacement.catalogId) emittedDefinition.templates[replacement.catalogId] = structuredClone(replacement.definition);
     }
-    for (const [relative, content] of replacementFiles) emit(relative, content);
+    if (!skillContractRequest) for (const [relative, content] of replacementFiles) emit(relative, content);
     const unchangedRawDefinition = contentProfile && canonicalJson(emittedDefinition) === canonicalJson(captured.rawDefinition);
     emit('singularity/workflow.yml', unchangedRawDefinition ? captured.exactFiles.get('singularity/workflow.yml').toString('utf8')
       : YAML.stringify(emittedDefinition, { lineWidth: 0 }));

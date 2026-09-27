@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, write
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createWorkflowDraftRecoveryStore } from '../apps/vscode/src/views/workflow-drafts-recovery.ts';
+import { createWorkflowDraftRecoveryStore, workflowDraftRecoveryNativeDomainRefusal } from '../apps/vscode/src/views/workflow-drafts-recovery.ts';
 import { collectExecutionSites, summarizeSites } from '../scripts/git-bypass-audit.mjs';
 import { modelBoundaryFailures } from '../scripts/model-boundary-policy.mjs';
 
@@ -65,6 +65,22 @@ async function holder(t, f, mode = 'scope') {
 async function item(f, kind = 'scope') { return (await f.store.inspectLocks(scope)).locks.find((entry) => entry.kind === kind); }
 async function tree(directory) { return Promise.all((await readdir(directory)).sort().map(async (name) => [name, hash(await readFile(path.join(directory, name)))])); }
 
+test('Windows native-domain diagnostic refuses repair qualification without using PID or elapsed-time guesses', async () => {
+  assert.equal(workflowDraftRecoveryNativeDomainRefusal('win32'), 'WINDOWS_NATIVE_BOOT_PROCESS_DOMAIN_UNQUALIFIED');
+  // These are available native probe sites, not evidence of another process being dead. Existing
+  // real-owner fixtures below still independently observe their exact native boot/domain.
+  assert.equal(workflowDraftRecoveryNativeDomainRefusal('darwin'), null);
+  assert.equal(workflowDraftRecoveryNativeDomainRefusal('linux'), null);
+  for (const platform of ['aix', 'freebsd', 'openbsd', 'sunos', 'android', undefined, 'WIN32']) {
+    assert.equal(workflowDraftRecoveryNativeDomainRefusal(platform), 'NATIVE_PROCESS_DOMAIN_UNAVAILABLE');
+  }
+  const source = await readFile(new URL('../apps/vscode/src/views/workflow-drafts-recovery.ts', import.meta.url), 'utf8');
+  assert.match(source, /const nativeRefusal = workflowDraftRecoveryNativeDomainRefusal\(OWNER_PLATFORM\)/u,
+    'the real owner uses its captured native platform, never a caller-supplied platform override');
+  assert.doesNotMatch(source, /execFile\([^;]*(?:powershell|wmic|LastBootUpTime|Get-CimInstance)/su,
+    'no unqualified Windows timestamp or dynamic native ABI probe is launched');
+});
+
 test('exact-scope inspection of absent storage creates neither directories nor keys and returns no repair authority', async (t) => {
   const f = await fixture(t, false); const before = f.counts();
   const report = await f.store.inspectLocks(scope);
@@ -79,6 +95,7 @@ test('new live locks contain closed nonce ownership and read-only inspection doe
   assert.equal(record.schemaVersion, 1); assert.equal(record.kind, 'workflow-draft-recovery-lock'); assert.equal(record.purpose, 'mutation');
   assert.equal(record.owner.pid, owner.child.pid); assert.ok(record.owner.processNonce); assert.ok(record.lockNonce);
   assert.equal(lock.status, nativeRepair ? 'live' : 'unknown'); assert.equal(lock.repairSupported, false); assert.equal(lock.reviewId, null);
+  if (process.platform === 'win32') assert.equal(lock.reason, 'WINDOWS_NATIVE_BOOT_PROCESS_DOMAIN_UNQUALIFIED');
   assert.doesNotMatch(JSON.stringify(lock), /PRIVATE BUFFER|hostname|bootsessionuuid|pid:\[/);
   assert.deepEqual(await tree(f.directory), before); assert.deepEqual(await readFile(f.keyFile), key); assert.deepEqual(f.counts(), counts);
 });
@@ -87,6 +104,7 @@ test('a native dead same-domain owner can be explicitly repaired without changin
   const f = await fixture(t); const owner = await holder(t, f); await owner.stop();
   const original = await readFile(seal(f)); const key = await readFile(f.keyFile); const counts = f.counts(); const lock = await item(f);
   assert.equal(lock.status, nativeRepair ? 'dead' : 'unknown'); assert.equal(lock.repairSupported, nativeRepair);
+  if (process.platform === 'win32') assert.equal(lock.reason, 'WINDOWS_NATIVE_BOOT_PROCESS_DOMAIN_UNQUALIFIED');
   if (!nativeRepair) { assert.equal(lock.reviewId, null); assert.deepEqual(await readFile(seal(f)), original); return; }
   let confirmations = 0;
   const result = await f.store.repairLock(scope, lock.reviewId, async (exact) => { confirmations += 1; assert.deepEqual(exact, lock); assert.ok(Object.isFrozen(exact)); return true; });

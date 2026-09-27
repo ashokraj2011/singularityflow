@@ -10,6 +10,8 @@ import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { removeTemporaryTree, SingularityFlowError } from './util.mjs';
+import { withLocalReadDeadline, assertLocalReadDeadline, localReadDeadlineRemainingMs,
+  localReadDeadlineSignal, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 
 export const EXACT_STORY_REVISION_LIMITS = Object.freeze({ commits: 256, commitBytes: 65536,
   historyBytes: 8 * 1024 * 1024, files: 4096, bytes: 256 * 1024 * 1024,
@@ -17,8 +19,17 @@ export const EXACT_STORY_REVISION_LIMITS = Object.freeze({ commits: 256, commitB
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const REF = /^refs\/(?:heads|remotes)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
 const WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
-function fail(message, code = 'SKP_STORY_USAGE_UNAVAILABLE') {
-  throw new SingularityFlowError(message, { code });
+function fail(message, code = 'SKP_STORY_USAGE_UNAVAILABLE', cause = null, projectionRetained = false) {
+  const cleanupUnproven = cause?.temporaryGitCleanupUnproven === true || cause?.details?.cleanupUnproven === true;
+  const temporaryProjectionRetained = projectionRetained || cause?.details?.temporaryProjectionRetained === true;
+  const refusal = new SingularityFlowError(message
+    + (temporaryProjectionRetained ? ' A private temporary projection was retained because process cleanup is unproven.' : ''), {
+    code,
+    details: cleanupUnproven || temporaryProjectionRetained
+      ? { cleanupUnproven, temporaryProjectionRetained } : null
+  });
+  if (cleanupUnproven) refusal.temporaryGitCleanupUnproven = true;
+  throw refusal;
 }
 function required(result) {
   if (!result?.ok) {
@@ -54,6 +65,18 @@ function metadataPath(relative) {
 }
 
 export async function withExactLocalStoryRevision(root, request, callback) {
+  try {
+    return await withLocalReadDeadline(EXACT_STORY_REVISION_LIMITS.durationMs,
+      () => readExactLocalStoryRevision(root, request, callback));
+  } catch (error) {
+    if (error?.code === 'LOCAL_READ_DEADLINE_EXCEEDED') {
+      fail('The shared selected Story read duration was exhausted; no partial result was returned.', 'SKP_STORY_USAGE_LIMIT', error);
+    }
+    throw error;
+  }
+}
+
+async function readExactLocalStoryRevision(root, request, callback) {
   if (typeof root !== 'string' || !path.isAbsolute(root) || !request
       || Object.keys(request).some((key) => !['ref', 'commit', 'workId'].includes(key))
       || typeof callback !== 'function') fail('An explicit repository and closed Story revision request are required.', 'SKP_STORY_USAGE_INVALID');
@@ -68,15 +91,16 @@ export async function withExactLocalStoryRevision(root, request, callback) {
   // The retained reader still has fixed HEAD-based legacy local calls. Do not let inherited
   // repository/object/command overrides redirect those calls outside this private projection.
   assertNoProcessOverrides();
-  const runtime = required(await createGitRuntime({ deadlineMs: 30_000 }));
+  const budget = assertLocalReadDeadline;
+  let runtime = null;
   let service = null;
   let scratch = null;
   let retainScratch = false;
-  const began = Date.now();
-  const budget = () => {
-    if (Date.now() - began > EXACT_STORY_REVISION_LIMITS.durationMs) fail('The selected Story exceeds the bounded read duration.', 'SKP_STORY_USAGE_LIMIT');
-  };
   try {
+    budget();
+    runtime = required(await createGitRuntime({ deadlineMs: localReadDeadlineTimeoutMs(30_000),
+      signal: localReadDeadlineSignal() }));
+    budget();
     const repository = required(await runtime.openRepository(root));
     const invocation = repository.beginInvocation();
     const observation = ref === 'HEAD' ? required(await invocation.head()) : required(await invocation.resolveRef({ ref }));
@@ -84,7 +108,8 @@ export async function withExactLocalStoryRevision(root, request, callback) {
     const selectedCommit = commit ?? observedRefCommit;
     if (!OID.test(selectedCommit ?? '') || selectedCommit.length !== observedRefCommit.length) fail('The exact selected Story commit is unavailable.');
     service = new FosGitObjectService(repository.identity.nativePath, {
-      executable: runtime.identity.path, maxObjectBytes: EXACT_STORY_REVISION_LIMITS.commitBytes
+      executable: runtime.identity.path, maxObjectBytes: EXACT_STORY_REVISION_LIMITS.commitBytes,
+      timeoutMs: localReadDeadlineTimeoutMs(30_000)
     });
     const commits = new Map();
     const pending = [observedRefCommit];
@@ -94,7 +119,8 @@ export async function withExactLocalStoryRevision(root, request, callback) {
       const oid = pending.pop();
       if (commits.has(oid)) continue;
       if (commits.size >= EXACT_STORY_REVISION_LIMITS.commits) fail('The selected ref ancestry exceeds the bounded Story read; no partial result was returned.', 'SKP_STORY_USAGE_LIMIT');
-      const object = await service.read(oid);
+      const object = await service.read(oid, { signal: localReadDeadlineSignal() });
+      budget();
       if (object?.type !== 'commit') fail('The selected Story ref does not identify complete local commit ancestry.');
       historyBytes += object.bytes.length;
       if (historyBytes > EXACT_STORY_REVISION_LIMITS.historyBytes) fail('Story ancestry exceeds its byte budget.', 'SKP_STORY_USAGE_LIMIT');
@@ -178,7 +204,9 @@ export async function withExactLocalStoryRevision(root, request, callback) {
     let batchSize = 0;
     async function flush() {
       if (!batch.length) return;
+      budget();
       for (const entry of required(await invocation.blobs({ oids: batch })).entries) bytes.set(entry.oid, entry.bytes);
+      budget();
       batch.length = 0; batchSize = 0;
     }
     for (const [oid, size] of objects) {
@@ -198,17 +226,29 @@ export async function withExactLocalStoryRevision(root, request, callback) {
       + (repository.identity.objectFormat === 'sha256' ? '[extensions]\n\tobjectFormat = sha256\n' : ''), { mode: 0o600 });
     await writeFile(path.join(scratch, '.git/objects/info/alternates'), `${process.platform === 'win32' ? objectDirectory.replaceAll('\\', '/') : objectDirectory}\n`, { mode: 0o600 });
     for (const entry of [{ relative: 'singularity/workflow.yml', oid: configEntry.oid }, ...selectedEntries]) {
+      budget();
       const target = path.join(scratch, entry.relative);
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, bytes.get(entry.oid), { mode: 0o600 });
     }
+    budget();
     assertNoProcessOverrides();
-    return await callback(scratch, Object.freeze({ repositoryPath: repository.identity.nativePath,
+    const result = await callback(scratch, Object.freeze({ repositoryPath: repository.identity.nativePath,
       repositoryInstanceId: repository.identity.repositoryInstanceId, ref, observedRefCommit,
       commit: selectedCommit, workItemRoot, workflowPath: `${prefix}/workflow.json` }));
+    budget();
+    return result;
   } catch (error) {
     if (error?.temporaryGitCleanupUnproven) retainScratch = true;
-    if (error?.code?.startsWith('OBJECT_')) fail('The required local Story ancestry is unavailable; no remote fallback was attempted.');
+    if (localReadDeadlineRemainingMs() === 0) {
+      fail('The shared selected Story read duration was exhausted; no partial result was returned.', 'SKP_STORY_USAGE_LIMIT', error, Boolean(scratch && retainScratch));
+    }
+    if (retainScratch) {
+      fail('The selected Story read did not prove process cleanup; no partial result was returned.',
+        error?.code ?? 'SKP_STORY_USAGE_UNAVAILABLE', error, Boolean(scratch));
+    }
+    if (error?.code?.startsWith('OBJECT_')) fail('The required local Story ancestry is unavailable; no remote fallback was attempted.',
+      'SKP_STORY_USAGE_UNAVAILABLE', error);
     throw error;
   } finally {
     if (service) {
@@ -216,10 +256,11 @@ export async function withExactLocalStoryRevision(root, request, callback) {
       if (outcome?.terminated !== true) {
         retainScratch = true;
         await runtime.dispose();
-        fail('The local Story object reader did not prove process cleanup; temporary projection was retained.');
+        fail('The local Story object reader did not prove process cleanup; no partial result was returned.',
+          'SKP_STORY_USAGE_UNAVAILABLE', { temporaryGitCleanupUnproven: true }, Boolean(scratch));
       }
     }
-    await runtime.dispose();
+    if (runtime) await runtime.dispose();
     if (scratch && !retainScratch) await removeTemporaryTree(scratch);
   }
 }

@@ -14,6 +14,7 @@ import {
 } from './platform-process.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 import { processResultSucceeded } from './process-result.mjs';
+import { assertLocalReadDeadline, localReadDeadlineRemainingMs, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 
 export class SingularityFlowError extends Error {
   constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
@@ -599,6 +600,10 @@ export function run(command, args = [], {
    */
   recordGitTiming = true
 } = {}) {
+  // Retained Story readers have legacy synchronous Git calls. A surrounding read-only budget
+  // must reach those calls too; it never changes ordinary callers or expands a process ceiling.
+  const scopedGitRead = command === 'git' && localReadDeadlineRemainingMs() !== null;
+  if (scopedGitRead) assertLocalReadDeadline();
   /**
    * A blocked network command is refused here rather than attempted and failed.
    *
@@ -629,6 +634,19 @@ export function run(command, args = [], {
     const empty = encoding === 'buffer' ? Buffer.alloc(0) : '';
     return { status: 1, stdout: empty, stderr: empty, error, signal: null, timedOut: false, blocked: false };
   }
+  if (scopedGitRead) {
+    // Node treats null/zero as no timeout. They must not disable an enclosing read deadline;
+    // reject other invalid values without coercing a caller-owned object or string.
+    if (timeoutMs !== undefined && timeoutMs !== null && timeoutMs !== 0
+        && (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs < 0)) {
+      throw new SingularityFlowError('A scoped local Git timeout must be a positive finite number or an omitted ceiling.', {
+        code: 'LOCAL_READ_TIMEOUT_INVALID'
+      });
+    }
+    timeoutMs = localReadDeadlineTimeoutMs(timeoutMs == null || timeoutMs === 0 ? Infinity : timeoutMs);
+    // A synchronous timeout must not wait indefinitely for a child that ignores SIGTERM.
+    killSignal = 'SIGKILL';
+  }
   const ownsGitTiming = command === 'git' && recordGitTiming;
   const serviceStarted = ownsGitTiming ? performance.now() : 0;
   if (ownsGitTiming) {
@@ -658,6 +676,28 @@ export function run(command, args = [], {
   } finally {
     if (ownsGitTiming) {
       incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - serviceStarted)));
+    }
+  }
+  if (scopedGitRead) {
+    try { assertLocalReadDeadline(); } catch (error) {
+      // Direct-child exit is not a portable process-tree proof. The projection owner retains
+      // scratch on an opaque timed-out outcome instead of deleting beneath possible readers.
+      error.temporaryGitCleanupUnproven = true;
+      throw error;
+    }
+    // A narrower child ceiling can fire while the aggregate budget still has time. Returning
+    // allowFailure here would let legacy readers discard the execution facts, then delete their
+    // projection without a portable process-tree termination proof. Keep that refusal and its
+    // quarantine marker together even when the outer deadline was not exhausted.
+    const timedOut = result.error?.code === 'ETIMEDOUT' || result.timedOut === true;
+    const interrupted = timedOut || result.signal;
+    const overflow = result.error?.code === 'ENOBUFS' || result.outputOverflow === true;
+    if (interrupted || overflow) {
+      const error = new SingularityFlowError('A scoped local Git read did not complete within its admitted process boundary; no partial result is available.', {
+        code: overflow ? 'SUBPROCESS_OUTPUT_TOO_LARGE' : timedOut ? 'SUBPROCESS_TIMEOUT' : 'SUBPROCESS_INTERRUPTED'
+      });
+      error.temporaryGitCleanupUnproven = true;
+      throw error;
     }
   }
   if (probe) recordSubprocessProbe(command, args, performance.now() - probe);

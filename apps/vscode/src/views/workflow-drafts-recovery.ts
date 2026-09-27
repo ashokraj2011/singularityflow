@@ -191,6 +191,11 @@ async function regular(file: string): Promise<Stats | null> {
   return info;
 }
 interface ProcessDomain { profile: 'linux-boot-pid-namespace/v1' | 'macos-boot-session/v1'; sha256: string }
+/** A diagnostic policy, never liveness evidence or a repair-authorizing platform override. */
+export function workflowDraftRecoveryNativeDomainRefusal(platform: NodeJS.Platform): string | null {
+  if (platform === 'win32') return 'WINDOWS_NATIVE_BOOT_PROCESS_DOMAIN_UNQUALIFIED';
+  return ['darwin', 'linux'].includes(platform) ? null : 'NATIVE_PROCESS_DOMAIN_UNAVAILABLE';
+}
 interface LockRecord {
   schemaVersion: 1; kind: 'workflow-draft-recovery-lock'; purpose: 'mutation' | 'repair';
   target: WorkflowDraftRecoveryLockKind; directorySha256: string; scopeSha256: string | null;
@@ -226,8 +231,12 @@ async function nativeDomain(): Promise<ProcessDomain | null> {
       });
       return boot ? { profile: 'macos-boot-session/v1', sha256: hash(JSON.stringify([OWNER_PLATFORM, OWNER_HOSTNAME, boot])) } : null;
     }
-    // Windows has no qualified same-boot/process-domain owner in this implementation. A PID or
-    // hostname match alone cannot qualify repair. Read/inspect remains supported, not deletion.
+    // Windows requires an independently qualified native provider. Node
+    // supplies no exact kernel boot + process-namespace observation here. WMI boot time, hostname,
+    // SessionId, environment variables, or a caller-provided hash must not substitute for that owner.
+    // Do not dynamically compile an undocumented NtQuerySystemInformation ABI through PowerShell:
+    // boot structure/version and server-silo membership require independent Windows qualification.
+    // Read/inspect remains supported; there is no PID-only or timestamp-only deletion fallback.
     return null;
   })();
   return nativeDomainPromise;
@@ -290,6 +299,8 @@ async function processState(record: LockRecord): Promise<{ status: 'live' | 'dea
   if (record.owner.pid === OWNER_PID && record.owner.processNonce === PROCESS_NONCE) {
     return { status: 'live', reason: 'CURRENT_PROCESS_OWNER' };
   }
+  const nativeRefusal = workflowDraftRecoveryNativeDomainRefusal(OWNER_PLATFORM);
+  if (nativeRefusal) return { status: 'unknown', reason: nativeRefusal };
   const domain = await nativeDomain();
   if (!domain || !record.owner.domain) return { status: 'unknown', reason: 'NATIVE_PROCESS_DOMAIN_UNAVAILABLE' };
   if (record.owner.domain.profile !== domain.profile || record.owner.domain.sha256 !== domain.sha256) {

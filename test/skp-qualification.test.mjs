@@ -34,7 +34,7 @@ test('qualification options admit only fixed plan/execute/release modes, never a
 });
 
 test('fixed target classes distinguish policy fixtures, independent Git clients, actual CLI and PTY from native installed acceptance', async () => {
-  assert.equal(SKP_QUALIFICATION_TARGETS.length, 5);
+  assert.equal(SKP_QUALIFICATION_TARGETS.length, 7);
   assert.ok(Object.isFrozen(SKP_QUALIFICATION_TARGETS));
   const policy = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'inert-contract-fixtures');
   assert.equal(policy.evidenceClass, 'unit-fixtures'); assert.ok(policy.files.includes('test/skp-host-admission.test.mjs'));
@@ -51,6 +51,13 @@ test('fixed target classes distinguish policy fixtures, independent Git clients,
   assert.equal(clients.evidenceClass, 'actual-two-client-local-git-fixtures'); assert.match(clients.meaning, /not two physical machines/);
   const pty = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'direct-terminal-local-review');
   assert.deepEqual(pty.platforms, ['darwin']); assert.match(pty.meaning, /No authenticated native host/);
+  const inventory = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'explicit-local-story-history');
+  assert.deepEqual(inventory.files, ['test/skp-story-usage.test.mjs', 'test/local-read-deadline.test.mjs', 'test/fos-preparation-cleanup.test.mjs']);
+  assert.equal(inventory.evidenceClass, 'actual-local-git-and-filesystem-fixtures');
+  const replacement = SKP_QUALIFICATION_TARGETS.find((target) => target.id === 'shared-replacement-terminal-review');
+  assert.deepEqual(replacement.platforms, ['darwin']); assert.equal(replacement.requiresExpect, true);
+  assert.match(replacement.pattern, /real terminal skill replacement/u);
+  assert.match(replacement.meaning, /No authenticated mediated host/u);
   for (const target of SKP_QUALIFICATION_TARGETS) {
     assert.ok(Object.isFrozen(target)); assert.ok(Object.isFrozen(target.files));
     assert.ok(target.files.every((file) => /^test\/[a-z0-9-]+\.test\.mjs$/u.test(file)));

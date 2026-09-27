@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 27
+version: 28
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -260,8 +260,8 @@ cross-repository inventory; external dependency content and host enforcement are
 A stale parent, approved source or plan requires a fresh Preview and separate terminal review.
 Submission still creates only a configuration review proposal, not approval, activation or
 execution. The explicit shared-object review profiles below support bounded ordinary phase,
-agent-body and template-content edits. Agent metadata/effects, skill binding changes and imported
-skill execution still require separate owners and cannot be enabled by these profiles.
+agent-body and template-content edits. Separate bounded metadata and artifact-only skill-contract
+replacement profiles are described below; they do not enable imported skill execution or new effects.
 
 ### Review an ordinary shared phase change
 
@@ -329,6 +329,47 @@ overrides. Bounded summaries disclose their row limits; the exact JSON retains t
 report. A change affecting a confirmed skill contract or its producer text requires separately
 recompiled consent and is refused by this profile. Retained Story/history and other-repository
 inventory remain excluded; existing Story pins do not move.
+
+### Review shared agent metadata
+
+Use `wca-shared-agent-metadata-impact/v1` in each explicit `changes` row with `kind: agent`,
+`operation: edit`, the existing `id` and `expectedTextSha256`. Pair each row with
+`definitions.agents: [{id, text}]`, retaining the entire literal Agent Markdown.
+
+This profile admits bounded display metadata and, for simple resource-free roles, phase eligibility
+and default mappings. Prompt body, tools, remote resources, World Model access and unknown native
+fields stay exact. Every affected workflow is simulated and the complete agent catalog must retain
+valid defaults. Mapping changes for tool/MCP/resource-connected roles or changes reaching confirmed
+skill bindings are refused; a display edit cannot become an access grant. Installed/framework
+identities are not editable. This is advanced JSON authoring, not a new native-host permission form.
+
+### Replace an existing artifact-only skill contract
+
+Use `wca-shared-skill-contract-review/v1` for one existing confirmed skill phase. The change row
+contains `kind: phase`, `operation: edit`, its exact `id` and raw `expectedDefinitionSha256`.
+The paired `definitions.phases` declaration contains the same ID, `kind: skill`, `label`, exact
+`skill: {id, packageSha256}`, complete `contract`, and unchanged approved default agent reference:
+`agent: {source: catalog, kind: agent, id: <AGENT-ID>}`. Do not copy the old `skillBinding`.
+
+Preview removes that old confirmed binding and lowers a proposal-only replacement. A fresh live
+terminal review recompiles the binding and then validates all affected workflow simulations.
+Retained records use separate replacement pre-consent/finalization/submission families; their reader
+reconstructs the raw parent, package, agent metadata, declared reverse consumers and simulations.
+Historical records remain consistency evidence only, never fresh consent.
+
+This first replacement profile preserves the exact UTF-8 package and inert Git modes (`100644`),
+output IDs/paths, generation task, structured check commands and artifact-only source boundaries.
+All direct consumers must retain one identical phase order. Binary/executable-mode packages,
+source/code effects, new checks, mixed edits, changed packages and another affected skill binding
+are refused. It captures only the explicitly selected package; ordinary catalog and authoring reads
+do not add package hydration. Existing Stories keep their pins.
+
+For either profile, save the exact advanced request and use Shell
+`singularity-flow workflow author preview WFD-<ID> --revision <N> --json` or Copilot
+`/sf-workflows author preview WFD-<ID> --revision <N> --json`. Then request separate review using Shell
+`singularity-flow workflow author submit WFD-<ID> --revision <N> --json` or Copilot
+`/sf-workflows author submit WFD-<ID> --revision <N> --json`. Headless Copilot provides a terminal
+handoff; it cannot answer consent, approve, merge, activate or execute the proposed skill.
 
 ## Simulate a Story workflow before submitting it
 
@@ -565,6 +606,36 @@ commits, snapshot revisions 1–64, 512 phase/reference rows and 64 rows/256 KiB
 them refuses the lookup without partial-success claims. Existing Git repository readability is
 the access boundary, not authenticated per-team/provider membership. Other revisions/repositories,
 actual execution usage and native provider-principal/revocation evidence remain outside coverage.
+
+### Inventory explicitly selected local Stories and history
+
+Select each Story/ref pair yourself; there is no implicit repository-wide scan:
+
+```bash
+singularity-flow workflow author where-used threat-model \
+  --story-refs 'SECURITY-101=refs/heads/security-review,SECURITY-102=refs/heads/second-review' \
+  --history-depth 2 --limit 32 --cursor 0 --json
+```
+
+Copilot: `/sf-workflows author where-used threat-model --story-refs
+'SECURITY-101=refs/heads/security-review,SECURITY-102=refs/heads/second-review'
+--history-depth 2 --limit 32 --cursor 0 --json`.
+
+The depth counts commits, including the tip, along the first-parent chain. Every selected commit
+must contain a supported accepted Story with a verified retained closure and lineage. An unavailable
+older Story, object or package refuses the entire query; it is not omitted from the result. A verified
+nonmatching package is reported separately from an unavailable package. Byte-identical retained
+states are deduplicated while every inspected commit remains in the observation list.
+
+The request permits up to eight explicit Story/ref pairs, depth 1–16, and at most 32 selected
+commit observations in total. Results are capped at 2,048 references and 2 MiB overall, with pages
+of at most 64 rows/256 KiB. Subsequent pages require the returned `--expected-source`; any selected
+ref movement or selection change refuses pagination. Missing local history is never fetched.
+Do not combine `--story-refs` with `--story`, `--ref`, `--commit` or `--snapshot-revision`.
+
+This is a bounded declared-usage inventory, not proof of execution or authenticated provider/team
+membership. Other repositories, unselected refs, earlier commits outside the window and merge-side
+parent inventories remain explicitly outside coverage. It does not grant execution or edit any Story.
 
 ## Diagnose a retained Story skill
 

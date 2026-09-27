@@ -10,6 +10,7 @@ import { canonicalJson, recordSha256 } from '../records.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { draftDeletePlan, openGitDraftStore } from '../wca-git-drafts.mjs';
 import { SingularityFlowError, isPortableRepositoryPathComponent } from '../util.mjs';
+import { parseLocalStoryInventorySubjects, SKP_STORY_INVENTORY_LIMITS } from '../skp-story-inventory-request.mjs';
 
 export const WORKFLOW_AUTHOR_INPUT_MAX_BYTES = 5 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES = 256 * 1024;
@@ -27,7 +28,7 @@ const OPTIONS = {
   preview: new Set(['json', 'revision']),
   catalog: new Set(['json', 'kind', 'limit', 'cursor']),
   submit: new Set(['json', 'revision']),
-  'where-used': new Set(['json', 'package-sha256', 'limit', 'cursor', 'expected-source', 'story', 'ref', 'commit', 'snapshot-revision'])
+  'where-used': new Set(['json', 'package-sha256', 'limit', 'cursor', 'expected-source', 'story', 'ref', 'commit', 'snapshot-revision', 'story-refs', 'history-depth'])
 };
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
 const OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u;
@@ -69,7 +70,14 @@ export function validateWorkflowAuthorRequest({ positionals, options }) {
     for (const key of ['package-sha256', 'expected-source']) {
       if (options[key] !== undefined && !/^sha256:[a-f0-9]{64}$/u.test(options[key])) fail(`--${key} requires one exact SHA-256 digest.`);
     }
-    if (numberOption(options, 'cursor', 0, 1024, 0) > 0 && options['expected-source'] === undefined) fail('Later usage pages require --expected-source from the preceding page.');
+    const inventory = options['story-refs'] !== undefined;
+    if (numberOption(options, 'cursor', 0, inventory ? SKP_STORY_INVENTORY_LIMITS.references : 1024, 0) > 0 && options['expected-source'] === undefined) fail('Later usage pages require --expected-source from the preceding page.');
+    if (inventory) {
+      if (['story', 'ref', 'commit', 'snapshot-revision'].some((key) => options[key] !== undefined)) {
+        fail('--story-refs cannot be mixed with the single-Story revision selectors.');
+      }
+      parseLocalStoryInventorySubjects(options['story-refs'], numberOption(options, 'history-depth', 1, SKP_STORY_INVENTORY_LIMITS.historyDepth, 1));
+    } else if (options['history-depth'] !== undefined) fail('--history-depth requires explicit --story-refs; no Story scan is performed.');
     if (options.story !== undefined && (options.story.length > 64 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(options.story)
         || !isPortableRepositoryPathComponent(options.story))) fail('--story requires one exact bounded portable Story ID.');
     if (options.story === undefined && ['ref', 'commit', 'snapshot-revision'].some((key) => options[key] !== undefined)) fail('Historical selectors require one explicitly selected --story; no Story scan is performed.');
@@ -102,7 +110,7 @@ export function validateWorkflowAuthorRequest({ positionals, options }) {
     fail('--expected-authority requires one bounded exact repository observation. It never selects a destination.');
   }
   numberOption(options, 'limit', 1, 64, 20);
-  numberOption(options, 'cursor', 0, 1024, 0);
+  numberOption(options, 'cursor', 0, action === 'where-used' && options['story-refs'] !== undefined ? SKP_STORY_INVENTORY_LIMITS.references : 1024, 0);
   numberOption(options, 'revision', 1, 256, null);
   numberOption(options, 'epoch', 1, 1, 1);
   if (action === 'submit' && options.revision === undefined) fail('Submission requires one exact --revision from a saved preview.');
@@ -285,18 +293,24 @@ function emit(value, json) {
 export async function run(root, positionals, options, { scope } = {}) {
   const action = validateWorkflowAuthorRequest({ positionals, options });
   if (action === 'where-used') {
+    const inventory = options['story-refs'] !== undefined;
     const selected = {
       skillId: positionals[3], packageSha256: options['package-sha256'],
-      limit: numberOption(options, 'limit', 1, 64, 32), cursor: numberOption(options, 'cursor', 0, 1024, 0),
+      limit: numberOption(options, 'limit', 1, 64, 32), cursor: numberOption(options, 'cursor', 0, inventory ? SKP_STORY_INVENTORY_LIMITS.references : 1024, 0),
       expectedSource: options['expected-source'] };
-    const usage = options.story === undefined
+    const usage = inventory
+      ? await (await import('../skp-story-usage-inventory.mjs')).lookupLocalStorySkillUsageInventory(root, {
+        ...selected, subjects: parseLocalStoryInventorySubjects(options['story-refs'],
+          numberOption(options, 'history-depth', 1, SKP_STORY_INVENTORY_LIMITS.historyDepth, 1)) })
+      : options.story === undefined
       ? await (await import('../skp-usage.mjs')).lookupApprovedSkillUsage(root, selected)
       : await (await import('../skp-story-usage.mjs')).lookupStorySkillUsage(root, { ...selected,
         workId: options.story, ref: options.ref ?? 'HEAD', commit: options.commit,
         snapshotRevision: numberOption(options, 'snapshot-revision', 1, 64, undefined) });
     return emit({ resultType: 'workflow-author', operation: { id: 'workflow.author.where-used',
       modelPolicy: 'never', classification: 'read' }, status: 'read',
-      scope: options.story === undefined ? { approvedConfiguration: usage.source } : { selectedStory: usage.subject, source: usage.source },
+      scope: inventory ? { selectedStoryInventory: usage.source }
+        : options.story === undefined ? { approvedConfiguration: usage.source } : { selectedStory: usage.subject, source: usage.source },
       effects: EFFECTS_NONE, data: { usage } }, Boolean(options.json));
   }
   if (!scope || scope.root !== root || typeof scope.remote !== 'string'

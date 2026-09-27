@@ -11,7 +11,8 @@ import { validatePortableWorkId } from './work-id.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SKP_STORY_USAGE_LIMITS = Object.freeze({ phases: 512, references: 512,
-  page: 64, pageBytes: 256 * 1024, workflowBytes: 1024 * 1024, revision: 64 });
+  page: 64, pageBytes: 256 * 1024, observationBytes: 1024 * 1024,
+  workflowBytes: 1024 * 1024, revision: 64 });
 const SHA = /^sha256:[a-f0-9]{64}$/u;
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const SKILL_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -66,6 +67,23 @@ function requestSnapshot(request) {
  */
 export async function lookupStorySkillUsage(root, request = {}) {
   const selected = requestSnapshot(request);
+  return readStorySkillUsage(root, selected);
+}
+
+/**
+ * Inventory-only observation of one exact accepted Story revision. A verified nonmatching pin is
+ * distinct from unavailable retained bytes. This data is not an authority or execution capability.
+ * The ordinary selected-Story lookup keeps its original subject-not-pinned refusal and pagination.
+ */
+export async function inspectStorySkillUsageRevision(root, request = {}) {
+  if (Object.keys(request ?? {}).some((key) => ['limit', 'cursor', 'expectedSource'].includes(key))) {
+    fail('Inventory revision observations do not accept per-revision pagination.');
+  }
+  const selected = requestSnapshot(request);
+  return readStorySkillUsage(root, selected, { observation: true });
+}
+
+async function readStorySkillUsage(root, selected, { observation = false } = {}) {
   return withExactLocalStoryRevision(root, {
     workId: selected.workId, ref: selected.ref, commit: selected.commit ?? null
   }, async (projectionRoot, capturedSource) => {
@@ -117,14 +135,15 @@ export async function lookupStorySkillUsage(root, request = {}) {
       fail('The selected Story retained closure is not available.', 'SKP_STORY_USAGE_UNAVAILABLE');
     }
     const pin = retained.manifest.skillPackages?.find((entry) => entry.skillId === selected.skillId);
-    if (!pin || (selected.packageSha256 !== undefined && pin.manifest.packageSha256 !== selected.packageSha256)) {
+    const matches = Boolean(pin && (selected.packageSha256 === undefined || pin.manifest.packageSha256 === selected.packageSha256));
+    if (!matches && !observation) {
       fail('The selected exact skill package is not pinned by this accepted Story revision.', 'SKP_STORY_USAGE_SUBJECT_NOT_PINNED');
     }
-    if (pin.phaseBindings.length > SKP_STORY_USAGE_LIMITS.references) {
+    if ((pin?.phaseBindings.length ?? 0) > SKP_STORY_USAGE_LIMITS.references) {
       fail('The selected pin exceeds the bounded usage budget; no partial result was returned.', 'SKP_STORY_USAGE_LIMIT');
     }
     const policyPhases = new Map(retained.policy.phases.map((phase) => [phase.id, phase]));
-    const rows = pin.phaseBindings.map((binding) => {
+    const rows = (matches ? pin.phaseBindings : []).map((binding) => {
       const phase = policyPhases.get(binding.phaseId);
       const recorded = Object.hasOwn(workflow.phases ?? {}, binding.phaseId) ? workflow.phases[binding.phaseId] : null;
       return { kind: 'story-phase', phaseId: binding.phaseId, packageBinding: 'exact',
@@ -134,6 +153,19 @@ export async function lookupStorySkillUsage(root, request = {}) {
         recordedPhase: { status: typeof recorded?.status === 'string' ? recorded.status : null,
           generation: Number.isSafeInteger(recorded?.generation) && recorded.generation >= 0 ? recorded.generation : null } };
     });
+    if (observation) {
+      const report = { format: 'sflow-story-skill-usage-observation/v1',
+        subject: { workId: selected.workId, skillId: selected.skillId,
+          packageSha256: pin?.manifest.packageSha256 ?? null }, source, sourceSha256,
+        status: matches ? 'verified-matching-pin' : pin ? 'verified-other-package' : 'verified-no-selected-pin',
+        retainedClosure: 'verified', acceptedLineage: 'verified-at-selected-commit',
+        permissionEffect: 'none', executionUsage: 'not-assessed', references: rows };
+      if (Buffer.byteLength(canonicalJson(report)) > SKP_STORY_USAGE_LIMITS.observationBytes) {
+        fail('The selected revision exceeds the bounded inventory observation budget.', 'SKP_STORY_USAGE_LIMIT');
+      }
+      scan(report);
+      return JSON.parse(canonicalJson(report));
+    }
     if (selected.cursor > rows.length) fail('The requested usage page does not exist.');
     const page = rows.slice(selected.cursor, selected.cursor + selected.limit);
     const report = { format: 'sflow-story-skill-usage/v1',

@@ -14,9 +14,12 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { validateWorkflowSkillFinalizationRecord } from './wca-skp-finalization.mjs';
+import { validateDefinition, resolveWorkType } from './config.mjs';
+import { simulateResolvedWorkflowLifecycle } from './workflow-lifecycle-simulation.mjs';
 
 const FAMILY = 'workflow-authoring-submission-snapshot';
 const SKILL_FAMILY = 'workflow-authoring-skill-submission-snapshot';
+const SKILL_REPLACEMENT_FAMILY = 'workflow-authoring-skill-replacement-submission-snapshot';
 const LIMIT = 16 * 1024 * 1024;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
 const digest = (value) => `sha256:${recordSha256(value)}`;
@@ -94,7 +97,7 @@ function snapshot(captured, review, authorization) {
 
 /** Inspect retained evidence; it cannot be interpreted as an approval or live execution grant. */
 export function validateWorkflowDraftSubmissionSnapshot(value) {
-  if (value?.kind === SKILL_FAMILY) return validateWorkflowDraftSkillSubmissionSnapshot(value);
+  if ([SKILL_FAMILY, SKILL_REPLACEMENT_FAMILY].includes(value?.kind)) return validateWorkflowDraftSkillSubmissionSnapshot(value);
   if (!value || typeof value !== 'object' || Array.isArray(value)
       || Object.keys(value).sort().join('\0') !== ['schemaVersion', 'kind', 'snapshotId', 'sourceDraft',
         'approvedSource', 'planSha256', 'actionPlanSha256', 'candidateTreeSha256', 'inputs', 'preview',
@@ -172,7 +175,8 @@ export function validateWorkflowDraftSubmissionSnapshot(value) {
 function skillSnapshot(captured, pendingPreview) {
   const record = captured.preview.skillFinalization?.record;
   if (!record) fail('The compiler did not retain exact terminal-consumed finalization.');
-  const core = { schemaVersion: currentSchemaVersion(SKILL_FAMILY), kind: SKILL_FAMILY,
+  const family = record.kind === 'workflow-authoring-skp-replacement-finalization' ? SKILL_REPLACEMENT_FAMILY : SKILL_FAMILY;
+  const core = { schemaVersion: currentSchemaVersion(family), kind: family,
     snapshotId: record.finalizationSha256.slice(7), sourceDraft: captured.preview.source,
     approvedSource: captured.preview.approvedSource, preConsentPreview: pendingPreview,
     preview: captured.preview, inputs: captured.snapshotInputs, files: captured.files,
@@ -184,12 +188,13 @@ function skillSnapshot(captured, pendingPreview) {
 
 /** A retained local-review record proves consistency, never fresh consent or host enforcement. */
 export function validateWorkflowDraftSkillSubmissionSnapshot(value) {
+  const family = value?.kind === SKILL_REPLACEMENT_FAMILY ? SKILL_REPLACEMENT_FAMILY : SKILL_FAMILY;
   const fields = ['schemaVersion', 'kind', 'snapshotId', 'sourceDraft', 'approvedSource', 'preConsentPreview',
     'preview', 'inputs', 'files', 'confirmation', 'finalizationSha256', 'operationRef', 'approval', 'activation', 'execution', 'snapshotSha256'];
   if (!value || typeof value !== 'object' || Array.isArray(value)
       || Object.keys(value).sort().join('\0') !== fields.sort().join('\0')
-      || readRecord(SKILL_FAMILY, value).storedVersion !== 1
-      || value.kind !== SKILL_FAMILY || Buffer.byteLength(canonicalJson(value)) > LIMIT
+      || readRecord(family, value).storedVersion !== 1
+      || value.kind !== family || Buffer.byteLength(canonicalJson(value)) > LIMIT
       || !SHA.test(value.snapshotSha256 ?? '') || !SHA.test(value.finalizationSha256 ?? '')
       || value.approval !== 'not-granted' || value.activation !== 'inactive' || value.execution !== 'not-started') fail('The retained skill submission is invalid.');
   const { snapshotSha256, ...core } = value;
@@ -201,6 +206,9 @@ export function validateWorkflowDraftSkillSubmissionSnapshot(value) {
   const { planSha256: pendingHash, ...pendingCore } = pending;
   const { planSha256: previewHash, ...previewCore } = preview;
   const subject = preview.skillFinalization?.subject; const finalization = preview.skillFinalization?.record;
+  if ((family === SKILL_REPLACEMENT_FAMILY) !== (subject?.kind === 'workflow-authoring-skp-replacement-preconsent-subject')) {
+    fail('The retained snapshot cannot downgrade or substitute its replacement dialect.');
+  }
   const review = pending.skillFinalization?.review;
   if (digest(core) !== snapshotSha256 || digest(pendingCore) !== pendingHash || digest(previewCore) !== previewHash
       || preview.skillFinalization?.status !== 'finalized-inactive-proposal'
@@ -224,6 +232,19 @@ export function validateWorkflowDraftSkillSubmissionSnapshot(value) {
   const assetPolicy = retainedAssetPolicy(preview.approvedAssetPolicy);
   for (const file of value.files) if (!isConfigurationReadPath(file.path, assetPolicy)) fail('A retained skill file is outside the approved asset scope.');
   validateWorkflowSkillFinalizationRecord({ subject, record: finalization, definition: preview.candidateDefinition, files: value.files, retainedInputs: value.inputs });
+  if (family === SKILL_REPLACEMENT_FAMILY) {
+    const impact = pending.sharedObjectChanges; const workflows = subject.replacement.affectedWorkflowIds;
+    if (subject.replacement.consumerImpactSha256 !== digest(impact)
+        || canonicalJson(impact) !== canonicalJson(preview.sharedObjectChanges)
+        || canonicalJson(workflows) !== canonicalJson(impact.impact.affectedWorkflows.map((workflow) => workflow.id))
+        || preview.simulation?.status !== 'complete-for-profile' || preview.simulation.workflows?.length !== workflows.length) {
+      fail('The replacement omitted or substituted its reviewed transitive consumer impact or simulation closure.');
+    }
+    const normalized = validateDefinition(structuredClone(preview.candidateDefinition));
+    const simulations = workflows.map((workflowId) => simulateResolvedWorkflowLifecycle(resolveWorkType(normalized, workflowId)));
+    if (simulations.some((report) => report.status !== 'complete-for-profile')
+        || canonicalJson(simulations) !== canonicalJson(preview.simulation.workflows)) fail('The replacement simulations differ from its exact confirmed prospective definition.');
+  }
   if (value.files.length !== preview.assets.length || value.files.some((file, index) => {
     const asset = preview.assets[index];
     return !asset || file.path !== asset.path || file.bytes !== asset.bytes || file.sha256 !== asset.sha256
@@ -286,7 +307,8 @@ export async function createWorkflowDraftReviewProposal(root, options = {}) {
     review.action, { requireTerminalPresentation: true });
   const retained = validateWorkflowDraftSubmissionSnapshot(skill ? skillSnapshot(captured, pendingPreview) : snapshot(captured, review, authorization));
   const subjectId = skill ? retained.snapshotId.slice(0, 24) : review.plan.planHash.slice(0, 24);
-  const retainedPath = skill ? `singularity/workflow-authoring-skill-submissions/${retained.snapshotId}.json`
+  const retainedPath = skill ? `singularity/${retained.kind === SKILL_REPLACEMENT_FAMILY
+    ? 'workflow-authoring-skill-replacements' : 'workflow-authoring-skill-submissions'}/${retained.snapshotId}.json`
     : `singularity/workflow-authoring-submissions/${review.plan.planHash}.json`;
   // The proposal owner freshly verifies the exact pre-change authority again and handles push
   // recovery. Any changed draft/catalog/base invalidates the reviewed card before candidate I/O.

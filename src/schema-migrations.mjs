@@ -2349,6 +2349,10 @@ const families = [
   // submission v1 records keep their original meaning; these families invent no native consent.
   family({ id: 'workflow-authoring-skp-preconsent-subject', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-authoring-skp-finalization', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-skp-replacement-preconsent-subject', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-skp-replacement-finalization', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-skill-replacement-submission-snapshot', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/workflow-authoring-skill-replacements\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'workflow-authoring-skill-submission-snapshot', currentVersion: 1, immutable: true,
     paths: [/^singularity\/workflow-authoring-skill-submissions\/[a-f0-9]{64}\.json$/] }),
   family({

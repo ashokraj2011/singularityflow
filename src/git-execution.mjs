@@ -21,6 +21,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { localReadDeadlineAt, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 import {
   inheritEnterpriseGitEnvironment, remoteGitEnvironment
 } from './git-enterprise-environment.mjs';
@@ -224,6 +225,10 @@ export async function runRemoteGitAsync(args, {
   terminationGraceMs = terminationGraceFor(env),
   terminateTree = signalProcessTree
 } = {}) {
+  const sharedReadDeadlineAt = operation === 'local-read' ? localReadDeadlineAt() : null;
+  if (sharedReadDeadlineAt !== null) {
+    timeoutMs = localReadDeadlineTimeoutMs(positive(timeoutMs, timeoutFor(operation, env)));
+  }
   if (networkDisabled(env)) {
     return runRemoteGit(args, {
       cwd, env, operation, timeoutMs, allowFailure,
@@ -232,7 +237,8 @@ export async function runRemoteGitAsync(args, {
   }
   recordRemoteGitInvocation(args, operation);
   const serviceStarted = performance.now();
-  const operationDeadlineAt = serviceStarted + positive(timeoutMs, timeoutFor(operation, env));
+  const operationDeadlineAt = Math.min(serviceStarted + positive(timeoutMs, timeoutFor(operation, env)),
+    sharedReadDeadlineAt ?? Infinity);
   const probeStarted = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? serviceStarted : 0;
   // Environment admission is a preflight boundary, not a child-process failure. Let its structured
   // GIT_ENTERPRISE_CONFIG_UNAVAILABLE refusal propagate intact instead of catching it below and

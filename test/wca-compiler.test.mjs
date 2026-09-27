@@ -12,8 +12,10 @@ import { captureWorkflowCompilerContext, captureWorkflowDraftCompilerSource, com
 import { compileConfirmedSkillPhase, compileSkillPhaseProposal, configurationPhaseFromCompiledSkill, skillCandidateCatalogSha256, skillContractSha256, skillPhaseCandidateSha256 } from '../src/skp-contract.mjs';
 import { configurationAssetPolicy } from '../src/configuration-assets.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { inspectSkillPackageContents } from '../src/skp-package.mjs';
 import { workflowDefinitionSha256, phaseDefinitionSha256, agentTextSha256, templateDefinitionSha256,
-  WCA_SHARED_PHASE_CHANGES_PROFILE, WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_TEMPLATE_CHANGES_PROFILE } from '../src/wca-workflow-changes.mjs';
+  WCA_SHARED_PHASE_CHANGES_PROFILE, WCA_SHARED_AGENT_CHANGES_PROFILE, WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE,
+  WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE, WCA_SHARED_TEMPLATE_CHANGES_PROFILE } from '../src/wca-workflow-changes.mjs';
 import { validateWorkflowDraftSubmissionSnapshot } from '../src/wca-submission.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
@@ -73,6 +75,180 @@ async function sharedTemplateRequest(f, reference = 'path:common/empty.md') {
       expectedDefinitionSha256: raw === null ? null : templateDefinitionSha256(raw), expectedContentSha256: `sha256:${createHash('sha256').update(content).digest('hex')}` }],
     definitions: { templates: [{ id: reference, content: '# Exact reviewed template {{work.id}}\n\n## Findings\n\nRead only exact approved inputs.\n' }] } };
 }
+
+async function skillContractFixture(t) {
+  const contents = new Map([['SKILL.md', Buffer.from('---\nname: inert-note\ndescription: Approved existing procedure\n---\nReport the approved note.\n')],
+    ['references/note.txt', Buffer.from('Approved retained resource.\n')]]);
+  const { manifest } = inspectSkillPackageContents('inert-note', contents);
+  const phase = { id: 'skill-note', kind: 'skill', label: 'Skill note',
+    skill: { id: 'inert-note', packageSha256: manifest.packageSha256 }, contract: { task: 'analyze',
+      consumes: [{ phase: 'intake', output: 'primary', required: true, state: 'approved' }],
+      produces: [{ id: 'report', path: 'artifacts/skill-note/report.md', kind: 'custom:note', mediaType: 'text/markdown', encoding: 'utf-8',
+        minimumBytes: 20, maximumBytes: 16384, clauses: 'none', claimRole: 'findings' }], checks: [], writeScope: 'artifact-only',
+      readScope: { inputs: true, sourcePaths: [] }, approval: { authorities: ['reviewers'], minimum: 1 }, clarification: { mode: 'off' } } };
+  const phaseOrder = ['intake', 'skill-note', 'conformance'];
+  const f = await fixture(t, (definition) => {
+    definition.version = 3;
+    const catalog = { skillPackages: { 'inert-note': { packageSha256: manifest.packageSha256, eligibility: 'candidate-producer' } },
+      phases: { intake: { outputs: [{ id: 'primary', path: definition.phases.intake.artifact.path }] } }, checks: {},
+      approvalAuthorities: definition.approvalAuthorities, approvalSecurity: definition.approvalSecurity, artifactSets: {}, readPaths: [], sourceScopes: {} };
+    const proposal = compileSkillPhaseProposal({ phase, catalog, phaseOrder });
+    definition.phases['skill-note'] = configurationPhaseFromCompiledSkill(compileConfirmedSkillPhase({ phase, catalog, phaseOrder,
+      confirmation: { contractSha256: proposal.bindingRefs.contractSha256, catalogSha256: proposal.bindingRefs.catalogSha256,
+        packageSha256: manifest.packageSha256, candidateSha256: proposal.candidateSha256, planSha256: `sha256:${'a'.repeat(64)}`, draftRevision: 1 } }));
+    definition.workTypes.baseline.phases = phaseOrder;
+    definition.workTypes.sibling = { label: 'Sibling', phases: [...phaseOrder] };
+  }, ['SKILL.md', 'references/note.txt']);
+  const replacement = structuredClone(phase); replacement.contract.produces[0].minimumBytes = 32;
+  return { ...f, replacementRequest: { schema: WCA_REQUEST_SCHEMA, intent: 'edit', id: 'skill-contract-review', label: 'Reviewed skill note contract',
+    baseRevision: f.commit, target: f.request.target,
+    changes: [{ profile: WCA_SHARED_SKILL_CONTRACT_CHANGES_PROFILE, kind: 'phase', id: phase.id, operation: 'edit',
+      expectedDefinitionSha256: phaseDefinitionSha256(f.definition.phases[phase.id]) }],
+    definitions: { phases: [{ ...replacement, agent: { source: 'catalog', kind: 'agent', id: 'skill-note-owner' } }] } } };
+}
+
+test('shared metadata review binds display and complete default-agent changes to all affected simulations', async (t) => {
+  const f = await fixture(t, (definition) => { definition.workTypes.sibling = structuredClone(definition.workTypes.baseline); });
+  const request = await sharedAgentRequest(f); request.changes[0].profile = WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE;
+  const original = await readFile(path.join(f.root, '.github/agents/product-owner.agent.md'), 'utf8');
+  request.definitions.agents[0].text = original.replace('description: Exact base role', 'description: Reviewed shared metadata')
+    .replace('sflow-phases: intake', 'sflow-phases: intake,conformance').replace('sflow-default-for: intake', 'sflow-default-for: conformance');
+  const qa = await readFile(path.join(f.root, '.github/agents/qa.agent.md'), 'utf8');
+  request.changes.push({ profile: WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE, kind: 'agent', id: 'qa', operation: 'edit', expectedTextSha256: agentTextSha256(qa) });
+  request.definitions.agents.push({ id: 'qa', text: qa.replace('sflow-phases: conformance', 'sflow-phases: intake,conformance').replace('sflow-default-for: conformance', 'sflow-default-for: intake') });
+  const p = await preview(f, request);
+  assert.equal(p.result.readiness.authoring, 'valid', JSON.stringify(p.result.findings));
+  assert.equal(p.result.simulation.workflows.length, 2); assert.equal(p.result.simulation.status, 'complete-for-profile');
+  const phase = p.result.sharedObjectChanges.impact.affectedWorkflows[0].effectivePhases.find((row) => row.id === 'intake');
+  assert.equal(phase.beforeDefaultAgent, 'product-owner'); assert.equal(phase.afterDefaultAgent, 'qa');
+  assert.deepEqual(p.result.permissions.addedOperations, []); assert.equal(p.result.assets.length, 3);
+  assert.equal(p.result.assets.find((asset) => asset.path === 'singularity/workflow.yml').content,
+    await readFile(path.join(f.root, 'singularity/workflow.yml'), 'utf8'));
+});
+
+test('metadata profile refuses body, tools, native identity, invalid default mapping and mixed profile changes without bytes', async (t) => {
+  for (const [kind, edit] of [
+    ['body', (text) => text.replace('Read only the exact current approved inputs.', 'Changed body.')],
+    ['tool', (text) => text.replace('tools: []', 'tools: [shell]')],
+    ['identity', (text) => text.replace('name: product-owner', 'name: another-id')],
+    ['defaults', (text) => text.replace('sflow-default-for: intake', 'sflow-default-for: "-"')]
+  ]) await t.test(kind, async (child) => {
+    const f = await fixture(child); const request = await sharedAgentRequest(f); request.changes[0].profile = WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE;
+    request.definitions.agents[0].text = edit(await readFile(path.join(f.root, '.github/agents/product-owner.agent.md'), 'utf8'));
+    const p = await preview(f, request); assert.notEqual(p.result.readiness.authoring, 'valid');
+    assert.deepEqual(p.result.assets, []); assert.deepEqual(p.result.fileOperations, []);
+  });
+});
+
+test('existing skill contract preview discards old binding, retains exact parent/package review and requires fresh terminal consent', async (t) => {
+  const f = await skillContractFixture(t); const p = await preview(f, f.replacementRequest);
+  assert.equal(p.result.readiness.authoring, 'review-required', JSON.stringify(p.result.findings));
+  assert.equal(p.result.skillFinalization.status, 'requires-exact-terminal-consent');
+  assert.equal(p.result.skillFinalization.subject.kind, 'workflow-authoring-skp-replacement-preconsent-subject');
+  assert.equal(p.result.skillFinalization.subject.replacement.beforeDefinitionSha256, f.replacementRequest.changes[0].expectedDefinitionSha256);
+  assert.equal(p.result.candidateDefinition.phases['skill-note'], undefined);
+  assert.equal(p.result.skillProposals.length, 1); assert.equal(p.result.skillProposals[0].phasePolicy.artifact.minimumBytes, 32);
+  assert.equal(Object.hasOwn(p.result.skillProposals[0].bindingRefs, 'confirmation'), false);
+  assert.deepEqual(p.result.sharedObjectChanges.impact.affectedWorkflows.map((row) => row.id), ['baseline', 'sibling']);
+  assert.deepEqual(p.result.assets, []); assert.deepEqual(p.result.fileOperations, []);
+  assert.throws(() => workflowDraftPackageProposalFiles(p.result), { code: 'WCA_PACKAGE_NOT_SUBMITTABLE' });
+});
+
+test('ordinary context/catalog/preview performs zero extra package captures and executable retained modes refuse only explicit replacements', async (t) => {
+  const f = await skillContractFixture(t);
+  git(f.root, 'update-index', '--chmod=+x', 'singularity/skills/inert-note/references/note.txt');
+  git(f.root, 'commit', '-m', 'Approved existing executable resource mode');
+  git(f.root, 'branch', '-f', 'sflow/config', 'HEAD'); git(f.root, 'push', 'origin', 'main', 'sflow/config');
+  f.commit = git(f.root, 'rev-parse', 'HEAD'); f.request.baseRevision = f.commit; f.replacementRequest.baseRevision = f.commit;
+  const counts = new Map(); const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); } };
+  await withCommandTiming(timer, async () => {
+    const context = await captureWorkflowCompilerContext(f.root); workflowCompilerCatalogChoices(context);
+    const ordinary = await preview(f); assert.equal(ordinary.result.readiness.authoring, 'valid', JSON.stringify(ordinary.result.findings));
+    assert.equal(counts.get('wca.replacement-package-capture') ?? 0, 0, 'ordinary authoring never adds package hydration/seals');
+    const created = await f.store.create({ draftId: 'WFD-PACKAGEMODE1', displayName: 'Exact package mode', expectedHead: ordinary.created.head,
+      payload: f.replacementRequest, operationId: 'create-package-mode' });
+    await assert.rejects(captureWorkflowDraftCompilerSource(context, { draftId: created.record.draftId }), { code: 'SKP_PACKAGE_MODE_UNSUPPORTED' });
+    assert.equal(counts.get('wca.replacement-package-capture'), 1, 'the explicit one-phase request owns one selected package capture');
+    assert.equal(git(f.root, '--git-dir', f.remote, 'ls-tree', 'refs/heads/sflow/config', 'singularity/skills/inert-note/references/note.txt').split(' ')[0], '100755');
+    assert.equal(git(f.root, '--git-dir', f.remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-change/'), '');
+  });
+});
+
+test('skill contract replacement refuses stale parent, scope/check/package/order changes and mixed object creation', async (t) => {
+  for (const [kind, edit] of [
+    ['stale', (r) => { r.changes[0].expectedDefinitionSha256 = `sha256:${'b'.repeat(64)}`; }],
+    ['path', (r) => { r.definitions.phases[0].contract.produces[0].path = 'artifacts/skill-note/new.md'; }],
+    ['package', (r) => { r.definitions.phases[0].skill.packageSha256 = `sha256:${'c'.repeat(64)}`; }],
+    ['source', (r) => { r.definitions.phases[0].contract.readScope.sourcePaths = ['src/index.mjs']; }],
+    ['mixed', (r) => { r.definitions.agents = [{ id: 'another-role', prompt: 'Unreviewed' }]; }]
+  ]) await t.test(kind, async (child) => {
+    const f = await skillContractFixture(child); edit(f.replacementRequest); const p = await preview(f, f.replacementRequest);
+    assert.equal(p.result.readiness.authoring, 'invalid', JSON.stringify(p.result.findings));
+    assert.deepEqual(p.result.assets, []); assert.equal(p.result.skillFinalization, undefined);
+  });
+});
+
+test('real terminal skill replacement recompiles one binding, simulates every consumer and retains a closed inactive proposal',
+  { skip: process.platform !== 'darwin' || !existsSync('/usr/bin/expect') }, async (t) => {
+    const f = await skillContractFixture(t); const p = await preview(f, f.replacementRequest);
+    const before = { yaml: await readFile(path.join(f.root, 'singularity/workflow.yml')), index: await readFile(path.join(f.root, '.git/index')),
+      head: git(f.root, 'rev-parse', 'HEAD'), approved: git(f.root, '--git-dir', f.remote, 'rev-parse', 'refs/heads/sflow/config') };
+    const code = `
+      import {previewWorkflowDraftPackage} from ${JSON.stringify(new URL('../src/wca-compiler.mjs', import.meta.url).href)};
+      import {workflowDraftSubmissionPlan,createWorkflowDraftReviewProposal} from ${JSON.stringify(new URL('../src/wca-submission.mjs', import.meta.url).href)};
+      import {captureTerminalActionAuthorization} from ${JSON.stringify(new URL('../src/action-authorization.mjs', import.meta.url).href)};
+      const root=${JSON.stringify(f.root)};
+      try {
+        const pending=await previewWorkflowDraftPackage(root,{draftId:'WFD-COMPILER1',revision:1});
+        const review=workflowDraftSubmissionPlan(pending);
+        const grant=await captureTerminalActionAuthorization(root,review.plan,review.action,{label:'Review replacement contract'});
+        const result=await createWorkflowDraftReviewProposal(root,{draftId:'WFD-COMPILER1',revision:1,expectedPlanSha256:pending.planSha256,confirmation:grant.token});
+        let replay;try{await createWorkflowDraftReviewProposal(root,{draftId:'WFD-COMPILER1',revision:1,expectedPlanSha256:pending.planSha256,confirmation:grant.token});}catch(e){replay=e.code;}
+        console.log('SKILL_REPLACEMENT_RESULT:'+JSON.stringify({ok:true,result,replay}));
+      }catch(e){console.log('SKILL_REPLACEMENT_RESULT:'+JSON.stringify({ok:false,code:e.code,message:e.message}));}
+    `;
+    const script = 'set timeout 45\nspawn -noecho $env(SF_REPLACEMENT_NODE) --input-type=module -e $env(SF_REPLACEMENT_CODE)\nexpect {\n -exact {Type Review replacement contract} { send -- "Review replacement contract\\r" }\n timeout {exit 124}\n eof {exit 125}\n}\nexpect {eof {} timeout {exit 124}}\nset result [wait]\nexit [lindex $result 3]\n';
+    const observed = await new Promise((resolve, reject) => {
+      const child = spawn('/usr/bin/expect', ['-c', script], { cwd: f.root, env: { ...process.env, NODE_ENV: 'test',
+        SINGULARITY_FLOW_TEST_IDENTITY: 'Replacement Fixture', SINGULARITY_FLOW_DISABLE_MODELS: '1',
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(f.root, '.test-workspaces.json'),
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(f.root, '.test-active-workspace.json'),
+        SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, '.test-leads.json'),
+        SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(path.dirname(f.root), 'transport-outbox'),
+        SF_REPLACEMENT_NODE: process.execPath, SF_REPLACEMENT_CODE: code }, stdio: ['pipe', 'pipe', 'pipe'] });
+      let output = ''; const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Replacement PTY fixture timed out')); }, 50000);
+      child.stdout.on('data', (chunk) => { output += chunk; }); child.stderr.on('data', (chunk) => { output += chunk; });
+      child.on('error', (error) => { clearTimeout(timer); reject(error); }); child.on('close', (status) => { clearTimeout(timer); resolve({ status, output }); });
+    });
+    assert.equal(observed.status, 0, observed.output);
+    const marker = observed.output.split(/\r?\n/u).find((line) => line.startsWith('SKILL_REPLACEMENT_RESULT:')); assert.ok(marker, observed.output);
+    const acknowledged = JSON.parse(marker.slice('SKILL_REPLACEMENT_RESULT:'.length)); assert.equal(acknowledged.ok, true, JSON.stringify(acknowledged));
+    assert.ok(acknowledged.replay, 'the consumed terminal token cannot authorize another proposal');
+    const result = acknowledged.result;
+    const retained = validateWorkflowDraftSubmissionSnapshot(JSON.parse(git(f.root, '--git-dir', f.remote, 'show', `${result.commit}:${result.snapshotPath}`)));
+    assert.equal(retained.kind, 'workflow-authoring-skill-replacement-submission-snapshot');
+    assert.match(result.snapshotPath, /^singularity\/workflow-authoring-skill-replacements\/[a-f0-9]{64}\.json$/u);
+    assert.equal(retained.preview.simulation.workflows.length, 2); assert.equal(retained.preview.simulation.status, 'complete-for-profile');
+    assert.equal(retained.preview.skillFinalization.record.kind, 'workflow-authoring-skp-replacement-finalization');
+    const configured = retained.preview.candidateDefinition.phases['skill-note'];
+    assert.equal(configured.artifact.minimumBytes, 32);
+    assert.notEqual(configured.skillBinding.compilationSha256, f.definition.phases['skill-note'].skillBinding.compilationSha256);
+    assert.equal(configured.skillBinding.bindingRefs.confirmation.planSha256, retained.preview.skillFinalization.subject.subjectSha256);
+    assert.equal(configured.skillBinding.bindingRefs.confirmation.draftRevision, 1);
+    assert.deepEqual(retained.inputs.request, f.replacementRequest);
+    assert.deepEqual(git(f.root, '--git-dir', f.remote, 'diff-tree', '--no-commit-id', '--name-only', '-r', result.commit).split('\n').sort(),
+      ['singularity/workflow.yml', result.snapshotPath].sort(), 'the unchanged retained package is verified without creating new package bytes');
+    assert.equal(git(f.root, '--git-dir', f.remote, 'rev-parse', 'refs/heads/sflow/config'), before.approved);
+    assert.equal(git(f.root, 'rev-parse', 'HEAD'), before.head); assert.deepEqual(await readFile(path.join(f.root, '.git/index')), before.index);
+    assert.deepEqual(await readFile(path.join(f.root, 'singularity/workflow.yml')), before.yaml);
+    for (const mutate of [
+      (value) => { value.kind = 'workflow-authoring-skill-submission-snapshot'; },
+      (value) => { value.preview.skillFinalization.subject.replacement.beforeDefinition.label = 'Forged source'; },
+      (value) => { value.preview.candidateDefinition.phases['skill-note'].skillBinding = structuredClone(f.definition.phases['skill-note'].skillBinding); }
+    ]) {
+      const changed = structuredClone(retained); mutate(changed); assert.throws(() => validateWorkflowDraftSubmissionSnapshot(changed));
+    }
+  });
 
 test('shared agent body and legacy template byte edits use retained capture, simulate all consumers and preserve raw YAML', async (t) => {
   for (const kind of ['agent', 'template']) await t.test(kind, async (child) => {
@@ -242,10 +418,15 @@ test('shared replacement ignores tampered current checkout text and refuses chan
   await assert.rejects(revalidateWorkflowDraftPackage(f.root, { draftId: 'WFD-COMPILER1', revision: 1, expectedPlanSha256: p.result.planSha256 }), { code: 'WCA_PREVIEW_STALE' });
 });
 
-test('actual terminal shared agent/template review proposals retain literal bytes without app/index/Story repins',
+test('actual terminal shared agent body/metadata/template review proposals retain literal bytes without app/index/Story repins',
   { skip: process.platform !== 'darwin' || !existsSync('/usr/bin/expect') }, async (t) => {
-    for (const kind of ['agent', 'template']) await t.test(kind, async (childTest) => {
-      const f = await fixture(childTest); const request = kind === 'agent' ? await sharedAgentRequest(f) : await sharedTemplateRequest(f);
+    for (const kind of ['agent', 'metadata', 'template']) await t.test(kind, async (childTest) => {
+      const f = await fixture(childTest); const request = kind === 'template' ? await sharedTemplateRequest(f) : await sharedAgentRequest(f);
+      if (kind === 'metadata') {
+        request.changes[0].profile = WCA_SHARED_AGENT_METADATA_CHANGES_PROFILE;
+        request.definitions.agents[0].text = (await readFile(path.join(f.root, '.github/agents/product-owner.agent.md'), 'utf8'))
+          .replace('description: Exact base role', 'description: Reviewed shared metadata');
+      }
       const p = await preview(f, request); assert.equal(p.result.readiness.authoring, 'valid', JSON.stringify(p.result.findings));
       const replacement = p.result.sharedObjectChanges.replacements[0];
       const storyPath = path.join(f.root, 'singularity/work-items/KEEP/context/exact-pin.json');

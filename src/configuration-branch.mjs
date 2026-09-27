@@ -2506,7 +2506,7 @@ export async function loadStoryConfigurationSnapshot(authority, {
 
 /** Inspect one skill retained by an exact, verified approved configuration snapshot. */
 export async function inspectApprovedSkillPackage(snapshot, skillId, {
-  expectedPackageSha256
+  expectedPackageSha256, requireInertGitMode = false
 } = {}) {
   if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]
       || !STORY_CONFIGURATION_VERIFIED_DEFINITIONS.has(snapshot)) {
@@ -2524,6 +2524,14 @@ export async function inspectApprovedSkillPackage(snapshot, skillId, {
   const expectedFiles = new Map();
   for (const entry of snapshot.assets) {
     if (!entry.relative.startsWith(prefix)) continue;
+    // Snapshot membership is private and each path/mode record was frozen from the exact Git
+    // tree by this owner. The artifact-only replacement writer emits 100644; it cannot chmod a
+    // previously executable package resource by losing this committed mode evidence.
+    if (requireInertGitMode === true && entry.gitMode !== '100644') {
+      throw new SingularityFlowError('The selected retained package contains a non-inert Git mode; this replacement dialect cannot change it.', {
+        code: 'SKP_PACKAGE_MODE_UNSUPPORTED'
+      });
+    }
     if (!Buffer.isBuffer(entry.contents)
         || createHash('sha256').update(entry.contents).digest('hex') !== entry.sha256) {
       throw new SingularityFlowError(

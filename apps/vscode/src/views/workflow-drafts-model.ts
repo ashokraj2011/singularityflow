@@ -1,9 +1,10 @@
-/** In-memory presentation only. Every durable draft read/write belongs to workflow author. */
+/** Shared writes belong to workflow author; optional private checkpoints grant no shared authority. */
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { TextDecoder } from 'node:util';
 import { addWorkflowDraftStage, bindWorkflowDraftBase, editWorkflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog,
   WORKFLOW_DRAFT_GUIDE_FIELDS, workflowDraftGuide, type WorkflowDraftGuideField } from './workflow-drafts-guide.ts';
+import type { WorkflowDraftRecoveryCheckpoint, WorkflowDraftRecoveryScope, WorkflowDraftRecoveryStore } from './workflow-drafts-recovery.ts';
 
 export const WORKFLOW_DRAFT_INPUT_MAX_BYTES = 5 * 1024 * 1024;
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
@@ -33,6 +34,9 @@ export interface SharedWorkflowDraftView {
   stage: number;
   autosave: boolean;
   durability: 'shared' | 'memory' | 'saving' | 'failed' | 'conflict' | 'uncertain' | 'deleted';
+  recovery: { status: 'unavailable' | 'none' | 'checking' | 'writing' | 'saved' | 'failed';
+    checkpoint: WorkflowDraftRecoveryCheckpoint | null; candidate: WorkflowDraftRecoveryCheckpoint | null;
+    candidateAvailable: boolean; restoreAllowed: boolean; message?: string };
 }
 interface AuthorResult {
   resultType: 'workflow-author'; status: string;
@@ -47,8 +51,10 @@ export interface WorkflowDraftPresentation {
   exit?: () => void;
   /** A rejected DOM buffer must not be replaced by the previous bounded host buffer. */
   editorRejected?: (binding: string, message: string) => void;
-  confirmDiscard: () => Promise<boolean>;
+  confirmDiscard: (reason?: 'private-checkpoint' | 'editor') => Promise<boolean>;
   copyReview: (root: string, argv: readonly string[], surface: 'shell' | 'copilot') => Promise<void>;
+  compareRecovery?: (comparison: { draftId: string; checkpointName: string; checkpointText: string;
+    sharedName: string; sharedText: string; checkpointId: string; baseRevision: number; currentRevision: number }) => Promise<void>;
 }
 
 /** A copied Copilot route has no cwd operand; never infer its folder from a picker or HOME. */
@@ -67,6 +73,8 @@ export function workflowDraftCopilotContextIssue(
 }
 interface SaveSnapshot { draftId: string; authority: string; head: string; epoch: number; name: string; text: string }
 interface PendingSave { key: string; operationId: string; snapshot: SaveSnapshot; uncertain: boolean }
+const saveKey = (snapshot: SaveSnapshot): string => JSON.stringify([snapshot.draftId, snapshot.authority,
+  snapshot.head, snapshot.epoch, snapshot.name, snapshot.text]);
 interface PendingCreate { draftId: string; operationId: string; expectedHead: string; expectedAuthority: string }
 export interface WorkflowDraftScheduler {
   now: () => number;
@@ -130,7 +138,7 @@ function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 4000);
 }
 
-/** Shared draft-only autosave. No private durable replica, execution or approval authority. */
+/** Private recovery is inert and separate from the canonical shared draft and consent owners. */
 export class SharedWorkflowDraftController {
   readonly view: SharedWorkflowDraftView;
   private readonly runner: WorkflowDraftRunner;
@@ -144,22 +152,38 @@ export class SharedWorkflowDraftController {
   private timer: unknown = null;
   private dirtySince: number | null = null;
   private autosavePaused = false;
+  private readonly recoveryStore?: WorkflowDraftRecoveryStore;
+  private recoveryWanted: WorkflowDraftRecoveryCheckpoint | null = null;
+  private recoveryDrain: Promise<void> | null = null;
+  private recoveryError: Error | null = null;
+  private recoveryReadFailed = false;
+  private recoveryClearing = false;
+  private readonly recoveryAcknowledged = new Map<string, WorkflowDraftRecoveryCheckpoint>();
+  private candidateNotFoundOperation: string | null = null;
+  private recoveryPendingNeedsStatus = false;
   constructor(
     root: string,
     runner: WorkflowDraftRunner,
     input: WorkflowDraftInputTransport,
     presentation: WorkflowDraftPresentation,
-    clock: WorkflowDraftScheduler = scheduler
+    clock: WorkflowDraftScheduler = scheduler,
+    recoveryStore?: WorkflowDraftRecoveryStore
   ) {
     if (!root || !path.isAbsolute(root) || /[\0\r\n]/u.test(root)) {
       throw new Error('Open an explicit repository before opening Shared Workflow Drafts.');
     }
     this.runner = runner; this.input = input; this.presentation = presentation; this.clock = clock; this.root = path.resolve(root);
+    this.recoveryStore = recoveryStore;
     this.view = { repository: this.root, drafts: [], listHead: null, authority: null,
       editor: null, busy: false, dirty: false, error: null, notice: null, show: null, preview: null, operationId: null,
-      stage: 1, autosave: false, durability: 'shared' };
+      stage: 1, autosave: false, durability: 'shared', recovery: { status: recoveryStore ? 'none' : 'unavailable',
+        checkpoint: null, candidate: null, candidateAvailable: false, restoreAllowed: false } };
   }
-  dispose(): void { this.cancelTimer(); this.disposed = true; }
+  dispose(): void {
+    this.cancelTimer();
+    if (this.view.dirty || this.pendingSave) this.queueRecovery();
+    this.disposed = true; // Already captured local writes finish; no new shared call starts.
+  }
   private changed(): void { if (!this.disposed) this.presentation.changed(); }
   private statusChanged(): void {
     if (!this.disposed) (this.presentation.statusChanged ?? this.presentation.changed)();
@@ -167,6 +191,205 @@ export class SharedWorkflowDraftController {
   private cancelTimer(): void {
     if (this.timer !== null) this.clock.clear(this.timer);
     this.timer = null;
+  }
+  private recoveryScope(editor = this.view.editor): WorkflowDraftRecoveryScope | null {
+    return editor ? { repository: this.root, authority: editor.authority, draftId: editor.record.draftId } : null;
+  }
+  private scopeKey(scope: WorkflowDraftRecoveryScope): string { return JSON.stringify([scope.repository, scope.authority, scope.draftId]); }
+  private checkpoint(): WorkflowDraftRecoveryCheckpoint | null {
+    const editor = this.view.editor; const scope = this.recoveryScope(editor);
+    if (!editor || !scope) return null;
+    return { schemaVersion: 1, checkpointId: randomUUID(), capturedAt: new Date().toISOString(), scope,
+      base: { record: { ...editor.record }, head: editor.head, savedName: editor.savedName, savedText: editor.savedText },
+      buffer: { name: editor.name, text: editor.inputText },
+      ...(this.pendingSave ? { pendingSave: { operationId: this.pendingSave.operationId,
+        snapshot: { ...this.pendingSave.snapshot }, uncertain: true as const } } : {}) };
+  }
+  private queueRecovery(): void {
+    if (!this.recoveryStore || !this.view.editor) return;
+    if (this.view.recovery.candidate || this.view.recovery.status === 'checking' || this.recoveryReadFailed) {
+      this.view.recovery.message = 'Private recovery needs an explicit Refresh, Restore, Compare or Discard decision. New captured edits remain in memory; the retained checkpoint has not been overwritten.';
+      this.statusChanged(); return;
+    }
+    this.recoveryWanted = this.checkpoint(); this.recoveryError = null;
+    this.view.recovery.status = 'writing'; this.view.recovery.message = 'Saving a private checkpoint on this device; shared acknowledgement is separate.';
+    this.statusChanged(); if (!this.recoveryClearing) void this.drainRecovery().catch(() => {});
+  }
+  private drainRecovery(): Promise<void> {
+    if (this.recoveryDrain) return this.recoveryDrain;
+    if (!this.recoveryStore) return Promise.resolve();
+    const store = this.recoveryStore;
+    const drain = (async () => {
+      while (this.recoveryWanted) {
+        const checkpoint = this.recoveryWanted; this.recoveryWanted = null;
+        const key = this.scopeKey(checkpoint.scope);
+        try { await store.write(checkpoint, this.recoveryAcknowledged.get(key)?.checkpointId ?? null); }
+        catch (error) {
+          this.recoveryWanted ??= checkpoint; this.recoveryError = new Error(errorMessage(error));
+          this.autosavePaused = true;
+          if (this.recoveryScope() && this.scopeKey(this.recoveryScope()!) === key) {
+            this.view.recovery.status = 'failed';
+            this.view.recovery.message = `The latest private checkpoint was not acknowledged: ${this.recoveryError.message} The existing private checkpoint was not replaced; shared Save is blocked.`;
+            this.view.error = this.view.recovery.message; this.statusChanged();
+          }
+          throw this.recoveryError;
+        }
+        this.recoveryAcknowledged.set(key, checkpoint);
+        if (this.recoveryScope() && this.scopeKey(this.recoveryScope()!) === key) {
+          this.view.recovery.checkpoint = checkpoint;
+          this.view.recovery.status = this.recoveryWanted ? 'writing' : 'saved';
+          this.view.recovery.message = this.recoveryWanted ? 'Newer captured text is awaiting its private checkpoint.'
+            : 'Saved privately on this device. This is recovery only, not shared storage, approval or execution.';
+          this.statusChanged();
+        }
+      }
+    })();
+    this.recoveryDrain = drain;
+    void drain.finally(() => { if (this.recoveryDrain === drain) this.recoveryDrain = null; }).catch(() => {});
+    return drain;
+  }
+  private async flushRecovery(): Promise<void> {
+    if (!this.recoveryStore) return;
+    if (this.view.recovery.candidate) throw new Error('Resolve the offered private checkpoint before writing or replacing it.');
+    await this.drainRecovery();
+    if (this.recoveryError) throw this.recoveryError;
+  }
+  private matchesRecoveryBase(editor: WorkflowDraftEditor, checkpoint: WorkflowDraftRecoveryCheckpoint): boolean {
+    if (editor.readOnlyReason || checkpoint.scope.repository !== this.root || checkpoint.scope.authority !== editor.authority
+        || checkpoint.scope.draftId !== editor.record.draftId || checkpoint.base.head !== editor.head
+        || checkpoint.base.record.draftId !== editor.record.draftId
+        || checkpoint.base.record.displayName !== editor.record.displayName
+        || checkpoint.base.record.revision !== editor.record.revision
+        || checkpoint.base.record.lifecycleEpoch !== editor.record.lifecycleEpoch
+        || checkpoint.base.record.revisionSha256 !== editor.record.revisionSha256
+        || checkpoint.base.savedName !== editor.savedName) return false;
+    // Retain literal baseline formatting, but require it to describe the exact fresh shared bytes.
+    // A partial/ambiguous old envelope cannot prove full closure; Compare remains available.
+    try {
+      const old: unknown = JSON.parse(checkpoint.base.savedText); const current: unknown = JSON.parse(editor.savedText);
+      const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
+        : object(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+      return object(old) && object(current) && JSON.stringify(canonical(old)) === JSON.stringify(canonical(current));
+    } catch { return false; }
+  }
+  private setRecoveryCandidate(candidate: WorkflowDraftRecoveryCheckpoint | null): void {
+    this.view.recovery.candidate = candidate; this.view.recovery.candidateAvailable = Boolean(candidate);
+    this.view.recovery.restoreAllowed = Boolean(candidate && this.view.editor && !this.pendingSave?.uncertain
+      && !this.recoveryPendingNeedsStatus && this.matchesRecoveryBase(this.view.editor, candidate));
+  }
+  private async clearRecovery(lease?: ReturnType<SharedWorkflowDraftController['editingLease']>, candidate?: WorkflowDraftRecoveryCheckpoint): Promise<void> {
+    if (!this.recoveryStore) return;
+    if (!candidate) await this.flushRecovery();
+    if (lease) this.assertEditingLease(lease);
+    const scope = this.recoveryScope(); if (!scope) return;
+    const key = this.scopeKey(scope); const checkpoint = candidate ?? this.recoveryAcknowledged.get(key);
+    if (!checkpoint) return;
+    this.recoveryClearing = true;
+    try {
+      if (!await this.recoveryStore.remove(scope, checkpoint.checkpointId)) {
+        this.recoveryReadFailed = true;
+        this.recoveryError = new Error('A newer private checkpoint won its compare-and-swap. It was not removed; Refresh private recovery before reviewing it again.');
+        this.view.recovery.status = 'failed'; this.view.recovery.message = this.recoveryError.message;
+        throw this.recoveryError;
+      }
+      if (this.recoveryAcknowledged.get(key)?.checkpointId === checkpoint.checkpointId) this.recoveryAcknowledged.delete(key);
+      this.view.recovery.checkpoint = null; this.setRecoveryCandidate(null);
+      this.view.recovery.status = this.recoveryWanted ? 'writing' : 'none';
+      this.view.recovery.message = 'The exact reviewed private checkpoint was removed; no shared draft was deleted.';
+    } catch (error) {
+      this.recoveryReadFailed = true; this.recoveryError = new Error(errorMessage(error));
+      this.view.recovery.status = 'failed';
+      this.view.recovery.message = 'The private checkpoint removal was not acknowledged. Refresh private recovery before reviewing or replacing it; current captured text remains retained.';
+      throw this.recoveryError;
+    } finally {
+      this.recoveryClearing = false;
+      if (this.recoveryWanted && !this.recoveryReadFailed) void this.drainRecovery().catch(() => {});
+    }
+    if (lease) this.assertEditingLease(lease);
+  }
+  private async recoveryAction(action: string): Promise<void> {
+    const candidate = this.view.recovery.candidate;
+    const editor = this.view.editor;
+    if (!editor || !this.recoveryStore) throw new Error('Private recovery is unavailable for this exact draft scope.');
+    if (action === 'recovery-refresh') {
+      // A failed/foreign CAS is not permission to overwrite the winner. Retain current text in
+      // memory while explicitly reading a new candidate; no queued replacement may cross it.
+      this.view.recovery.status = 'checking'; this.recoveryReadFailed = true;
+      if (this.recoveryDrain) await this.recoveryDrain.catch(() => {});
+      this.recoveryWanted = null;
+      const scope = this.recoveryScope(editor)!; const key = this.scopeKey(scope);
+      try {
+        const fresh = await this.recoveryStore.read(scope);
+        if (fresh && this.scopeKey(fresh.scope) !== key) throw new Error('Private recovery returned another repository/draft scope.');
+        if (this.view.editor !== editor) throw new Error('The open editor changed during private recovery refresh.');
+        if (fresh) this.recoveryAcknowledged.set(key, fresh); else this.recoveryAcknowledged.delete(key);
+        this.recoveryError = null; this.recoveryReadFailed = false; this.candidateNotFoundOperation = null;
+        this.view.recovery.checkpoint = null; this.setRecoveryCandidate(fresh);
+        this.view.recovery.status = fresh ? 'saved' : 'none';
+        this.view.operationId = this.pendingSave?.operationId ?? fresh?.pendingSave?.operationId ?? null;
+        this.view.recovery.message = fresh ? 'Private recovery refreshed. Current editor text is unchanged; review this exact candidate before replacing it.'
+          : 'No private checkpoint exists in this exact scope. Current editor text is unchanged; explicit Save can checkpoint it.';
+      } catch (error) {
+        this.recoveryError = new Error(errorMessage(error)); this.view.recovery.status = 'failed';
+        this.view.recovery.message = 'Private recovery refresh failed. Current text and the previously offered checkpoint remain retained; no absence or replacement was inferred.';
+        throw this.recoveryError;
+      }
+      return;
+    }
+    if (!candidate) throw new Error('There is no offered private checkpoint for this exact draft scope.');
+    const lease = this.editingLease();
+    if (action === 'recovery-restore' && (this.pendingSave?.uncertain || this.recoveryPendingNeedsStatus)) {
+      this.view.recovery.restoreAllowed = false;
+      throw new Error('The current Save operation has an unresolved acknowledgement. Inspect Operation Status before Restore can replace its pending identity or captured text. The offered private candidate is unchanged.');
+    }
+    if (action === 'recovery-discard') {
+      if (candidate.pendingSave && this.candidateNotFoundOperation !== candidate.pendingSave.operationId) {
+        throw new Error('The private checkpoint contains an unresolved Save operation. Inspect its operation status before discarding recovery.');
+      }
+      if (!await this.presentation.confirmDiscard('private-checkpoint')) return;
+      this.assertEditingLease(lease);
+      if (this.view.recovery.candidate !== candidate) throw new Error('The offered checkpoint changed during the discard review. Nothing was removed.');
+      await this.clearRecovery(lease, candidate);
+      this.view.operationId = this.pendingSave?.operationId ?? null;
+      if (this.view.dirty || this.pendingSave) { this.queueRecovery(); await this.flushRecovery(); }
+      this.view.notice = 'Discarded the exact private checkpoint only. The shared revision and any current captured editor text are unchanged.';
+      return;
+    }
+    const fresh = await this.readShared(editor.record.draftId, editor.authority);
+    this.assertEditingLease(lease);
+    if (this.view.recovery.candidate !== candidate) throw new Error('The offered recovery checkpoint changed; retry this explicit decision.');
+    if (action === 'recovery-compare') {
+      if (!this.presentation.compareRecovery) throw new Error('The read-only recovery comparison surface is unavailable. No text was restored.');
+      await this.presentation.compareRecovery({ draftId: editor.record.draftId, checkpointName: candidate.buffer.name,
+        checkpointText: candidate.buffer.text, sharedName: fresh.savedName, sharedText: fresh.savedText,
+        checkpointId: candidate.checkpointId, baseRevision: candidate.base.record.revision, currentRevision: fresh.record.revision });
+      this.assertEditingLease(lease);
+      this.view.recovery.restoreAllowed = !this.pendingSave?.uncertain && !this.recoveryPendingNeedsStatus
+        && this.matchesRecoveryBase(fresh, candidate) && this.matchesRecoveryBase(editor, candidate);
+      this.view.notice = 'Compared private candidate text with a fresh exact-authority shared read. Neither editor nor shared head was rebased.';
+      return;
+    }
+    if (!this.matchesRecoveryBase(fresh, candidate) || !this.matchesRecoveryBase(editor, candidate)) {
+      this.view.recovery.restoreAllowed = false;
+      throw new Error('The shared authority, head, revision, digest, epoch or literal baseline changed. Stale recovery cannot overwrite or rebase it; Compare is available and the private checkpoint is retained.');
+    }
+    if (this.view.dirty && !await this.presentation.confirmDiscard()) return;
+    this.assertEditingLease(lease);
+    editor.savedName = candidate.base.savedName; editor.savedText = candidate.base.savedText;
+    editor.name = candidate.buffer.name; editor.inputText = candidate.buffer.text;
+    this.pendingSave = candidate.pendingSave ? { operationId: candidate.pendingSave.operationId,
+      snapshot: Object.freeze({ ...candidate.pendingSave.snapshot }),
+      key: saveKey(candidate.pendingSave.snapshot), uncertain: true } : null;
+    this.recoveryPendingNeedsStatus = Boolean(this.pendingSave);
+    this.view.operationId = this.pendingSave?.operationId ?? null;
+    this.view.dirty = editor.name !== editor.savedName || editor.inputText !== editor.savedText;
+    this.view.autosave = false; this.autosavePaused = true; this.cancelTimer();
+    this.view.durability = this.pendingSave ? 'uncertain' : this.view.dirty ? 'memory' : 'shared';
+    this.view.show = null; this.view.preview = null;
+    this.view.recovery.checkpoint = candidate; this.setRecoveryCandidate(null);
+    this.view.recovery.status = 'saved';
+    this.view.recovery.message = 'Restored private text in this editor only. Shared autosave is off; a pending operation must be inspected before explicit Save.';
+    this.view.notice = 'Explicitly restored the exact-base private checkpoint. No shared write, approval or execution was requested.';
   }
   private schedule(): void {
     this.cancelTimer();
@@ -196,7 +419,7 @@ export class SharedWorkflowDraftController {
           : /WCA_DRAFT_CONFLICT|WCA_DRAFT_AUTHORITY_CHANGED/u.test(this.view.error) ? 'conflict'
           : this.pendingSave?.uncertain ? 'uncertain' : 'failed';
         if (this.view.durability === 'deleted' && this.view.editor) {
-          this.view.editor.readOnlyReason = 'The shared draft was deleted. Pending text stays in memory only; this ID will not be recreated.';
+          this.view.editor.readOnlyReason = 'The shared draft was deleted. Captured text is retained; only acknowledged private checkpoints survive a crash. This ID will not be recreated.';
         }
       }
     }
@@ -220,6 +443,7 @@ export class SharedWorkflowDraftController {
         this.dirtySince ??= this.clock.now();
         if (!this.autosavePaused && this.view.durability !== 'saving') this.view.durability = 'memory';
       } else { this.dirtySince = null; if (!this.pendingSave) this.view.durability = 'shared'; }
+      this.queueRecovery();
       this.schedule(); this.statusChanged();
     }
   }
@@ -236,8 +460,7 @@ export class SharedWorkflowDraftController {
     // Never copy listHead into an editor. Its head must remain paired with its exact retained read.
   }
   async initialize(): Promise<void> { await this.leased(() => this.list()); }
-  private async load(draftId: string, expectedAuthority: string): Promise<void> {
-    const lease = this.editingLease();
+  private async readShared(draftId: string, expectedAuthority: string): Promise<WorkflowDraftEditor> {
     const result = await this.call('read', [draftId]);
     if (authority(result.capability?.repository) !== expectedAuthority) {
       throw new Error('The draft authority changed during this read. Refresh the shared list and explicitly reopen the draft; the editor buffer has not been replaced.');
@@ -272,14 +495,42 @@ export class SharedWorkflowDraftController {
     if (Buffer.byteLength(inputText) > WORKFLOW_DRAFT_INPUT_MAX_BYTES) {
       readOnlyReason = 'This retained draft exceeds the interactive editor budget. Use the bounded CLI for inspection; text Save is unavailable.';
     }
-    this.assertEditingLease(lease);
-    this.view.editor = { binding: randomUUID(), record: selected, head: head(result.data.head)!,
+    return { binding: randomUUID(), record: selected, head: head(result.data.head)!,
       authority: authority(result.capability?.repository),
       name: selected.displayName, inputText, savedName: selected.displayName, savedText: inputText, readOnlyReason };
+  }
+  private async load(draftId: string, expectedAuthority: string): Promise<void> {
+    const lease = this.editingLease();
+    const editor = await this.readShared(draftId, expectedAuthority);
+    this.assertEditingLease(lease);
+    this.view.editor = editor;
+    // Navigation already flushed/explicitly discarded the previous scope. Retain no cross-draft
+    // plaintext checkpoint cache; the store is reread when that exact scope is explicitly opened.
+    this.recoveryAcknowledged.clear();
     this.view.dirty = false; this.view.show = null; this.view.preview = null; this.pendingSave = null; this.view.operationId = null;
     this.cancelTimer(); this.dirtySince = null; this.autosavePaused = false;
     this.view.autosave = false; this.view.stage = 1;
-    this.view.durability = result.data.tombstone || selected.lifecycleEpoch !== 1 ? 'deleted' : 'shared';
+    this.view.durability = editor.readOnlyReason && editor.record.lifecycleEpoch !== 1 ? 'deleted' : 'shared';
+    this.recoveryError = null; this.recoveryReadFailed = false; this.candidateNotFoundOperation = null; this.recoveryPendingNeedsStatus = false;
+    this.view.recovery = { status: this.recoveryStore ? 'checking' : 'unavailable',
+      checkpoint: null, candidate: null, candidateAvailable: false, restoreAllowed: false };
+    if (!this.recoveryStore) return;
+    const scope = this.recoveryScope(editor)!; const key = this.scopeKey(scope);
+    try {
+      const candidate = await this.recoveryStore.read(scope);
+      if (candidate && this.scopeKey(candidate.scope) !== key) throw new Error('Private recovery returned another repository/draft scope. No buffer was restored.');
+      if (candidate) this.recoveryAcknowledged.set(key, candidate); else this.recoveryAcknowledged.delete(key);
+      this.setRecoveryCandidate(candidate);
+      this.view.recovery.status = candidate ? 'saved' : 'none';
+      this.view.recovery.message = candidate
+        ? 'A private checkpoint was found. Choose Restore, Compare or Discard. No text was restored or shared automatically.' : 'No private recovery checkpoint was found for this exact repository and authority.';
+      if (candidate?.pendingSave) this.view.operationId = candidate.pendingSave.operationId;
+      if (!candidate && this.view.dirty) this.queueRecovery();
+    } catch (error) {
+      this.recoveryError = new Error(errorMessage(error)); this.recoveryReadFailed = true; this.autosavePaused = true;
+      this.view.recovery.status = 'failed'; this.view.recovery.message = `Private recovery could not be read: ${this.recoveryError.message} No checkpoint was treated as absent or replaced.`;
+      this.view.error = this.view.recovery.message;
+    }
   }
   private editingLease(): { editor: WorkflowDraftEditor | null; name?: string; text?: string } {
     const editor = this.view.editor;
@@ -292,18 +543,23 @@ export class SharedWorkflowDraftController {
     }
   }
   private async discardAllowed(explicitDiscard = false): Promise<boolean> {
-    if (this.pendingSave?.uncertain) {
-      throw new Error(`Save operation ${this.pendingSave.operationId} has an unresolved acknowledgement. Check operation status before replacing or closing this editor, even if the visible text matches an older saved buffer. The exact pending checkpoint is retained in memory.`);
+    if (this.pendingSave?.uncertain || (this.view.recovery.candidate?.pendingSave
+        && this.candidateNotFoundOperation !== this.view.recovery.candidate.pendingSave.operationId)) {
+      const operation = this.pendingSave?.operationId ?? this.view.recovery.candidate?.pendingSave?.operationId;
+      throw new Error(`Save operation ${operation} has an unresolved acknowledgement. Check operation status before replacing or closing this editor, even if the visible text matches an older saved buffer. The exact pending checkpoint is retained.`);
     }
+    if (this.view.recovery.candidate) throw new Error('Choose Restore, Compare or explicitly Discard the offered private checkpoint before replacing or closing this editor.');
     if (!explicitDiscard && this.view.autosave && this.view.dirty) { await this.flush(); return !this.view.dirty; }
-    if (!this.view.dirty) return true;
+    if (!this.view.dirty) { await this.flushRecovery(); return true; }
     const lease = this.editingLease(); const allowed = await this.presentation.confirmDiscard();
-    this.assertEditingLease(lease); return allowed;
+    this.assertEditingLease(lease);
+    if (allowed) await this.clearRecovery(lease);
+    return allowed;
   }
   private async flush(): Promise<void> {
     this.cancelTimer();
     if (this.view.autosave && this.view.dirty) {
-      if (this.autosavePaused) throw new Error('Autosave is paused. Resolve the retained operation/conflict or explicitly Save before navigation. The editor text remains in memory only.');
+      if (this.autosavePaused) throw new Error('Autosave is paused. Resolve the retained operation/conflict or explicitly Save before navigation. Captured text is retained; private acknowledgement and shared storage are separate.');
       await this.save();
       if (this.view.dirty) throw new Error('Edits arrived during the navigation flush. They remain in memory; finish editing and retry navigation.');
     }
@@ -366,15 +622,26 @@ export class SharedWorkflowDraftController {
     if (!editor || editor.readOnlyReason) throw new Error(editor?.readOnlyReason ?? 'Open a live draft before saving.');
     if (!editor.name.trim()) throw new Error('A bounded display name is required.');
     const issue = inputIssue(editor.inputText); if (issue) throw new Error(issue);
+    if (this.view.recovery.candidate) throw new Error('Choose Restore, Compare or Discard before replacing the offered private checkpoint or making a shared Save.');
+    if (this.recoveryStore && this.recoveryReadFailed) throw new Error('Private recovery must be refreshed after an unavailable read or foreign checkpoint conflict. Shared Save is blocked; the latest text remains captured.');
+    if (this.recoveryPendingNeedsStatus) throw new Error('This restored Save operation must be inspected with Operation Status before any shared retry. No shared write was attempted.');
     const snapshot: SaveSnapshot = Object.freeze({ draftId: editor.record.draftId, authority: editor.authority,
       head: editor.head, epoch: editor.record.lifecycleEpoch, name: editor.name, text: editor.inputText });
-    const key = JSON.stringify(snapshot);
+    const key = saveKey(snapshot);
     if (this.pendingSave?.uncertain && this.pendingSave.key !== key) {
       throw new Error('The prior Save acknowledgement is unresolved. Check its operation status before saving changed text; no new write or automatic rebase was attempted.');
     }
     if (this.pendingSave?.key !== key) this.pendingSave = { key, operationId: randomUUID(), snapshot, uncertain: false };
     const pending = this.pendingSave;
     const operationId = pending.operationId; this.view.operationId = operationId;
+    // Persist a possibly-issued immutable operation before the runner can contact the shared store.
+    // A crash anywhere after this acknowledgement can recover by the exact existing operation ID.
+    this.queueRecovery(); await this.flushRecovery();
+    if (this.recoveryStore) {
+      const retained = this.recoveryAcknowledged.get(this.scopeKey(this.recoveryScope(editor)!));
+      if (retained?.pendingSave?.operationId !== operationId
+          || saveKey(retained.pendingSave.snapshot) !== pending.key) throw new Error('The exact pending Save was not privately checkpointed. No shared write was attempted.');
+    }
     this.cancelTimer(); this.dirtySince = null; this.view.durability = 'saving'; this.statusChanged();
     let result: AuthorResult;
     try {
@@ -393,18 +660,19 @@ export class SharedWorkflowDraftController {
         'WCA_DRAFT_REMOTE_INVALID', 'WCA_OPERATION_ID_REUSED', 'WCA_INPUT_INVALID', 'WCA_INPUT_LIMIT',
         'WCA_INPUT_UNAVAILABLE', 'WCA_AUTHOR_REQUEST_INVALID', 'WCA_DRAFT_SCOPE_UNAVAILABLE']);
       pending.uncertain = !reportedCode || !definiteRefusal.has(reportedCode);
+      this.queueRecovery();
       const diagnostic = firstLine.includes('--input')
         ? `Shared Save was not acknowledged${reportedCode ? ` (reported ${reportedCode})` : ''}.` : firstLine;
       throw new Error(`${diagnostic}\nCheck workflow author op-status ${operationId} first. Then use explicit Save with the retained editor text; unchanged text reuses this operation ID and creates a fresh private input file. Do not replay a temporary --input path.`);
     }
     pending.uncertain = true;
-    this.acceptSave(result, pending, editor);
+    await this.acceptSave(result, pending, editor);
     this.autosavePaused = Boolean(editor.readOnlyReason);
     try { await this.list(); } catch (error) {
       this.view.notice += ` List refresh failed: ${errorMessage(error)} The Save acknowledgement is retained.`;
     }
   }
-  private acceptSave(result: AuthorResult, pending: PendingSave, editor: WorkflowDraftEditor): void {
+  private async acceptSave(result: AuthorResult, pending: PendingSave, editor: WorkflowDraftEditor): Promise<void> {
     const snapshot = pending.snapshot;
     const saved = record(result.data.record);
     if (!['read', 'shared-acknowledged'].includes(result.status)
@@ -420,8 +688,20 @@ export class SharedWorkflowDraftController {
     editor.readOnlyReason = result.data.currentLifecycle === 'deleted' ? 'The acknowledged operation is historical; this draft has since been deleted.' : null;
     this.view.dirty = editor.name !== snapshot.name || editor.inputText !== snapshot.text;
     this.view.show = null; this.view.preview = null; this.pendingSave = null;
+    this.recoveryPendingNeedsStatus = false;
     this.view.durability = editor.readOnlyReason ? 'deleted' : this.view.dirty ? 'memory' : 'shared';
     this.view.notice = `Revision ${saved.revision} shared-acknowledged. Save is storage only, not approval, publication or execution.`;
+    if (this.view.recovery.candidate) {
+      // Explicit refresh can reveal another window's private candidate while this operation was
+      // unresolved. Reconcile the exact shared ACK, but never replace that separately offered copy.
+      this.setRecoveryCandidate(this.view.recovery.candidate);
+      this.view.operationId = this.view.recovery.candidate?.pendingSave?.operationId ?? pending.operationId;
+      this.view.recovery.message = 'The retained operation was shared-acknowledged. The separately offered private candidate is unchanged and still needs explicit review.';
+      return;
+    }
+    if (this.view.dirty) this.queueRecovery();
+    await this.flushRecovery();
+    if (!this.view.dirty && !this.pendingSave) await this.clearRecovery();
   }
   private async show(): Promise<void> {
     const editor = this.view.editor;
@@ -472,11 +752,40 @@ export class SharedWorkflowDraftController {
         || result.data.operationId !== operationId) throw new Error('Operation status did not match the retained write authority and ID.');
     head(result.data.head, true);
     const pending = this.pendingSave;
+    const candidate = this.view.recovery.candidate;
+    if (pending?.operationId !== operationId && candidate?.pendingSave?.operationId === operationId && this.view.editor && this.recoveryStore) {
+      const lease = this.editingLease();
+      if (result.data.status === 'shared-acknowledged') {
+        const saved = record(result.data.record); const snapshot = candidate.pendingSave.snapshot;
+        if (saved.draftId !== snapshot.draftId) throw new Error('The private pending operation acknowledgement names another draft.');
+        const updated: WorkflowDraftRecoveryCheckpoint = { ...candidate, checkpointId: randomUUID(), capturedAt: new Date().toISOString(),
+          base: { record: saved, head: head(result.data.operationHead)!, savedName: snapshot.name, savedText: snapshot.text } };
+        delete updated.pendingSave;
+        await this.recoveryStore.write(updated, candidate.checkpointId);
+        this.recoveryAcknowledged.set(this.scopeKey(updated.scope), updated);
+        this.setRecoveryCandidate(updated); this.view.recovery.status = 'saved'; this.view.operationId = null;
+        if (result.data.currentLifecycle === 'deleted') {
+          this.view.editor.readOnlyReason = 'The recovered operation is historical; the shared draft has since been deleted.';
+          this.view.durability = 'deleted'; this.view.recovery.restoreAllowed = false;
+        }
+        this.view.recovery.message = 'The exact private pending operation was shared-acknowledged. Its own operation head is retained; a newer shared revision cannot be silently rebased.';
+        this.assertEditingLease(lease);
+      } else {
+        this.candidateNotFoundOperation = operationId;
+        this.view.recovery.message = 'The private pending operation was not found at this exact authority. No write was retried; explicit recovery decisions remain required.';
+      }
+    }
     if (pending?.operationId === operationId && this.view.editor) {
-      if (result.data.status === 'shared-acknowledged') this.acceptSave(result, pending, this.view.editor);
-      else pending.uncertain = false;
+      this.recoveryPendingNeedsStatus = false;
+      if (result.data.status === 'shared-acknowledged') await this.acceptSave(result, pending, this.view.editor);
+      else {
+        pending.uncertain = false;
+        if (this.view.recovery.candidate) this.view.operationId = this.view.recovery.candidate.pendingSave?.operationId ?? operationId;
+        else { this.queueRecovery(); await this.flushRecovery(); }
+      }
       // Inspecting status never automatically resumes writes or installs the global observed head.
     }
+    if (this.view.recovery.candidate) this.setRecoveryCandidate(this.view.recovery.candidate);
     this.view.notice = result.data.status === 'shared-acknowledged'
       ? `Operation ${operationId} is shared-acknowledged. This can be historical storage acknowledgement, not readiness. Explicit Save of unchanged retained text reuses its operation ID.`
       : `Operation ${operationId} was not found at the observed store head. Use explicit Save with the retained text; unchanged text reuses this operation ID with a fresh private input file.`;
@@ -486,7 +795,8 @@ export class SharedWorkflowDraftController {
     if (this.disposed || !object(raw) || typeof raw.type !== 'string') return;
     if (this.view.busy && raw.type !== 'change') return;
     const allowed = ['change', 'refresh', 'open', 'create', 'save', 'reload', 'show', 'operation-status', 'terminal-review', 'copilot-review',
-      'autosave-on', 'autosave-off', 'stage', 'back-drafts', 'exit', 'guide-answer', 'add-stage', 'move-stage', 'preview', 'catalog-answer', 'submit-review', 'copilot-submit-review'];
+      'autosave-on', 'autosave-off', 'stage', 'back-drafts', 'exit', 'guide-answer', 'add-stage', 'move-stage', 'preview', 'catalog-answer', 'submit-review', 'copilot-submit-review',
+      'recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh'];
     if (!allowed.includes(raw.type)) { this.view.error = 'This shared-draft action is not supported.'; this.changed(); return; }
     if (Object.keys(raw).some((key) => !['type', 'binding', 'name', 'inputText', 'draftId', 'stage', 'field', 'value', 'index', 'direction', 'choiceKind', 'choiceId'].includes(key))) {
       this.view.error = 'The shared-draft message contains unsupported fields.'; this.changed(); return;
@@ -499,7 +809,8 @@ export class SharedWorkflowDraftController {
       return;
     }
     if (raw.type === 'change') return;
-    if (['save', 'reload', 'show', 'terminal-review', 'copilot-review', 'autosave-on', 'autosave-off', 'stage', 'back-drafts', 'exit', 'guide-answer', 'add-stage', 'move-stage', 'preview', 'catalog-answer', 'submit-review', 'copilot-submit-review'].includes(raw.type)
+    if (['save', 'reload', 'show', 'terminal-review', 'copilot-review', 'autosave-on', 'autosave-off', 'stage', 'back-drafts', 'exit', 'guide-answer', 'add-stage', 'move-stage', 'preview', 'catalog-answer', 'submit-review', 'copilot-submit-review',
+      'recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh'].includes(raw.type)
         && raw.binding !== this.view.editor?.binding) return;
     await this.leased(async () => {
       if (raw.type === 'refresh') { await this.list(); this.view.notice = 'Shared list refreshed. The open editor and its retained head have not been rebased.'; }
@@ -508,6 +819,7 @@ export class SharedWorkflowDraftController {
       else if (raw.type === 'show') { const lease = this.editingLease(); await this.flush(); this.assertEditingLease(lease); await this.show(); }
       else if (raw.type === 'preview') { const lease = this.editingLease(); await this.flush(); this.assertEditingLease(lease); await this.preview(); }
       else if (raw.type === 'operation-status') await this.operationStatus();
+      else if (['recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh'].includes(String(raw.type))) await this.recoveryAction(String(raw.type));
       else if (raw.type === 'catalog-answer') {
         const editor = this.view.editor; const preview = this.view.preview;
         if (!editor || editor.readOnlyReason || this.view.dirty || !preview || !object(preview.source)
@@ -563,14 +875,15 @@ export class SharedWorkflowDraftController {
       }
       else if (raw.type === 'autosave-on') {
         if (!this.view.editor || this.view.editor.readOnlyReason) throw new Error('Open a live editable draft before enabling shared autosave.');
-        if (this.pendingSave?.uncertain) throw new Error('Resolve the retained Save operation before enabling autosave.');
+        if (this.pendingSave?.uncertain || this.recoveryPendingNeedsStatus) throw new Error('Resolve the retained Save operation before enabling autosave.');
+        if (this.view.recovery.candidate || (this.recoveryStore && this.recoveryError)) throw new Error('Resolve private recovery before enabling shared autosave. No checkpoint was overwritten.');
         if (this.view.durability === 'conflict' || this.view.durability === 'deleted') throw new Error('Resolve the conflict by explicit Reload before enabling autosave; no head is silently rebased.');
         this.view.autosave = true; this.autosavePaused = false;
         if (this.view.dirty) this.dirtySince = this.clock.now();
         this.view.notice = 'Shared autosave enabled for this exact draft, authority and lifecycle epoch. Git repository authorization is rechecked on every write. This is editing scope, not submission or execution consent.';
       } else if (raw.type === 'autosave-off') {
         this.view.autosave = false; this.cancelTimer();
-        this.view.notice = 'Shared autosave paused. Pending text exists in this panel memory only; explicit Save remains available.';
+        this.view.notice = 'Shared autosave paused. Captured text is retained; private checkpoints and shared Git acknowledgement are separate. Explicit Save remains available.';
       } else if (raw.type === 'stage') {
         if (!Number.isSafeInteger(raw.stage) || Number(raw.stage) < 1 || Number(raw.stage) > 6) throw new Error('Choose one of the six authoring stages.');
         const lease = this.editingLease(); await this.flush(); this.assertEditingLease(lease); this.view.stage = Number(raw.stage);
@@ -597,7 +910,7 @@ export class SharedWorkflowDraftController {
         const editor = this.view.editor;
         if (editor) {
           const lease = this.editingLease(); await this.flush(); this.assertEditingLease(lease);
-          if (this.view.dirty || this.pendingSave?.uncertain) throw new Error('Save and resolve the captured checkpoint before copying an exact saved-revision submission review route. No route was copied.');
+          if (this.view.dirty || this.pendingSave?.uncertain || this.view.recovery.candidate) throw new Error('Save and resolve the captured checkpoint before copying an exact saved-revision submission review route. No route was copied.');
           await this.presentation.copyReview(this.root, ['workflow', 'author', 'submit', editor.record.draftId,
             '--revision', String(editor.record.revision)], raw.type === 'submit-review' ? 'shell' : 'copilot');
           this.view.notice = 'Submission review route copied only. Nothing was submitted or executed. The terminal must independently refresh and present the exact package with Cancel as default; headless Copilot cannot mint human confirmation.';

@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 21
+version: 22
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -52,7 +52,8 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
   Shared autosave is opt-in for the exact opened draft and authority; an acknowledged revision
   is storage, not a proposal or approval. Conflicts and uncertain acknowledgements retain the
   pending buffer; Reload requires explicit reconciliation/discard. Binary assets are read-only
-  to avoid a lossy text round trip. Native tab close does not guarantee a flush or private recovery.
+  to avoid a lossy text round trip. Encrypted private recovery preserves acknowledged local
+  checkpoints separately from Git; native tab close does not guarantee a shared flush.
 
 After `singularity-flow onboard --bootstrap`, run `singularity-flow init` before authoring. Bootstrap pins the repository authority; init materializes `singularity/workflow.yml` and `singularity/portfolio.yml`. When initialization is needed, the bootstrap receipt now gives that exact next command.
 
@@ -119,7 +120,55 @@ changes saved** means the store acknowledged the payload and asset closure. **No
 **Conflict** and **Acknowledgement unknown** are not shared success. Check the retained operation
 ID before retrying an uncertain write; changed text cannot replace its exact pending request.
 Explicit Exit flushes eligible captured edits. Closing the native tab or application promises no
-background sync, flush or durable private recovery; pending text is memory-only.
+background sync or shared flush. Private checkpoint acknowledgement is shown separately: only
+acknowledged local captures can survive a crash, not oversized or still-pending visible text.
+
+## Recover private pending edits in VS Code
+
+Open **Configuration Center → Shared workflow drafts** in the same repository, then open the
+same draft. A retained private checkpoint offers three explicit choices:
+
+1. **Restore private edits** restores literal name/JSON/assets into the editor only. The fresh
+   shared authority, draft ID, revision, lifecycle epoch, revision hash and store head must match
+   its retained base. Shared autosave stays off. Restore never submits, publishes or activates.
+2. **Compare with current shared revision** opens a read-only, memory-backed VS Code diff.
+   Incomplete JSON is preserved. The visual display may normalize line endings; it is not a
+   bytewise merge or permission to overwrite a newer revision.
+3. **Discard private checkpoint…** requires confirmation and removes only the reviewed local
+   checkpoint using its exact checkpoint ID. It does not delete a shared draft or its history.
+
+A newer shared revision, changed authority or deleted draft is never silently rebased or
+recreated. The retained private bytes stay separate. Review differences and make a deliberate
+edit against the fresh shared revision; do not treat an old Preview as approval of recovered text.
+Restore also verifies that the retained baseline describes the full fresh payload/asset closure.
+If an advanced Save omitted retained fields or assets, that partial baseline may be Compare-only;
+the editor does not reconstruct omitted values or automatically merge the recovered request.
+If a shared Save may have been sent before closing, **Check last write status** reconciles its
+retained operation ID first. Recovery cannot bypass an unresolved write with Discard or a changed
+retry, even if the visible text happens to match the previous baseline. An acknowledged historical
+operation does not authorize writing over a newer peer revision.
+
+Each capture is bound to the exact opened repository, authority, draft and baseline. The private
+file is bounded, authenticated AES-256-GCM ciphertext under the extension's local global-storage
+`workflow-draft-recovery` directory; its encryption key is held in VS Code SecretStorage. No
+plaintext recovery file, Git commit, setting/memento sync or workspace artifact is created.
+These are recovery copies, not the CLI's authoritative shared DraftStore, and are outside the
+disposable snapshot cache. Corrupt files, unavailable keys and concurrent-writer conflicts are
+visible failures, never empty-success results or plaintext fallbacks. Keep the same local storage
+and SecretStorage to decrypt an acknowledged checkpoint. This is not a cross-machine backup or
+qualification of an installed host's credential storage.
+
+**Refresh private recovery (read-only)** retries the exact local scope after storage becomes
+available or another editor changes its checkpoint, without replacing current editor text. An
+interrupted writer's leftover lock does not prevent reading its retained checkpoint, but mutations
+remain blocked rather than automatically removing a potentially live lock. Explicit lock repair
+and installed Windows/power-loss qualification remain separate work; this build does not claim
+race-free containment against a hostile same-user filesystem ancestor swap.
+
+Private checkpoint failure is shown independently from shared status and blocks a new shared
+Save in this editor. Before issuing a shared write, the editor durably retains the exact pending
+operation; newer typing remains distinct from that pending request. Native close does not replay
+it. Fresh shared acknowledgement clears only the matching private version, never a newer edit.
 
 Select a retained revision and the real approved catalog:
 
@@ -179,7 +228,8 @@ The application checkout, index and approved `sflow/config` ref remain unchanged
 Submission is **review required**, not approved, active or executing. Merge/approval, approved
 configuration refresh and any separate Start action remain their existing owners' operations.
 SKP proposal-to-post-consent binding/digest design, qualified skill execution, full lifecycle
-simulation, durable private recovery and mediated-host confirmation are not complete. The usage
+simulation and mediated-host confirmation are not complete. Native installed-host/crash and
+Windows qualification of private recovery is still separate from its implementation tests. The usage
 lookup below covers approved configuration, not retained or historical Stories. No new skill
 runtime binding is fabricated to bypass those gaps.
 

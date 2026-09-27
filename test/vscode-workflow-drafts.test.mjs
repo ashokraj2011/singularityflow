@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { access, readFile, stat, rm, mkdir, mkdtemp } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { access, readFile, stat, rm, mkdir, mkdtemp, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,6 +14,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const execute = promisify(execFile);
 const { SharedWorkflowDraftController, WORKFLOW_DRAFT_INPUT_MAX_BYTES, workflowDraftCopilotContextIssue } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts'));
 const { withWorkflowDraftInputFile } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-input.ts'));
+const { createWorkflowDraftRecoveryStore } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-recovery.ts'));
 const { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts'));
 const { addWorkflowDraftStage, editWorkflowDraftGuide, workflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog, WORKFLOW_DRAFT_STAGES } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts'));
 
@@ -45,8 +47,8 @@ function packageShow(selected = revision()) {
     preview: packagePreview(selected), capabilities: { automaticSaving: 'vscode-opt-in' } };
 }
 
-function fixture(overrides = {}, clock) {
-  const calls = []; const copied = []; const inputs = []; const notices = []; const rejected = []; const inputFiles = [];
+function fixture(overrides = {}, clock, recoveryStore) {
+  const calls = []; const copied = []; const inputs = []; const notices = []; const rejected = []; const inputFiles = []; const compared = []; const discardReasons = [];
   let loadedRevision = revision();
   let listHead = firstHead;
   let confirmation = false;
@@ -76,14 +78,15 @@ function fixture(overrides = {}, clock) {
   }, {
     changed: () => notices.push(controller.view.busy),
     editorRejected: (binding, message) => rejected.push({ binding, message }),
-    confirmDiscard: async () => confirmation,
+    confirmDiscard: async (reason) => { discardReasons.push(reason); return confirmation; },
+    compareRecovery: async (value) => compared.push(value),
     copyReview: async (callRoot, argv, surface) => copied.push({ root: callRoot, argv, surface })
-  }, clock);
+  }, clock, recoveryStore);
   const edit = (inputText = '{"payload":{"id":"unsaved"},"assets":[]}', name = 'Edited') => ({
     binding: controller.view.editor.binding, name, inputText
   });
   const open = async () => { await controller.initialize(); await controller.receive({ type: 'open', draftId }); };
-  return { controller, calls, copied, inputs, notices, rejected, inputFiles, open, edit,
+  return { controller, calls, copied, inputs, notices, rejected, inputFiles, compared, discardReasons, open, edit,
     setListHead: (value) => { listHead = value; }, confirm: (value) => { confirmation = value; } };
 }
 
@@ -534,8 +537,10 @@ test('draft page escapes all untrusted text, states unavailable coverage and exp
   assert.match(panel, /surface === 'copilot'[\s\S]*workflowDraftCopilotContextIssue\(repository/);
   assert.match(panel, /vscode\.workspace\.workspaceFolders/);
   assert.match(panel, /terminalCommand\(repository, guidance\.argv\)/);
-  assert.match(panel, /showWarningMessage\([\s\S]*Cancel keeps the unsaved text/);
-  assert.doesNotMatch(panel, /executeCommand|createTerminal|sendText|issueActionAuthorization|useRepository|openGitDraftStore/);
+  assert.match(panel, /showWarningMessage\([\s\S]*Cancel keeps the text and checkpoint/);
+  assert.doesNotMatch(panel, /createTerminal|sendText|issueActionAuthorization|useRepository|openGitDraftStore/);
+  assert.equal([...panel.matchAll(/\bexecuteCommand\(/gu)].length, 1);
+  assert.match(panel, /vscode\.commands\.executeCommand\('vscode\.diff',/);
 });
 
 const settle = async () => { for (let index = 0; index < 4; index += 1) await new Promise((resolve) => setImmediate(resolve)); };
@@ -553,6 +558,395 @@ function fakeClock() {
       now = until; await settle();
     } };
 }
+
+function memoryRecoveryStore(hooks = {}) {
+  const records = new Map(); const writes = []; const removals = []; const reads = [];
+  const key = (scope) => JSON.stringify([scope.repository, scope.authority, scope.draftId]);
+  return { records, writes, removals, reads, get: () => structuredClone([...records.values()][0] ?? null),
+    read: async (scope) => { reads.push(structuredClone(scope)); await hooks.read?.(scope); return structuredClone(records.get(key(scope)) ?? null); },
+    write: async (checkpoint, expected = null) => {
+      writes.push({ checkpoint: structuredClone(checkpoint), expected }); await hooks.write?.(checkpoint, expected);
+      const retained = records.get(key(checkpoint.scope));
+      if ((retained?.checkpointId ?? null) !== expected) throw new Error('PRIVATE_RECOVERY_CONFLICT: another window retained a checkpoint.');
+      records.set(key(checkpoint.scope), structuredClone(checkpoint));
+    },
+    remove: async (scope, expected) => {
+      removals.push({ scope: structuredClone(scope), expected }); await hooks.remove?.(scope, expected);
+      if (records.get(key(scope))?.checkpointId !== expected) return false;
+      records.delete(key(scope)); return true;
+    },
+    replace: (checkpoint) => { records.set(key(checkpoint.scope), structuredClone(checkpoint)); }
+  };
+}
+function deferred() { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; }
+
+test('private recovery preserves literal invalid JSON across crash/reopen only after explicit exact-base Restore', async () => {
+  const store = memoryRecoveryStore(); const clock = fakeClock(); const first = fixture({}, clock, store); await first.open();
+  const baseline = first.controller.view.editor.savedText;
+  const fields = first.edit('{"payload":{\r\n  "incomplete":', 'Literal private edit');
+  await first.controller.receive({ type: 'change', ...fields }); await settle();
+  assert.equal(first.controller.view.recovery.status, 'saved');
+  assert.equal(store.get().buffer.text, fields.inputText);
+  assert.equal(store.get().base.savedText, baseline);
+  assert.equal(first.calls.some((call) => call.args[2] === 'save'), false);
+  first.controller.dispose(); await settle();
+  const reopened = fixture({}, clock, store); await reopened.open();
+  assert.equal(reopened.controller.view.editor.inputText, baseline);
+  assert.equal(reopened.controller.view.recovery.candidateAvailable, true);
+  assert.equal(reopened.controller.view.recovery.restoreAllowed, true);
+  assert.equal(reopened.controller.view.autosave, false);
+  await reopened.controller.receive({ type: 'autosave-on', binding: reopened.controller.view.editor.binding });
+  assert.equal(reopened.controller.view.autosave, false);
+  await reopened.controller.receive({ type: 'recovery-compare', binding: reopened.controller.view.editor.binding });
+  assert.equal(reopened.compared[0].checkpointText, fields.inputText); assert.equal(reopened.compared[0].sharedText, baseline);
+  await reopened.controller.receive({ type: 'recovery-restore', binding: reopened.controller.view.editor.binding });
+  assert.equal(reopened.controller.view.editor.inputText, fields.inputText);
+  assert.equal(reopened.controller.view.editor.savedText, baseline);
+  assert.equal(reopened.controller.view.dirty, true); assert.equal(reopened.controller.view.autosave, false);
+  await clock.advance(20_000);
+  await reopened.controller.receive({ type: 'save', binding: reopened.controller.view.editor.binding });
+  assert.match(reopened.controller.view.error, /not valid JSON/);
+  assert.equal(reopened.calls.some((call) => call.args[2] === 'save'), false);
+  assert.equal(store.get().buffer.text, fields.inputText);
+});
+
+test('private checkpoints coalesce to one in-flight plus latest buffer and finish after dispose without shared mutation', async () => {
+  const gate = deferred(); const store = memoryRecoveryStore({ write: async () => gate.promise });
+  const f = fixture({}, fakeClock(), store); await f.open();
+  await f.controller.receive({ type: 'change', ...f.edit('{"payload":{"n":1}}') });
+  for (let index = 2; index <= 40; index += 1) await f.controller.receive({ type: 'change', ...f.edit(`{"payload":{"n":${index}}}`) });
+  assert.equal(store.writes.length, 1); assert.equal(f.controller.view.recovery.status, 'writing');
+  f.controller.dispose(); gate.resolve(); await settle();
+  assert.equal(store.writes.length, 2, 'intermediate buffers do not form an unbounded queue');
+  assert.equal(store.get().buffer.text, '{"payload":{"n":40}}');
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 0);
+});
+
+test('private pending operation is acknowledged before shared Save starts, and local failure blocks the runner', async () => {
+  const gate = deferred(); let block = true;
+  const store = memoryRecoveryStore({ write: async (checkpoint) => { if (block && checkpoint.pendingSave) await gate.promise; } });
+  const f = fixture({}, undefined, store); await f.open();
+  const fields = f.edit(); const saving = f.controller.receive({ type: 'save', ...fields }); await settle();
+  assert.equal(f.calls.some((call) => call.args[2] === 'save'), false);
+  assert.equal(store.writes.at(-1).checkpoint.pendingSave.uncertain, true);
+  const operationId = store.writes.at(-1).checkpoint.pendingSave.operationId;
+  gate.resolve(); block = false; await saving;
+  assert.equal(f.calls.find((call) => call.args[2] === 'save').args.at(-1), '--json');
+  assert.equal(f.controller.view.operationId, operationId);
+  assert.equal(store.get(), null, 'matching clean shared acknowledgement CAS-clears only its private checkpoint');
+  assert.ok(store.removals[0].expected);
+  let broken = true; const failedStore = memoryRecoveryStore({ write: async () => { if (broken) throw new Error('PRIVATE_RECOVERY_UNAVAILABLE'); } });
+  const failed = fixture({}, undefined, failedStore); await failed.open();
+  await failed.controller.receive({ type: 'save', ...failed.edit() });
+  assert.equal(failed.calls.some((call) => call.args[2] === 'save'), false);
+  assert.equal(failed.controller.view.recovery.status, 'failed'); assert.equal(failed.controller.view.dirty, true);
+  broken = false; await failed.controller.receive({ type: 'save', binding: failed.controller.view.editor.binding });
+  assert.equal(failed.calls.filter((call) => call.args[2] === 'save').length, 1, 'explicit retry checkpoints before contacting Git');
+});
+
+test('offered private candidate is not overwritten by new edits and explicit candidate Discard retains current text', async () => {
+  const store = memoryRecoveryStore(); const first = fixture({}, undefined, store); await first.open();
+  await first.controller.receive({ type: 'change', ...first.edit('{"payload":{"oldPrivate":true}}') }); await settle();
+  const original = store.get(); const reopened = fixture({}, undefined, store); await reopened.open();
+  const fields = reopened.edit('{"payload":{"newMemory":true}}', 'Current editor');
+  await reopened.controller.receive({ type: 'change', ...fields }); await settle();
+  assert.equal(store.get().checkpointId, original.checkpointId);
+  await reopened.controller.receive({ type: 'save', ...fields });
+  assert.equal(reopened.calls.some((call) => call.args[2] === 'save'), false);
+  reopened.confirm(true); await reopened.controller.receive({ type: 'recovery-discard', ...fields }); await settle();
+  assert.equal(reopened.discardReasons.at(-1), 'private-checkpoint');
+  assert.equal(reopened.controller.view.editor.inputText, fields.inputText); assert.equal(reopened.controller.view.dirty, true);
+  assert.notEqual(store.get().checkpointId, original.checkpointId); assert.equal(store.get().buffer.text, fields.inputText);
+});
+
+test('newer shared revision permits Compare but refuses stale Restore, and another authority never inherits recovery', async () => {
+  const store = memoryRecoveryStore(); const first = fixture({}, undefined, store); await first.open();
+  await first.controller.receive({ type: 'change', ...first.edit() }); await settle(); const original = store.get();
+  const stale = fixture({ read: async () => result('read', { head: secondHead, record: revision(2), payload: { id: 'peer-new' }, assets: [], tombstone: null }) }, undefined, store);
+  await stale.open(); const binding = stale.controller.view.editor.binding;
+  assert.equal(stale.controller.view.recovery.restoreAllowed, false);
+  await stale.controller.receive({ type: 'recovery-restore', binding });
+  assert.match(stale.controller.view.error, /Stale recovery cannot overwrite or rebase/);
+  assert.equal(stale.controller.view.editor.head, secondHead); assert.equal(store.get().checkpointId, original.checkpointId);
+  await stale.controller.receive({ type: 'recovery-compare', binding });
+  assert.equal(stale.compared[0].baseRevision, 1); assert.equal(stale.compared[0].currentRevision, 2);
+  assert.equal(stale.controller.view.dirty, false);
+  const other = fixture({
+    list: async () => ({ ...result('list', { head: firstHead, drafts: [revision()], nextCursor: null }), capability: { repository: '/approved/another.git' } }),
+    read: async () => ({ ...result('read', { head: firstHead, record: revision(), payload: { id: 'partial' }, assets: [], tombstone: null }), capability: { repository: '/approved/another.git' } })
+  }, undefined, store); await other.open();
+  assert.equal(other.controller.view.recovery.candidate, null);
+  assert.equal(store.get().checkpointId, original.checkpointId, 'old-authority recovery remains retained, never reassigned');
+  const deleted = fixture({ read: async () => result('read', { head: secondHead, record: { ...revision(2), lifecycleEpoch: 2 }, payload: {}, assets: [], tombstone: { deleted: true } }) }, undefined, store);
+  await deleted.open(); await deleted.controller.receive({ type: 'recovery-restore', binding: deleted.controller.view.editor.binding });
+  assert.equal(deleted.controller.view.recovery.restoreAllowed, false); assert.equal(deleted.controller.view.editor.readOnlyReason !== null, true);
+  assert.equal(deleted.calls.some((call) => call.args[2] === 'save'), false);
+});
+
+test('corrupt private read is not absence and explicit Refresh recovers without overwriting captured text', async () => {
+  let corrupt = true; const store = memoryRecoveryStore({ read: async () => { if (corrupt) throw new Error('PRIVATE_RECOVERY_CORRUPT'); } });
+  const f = fixture({}, undefined, store); await f.open();
+  assert.equal(f.controller.view.recovery.status, 'failed');
+  const fields = f.edit(); await f.controller.receive({ type: 'change', ...fields }); await settle();
+  assert.equal(store.writes.length, 0);
+  await f.controller.receive({ type: 'save', ...fields }); await f.controller.receive({ type: 'autosave-on', ...fields });
+  assert.equal(f.calls.some((call) => call.args[2] === 'save'), false); assert.equal(f.controller.view.autosave, false);
+  corrupt = false; await f.controller.receive({ type: 'recovery-refresh', ...fields });
+  assert.equal(f.controller.view.editor.inputText, fields.inputText); assert.equal(f.controller.view.recovery.status, 'none');
+  assert.equal(store.writes.length, 0, 'refresh is inspection only');
+  await f.controller.receive({ type: 'save', ...fields }); assert.equal(f.controller.view.error, null);
+});
+
+test('foreign private checkpoint CAS is never erased and explicit Refresh offers its exact winning candidate', async () => {
+  const store = memoryRecoveryStore(); const f = fixture({}, undefined, store); await f.open();
+  await f.controller.receive({ type: 'change', ...f.edit() }); await settle();
+  const original = store.get(); const foreign = { ...original, checkpointId: randomUUID(), buffer: { name: 'Peer window', text: '{"payload":{"peer":true}}' } };
+  store.replace(foreign);
+  f.confirm(true); await f.controller.receive({ type: 'reload', binding: f.controller.view.editor.binding });
+  assert.equal(store.get().checkpointId, foreign.checkpointId); assert.equal(f.controller.view.recovery.status, 'failed');
+  assert.match(f.controller.view.error, /newer private checkpoint/);
+  const text = f.controller.view.editor.inputText;
+  await f.controller.receive({ type: 'recovery-refresh', binding: f.controller.view.editor.binding });
+  assert.equal(f.controller.view.recovery.candidate.checkpointId, foreign.checkpointId);
+  assert.equal(f.controller.view.editor.inputText, text);
+  await f.controller.receive({ type: 'recovery-discard', binding: f.controller.view.editor.binding }); await settle();
+  assert.equal(f.controller.view.editor.inputText, text); assert.equal(store.get().buffer.text, text);
+  assert.ok(store.removals.some((entry) => entry.expected === foreign.checkpointId));
+});
+
+test('recovered unknown Save forces op-status and explicit unchanged retry retains its exact operation and head', async () => {
+  const store = memoryRecoveryStore(); const first = fixture({ save: async () => { throw new Error('timeout: acknowledgement lost'); } }, undefined, store);
+  await first.open(); const fields = first.edit();
+  await first.controller.receive({ type: 'save', ...fields }); await settle(); const pending = store.get().pendingSave;
+  assert.equal(pending.uncertain, true); assert.equal(pending.snapshot.text, fields.inputText);
+  const reopened = fixture({}, undefined, store); await reopened.open(); const binding = reopened.controller.view.editor.binding;
+  await reopened.controller.receive({ type: 'back-drafts', binding }); assert.ok(reopened.controller.view.editor);
+  await reopened.controller.receive({ type: 'recovery-discard', binding }); assert.match(reopened.controller.view.error, /unresolved Save/);
+  await reopened.controller.receive({ type: 'recovery-restore', binding });
+  assert.equal(reopened.controller.view.durability, 'uncertain');
+  await reopened.controller.receive({ type: 'save', binding }); await reopened.controller.receive({ type: 'autosave-on', binding });
+  assert.equal(reopened.calls.some((call) => call.args[2] === 'save'), false); assert.equal(reopened.controller.view.autosave, false);
+  await reopened.controller.receive({ type: 'operation-status', binding });
+  assert.equal(reopened.calls.some((call) => call.args[2] === 'save'), false, 'not-found is not authority to auto-write');
+  assert.equal(reopened.controller.view.editor.head, firstHead);
+  await reopened.controller.receive({ type: 'save', binding });
+  const args = reopened.calls.find((call) => call.args[2] === 'save').args;
+  assert.equal(args[args.indexOf('--operation-id') + 1], pending.operationId);
+  assert.equal(args[args.indexOf('--expected-head') + 1], pending.snapshot.head);
+  assert.equal(reopened.inputs[0], pending.snapshot.text); assert.equal(store.get(), null);
+});
+
+test('crash after remote ACK resolves offered pending checkpoint to its operation head, not a newer peer revision', async () => {
+  for (const peerAdvanced of [false, true]) {
+    const store = memoryRecoveryStore(); const first = fixture({ save: async () => { throw new Error('lost ACK after commit'); } }, undefined, store);
+    await first.open(); const text = '{"payload":{"saved":true},"assets":[]}';
+    await first.controller.receive({ type: 'save', ...first.edit(text, 'Saved name') }); await settle();
+    const operationId = store.get().pendingSave.operationId;
+    const observedRecord = { ...revision(peerAdvanced ? 3 : 2), displayName: peerAdvanced ? 'Peer name' : 'Saved name' };
+    const f = fixture({ read: async () => result('read', { head: peerAdvanced ? latestHead : secondHead, record: observedRecord,
+      payload: peerAdvanced ? { peer: true } : { saved: true }, assets: [], tombstone: null }),
+    'op-status': async () => result('op-status', { status: 'shared-acknowledged', operationId, head: peerAdvanced ? latestHead : secondHead,
+      operationHead: secondHead, record: { ...revision(2), displayName: 'Saved name' }, currentLifecycle: 'live' }) }, undefined, store);
+    await f.open(); const binding = f.controller.view.editor.binding;
+    assert.equal(f.controller.view.recovery.restoreAllowed, false);
+    await f.controller.receive({ type: 'operation-status', binding });
+    assert.equal(f.controller.view.error, null); assert.equal(f.controller.view.recovery.candidate.pendingSave, undefined);
+    assert.equal(store.get().base.head, secondHead); assert.equal(store.get().base.savedText, text);
+    assert.equal(f.controller.view.editor.head, peerAdvanced ? latestHead : secondHead);
+    assert.equal(f.controller.view.recovery.restoreAllowed, !peerAdvanced);
+    await f.controller.receive({ type: 'recovery-restore', binding });
+    if (peerAdvanced) assert.match(f.controller.view.error, /Stale recovery/);
+    else { assert.equal(f.controller.view.error, null); assert.equal(f.controller.view.editor.savedText, text); }
+    assert.equal(f.calls.some((call) => call.args[2] === 'save'), false);
+  }
+});
+
+test('newer edits during shared Save preserve exact pending request and checkpoint the new buffer after ACK', async () => {
+  const entered = deferred(); const release = deferred(); const store = memoryRecoveryStore();
+  const f = fixture({ save: async (args) => { entered.resolve(); await release.promise; return result('save', { record: revision(2), head: secondHead,
+    operationHead: secondHead, operationId: args[args.indexOf('--operation-id') + 1], currentLifecycle: 'live' }, 'shared-acknowledged'); } }, undefined, store);
+  await f.open(); const original = f.edit(); const saving = f.controller.receive({ type: 'save', ...original }); await entered.promise;
+  const newer = f.edit('{"payload":{"newer":true}}', 'Newer edit'); await f.controller.receive({ type: 'change', ...newer }); await settle();
+  assert.equal(store.get().buffer.text, newer.inputText); assert.equal(store.get().pendingSave.snapshot.text, original.inputText);
+  release.resolve(); await saving;
+  assert.equal(f.controller.view.editor.inputText, newer.inputText); assert.equal(f.controller.view.dirty, true);
+  assert.equal(store.get().base.head, secondHead); assert.equal(store.get().base.savedText, original.inputText);
+  assert.equal(store.get().buffer.text, newer.inputText); assert.equal(store.get().pendingSave, undefined);
+  assert.equal(store.removals.length, 0, 'new captured text is not cleared by older shared acknowledgement');
+});
+
+test('CAS clear acknowledgement cannot erase new text captured while the exact checkpoint is being removed', async () => {
+  const entered = deferred(); const release = deferred(); const store = memoryRecoveryStore({ remove: async () => { entered.resolve(); await release.promise; } });
+  const f = fixture({}, undefined, store); await f.open(); const original = f.edit();
+  const saving = f.controller.receive({ type: 'save', ...original }); await entered.promise;
+  const newer = f.edit('{"payload":{"duringClear":true}}'); await f.controller.receive({ type: 'change', ...newer });
+  release.resolve(); await saving; await settle();
+  assert.equal(f.controller.view.editor.inputText, newer.inputText); assert.equal(f.controller.view.dirty, true);
+  assert.equal(store.get().buffer.text, newer.inputText); assert.equal(store.get().base.head, secondHead);
+  assert.equal(store.writes.at(-1).expected, null, 'the newer checkpoint is created only after exact prior CAS clear');
+});
+
+test('dirty Restore requires cancel-default confirmation and a concurrent edit during fresh read keeps both buffers', async () => {
+  const store = memoryRecoveryStore(); const first = fixture({}, undefined, store); await first.open();
+  const privateFields = first.edit('{"payload":{"private":true}}', 'Private name');
+  await first.controller.receive({ type: 'change', ...privateFields }); await settle();
+  const f = fixture({}, undefined, store); await f.open();
+  const fields = f.edit('{"payload":{"current":true}}', 'Current name'); await f.controller.receive({ type: 'change', ...fields });
+  await f.controller.receive({ type: 'recovery-restore', ...fields });
+  assert.equal(f.controller.view.editor.inputText, fields.inputText); assert.ok(f.controller.view.recovery.candidate);
+  f.confirm(true); await f.controller.receive({ type: 'recovery-restore', ...fields });
+  assert.equal(f.controller.view.editor.inputText, privateFields.inputText); assert.equal(f.controller.view.editor.name, privateFields.name);
+  assert.equal(f.controller.view.autosave, false); assert.equal(f.calls.some((call) => call.args[2] === 'save'), false);
+  let reads = 0; const gate = deferred(); const entered = deferred();
+  const raced = fixture({ read: async () => { if (++reads > 1) { entered.resolve(); await gate.promise; }
+    return result('read', { head: firstHead, record: revision(), payload: { id: 'partial' }, assets: [{ path: 'SKILL.md', bytes: 7, contentBase64: Buffer.from('literal').toString('base64') }], tombstone: null });
+  } }, undefined, store); await raced.open();
+  const restoring = raced.controller.receive({ type: 'recovery-restore', binding: raced.controller.view.editor.binding }); await entered.promise;
+  const latest = raced.edit('{"payload":{"typedDuringRestore":true}}'); await raced.controller.receive({ type: 'change', ...latest });
+  gate.resolve(); await restoring;
+  assert.equal(raced.controller.view.editor.inputText, latest.inputText); assert.equal(raced.controller.view.dirty, true);
+  assert.match(raced.controller.view.error, /New captured edits arrived/);
+  assert.equal(store.get().buffer.text, privateFields.inputText); assert.ok(raced.controller.view.recovery.candidate);
+});
+
+test('pending ACK checkpoint update publishes its new CAS identity even when current text changes during private write', async () => {
+  const gate = deferred(); const entered = deferred(); let block = false;
+  const store = memoryRecoveryStore({ write: async (checkpoint) => { if (block && checkpoint.base.record.revision === 2) { entered.resolve(); await gate.promise; } } });
+  const first = fixture({ save: async () => { throw new Error('lost ACK'); } }, undefined, store); await first.open();
+  const text = '{"payload":{"saved":true},"assets":[]}'; await first.controller.receive({ type: 'save', ...first.edit(text, 'Saved name') }); await settle();
+  const operationId = store.get().pendingSave.operationId;
+  const f = fixture({ read: async () => result('read', { head: secondHead, record: { ...revision(2), displayName: 'Saved name' }, payload: { saved: true }, assets: [], tombstone: null }),
+    'op-status': async () => result('op-status', { status: 'shared-acknowledged', operationId, head: secondHead, operationHead: secondHead,
+      record: { ...revision(2), displayName: 'Saved name' }, currentLifecycle: 'live' }) }, undefined, store);
+  await f.open(); block = true;
+  const status = f.controller.receive({ type: 'operation-status', binding: f.controller.view.editor.binding }); await entered.promise;
+  const fields = f.edit('{"payload":{"newMemory":true}}'); await f.controller.receive({ type: 'change', ...fields });
+  gate.resolve(); await status;
+  assert.equal(f.controller.view.editor.inputText, fields.inputText); assert.equal(f.controller.view.dirty, true);
+  assert.equal(f.controller.view.recovery.candidate.checkpointId, store.get().checkpointId);
+  assert.equal(f.controller.view.recovery.candidate.pendingSave, undefined);
+  assert.equal(f.controller.view.operationId, null);
+  assert.equal(f.calls.some((call) => call.args[2] === 'save'), false);
+});
+
+test('closing during possibly-issued shared Save leaves encrypted-bound pending identity for status, with no follow-up shared call', async () => {
+  const entered = deferred(); const release = deferred(); const store = memoryRecoveryStore();
+  const f = fixture({ save: async (args) => { entered.resolve(); await release.promise; return result('save', { record: revision(2), operationHead: secondHead,
+    head: secondHead, operationId: args[args.indexOf('--operation-id') + 1], currentLifecycle: 'live' }, 'shared-acknowledged'); } }, undefined, store);
+  await f.open(); const saving = f.controller.receive({ type: 'save', ...f.edit() }); await entered.promise;
+  const pending = store.get().pendingSave;
+  f.controller.dispose(); release.resolve(); await saving; await settle();
+  assert.deepEqual(store.get().pendingSave, pending);
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+  assert.equal(f.calls.filter((call) => call.args[2] === 'list').length, 1);
+  const reopened = fixture({}, undefined, store); await reopened.open();
+  assert.equal(reopened.controller.view.recovery.candidate.pendingSave.operationId, pending.operationId);
+  assert.equal(reopened.controller.view.operationId, pending.operationId);
+  assert.equal(reopened.controller.view.editor.head, firstHead);
+});
+
+test('foreign private replacement during checkpoint write refuses shared Save until exact-scope refresh and review', async () => {
+  const store = memoryRecoveryStore(); const f = fixture({}, undefined, store); await f.open();
+  await f.controller.receive({ type: 'change', ...f.edit() }); await settle();
+  const observed = store.get(); const foreign = { ...observed, checkpointId: randomUUID(), buffer: { name: 'Foreign', text: '{"payload":{"foreign":true}}' } }; store.replace(foreign);
+  await f.controller.receive({ type: 'save', ...f.edit('{"payload":{"newer":true}}') });
+  assert.equal(f.calls.some((call) => call.args[2] === 'save'), false); assert.equal(store.get().checkpointId, foreign.checkpointId);
+  assert.equal(f.controller.view.recovery.status, 'failed');
+  await f.controller.receive({ type: 'recovery-refresh', binding: f.controller.view.editor.binding });
+  assert.equal(f.controller.view.recovery.candidate.checkpointId, foreign.checkpointId);
+  assert.equal(f.controller.view.editor.inputText, '{"payload":{"newer":true}}');
+  await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
+  assert.equal(f.controller.view.autosave, false); assert.equal(store.get().checkpointId, foreign.checkpointId);
+});
+
+test('private Refresh retains current unknown operation before inspecting a different winning candidate operation', async () => {
+  const store = memoryRecoveryStore(); const f = fixture({ save: async () => { throw new Error('unknown acknowledgement'); } }, undefined, store);
+  await f.open(); await f.controller.receive({ type: 'save', ...f.edit() }); await settle();
+  const original = store.get(); const operationId = original.pendingSave.operationId;
+  const foreignId = randomUUID(); const foreign = { ...original, checkpointId: randomUUID(),
+    buffer: { name: 'Peer', text: '{"payload":{"peer":true}}' },
+    pendingSave: { ...original.pendingSave, operationId: foreignId, snapshot: { ...original.pendingSave.snapshot, name: 'Peer', text: '{"payload":{"peer":true}}' } } };
+  store.replace(foreign);
+  const binding = f.controller.view.editor.binding;
+  await f.controller.receive({ type: 'recovery-refresh', binding });
+  assert.equal(f.controller.view.operationId, operationId, 'the current unknown operation is not lost behind a foreign candidate');
+  await f.controller.receive({ type: 'operation-status', binding });
+  assert.equal(f.controller.view.operationId, foreignId, 'only a resolved not-found current request yields the candidate status route');
+  await f.controller.receive({ type: 'operation-status', binding });
+  f.confirm(true); await f.controller.receive({ type: 'recovery-discard', binding }); await settle();
+  assert.equal(f.controller.view.error, null); assert.equal(f.controller.view.recovery.candidate, null);
+  assert.equal(f.controller.view.operationId, operationId); assert.equal(f.controller.view.editor.inputText, original.buffer.text);
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1, 'no recovery decision retries either write');
+});
+
+test('Restore cannot replace this editor unknown Save with a foreign offered checkpoint until its own status is resolved', async () => {
+  for (const foreignPending of [false, true]) {
+    const store = memoryRecoveryStore(); const f = fixture({ save: async () => { throw new Error('unknown shared acknowledgement'); } }, undefined, store);
+    await f.open(); const fields = f.edit(); await f.controller.receive({ type: 'save', ...fields }); await settle();
+    const original = store.get(); const ownOperationId = original.pendingSave.operationId;
+    const foreign = { ...original, checkpointId: randomUUID(), buffer: { name: 'Other window', text: '{"payload":{"otherWindow":true}}' } };
+    if (foreignPending) foreign.pendingSave = { ...original.pendingSave, operationId: randomUUID(), snapshot: { ...original.pendingSave.snapshot, ...foreign.buffer, name: foreign.buffer.name, text: foreign.buffer.text } };
+    else delete foreign.pendingSave;
+    store.replace(foreign); f.confirm(true);
+    await f.controller.receive({ type: 'recovery-refresh', binding: fields.binding });
+    assert.equal(f.controller.view.recovery.restoreAllowed, false);
+    await f.controller.receive({ type: 'recovery-compare', binding: fields.binding });
+    assert.equal(f.controller.view.recovery.restoreAllowed, false, 'Compare cannot enable Restore around an unresolved current operation');
+    await f.controller.receive({ type: 'recovery-restore', binding: fields.binding });
+    assert.match(f.controller.view.error, /current Save operation.*unresolved acknowledgement.*Operation Status/);
+    assert.equal(f.controller.view.operationId, ownOperationId);
+    assert.equal(f.controller.view.editor.inputText, fields.inputText); assert.equal(f.controller.view.editor.name, fields.name);
+    assert.equal(f.controller.view.recovery.candidate.checkpointId, foreign.checkpointId);
+    assert.deepEqual(store.get(), foreign); assert.equal(f.discardReasons.length, 0, 'even confirmed dirty replacement cannot bypass the unknown operation fence');
+    assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+    await f.controller.receive({ type: 'operation-status', binding: fields.binding });
+    assert.equal(f.controller.view.recovery.restoreAllowed, true, 'only current-operation resolution recomputes the exact-base Restore flag');
+    assert.equal(f.controller.view.editor.head, firstHead); assert.deepEqual(store.get(), foreign);
+    await f.controller.receive({ type: 'recovery-restore', binding: fields.binding });
+    assert.equal(f.controller.view.error, null); assert.equal(f.controller.view.editor.inputText, foreign.buffer.text);
+    assert.equal(f.controller.view.operationId, foreignPending ? foreign.pendingSave.operationId : null);
+    assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+  }
+});
+
+test('discarding a foreign private candidate checkpoints an own unresolved Save even when visible buffer was reverted clean', async () => {
+  const store = memoryRecoveryStore(); const f = fixture({ save: async () => { throw new Error('unknown acknowledgement'); } }, undefined, store);
+  await f.open(); const baseline = f.controller.view.editor.savedText; const baselineName = f.controller.view.editor.savedName;
+  await f.controller.receive({ type: 'save', ...f.edit() }); await settle();
+  const original = store.get();
+  const foreign = { ...original, checkpointId: randomUUID(), buffer: { name: 'Foreign', text: '{"payload":{"foreign":true}}' } };
+  delete foreign.pendingSave; store.replace(foreign);
+  const binding = f.controller.view.editor.binding;
+  await f.controller.receive({ type: 'recovery-refresh', binding });
+  await f.controller.receive({ type: 'change', binding, name: baselineName, inputText: baseline });
+  assert.equal(f.controller.view.dirty, false);
+  f.confirm(true); await f.controller.receive({ type: 'recovery-discard', binding });
+  assert.equal(f.controller.view.error, null); assert.equal(f.controller.view.recovery.status, 'saved');
+  const retained = store.get(); assert.notEqual(retained.checkpointId, foreign.checkpointId);
+  assert.deepEqual(retained.pendingSave, original.pendingSave); assert.equal(retained.buffer.text, baseline);
+  assert.equal(f.controller.view.operationId, original.pendingSave.operationId);
+  await f.controller.receive({ type: 'back-drafts', binding });
+  assert.ok(f.controller.view.editor); assert.match(f.controller.view.error, /unresolved acknowledgement/);
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+});
+
+test('unknown current Save ACK can reconcile without replacing a separately offered foreign checkpoint', async () => {
+  let acknowledged = false; let operationId;
+  const store = memoryRecoveryStore(); const f = fixture({ save: async () => { throw new Error('unknown ACK'); },
+    'op-status': async () => acknowledged
+      ? result('op-status', { status: 'shared-acknowledged', operationId, head: secondHead, operationHead: secondHead, record: revision(2), currentLifecycle: 'live' })
+      : result('op-status', { status: 'not-found', operationId, head: firstHead }) }, undefined, store);
+  await f.open(); await f.controller.receive({ type: 'save', ...f.edit() }); await settle();
+  const original = store.get(); operationId = original.pendingSave.operationId;
+  const foreign = { ...original, checkpointId: randomUUID(), buffer: { name: 'Separate peer', text: '{"payload":{"peer":true}}' } };
+  delete foreign.pendingSave; store.replace(foreign);
+  const binding = f.controller.view.editor.binding; await f.controller.receive({ type: 'recovery-refresh', binding });
+  acknowledged = true; await f.controller.receive({ type: 'operation-status', binding });
+  assert.equal(f.controller.view.error, null); assert.equal(f.controller.view.editor.head, secondHead);
+  assert.equal(store.get().checkpointId, foreign.checkpointId); assert.equal(f.controller.view.recovery.candidate.checkpointId, foreign.checkpointId);
+  assert.equal(f.controller.view.recovery.restoreAllowed, false);
+  assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 1);
+});
 
 test('six-stage guide edits preserve unknown fields/assets and create real incomplete namespaced components without grants', () => {
   assert.deepEqual(WORKFLOW_DRAFT_STAGES, ['Goal', 'Stages', 'Team & skills', 'Access & review', 'Review package', 'Submit & next steps']);
@@ -763,8 +1157,9 @@ test('closing the controller cancels scheduled autosave and offers no false priv
   await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
   await f.controller.receive({ type: 'change', ...f.edit() }); assert.equal(clock.count(), 1);
   const html = sharedWorkflowDraftsHtml(f.controller.view);
-  assert.match(html, /native tab or application cannot guarantee a flush or background sync/);
-  assert.match(html, /No local durable recovery is claimed/);
+  assert.match(html, /Native close does not flush to Git/);
+  assert.match(html, /Private recovery unavailable/);
+  assert.equal(f.controller.view.recovery.status, 'unavailable');
   assert.equal(f.controller.view.durability, 'memory');
   f.controller.dispose(); await clock.advance(20_000);
   assert.equal(clock.count(), 0); assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 0);
@@ -997,7 +1392,7 @@ test('fresh-list Create cannot silently change the destination disclosed by the 
 });
 
 test('actual CLI-backed clients share identity, fence autosave races and Preview captured catalog choices before copy-only Submit', async (t) => {
-  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-shared-drafts-'));
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-shared-drafts-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const application = path.join(base, 'opened'); const peer = path.join(base, 'peer');
   const remote = path.join(base, 'shared.git');
@@ -1023,12 +1418,15 @@ test('actual CLI-backed clients share identity, fence autosave races and Preview
     [path.join(root, 'bin/singularity-flow.mjs'), ...args], { cwd, env, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout);
   const commands = [];
   const clock = fakeClock();
+  const privateKeys = new Map(); const secrets = { get: async (key) => privateKeys.get(key), store: async (key, value) => { privateKeys.set(key, value); } };
+  const recoveryDirectory = path.join(base, 'private-extension-storage', 'workflow-draft-recovery');
+  const recovery = createWorkflowDraftRecoveryStore(recoveryDirectory, secrets);
   const controller = new SharedWorkflowDraftController(application, async (argv, openedRoot) => {
     assert.equal(openedRoot, application); commands.push([...argv]);
     try { return { result: await cli(openedRoot, argv), error: null }; }
     catch (error) { return { result: null, error: error.message }; }
   }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => true,
-    copyReview: async () => { throw new Error('No deletion review was requested.'); } }, clock);
+    copyReview: async () => { throw new Error('No deletion review was requested.'); } }, clock, recovery);
   t.after(() => controller.dispose());
   await controller.initialize(); await controller.receive({ type: 'create' });
   assert.equal(controller.view.error, null);
@@ -1042,6 +1440,8 @@ test('actual CLI-backed clients share identity, fence autosave races and Preview
   assert.equal(saved.data.record.revision, 2);
   assert.deepEqual(saved.data.payload, JSON.parse(text).payload);
   assert.equal(Buffer.from(saved.data.assets[0].contentBase64, 'base64').toString('utf8'), JSON.parse(text).assets[0].content);
+  assert.equal(await recovery.read({ repository: application, authority: remote, draftId: id }), null,
+    'clean shared ACK removes only its exact encrypted checkpoint');
   await assert.rejects(access(path.join(application, '.github/skills/candidate/SKILL.md')), /ENOENT/);
   await cli(peer, ['workflow', 'author', 'save', id, '--name', 'Shell peer renamed', '--epoch', '1',
     '--expected-head', saved.data.head, '--expected-authority', saved.capability.repository,
@@ -1070,7 +1470,8 @@ test('actual CLI-backed clients share identity, fence autosave races and Preview
     try { return { result: await cli(openedRoot, argv), error: null }; }
     catch (error) { return { result: null, error: error.message }; }
   }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => false,
-    copyReview: async () => { throw new Error('No review action requested.'); } }, clock);
+    copyReview: async () => { throw new Error('No review action requested.'); } }, clock,
+  createWorkflowDraftRecoveryStore(recoveryDirectory, secrets));
   t.after(() => peerController.dispose());
   await peerController.initialize(); await peerController.receive({ type: 'open', draftId: id });
   assert.equal(peerController.view.editor.record.revision, 3);
@@ -1091,17 +1492,32 @@ test('actual CLI-backed clients share identity, fence autosave races and Preview
   await clock.advance(20_000);
   assert.deepEqual([commands.filter((argv) => argv[2] === 'save').length, peerCommands.filter((argv) => argv[2] === 'save').length], writeCounts,
     'no silent retry, merge, rebase, duplicate revision or deleted-ID recreation');
+  controller.dispose(); peerController.dispose();
+  for (let attempt = 0; attempt < 100 && [controller, peerController].some((client) => client.view.recovery.status === 'writing'); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok([controller, peerController].every((client) => client.view.recovery.status !== 'writing'));
   const reopenedCommands = []; const copied = [];
   const reopened = new SharedWorkflowDraftController(application, async (argv, openedRoot) => {
     assert.equal(openedRoot, application); reopenedCommands.push([...argv]); return { result: await cli(openedRoot, argv), error: null };
-  }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => false,
-    copyReview: async (openedRoot, argv, surface) => copied.push({ root: openedRoot, argv: [...argv], surface }) }, clock);
+  }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => true,
+    copyReview: async (openedRoot, argv, surface) => copied.push({ root: openedRoot, argv: [...argv], surface }) }, clock,
+  createWorkflowDraftRecoveryStore(recoveryDirectory, secrets));
   t.after(() => reopened.dispose());
   await reopened.initialize(); await reopened.receive({ type: 'open', draftId: id });
   assert.equal(reopened.view.editor.record.revision, 4);
   assert.equal(JSON.parse(reopened.view.editor.inputText).payload.description, winningShared.data.payload.description);
   assert.equal(reopened.view.autosave, false, 'resume does not transfer another editing scope or consent');
   const binding = reopened.view.editor.binding;
+  if (reopened.view.recovery.candidate) {
+    assert.equal(reopened.view.recovery.restoreAllowed, false, 'losing older-base checkpoint cannot overwrite the actual shared winner');
+    assert.ok(reopened.view.recovery.candidate.pendingSave);
+    await reopened.receive({ type: 'operation-status', binding });
+    assert.equal(reopened.view.error, null);
+    await reopened.receive({ type: 'recovery-discard', binding });
+    assert.equal(reopened.view.error, null); assert.equal(reopened.view.recovery.candidate, null);
+  }
+  assert.equal(reopenedCommands.some((argv) => argv[2] === 'save'), false, 'encrypted recovery restart never autosaves or rebases');
   await reopened.receive({ type: 'preview', binding });
   assert.equal(reopened.view.error, null);
   const captured = reopened.view.preview;

@@ -6,12 +6,23 @@ import { workflowDraftContent, workflowDraftEnvelope, workflowDraftGuide, WORKFL
 export function workflowDraftDurabilityLabel(view: SharedWorkflowDraftView): string {
   const revision = view.editor?.record.revision ?? '?';
   const labels = { shared: `Shared revision ${revision} · all captured changes saved`,
-    memory: 'Not saved · changes are in this panel memory only', saving: 'Saving… · shared acknowledgement pending; pending text is memory-only',
+    memory: 'Not shared · pending changes have not been saved to Git', saving: 'Saving… · shared acknowledgement pending',
     failed: 'Not saved · storage/content needs attention; prior shared revision retained',
-    conflict: 'Conflict · your changes remain in this panel memory only; autosave paused',
+    conflict: 'Conflict · shared revision retained; autosave paused',
     uncertain: 'Acknowledgement unknown · check operation status; autosave paused',
-    deleted: 'Deleted · pending text is memory-only; this draft ID will not be recreated' };
+    deleted: 'Deleted · this draft ID will not be recreated; private recovery is separate' };
   return labels[view.durability];
+}
+
+export function workflowDraftRecoveryLabel(view: SharedWorkflowDraftView): string {
+  const recovery = view.recovery;
+  if (!recovery || recovery.status === 'unavailable') return 'Private recovery unavailable · pending changes are in panel memory only';
+  if (recovery.status === 'failed') return `Private checkpoint needs attention · ${recovery.message ?? 'the latest pending text is not acknowledged locally'}`;
+  if (recovery.status === 'checking') return 'Checking private recovery on this machine…';
+  if (recovery.status === 'writing') return 'Private checkpoint pending · newest edits are not yet acknowledged locally';
+  if (recovery.candidateAvailable) return `Private recovery available · based on shared revision ${recovery.candidate?.base.record.revision ?? '?'} · not automatically restored`;
+  if (recovery.status === 'saved') return 'Private checkpoint saved on this machine · encrypted, not shared to Git';
+  return 'No pending private checkpoint · acknowledged shared revisions remain in Git';
 }
 
 function guidedHtml(view: SharedWorkflowDraftView): string {
@@ -70,8 +81,8 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
     else if (view.stage === 5) content = `<p>Is this the package you want to propose? Candidate components: ${guide.workflows.length} workflows, ${guide.phases.length} stages, ${guide.agents.length} agents, ${guide.skills.length} skills, ${guide.templates.length} templates.</p>`
       + '<p>These counts are not a completeness or readiness verdict. Show is pinned to an acknowledged revision and reports its actual coverage.</p>' + answer('rationale', 'Review explanation', guide.payload.rationale);
     else content = `<p>Submit this package for the required review?</p><p class="warning">Trusted submission confirmation is unavailable in this editor. Shared persistence and Preview are not approval, active configuration or execution. These buttons copy review routes only; the terminal separately revalidates and presents an exact package, or refuses unresolved findings. Headless Copilot cannot mint consent.</p>
-      <button type="button" class="secondary" data-draft-action="submit-review"${navigationDisabled}>Copy rooted Shell submission-review command</button>
-      <button type="button" class="secondary" data-draft-action="copilot-submit-review"${navigationDisabled}>Copy Copilot submission handoff</button>`;
+      <button type="button" class="secondary" data-draft-action="submit-review"${view.busy || view.recovery?.candidateAvailable || ['failed', 'checking'].includes(view.recovery?.status) ? ' disabled' : ''}>Copy rooted Shell submission-review command</button>
+      <button type="button" class="secondary" data-draft-action="copilot-submit-review"${view.busy || view.recovery?.candidateAvailable || ['failed', 'checking'].includes(view.recovery?.status) ? ' disabled' : ''}>Copy Copilot submission handoff</button>`;
   } catch (error) { content = `<p class="warning">${escape(error instanceof Error ? error.message : String(error))}</p><p>Advanced JSON is retained unchanged. Resolve its shape before guided edits.</p>`; }
   return `<section aria-labelledby="guide-title"><h3 id="guide-title">Step ${view.stage} of 6 · ${WORKFLOW_DRAFT_STAGES[view.stage - 1]}</h3>
     <p>Authoring progress only — these stages do not run the workflow. Apply answer captures a complete semantic edit; un-applied question text is not saved.</p>
@@ -88,6 +99,7 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
 export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string {
   const editor = view.editor;
   const disabled = view.busy ? ' disabled' : '';
+  const recoveryBlocked = view.recovery?.candidateAvailable || ['failed', 'checking'].includes(view.recovery?.status);
   const show = view.show;
   const missing = show && Array.isArray(show.missingDecisions) ? show.missingDecisions : [];
   const assessment = show?.assessment && typeof show.assessment === 'object' ? show.assessment as Record<string, unknown> : {};
@@ -97,9 +109,9 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
   return `<main aria-labelledby="drafts-title"><header><p class="eyebrow">Workflow authoring · Shared Git drafts</p>
     <h1 id="drafts-title">Shared Workflow Drafts</h1><p>Guide, read and save inert partial workflow packages through the same CLI DraftStore used by a shell.</p>
     <p class="muted">Opened repository: <code>${escape(view.repository)}</code><br>Draft authority: <code>${escape(view.authority ?? 'Not observed yet')}</code></p>
-    <p>Shared autosave requires explicit editing-scope opt-in for the opened draft. No private recovery checkpoint, submission, approval, host installation or execution is provided by this editor.</p></header>
+    <p>Shared autosave requires explicit editing-scope opt-in. Private recovery is encrypted on this machine and never submits, publishes, approves, installs or executes a workflow.</p></header>
     <p id="draft-live-error" class="warning" role="alert"${view.error ? '' : ' hidden'}>${escape(view.error ?? '')}</p>
-    ${view.error ? `<section class="warning" role="alert"><strong>Draft operation needs attention</strong><p>${escape(view.error)}</p><p>The editor buffer is retained. A write may need operation-status reconciliation; a conflict requires explicit Reload, never automatic overwrite.</p></section>` : ''}
+    ${view.error ? `<section class="warning" role="alert"><strong>Draft operation needs attention</strong><p>${escape(view.error)}</p><p>The editor buffer is retained. A shared write may need operation-status reconciliation or explicit Reload. For private-checkpoint contention, Refresh private recovery; nothing is overwritten automatically.</p></section>` : ''}
     ${view.notice ? `<p role="status" aria-live="polite">${escape(view.notice)}</p>` : ''}
     <p id="draft-operation" class="muted">${view.operationId ? `Last write operation ID: ${escape(view.operationId)}. Check status before retrying uncertain writes.` : ''}</p><button type="button" class="secondary" data-draft-action="operation-status"${disabled}>Check last write status (read-only)</button>
     ${view.busy ? '<p role="status" aria-live="polite">Waiting for the shared-draft CLI…</p>' : ''}
@@ -111,9 +123,17 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
       <code>${escape(editor.record.revisionSha256)}</code><br>Compare-and-swap head: <code>${escape(editor.head)}</code><br>Retained draft authority: <code>${escape(editor.authority)}</code></p>
       <p id="draft-dirty" role="status" aria-live="polite">${escape(workflowDraftDurabilityLabel(view))}</p>
       <p id="draft-autosave" role="status">Shared autosave ${view.autosave ? 'on for this exact draft' : 'off'}.</p>
-      <p class="muted">Pending text exists only in this open panel. The Exit button flushes eligible captured edits; closing the native tab or application cannot guarantee a flush or background sync. No local durable recovery is claimed.</p>
+      <p id="draft-recovery-status" role="status" aria-live="polite">${escape(workflowDraftRecoveryLabel(view))}</p>
+      <button type="button" class="secondary" data-draft-action="recovery-refresh"${disabled}>Refresh private recovery (read-only)</button>
+      ${view.recovery?.candidateAvailable ? `<section id="draft-recovery-choice" aria-labelledby="draft-recovery-title"><h3 id="draft-recovery-title">Recover private pending edits</h3>
+        <p>A checkpoint was retained for this exact repository, authority and draft on this machine. Restore requires the same shared base; newer shared revisions are not overwritten or merged. Reconcile an unknown write with Check last write status before a shared write or checkpoint discard.</p>
+        <p>Checkpoint captured: <code>${escape(view.recovery.candidate?.capturedAt ?? '')}</code>. Comparison is read-only and may normalize line endings for display; it is not bytewise merge approval.</p>
+        <div class="form-actions"><button type="button" data-draft-action="recovery-restore"${view.busy || !view.recovery.restoreAllowed ? ' disabled' : ''}>Restore private edits</button>
+        <button type="button" class="secondary" data-draft-action="recovery-compare"${disabled}>Compare with current shared revision</button>
+        <button type="button" class="secondary" data-draft-action="recovery-discard"${disabled}>Discard private checkpoint…</button></div></section>` : ''}
+      <p class="muted">Only acknowledged private checkpoints can survive a crash. The latest unacknowledged or oversized visible edits may remain memory-only. Native close does not flush to Git. Reopen this repository and draft for explicit recovery; no restore or shared autosave is automatic.</p>
       <p>Editing destination: <code>${escape(editor.authority)}</code> · visible to principals permitted by the Git repository provider. Nothing here is an active workflow. Enabling autosave authorizes ordinary draft edits here only, not sharing elsewhere or submission.</p>
-      <button type="button" class="secondary" data-draft-action="${view.autosave ? 'autosave-off' : 'autosave-on'}"${view.busy || (!view.autosave && editor.readOnlyReason) ? ' disabled' : ''}>${view.autosave ? 'Pause shared autosave' : 'Enable shared autosave for this draft'}</button>
+      <button type="button" class="secondary" data-draft-action="${view.autosave ? 'autosave-off' : 'autosave-on'}"${view.busy || (!view.autosave && (editor.readOnlyReason || recoveryBlocked)) ? ' disabled' : ''}>${view.autosave ? 'Pause shared autosave' : 'Enable shared autosave for this draft'}</button>
       <p id="draft-input-error" class="warning" role="alert" hidden></p>
       ${editor.readOnlyReason ? `<p class="warning">${escape(editor.readOnlyReason)}</p>` : ''}
       <input type="hidden" id="draft-binding" value="${escape(editor.binding)}">
@@ -121,7 +141,7 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
       ${guidedHtml(view)}
       <details><summary>Change advanced partial package JSON and literal assets</summary><label for="draft-input">Advanced JSON<textarea id="draft-input" rows="22" spellcheck="false"${editor.readOnlyReason ? ' readonly' : ''}>${escape(editor.inputText)}</textarea></label>
       <p class="muted">Closed JSON envelope: <code>{"payload": {…}, "assets": [{"path": "logical/path", "content": "literal text"}]}</code>. Paths are labels, not local file reads. Missing decisions are allowed; secret/environment-local storage admission still applies.</p>
-      </details><div class="form-actions"><button type="button" data-draft-action="save"${view.busy || editor.readOnlyReason ? ' disabled' : ''}>Save shared revision / retry</button>
+      </details><div class="form-actions"><button type="button" data-draft-action="save"${view.busy || editor.readOnlyReason || recoveryBlocked ? ' disabled' : ''}>Save shared revision / retry</button>
       <button type="button" class="secondary" data-draft-action="reload"${disabled}>Reload latest (discard unsaved changes…)</button>
       <button type="button" class="secondary" data-draft-action="show"${disabled}>Show saved revision (read-only)</button></div>
       <button type="button" class="secondary" data-draft-action="preview"${disabled}>Preview exact saved package (read-only)</button>
@@ -176,7 +196,9 @@ export const SHARED_WORKFLOW_DRAFTS_SCRIPT = `
   document.addEventListener('input', (event) => {
     if (event.target?.id !== 'draft-name' && event.target?.id !== 'draft-input') return;
     const status = document.getElementById('draft-dirty');
-    if (status) status.textContent = 'Not saved · captured editor changes are in panel memory; shared acknowledgement is pending.';
+    if (status) status.textContent = 'Not shared · captured editor changes await a separate shared acknowledgement.';
+    const recovery = document.getElementById('draft-recovery-status');
+    if (recovery) recovery.textContent = 'Private checkpoint pending · newest edits are not yet acknowledged locally';
     const fields = editorFields();
     if (fields) draftsVscode.postMessage({ type: 'change', ...fields });
   });
@@ -211,17 +233,28 @@ export const SHARED_WORKFLOW_DRAFTS_SCRIPT = `
     const message = event.data;
     if (message?.type === 'draft-status' && message.binding === document.getElementById('draft-binding')?.value) {
       const visibleCaptured = editorFields() !== null;
-      for (const [id, key] of [['draft-dirty', 'durability'], ['draft-autosave', 'autosave'], ['draft-revision', 'revision'], ['draft-operation', 'operation']]) {
+      for (const [id, key] of [['draft-dirty', 'durability'], ['draft-autosave', 'autosave'], ['draft-revision', 'revision'], ['draft-operation', 'operation'], ['draft-recovery-status', 'recovery']]) {
         const element = document.getElementById(id);
-        if (element && typeof message[key] === 'string' && message[key].length <= 5000) element.textContent = id === 'draft-dirty' && !visibleCaptured
-          ? 'Visible text is not captured or saved. Any shared acknowledgement covers only the prior bounded checkpoint.' : message[key];
+        if (element && typeof message[key] === 'string' && message[key].length <= 5000) element.textContent = !visibleCaptured && id === 'draft-dirty'
+          ? 'Visible text is not captured or saved. Any shared acknowledgement covers only the prior bounded checkpoint.'
+          : !visibleCaptured && id === 'draft-recovery-status'
+            ? 'Visible text is not privately checkpointed. Any local acknowledgement covers only the prior bounded capture.' : message[key];
       }
       const error = document.getElementById('draft-live-error');
       if (error && typeof message.error === 'string' && message.error.length <= 4000) { error.textContent = message.error; error.hidden = !message.error; }
       const show = document.getElementById('draft-show'); if (show && message.hasShow === false) show.hidden = true;
       const preview = document.getElementById('draft-preview'); if (preview && message.hasPreview === false) preview.hidden = true;
+      const recoveryChoice = document.getElementById('draft-recovery-choice');
+      if (recoveryChoice && message.hasRecoveryCandidate === false) recoveryChoice.hidden = true;
       for (const button of document.querySelectorAll?.('[data-draft-action]') ?? []) {
-        if (button instanceof HTMLButtonElement) button.disabled = message.busy === true;
+        if (!(button instanceof HTMLButtonElement)) continue;
+        const action = button.dataset.draftAction;
+        const edits = ['save', 'guide-answer', 'add-stage', 'move-stage', 'catalog-answer', 'autosave-on'];
+        button.disabled = message.busy === true || (message.readOnly === true && edits.includes(action))
+          || (action === 'catalog-answer' && message.dirty === true)
+          || (['save', 'autosave-on', 'submit-review', 'copilot-submit-review'].includes(action) && message.recoveryBlocked === true)
+          || (action === 'recovery-restore' && message.restoreAllowed !== true)
+          || (['recovery-restore', 'recovery-compare', 'recovery-discard'].includes(action) && message.hasRecoveryCandidate !== true);
       }
       return;
     }

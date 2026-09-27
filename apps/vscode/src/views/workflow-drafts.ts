@@ -7,16 +7,46 @@ import { registerMessageRouter } from './messages.ts';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import { SharedWorkflowDraftController, workflowDraftCopilotContextIssue, type WorkflowDraftRunner } from './workflow-drafts-model.ts';
 import { withWorkflowDraftInputFile } from './workflow-drafts-input.ts';
-import { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT, workflowDraftDurabilityLabel } from './workflow-drafts-page.ts';
+import { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT, workflowDraftDurabilityLabel, workflowDraftRecoveryLabel } from './workflow-drafts-page.ts';
+import { createWorkflowDraftRecoveryStore } from './workflow-drafts-recovery.ts';
+import { WorkflowDraftComparisonBuffers, WORKFLOW_DRAFT_COMPARISON_SCHEME, type WorkflowDraftComparison } from './workflow-drafts-comparison.ts';
 
 export type { WorkflowDraftRunner } from './workflow-drafts-model.ts';
+
+const comparisonHosts = new WeakMap<vscode.ExtensionContext, (value: WorkflowDraftComparison) => Promise<void>>();
+function privateComparisonHost(context: vscode.ExtensionContext): (value: WorkflowDraftComparison) => Promise<void> {
+  const retained = comparisonHosts.get(context); if (retained) return retained;
+  const buffers = new WorkflowDraftComparisonBuffers();
+  const provider = vscode.workspace.registerTextDocumentContentProvider(WORKFLOW_DRAFT_COMPARISON_SCHEME, {
+    provideTextDocumentContent: (uri) => {
+      const text = buffers.content(uri.toString());
+      if (text === undefined) throw new Error('This private comparison is no longer retained. Compare again from the draft editor.');
+      return text;
+    }
+  });
+  const closed = vscode.workspace.onDidCloseTextDocument((document) => buffers.release(document.uri.toString()));
+  context.subscriptions.push(provider, closed, { dispose: () => { buffers.clear(); comparisonHosts.delete(context); } });
+  const compare = async (value: WorkflowDraftComparison): Promise<void> => {
+    const opened = buffers.add(value);
+    try {
+      // Content-provider documents are read-only and memory-backed, not plaintext temporary files.
+      // VS Code can normalize EOLs for display: this visual diff never authorizes a bytewise merge.
+      await vscode.commands.executeCommand('vscode.diff', vscode.Uri.parse(opened.left), vscode.Uri.parse(opened.right), opened.title);
+    } catch {
+      buffers.release(opened.left); buffers.release(opened.right);
+      throw new Error('The read-only private comparison could not be opened. Its encrypted checkpoint has not been removed.');
+    }
+  };
+  comparisonHosts.set(context, compare); return compare;
+}
 
 class SharedWorkflowDraftsPanel {
   private static current: SharedWorkflowDraftsPanel | null = null;
   private readonly controller: SharedWorkflowDraftController;
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
-  private constructor(private readonly panel: vscode.WebviewPanel, runner: WorkflowDraftRunner, root: string) {
+  private constructor(private readonly panel: vscode.WebviewPanel, runner: WorkflowDraftRunner, root: string, context: vscode.ExtensionContext) {
+    const recovery = createWorkflowDraftRecoveryStore(path.join(context.globalStorageUri.fsPath, 'workflow-draft-recovery'), context.secrets);
     this.controller = new SharedWorkflowDraftController(root, runner,
       (text, invoke) => withWorkflowDraftInputFile(text, invoke, {
         cleanupWarning: () => { void vscode.window.showWarningMessage('The private draft request could not be removed from the OS temporary directory. The shared-write acknowledgement is unchanged.'); }
@@ -26,19 +56,29 @@ class SharedWorkflowDraftsPanel {
           const view = this.controller.view; const editor = view.editor;
           if (!this.disposed && editor) void this.panel.webview.postMessage({ type: 'draft-status',
             binding: editor.binding, durability: workflowDraftDurabilityLabel(view),
+            recovery: workflowDraftRecoveryLabel(view), hasRecoveryCandidate: view.recovery.candidateAvailable,
+            restoreAllowed: view.recovery.restoreAllowed, readOnly: Boolean(editor.readOnlyReason), dirty: view.dirty,
+            recoveryBlocked: view.recovery.candidateAvailable || ['failed', 'checking'].includes(view.recovery.status),
             autosave: `Shared autosave ${view.autosave ? 'on for this exact draft' : 'off'}.`,
             revision: `Retained saved revision ${editor.record.revision} · lifecycle epoch ${editor.record.lifecycleEpoch}\n${editor.record.revisionSha256}\nCompare-and-swap head: ${editor.head}\nRetained draft authority: ${editor.authority}`,
             operation: view.operationId ? `Last write operation ID: ${view.operationId}. Check status before retrying uncertain writes.` : '',
             busy: view.busy, hasShow: Boolean(view.show), hasPreview: Boolean(view.preview), error: view.error ?? '' }).then(undefined, () => {});
         },
         exit: () => this.panel.dispose(),
+        compareRecovery: privateComparisonHost(context),
         editorRejected: (binding, message) => {
           if (!this.disposed) void this.panel.webview.postMessage({ type: 'editor-rejected', binding, message }).then(undefined, () => {});
         },
-        confirmDiscard: async () => await vscode.window.showWarningMessage(
-          'Discard unsaved workflow draft text?', { modal: true,
-            detail: 'Reload, opening another draft, or creating a draft will replace this editor buffer. Nothing is merged automatically. Cancel keeps the unsaved text.' },
-          'Discard unsaved text') === 'Discard unsaved text',
+        confirmDiscard: async (reason) => {
+          const recoveryOnly = reason === 'private-checkpoint';
+          const label = recoveryOnly ? 'Discard private checkpoint' : 'Discard unsaved text';
+          return await vscode.window.showWarningMessage(
+            recoveryOnly ? 'Discard this private workflow draft checkpoint?' : 'Discard unsaved workflow draft text?', { modal: true,
+              detail: recoveryOnly
+                ? 'This removes only the reviewed private recovery copy on this machine. The current editor text and shared Git draft remain unchanged. Cancel keeps the checkpoint.'
+                : 'This replaces pending editor text and removes only its reviewed private checkpoint on this machine. It does not delete a shared draft or merge anything. Cancel keeps the text and checkpoint.' },
+            label) === label;
+        },
         copyReview: async (repository, argv, surface) => {
           if (surface === 'copilot') {
             const issue = workflowDraftCopilotContextIssue(repository,
@@ -50,14 +90,15 @@ class SharedWorkflowDraftsPanel {
           await vscode.env.clipboard.writeText(surface === 'shell'
             ? terminalCommand(repository, guidance.argv) : guidance.copilotCommand);
         }
-      });
+      }, undefined, recovery);
     const handle = (raw: unknown) => this.controller.receive(raw);
     const router = registerMessageRouter('singularityFlow.sharedWorkflowDrafts', {
       change: handle, refresh: handle, open: handle, create: handle, save: handle,
       reload: handle, show: handle, 'operation-status': handle, 'terminal-review': handle, 'copilot-review': handle,
       'autosave-on': handle, 'autosave-off': handle, stage: handle, 'back-drafts': handle, exit: handle,
       'guide-answer': handle, 'add-stage': handle, 'move-stage': handle, preview: handle, 'catalog-answer': handle,
-      'submit-review': handle, 'copilot-submit-review': handle
+      'submit-review': handle, 'copilot-submit-review': handle,
+      'recovery-restore': handle, 'recovery-compare': handle, 'recovery-discard': handle, 'recovery-refresh': handle
     });
     panel.webview.onDidReceiveMessage((raw: unknown) => { void Promise.resolve(router.route(raw)).catch((error) => {
       this.controller.view.error = error instanceof Error ? error.message : String(error); this.render();
@@ -67,7 +108,13 @@ class SharedWorkflowDraftsPanel {
   }
   private dispose(): void {
     if (this.disposed) return;
-    if (this.controller.view.dirty || ['saving', 'uncertain'].includes(this.controller.view.durability)) void vscode.window.showWarningMessage('The closed draft panel contained pending memory-only text or an unacknowledged checkpoint. Its last acknowledged shared revision is retained; native tab close does not guarantee a flush or local recovery. Check any retained operation ID from the shared store; use the panel Exit action to flush captured edits before closing.');
+    if (this.controller.view.dirty || ['saving', 'uncertain'].includes(this.controller.view.durability)) {
+      const view = this.controller.view;
+      const privateStatus = view.recovery.status === 'saved'
+        ? 'Its acknowledged encrypted private checkpoint is retained on this machine. Reopen this repository and draft to Restore, Compare or Discard.'
+        : 'The latest private checkpoint is not acknowledged; the newest edits may not survive closing. Any earlier acknowledged checkpoint is retained.';
+      void vscode.window.showWarningMessage(`The closed draft panel had pending changes. ${privateStatus} Native close does not flush to Git. Reconcile any unknown shared operation before another write.`);
+    }
     this.disposed = true; this.controller.dispose();
     for (const disposable of this.disposables) disposable.dispose();
     if (SharedWorkflowDraftsPanel.current === this) SharedWorkflowDraftsPanel.current = null;
@@ -87,7 +134,7 @@ class SharedWorkflowDraftsPanel {
     }
     const panel = vscode.window.createWebviewPanel('singularityFlow.sharedWorkflowDrafts', 'Shared Workflow Drafts', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
-    try { this.current = new SharedWorkflowDraftsPanel(panel, runner, root); }
+    try { this.current = new SharedWorkflowDraftsPanel(panel, runner, root, context); }
     catch (error) { panel.dispose(); throw error; }
   }
 }

@@ -458,6 +458,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       if (!node?.id.startsWith('workspace:')) return;
       if (value.action === 'select' && node.runCommand === 'singularityFlow.switchWorkspace') {
         void vscode.commands.executeCommand('singularityFlow.switchWorkspace', node);
+      } else if (value.action === 'open' && node.contextValue?.startsWith('sflow.workspace.active')) {
+        // Older selections may already be active in SFlow while another native folder is open.
+        // Keep a direct repair route instead of hiding selection behind the active Details row.
+        void vscode.commands.executeCommand('singularityFlow.switchWorkspace', node);
       } else if (value.action === 'details') {
         void vscode.commands.executeCommand('singularityFlow.openWorkspaces', node);
       }
@@ -496,7 +500,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         ${workspaceRow
           ? `<span class="workspace-row-actions">${node.runCommand === 'singularityFlow.switchWorkspace'
             ? `<button type="button" data-workspace-action="select" data-workspace-key="${escape(key)}"
-                aria-label="Select ${escape(node.label)}" title="Select ${escape(node.label)}">Select</button>` : ''}
+                aria-label="Select ${escape(node.label)}" title="Select and open ${escape(node.label)} in this window">Select</button>`
+            : node.contextValue?.startsWith('sflow.workspace.active')
+              ? `<button type="button" data-workspace-action="open" data-workspace-key="${escape(key)}"
+                  aria-label="Open ${escape(node.label)} in this window" title="Open ${escape(node.label)} in this window">Open</button>` : ''}
               <button type="button" data-workspace-action="details" data-workspace-key="${escape(key)}"
                 aria-label="Details for ${escape(node.label)}" title="Details for ${escape(node.label)}">Details</button></span>`
           : section === 'favorites'

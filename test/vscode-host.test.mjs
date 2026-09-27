@@ -2143,7 +2143,11 @@ test('AST Intelligence selects one repository from a multi-repository workspace 
   });
 
   const { api, registered } = stubVscode();
-  api.workspace.workspaceFolders = undefined;
+  // Native editing is already rooted at the destination member, while SFlow still selects api.
+  // This is the in-place reconciliation case; a different native folder is covered separately.
+  api.workspace.workspaceFolders = [{ uri: {
+    fsPath: path.join(base, 'workspaces', 'multi-repo', 'repos', 'web')
+  } }];
   const extension = loadExtension(api);
   await extension.activate(context());
   await registered.commands.get('singularityFlow.configureAstIntelligence')();
@@ -3696,7 +3700,7 @@ test('guided start skips completed capability setup and opens workspace creation
   assert.match(html, /Start work/);
 });
 
-test('guided workspace creation prepares the deferred checkout before its single window reload', async (t) => {
+test('guided workspace creation prepares the deferred checkout before its single native folder handoff', async (t) => {
   if (!requireBundle(t)) return;
   const org = await organisation();
   const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
@@ -3726,15 +3730,21 @@ test('guided workspace creation prepares the deferred checkout before its single
   assert.match(panel.webview.html, /<button data-submit="create" >/);
   await panel.post({ type: 'create' });
   await until(() => registered.executedCommands.some((entry) =>
-    entry.id === 'workbench.action.reloadWindow') || panel.webview.html.includes('Setup '));
+    entry.id === 'vscode.openFolder') || registered.errors.length || panel.webview.html.includes('Setup '),
+  { what: 'guided checkout preparation to hand off the native folder or report its refusal' });
   assert.equal(registered.executedCommands.filter((entry) =>
-    entry.id === 'workbench.action.reloadWindow').length, 1,
-  'selection and checkout preparation must not reload the window separately');
+    entry.id === 'workbench.action.reloadWindow').length, 0,
+  'do not reload the old empty native scope between selection and checkout preparation');
   assert.equal(registered.errors.length, 0, registered.errors.join(' | '));
   const createdDirectory = (await readdir(org.base)).find((name) => name.startsWith('guided-fast--'));
   assert.ok(createdDirectory, 'the guided workspace is registered');
   assert.equal(existsSync(path.join(org.base, createdDirectory, 'repos', 'api', '.git')), true,
-    'the selected delivery is materialized before the one reload');
+    'the selected delivery is materialized before the native handoff');
+  const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
+  assert.equal(opened.length, 1, 'selection and preparation share one exact native handoff');
+  assert.equal(path.resolve(opened[0].args[0].fsPath),
+    await realpath(path.join(org.base, createdDirectory, 'repos', 'api')));
+  assert.equal(opened[0].args[1], false);
 });
 
 test('a workspace is chosen as capabilities, and its repositories follow', async (t) => {
@@ -5282,11 +5292,10 @@ test('an ungoverned folder still directs Lifecycle to workspace selection', asyn
     ['singularityFlow.openWorkspaces']);
 });
 
-test('the first explicit workspace selection loads Lifecycle in the same window', async (t) => {
+test('the first explicit workspace selection opens its exact ready repository in the same window', async (t) => {
   if (!requireBundle(t)) return;
-  // Choosing where you are working is not the same as opening code, and it used to be: selecting a
-  // workspace reloaded the window or opened a folder, which threw away every open editor to change
-  // one string. Somebody comparing two workspaces paid for the comparison twice.
+  // A selection must align native editing with the repository SFlow will govern. A window with
+  // nothing open needs the exact ready lead, rather than a reload of the same empty native scope.
   const org = await organisation();
   const registryFile = path.join(org.base, 'registry.json');
   const selectionFile = path.join(org.base, 'active-workspace.json');
@@ -5300,12 +5309,14 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
     if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
     else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
   });
-  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'commerce',
     '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
     '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--clone'], {
     encoding: 'utf8', env: process.env
   });
+  assert.equal(created.status, 0, created.stderr);
+  const target = await realpath(path.join(org.base, 'workspaces', 'commerce', 'repos', 'platform'));
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
@@ -5334,11 +5345,16 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   assert.match(navigation.webview.html, /aria-label="Details for commerce"/,
     'workspace selection and inspection are two explicit actions');
   await navigation.post({ type: 'workspace', action: 'select', key: 'workspaces:0' });
-  await until(() => issued.includes('workbench.action.reloadWindow') ? true : null);
+  const opened = await until(() => registered.executedCommands.find((entry) =>
+    entry.id === 'vscode.openFolder') ?? null);
 
-  assert.equal(issued.includes('vscode.openFolder'), false, 'no folder was opened');
-  assert.equal(issued.includes('workbench.action.reloadWindow'), true,
-    'the current window reloads once because activation originally had no repository services');
+  assert.equal(path.resolve(opened.args[0].fsPath), target);
+  assert.equal(opened.args[1], false, 'the documented boolean signature reuses this window');
+  assert.equal(issued.includes('workbench.action.reloadWindow'), false,
+    'opening the correct folder already restarts activation; do not reload the empty window first');
+  assert.equal(registered.executedCommands.some((entry) =>
+    entry.id === 'workbench.action.chat.newChat' || entry.id === 'workbench.action.chat.open'), false,
+  'selecting a workspace does not implicitly choose a Story or start a chat');
   assert.deepEqual(registered.errors, []);
   // And the choice took: the tree says which one is being worked in, and it is this one.
   const chosen = await until(() =>
@@ -5850,18 +5866,28 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
 
 test('opening a workspace explicitly replaces the current window rather than scattering new ones', async (t) => {
   if (!requireBundle(t)) return;
-  // "Open this workspace" is the separate, explicit act — go there and edit the code. It means what
-  // VS Code's own Open Folder means. Forcing a new window every time left a person with windows
-  // they did not ask for and had to close.
+  // The explicit Open action uses the same selection/native-root handoff as a workspace row.
+  // A deferred workspace has an existing shell, but its checkout has not been requested yet.
   const org = await organisation();
   const registryFile = path.join(org.base, 'registry.json');
-  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+  const selectionFile = path.join(org.base, 'active.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'commerce',
     '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
     '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--no-clone'], {
-    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+    encoding: 'utf8', env: process.env
   });
-  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  assert.equal(created.status, 0, created.stderr);
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
@@ -5879,14 +5905,19 @@ test('opening a workspace explicitly replaces the current window rather than sca
   assert.equal(item.collapsibleState, api.TreeItemCollapsibleState.None,
     'a workspace is a choice, not an expandable folder');
   assert.equal(item.command.command, 'singularityFlow.switchWorkspace',
-    'clicking an inactive workspace selects it; opening code remains a separate action');
+    'clicking an inactive workspace selects it and aligns native editing');
   await registered.commands.get('singularityFlow.openWorkspace')(rows[0]);
 
   const folder = opened.find((entry) => entry.command === 'vscode.openFolder');
   assert.ok(folder, 'a folder was opened');
   assert.equal(folder.args[1], false, 'the documented boolean signature reuses this window');
-  // The lead repository, which is where everything the extension reads actually lives.
-  assert.match(folder.args[0].fsPath, /workspaces\/commerce\/repos\/platform$/);
+  const shell = await realpath(path.join(org.base, 'workspaces', 'commerce'));
+  assert.equal(path.resolve(folder.args[0].fsPath), shell);
+  assert.equal(existsSync(path.join(shell, 'repos', 'platform')), false,
+    'opening a deferred workspace does not implicitly materialize its lead');
+  const selected = JSON.parse(await readFile(selectionFile, 'utf8'));
+  assert.equal(path.resolve(selected.workspacePath), shell);
+  assert.equal(selected.repositoryState, 'missing');
 });
 
 test('opening a workspace directory works: its lead repository is what gets governed', async (t) => {
@@ -7548,34 +7579,55 @@ test('terminal lifecycle and Git-common Auto writes refresh VS Code through boun
     'the background reread must not reveal My Work over the document the reader chose');
 });
 
-test('a workspace chosen while the views are already bound re-points them without reloading', async (t) => {
+test('explicit workspace selection opens the exact new repository and preserves the old dirty checkout', async (t) => {
   if (!requireBundle(t)) return;
-  // The steady state, which is where the cost was. The first selection after activation finds no
-  // repository services and reloads once, deliberately; every selection after that must not, or
-  // comparing two workspaces throws away every open editor twice. This guarantee had a regression
-  // test, the test was deleted in a later refactor, and the behaviour it protects has already
-  // shipped broken once.
+  // The reported split: SFlow had selected B, but native title/editor/terminal/chat still belonged
+  // to A. Opening B must not switch A's Git branch, reset its index, or retarget its existing chat.
   const root = await demoRepository();
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-repoint-'));
   const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
   const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'here', '--base', path.join(base, 'ws'),
     '--lead', 'lead', '--repository', `lead=${root}`, '--confirm', 'here', '--clone'], {
-    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+    encoding: 'utf8', env: process.env
   });
   assert.equal(created.status, 0, created.stderr);
   const status = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'status', path.join(base, 'ws', 'here'), '--json'], {
-    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+    encoding: 'utf8', env: process.env
   });
   assert.equal(status.status, 0, status.stderr);
   assert.equal(JSON.parse(status.stdout).repositories[0].state, 'ready',
-    'the no-reload guarantee applies to a selected checkout that is actually ready');
-  // Set before activation: the workspace tree is populated once, when the extension starts.
-  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+    'the native handoff applies to a selected checkout that is actually ready');
+  const target = await realpath(JSON.parse(status.stdout).repositories[0].absolutePath);
+  assert.notEqual(target, await realpath(root));
+  await writeFile(path.join(root, 'README.md'), '# Preserve unsaved prior repository content\n');
+  await writeFile(path.join(root, 'staged-before-selection.txt'), 'Preserve the prior index\n');
+  run('git', ['add', 'staged-before-selection.txt'], { cwd: root });
+  await writeFile(path.join(root, 'untracked-before-selection.txt'), 'Keep this local buffer\n');
+  const previousGit = {
+    head: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout,
+    branch: run('git', ['branch', '--show-current'], { cwd: root }).stdout,
+    index: await readFile(path.join(root, '.git', 'index')),
+    status: run('git', ['status', '--porcelain=v1', '-z'], { cwd: root }).stdout
+  };
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const previousTerminal = api.window.createTerminal({ name: 'Previous repository', cwd: root });
+  previousTerminal.sendText('echo previous conversation', false);
+  const values = new Map([['unrelated.previousChat', { repository: root, conversation: 'keep-old-chat' }]]);
   const issued = [];
   const dispatch = api.commands.executeCommand;
   api.commands.executeCommand = async (command, ...args) => {
@@ -7583,7 +7635,7 @@ test('a workspace chosen while the views are already bound re-points them withou
     return dispatch(command, ...args);
   };
   const extension = loadExtension(api);
-  await extension.activate(context());
+  await extension.activate(context(values));
 
   const provider = section(registered, 'workspaces');
   const rows = await until(() => {
@@ -7592,14 +7644,325 @@ test('a workspace chosen while the views are already bound re-points them withou
   });
   // Command Palette invocation has no tree node. It must ask which workspace to use rather than
   // silently doing nothing (the row-click path is covered by the first-selection test above).
+  values.set('singularityFlow.pendingCopilotHandoff', {
+    kind: 'story', repository: root, workId: 'OLD-STORY', requestedAt: new Date().toISOString()
+  });
   await registered.commands.get('singularityFlow.switchWorkspace')();
 
   assert.equal(issued.includes('workbench.action.reloadWindow'), false,
-    'the window is not reloaded once the views are already bound');
-  assert.equal(issued.includes('vscode.openFolder'), false, 'and no folder is opened');
+    'do not first reload the old native folder');
+  const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
+  assert.equal(opened.length, 1, 'explicit selection hands the exact new folder to the native host');
+  assert.equal(path.resolve(opened[0].args[0].fsPath), target);
+  assert.equal(opened[0].args[1], false, 'reuse the same native VS Code window');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout, previousGit.head);
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout, previousGit.branch);
+  assert.deepEqual(await readFile(path.join(root, '.git', 'index')), previousGit.index);
+  assert.equal(run('git', ['status', '--porcelain=v1', '-z'], { cwd: root }).stdout, previousGit.status);
+  assert.equal(await readFile(path.join(root, 'README.md'), 'utf8'), '# Preserve unsaved prior repository content\n');
+  assert.equal(await readFile(path.join(root, 'untracked-before-selection.txt'), 'utf8'), 'Keep this local buffer\n');
+  assert.deepEqual(previousTerminal.sent, [{ text: 'echo previous conversation', addNewLine: false }]);
+  assert.equal(registered.terminals.length, 1, 'do not retarget or execute the old terminal');
+  assert.deepEqual(values.get('unrelated.previousChat'), { repository: root, conversation: 'keep-old-chat' });
+  assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
+  assert.equal(issued.some((id) => /workbench\.action\.chat\.(newChat|open|clear)/.test(id)), false);
+  const selected = JSON.parse(await readFile(selectionFile, 'utf8'));
+  assert.equal(path.resolve(selected.repositoryPath), target);
+  assert.equal(selected.storyId, null);
   assert.equal(registered.quickPicks.at(-1)?.options?.title,
     'Work in a Singularity Flow workspace');
   assert.deepEqual(registered.errors, []);
+});
+
+test('selecting a workspace whose exact repository is already the native folder refreshes in place', async (t) => {
+  if (!requireBundle(t)) return;
+  const source = await demoRepository();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-selection-same-folder-'));
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'already-open', '--base', path.join(base, 'ws'),
+    '--lead', 'lead', '--repository', `lead=${source}`, '--confirm', 'already-open', '--clone'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(created.status, 0, created.stderr);
+  const target = await realpath(path.join(base, 'ws', 'already-open', 'repos', 'lead'));
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: target } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const beforeCommands = registered.executedCommands.length;
+  await registered.commands.get('singularityFlow.switchWorkspace')();
+
+  const dispatched = registered.executedCommands.slice(beforeCommands);
+  assert.equal(dispatched.some((entry) =>
+    entry.id === 'vscode.openFolder' || entry.id === 'workbench.action.reloadWindow'), false,
+  'the correct single native folder keeps its editor and receives the ordinary repository refresh');
+  assert.ok(registered.output.some((line) => String(line).includes(`Governed repository: ${target}`)
+    && String(line).includes('already-open')));
+  const selected = JSON.parse(await readFile(selectionFile, 'utf8'));
+  assert.equal(path.resolve(selected.repositoryPath), target);
+  assert.deepEqual(registered.errors, []);
+});
+
+test('explicit selection of a deferred workspace opens its existing shell without cloning its missing lead', async (t) => {
+  if (!requireBundle(t)) return;
+  const source = await demoRepository();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-selection-deferred-'));
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'deferred', '--base', path.join(base, 'ws'),
+    '--lead', 'lead', '--repository', `lead=${source}`, '--confirm', 'deferred', '--no-clone'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(created.status, 0, created.stderr);
+  const shell = await realpath(path.join(base, 'ws', 'deferred'));
+  const missingLead = path.join(shell, 'repos', 'lead');
+  assert.equal(existsSync(missingLead), false);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: source } }];
+  const values = new Map();
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  await registered.commands.get('singularityFlow.switchWorkspace')();
+
+  const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
+  assert.equal(opened.length, 1);
+  assert.equal(path.resolve(opened[0].args[0].fsPath), shell,
+    'open the validated existing workspace shell, never a nonexistent repository path');
+  assert.equal(opened[0].args[1], false);
+  assert.equal(existsSync(missingLead), false, 'selection itself cannot clone or initialize the missing lead');
+  assert.equal(registered.executedCommands.some((entry) =>
+    entry.id === 'workbench.action.reloadWindow' || /^workbench\.action\.chat\./.test(entry.id)), false);
+  assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
+  const selected = JSON.parse(await readFile(selectionFile, 'utf8'));
+  assert.equal(path.resolve(selected.workspacePath), shell);
+  assert.equal(selected.repositoryState, 'missing');
+  assert.equal(path.resolve(selected.repositoryPath), missingLead);
+  assert.deepEqual(registered.errors, []);
+});
+
+test('explicit repository-member selection opens the selected member rather than the workspace lead', async (t) => {
+  if (!requireBundle(t)) return;
+  const source = await demoRepository();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-selection-member-'));
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+  const created = spawnSync(process.execPath, [cli,
+    'workspace', 'create', '--local', '--json', '--id', 'members', '--base', path.join(base, 'ws'),
+    '--lead', 'api', '--repository', `api=${source}`, '--repository', `web=${source}`,
+    '--confirm', 'members', '--clone'], { encoding: 'utf8', env: process.env });
+  assert.equal(created.status, 0, created.stderr);
+  const used = spawnSync(process.execPath, [cli, 'workspace', 'use', 'members', '--json'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(used.status, 0, used.stderr);
+  const lead = await realpath(path.join(base, 'ws', 'members', 'repos', 'api'));
+  const member = await realpath(path.join(base, 'ws', 'members', 'repos', 'web'));
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: lead } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  assert.equal(await registered.commands.get('singularityFlow.switchWorkspaceRepository')('web'), true);
+
+  const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
+  assert.equal(opened.length, 1);
+  assert.equal(path.resolve(opened[0].args[0].fsPath), member);
+  assert.equal(opened[0].args[1], false);
+  const selected = JSON.parse(await readFile(selectionFile, 'utf8'));
+  assert.equal(selected.repositoryId, 'web');
+  assert.equal(path.resolve(selected.repositoryPath), member);
+  assert.equal(registered.executedCommands.some((entry) => /^workbench\.action\.chat\./.test(entry.id)), false);
+  assert.deepEqual(registered.errors, []);
+
+  // Having the selected member among several native folders still leaves Copilot in a mixed root.
+  // Selecting that same member again must normalize the window to one exact repository.
+  const mixedHost = stubVscode();
+  mixedHost.api.workspace.workspaceFolders = [{ uri: { fsPath: lead } }, { uri: { fsPath: member } }];
+  const mixedExtension = loadExtension(mixedHost.api);
+  await mixedExtension.activate(context());
+  assert.equal(await mixedHost.registered.commands.get('singularityFlow.switchWorkspaceRepository')('web'), true);
+  const normalized = mixedHost.registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
+  assert.equal(normalized.length, 1);
+  assert.equal(path.resolve(normalized[0].args[0].fsPath), member);
+  assert.equal(normalized[0].args[1], false);
+  assert.deepEqual(mixedHost.registered.errors, []);
+});
+
+test('an already-active workspace offers Open to repair a native window still rooted elsewhere', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await workspaceSelectionRaceFixture(t);
+  const used = spawnSync(process.execPath, [fixture.cli, 'workspace', 'use', 'older', '--json'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(used.status, 0, used.stderr);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.source } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  const button = await until(() => navigation.webview.html.match(
+    /<button[^>]*data-workspace-action="open"[^>]*aria-label="Open older in this window"[^>]*>/
+  ), { what: 'the already-active workspace to offer an explicit Open action' });
+  assert.match(navigation.webview.html, /aria-label="Details for older"/);
+  assert.doesNotMatch(navigation.webview.html, /aria-label="Select older"/,
+    'the inactive Select label remains distinct from repairing an already-active native root');
+  assert.equal(registered.executedCommands.some((entry) => entry.id === 'vscode.openFolder'), false,
+    'activation and machine-selection reconciliation must not navigate a window without a click');
+  const key = button[0].match(/data-workspace-key="([^"]+)"/)?.[1];
+  assert.ok(key);
+  await navigation.post({ type: 'workspace', action: 'open', key });
+  const opened = await until(() => registered.executedCommands.find((entry) =>
+    entry.id === 'vscode.openFolder') ?? null, { what: 'the active workspace Open action to align the native folder' });
+  assert.equal(path.resolve(opened.args[0].fsPath), await realpath(fixture.nodes.older.openPath));
+  assert.equal(opened.args[1], false);
+  assert.equal(registered.executedCommands.some((entry) => /^workbench\.action\.chat\./.test(entry.id)), false);
+  assert.deepEqual(registered.errors, []);
+});
+
+async function workspaceSelectionRaceFixture(t, { deferredOlder = false } = {}) {
+  const source = await demoRepository();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-selection-race-'));
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+  const nodes = {};
+  const workspaceIds = {};
+  for (const id of ['older', 'newer']) {
+    const created = spawnSync(process.execPath, [cli,
+      'workspace', 'create', '--local', '--json', '--id', id, '--base', path.join(base, 'ws'),
+      '--lead', 'lead', '--repository', `lead=${source}`, '--confirm', id,
+      id === 'older' && deferredOlder ? '--no-clone' : '--clone'], {
+      encoding: 'utf8', env: process.env
+    });
+    assert.equal(created.status, 0, created.stderr);
+    const shell = await realpath(path.join(base, 'ws', id));
+    workspaceIds[id] = JSON.parse(await readFile(path.join(shell, 'workspace.json'), 'utf8')).id;
+    nodes[id] = { id: `workspace:${shell}`, path: shell, label: id, openPath: path.join(shell, 'repos', 'lead') };
+  }
+  return { cli, nodes, workspaceIds, selectionFile, source };
+}
+
+test('a slow older explicit workspace selection cannot navigate after a newer choice', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await workspaceSelectionRaceFixture(t);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.source } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  let releaseOlder;
+  let olderResultReady = false;
+  const olderGate = new Promise((resolve) => { releaseOlder = resolve; });
+  t.after(() => releaseOlder());
+  const originalProgress = api.window.withProgress;
+  api.window.withProgress = async (options, task) => {
+    const result = await originalProgress(options, task);
+    if (options.title === 'Working in older') {
+      olderResultReady = true;
+      await olderGate;
+    }
+    return result;
+  };
+  const older = registered.commands.get('singularityFlow.switchWorkspace')(fixture.nodes.older);
+  await until(() => olderResultReady || null, { what: 'the older CLI selection to complete before its native handoff' });
+  await registered.commands.get('singularityFlow.switchWorkspace')(fixture.nodes.newer);
+  releaseOlder();
+  await older;
+
+  const selected = JSON.parse(await readFile(fixture.selectionFile, 'utf8'));
+  assert.equal(selected.workspaceId, fixture.workspaceIds.newer);
+  const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
+  assert.deepEqual(opened.map((entry) => path.resolve(entry.args[0].fsPath)),
+    [await realpath(fixture.nodes.newer.openPath)],
+    'an older result cannot open B after C became the selected native destination');
+  assert.equal(opened[0].args[1], false);
+});
+
+test('deferred Start Work completion cannot restore a workspace selected before a newer choice', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await workspaceSelectionRaceFixture(t, { deferredOlder: true });
+  const selected = spawnSync(process.execPath, [fixture.cli, 'workspace', 'use', 'older', '--json'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(selected.status, 0, selected.stderr);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.nodes.older.path } }];
+  const values = new Map();
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  let releasePreparation;
+  let preparationReady = false;
+  const preparationGate = new Promise((resolve) => { releasePreparation = resolve; });
+  t.after(() => releasePreparation());
+  const originalProgress = api.window.withProgress;
+  api.window.withProgress = async (options, task) => {
+    const result = await originalProgress(options, task);
+    if (options.title.startsWith('Preparing ')) {
+      preparationReady = true;
+      await preparationGate;
+    }
+    return result;
+  };
+  const preparing = registered.commands.get('singularityFlow.startWork')();
+  await until(() => preparationReady || null, { what: 'the older deferred checkout to finish preparation' });
+  await registered.commands.get('singularityFlow.switchWorkspace')(fixture.nodes.newer);
+  releasePreparation();
+  await preparing;
+
+  assert.equal(existsSync(path.join(fixture.nodes.older.openPath, '.git')), true,
+    'the explicitly requested preparation may finish without undoing the newer selection');
+  const current = JSON.parse(await readFile(fixture.selectionFile, 'utf8'));
+  assert.equal(current.workspaceId, fixture.workspaceIds.newer, 'finishing B must not persist workspace use B over C');
+  const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
+  assert.deepEqual(opened.map((entry) => path.resolve(entry.args[0].fsPath)),
+    [await realpath(fixture.nodes.newer.openPath)]);
+  assert.equal(opened[0].args[1], false);
+  const pending = values.get('singularityFlow.pendingStartWizard.v1');
+  assert.ok(!pending || pending.workspaceId !== fixture.workspaceIds.older || pending.resumeOnActivation !== true,
+    'an obsolete preparation cannot auto-resume its old workspace in the new window');
+  assert.equal(registered.executedCommands.some((entry) => /^workbench\.action\.chat\./.test(entry.id)), false);
 });
 
 test('Git URL maintenance routes one exact repository into a selected-workspace refresh preview', async (t) => {

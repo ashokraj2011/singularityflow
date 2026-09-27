@@ -15,7 +15,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 6
+version: 7
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -40,6 +40,26 @@ Use this topic when the current goal matches **workspaces and sessions**. Start 
 For a large delivery repository, configure its clone strategy while mapping the capability. `blobless` keeps the full checkout but fetches historical file bytes on demand. `blobless-sparse` also materializes only the declared cone directories; Singularity Flow automatically includes `singularity/` and `.github/agents/`. The default fallback is `refuse`: a server that ignores `filter=blob:none` cannot silently turn a planned partial clone into a full monorepo download. Choose the explicit `full` fallback only when that cost is acceptable.
 
 Before any workspace exists, use `sflow workspace prepare <REMOTE> --id <ID> --base <DIRECTORY>` to record and preflight a resumable setup. It creates no destination. Continue only with the returned `workspace bootstrap resume` command and exact workspace-ID confirmation. An interrupted setup remains addressable by its `bst_…` ID.
+
+### Workspace selection and the editor
+
+In VS Code, **Select workspace** opens the selected ready repository in the **same window**.
+For a deferred checkout, it opens the existing workspace folder without cloning application
+code; **Start Work**, explicit Story attachment, or repair materializes the required repositories.
+Selection does not check out a branch, discard changes in the previous repository, or implicitly
+select a Story. VS Code's normal unsaved-editor handling applies to the folder switch.
+
+The folder alignment prevents subsequent session discovery in a new, correctly scoped Copilot
+chat from listing the previously open repository's Stories. Existing chats and terminal history
+are not retargeted. Start a new terminal in the ready repository and a new Copilot chat for that
+context; a planned checkout path is not a working directory.
+Use **Open** on the selected workspace row to reopen its folder if an older installation or a
+terminal selection left a different native folder open.
+
+The shell command `workspace use` records the machine-local selection but cannot change its
+parent terminal's directory. CLI session commands still prefer a governed current directory;
+use exact workspace/repository selectors to inspect another workspace from there. Background
+selection updates do not force other VS Code windows to switch folders.
 
 Workspace registration normally records the approved capability bindings and planned repository
 paths without cloning application code. `workspace use` can select that workspace and reports the
@@ -85,6 +105,7 @@ These commands can mutate governed or machine-local state: `workspace`, `session
 ## Troubleshooting
 
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
+- If `/sf-session` lists the previous repository's Stories, compare the open folder and terminal cwd with `workspace current --json`. Select the workspace in VS Code and start a new, correctly scoped chat or terminal; alternatively pass the exact workspace/repository selectors. A registry selection alone does not retarget an existing host session.
 - If a Story appears in candidates but attach refuses it, use `session candidates --json --diagnostics` with the same exact workspace/repository selectors and follow its unavailable-object or Git-access diagnosis. Do not create a duplicate Story or switch another Story's checkout by hand.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.

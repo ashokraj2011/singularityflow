@@ -1073,6 +1073,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     await vscode.commands.executeCommand('workbench.action.reloadWindow');
   };
+  /**
+   * Align this window's native root with an explicit workspace choice. Rebinding the SFlow
+   * client alone leaves terminals and native Copilot in the previous repository. Deferred
+   * workspaces open their existing shell, never a nonexistent checkout or an implicit clone.
+   * Background machine-selection updates deliberately do not use this window-navigation helper.
+   */
+  const workspaceSelectionFile = path.resolve(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE
+    || path.join(os.homedir(), '.singularity-flow', 'active-workspace.json'));
+  let workspaceNavigationGeneration = 0;
+  let workspaceSelectionQueue: Promise<unknown> = Promise.resolve();
+  const openSelectedWorkspaceFolder = async (selected: {
+    workspaceName: string; workspacePath: string; repositoryPath?: string; repositoryState?: string;
+  }, reloadIfOpen = false, isCurrent = async (): Promise<boolean> => true): Promise<boolean> => {
+    const ready = selected.repositoryState === 'ready';
+    if (ready && !selected.repositoryPath) throw new Error('The selected workspace returned no repository path.');
+    const target = ready
+      // Navigation needs a proven Git root, not another configuration/remote authority fetch.
+      // The workspace command already proved membership; lifecycle activation retains its gates.
+      ? await validateFactoryResetRepositoryDirectory(selected.repositoryPath!, { signal: extensionLifetime.signal })
+      : await fsRealpath(selected.workspacePath);
+    if (!ready && !(await lstat(target)).isDirectory()) {
+      throw new Error('The selected workspace folder is unavailable. Open Workspace details to repair it.');
+    }
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const opened = folders.length === 1
+      ? await fsRealpath(folders[0]!.uri.fsPath).catch(() => folders[0]!.uri.fsPath) : null;
+    if (!await isCurrent()) return true; // a newer selection owns window navigation now
+    if (opened && sameStoryAttachPath(opened, target)) {
+      if (!reloadIfOpen) return false;
+      await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      return true;
+    }
+    // A previous Story handoff is not consent to resume that Story in a newly chosen workspace.
+    // Selecting a workspace also does not select a Story or automatically open a Copilot chat.
+    await context.globalState.update(COPILOT_HANDOFF_KEY, undefined);
+    if (!await isCurrent()) return true;
+    void vscode.window.showInformationMessage(ready
+      ? `${selected.workspaceName} selected. Opening its repository in this window. Start a fresh Copilot chat or terminal for this workspace.`
+      : ['missing', 'empty'].includes(selected.repositoryState ?? '')
+        ? `${selected.workspaceName} selected. Opening its workspace folder; Start Work will prepare the repository when needed.`
+        : `${selected.workspaceName} selected. Opening its workspace folder; inspect Workspace details to repair its repository before starting work.`);
+    // VS Code owns unsaved-file handling and preserves the old checkout, branches, and chat history.
+    // The documented boolean signature replaces this window rather than creating another one.
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), false);
+    return true;
+  };
   const prepareDeferredWorkspaceForWork = async (reloadWhenBlocked = false): Promise<boolean> => {
     let location;
     try { location = resolveCli({ extensionPath: context.extensionPath }); }
@@ -1080,12 +1126,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const registry = new SingularityFlowClient({
       location, repository: process.cwd(), onOutput: (value) => output.append(value)
     });
+    const navigationGeneration = workspaceNavigationGeneration;
+    const selectionRevision = await machineSelectionRevision(workspaceSelectionFile);
+    const selectionIsCurrent = async (): Promise<boolean> => navigationGeneration === workspaceNavigationGeneration
+      && selectionRevision !== undefined
+      && await machineSelectionRevision(workspaceSelectionFile) === selectionRevision;
     try {
       const current = await registry.run<{
         active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
         repositoryId?: string; repositoryState?: string; repositoryCapabilities?: string[];
       }>(['workspace', 'current', '--json']);
       if (!current.active || !current.workspacePath) return false;
+      if (!await selectionIsCurrent()) return true;
       const status = await registry.run<{
         repositories: Array<{ id: string; required?: boolean; state: string; capabilities?: string[] }>;
       }>(['workspace', 'status', current.workspacePath, '--level', 'readiness', '--json']);
@@ -1093,6 +1145,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const selectedCapability = previous?.workspaceId === current.workspaceId
         ? previous?.capabilityId : null;
       const pending = deferredWorkspaceRepositories(status.repositories, current, selectedCapability);
+      if (!await selectionIsCurrent()) return true;
       if (!pending.length) return false;
       if (pending.some((entry) => !['missing', 'empty'].includes(entry.state))) {
         void vscode.window.showWarningMessage(
@@ -1113,6 +1166,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         .find((observed) => observed.id === entry.id)?.state !== 'ready')) {
         throw new Error('A required workspace repository is still unavailable. Open Workspace details for its repair status.');
       }
+      if (!await selectionIsCurrent()) {
+        void vscode.window.showInformationMessage('Workspace selection changed while its repository was being prepared. The prepared checkout was kept; start work again in your selected workspace.');
+        return true;
+      }
+      const selected = await registry.run<{
+        workspaceName: string; workspacePath: string; repositoryPath: string; repositoryState: string;
+      }>(['workspace', 'current', '--json']);
+      if (!await selectionIsCurrent()) return true;
       await context.globalState.update(START_WIZARD_KEY, startWizardState('work', {
         capabilityId: previous?.capabilityId ?? null,
         organisation: previous?.organisation ?? null,
@@ -1121,9 +1182,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         workspacePath: current.workspacePath,
         resumeOnActivation: true
       }));
-      await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      await openSelectedWorkspaceFolder(selected, true, selectionIsCurrent);
       return true;
     } catch (error) {
+      if (!await selectionIsCurrent()) return true;
       showRefusal(error, { headline: 'Could not prepare the workspace for work' });
       if (reloadWhenBlocked) await reloadAfterBlockedPreparation();
       return true;
@@ -3250,14 +3312,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /**
    * Make one workspace current, for this window and for the machine.
    *
-   * Selecting a workspace does not open anything. It used to reload the window, or open the lead
-   * repository as a folder — which threw away every open editor and every scroll position to change
-   * which repository some commands run in, and made "have a look at that other workspace" an act
-   * with a cost. Choosing is now cheap and reversible: pick another one whenever you like.
-   *
-   * What actually changes is the repository the client spawns commands in, and everything read from
-   * it. Opening the lead repository as a folder is still available, as its own action, because
-   * editing the code in it is a different intention from working in it.
+   * An explicit choice also opens its native folder in this same window, so SFlow, newly created
+   * terminals, and native Copilot share the same repository. Workspace details remain available
+   * without selecting it. Selecting an already-open canonical root only refreshes SFlow views.
    */
   type SelectedWorkspace = {
     workspaceId: string;
@@ -3265,6 +3322,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     repositoryId: string | null;
     repositoryPath: string;
     workspacePath: string;
+    navigationIsCurrent?: () => Promise<boolean>;
   };
   const workspaceSelected: Array<(selected: SelectedWorkspace) => void | Promise<void>> = [];
 
@@ -3272,6 +3330,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     target: string, leadPath: string, name: string, repositoryId?: string,
     forceReload = false, deferReload = false
   ): Promise<boolean> {
+    const navigationGeneration = ++workspaceNavigationGeneration;
     try {
       const chooser = new SingularityFlowClient({
         location: resolveCli({ extensionPath: context.extensionPath }),
@@ -3280,18 +3339,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       const selected = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Working in ${name}${repositoryId ? ` · ${repositoryId}` : ''}` },
-        // Recorded machine-wide by the CLI, so the terminal and the editor agree about where you are.
-        () => chooser.run<{
-          workspaceId?: string; workspaceName?: string; repositoryId?: string;
-          repositoryPath?: string; repositoryState?: string; workspacePath?: string;
-        }>(['workspace', 'use', target, ...(repositoryId ? ['--repository', repositoryId] : []), '--json'])
+        // The CLI records the selection; the native folder handoff below aligns this window too.
+        () => {
+          // Keep machine-selector writes ordered by explicit requests. An older slow CLI must
+          // not overwrite the newer choice, even when its window handoff is later fenced out.
+          const action = workspaceSelectionQueue.catch(() => {}).then(() => {
+            if (navigationGeneration !== workspaceNavigationGeneration) return null;
+            return chooser.run<{
+              workspaceId?: string; workspaceName?: string; repositoryId?: string;
+              repositoryPath?: string; repositoryState?: string; workspacePath?: string;
+            }>(['workspace', 'use', target, ...(repositoryId ? ['--repository', repositoryId] : []), '--json']);
+          });
+          workspaceSelectionQueue = action;
+          return action;
+        }
       );
+      if (!selected || navigationGeneration !== workspaceNavigationGeneration) return false;
+      // `workspace use --json` relays the exact record written atomically by the CLI. This cheap
+      // byte fence also catches a newer selection from another window without another Git read.
+      const selectedRevision = createHash('sha256').update(`${JSON.stringify(selected, null, 2)}\n`).digest('hex');
+      const selectionIsCurrent = async (): Promise<boolean> => navigationGeneration === workspaceNavigationGeneration
+        && await machineSelectionRevision(workspaceSelectionFile) === selectedRevision;
+      if (!await selectionIsCurrent()) return false;
       const selection: SelectedWorkspace = {
         workspaceId: selected.workspaceId ?? target,
         workspaceName: selected.workspaceName ?? name,
         repositoryId: selected.repositoryId ?? null,
         repositoryPath: selected.repositoryPath ?? leadPath,
-        workspacePath: selected.workspacePath ?? target
+        workspacePath: selected.workspacePath ?? target,
+        navigationIsCurrent: selectionIsCurrent
       };
       await refreshWorkspaceTree();
       // The Workspaces page is retained when hidden and owns its own row snapshot. Refresh it from
@@ -3299,24 +3375,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // old workspace cannot remain labelled active beside a Navigator that already moved on.
       const { WorkspacesPanel } = lazyPanels();
       await WorkspacesPanel.activeWorkspaceChanged(target);
+      if (!await selectionIsCurrent()) return false;
+      await context.globalState.update(COPILOT_HANDOFF_KEY, undefined);
+      if (!await selectionIsCurrent()) return false;
       if (deferReload) return true;
-      // When activation began without a selected workspace, Lifecycle and Configuration were
-      // registered with their honest empty-state providers and the repository services below were
-      // never created. Reload this same window once so extension activation can bind those views to
-      // the newly selected lead repository. This is not "Open workspace" and never creates another
-      // VS Code window.
-      if (forceReload || !workspaceSelected.length || selected.repositoryState !== 'ready') {
-        void vscode.window.showInformationMessage(
-          selected.repositoryState === 'ready'
-            ? `${name} selected. Loading its Lifecycle and Configuration in this window.`
-            : `${name} selected. Its repository checkout is pending; Start Work will prepare it.`);
-        await vscode.commands.executeCommand('workbench.action.reloadWindow');
-        return true;
-      }
+      if (await openSelectedWorkspaceFolder({ ...selection, repositoryState: selected.repositoryState },
+        forceReload || !workspaceSelected.length || selected.repositoryState !== 'ready', selectionIsCurrent)) return true;
       for (const follow of workspaceSelected) await follow(selection);
       return true;
     } catch (error) {
-      showRefusal(error, { headline: 'Could not switch workspace' });
+      if (navigationGeneration === workspaceNavigationGeneration) showRefusal(error, { headline: 'Could not switch workspace' });
       return false;
     }
   }
@@ -3414,7 +3482,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             `Repository '${repositoryId}' is not a ready member of ${current.workspaceName ?? current.workspaceId}.`);
           return false;
         }
-        if (repositoryId === current.repositoryId) return true;
         return selectWorkspace(
           current.workspacePath,
           repository.absolutePath ?? repository.path ?? current.repositoryPath ?? current.workspacePath,
@@ -3431,8 +3498,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /**
    * Open a workspace's lead repository as this window's folder.
    *
-   * Separate from selecting it, and deliberately so: this one costs you the window. It is for going
-   * to edit the code, not for choosing what the governed screens act on.
+   * Use the same selection and native-root handoff as the workspace row so opening one cannot
+   * leave the registry or governed screens pointing at another workspace.
    */
   /**
    * Resolve a workspace from a clicked node, or ask.
@@ -3469,14 +3536,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Choose the workspace whose repository should open in this window'
       );
       if (!chosen) return;
-      const open = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (open && path.resolve(open) === path.resolve(chosen.lead)) {
-        return void vscode.window.showInformationMessage(`${chosen.name} is already open in this window.`);
-      }
-      // The built-in command takes a boolean as its second argument. Passing an object made that
-      // object truthy on versions implementing the documented signature, which opened an unwanted
-      // second window. `false` means replace this window everywhere.
-      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(chosen.lead), false);
+      await selectWorkspace(chosen.path, chosen.lead, chosen.name);
     }));
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.attachSessionToWorkspace',
@@ -4891,11 +4951,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         signal: extensionLifetime.signal
       });
     } catch (error) {
+      if (selected.navigationIsCurrent && !await selected.navigationIsCurrent()) return;
       void vscode.window.showWarningMessage(
         `${selected.workspaceName} is recorded as your workspace, but this window is still acting on ${path.basename(repository)}: ${(error as Error).message}`);
       return;
     }
+    const leadRepositoryPath = await workspaceLeadDirectory(selected.workspacePath) ?? canonicalTarget;
+    if (selected.navigationIsCurrent && !await selected.navigationIsCurrent()) return;
     repositoryEpoch.moved(canonicalTarget);
+    const selectionEpoch = repositoryEpoch.capture();
     repository = canonicalTarget;
     workspaceStoryCatalog = [];
     workspaceStoryCatalogIssue = null;
@@ -4911,7 +4975,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspaceId: selected.workspaceId,
       workspaceName: selected.workspaceName,
       repositoryId: selected.repositoryId,
-      leadRepositoryPath: await workspaceLeadDirectory(selected.workspacePath) ?? canonicalTarget,
+      leadRepositoryPath,
       origin: `the selected repository of your active workspace, ${selected.workspaceName}`
     });
     readiness = {};
@@ -4922,6 +4986,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     inboxTree.refresh();
     lazyPanels().InboxPanel.refreshCurrent();
     await store.refresh();
+    if (!repositoryEpoch.isCurrent(selectionEpoch)
+      || (selected.navigationIsCurrent && !await selected.navigationIsCurrent())) return;
     diagnosticHasRepository = true;
     diagnosticClient.useRepository(canonicalTarget);
     const {
@@ -4942,8 +5008,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * reuse the one rebind path above; no surface gets to maintain its own idea of the active Story.
    */
   const ACTIVE_SELECTION_REFRESH_DEBOUNCE_MS = 250;
-  const activeSelectionFile = path.resolve(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE
-    || path.join(os.homedir(), '.singularity-flow', 'active-workspace.json'));
+  const activeSelectionFile = workspaceSelectionFile;
   // Repository resolution has already consumed this exact selector. Keep its content revision so
   // steady-state Refresh can go directly to the repository snapshot. If the file cannot be read,
   // `undefined` deliberately preserves the existing CLI check on every request.

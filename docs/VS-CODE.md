@@ -94,7 +94,9 @@ workspace.
 
 Workspaces answers **where am I working?**
 
-- Select a saved workspace in the current VS Code window.
+- Select a saved workspace to open its selected ready repository in the **same VS Code window**.
+  If its application checkout is deferred, selection opens the existing workspace folder instead;
+  it does not clone application code until **Start Work**, explicit Story attachment, or repair.
 - Inspect its local directory, lead repository, participating repositories,
   branches, dirty state, Jira routing, application metadata, and world-model health.
 - Choose **Manage workspace & capabilities** to attach from the approved map, detach while keeping
@@ -106,11 +108,21 @@ Workspaces answers **where am I working?**
   engine refreshes every repository and proves there are no active Stories;
   archived workspaces move into a separate folder and retain every checkout and
   artifact for inspection or restore.
-- Open a repository explicitly only when you want VS Code to change folders.
-  Selecting a workspace alone never opens another VS Code window.
+- Selection does not check out a branch or discard changes in the previous repository. VS Code's
+  normal unsaved-editor handling applies when changing folders. Selecting a workspace never
+  opens another VS Code window and never implicitly selects a Story.
 
 The workspace registry used by the CLI is canonical. VS Code reads and updates
 that registry rather than creating its own workspace records.
+
+The explicit selection aligns this window's folder with its SFlow context so session discovery
+does not keep listing Stories from the previously open repository. Existing chat and terminal
+history is not retargeted: open a new terminal in the selected repository and a new, correctly
+scoped Copilot chat. A deferred checkout path is not a valid terminal working directory.
+The selected row also offers **Open** to align an older selection with this window's folder.
+Machine-wide selection changes from another window or the CLI do not force this window to change
+folders. CLI commands still prefer an explicitly opened governed working directory; use exact
+workspace/repository selectors when inspecting a different workspace from an existing terminal.
 
 ### Lifecycle
 

@@ -30,6 +30,10 @@ async function fixture(t, { objectFormat = 'sha1' } = {}) {
   const publisher = path.join(base, 'publisher');
   await mkdir(root);
   git(root, 'init', '-q', '-b', 'main', `--object-format=${objectFormat}`);
+  // This suite hashes the entire private Git tree to prove reads are non-mutating.
+  // Keep background Git housekeeping from racing that independent byte comparison.
+  git(root, 'config', 'maintenance.auto', 'false');
+  git(root, 'config', 'gc.auto', '0');
   git(root, 'config', 'user.name', 'Story Reader Fixture');
   git(root, 'config', 'user.email', 'reader@example.invalid');
   await writeFile(path.join(root, 'README.md'), '# Application baseline\n');

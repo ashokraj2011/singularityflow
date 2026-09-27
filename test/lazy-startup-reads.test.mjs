@@ -23,7 +23,7 @@ function invoke(args, env, { legacyRoute = false } = {}) {
   });
 }
 
-test('startup workspace and capability reads preserve the legacy CLI contract', async () => {
+test('startup reads preserve legacy fields and text with explicit local workspace manifest hints', async () => {
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-lazy-startup-'));
   const registry = path.join(machine, 'workspaces.json');
   const active = path.join(machine, 'active-workspace.json');
@@ -56,7 +56,22 @@ test('startup workspace and capability reads preserve the legacy CLI contract', 
     const actual = invoke(args, env);
     const expected = invoke(args, env, { legacyRoute: true });
     assert.equal(actual.status, expected.status, `${args.join(' ')} exit status changed`);
-    assert.equal(actual.stdout, expected.stdout, `${args.join(' ')} stdout changed`);
+    if (args.join(' ') === 'workspace list --json') {
+      // The lazy roster adds local manifest hints without changing any legacy registry field.
+      // This fixture has no manifest; unavailable is explicit rather than an inferred mismatch.
+      const actualItems = JSON.parse(actual.stdout);
+      const legacyItems = actualItems.map((item) => {
+        const { manifestStatus, capabilityAuthorityUrl, leadRepositoryUrl, ...legacyFields } = item;
+        assert.deepEqual({ manifestStatus, capabilityAuthorityUrl, leadRepositoryUrl }, {
+          manifestStatus: 'unavailable', capabilityAuthorityUrl: null, leadRepositoryUrl: null
+        });
+        return legacyFields;
+      });
+      assert.deepEqual(legacyItems, JSON.parse(expected.stdout),
+        'workspace list --json changed legacy fields beyond the three manifest hints');
+    } else {
+      assert.equal(actual.stdout, expected.stdout, `${args.join(' ')} stdout changed`);
+    }
     assert.equal(actual.stderr, expected.stderr, `${args.join(' ')} stderr changed`);
   }
 });

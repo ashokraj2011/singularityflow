@@ -10,7 +10,7 @@ measurements of this build.
 |---|---|---|
 | BR-1 | Writes and unrecognised commands cancelled unrelated queued and running VS Code reads. | Invalidate results and in-flight sharing without cancelling existing subscribers. Epochs keep their late results out of the new cache. |
 | BR-2 | An occupied authority-store marker returned an unavailable result without reaching the independent reader. | Busy, damaged and quarantined caches use the original exact-ref, bounded one-off reader. A cache receipt can be written only under the healthy store lease. |
-| BR-3 | The configuration allocator remained held across Git work; an interrupted UUID lock imposed the repeated five-second wait. | The allocator covers only local admission and is released before Git or snapshot validation. Contention waits at most 250 ms before bypass. Owner records permit proven-dead recovery. |
+| BR-3 | The configuration allocator remained held across Git work; an interrupted UUID lock imposed the repeated five-second wait. | The allocator covers only local admission and is released before Git or snapshot validation. Contention uses a 250 ms wait budget before bypass. Owner records permit proven-dead recovery. |
 | BR-4 | Full configuration caches declined every subsequent commit without eviction. | Evict idle entries in least-recently-used order, prioritising safely reclaimable dead-owner entries. Never evict live, foreign or unknown-child entries. |
 
 Repository switching still cancels obsolete reads, with `CLI_READ_SUPERSEDED`. The Store does not
@@ -51,7 +51,8 @@ does not already own those signals. Cleanup checks the held descriptor, inode an
 bytes, preserves protected operations, then re-raises the signal to retain native exit semantics.
 The cleanup loop has a 100 ms best-effort budget. Synchronous filesystem calls cannot provide a
 hard wall-clock guarantee on a stalled filesystem; dead-owner recovery and cache bypass remain
-the fallback for SIGKILL, crashes and incomplete signal cleanup.
+the fallback for SIGKILL, crashes and incomplete signal cleanup. The allocator's 250 ms contention
+budget likewise bounds polling and sleeps, not wall-clock time on a stalled local filesystem.
 
 Cache failures do not relax authority validation. Configuration snapshots still use the existing
 validators on a disposable, non-hardlinked checkout. Authority links still use freshly observed,
@@ -63,7 +64,8 @@ reader. A later uncached failure is still a real failure, not proof of absence.
 
 The configuration cache retains its limits: 32 exact-commit entries, 256 MiB stored bytes and
 16,384 stored files/directories, plus the existing per-tree, per-blob and logical-content limits.
-An entry's modification time records successful reuse while its lease is held. Entry limits are
+An entry's modification time records a verified-object reuse attempt while its lease is held;
+the disposable checkout and snapshot validators still run afterward. Entry limits are
 retained/admission bounds, not a strict peak transfer or allocation guarantee. Active fills may
 temporarily overlap; post-fill accounting evicts idle entries or declines the new entry.
 
@@ -93,3 +95,12 @@ These tests do not qualify native Windows execution, office-provider latency or 
 first paint. The configuration cache remains disabled on Windows, and gateway/default cache-off
 readers remain cache-off. No repository schema migration or authoritative data reset is required.
 Users need a rebuilt CLI and VS Code extension to receive the fixes.
+
+The final focused cache/publication/Story-start batch passed 304/304 tests with zero skips.
+Project checks (1,955), VS Code typecheck and extension build also passed. Broad-suite execution
+found two stale integration assertions and a fixture race with automatic Git maintenance; those
+tests were corrected without changing production behavior, and their focused reruns passed.
+The broad aggregate was stopped after its source selection was superseded by those test changes,
+so it is not a clean full-suite or release qualification receipt. One separately reproduced,
+pre-existing failure remains in `test/cli-failure-presentation.test.mjs`: `start --verbose` with no
+work ID is rejected before the legacy command logger is created. This is not a cache regression.

@@ -7165,6 +7165,17 @@ test('Map capability retains Reset local registration confirmation after the Git
       nextActions: resetPlan.nextActions, routing: null, organisation: null, receipt: null
     }, error: null };
     if (argv.includes('--dry-run')) return { result: autoPlan, error: null };
+    if (argv[0] === 'capability' && argv[1] === 'inspect-repository') {
+      return { result: {
+        status: 'not-onboarded', repositoryUrl: lead, matches: [], pendingMatches: [],
+        checkedLeads: [lead], failures: [], completeness: 'complete',
+        authorityScope: 'explicit', proposalCoverage: 'complete',
+        proposalInspection: { total: 0, inspected: 0 },
+        organisations: [{ lead, stale: false, organisation: {
+          url: lead, configurationCommit: commit, capabilities: [], repositories: {}, governed: false
+        } }]
+      }, error: null };
+    }
     return { result: null, error: `Unexpected command: ${argv.join(' ')}` };
   }, async () => {});
   controller.form.repositoryUrl = lead;
@@ -7173,13 +7184,21 @@ test('Map capability retains Reset local registration confirmation after the Git
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
   registered.informationAnswer = 'Reset local registration';
   await panel.post({ type: 'applyRepositorySetup' });
-  const refreshed = await until(() => panel.webview.html.includes(
-    'Local registration was reset. Repository setup was checked again from Git.'
-  ) ? panel.webview.html : null, { attempts: 100 });
+  // A ready auto preview now continues into the bounded approved-map read. Wait for that read's
+  // completed form, not the notice rendered before the asynchronous continuation begins.
+  const refreshed = await until(() => controller.form.inspectionComplete
+    && panel.webview.html.includes('0 capabilities available as parents')
+    && panel.webview.html.includes(
+      'Local registration was reset. Repository setup was checked again from Git.'
+    ) ? panel.webview.html : null, { attempts: 100 });
   assert.match(refreshed, /data-repository-setup-status="ready"/);
-  assert.match(refreshed, /data-repository-setup-primary="continueRepositorySetup"/);
-  assert.deepEqual(calls.map((argv) => argv.slice(0, 3)), [
-    ['capability', 'onboard', lead], ['capability', 'onboard', lead]
+  assert.equal(controller.form.repositorySetupResolved, true);
+  assert.doesNotMatch(refreshed, /data-repository-setup-primary="continueRepositorySetup"/,
+    'the completed approved-map read must not offer an already-completed continuation');
+  assert.deepEqual(calls, [
+    ['capability', 'onboard', lead, '--reset-local', '--confirm-plan', resetPlan.planId, '--json'],
+    ['capability', 'onboard', lead, '--state-branch', 'state', '--dry-run', '--json'],
+    ['capability', 'inspect-repository', lead, '--json', '--lead', lead, '--include-proposals']
   ]);
   controller.dispose();
 });

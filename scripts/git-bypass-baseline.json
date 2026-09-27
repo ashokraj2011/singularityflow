@@ -501,10 +501,10 @@
     },
     "src/cli.mjs": {
       "counts": {
-        "command-run": 31,
+        "command-run": 30,
         "command-runCommand": 1
       },
-      "digest": "756badee937e509417e092bb4744f32500d987a11c3a804cfc21211c2153c453"
+      "digest": "47a9d3f368539121ef01ed181b2fe4719f6edf2d2ec540d39881138e382c2df6"
     },
     "src/clipboard.mjs": {
       "counts": {
@@ -551,9 +551,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 26
+        "command-run": 27
       },
-      "digest": "687de0265364314ccb8de45cafdd76e3bc4dfcde135b2d3c8f9716999654981d"
+      "digest": "59c8b5fb984c99dae58af7c741a3082b44b0866905849171307f6010c340f224"
     },
     "src/configuration-people.mjs": {
       "counts": {

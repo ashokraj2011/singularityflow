@@ -796,6 +796,86 @@ test('a post-receive hard crash recovers only the exact in-flight sibling ref', 
   assert.equal(await readPendingPublication(fixture.root, fixture.subject), null);
 });
 
+test('a mid-wave hard crash retains both landed peers and an unattempted tail for exact recovery', {
+  skip: process.platform === 'win32' ? 'requires POSIX process-kill fixture hooks' : false
+}, async () => {
+  const fixture = await capabilityTailFixture('STORY-TAIL-WAVE-CRASH', { siblingCount: 3 });
+  const publication = await publishCapabilityTailRoot(fixture);
+  const peerLanded = path.join(gitDir(fixture.root), 'wave-peer-landed');
+  const firstHook = path.join(fixture.siblingRemotes[0], 'hooks/post-receive');
+  const peerHook = path.join(fixture.siblingRemotes[1], 'hooks/post-receive');
+  await writeFile(peerHook, '#!/bin/sh\n: > "$SFLOW_TEST_PEER_LANDED"\nexit 0\n');
+  await chmod(peerHook, 0o755);
+  await writeFile(firstHook, '#!/bin/sh\ntries=0\nwhile [ ! -f "$SFLOW_TEST_PEER_LANDED" ] && [ "$tries" -lt 100 ]; do\n  sleep 0.05\n  tries=$((tries + 1))\ndone\nkill -KILL "$SFLOW_TEST_CLIENT_PID"\nexit 0\n');
+  await chmod(firstHook, 0o755);
+  const recoveryModuleUrl = pathToFileURL(
+    path.join(packageRoot, 'src/capability-publication-recovery.mjs')
+  ).href;
+  const childScript = [
+    `import { publishCapabilityRepositoriesDurably } from ${JSON.stringify(recoveryModuleUrl)};`,
+    `process.env.SFLOW_TEST_CLIENT_PID = String(process.pid);`,
+    `process.env.SFLOW_TEST_PEER_LANDED = ${JSON.stringify(peerLanded)};`,
+    `await publishCapabilityRepositoriesDurably(`,
+    `  ${JSON.stringify(fixture.root)}, ${JSON.stringify(fixture.subject.id)},`,
+    `  ${JSON.stringify({
+      remote: 'origin', branch: fixture.subject.branch, commit: publication.sha, event: publication.event
+    })},`,
+    `  ${JSON.stringify(fixture.entries)}, { rootPublished: true, workers: 2 }`,
+    `);`
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', childScript], {
+    cwd: packageRoot, encoding: 'utf8', timeout: 15_000
+  });
+  assert.equal(child.signal, 'SIGKILL', child.stderr);
+  const pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.deepEqual(pending.record.capabilityPublications.map((entry) => entry.pushOutcome),
+    ['transport-indeterminate', 'transport-indeterminate', 'not-attempted']);
+  assert.deepEqual(pending.record.capabilityPublicationPlan, fixture.entries);
+  for (let index = 0; index < 2; index += 1) {
+    await waitForRemoteRef(fixture.siblingRemotes[index],
+      `refs/heads/${fixture.subject.id}`, fixture.entries[index].commit);
+  }
+  assert.equal(spawnSync('git', ['--git-dir', fixture.siblingRemotes[2],
+    'show-ref', '--verify', '--quiet', `refs/heads/${fixture.subject.id}`]).status, 1);
+  await writeFile(firstHook, '#!/bin/sh\nexit 0\n');
+  await writeFile(peerHook, '#!/bin/sh\nexit 0\n');
+  const synced = await syncPublication(
+    fixture.root, { git: { remote: 'origin' }, ledger: { enabled: false } }, storyFor(fixture.subject)
+  );
+  assert.deepEqual(synced.capabilityPublished.map((entry) => entry.repository),
+    ['sibling-1', 'sibling-2', 'sibling-3']);
+  assert.equal(synced.capabilityPublished[0].reconciled, true);
+  assert.equal(synced.capabilityPublished[1].reconciled, true);
+  assert.equal(await readPendingPublication(fixture.root, fixture.subject), null);
+});
+
+test('a rejected sibling wave retains successful peers and does not start its next wave', async () => {
+  const fixture = await capabilityTailFixture('STORY-TAIL-WAVE-REJECT', { siblingCount: 3 });
+  const publication = await publishCapabilityTailRoot(fixture);
+  const allowPushes = await rejectPushes(fixture.siblingRemotes[0]);
+  const result = await publishCapabilityRepositoriesDurably(
+    fixture.root, fixture.subject.id,
+    { remote: 'origin', branch: fixture.subject.branch, commit: publication.sha, event: publication.event },
+    fixture.entries, { rootPublished: true, workers: 2 }
+  );
+  assert.deepEqual(result.published.map((entry) => entry.repository), ['sibling-2']);
+  assert.deepEqual(result.pending.map((entry) => entry.repository), ['sibling-1', 'sibling-3']);
+  assert.deepEqual(result.pending.map((entry) => entry.pushOutcome), ['rejected', 'not-attempted']);
+  const pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.deepEqual(pending.record.capabilityPublicationPlan, fixture.entries);
+  assert.deepEqual(pending.record.capabilityPublications, result.pending);
+  assert.equal(git(['--git-dir', fixture.siblingRemotes[1], 'rev-parse',
+    `refs/heads/${fixture.subject.id}`], fixture.siblings[1]), fixture.entries[1].commit);
+  assert.equal(spawnSync('git', ['--git-dir', fixture.siblingRemotes[2],
+    'show-ref', '--verify', '--quiet', `refs/heads/${fixture.subject.id}`]).status, 1);
+  await allowPushes();
+  const synced = await syncPublication(
+    fixture.root, { git: { remote: 'origin' }, ledger: { enabled: false } }, storyFor(fixture.subject)
+  );
+  assert.deepEqual(synced.capabilityPublished.map((entry) => entry.repository), ['sibling-1', 'sibling-3']);
+  assert.equal(await readPendingPublication(fixture.root, fixture.subject), null);
+});
+
 test('Story sync rejects tampering with every sibling publication authority field', async (t) => {
   const fixture = await capabilityTailFixture('STORY-TAIL-TAMPER');
   await publishCapabilityTailRoot(fixture);

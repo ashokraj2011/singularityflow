@@ -5992,6 +5992,126 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
     'the one-shot handoff cannot reopen chat on every later reload');
 });
 
+/** A real published Story and its approved pin, with only local bare Git authorities. */
+async function publishedStoryHandoffFixture(t) {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-start-handoff-host-'));
+  const keys = {
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'registry.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'),
+    SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE: path.join(base, 'configuration-cache')
+  };
+  const previous = Object.fromEntries(Object.keys(keys).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, keys);
+  let hostContext = null;
+  t.after(async () => {
+    // Shut down the host before restoring machine selection or removing its checkout. In particular,
+    // the advisory idle callback must not outlive the window whose exact identity it was given.
+    for (const disposable of hostContext?.subscriptions ?? []) disposable.dispose?.();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(base, { recursive: true, force: true });
+  });
+  const checkout = path.join(base, 'checkout');
+  await mkdir(checkout);
+  const git = (...args) => run('git', args, { cwd: checkout }).stdout.trim();
+  git('init', '-b', 'main');
+  git('config', 'user.name', 'Initiative Owner');
+  git('config', 'user.email', EMAIL);
+  await writeFile(path.join(checkout, 'README.md'), '# Local Story handoff fixture\n');
+  await initializeDefinition(checkout);
+  const workflowFile = path.join(checkout, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  workflow.approvalSecurity.autoEnrollNewIdentities = false;
+  for (const authority of Object.values(workflow.approvalAuthorities)) {
+    authority.members = [{ name: 'Initiative Owner', email: EMAIL }];
+  }
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  git('add', '.');
+  git('commit', '-m', 'Approved Story handoff fixture');
+  const remote = path.join(base, 'remote.git');
+  run('git', ['init', '--bare', '-b', 'main', remote], { cwd: base });
+  git('remote', 'add', 'origin', remote);
+  git('push', '-u', 'origin', 'main');
+  git('push', 'origin', 'main:refs/heads/sflow/config');
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'),
+    'start', 'HOST-HANDOFF', '--json', '--isolated-worktree', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Published handoff', '--description', 'Confirm a new Story window'],
+  { cwd: checkout, encoding: 'utf8', env: process.env });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const result = JSON.parse(started.stdout).data;
+  assert.equal(result.publication.pushed, true, 'the fixture uses a real published start');
+  assert.match(result.configuration.commit, /^[a-f0-9]{40}$/);
+  const root = await realpath(result.repositoryPath);
+  const hint = {
+    schemaVersion: 1, repositoryPath: root, storyId: result.id,
+    branch: result.publication.branch, publicationCommit: result.publication.commit,
+    configurationCommit: result.configuration.commit, createdAt: new Date().toISOString()
+  };
+  return { root, hint, setContext(value) { hostContext = value; } };
+}
+
+function storyInventoryInvocations(registered) {
+  return registered.output.filter((line) => String(line).includes('[Singularity Flow timing]')
+    && String(line).includes('"command":"session"')
+    && String(line).includes('"subcommand":"candidates"')).length;
+}
+
+test('post-start handoff defers optional inventory only after a confirmed pinned Story and explicit Refresh cancels idle scan', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await publishedStoryHandoffFixture(t);
+  const values = new Map([['singularityFlow.storyStartHandoff.v1', fixture.hint]]);
+  const hostContext = context(values);
+  fixture.setContext(hostContext);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.root } }];
+  await loadExtension(api).activate(hostContext);
+
+  assert.ok(registered.output.some((line) => String(line).includes(
+    'Post-start Story inventory deferred until idle; the local lifecycle has been confirmed.')),
+  'the exact published HEAD, Story, repository and approved configuration pin match a real snapshot');
+  assert.equal(values.get('singularityFlow.storyStartHandoff.v1'), undefined,
+    'the advisory record is consumed once rather than becoming durable governance');
+  assert.equal(storyInventoryInvocations(registered), 0,
+    'workspace-wide Story inventory does not compete with the confirmed first lifecycle paint');
+  const lifecycle = section(registered, 'lifecycle');
+  assert.ok(lifecycle.getChildren().some((node) => node.id === 'active-story:HOST-HANDOFF'),
+    'the published Story is rendered by the real snapshot, not manufactured from the hint');
+  const inbox = section(registered, 'inbox');
+  assert.ok(JSON.stringify(inbox.getChildren()).includes('Remote Story inventory has not been refreshed'),
+    'deferred inventory is explicitly unavailable rather than falsely ready');
+  assert.deepEqual(registered.errors, []);
+
+  await registered.commands.get('singularityFlow.refresh')();
+  assert.equal(storyInventoryInvocations(registered), 1, 'explicit Refresh discovers Stories immediately');
+  await new Promise((resolve) => setTimeout(resolve, 5_200));
+  assert.equal(storyInventoryInvocations(registered), 1,
+    'the cancelled advisory timer must not purchase another discovery after explicit Refresh');
+});
+
+test('post-start handoff with a mismatched configuration pin retains ordinary Story discovery', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await publishedStoryHandoffFixture(t);
+  const values = new Map([['singularityFlow.storyStartHandoff.v1', {
+    ...fixture.hint, configurationCommit: 'f'.repeat(40)
+  }]]);
+  const hostContext = context(values);
+  fixture.setContext(hostContext);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.root } }];
+  await loadExtension(api).activate(hostContext);
+  await until(() => storyInventoryInvocations(registered) === 1, { attempts: 400,
+    what: 'ordinary remote Story discovery after the advisory configuration pin is refused' });
+  assert.equal(registered.output.some((line) => String(line).includes(
+    'Post-start Story inventory deferred until idle')), false);
+  assert.ok(values.get('singularityFlow.storyStartHandoff.v1'),
+    'an unproven hint does not become a consumed successful handoff');
+  assert.deepEqual(registered.errors, []);
+});
+
 test('opening a workspace explicitly replaces the current window rather than scattering new ones', async (t) => {
   if (!requireBundle(t)) return;
   // The explicit Open action uses the same selection/native-root handoff as a workspace row.

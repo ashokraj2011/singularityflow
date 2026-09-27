@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 // Synchronous: the git side of this module is sync throughout, and `exists` from util is a promise —
 // `if (!exists(p))` would be false forever, so the 'absent' branch below could never fire.
 import { existsSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import YAML from 'yaml';
 
 import {
@@ -41,8 +42,9 @@ import {
   resolveStoryConfigurationSnapshotCapability
 } from './configuration-branch.mjs';
 import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
-import { runRemoteGitAsync } from './git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
+import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
@@ -54,6 +56,14 @@ import {
 } from './sgos/candidate-lifecycle.mjs';
 
 const DEFAULT_REMOTE_WORKERS = 4;
+
+/** Bounded publication waves share the remote-read fan-out, but cannot exceed that hard limit. */
+export function capabilityPublicationWorkers(total, requested = DEFAULT_REMOTE_WORKERS) {
+  const configured = Math.trunc(Number(requested));
+  return Math.max(1, Math.min(DEFAULT_REMOTE_WORKERS,
+    Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_REMOTE_WORKERS,
+    Math.max(1, total)));
+}
 
 function registeredWorldModelConfig(definition) {
   if (!definition || !isWorldModelV4({ definition })) return null;
@@ -70,9 +80,9 @@ async function prefetchRegisteredWorldModelAuthority(root, definition, storyRemo
   const config = registeredWorldModelConfig(definition);
   if (!config) return null;
   const remoteRef = `refs/remotes/${config.remote}/${config.stateBranch}`;
-  // The ordinary Story preflight has just prune-fetched every branch from this remote. Reuse that
-  // exact observation instead of issuing a second state fetch. An absent tracking ref is therefore
-  // positive evidence that the same reachable remote no longer publishes the state branch.
+  // Story preflight has just prune-fetched this remote, or freshly proved that the operation-local
+  // launch fetch still names the exact base/state/destination tips. Reuse that proof rather than
+  // issuing a second state fetch. An absent tracking ref is positive evidence only at this boundary.
   if (config.remote === storyRemote) {
     const commit = refHead(root, remoteRef);
     return Object.freeze({
@@ -119,6 +129,68 @@ export function preflightWorldModelAuthorityRefreshes(preflight = []) {
   return Object.fromEntries((preflight ?? [])
     .filter((entry) => entry?.worldModelAuthorityRefresh?.attempted)
     .map((entry) => [entry.repository, structuredClone(entry.worldModelAuthorityRefresh)]));
+}
+
+/**
+ * Reuse only an operation-local launch fetch whose exact inputs are still freshly advertised.
+ *
+ * A matching base alone is insufficient: a changed/removed state tip or a stale destination ref
+ * must take the ordinary prune-fetch path. This receipt is never persisted or accepted from argv.
+ * Local tips and transport identity are checked again after the async probe, so a concurrent fetch
+ * or remote retarget cannot make a stale receipt authoritative.
+ */
+async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, proof, runGit) {
+  proof = proof ? Object.freeze({ ...proof }) : null;
+  if (!proof || proof.remote !== remote || proof.baseBranch !== baseBranch
+      || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(proof.baseCommit ?? '')
+      || proof.transportRemote !== candidate.fetchAuthority.url
+      || proof.remoteFingerprint !== candidate.fetchAuthority.fingerprint) return false;
+  const { samePlatformPath } = await import('./story-worktree.mjs');
+  let commonDirectories;
+  try {
+    commonDirectories = await Promise.all([
+      realpath(proof.sourceCommonDir), realpath(gitCommonDir(candidate.root))
+    ]);
+  } catch { return false; }
+  if (!samePlatformPath(...commonDirectories)) return false;
+  const baseRef = `refs/remotes/${remote}/${baseBranch}`;
+  const storyRef = `refs/remotes/${remote}/${storyBranch}`;
+  const remoteBaseRef = `refs/heads/${baseBranch}`;
+  const remoteStoryRef = `refs/heads/${storyBranch}`;
+  const config = registeredWorldModelConfig(candidate.worldModelDefinition);
+  const state = config?.remote === remote ? config : null;
+  if (state && (proof.stateBranch !== state.stateBranch
+      || (proof.stateCommit !== null
+        && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(proof.stateCommit ?? '')))) return false;
+  const stateRef = state ? `refs/remotes/${remote}/${state.stateBranch}` : null;
+  const remoteStateRef = state ? `refs/heads/${state.stateBranch}` : null;
+  const localInputsMatch = () => refHead(candidate.root, baseRef) === proof.baseCommit
+    && refHead(candidate.root, storyRef) === null
+    && (!state || refHead(candidate.root, stateRef) === proof.stateCommit);
+  if (!localInputsMatch()) return false;
+  let observed;
+  try {
+    observed = await new GitRemoteSession({
+      cwd: candidate.root, runAsyncCommand: runGit
+    }).observeAsync(candidate.fetchAuthority.url, {
+      includeHead: false,
+      refs: [remoteBaseRef, remoteStoryRef, ...(remoteStateRef ? [remoteStateRef] : [])],
+      refresh: true,
+      timeoutMs: 5_000
+    });
+  } catch {
+    // Optional reuse must not replace the normal fetch's classified office-transport refusal.
+    return false;
+  }
+  if (!observed.ok || observed.refs.get(remoteBaseRef) !== proof.baseCommit
+      || observed.refs.has(remoteStoryRef)
+      || (state && (observed.refs.get(remoteStateRef) ?? null) !== proof.stateCommit)
+      || !localInputsMatch()) return false;
+  const confirmed = configuredRemoteAuthority(candidate.root, remote, { direction: 'fetch' });
+  const identity = configuredRemoteIdentity(candidate.root, remote, { direction: 'fetch' });
+  return confirmed.url === candidate.fetchAuthority.url
+    && confirmed.fingerprint === candidate.fetchAuthority.fingerprint
+    && identity.configured && !identity.ambiguous;
 }
 
 function assertCheckoutRemoteIdentity(root, repository, remote, { publishRequired }) {
@@ -581,6 +653,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   capabilityId = plan?.record?.capability ?? null,
   configurationSnapshot = null,
   capabilityEvidence = null,
+  launchFetchProof = null,
   workers = DEFAULT_REMOTE_WORKERS,
   runGit = runRemoteGitAsync
 } = {}) {
@@ -676,17 +749,27 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // refused. Any checkout policy that wants a broader default refspec belongs to preparation, after
   // the complete Story-start readiness gate.
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
-    incrementCommandCounter('git.remote-fetch');
-    const transport = frozenRemoteTransport(candidate.fetchAuthority.url);
-    const pruneRefspecs = safePruneRefspecs(candidate.root, remote);
-    const result = await runGit([
-      'fetch', ...(pruneRefspecs ? ['--prune'] : []), transport.remote,
-      `+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])
-    ], {
-      cwd: candidate.root, operation: 'remote-configuration', allowFailure: true,
-      env: transport.env
-    });
-    const worldModelAuthorityRefresh = result.status === 0
+    const fetchReused = await reusableLaunchFetch(
+      candidate, remote, plan.resolution.resolved[candidate.repository.id].branch,
+      storyBranch, launchFetchProof, runGit
+    );
+    let result;
+    if (fetchReused) {
+      incrementCommandCounter('git.story-launch-fetch-reused');
+      result = { status: 0, stdout: '', stderr: '' };
+    } else {
+      incrementCommandCounter('git.remote-fetch');
+      const transport = frozenRemoteTransport(candidate.fetchAuthority.url);
+      const pruneRefspecs = safePruneRefspecs(candidate.root, remote);
+      result = await runGit([
+        'fetch', ...(pruneRefspecs ? ['--prune'] : []), transport.remote,
+        `+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])
+      ], {
+        cwd: candidate.root, operation: 'remote-configuration', allowFailure: true,
+        env: transport.env
+      });
+    }
+    const worldModelAuthorityRefresh = processResultSucceeded(result)
       ? await prefetchRegisteredWorldModelAuthority(
           candidate.root, candidate.worldModelDefinition, remote
         )
@@ -696,10 +779,11 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       // Bind the fetch to the exact URL captured above. The explicit destination refspec retains
       // the normal remote-tracking layout without letting a concurrent `remote set-url` redirect it.
       result,
+      fetchReused,
       worldModelAuthorityRefresh
     };
   });
-  const failedFetch = fetched.find((entry) => entry.result.status !== 0);
+  const failedFetch = fetched.find((entry) => !processResultSucceeded(entry.result));
   if (failedFetch) {
     throw new SingularityFlowError(
       `Cannot refresh required repository '${failedFetch.repository.id}' from '${remote}'. `
@@ -709,7 +793,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   }
 
   const candidatesToProbe = [];
-  for (const { repository, root, pushAuthority, worldModelAuthorityRefresh } of fetched) {
+  for (const { repository, root, pushAuthority, worldModelAuthorityRefresh, fetchReused } of fetched) {
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
     if (!refExists(root, sourceRef)) {
@@ -740,6 +824,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       transportRemote: pushAuthority?.url ?? null,
       publicationAuthority: pushAuthority,
       worldModelAuthorityRefresh,
+      fetchReused,
       publishRequired
     });
   }
@@ -757,7 +842,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
     });
     return { candidate, dryRun };
   });
-  const refused = checked.find((entry) => entry.dryRun && entry.dryRun.status !== 0);
+  const refused = checked.find((entry) => entry.dryRun && !processResultSucceeded(entry.dryRun));
   if (refused) {
     const { candidate, dryRun } = refused;
     throw new SingularityFlowError(
@@ -829,41 +914,39 @@ export function preflightPublicationAuthority(preflight, repositoryRoot) {
     ?.publicationAuthority ?? null;
 }
 
-/** Publish exact preflight-bound sibling commits, returning a resumable remainder on failure. */
-export async function publishCapabilityRepositories(entries = []) {
-  const published = [];
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index];
-    const authority = configuredRemoteAuthority(entry.root, entry.remote);
+/** One exact sibling push; the caller owns durable in-flight journaling and wave scheduling. */
+async function publishCapabilityRepository(entry, {
+  remoteAuthority = configuredRemoteAuthority,
+  observeBranch = exactRemoteBranchObservationAsync,
+  publishCandidate = publishVerifiedSgosLifecycleCandidate
+}) {
+    const authority = remoteAuthority(entry.root, entry.remote);
     if (!entry.remoteFingerprint || !authority.url
         || authority.fingerprint !== entry.remoteFingerprint) {
       return {
-        published,
-        pending: [
-          { ...entry, pushOutcome: 'rejected' },
-          ...entries.slice(index + 1).map((pending) => ({
-            ...pending, pushOutcome: pending.pushOutcome ?? 'not-attempted'
-          }))
-        ],
+        published: [],
+        pending: [{ ...entry, pushOutcome: 'rejected' }],
         error: `Configured remote '${entry.remote}' for '${entry.repository}' changed after Story preflight`
       };
     }
     const priorOutcome = entry.pushOutcome ?? 'not-attempted';
     if (priorOutcome === 'transport-indeterminate') {
-      const observed = await exactRemoteBranchObservationAsync(
+      const observed = await observeBranch(
         entry.root, authority.url, entry.branch
       );
-      if (!observed.reachable || observed.malformed) {
+      const reachable = observed.reachable
+        && (!observed.result || processResultSucceeded(observed.result));
+      if (!reachable || observed.malformed) {
         return {
-          published,
-          pending: [entry, ...entries.slice(index + 1)],
-          error: !observed.reachable
+          published: [],
+          pending: [entry],
+          error: !reachable
             ? `Cannot verify the prior indeterminate publication for '${entry.repository}' because its remote is unavailable`
             : `Cannot verify the prior indeterminate publication for '${entry.repository}' because its remote advertisement is ambiguous`
         };
       }
       if (observed.sha === entry.commit) {
-        published.push({
+        return { published: [{
           repository: entry.repository,
           remote: entry.remote,
           branch: entry.branch,
@@ -871,18 +954,12 @@ export async function publishCapabilityRepositories(entries = []) {
           commit: entry.commit,
           pushed: true,
           reconciled: true
-        });
-        continue;
+        }], pending: [], error: null };
       }
       if (observed.sha !== null) {
         return {
-          published,
-          pending: [
-            { ...entry, pushOutcome: 'rejected' },
-            ...entries.slice(index + 1).map((pending) => ({
-              ...pending, pushOutcome: pending.pushOutcome ?? 'not-attempted'
-            }))
-          ],
+          published: [],
+          pending: [{ ...entry, pushOutcome: 'rejected' }],
           error: `Remote Story branch '${entry.branch}' for '${entry.repository}' contains a different commit`
         };
       }
@@ -892,7 +969,7 @@ export async function publishCapabilityRepositories(entries = []) {
     // commit happens to be an ancestor (or the same commit).
     let publication;
     try {
-      publication = await publishVerifiedSgosLifecycleCandidate(entry.root, {
+      publication = await publishCandidate(entry.root, {
         binding: entry.candidate ?? null,
         commit: entry.commit,
         branch: entry.branch,
@@ -908,14 +985,15 @@ export async function publishCapabilityRepositories(entries = []) {
       });
     } catch (error) {
       return {
-        published,
-        pending: [entry, ...entries.slice(index + 1)],
+        published: [],
+        pending: [entry],
         error: error?.message ?? String(error)
       };
     }
     const { result } = publication;
-    if (result.status !== 0) {
-      const currentOutcome = publicationPushOutcome(result);
+    if (!processResultSucceeded(result)) {
+      const currentOutcome = processResultCompleted(result)
+        ? publicationPushOutcome(result) : 'transport-indeterminate';
       // A returned definitive rejection supersedes an older ambiguous attempt. Equality was already
       // checked above while that ambiguity was authoritative; retaining it after a known collision
       // would let a later sync claim another actor's identical ref.
@@ -923,17 +1001,12 @@ export async function publishCapabilityRepositories(entries = []) {
         ? 'transport-indeterminate'
         : 'rejected';
       return {
-        published,
-        pending: [
-          { ...entry, pushOutcome },
-          ...entries.slice(index + 1).map((pending) => ({
-            ...pending, pushOutcome: pending.pushOutcome ?? 'not-attempted'
-          }))
-        ],
+        published: [],
+        pending: [{ ...entry, pushOutcome }],
         error: (result.stderr || result.stdout || 'remote rejected the Story branch').trim()
       };
     }
-    published.push({
+    return { published: [{
       repository: entry.repository,
       remote: entry.remote,
       branch: entry.branch,
@@ -942,7 +1015,53 @@ export async function publishCapabilityRepositories(entries = []) {
       pushed: true,
       candidateVerified: publication.candidateVerified,
       legacyUnverified: publication.legacyUnverified
+    }], pending: [], error: null };
+}
+
+/**
+ * Publish bounded waves, settling every launched repository before reporting a refusal.
+ *
+ * Result and recovery order follows the plan, never transport completion order. A refusal stops
+ * later waves but cannot cancel another already-launched push: its receive-pack may have landed.
+ * The durable wrapper records the entire wave before calling this function.
+ */
+export async function publishCapabilityRepositories(entries = [], {
+  workers = DEFAULT_REMOTE_WORKERS,
+  remoteAuthority = configuredRemoteAuthority,
+  observeBranch = exactRemoteBranchObservationAsync,
+  publishCandidate = publishVerifiedSgosLifecycleCandidate
+} = {}) {
+  const plan = entries.map((entry) => structuredClone(entry));
+  const published = [];
+  const width = capabilityPublicationWorkers(plan.length, workers);
+  for (let offset = 0; offset < plan.length; offset += width) {
+    const wave = plan.slice(offset, offset + width);
+    const results = await mapLimit(wave, width, async (entry) => {
+      try {
+        return await publishCapabilityRepository(entry, {
+          remoteAuthority, observeBranch, publishCandidate
+        });
+      } catch (error) {
+        // Configuration/observation exceptions occur before Candidate dispatch. Settle the other
+        // wave members, but do not grant equal-tip reconciliation authority to an unattempted push.
+        return {
+          published: [], pending: [entry],
+          error: error?.message ?? String(error)
+        };
+      }
     });
+    published.push(...results.flatMap((result) => result.published));
+    const refused = results.find((result) => result.pending.length);
+    if (refused) {
+      return {
+        published,
+        pending: [...results.flatMap((result) => result.pending),
+          ...plan.slice(offset + width).map((entry) => ({
+            ...entry, pushOutcome: entry.pushOutcome ?? 'not-attempted'
+          }))],
+        error: refused.error
+      };
+    }
   }
   return { published, pending: [], error: null };
 }

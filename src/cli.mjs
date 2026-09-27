@@ -23,11 +23,14 @@ import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile }
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, isAncestor, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, removeCleanAttachStagingWorktree, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, isAncestor, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, removeCleanAttachStagingWorktree, repoRoot, validBranch } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from './session-story-discovery.mjs';
 import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
 import { samePlatformPath } from './story-worktree.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { validatePortableWorkId } from './work-id.mjs';
+import { settleStoryStartReadWave } from './story-start-read-wave.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import {
@@ -1519,7 +1522,9 @@ async function sealIsolatedStoryConfiguration(sourceRoot, workId) {
   // Resolve and validate every approved byte while still in the worktree to which the FOS pin is
   // bound. The exact immutable snapshot, rather than a new lookup from the child worktree, is what
   // crosses the isolated-start boundary.
-  const snapshot = await loadStoryConfigurationSnapshot(authority);
+  const snapshot = await loadStoryConfigurationSnapshot(authority, {
+    session: new GitRemoteSession({ cwd: sourceRoot }), useObjectCache: true
+  });
   return Object.freeze({
     workId,
     sourceRepository: await realpath(sourceRoot),
@@ -1616,6 +1621,17 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   // lifecycle state, so branch existence alone is not enough to skip the FOS snapshot.
   const canonicalBranch = optionString(options, 'ref', id);
   const durableLocalStory = await durableLocalStoryOnBranch(sourceRoot, id, canonicalBranch);
+  if (!durableLocalStory && refExists(sourceRoot, `refs/heads/${canonicalBranch}`)
+      && fileAtRef(sourceRoot, `refs/heads/${canonicalBranch}`,
+        posix(path.join('singularity', 'seeds', `${id}.yml`))) === null) {
+    // This local name can never be adopted, irrespective of current authority or base. Refuse in
+    // the launch checkout before a seal/fetch or disposable worktree is created and rolled back.
+    throw new SingularityFlowError(
+      `Local branch '${canonicalBranch}' exists but contains neither governed Story state nor a materialized Story seed. `
+      + 'Singularity Flow will not adopt an ungoverned branch as a new Story. Rename or remove that branch, then retry.',
+      { code: 'STORY_BRANCH_EXISTS' }
+    );
+  }
   const sealedConfiguration = durableLocalStory
     ? null
     : await measureCommandSpan('start.authority', () =>
@@ -1691,7 +1707,14 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
         transportRemote: requestedBaseFetchAuthority.url,
         remoteFingerprint: requestedBaseFetchAuthority.fingerprint,
         baseBranch: requestedBase,
-        baseCommit: launchBaseCommit
+        baseCommit: launchBaseCommit,
+        // Only the same-transport state tip is covered by the launch's full fetch. Capability
+        // preflight re-observes these exact refs before admitting this process-private proof.
+        stateBranch: worldModelStateAuthority(launchDefinition ?? {}).remote === requestedRemote
+          ? worldModelStateAuthority(launchDefinition ?? {}).branch : null,
+        stateCommit: worldModelStateAuthority(launchDefinition ?? {}).remote === requestedRemote
+          ? refHead(sourceRoot, `refs/remotes/${requestedRemote}/${worldModelStateAuthority(launchDefinition ?? {}).branch}`)
+          : null
       });
     }
     if (configurationHandoff) {
@@ -1720,6 +1743,22 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
 export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
+  // These refusals need neither configuration authority nor a new worktree. Apply them before
+  // recovery/isolated routing; the exact selected workflow still enforces its own ID policy later.
+  validatePortableWorkId(id);
+  validBranch(root, optionString(options, 'ref', id));
+  if ([optionBoolean(options, 'jira'), Boolean(optionString(options, 'github')),
+    Boolean(optionString(options, 'story-file'))].filter(Boolean).length > 1) {
+    throw new SingularityFlowError('Choose exactly one of --jira, --github, or --story-file.');
+  }
+  if (optionString(options, 'base') && optionStrings(options, 'from-branch').length) {
+    throw new SingularityFlowError('Choose either --from-branch or the compatibility --base option, not both.', {
+      code: 'STORY_BASE_INVALID'
+    });
+  }
+  parseReferenceRepositoryOptions(
+    optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
+  );
   // Recovery owns the checkout that an interrupted start left behind. Run it before dirty-tree
   // routing; otherwise the recovery files themselves cause a second isolated worktree to be
   // created and the durable journal is never consumed.
@@ -1743,10 +1782,7 @@ export async function startCommand(positionals, options) {
   // At this point the command has not established whether this is new work or an existing Story
   // carrying an older pinned policy. Enforce the transport-safe shape now; the selected lifecycle
   // branch enforces its exact `idPattern` below, while genuinely new work uses current configuration.
-  validateId({
-    idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$',
-    defaultBaseBranch: config?.defaultBaseBranch
-  }, id);
+  validatePortableWorkId(id);
   const receiptToken = optionString(options, 'selection-receipt');
   let receipt = null;
   if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
@@ -1780,17 +1816,20 @@ export async function startCommand(positionals, options) {
   const fromBranch = optionStrings(options, 'from-branch');
   const canonicalBranch = optionString(options, 'ref', id);
   const advertisedStoryRef = `refs/heads/${canonicalBranch}`;
-  const observeStoryDestination = async (remoteName) => {
-    const applicationRemote = run('git', ['remote', 'get-url', remoteName], {
-      cwd: root, allowFailure: true
-    }).stdout.trim();
-    const session = applicationRemote ? new GitRemoteSession() : null;
-    const authority = applicationRemote ? await session.observeAsync(applicationRemote, {
-      includeHead: true, refs: [advertisedStoryRef]
+  const storyRemoteSession = new GitRemoteSession({ cwd: root });
+  const observeStoryDestination = async (remoteName, { refresh = true } = {}) => {
+    const fetchAuthority = configuredRemoteAuthority(root, remoteName, { direction: 'fetch' });
+    const applicationRemote = fetchAuthority.url;
+    // Capture the explicitly selected base in the same bounded observation. The command-local
+    // session may share exact immutable reads, but a seed recheck after human intake stays fresh.
+    const exactBases = fromBranch.length === 1 && !fromBranch[0].includes('=')
+      ? [`refs/heads/${fromBranch[0]}`] : explicitBase ? [`refs/heads/${explicitBase}`] : [];
+    const authority = applicationRemote ? await storyRemoteSession.observeAsync(applicationRemote, {
+      includeHead: true, refs: [advertisedStoryRef, ...exactBases], refresh
     }) : null;
     let defaultBranch = authority?.defaultBranch ?? null;
     if (applicationRemote && !defaultBranch && authority?.ok) {
-      const fallback = await session.observeAsync(applicationRemote, {
+      const fallback = await storyRemoteSession.observeAsync(applicationRemote, {
         includeHead: true, includeAllHeads: true
       });
       defaultBranch = fallback.defaultBranch
@@ -1916,12 +1955,15 @@ export async function startCommand(positionals, options) {
     ?? await measureCommandSpan('start.authority', async () =>
       await fosStoryConfigurationAuthority(root)
         ?? await resolveNewStoryConfigurationAuthority(root, {
-          pinnedRemote: currentPin.valid ? currentPin.source.repository : null
+          pinnedRemote: currentPin.valid ? currentPin.source.repository : null,
+          session: storyRemoteSession
         }));
   let approvedConfigurationSnapshot = configurationHandoff?.snapshot
     ?? (configurationAuthority
       ? await measureCommandSpan('start.configuration', () =>
-        loadStoryConfigurationSnapshot(configurationAuthority))
+        loadStoryConfigurationSnapshot(configurationAuthority, {
+          session: storyRemoteSession, useObjectCache: true
+        }))
       : null);
   config = approvedConfigurationSnapshot?.definition
     ?? (existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null);
@@ -1944,8 +1986,12 @@ export async function startCommand(positionals, options) {
       }
     );
   }
-  const destination = await measureCommandSpan('start.destination', () =>
-    observeStoryDestination(remote));
+  // Both are explicitly requested, bounded reads and are independent after approved configuration
+  // selected the application remote. No speculative fetch or enrollment mutation is started here.
+  const destination = await settleStoryStartReadWave(
+    () => measureCommandSpan('start.destination', () => observeStoryDestination(remote)),
+    externalSource
+  );
   const reuseIsolatedBaseFetch = async (selectedBase) => {
     const receipt = options[ISOLATED_STORY_BASE_FETCH_HANDOFF];
     if (!managedStoryWorktree || !receipt || receipt.remote !== remote
@@ -1989,8 +2035,15 @@ export async function startCommand(positionals, options) {
       && confirmed.fingerprint === fetchAuthority.fingerprint
       && confirmedIdentity.configured && !confirmedIdentity.ambiguous;
   };
-  const fetchObservedStoryDestination = () => fetchRemote(root, remote,
-    destination.transportRemote ? { transportRemote: destination.transportRemote } : {});
+  let destinationFetchPromise = null;
+  const fetchObservedStoryDestination = () => {
+    // Destination and tracked-identity lookup consume one freshly fetched inventory in this
+    // invocation. This is not a cross-command receipt: the later base/publication preflight still
+    // refreshes mutable refs before the first Story mutation.
+    destinationFetchPromise ??= fetchRemote(root, remote,
+      destination.transportRemote ? { transportRemote: destination.transportRemote } : {});
+    return destinationFetchPromise;
+  };
   const applicationDefault = destination.defaultBranch;
   let remoteStoryRef = `refs/remotes/${remote}/${canonicalBranch}`;
   const approvedRemoteStoryExists = destination.authority?.ok === true
@@ -2404,7 +2457,8 @@ export async function startCommand(positionals, options) {
       preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
         remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
         configurationSnapshot: approvedConfigurationSnapshot,
-        capabilityEvidence: legacyCapabilityEvidence
+        capabilityEvidence: legacyCapabilityEvidence,
+        launchFetchProof: options[ISOLATED_STORY_BASE_FETCH_HANDOFF] ?? null
       }))
     : null;
   const originalBranch = branch(root);
@@ -2694,7 +2748,9 @@ export async function startCommand(positionals, options) {
           { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
         );
       }
-      approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority);
+      approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority, {
+        session: storyRemoteSession, useObjectCache: true
+      });
       config = approvedConfigurationSnapshot.definition;
       validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
         capabilityId: workflowCapabilityId
@@ -3020,6 +3076,11 @@ export async function startCommand(positionals, options) {
       repositoryPath: root,
       workType,
       currentPhase: workflow.currentPhase,
+      configuration: approvedConfigurationSnapshot ? {
+        branch: approvedConfigurationSnapshot.authority.branch,
+        commit: approvedConfigurationSnapshot.sourceCommit,
+        authorityCommit: approvedConfigurationSnapshot.observedCommit
+      } : null,
       readiness: startReadiness,
       documents: supportingDocuments.length,
       // Present only when a capability base was chosen, so `--json` consumers can tell the
@@ -13894,7 +13955,7 @@ async function workspaceCommand(positionals, options) {
       }
       for (const entry of catalog.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || catalog.remote}).`);
       return result;
-    }, { preferAuthority: true });
+    }, { preferAuthority: true, useObjectCache: true });
   }
   if (subcommand === 'prune') {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(compatibility, null, 2));

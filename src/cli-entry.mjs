@@ -6,7 +6,8 @@ import {
   commandTimer, recordCommandTiming, withCommandTiming, writeCommandTimings
 } from './dx-command-timing.mjs';
 import { repoRoot } from './git.mjs';
-import { optionBoolean, parseArgs, run, SingularityFlowError } from './util.mjs';
+import { optionBoolean, optionString, optionStrings, parseArgs, requirePositional, run, SingularityFlowError } from './util.mjs';
+import { validatePortableWorkId } from './work-id.mjs';
 import { VERSION } from './version.mjs';
 import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
@@ -103,6 +104,28 @@ function timingMode(options) {
   if (options['authority-local'] === true || options.local === true) return 'local';
   if (options.network === true) return 'network';
   return 'standard';
+}
+
+/** Pure launch-shape refusals must not first probe the machine's selected workspace. */
+export function validateStoryStartRequestShape(command, positionals, options) {
+  const start = command === 'start';
+  const preflight = command === 'workspace' && positionals[1] === 'branches'
+    && optionString(options, 'preflight-story');
+  if (!start && !preflight) return;
+  const id = start ? requirePositional(positionals, 1, 'work ID') : preflight;
+  validatePortableWorkId(id);
+  // The approved workflow can narrow or broaden its ID pattern. Portable shape is all that can
+  // be decided without that policy, for both existing Stories and new-work previews.
+  if (!start) return;
+  if ([optionBoolean(options, 'jira'), Boolean(optionString(options, 'github')),
+    Boolean(optionString(options, 'story-file'))].filter(Boolean).length > 1) {
+    throw new SingularityFlowError('Choose exactly one of --jira, --github, or --story-file.');
+  }
+  if (optionString(options, 'base') && optionStrings(options, 'from-branch').length) {
+    throw new SingularityFlowError('Choose either --from-branch or the compatibility --base option, not both.', {
+      code: 'STORY_BASE_INVALID'
+    });
+  }
 }
 
 export function commandFailureTiming(error) {
@@ -583,6 +606,7 @@ export async function main(argv) {
     const { validateWorkflowAuthorRequest } = await import('./commands/workflow-author.mjs');
     validateWorkflowAuthorRequest({ positionals, options });
   }
+  validateStoryStartRequestShape(definition.name, positionals, options);
   const timingInput = {
     started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),
     commandClass: 'unknown', operationId: null, mode: timingMode(options)

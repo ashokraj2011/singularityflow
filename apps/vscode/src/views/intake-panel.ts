@@ -30,6 +30,8 @@ export interface Started {
   id: string;
   currentPhase?: string;
   repositoryPath?: string;
+  publication?: { pushed?: boolean; branch?: string; commit?: string };
+  configuration?: { commit?: string } | null;
 }
 
 export interface IntakeTarget {
@@ -891,6 +893,8 @@ export class IntakePanel {
         reservation?: { id?: string };
         currentPhase?: string;
         repositoryPath?: string;
+        publication?: Started['publication'];
+        configuration?: Started['configuration'];
       };
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
@@ -905,7 +909,8 @@ export class IntakePanel {
       const shape = this.form.shape;
       this.dispose();
       await this.onStarted({
-        shape, id, currentPhase: payload.currentPhase, repositoryPath: payload.repositoryPath
+        shape, id, currentPhase: payload.currentPhase, repositoryPath: payload.repositoryPath,
+        publication: payload.publication, configuration: payload.configuration
       });
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));

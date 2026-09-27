@@ -8,11 +8,11 @@
  */
 import path from 'node:path';
 import os from 'node:os';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import YAML from 'yaml';
 import {
-  chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
+  chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, unlink, writeFile
 } from 'node:fs/promises';
 import { initializeDefinition, loadDefinition, resolveWorkType } from './config.mjs';
 import {
@@ -22,7 +22,8 @@ import {
 import { loadCapabilities } from './capabilities.mjs';
 import { gitCommitIdentity } from './git.mjs';
 import {
-  GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
+  GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync,
+  sealTemporaryGitReadTransport
 } from './git-execution.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
@@ -30,10 +31,12 @@ import {
 import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteAuthority, configuredRemoteIdentity,
-  frozenRemoteTransport, sanitizeRemote
+  frozenRemoteTransport, isPortableAbsoluteGitPath, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
-import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import {
   createAndPushTransportIntent, listTransportIntents, retryTransportIntent
 } from './transport-intents.mjs';
@@ -89,6 +92,15 @@ const PACKAGE_CONFIGURATION_BASELINE = 'singularity/.product/configuration-basel
 // repository-aware observations use their verified repository root, while private clones use the
 // parent of their freshly-created scratch directory.
 const REMOTE_GIT_READ_CWD = path.resolve(os.tmpdir());
+// A performance-only, explicitly requested CLI profile. Gateway/default reads never create or
+// inspect this store. Each key retains one full, exact configuration commit, not a snapshot or an
+// approval receipt. Unsupported checkout transforms keep the original remote-clone path.
+export const STORY_CONFIGURATION_OBJECT_CACHE_LIMITS = Object.freeze({
+  entries: 32, files: 4096, listingBytes: 2 * 1024 * 1024,
+  objectBytes: 8 * 1024 * 1024, materializedBytes: 64 * 1024 * 1024,
+  storageFiles: 16 * 1024, storageBytes: 256 * 1024 * 1024,
+  leaseWaitMs: 5000
+});
 
 function stateMirrorRepositoryIdentity(remote) {
   const repositoryKey = gitRepositoryComparisonKey(remote);
@@ -2026,6 +2038,365 @@ export function approvedStoryApprovalAuthorities(snapshot) {
   return structuredClone(verifiedStoryDefinition(snapshot).approvalAuthorities);
 }
 
+function storyObjectCacheRoot(env) {
+  const configured = String(env.SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE ?? '').trim();
+  if (configured.toLowerCase() === 'off') return null;
+  // Do not reinterpret a relative cache path against a disposable clone's cwd.
+  if (configured && (!path.isAbsolute(configured) || path.parse(configured).root === configured)) return null;
+  const registry = String(env.SINGULARITY_FLOW_LEAD_REGISTRY ?? '').trim();
+  return configured || (registry
+    ? path.join(path.dirname(path.resolve(registry)), '.cache', 'story-configuration', 'v1')
+    : path.join(os.homedir(), '.singularity-flow', 'cache', 'story-configuration', 'v1'));
+}
+
+async function storyObjectCacheStorage(root) {
+  let files = 0;
+  let directories = 0;
+  let bytes = 0;
+  const pending = [root];
+  while (pending.length) {
+    directories += 1;
+    if (files + directories + pending.length > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageFiles) return false;
+    const directory = pending.pop();
+    const info = await lstat(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()
+        || (typeof process.getuid === 'function' && info.uid !== process.getuid())) return false;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      const item = await lstat(candidate);
+      if (item.isSymbolicLink()
+          || (typeof process.getuid === 'function' && item.uid !== process.getuid())) return false;
+      if (item.isDirectory()) pending.push(candidate);
+      else if (item.isFile() && item.nlink === 1) {
+        files += 1;
+        bytes += item.size;
+      } else return false;
+      if (files + directories + pending.length > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageFiles
+          || bytes > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageBytes) return false;
+    }
+  }
+  return true;
+}
+
+function storyObjectCacheConfigRows(rows, commit) {
+  const values = new Map();
+  const allowed = new Map([
+    ['core.repositoryformatversion', new Set([commit.length === 64 ? '1' : '0'])],
+    ['core.bare', new Set(['true'])],
+    ...['filemode', 'logallrefupdates', 'ignorecase', 'precomposeunicode']
+      .map((key) => [`core.${key}`, new Set(['true', 'false'])]),
+    ['extensions.objectformat', new Set([commit.length === 64 ? 'sha256' : 'sha1'])]
+  ]);
+  for (const [key, value] of rows) {
+    if (!allowed.get(key)?.has(value) || values.has(key)) return false;
+    values.set(key, value);
+  }
+  return values.has('core.repositoryformatversion') && values.get('core.bare') === 'true'
+    && (commit.length !== 64 || values.get('extensions.objectformat') === 'sha256');
+}
+
+async function storyObjectCacheMetadata(directory, commit) {
+  const file = path.join(directory, 'config');
+  const info = await lstat(file).catch(() => null);
+  if (!info?.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 16 * 1024) return false;
+  let content;
+  try { content = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(file)); }
+  catch { return false; }
+  let section = null;
+  const rows = [];
+  for (const line of content.split(/\r?\n/u)) {
+    const text = line.trim();
+    if (!text || /^[#;]/u.test(text)) continue;
+    const header = /^\[(core|extensions)\]$/u.exec(text);
+    if (header) { section = header[1]; continue; }
+    const entry = /^([a-z]+)\s*=\s*([a-z0-9]+)$/iu.exec(text);
+    if (!section || !entry) return false;
+    rows.push([`${section}.${entry[1].toLowerCase()}`, entry[2]]);
+  }
+  return storyObjectCacheConfigRows(rows, commit);
+}
+
+// This cache is disposable but a surviving child must never inherit a store which another
+// invocation deletes/reuses. Persist an inode-and-nonce-bound quarantine *before* dispatch. A
+// crash-left marker is not automatically reaped; the original remote-clone path stays available.
+async function acquireStoryObjectCacheLease(file, { wait = false } = {}) {
+  const started = Date.now();
+  while (true) {
+    let handle;
+    try {
+      handle = await open(file, 'wx+', 0o600);
+      const info = await handle.stat();
+      const bytes = Buffer.from(`${randomUUID()}\n`);
+      await handle.writeFile(bytes);
+      await handle.sync();
+      return { file, handle, info, bytes };
+    } catch (error) {
+      await handle?.close().catch(() => {});
+      if (error?.code !== 'EEXIST' || !wait
+          || Date.now() - started >= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.leaseWaitMs) return null;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+}
+
+async function releaseStoryObjectCacheLease(lease) {
+  let removed = false;
+  try {
+    const observed = Buffer.alloc(lease.bytes.length + 1);
+    const { bytesRead } = await lease.handle.read(observed, 0, observed.length, 0);
+    const info = await lstat(lease.file);
+    if (bytesRead === lease.bytes.length && lease.bytes.equals(observed.subarray(0, bytesRead))
+        && info.isFile() && !info.isSymbolicLink() && info.nlink === 1
+        && info.dev === lease.info.dev && info.ino === lease.info.ino) {
+      await unlink(lease.file);
+      removed = true;
+    }
+  } catch { /* Keep an unverified successor or crash marker; never infer process completion. */ }
+  finally { await lease.handle.close().catch(() => {}); }
+  return removed;
+}
+
+function storyObjectCacheLocal(state, args, options) {
+  if (state.cleanupUnproven) return { status: 1, stdout: '', stderr: '', blocked: true };
+  let result;
+  try {
+    result = run('git', [
+      '-c', `core.hooksPath=${gitDisabledHooksPath()}`, '-c', 'gc.auto=0',
+      '-c', 'maintenance.auto=false', ...args
+    ], { ...options, allowFailure: true, timeoutMs: 30_000 });
+  } catch {
+    state.cleanupUnproven = true;
+    return { status: 1, stdout: '', stderr: '', blocked: true };
+  }
+  if (!processResultCompleted(result)) state.cleanupUnproven = true;
+  return processResultSucceeded(result) ? result : { ...result, status: result.status === 0 ? 1 : result.status };
+}
+
+async function storyObjectCacheRemote(state, args, options) {
+  if (state.cleanupUnproven) return { status: 1, stdout: '', stderr: '', blocked: true };
+  try {
+    const result = await runRemoteGitAsync(args, options);
+    if (!processResultCompleted(result)) state.cleanupUnproven = true;
+    return result;
+  } catch (error) {
+    // A rejected async runner can lose acknowledgement after dispatch. Do not infer that it
+    // rejected before starting a helper, nor let an outer fallback retire the child's store.
+    state.cleanupUnproven = true;
+    throw error;
+  }
+}
+
+function storyObjectCacheProfile(directory, commit, env, state) {
+  const declined = (reason) => { incrementCommandCounter(`configuration.object-cache-profile-${reason}`); return false; };
+  const local = (args, maxBuffer = 64 * 1024, options = {}) => storyObjectCacheLocal(state, args, {
+    cwd: directory, env, maxBuffer, ...options
+  });
+  // A cache cannot introduce arbitrary local configuration, alternates, hooks, or automatic
+  // transport. Its metadata was initialized here, and the remote owner seals it after transfer.
+  const config = local(['config', '--local', '--no-includes', '--null', '--list']);
+  if (!processResultSucceeded(config) || !config.stdout.endsWith('\0')
+      || !storyObjectCacheConfigRows(config.stdout.slice(0, -1).split('\0')
+        .map((row) => row.split('\n')), commit)) return declined('config');
+  const head = local(['rev-parse', '--verify', 'HEAD'], 1024);
+  if (!processResultSucceeded(head) || head.stdout.trim() !== commit) return declined('head');
+  const checked = local(['fsck', '--strict', '--no-reflogs', '--no-dangling', commit]);
+  if (!processResultSucceeded(checked)) return declined('integrity');
+  const listed = local(['ls-tree', '-r', '-z', '--full-tree', commit],
+    STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.listingBytes, { encoding: 'buffer' });
+  let listing;
+  try { listing = new TextDecoder('utf-8', { fatal: true }).decode(listed.stdout); }
+  catch { return declined('listing'); }
+  if (!processResultSucceeded(listed) || !listing.endsWith('\0')) return declined('listing');
+  const rows = listing.slice(0, -1).split('\0');
+  if (rows.length > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.files) return declined('files');
+  const objects = [];
+  const aliases = new Map();
+  for (const row of rows) {
+    const matched = /^(100644|100755) blob ([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/u.exec(row);
+    // This limited profile deliberately declines *any* committed attributes, even an unrelated
+    // one, rather than proving Git's ordered EOL/encoding/filter rules against a different cwd.
+    if (!matched || matched[2].length !== commit.length
+        || matched[3].split('/').some((part) => part === '.gitattributes' || part === '.gitmodules')
+        || /[\u0000-\u001f\u007f]/u.test(matched[3])) return declined('shape');
+    const parts = matched[3].split('/');
+    for (let depth = 1; depth <= parts.length; depth += 1) {
+      const prefix = parts.slice(0, depth).join('/');
+      const alias = prefix.normalize('NFC').toLowerCase();
+      const kind = depth === parts.length ? 'file' : 'directory';
+      const previous = aliases.get(alias);
+      if (prefix !== prefix.normalize('NFC')
+          || (previous && (previous.path !== prefix || previous.kind !== kind))) return declined('shape');
+      aliases.set(alias, { path: prefix, kind });
+    }
+    objects.push(matched[2]);
+  }
+  const sizes = storyObjectCacheLocal(state, ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+    cwd: directory, env, input: `${objects.join('\n')}\n`, maxBuffer: Math.max(1024, objects.length * 160)
+  });
+  if (!processResultSucceeded(sizes)) return declined('sizes');
+  const sized = sizes.stdout.trimEnd().split('\n');
+  let total = 0;
+  const withinBounds = sized.length === objects.length && sized.every((row, index) => {
+    const [object, type, rawSize] = row.split(' ');
+    const bytes = Number(rawSize);
+    return object === objects[index] && type === 'blob' && Number.isSafeInteger(bytes) && bytes >= 0
+      && bytes <= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.objectBytes
+      && (total += bytes) <= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.materializedBytes;
+  });
+  return withinBounds || declined('bytes');
+}
+
+async function cachedStoryConfigurationSnapshot(authority, { env, captureAuthoringBytes, session }) {
+  // Capture scalar selectors before the first await; a caller may otherwise change the selected
+  // remote/commit while the fresh observation is in flight.
+  authority = Object.freeze({ remote: authority.remote, branch: authority.branch,
+    commit: authority.commit, source: authority.source,
+    ...(authority.sourceCommit ? { sourceCommit: authority.sourceCommit } : {}) });
+  const root = storyObjectCacheRoot(env);
+  const remote = assertCredentialFreeRemote(authority.remote);
+  if (!root || process.platform === 'win32' || authority.branch !== CONFIGURATION_BRANCH
+      || (/^file:/iu.test(remote) && !/^file:\/\/\//u.test(remote))
+      || /^[a-z]:[^/\\]/iu.test(remote)
+      || (!isPortableAbsoluteGitPath(remote)
+        && !/^(?:https?|ssh|git):\/\//u.test(remote) && !/^file:\/\/\//u.test(remote)
+        && !/^(?:[^/@:\s]+@)?[^/:\s]+:[^\s]+$/u.test(remote))
+      || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(authority.commit ?? '')) return null;
+  // Cache metadata and a caller's pin are not current authority. Preserve the original clone's
+  // mutable-ref fence even on a warm hit and even if a prior session observation was memoized.
+  const admittedEnv = enterpriseGitEnvironment(env);
+  const gitEnv = Object.freeze(inheritEnterpriseGitEnvironment(admittedEnv, { ...admittedEnv }));
+  const observed = await configurationBranchHead(authority.remote, {
+    session: session ?? new GitRemoteSession({ cwd: REMOTE_GIT_READ_CWD, env: gitEnv }), refresh: true
+  });
+  requireRemoteObservation(observed.observation, 'Story configuration authority');
+  if (observed.sha !== authority.commit) throw new SingularityFlowError(
+    'Approved Story configuration authority changed before its exact cached read. Refresh and retry; nothing was changed.', {
+      code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+      details: { branch: authority.branch, expectedCommit: authority.commit, actualCommit: observed.sha }
+    }
+  );
+  const key = recordSha256({ remote: assertCredentialFreeRemote(authority.remote),
+    branch: authority.branch, commit: authority.commit });
+  let allocation = null;
+  let quarantine = null;
+  let scratch = null;
+  const state = { cleanupUnproven: false };
+  const localEnv = inheritEnterpriseGitEnvironment(gitEnv, {
+    ...gitEnv, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1'
+  });
+  try {
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    const rootInfo = await lstat(root);
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0
+        || (typeof process.getuid === 'function' && rootInfo.uid !== process.getuid())) return null;
+    const canonical = await realpath(root);
+    allocation = await acquireStoryObjectCacheLease(path.join(canonical, '.allocation.lock'), { wait: true });
+    if (!allocation) return null;
+    const entries = await readdir(canonical);
+    if (entries.some((entry) => entry !== '.allocation.lock'
+        && !/^[a-f0-9]{64}(?:\.incomplete)?$/u.test(entry))
+        || !await storyObjectCacheStorage(canonical)) return null;
+    const directory = path.join(canonical, key);
+    const exists = await lstat(directory).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if ((!exists && entries.filter((entry) => /^[a-f0-9]{64}$/u.test(entry)).length
+          >= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.entries)
+        || (exists && (!exists.isDirectory() || exists.isSymbolicLink()))) return null;
+    quarantine = await acquireStoryObjectCacheLease(`${directory}.incomplete`);
+    if (!quarantine) {
+      incrementCommandCounter('configuration.object-cache-quarantined');
+      return null;
+    }
+    for (const forbidden of ['objects/info/alternates', 'info/attributes']) {
+      if (await lstat(path.join(directory, forbidden)).then(() => true, (error) => error?.code !== 'ENOENT')) return null;
+    }
+    if (!exists) {
+      await mkdir(directory, { mode: 0o700 });
+      const initialized = storyObjectCacheLocal(state, [
+        'init', '--bare', '--quiet', '--template=',
+        ...(authority.commit.length === 64 ? ['--object-format=sha256'] : []), directory
+      ], { cwd: canonical, env: localEnv, maxBuffer: 4096 });
+      if (!processResultSucceeded(initialized)) return null;
+      if (!await storyObjectCacheMetadata(directory, authority.commit)) return null;
+      const transport = frozenRemoteTransport(authority.remote, { env: gitEnv });
+      incrementCommandCounter('configuration.object-cache-fetch');
+      const fetched = await storyObjectCacheRemote(state, [
+        '-c', `core.hooksPath=${gitDisabledHooksPath()}`, '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+        'fetch', '--quiet', '--no-tags', '--depth', '1', transport.remote,
+        `+refs/heads/${CONFIGURATION_BRANCH}:refs/heads/${CONFIGURATION_BRANCH}`
+      ], { cwd: directory, env: transport.env, operation: 'remote-configuration', maxBuffer: 64 * 1024 });
+      if (!processResultSucceeded(fetched)) return null;
+      const selected = storyObjectCacheLocal(state, ['symbolic-ref', 'HEAD', `refs/heads/${CONFIGURATION_BRANCH}`], {
+        cwd: directory, env: localEnv, maxBuffer: 4096
+      });
+      if (!processResultSucceeded(selected)) return null;
+    }
+    if (!await storyObjectCacheMetadata(directory, authority.commit)) {
+      incrementCommandCounter('configuration.object-cache-profile-config');
+      return null;
+    }
+    const sealed = sealTemporaryGitReadTransport(directory, { env: gitEnv });
+    if (sealed.cleanupUnproven) state.cleanupUnproven = true;
+    if (!sealed.ok) return null;
+    if (!await storyObjectCacheStorage(canonical)
+        || !storyObjectCacheProfile(directory, authority.commit, localEnv, state)) {
+      // A just-created, unsupported/over-budget derived entry has no admitted consumers. Reclaim
+      // only that exact key while its lease is held and all native process outcomes are known.
+      if (!exists && !state.cleanupUnproven) await removeTemporaryTree(directory);
+      return null;
+    }
+    // Local transport copies (never hardlinks) the verified objects into the same disposable
+    // checkout profile used by ordinary reads. No cache file or serialized definition is mounted.
+    scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-cache-read-'));
+    const transport = frozenRemoteTransport(directory, { env: gitEnv });
+    const cloned = await storyObjectCacheRemote(state, [
+      '-c', `core.hooksPath=${gitDisabledHooksPath()}`, '-c', 'core.autocrlf=false',
+      '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
+    ], { cwd: path.dirname(scratch), env: transport.env, operation: 'remote-configuration', maxBuffer: 64 * 1024 });
+    if (!processResultSucceeded(cloned)) return null;
+    const head = storyObjectCacheLocal(state, ['rev-parse', '--verify', 'HEAD'], {
+      cwd: scratch, env: localEnv, maxBuffer: 1024
+    });
+    if (!processResultSucceeded(head) || head.stdout.trim() !== authority.commit) return null;
+    incrementCommandCounter(exists ? 'configuration.object-cache-hit' : 'configuration.object-cache-miss');
+    incrementCommandCounter('configuration.snapshot-read');
+    try {
+      return await storyConfigurationSnapshotFromDirectory(authority, scratch, {
+        observedCommit: authority.commit, sourceCommit: authority.commit, env: gitEnv,
+        captureAuthoringBytes
+      });
+    } catch (error) {
+      // Older snapshot readers can turn an opaque allowFailure Git result into an ordinary
+      // missing-identity diagnostic. Do not infer complete child cleanup from that error's shape.
+      // Conservatively quarantine every exceptional validation read, retaining its original error
+      // rather than labelling a semantic invalid configuration as a proven native failure.
+      state.cleanupUnproven = true;
+      state.snapshotError = error;
+      incrementCommandCounter('configuration.object-cache-validation-quarantined');
+      throw error;
+    }
+  } catch (error) {
+    if (error instanceof SingularityFlowError) throw error;
+    // Pure local cache admission/IO failures do not hide a readable live authority.
+    return null;
+  } finally {
+    if (quarantine) {
+      if (!state.cleanupUnproven) {
+        if (!await releaseStoryObjectCacheLease(quarantine)) state.cleanupUnproven = true;
+      } else await quarantine.handle.close().catch(() => {});
+    }
+    if (allocation && !await releaseStoryObjectCacheLease(allocation)) state.cleanupUnproven = true;
+    if (scratch && !state.cleanupUnproven) await removeTemporaryTree(scratch);
+    if (state.cleanupUnproven && state.snapshotError) throw state.snapshotError;
+    if (state.cleanupUnproven) throw new SingularityFlowError(
+      'A private Story configuration-cache operation has an unconfirmed completion outcome. Its store and temporary projection were preserved; no cached configuration was admitted.', {
+        code: 'STORY_CONFIGURATION_CACHE_OPERATION_UNCONFIRMED'
+      }
+    );
+  }
+}
+
 /**
  * Read and verify one exact approved configuration revision once for the complete Story-start
  * operation. The bounded configuration payload is retained in memory after the disposable clone
@@ -2034,13 +2405,21 @@ export function approvedStoryApprovalAuthorities(snapshot) {
  * The separate raw Git authoring-byte profile is opt-in; ordinary Story snapshots neither read
  * its additional blob batch nor retain its additional private copies.
  */
-export async function loadStoryConfigurationSnapshot(authority, { env = process.env, captureAuthoringBytes = false } = {}) {
+export async function loadStoryConfigurationSnapshot(authority, {
+  env = process.env, captureAuthoringBytes = false, useObjectCache = false, session = null
+} = {}) {
   if (!authority?.remote || !authority?.branch) {
     throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
   }
+  authority = Object.freeze({ remote: authority.remote, branch: authority.branch,
+    commit: authority.commit, source: authority.source,
+    ...(authority.sourceCommit ? { sourceCommit: authority.sourceCommit } : {}),
+    ...(authority[STORY_CONFIGURATION_AUTHORITY_SNAPSHOT]
+      ? { [STORY_CONFIGURATION_AUTHORITY_SNAPSHOT]: authority[STORY_CONFIGURATION_AUTHORITY_SNAPSHOT] } : {}) });
   const retained = authority[STORY_CONFIGURATION_AUTHORITY_SNAPSHOT];
   if (retained) {
-    if (retained.authority.remote !== authority.remote
+    if (!STORY_CONFIGURATION_VERIFIED_DEFINITIONS.has(retained)
+        || retained.authority.remote !== authority.remote
         || retained.authority.branch !== authority.branch
         || (authority.commit && retained.observedCommit !== authority.commit)
         || (authority.sourceCommit && retained.sourceCommit !== authority.sourceCommit)) {
@@ -2053,6 +2432,11 @@ export async function loadStoryConfigurationSnapshot(authority, { env = process.
       incrementCommandCounter('configuration.snapshot-reused');
       return retained;
     }
+  }
+  if (useObjectCache === true) {
+    const cached = await cachedStoryConfigurationSnapshot(authority, { env, captureAuthoringBytes, session });
+    if (cached) return cached;
+    incrementCommandCounter('configuration.object-cache-declined');
   }
   let lastMoved = null;
   // A mutable authority ref can advance between its ls-remote observation and the bounded clone.

@@ -420,6 +420,8 @@ export async function withRepositoryConfigurationCommitRead(root, {
  * not a caller-provided approval witness; absence cannot fall back to local or working-tree input.
  * `captureAuthoringBytes` adds bounded immutable raw Git bytes for exact authoring replacements
  * only. Ordinary Story/workspace reads do not pay for or expose that extra private byte profile.
+ * `useObjectCache` explicitly opts CLI online reads into exact-commit object transfer reuse. It
+ * preserves fresh authority observation and validation; default/gateway reads remain cache-off.
  */
 export async function withApprovedConfigurationRead(root, fn, {
   preferAuthority = false,
@@ -429,7 +431,8 @@ export async function withApprovedConfigurationRead(root, fn, {
   canonicalRemote = null,
   selectPaths = null,
   freshOwnerCapture = false,
-  captureAuthoringBytes = false
+  captureAuthoringBytes = false,
+  useObjectCache = false
 } = {}) {
   if (freshOwnerCapture) {
     return withoutConfigurationReadScope(() => withApprovedConfigurationRead(root, fn, {
@@ -439,7 +442,8 @@ export async function withApprovedConfigurationRead(root, fn, {
       requireAuthorityRefresh: true,
       canonicalRemote: null,
       selectPaths,
-      captureAuthoringBytes
+      captureAuthoringBytes,
+      useObjectCache
     }));
   }
   const existingScope = configurationReadScope(root);
@@ -470,7 +474,7 @@ export async function withApprovedConfigurationRead(root, fn, {
     } = await import('./configuration-branch.mjs');
     const resolved = await resolveStoryConfigurationAuthority(root, 'origin', { captureAuthoringBytes });
     if (resolved) {
-      const snapshot = await loadStoryConfigurationSnapshot(resolved, { captureAuthoringBytes });
+      const snapshot = await loadStoryConfigurationSnapshot(resolved, { captureAuthoringBytes, useObjectCache });
       return withStoryConfigurationSnapshotRead(root, snapshot, fn, { selectPaths });
     }
     if (requireAuthorityRefresh) return fn(null);

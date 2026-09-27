@@ -3,7 +3,9 @@ import { governedCommitIdentity } from './git.mjs';
 import {
   clearPendingPublication, readPendingPublication, writePendingPublication
 } from './publication-pending.mjs';
-import { publishCapabilityRepositories } from './capability-start.mjs';
+import {
+  capabilityPublicationWorkers, publishCapabilityRepositories
+} from './capability-start.mjs';
 import { recordSha256 } from './records.mjs';
 import { nowIso } from './util.mjs';
 
@@ -116,32 +118,40 @@ export async function retainCapabilityPublicationRecovery(root, workId, publicat
 }
 
 /**
- * Publish the cross-repository tail one ref at a time, moving its durable recovery boundary before
- * every network operation.
+ * Publish the cross-repository tail in bounded waves, moving its durable recovery boundary before
+ * any network operation in the wave. Recovery-marker writes remain strictly serialized.
  *
  * The marker deliberately says `transport-indeterminate` while Git is running. If this process is
- * killed after receive-pack advances the ref but before Git returns, `sync` may prove that exact
- * recorded tip and finish idempotently. The in-memory entry retains its previous outcome, though:
+ * killed after any receive-pack advances a ref but before Git returns, `sync` may prove that exact
+ * recorded tip and finish idempotently. Each in-memory entry retains its previous outcome, though:
  * a definitive create-only collision returned to this process must still be recorded as rejected,
  * and must never acquire equality authority merely because the pre-push receipt was durable.
  */
 export async function publishCapabilityRepositoriesDurably(
-  root, workId, publication, entries = [], { rootPublished = true } = {}
+  root, workId, publication, entries = [], {
+    rootPublished = true, workers = 4,
+    publishRepositories = publishCapabilityRepositories,
+    retainRecovery = retainCapabilityPublicationRecovery,
+    clearRecovery = clearPendingPublication
+  } = {}
 ) {
   const subject = { kind: 'story', id: workId };
+  const boundPublication = structuredClone(publication);
   const published = [];
   let remaining = entries.map((entry) => ({
-    ...entry,
+    ...structuredClone(entry),
     pushOutcome: entry.pushOutcome ?? 'not-attempted'
   }));
 
+  const width = capabilityPublicationWorkers(remaining.length, workers);
   while (remaining.length) {
-    const [entry, ...tail] = remaining;
-    const inFlight = { ...entry, pushOutcome: 'transport-indeterminate' };
-    const durablePlan = [inFlight, ...tail];
-    await retainCapabilityPublicationRecovery(
-      root, workId, publication, durablePlan,
-      new Error(`Capability Story branch publication is in flight for '${entry.repository}'.`),
+    const wave = remaining.slice(0, width);
+    const tail = remaining.slice(width);
+    const inFlight = wave.map((entry) => ({ ...entry, pushOutcome: 'transport-indeterminate' }));
+    const durablePlan = [...inFlight, ...tail];
+    await retainRecovery(
+      root, workId, boundPublication, durablePlan,
+      new Error(`Capability Story branch publication is in flight for ${wave.map((entry) => `'${entry.repository}'`).join(', ')}.`),
       { rootPublished }
     );
 
@@ -149,10 +159,10 @@ export async function publishCapabilityRepositoriesDurably(
     try {
       // Use the pre-attempt outcome in memory. The durable in-flight receipt is recovery authority
       // only if this process disappears or the transport itself reports an ambiguous outcome.
-      result = await publishCapabilityRepositories([entry]);
+      result = await publishRepositories(wave, { workers: width });
     } catch (error) {
-      await retainCapabilityPublicationRecovery(
-        root, workId, publication, durablePlan, error, { rootPublished }
+      await retainRecovery(
+        root, workId, boundPublication, durablePlan, error, { rootPublished }
       );
       return {
         published,
@@ -164,9 +174,9 @@ export async function publishCapabilityRepositoriesDurably(
     published.push(...result.published);
     if (result.pending.length) {
       remaining = [...result.pending, ...tail];
-      await retainCapabilityPublicationRecovery(
-        root, workId, publication, remaining,
-        new Error(result.error || `Capability Story publication failed for '${entry.repository}'.`),
+      await retainRecovery(
+        root, workId, boundPublication, remaining,
+        new Error(result.error || 'Capability Story publication failed in the current wave.'),
         { rootPublished }
       );
       return { published, pending: remaining, error: result.error };
@@ -174,13 +184,13 @@ export async function publishCapabilityRepositoriesDurably(
 
     remaining = tail;
     if (remaining.length) {
-      await retainCapabilityPublicationRecovery(
-        root, workId, publication, remaining,
+      await retainRecovery(
+        root, workId, boundPublication, remaining,
         new Error('Capability Story branch publication is continuing.'),
         { rootPublished }
       );
     } else {
-      await clearPendingPublication(root, subject);
+      await clearRecovery(root, subject);
     }
   }
 

@@ -12,6 +12,10 @@ budgets or authorize implementation.
 
 ## Git-heavy onboarding journeys
 
+The [Story-start implementation ledger](STORY-START-PERFORMANCE-IMPLEMENTATION.md) records the
+latest reviewed optimizations and their cache, recovery and measurement boundaries. Estimated
+older-build journey timings are not performance claims for the current build.
+
 Capability mapping, workspace creation, and Story intake are model-free, AST-free, and
 world-model-free. Their timing counters include root/dispatch probes as well as handler work, and
 every physical Git process is counted once. `git.requests` describes logical requests,
@@ -51,8 +55,10 @@ The optimized paths preserve exact-ref authority and mutation preflights:
   only for proposals proven unrelated; incomplete or ambiguous deltas stay in the fail-closed path;
 - publication secret admission and SGOS Candidate reconstruction batch exact retained blob IDs,
   while retaining both independent admission scans and verify-time reconstruction;
-- an explicit Story base skips the broad branch advertisement, but the mutation preflight still
-  prune-fetches and proves the selected branch and dry-run push in every required repository;
+- an explicit Story base skips the broad branch advertisement. Mutation preflight proves the
+  selected branch and dry-run push in every required repository; it skips a duplicate lifecycle
+  fetch only after a fresh exact-ref probe proves the operation-local launch fetch still matches
+  the base, state, absent Story destination and transport identity;
 - VS Code Story intake lists remote branch choices once. After a base is selected, its preflight
   skips repeating that list but still performs the fresh fetch and dry-run publication checks;
 - selected Story materialization reuses the repair status instead of scanning every workspace

@@ -37,6 +37,10 @@ import type { InboxMessage } from './views/inbox.ts';
 import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
 import { discoverWorkspaceStoryRows, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
 import { sameStoryAttachPath, selectedCatalogStory, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
+import {
+  storyStartHandoffFromResult, storyStartHandoffMatches,
+  STORY_START_HANDOFF_KEY, STORY_START_DISCOVERY_IDLE_MS
+} from './story-start-handoff.ts';
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
 import type { DesignerMessage } from './views/designer.ts';
@@ -4624,9 +4628,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   sidebar.bind('inbox', inboxTree);
   sidebar.bind('configuration', configurationTree);
   const storyRefreshGate = new StoryRefreshGate();
+  let postStartDiscoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  const cancelPostStartDiscoveryTimer = (): void => {
+    if (postStartDiscoveryTimer) clearTimeout(postStartDiscoveryTimer);
+    postStartDiscoveryTimer = null;
+  };
+  context.subscriptions.push({ dispose: cancelPostStartDiscoveryTimer });
   const refreshRemoteStories = ({ afterCurrent = false, refreshSnapshot = true }: {
     afterCurrent?: boolean; refreshSnapshot?: boolean;
   } = {}): Promise<void> => {
+    // Explicit Refresh/attachment/map actions never wait for the advisory post-start idle hint.
+    cancelPostStartDiscoveryTimer();
     const scope = repositoryEpoch.capture();
     return storyRefreshGate.run(scope.epoch, async (): Promise<void> => {
       let issue: string | null = null;
@@ -4754,11 +4766,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         runCommand: 'singularityFlow.openWorkspaceLogs'
       }]);
     }
-    void refreshRemoteStories({ refreshSnapshot: false }).catch((error) => {
+    const discover = (): void => { void refreshRemoteStories({ refreshSnapshot: false }).catch((error) => {
       if (repositoryEpoch.isCurrent(scope)) {
         output.appendLine(`Story discovery needs attention: ${(error as Error).message}`);
       }
-    });
+    }); };
+    const handoff = context.globalState.get<unknown>(STORY_START_HANDOFF_KEY);
+    if (!forceReadiness && storyStartHandoffMatches(handoff, scope.repository, state.snapshot)) {
+      // Confirmed core/lifecycle bytes remain the only source for actions. This one-use hint just
+      // avoids a workspace-wide remote scan competing with the new Story's first paint; no ready,
+      // approval, pin freshness, session, or snapshot receipt is manufactured from start output.
+      void context.globalState.update(STORY_START_HANDOFF_KEY, undefined).then(() => {}, () => {});
+      workspaceStoryCatalogIssue = 'Remote Story inventory has not been refreshed in this new Story window. It will refresh when idle; use Refresh Stories to check now.';
+      inboxTree.refresh();
+      output.appendLine('Post-start Story inventory deferred until idle; the local lifecycle has been confirmed.');
+      cancelPostStartDiscoveryTimer();
+      const timer = setTimeout(() => {
+        if (postStartDiscoveryTimer !== timer) return;
+        postStartDiscoveryTimer = null;
+        if (activationSignal.aborted || !repositoryEpoch.isCurrent(scope)) return;
+        discover();
+      }, STORY_START_DISCOVERY_IDLE_MS);
+      postStartDiscoveryTimer = timer;
+      postStartDiscoveryTimer.unref?.();
+      return;
+    }
+    discover();
   };
   context.subscriptions.push(store.onDidChange((state, change) => {
     if (change.kind !== 'snapshot' || state.stale || state.error || !state.snapshot) return;
@@ -5453,6 +5486,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       if (started.shape === 'story' && started.repositoryPath
           && path.resolve(started.repositoryPath) !== path.resolve(repository)) {
+        const handoff = storyStartHandoffFromResult(started);
+        if (handoff) {
+          try { await context.globalState.update(STORY_START_HANDOFF_KEY, handoff); }
+          catch { /* An advisory scheduling cache must not turn a published Story into a refusal. */ }
+        }
         void vscode.window.showInformationMessage(
           `Story ${started.id} started in its isolated checkout. Opening it now.`
         );

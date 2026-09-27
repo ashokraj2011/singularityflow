@@ -4683,9 +4683,15 @@ test('Manage can detach and safely drop an exact non-lead capability checkout', 
   const active = JSON.parse(current.stdout);
   assert.equal(active.repositoryId, 'api', 'the host rebinds to the preserved lead repository');
   assert.equal(path.resolve(active.repositoryPath), path.resolve(workspaceRoot, 'repos', 'api'));
-  assert.ok(registered.executedCommands.some((entry) =>
-    entry.id === 'workbench.action.reloadWindow'),
-  'a host activated without repository services reloads so every surface binds to the new lead');
+  const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
+  assert.equal(opened.length, 1,
+    'a host activated without repository services hands off to the preserved lead, not its old empty native root');
+  assert.equal(path.resolve(opened[0].args[0].fsPath),
+    await realpath(path.join(workspaceRoot, 'repos', 'api')));
+  assert.equal(opened[0].args[1], false, 'the exact lead replaces this same native window');
+  assert.equal(registered.executedCommands.some((entry) =>
+    entry.id === 'workbench.action.reloadWindow' || /^workbench\.action\.chat\./.test(entry.id)), false,
+  'the folder handoff starts activation without an extra empty-root reload or automatic chat');
   assert.doesNotMatch(panel.webview.html, /data-capability-detach="storefront"/);
 });
 

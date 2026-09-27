@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   installPlugin, uninstallPlugin, verifyPluginInstallation
 } from '../src/plugin.mjs';
+import { renderDirectSkill } from '../src/direct-skills.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pluginRoot = path.join(root, 'plugin');
@@ -516,14 +517,83 @@ test('plugin provides workspace discovery and switching skills', async () => {
   const select = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspace', 'SKILL.md'), 'utf8');
   const session = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspace-session', 'SKILL.md'), 'utf8');
   assert.match(list, /name: sflow-workspaces/);
-  assert.match(list, /workspace current --json/);
+  assert.deepEqual([...list.matchAll(/`(singularity-flow [^`]+)`/g)].map((match) => match[1]), [
+    'singularity-flow workspace list --table'
+  ], 'workspace discovery has one deterministic output owner, not a second singleton current result');
+  assert.match(list, /complete CLI table[\s\S]*verbatim/);
+  assert.match(list, /Keep every row, including inactive workspaces/);
+  assert.match(list, /Selection belongs to singular `\/sf-workspace`, not `\/sf-workspaces`/);
+  assert.match(list, /Do not run Home or a second current-context command/);
   assert.match(select, /name: sflow-workspace/);
-  assert.match(select, /workspace use <WORKSPACE-ID>/);
+  assert.match(select, /workspace list --table/);
+  assert.match(select, /exact workspace ID or row number/);
+  assert.match(select, /Map the chosen row to its exact workspace path in that table/);
+  assert.match(select, /IDs can repeat: an ID matching multiple rows requires a row\/path choice/);
+  assert.match(select, /`ask_user` or plain chat/);
+  assert.match(select, /Never choose the first or current workspace automatically/);
+  assert.match(select, /ask which repository to use/);
+  assert.match(select, /workspace status <WORKSPACE-PATH> --level readiness --json/);
+  assert.match(select, /local read supplies repository members without remote calls/);
+  assert.match(select, /workspace choice is not a Story choice or permission to attach/);
+  assert.match(select, /workspace use <WORKSPACE-PATH>/);
   assert.match(select, /Do not launch nested Copilot/i);
   assert.match(session, /name: sflow-workspace-session/);
   assert.match(session, /session workspace <WORKSPACE>/);
   assert.match(session, /cannot change the parent Copilot or VS Code process/);
   assert.match(session, /disable-model-invocation:\s*true/);
+});
+
+test('workspace picker preserves an exact path when displayed workspace IDs repeat', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspace', 'SKILL.md'), 'utf8');
+  for (const body of [content, renderDirectSkill(content, 'sflow-workspace')]) {
+    assert.match(body, /IDs can repeat: an ID matching multiple rows requires a row\/path choice/);
+    assert.match(body, /Map the chosen row to its exact workspace path in that table/);
+    const commands = [...body.matchAll(/`(singularity-flow workspace (?:status|use) [^`]+)`/g)].map((match) => match[1]);
+    assert.deepEqual(commands, [
+      'singularity-flow workspace status <WORKSPACE-PATH> --level readiness --json',
+      'singularity-flow workspace use <WORKSPACE-PATH> --repository <REPOSITORY-ID> [--story <STORY-ID>] --json'
+    ], 'both member discovery and selection remain bound to the chosen row path, never its ambiguous ID');
+    assert.doesNotMatch(body, /workspace use <WORKSPACE-ID>/);
+  }
+});
+
+test('Story discovery preserves exact selected scope and delegates only an explicit table choice', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-stories', 'SKILL.md'), 'utf8');
+  for (const body of [content, renderDirectSkill(content, 'sflow-stories')]) {
+    assert.match(body, /disable-model-invocation:\s*true/);
+    assert.match(body, /sflow-output-contract: explicit-selection/);
+    assert.match(body, /workspace current --json/);
+    assert.match(body, /exact `workspacePath` and `repositoryId`[\s\S]*pass both as selectors/);
+    assert.match(body, /Partial selectors: resolve only within the explicit workspace or ask/);
+    assert.match(body, /never fill from active workspace\/cwd/);
+    assert.match(body, /Never let an old host cwd override that selected workspace/);
+    assert.match(body, /session candidates --table/);
+    assert.match(body, /complete CLI table[\s\S]*verbatim/);
+    assert.match(body, /make per-Story status calls/);
+    assert.match(body, /list-only request, end here without selection/);
+    assert.match(body, /`ask_user` or plain chat[\s\S]*exact Story ID or row number/);
+    assert.match(body, /Map a row only to the exact ID in that returned table/);
+    assert.match(body, /Never auto-attach the first or current Story/);
+    assert.match(body, /invoke and complete existing `\/sf-session <WORK-ID>` with those exact selectors/);
+    assert.match(body, /not merely display its route/);
+    assert.match(body, /Verify the returned checkout and session status `ready`, `workId`, and `activeAgent`/);
+    assert.match(body, /do not assume attachment has `activeAgent`/);
+    assert.doesNotMatch(body, /singularity-flow session (?:attach|open-local)/,
+      'the Story chooser must not duplicate the existing session mutation sequence');
+    assert.match(body, /Discovery alone changes no active Story/);
+    assert.match(body, /Do not create, advance, begin, submit, approve, merge, publish, or execute Story work/);
+  }
+});
+
+test('Home cannot intercept the explicit workspace and Story chooser contracts', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-home', 'SKILL.md'), 'utf8');
+  assert.match(content, /Named workspace\/Story skills override Home in every host syntax/);
+  assert.match(content, /`\/sf-workspaces`, `\/sf-workspace`, `\/sf-stories`, `\/sf-session` \(also `sflow-\*`\)/);
+  assert.match(content, /Never send their names to Home or replace tables with Home headings\/refresh/);
+  assert.match(content, /Follow only the selected returned `fallback\.skill`, including `\/sf-stories`, `\/sf-session`, `\/sf-workspace`/);
+  assert.match(content, /choosers require an exact choice before selection or attachment/);
+  assert.match(content, /except for chooser turns: keep their table\/choices; no Home refresh/);
+  assert.doesNotMatch(content, /Follow only the selected direct route:/);
 });
 
 test('admin skill performs workspace reinitialization through an exact reviewed plan', async () => {
@@ -559,9 +629,18 @@ test('plugin hooks avoid session prompt tax and retain deterministic custom-agen
 test('session skill synchronizes work-item state and activates the phase agent automatically', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   assert.match(content, /session candidates --json/);
+  assert.match(content, /workspace current --json[\s\S]*carry active `workspacePath`\/`repositoryId` explicitly/);
+  assert.match(content, /old host cwd must not replace that scope/);
+  assert.match(content, /Without an explicit work ID[\s\S]*session candidates --table[\s\S]*before status/);
+  assert.ok(content.indexOf('session candidates --table') < content.indexOf('session status --json'));
+  assert.match(content, /current binding or first row is not selection/);
+  assert.match(content, /Stop without attaching if no choice exists/);
+  assert.match(content, /`ask_user` or plain chat/);
   assert.match(content, /session attach <WORK-ID>/);
-  assert.match(content, /ask for an exact ID if missing/i);
-  assert.match(content, /confirm `ready`, `workId`, and `activeAgent`/);
+  assert.match(content, /for an exact ID if missing/i);
+  assert.match(content, /require `ready === true`, `workId` exactly the chosen ID, and `activeAgent` equal the open\/attach result's `agent`/);
+  assert.match(content, /`null` is valid for a completed Story/);
+  assert.match(content, /Stop on mismatch before context\/nextsteps/);
   assert.match(content, /Never manually merge, rebase, reset, force-checkout, stash, or discard work/);
   assert.match(content, /Session setup only: no raw Git, source reads, edits, or lifecycle work/);
   assert.match(content, /For each action preserve order, timing, reason/i);
@@ -570,6 +649,26 @@ test('session skill synchronizes work-item state and activates the phase agent a
   assert.match(content, /Do not merge distinct actions or invent missing routes/);
   assert.match(content, /Only `SESSION_LOCAL_STORY_UNAVAILABLE` or `SESSION_LOCAL_REPOSITORY_UNAVAILABLE` permits remote fallback/);
   assert.match(content, /End the turn; do not continue into Story work/);
+});
+
+test('session setup fences partial selectors and status mismatches before context or next actions', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
+  for (const body of [content, renderDirectSkill(content, 'sflow-session')]) {
+    assert.match(body, /Partial selectors: resolve only within the explicit workspace or ask; never fill from active workspace\/cwd/);
+    assert.ok(body.indexOf('Partial selectors:') < body.indexOf('With none, read'),
+      'a partial explicit scope cannot fall into the active-workspace fallback');
+    const statusStep = body.split(/\n5\. /)[1]?.split(/\n6\. /)[0];
+    assert.ok(statusStep, 'the post-attachment status guard remains a distinct preflight step');
+    assert.match(statusStep, /At the returned `repositoryPath`/);
+    assert.match(statusStep, /require `ready === true`, `workId` exactly the chosen ID/);
+    assert.match(statusStep, /`activeAgent` equal the open\/attach result's `agent`/);
+    assert.doesNotMatch(statusStep, /result(?:'s)?[. ]+`?activeAgent/,
+      'open-local/attach expose agent, while the verified status exposes activeAgent');
+    assert.match(statusStep, /`null` is valid for a completed Story/);
+    assert.match(statusStep, /Stop on mismatch before context\/nextsteps/);
+    assert.ok(body.indexOf('Stop on mismatch before context/nextsteps') < body.indexOf('session context --work-id'));
+    assert.ok(body.indexOf('Stop on mismatch before context/nextsteps') < body.indexOf('singularity-flow nextsteps'));
+  }
 });
 
 test('inbox skill presents remote pending approvals before an explicit reviewer decision', async () => {

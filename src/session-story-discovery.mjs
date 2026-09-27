@@ -5,6 +5,8 @@ import { fetchRemote, fileAtRef, hasRemote, remoteBranches } from './git.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import { buildRepositorySubjectIndexFromRefs } from './repository-subject-index.mjs';
 import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
+import { readRecord } from './schema-migrations.mjs';
+import { storyLifecycleProgress } from './session-roster.mjs';
 import { validateId } from './state-stores.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
@@ -21,9 +23,10 @@ export function validatedRemoteStoryDefinition(root, remoteRef, subject) {
   if (subject.location.path !== expectedPath) {
     throw new Error(`state path '${subject.location.path}' does not match pinned root '${expectedPath}'`);
   }
-  const workflow = JSON.parse(fileAtRef(root, remoteRef, expectedPath) ?? 'null');
+  const retainedWorkflow = JSON.parse(fileAtRef(root, remoteRef, expectedPath) ?? 'null');
+  const workflow = readRecord('story-workflow', retainedWorkflow).record;
   if (workflow?.workItem?.id !== subject.id) throw new Error('identity mismatch');
-  return { definition, workflow, itemPath: expectedPath };
+  return { definition, workflow, retainedWorkflow, itemPath: expectedPath };
 }
 
 /**
@@ -50,13 +53,14 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   const items = [];
   for (const subject of index.list('story')) {
     try {
-      const { workflow } = validatedRemoteStoryDefinition(root, subject.location.ref, subject);
+      const { workflow, retainedWorkflow } = validatedRemoteStoryDefinition(root, subject.location.ref, subject);
       items.push({
         id: subject.id,
         branch: subject.canonicalBranch,
         title: workflow.workItem.title,
         status: workflow.status,
         phase: workflow.currentPhase,
+        progress: storyLifecycleProgress(retainedWorkflow),
         commit: subject.location.commit?.slice(0, 8) ?? ''
       });
     } catch (error) {

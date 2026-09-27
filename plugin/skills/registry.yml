@@ -220,6 +220,7 @@ skills:
   sflow-stack: { class: mutation, executionBoundary: repository }
   sflow-start: { class: interactive, executionBoundary: repository }
   sflow-status: { class: conversational, executionBoundary: repository }
+  sflow-stories: { class: interactive, executionBoundary: machine }
   sflow-story-branch: { class: interactive, executionBoundary: repository }
   sflow-story-checks: { class: mutation }
   sflow-story-fetch: { class: interactive, executionBoundary: repository }

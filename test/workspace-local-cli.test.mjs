@@ -108,6 +108,27 @@ test('a workspace can be created with no tracker at all', async () => {
 
   const listed = cli(['workspace', 'list'], env);
   assert.match(listed.stdout, /demo-team/);
+  cli(['workspace', 'create', '--local', '--id', 'another-team', '--name', 'Another team',
+    '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
+    '--confirm', 'another-team'], env);
+  const beforeTable = await readFile(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, 'utf8');
+  const roster = cli(['workspace', 'list', '--table'], env);
+  assert.match(roster.stdout, /\| # \| Workspace ID \| Name \| Active \| Path \|/);
+  assert.match(roster.stdout, /local--demo-team/);
+  assert.match(roster.stdout, /local--another-team/);
+  assert.equal(roster.stdout.split('\n').filter((line) => /^\| \d+ \|/.test(line)).length, 2);
+  assert.match(roster.stdout, /Copilot: `\/sf-workspace`/);
+  assert.equal(await readFile(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, 'utf8'), beforeTable,
+    'rendering the roster must not rewrite registration or make a selection');
+  const selected = JSON.parse(cli(['workspace', 'use', 'local--demo-team', '--repository', 'app', '--json'], env).stdout);
+  assert.equal(selected.workspaceId, 'local--demo-team');
+  const current = JSON.parse(cli(['workspace', 'current', '--json'], env).stdout);
+  assert.equal(current.workspaceId, 'local--demo-team');
+  assert.equal(current.repositoryId, 'app');
+  assert.equal(current.repositoryState, 'missing');
+  const conflicting = cli(['workspace', 'list', '--table', '--json'], env, { allowFailure: true });
+  assert.notEqual(conflicting.status, 0);
+  assert.equal(JSON.parse(conflicting.stderr).error.code, 'WORKSPACE_TABLE_FORMAT_INVALID');
   // The anchor records the local provider rather than pretending to be a tracker key.
   const status = JSON.parse(cli(['workspace', 'status', path.join(workspaces, 'demo-team'), '--json'], env).stdout);
   assert.equal(status.repositories.length, 1);

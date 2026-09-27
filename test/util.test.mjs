@@ -4,8 +4,19 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, defaultTimeoutFor, networkDisabled, run, writeJson, writeText
+  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, defaultTimeoutFor, networkDisabled, parseArgs, run, writeJson, writeText
 } from '../src/util.mjs';
+
+test('roster table is a boolean flag and cannot swallow a selector or positional value', () => {
+  assert.deepEqual(parseArgs(['workspace', 'list', '--table', 'extra']), {
+    positionals: ['workspace', 'list', 'extra'], options: { table: true }
+  });
+  assert.deepEqual(parseArgs(['session', 'candidates', '--table', '--workspace', 'C:\\Teams\\App',
+    '--repository', 'app']), {
+    positionals: ['session', 'candidates'],
+    options: { table: true, workspace: 'C:\\Teams\\App', repository: 'app' }
+  });
+});
 
 test('shared atomic writers tolerate concurrent writes without temporary-file collisions', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-util-concurrent-'));

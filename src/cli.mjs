@@ -9529,8 +9529,29 @@ async function exactStoryMetadataAtRef(root, remote, item, expectedCommit = null
   };
 }
 
+async function printSessionCandidateResult(discovered, options, scope = {}) {
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
+    optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
+  ));
+  if (optionBoolean(options, 'table')) {
+    const { renderStoryRoster } = await import('./session-roster.mjs');
+    return console.log(renderStoryRoster(discovered, { scope }));
+  }
+  if (!discovered.items.length) return console.log(`No remote Singularity Flow work-item branches were found on ${discovered.remote}.`);
+  return console.log(table(discovered.items, [
+    { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' },
+    { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
+    { key: 'commit', label: 'REMOTE COMMIT' }
+  ]));
+}
+
 async function sessionCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
+  if (optionBoolean(options, 'table') && (subcommand !== 'candidates' || optionBoolean(options, 'json'))) {
+    throw new SingularityFlowError('Use --table only with session candidates, without --json.', {
+      code: 'SESSION_TABLE_FORMAT_INVALID'
+    });
+  }
   const repositoryUrl = optionString(options, 'repository-url');
   const configurationUrl = optionString(options, 'configuration-url');
   const workspaceReference = optionString(options, 'workspace');
@@ -9555,15 +9576,7 @@ async function sessionCommand(positionals, options) {
       { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
     );
     const discovered = await discoverRemoteStoryCandidatesByUrl(repositoryUrl, { configurationUrl });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
-      optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
-    ));
-    if (!discovered.items.length) return console.log('No remote Singularity Flow work-item branches were found.');
-    return console.log(table(discovered.items, [
-      { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' },
-      { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
-      { key: 'commit', label: 'REMOTE COMMIT' }
-    ]));
+    return printSessionCandidateResult(discovered, options, { repositoryUrl });
   }
   if (subcommand === 'workspace') {
     const registry = workspaceRegistryFile();
@@ -9929,15 +9942,10 @@ async function sessionCommand(positionals, options) {
       configurationUrl: authority.configurationUrl
     });
     if (subcommand === 'candidates') {
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
-        optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
-      ));
-      if (!discovered.items.length) return console.log('No remote Singularity Flow work-item branches were found.');
-      return console.log(table(discovered.items, [
-        { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' },
-        { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
-        { key: 'commit', label: 'REMOTE COMMIT' }
-      ]));
+      return printSessionCandidateResult(discovered, options, {
+        workspaceReference: workspaceReference ?? context.workspacePath,
+        repositoryId: selectedRepositoryId ?? context.repositoryId
+      });
     }
     const reference = requirePositional(positionals, 2, 'work, Jira, or branch reference');
     preflightStory = exactDiscoveredStory(discovered, reference);
@@ -10050,14 +10058,10 @@ async function sessionCommand(positionals, options) {
   }
   if (subcommand === 'candidates') {
     const discovered = await discoverRemoteStoryCandidates(root, config, { remote: discovery.remote });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
-      optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
-    ));
-    if (!discovered.items.length) return console.log(`No remote Singularity Flow work-item branches were found on ${discovered.remote}.`);
-    return console.log(table(discovered.items, [
-      { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
-      { key: 'commit', label: 'REMOTE COMMIT' }
-    ]));
+    return printSessionCandidateResult(discovered, options, {
+      workspaceReference: workspaceReference ?? resolved.workspaceContext?.workspacePath ?? null,
+      repositoryId: selectedRepositoryId ?? resolved.workspaceContext?.repositoryId ?? null
+    });
   }
   if (subcommand === 'attach') {
     const reference = requirePositional(positionals, 2, 'work, Jira, or branch reference');
@@ -13383,6 +13387,11 @@ async function workspaceDirectoryFromCwd(registry, selectionFile, action) {
 
 async function workspaceCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'list';
+  if (optionBoolean(options, 'table') && (subcommand !== 'list' || optionBoolean(options, 'json'))) {
+    throw new SingularityFlowError('Use --table only with workspace list, without --json.', {
+      code: 'WORKSPACE_TABLE_FORMAT_INVALID'
+    });
+  }
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
   // Refresh and reinitialization are the recovery boundary for old repositories. Removing their
@@ -13885,6 +13894,10 @@ async function workspaceCommand(positionals, options) {
       };
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (optionBoolean(options, 'table')) {
+      const { renderWorkspaceRoster } = await import('./workspace-roster.mjs');
+      return console.log(renderWorkspaceRoster(result));
+    }
     return console.log(table(result, [
       { key: 'active', label: 'ACTIVE' },
       { key: 'anchorKey', label: 'JIRA' },

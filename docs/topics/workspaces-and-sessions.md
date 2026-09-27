@@ -15,7 +15,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 7
+version: 8
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -26,7 +26,7 @@ Use this topic when the current goal matches **workspaces and sessions**. Start 
 ## Use it from each surface
 
 - **Shell:** `sflow workspace`, `sflow session`, `sflow choices`. Run `singularity-flow workspace --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-workspace`, `/sf-session`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-workspaces` lists saved workspaces; `/sf-workspace` asks which workspace and repository to select. `/sf-stories` lists Stories and their progress, then asks which exact Story to make active through `/sf-session`. The skills preserve the CLI result and wait for explicit choices.
 - **VS Code:** open Singularity Flow **My Work and Workspaces**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -42,6 +42,39 @@ For a large delivery repository, configure its clone strategy while mapping the 
 Before any workspace exists, use `sflow workspace prepare <REMOTE> --id <ID> --base <DIRECTORY>` to record and preflight a resumable setup. It creates no destination. Continue only with the returned `workspace bootstrap resume` command and exact workspace-ID confirmation. An interrupted setup remains addressable by its `bst_…` ID.
 
 ### Workspace selection and the editor
+
+Workspace and Story discovery use deterministic CLI tables, not a Home summary:
+
+```bash
+singularity-flow workspace list --table
+singularity-flow session candidates --table --workspace <WORKSPACE> --repository <REPOSITORY-ID>
+```
+
+The complete workspace roster includes inactive rows and active context. In Copilot,
+`/sf-workspaces` only displays it; singular `/sf-workspace` uses that table to ask for an
+exact workspace ID or row, then any required repository choice before switching. An
+active marker is not a selection answer. Neither listing nor selecting a workspace
+implicitly selects a new Story.
+
+Use `/sf-stories` to see the complete Story table with the progress available from
+durable state. Choose an exact Story ID or row from that table; it is never assumed
+from the first row or a current binding. Only the chosen Story is passed to
+`/sf-session` with the same workspace/repository selectors. Invoking `/sf-session`
+without an ID also shows this chooser before session status or attachment. Explicit
+discovery/selection skills are not replaced by Home headings, and setup ends without
+starting or advancing Story work.
+
+The Story table shows title, status, current phase, phase status, generation, and
+approved phases / total phases retained by that Story. For example, `2/7` means
+two of seven phases are approved; it is not a coding-completion estimate. Missing
+historical progress remains unavailable. In IntelliJ, invoke the same chooser as
+`/skill:sf-stories`; use `/skill:sf-workspace` to choose a workspace first.
+
+Without explicit selectors, these Copilot Story choosers read `workspace current --json`
+and carry its exact workspace path and repository ID into discovery and setup. This
+keeps an older IntelliJ or terminal cwd from silently choosing a different repository.
+With no active workspace, an opened Git root remains a valid discovery scope; an
+unresolved scope requires workspace selection, not repository guessing.
 
 In VS Code, **Select workspace** opens the selected ready repository in the **same window**.
 For a deferred checkout, it opens the existing workspace folder without cloning application
@@ -79,7 +112,8 @@ To attach an existing Story, first select the exact workspace/repository or pass
 selectors to both commands:
 
 ```bash
-singularity-flow session candidates --workspace <WORKSPACE> --repository <REPOSITORY-ID> --json --diagnostics
+singularity-flow session candidates --workspace <WORKSPACE> --repository <REPOSITORY-ID> --table
+singularity-flow session open-local <WORK-ID> --workspace <WORKSPACE> --repository <REPOSITORY-ID> --json
 singularity-flow session attach <WORK-ID> --workspace <WORKSPACE> --repository <REPOSITORY-ID> --json
 ```
 
@@ -93,6 +127,13 @@ is the checkout to open. In a terminal, `cd` to that path; a child command canno
 terminal's current directory. Copilot `/sf-session` runs subsequent commands with that path as
 cwd, and VS Code opens it after successful attachment. A remote-only URL candidate does not
 authorize cloning by itself: an exact workspace/repository selection is required.
+
+Session setup tries `open-local` first so an already managed local Story can be opened
+without remote synchronization. Only `SESSION_LOCAL_STORY_UNAVAILABLE` or
+`SESSION_LOCAL_REPOSITORY_UNAVAILABLE` permits the remote-attach fallback; other
+refusals stop setup. For missing candidate evidence, use the same explicit selectors
+with `session candidates --json --diagnostics`. Progress absent from durable evidence
+is reported as unavailable, not estimated by chat.
 
 To use a clone already on the machine, run `sflow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY> --dry-run --json`. Review its canonical path, origin, branch, worktrees, submodules, SFlow configuration, changed paths, and preservation list. A dirty clone requires the exact content-aware hash returned by the preview in `--confirm-dirty`; changing file bytes invalidates it. Adoption creates a separate workspace shell and never fetches, checks out, stashes, commits, resets, cleans, or edits the clone remote.
 

@@ -108,6 +108,16 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   assert.ok(candidates.some((item) => item.id === 'HAND-101' && item.phase === 'requirements'));
   const discovered = JSON.parse(flow(second, ['session', 'candidates', '--json', '--diagnostics']).stdout);
   assert.ok(discovered.items.some((item) => item.id === 'HAND-101'));
+  const progress = discovered.items.find((item) => item.id === 'HAND-101').progress;
+  assert.equal(progress.available, true);
+  assert.equal(progress.approved, 1);
+  assert.ok(progress.total > 1);
+  const roster = flow(second, ['session', 'candidates', '--table']).stdout;
+  assert.match(roster, /HAND-101/);
+  assert.ok(roster.includes(`1/${progress.total}`), 'the chooser must display recorded approved-phase progress');
+  assert.match(roster, /BROKEN/);
+  assert.match(roster, /\/sf-session/);
+  assert.match(roster, /singularity-flow session attach/);
   assert.ok(discovered.unavailable.some((entry) => entry.claimedId === 'BROKEN'));
   assert.equal(discovered.fetched, true);
   assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'main');
@@ -389,6 +399,21 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   ], base, deferredEnv).stdout);
   assert.equal(deferredCandidates.source, 'remote-url');
   assert.ok(deferredCandidates.items.some((item) => item.id === 'BOOT-101'));
+  const deferredTable = run(process.execPath, [bin,
+    'session', 'candidates', ...selector, '--table'
+  ], base, deferredEnv).stdout;
+  assert.match(deferredTable, /BOOT-101/);
+  assert.ok(deferredTable.replaceAll('\\_', '_').includes(deferred.workspace.path),
+    'the Story roster must retain its exact workspace scope as a literal Markdown cell');
+  assert.match(deferredTable, /application/);
+  assert.equal(spawnSync('git', ['-C', deferredRepository, 'rev-parse', '--is-inside-work-tree'], {
+    cwd: base, encoding: 'utf8'
+  }).status, 128, 'reading the table must not clone a deferred repository');
+  const conflictingTable = spawnSync(process.execPath, [bin,
+    'session', 'candidates', '--table', '--json'
+  ], { cwd: base, encoding: 'utf8', env: deferredEnv });
+  assert.notEqual(conflictingTable.status, 0);
+  assert.equal(JSON.parse(conflictingTable.stderr).error.code, 'SESSION_TABLE_FORMAT_INVALID');
   const unknownDeferred = spawnSync(process.execPath, [bin,
     'session', 'attach', 'NOT-A-STORY', ...selector, '--json'
   ], { cwd: base, encoding: 'utf8', env: deferredEnv });

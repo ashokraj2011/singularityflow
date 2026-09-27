@@ -98,10 +98,10 @@
     <h1>Singularity Flow Skill Catalog</h1>
     <p>Every packaged Copilot skill, its invocation and execution policy, and its complete reviewed instruction source. This file is generated from the repository and uses no external scripts, fonts, trackers, or network resources.</p>
     <div class="stats">
-      <span class="stat"><strong>155</strong> skills</span>
+      <span class="stat"><strong>156</strong> skills</span>
       <span class="stat"><strong>12</strong> automatic</span>
-      <span class="stat"><strong>143</strong> explicit only</span>
-      <span class="stat"><strong>144</strong> never-model operations</span>
+      <span class="stat"><strong>144</strong> explicit only</span>
+      <span class="stat"><strong>145</strong> never-model operations</span>
     </div>
   </header>
   <section class="toolbar" aria-label="Catalog filters">
@@ -645,6 +645,10 @@
     <span>sflow-status</span>
     <small>conversational</small>
   </a>
+  <a href="#sflow-stories" data-skill-link="sflow-stories">
+    <span>sflow-stories</span>
+    <small>interactive</small>
+  </a>
   <a href="#sflow-story-branch" data-skill-link="sflow-story-branch">
     <span>sflow-story-branch</span>
     <small>interactive</small>
@@ -734,7 +738,7 @@
     <small>interactive</small>
   </a></nav>
     <main>
-      <div class="result-row"><h2>Packaged skills</h2><p id="result-count" aria-live="polite">155 shown</p></div>
+      <div class="result-row"><h2>Packaged skills</h2><p id="result-count" aria-live="polite">156 shown</p></div>
       <div id="empty" class="empty">No skill matches these filters.</div>
       <section id="catalog">
   <article class="skill-card" id="sflow-about"
@@ -3936,7 +3940,7 @@ filesystem for a repository in that case.
           <span class="pill">guided</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~759 body tokens</span>
+          <span class="pill">~799 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-home</code></dd></div>
@@ -3960,10 +3964,12 @@ description: Guide developer requests through explicit governed choices.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-Use this for questions about current work, blockers, next actions, and recovery; automatic invocation is not mutation consent.
+Work/recovery; automatic invocation is not mutation consent.
 
-1. With a request, run `singularity-flow home --json --request &quot;$ARGUMENTS&quot;`; otherwise run `singularity-flow recommend --json` for one grounded recommendation.
-2. Read `data.home` and `data.conversation`; chat memory is not state. Use `data.home.repository`,
+Named workspace/Story skills override Home in every host syntax: `/sf-workspaces`, `/sf-workspace`, `/sf-stories`, `/sf-session` (also `sflow-*`). Never send their names to Home or replace tables with Home headings/refresh.
+
+1. With a request, run `singularity-flow home --json --request &quot;$ARGUMENTS&quot;`; otherwise run `singularity-flow recommend --json`.
+2. Use `data.home` and `data.conversation`, not chat memory. Use `data.home.repository`,
    `data.home.currentWork`, and `data.home.personalization.replyName` exactly. Never say the repository is unresolved when it exists. Do not derive a name from email, login, input, or memory.
    Report `bootstrap` when no workspace exists and route `home:workspace.switch` through its fallback.
    Render projected `today`/`yesterday` as **Today**/**Yesterday — where you stopped**, with the exact
@@ -3973,10 +3979,10 @@ Use this for questions about current work, blockers, next actions, and recovery;
    - **Next** — the one routed read or proposed governed action, including its `/sf-*` route.
    - **I need from you** — nothing for a read; otherwise the exact required input or decision.
    - **This will change** — “Nothing” for reads; otherwise name file, lifecycle, Git, publication, and external effects.
-4. Intents are `orient`, `continue`, `start`, `inspect`, `act`, `recover`, and `help`. Help relays cited packaged documentation and never executes a displayed command. For `none` or `ambiguous` confidence, render returned choices and use `ask_user`; never guess.
-5. Safe reads may run immediately. For `continue`, `start`, or `act`, show the proposal and use `ask_user`. Follow only the selected direct route: `/sf-recommend`, `/sf-resume`, `/sf-start`, `/sf-phase`, `/sf-submit`, or `/sf-next`.
+4. Intents are `orient`, `continue`, `start`, `inspect`, `act`, `recover`, and `help`. Help relays cited docs without executing commands. For `none` or `ambiguous` confidence, render returned choices and use `ask_user`; never guess.
+5. Safe reads may run immediately. For `continue`, `start`, or `act`, show the proposal and use `ask_user`. Follow only the selected returned `fallback.skill`, including `/sf-stories`, `/sf-session`, `/sf-workspace`; choosers require an exact choice before selection or attachment.
 6. Decisions, resets, destructive operations, and ceremonies require an explicit `/sf-*` invocation.
-7. Preserve all CLI refusals, warnings, ordered actions, and recovery commands. After a selected flow completes, run `singularity-flow home` and show the refreshed state.
+7. Keep refusals, warnings, action order, and recovery commands. After a selected flow completes, run `singularity-flow home` except for chooser turns: keep their table/choices; no Home refresh.
 8. “Catch me up”, “where did I stop?”, “yesterday”, and “what changed while I was away?” are reads.
    Route `/sf-work-interval` with the current Work ID; never answer from the prior Copilot turn.
 
@@ -7940,7 +7946,7 @@ argument-hint: &quot;scan [--staged] | protect&quot;
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~654 body tokens</span>
+          <span class="pill">~799 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-session</code></dd></div>
@@ -7967,16 +7973,15 @@ disable-model-invocation: true
 
 Session setup only: no raw Git, source reads, edits, or lifecycle work. A deferred path is not cwd.
 
-1. Run `singularity-flow session status --json`.
-2. If uninitialized, check `singularity-flow workspace current --json`; ask for missing selection. Never guess URLs.
-3. For an explicitly chosen work ID, try `singularity-flow session open-local &lt;WORK-ID&gt; --json` with exact workspace/repository selectors. Success opens a registered managed checkout without remote sync; report `localOnly: true`. Only `SESSION_LOCAL_STORY_UNAVAILABLE` or `SESSION_LOCAL_REPOSITORY_UNAVAILABLE` permits remote fallback. Stop on other refusals.
-4. Otherwise run `singularity-flow session candidates --json` (`--diagnostics` for gaps). Use `--workspace &lt;WORKSPACE&gt; --repository &lt;REPOSITORY-ID&gt;` when selected. Show IDs, titles, phases, statuses, commits; ask for an exact ID if missing. Candidate `repositoryPath` is only the scan source.
-5. If local opening did not succeed, run `singularity-flow session attach &lt;WORK-ID&gt; --json` with the same selectors. This synchronizes the selected remote Story and returns its checkout. Ahead, diverged, dirty, missing, malformed, or unverifiable state may refuse. Never manually merge, rebase, reset, force-checkout, stash, or discard work.
-6. At the returned `repositoryPath`, run `singularity-flow session status --json`; confirm `ready`, `workId`, and `activeAgent`. Tell shell users to `cd` there. `/sf-agent` requires an explicit override request.
-7. There run `singularity-flow session context --work-id &lt;WORK-ID&gt; --slice brief --max-output-bytes 32768 --json`. Never preload the repository.
-8. There run `singularity-flow nextsteps &lt;WORK-ID&gt; --json`; report work, commit, agent, phase. For each action preserve order, timing, reason, `Copilot: &lt;copilotCommand&gt;`, and `Shell: &lt;command&gt;` from that same object. Do not merge distinct actions or invent missing routes.
-9. For hook refusals, read `singularity-flow logs --event hook --level warn`; `hook.session.initiative` means no Story selection.
-10. End the turn; do not continue into Story work.
+1. Preserve explicit `--workspace &lt;WORKSPACE&gt; --repository &lt;REPOSITORY-ID&gt;` selectors. Partial selectors: resolve only within the explicit workspace or ask; never fill from active workspace/cwd. With none, read `singularity-flow workspace current --json` and carry active `workspacePath`/`repositoryId` explicitly; an old host cwd must not replace that scope. No active workspace: opened Git root or ask. Never guess URLs.
+2. Without an explicit work ID, run `singularity-flow session candidates --table` with that scope before status. Relay the entire table, progress, warnings, and scope verbatim; ask with `ask_user` or plain chat for an exact ID if missing, or a row mapped to that table&#39;s ID. A current binding or first row is not selection. Stop without attaching if no choice exists; no Home headings. Gaps: `singularity-flow session candidates --json --diagnostics` with the same selectors. Candidate `repositoryPath` is only the scan source, not the destination.
+3. For the chosen ID, try `singularity-flow session open-local &lt;WORK-ID&gt; --json` with those selectors. Success opens its managed checkout without remote sync; report `localOnly: true`. Only `SESSION_LOCAL_STORY_UNAVAILABLE` or `SESSION_LOCAL_REPOSITORY_UNAVAILABLE` permits remote fallback. Stop on other refusals.
+4. If local opening did not succeed, run `singularity-flow session attach &lt;WORK-ID&gt; --json` with the same selectors. This synchronizes the selected remote Story and returns its checkout. Unsafe or unverifiable state may refuse. Never manually merge, rebase, reset, force-checkout, stash, or discard work.
+5. At the returned `repositoryPath`, run `singularity-flow session status --json`; require `ready === true`, `workId` exactly the chosen ID, and `activeAgent` equal the open/attach result&#39;s `agent` (`null` is valid for a completed Story). Stop on mismatch before context/nextsteps. Tell shell users to `cd` there. `/sf-agent` requires an explicit override request.
+6. There run `singularity-flow session context --work-id &lt;WORK-ID&gt; --slice brief --max-output-bytes 32768 --json`. Never preload the repository.
+7. There run `singularity-flow nextsteps &lt;WORK-ID&gt; --json`; report work, commit, agent, phase. For each action preserve order, timing, reason, `Copilot: &lt;copilotCommand&gt;`, and `Shell: &lt;command&gt;` from that same object. Do not merge distinct actions or invent missing routes.
+8. For hook refusals, read `singularity-flow logs --event hook --level warn`; `hook.session.initiative` means no Story selection.
+9. End the turn; do not continue into Story work.
 </code></pre>
       </div>
     </details>
@@ -8602,6 +8607,58 @@ Run `singularity-flow status` with the supplied work ID, if any. Read `STATUS.md
       </div>
     </details>
   </article>
+  <article class="skill-card" id="sflow-stories"
+    data-name="sflow-stories"
+    data-class="interactive"
+    data-boundary="machine"
+    data-invocation="explicit"
+    data-model="never">
+    <details>
+      <summary>
+        <span class="skill-number">134</span>
+        <span class="skill-title"><strong>sflow-stories</strong><span>List Story candidates and their progress, then ask which exact Story to make active through /sf-session.</span></span>
+        <span class="chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="skill-content">
+        <div class="pills" aria-label="Skill policy">
+          <span class="pill ">explicit only</span>
+          <span class="pill">interactive</span>
+          <span class="pill">machine boundary</span>
+          <span class="pill">model: never</span>
+          <span class="pill">~586 body tokens</span>
+        </div>
+        <dl>
+          <div><dt>Command</dt><dd><code>/sflow-stories</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>none</code></dd></div>
+          <div><dt>Model-capable operations</dt><dd>none</dd></div>
+          <div><dt>Source</dt><dd><code>plugin/skills/sflow-stories/SKILL.md</code></dd></div>
+        </dl>
+        <div class="source-heading">
+          <h3>Complete skill instructions</h3>
+          <button type="button" class="copy" data-copy="sflow-stories">Copy Markdown</button>
+        </div>
+        <pre data-source="sflow-stories"><code>---
+name: sflow-stories
+description: List Story candidates and their progress, then ask which exact Story to make active through /sf-session.
+disable-model-invocation: true
+
+---
+# Choose a Story from durable state
+
+&lt;!-- sflow-output-contract: explicit-selection --&gt;
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+&lt;!-- sflow-execution-boundary --&gt;
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
+
+1. Preserve explicit `--workspace &lt;WORKSPACE&gt; --repository &lt;REPOSITORY-ID&gt;` selectors. Partial selectors: resolve only within the explicit workspace or ask; never fill from active workspace/cwd. With none supplied, run `singularity-flow workspace current --json`; when active, capture its exact `workspacePath` and `repositoryId` and pass both as selectors. Never let an old host cwd override that selected workspace. With no active workspace, an opened Git root is a valid discovery scope; if unresolved, ask for `/sf-workspace` and stop. Never guess URLs or use a planned checkout as cwd.
+2. Run `singularity-flow session candidates --table` with that scope. Relay the complete CLI table, progress, active markers, scope, warnings, and errors verbatim. Do not hide inactive Stories, invent progress, make per-Story status calls, or use Home headings. Candidate `repositoryPath` is only the discovery source, not the destination. For an explicit list-only request, end here without selection.
+3. Ask with `ask_user` or plain chat for an exact Story ID or row number. Map a row only to the exact ID in that returned table. Preserve the table&#39;s workspace/repository selectors. Never auto-attach the first or current Story; ambiguous, absent, or unavailable choices require clarification, not attachment.
+4. After the contributor explicitly chooses, invoke and complete existing `/sf-session &lt;WORK-ID&gt;` with those exact selectors in this flow, not merely display its route. It tries a managed local checkout first and permits verified remote attachment only on its specified unavailable-local refusals. Verify the returned checkout and session status `ready`, `workId`, and `activeAgent`; do not assume attachment has `activeAgent` or run a second attachment sequence here.
+5. Stop after session setup. Discovery alone changes no active Story. Do not create, advance, begin, submit, approve, merge, publish, or execute Story work.
+</code></pre>
+      </div>
+    </details>
+  </article>
   <article class="skill-card" id="sflow-story-branch"
     data-name="sflow-story-branch"
     data-class="interactive"
@@ -8610,7 +8667,7 @@ Run `singularity-flow status` with the supplied work ID, if any. Read `STATUS.md
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">134</span>
+        <span class="skill-number">135</span>
         <span class="skill-title"><strong>sflow-story-branch</strong><span>Create, attach, inspect, or promote a Developer child branch with an explicit canonical Jira Story parent and repository completion policy.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8664,7 +8721,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">135</span>
+        <span class="skill-number">136</span>
         <span class="skill-title"><strong>sflow-story-checks</strong><span>Record exact-SHA GitHub repository-check, PR, lineage, freshness, and conformance evidence for the current finalized Story packet.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8717,7 +8774,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">136</span>
+        <span class="skill-number">137</span>
         <span class="skill-title"><strong>sflow-story-fetch</strong><span>Securely fetch a governed Jira Story branch, verify its parent and Story specifications, and start its pinned repository workflow.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8771,7 +8828,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">137</span>
+        <span class="skill-number">138</span>
         <span class="skill-title"><strong>sflow-story-inbox</strong><span>List active Jira Stories carrying governed Singularity lineage so a developer can choose work safely.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8824,7 +8881,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">138</span>
+        <span class="skill-number">139</span>
         <span class="skill-title"><strong>sflow-story-skill-version</strong><span>Review and adopt an approved new skill package version for an active Story without silently changing its pinned execution snapshot.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8878,7 +8935,7 @@ argument-hint: &quot;status | preview &lt;SKILL-ID&gt; --reason &lt;TEXT&gt; | p
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">139</span>
+        <span class="skill-number">140</span>
         <span class="skill-title"><strong>sflow-story-start</strong><span>Select a Jira Story, workflow, and prompt-only governed agent, then create or resume its canonical governed branch.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8944,7 +9001,7 @@ The canonical branch is the exact Jira key. Jira intake pins the normalized issu
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">140</span>
+        <span class="skill-number">141</span>
         <span class="skill-title"><strong>sflow-submit</strong><span>Validate and submit the active Singularity Flow phase for human approval, registering changed artifacts and running configured quality commands.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9003,7 +9060,7 @@ Stop on `Out of sequence`. Show soft warnings; only the human confirms them. Nev
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">141</span>
+        <span class="skill-number">142</span>
         <span class="skill-title"><strong>sflow-telemetry</strong><span>Inspect Context X-Ray, Token Ledger, and privacy-safe local Copilot usage without estimating unavailable values.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9058,7 +9115,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">142</span>
+        <span class="skill-number">143</span>
         <span class="skill-title"><strong>sflow-upload</strong><span>Attach, inspect, list, or governably detach files, folders, images, PDFs, Figma exports, notes, and HTTPS references for an Epic or Story.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9134,7 +9191,7 @@ Use `singularity-flow documents list --all` or `singularity-flow epic sources li
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">143</span>
+        <span class="skill-number">144</span>
         <span class="skill-title"><strong>sflow-validate</strong><span>Validate the selected Singularity Flow repository without changing workflow or Git state.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9184,7 +9241,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">144</span>
+        <span class="skill-number">145</span>
         <span class="skill-title"><strong>sflow-verify</strong><span>Verify implementation against acceptance criteria, run checks, capture evidence, and register the Singularity Flow verification artifact.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9246,7 +9303,7 @@ argument-hint: &quot;[test scope or environment]&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">145</span>
+        <span class="skill-number">146</span>
         <span class="skill-title"><strong>sflow-visual</strong><span>Inspect visual-assurance status or compare expected and actual governed visual evidence.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9298,7 +9355,7 @@ argument-hint: &quot;status | compare --expected &lt;record&gt; --actual &lt;rec
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">146</span>
+        <span class="skill-number">147</span>
         <span class="skill-title"><strong>sflow-watch</strong><span>Watch a governed work item for remote lifecycle changes without modifying its branch or state.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9350,7 +9407,7 @@ argument-hint: &quot;[WORK-ID] [--once]&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">147</span>
+        <span class="skill-number">148</span>
         <span class="skill-title"><strong>sflow-work-interval</strong><span>Inspect, checkpoint, reconcile, or safely escalate the current governed Story work interval without committing unfinished source.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9406,7 +9463,7 @@ Use the CLI as the authority. Never stage, commit, push, or copy unfinished sour
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">148</span>
+        <span class="skill-number">149</span>
         <span class="skill-title"><strong>sflow-workflow-rules</strong><span>Background rules for Singularity Flow-managed SDLC work. Load when a repository has governed Story state at its configured work-item root or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9465,7 +9522,7 @@ user-invocable: false
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">149</span>
+        <span class="skill-number">150</span>
         <span class="skill-title"><strong>sflow-workflows</strong><span>List, preview, transfer, duplicate governed workflows, or explicitly share inert Git-backed workflow drafts.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9550,7 +9607,7 @@ Always relay paired Shell and Copilot routes; a deterministic command remains CL
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">150</span>
+        <span class="skill-number">151</span>
         <span class="skill-title"><strong>sflow-workspace</strong><span>Select a saved Singularity Flow workspace and repository for this Copilot session, optionally binding the visible context to a Story ID.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9560,7 +9617,7 @@ Always relay paired Shell and Copilot routes; a deterministic command remains CL
           <span class="pill">interactive</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: conditional</span>
-          <span class="pill">~756 body tokens</span>
+          <span class="pill">~770 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workspace</code></dd></div>
@@ -9585,19 +9642,19 @@ disable-model-invocation: true
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-1. Run `singularity-flow workspace list --json`.
-2. If no workspaces are saved, first check `singularity-flow workspace bootstrap status --json`. If an unfinished session exists, offer `/sf-workspace-bootstrap &lt;BOOTSTRAP-ID&gt;` instead of creating a duplicate. Otherwise offer two explicit paths: prepare from a remote with `singularity-flow workspace prepare &lt;LEAD-URL&gt; --id &lt;ID&gt; --capability &lt;ID&gt; [--lead-capability &lt;ID&gt;] --base &lt;DIRECTORY&gt; --initialize`, or inspect a clone the contributor already selected with `singularity-flow workspace adopt &lt;DIRECTORY&gt; --id &lt;ID&gt; --base &lt;DIRECTORY&gt; --dry-run --json`. Do not invent a directory, capability, repository URL, dirty confirmation, or selection.
+1. Run `singularity-flow workspace list --table`; relay the complete table verbatim, including inactive rows and warnings. Do not substitute Home or an active-only summary.
+2. If empty, check `singularity-flow workspace bootstrap status --json`. Offer an unfinished `/sf-workspace-bootstrap &lt;BOOTSTRAP-ID&gt;` instead of a duplicate. Otherwise offer explicit remote preparation: `singularity-flow workspace prepare &lt;LEAD-URL&gt; --id &lt;ID&gt; --capability &lt;ID&gt; [--lead-capability &lt;ID&gt;] --base &lt;DIRECTORY&gt; --initialize`, or contributor-selected clone preview: `singularity-flow workspace adopt &lt;DIRECTORY&gt; --id &lt;ID&gt; --base &lt;DIRECTORY&gt; --dry-run --json`. Never invent inputs, dirty confirmation, or selection.
 3. For existing-clone adoption, show the canonical path, sanitized origin, branch, changed paths, preservation list, workspace-shell target, and `dirtyConfirmationRequired`. State that no fetch, checkout, stash, commit, reset, clean, or remote edit will occur. If dirty, require the contributor to review the paths and approve the exact returned hash; then require the exact workspace ID before running the non-dry-run command.
-4. Use Copilot&#39;s `ask_user` facility to ask the contributor to choose the exact workspace. Show its name, workspace ID, Jira anchor, and path.
-5. If the workspace contains multiple repositories, ask which repository to use. Clearly mark the lead repository when `singularity-flow workspace status` reports one — it is the repository the workspace&#39;s lead capability ships from, and it is where the orphan `state` branch lives.
-6. If the contributor supplied a Story/Jira ID, preserve it. Otherwise let Singularity Flow detect a Story from the selected repository&#39;s checked-out governed branch.
+4. Ask with `ask_user` or plain chat for an exact workspace ID or row number. Map the chosen row to its exact workspace path in that table. IDs can repeat: an ID matching multiple rows requires a row/path choice. Never choose the first or current workspace automatically; ask again on ambiguous or absent answers.
+5. Run `singularity-flow workspace status &lt;WORKSPACE-PATH&gt; --level readiness --json` at that exact selected path. This local read supplies repository members without remote calls. If multiple, ask which repository to use; preserve its exact ID and mark the reported lead repository.
+6. Preserve any explicitly supplied Story/Jira ID. A workspace choice is not a Story choice or permission to attach a Story; the CLI may report an existing governed branch binding.
 7. Run:
 
-   `singularity-flow workspace use &lt;WORKSPACE-ID&gt; --repository &lt;REPOSITORY-ID&gt; [--story &lt;STORY-ID&gt;] --json`
+   `singularity-flow workspace use &lt;WORKSPACE-PATH&gt; --repository &lt;REPOSITORY-ID&gt; [--story &lt;STORY-ID&gt;] --json`
 
 8. Reproduce the returned `prompt`, workspace, repository, path, `repositoryState`, branch, and Story. A planned `missing` checkout is selectable but not a shell cwd. Use a ready `repositoryPath` for later shell commands.
 9. Do not launch nested Copilot. A new terminal session can start with `singularity-flow workspace copilot` in a ready checkout. For a planned checkout, use `/sf-start` or `singularity-flow workspace repair &lt;WORKSPACE-PATH&gt; --repository &lt;REPOSITORY-ID&gt;` first. The Copilot session name contains workspace and Story.
-10. Be explicit that GitHub Copilot does not support replacing its native `&gt;` input marker. The Singularity Flow context label is a session banner/name and governed prompt context, not a modification of Copilot&#39;s built-in UI.
+10. The context label is a session banner, not a replacement for Copilot&#39;s native `&gt;` marker.
 </code></pre>
       </div>
     </details>
@@ -9610,7 +9667,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">151</span>
+        <span class="skill-number">152</span>
         <span class="skill-title"><strong>sflow-workspace-bootstrap</strong><span>Prepare, diagnose, resume, or abandon a recoverable Singularity Flow workspace setup before governed Story work begins.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9689,7 +9746,7 @@ directory automatically, or claims that a failed push was completed.
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">152</span>
+        <span class="skill-number">153</span>
         <span class="skill-title"><strong>sflow-workspace-impact</strong><span>Run or inspect an advisory impact analysis across the selected workspace without creating a Work ID or lifecycle branch.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9744,7 +9801,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">153</span>
+        <span class="skill-number">154</span>
         <span class="skill-title"><strong>sflow-workspace-session</strong><span>Attach the current terminal or Copilot session to a saved Singularity Flow workspace before selecting Story work.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9801,8 +9858,8 @@ This is context setup only. Do not inspect application files, start implementati
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">154</span>
-        <span class="skill-title"><strong>sflow-workspaces</strong><span>List saved Singularity Flow workspaces, show the active workspace and repository, and display the workspace or Story context label.</span></span>
+        <span class="skill-number">155</span>
+        <span class="skill-title"><strong>sflow-workspaces</strong><span>Show the complete saved-workspace table and active context; workspace selection belongs to /sf-workspace.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -9811,7 +9868,7 @@ This is context setup only. Do not inspect application files, start implementati
           <span class="pill">echo</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~271 body tokens</span>
+          <span class="pill">~238 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workspaces</code></dd></div>
@@ -9825,7 +9882,7 @@ This is context setup only. Do not inspect application files, start implementati
         </div>
         <pre data-source="sflow-workspaces"><code>---
 name: sflow-workspaces
-description: List saved Singularity Flow workspaces, show the active workspace and repository, and display the workspace or Story context label.
+description: Show the complete saved-workspace table and active context; workspace selection belongs to /sf-workspace.
 disable-model-invocation: true
 
 ---
@@ -9836,13 +9893,10 @@ disable-model-invocation: true
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-1. Run `singularity-flow workspace list --json`.
-2. Run `singularity-flow workspace current --json`.
-3. Show every non-archived workspace with its name, workspace ID, Jira anchor, directory, the capabilities it is for, and whether it is active. The capabilities are what the workspace is; the repositories in it are what those capabilities ship from.
-4. For the active workspace, show the selected repository, branch, Story ID when present, and the exact context label from `prompt`.
-5. If no workspace is active, say so and offer `/sf-workspace`. Do not select one without asking the contributor.
-6. This skill is read-only. Do not create, clone, repair, archive, switch, or modify a workspace.
-
+1. Run only `singularity-flow workspace list --table`.
+2. Relay the complete CLI table and its active context, warnings, and handoffs verbatim. Keep every row, including inactive workspaces. Do not replace the roster with a current-workspace summary, reorder it, or add Home headings.
+3. Selection belongs to singular `/sf-workspace`, not `/sf-workspaces`. Preserve that exact CLI handoff; do not select a workspace in this read-only turn.
+4. Do not run Home or a second current-context command. Do not create, clone, repair, archive, switch, or modify a workspace.
 </code></pre>
       </div>
     </details>
@@ -9855,7 +9909,7 @@ disable-model-invocation: true
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">155</span>
+        <span class="skill-number">156</span>
         <span class="skill-title"><strong>sflow-worldmodel</strong><span>Build, verify, inspect, and compose the repository-owned world model used to ground governed phase prompts.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>

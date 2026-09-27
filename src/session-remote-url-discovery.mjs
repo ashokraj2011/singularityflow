@@ -11,6 +11,7 @@ import {
   enqueueRepositoryOnboardingCleanup, repositoryOnboardingCleanupContention
 } from './repository-onboarding-cleanup.mjs';
 import { readRecord } from './schema-migrations.mjs';
+import { storyLifecycleProgress } from './session-roster.mjs';
 import { validateId } from './state-stores.mjs';
 import { posix, removeTemporaryTree, SingularityFlowError } from './util.mjs';
 
@@ -345,9 +346,8 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
             validateId(definition, claimedId);
             const expectedPath = posix(path.join(workRoot, claimedId, 'workflow.json'));
             if (entry.file !== expectedPath) throw new Error('Story state path does not match its pinned root');
-            const workflow = readRecord('story-workflow', JSON.parse(
-              await readBlob(scratch, transport, entry.oid)
-            )).record;
+            const rawWorkflow = JSON.parse(await readBlob(scratch, transport, entry.oid));
+            const workflow = readRecord('story-workflow', rawWorkflow).record;
             if (workflow?.workItem?.id !== claimedId
                 || !workflow?.phases || !Array.isArray(workflow?.phaseOrder)) {
               throw new Error('Story state identity or workflow structure is invalid');
@@ -358,7 +358,8 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
             items.set(claimedId, {
               id: claimedId, branch: canonical, title: workflow.workItem.title,
               status: workflow.status, phase: workflow.currentPhase,
-              commit: commit.slice(0, 8), commitOid: commit
+              commit: commit.slice(0, 8), commitOid: commit,
+              progress: storyLifecycleProgress(rawWorkflow)
             });
           } catch (error) {
             diagnostics.push(unavailable(

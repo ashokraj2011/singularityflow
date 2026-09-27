@@ -49,7 +49,7 @@ export const HOME_CHOICES = Object.freeze([
    */
   { id: 'work.return', label: 'See what changed while you were away' },
   { id: 'work.start.intake', label: 'Start new work' },
-  { id: 'workspace.switch', label: 'Switch workspace' },
+  { id: 'workspace.switch', label: 'List workspaces' },
   { id: 'impact.quick', label: 'Run a quick impact analysis' },
   { id: 'repository.explore', label: 'Explore repositories or investigate a problem' },
   { id: 'help.explain', label: 'Learn how SFlow works' }
@@ -62,21 +62,21 @@ const ROOTLESS_CHOICES = Object.freeze({
   open: { id: 'repository.open.guide', label: 'Use an existing repository clone' },
   prepare: { id: 'workspace.prepare.guide', label: 'Prepare a new workspace' },
   doctor: { id: 'workspace.doctor.guide', label: 'Run workspace diagnostics' },
-  explore: { id: 'workspace.explore.guide', label: 'Explore saved workspaces' }
+  explore: { id: 'workspace.explore.guide', label: 'List workspaces' }
 });
 
 const FALLBACKS = Object.freeze({
   'work.continue': { command: 'singularity-flow resume <WORK-ID>', skill: '/sf-resume' },
   'work.return': { command: 'singularity-flow story return <WORK-ID>', skill: '/sf-return' },
-  'work.list': { command: 'singularity-flow session candidates', skill: '/sf-session' },
+  'work.list': { command: 'singularity-flow session candidates --table', skill: '/sf-stories' },
   'goal.next': { command: 'singularity-flow goal next <GOAL-ID>', skill: '/sf-goal' },
   'work.start.intake': { command: 'singularity-flow start <WORK-ID>', skill: '/sf-start' },
-  'workspace.switch': { command: 'singularity-flow workspace list', skill: '/sf-workspaces' },
+  'workspace.switch': { command: 'singularity-flow workspace list --table', skill: '/sf-workspaces' },
   'workspace.bootstrap.status': { command: 'singularity-flow workspace bootstrap status <BOOTSTRAP-ID>', skill: '/sf-workspace-bootstrap' },
   'workspace.prepare.guide': { command: 'singularity-flow workspace prepare', skill: '/sf-workspace-bootstrap' },
   'repository.open.guide': { command: 'singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run', skill: '/sf-workspace' },
   'workspace.doctor.guide': { command: 'singularity-flow workspace doctor', skill: '/sf-workspace-bootstrap' },
-  'workspace.explore.guide': { command: 'singularity-flow workspace list', skill: '/sf-workspaces' },
+  'workspace.explore.guide': { command: 'singularity-flow workspace list --table', skill: '/sf-workspaces' },
   'impact.quick': { command: 'singularity-flow workspace impact', skill: '/sf-workspace-impact' },
   'repository.explore': { command: 'singularity-flow status', skill: '/sf-status' },
   'help.explain': { command: 'singularity-flow explain', skill: '/sf-docs' }

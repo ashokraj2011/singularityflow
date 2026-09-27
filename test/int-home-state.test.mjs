@@ -66,6 +66,36 @@ test('visible work on another branch is not advertised as current', () => {
   assert.ok(!result.next.some((entry) => entry.id === 'home:work.continue'));
 });
 
+test('Home workspace and Story-list handoffs open read-only tables with their matching listing skills', () => {
+  const result = homeOverviewResult({
+    workspace: { id: 'calc-app', name: 'calc-app' }, records: recordsFor(started),
+    current: { repositoryId: 'calc', branch: 'main', repositoryScoped: false }
+  });
+  const switched = result.next.find((entry) => entry.id === 'home:workspace.switch');
+  assert.equal(switched.fallback.command, 'singularity-flow workspace list --table');
+  assert.equal(switched.label, 'List workspaces');
+  assert.equal(switched.fallback.label, 'List workspaces');
+  assert.equal(switched.fallback.skill, '/sf-workspaces');
+  assert.equal(switched.executable, false); assert.equal(switched.kind, 'read');
+  const listed = result.next.find((entry) => entry.id === 'home:work.list');
+  assert.equal(listed.fallback.command, 'singularity-flow session candidates --table');
+  assert.equal(listed.fallback.skill, '/sf-stories');
+  assert.equal(listed.executable, false); assert.equal(listed.kind, 'read');
+  const projection = homeProjectionV2(result);
+  assert.equal(projection.prompt.goals.find((entry) => entry.id === switched.id).fallback.copilotCommand, '/sf-workspaces');
+  assert.equal(projection.prompt.goals.find((entry) => entry.id === listed.id).fallback.copilotCommand, '/sf-stories');
+});
+
+test('rootless Home explores saved workspaces through the same read-only table without selecting one', () => {
+  const result = homeOverviewResult({ workspace: null, records: { items: [], groups: emptyGroups() } });
+  const explored = result.next.find((entry) => entry.id === 'home:workspace.explore.guide');
+  assert.equal(explored.fallback.command, 'singularity-flow workspace list --table');
+  assert.equal(explored.fallback.skill, '/sf-workspaces');
+  assert.equal(explored.executable, false); assert.equal(explored.confirmation, 'none');
+  assert.deepEqual(result.effects, { contextChanged: false, stateChanged: false, filesChanged: false,
+    gitRefsChanged: false, publicationCreated: false, externalSystemsChanged: false });
+});
+
 test('a governed Goal is the primary outcome rail even when its linked Story is active', () => {
   const records = recordsFor(started);
   const governedGoal = {

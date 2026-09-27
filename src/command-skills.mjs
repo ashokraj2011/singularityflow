@@ -40,7 +40,7 @@ const entries = {
   resume: ['sf-resume'],
   return: ['sf-return'],
   agent: ['sf-agent'],
-  session: ['sf-session'],
+  session: ['sf-session', 'sf-stories'],
   inbox: ['sf-inbox'],
   finalize: ['sf-finalize'],
   status: ['sf-status'],
@@ -186,6 +186,9 @@ function route(defaultSkill, subcommands = {}) {
  * packaged.
  */
 export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
+  session: route('sf-session', {
+    candidates: 'sf-stories'
+  }),
   explain: route('sf-docs', {
     code: 'sf-explain-code'
   }),

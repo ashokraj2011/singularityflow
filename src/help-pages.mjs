@@ -1571,7 +1571,7 @@ const PAGES = Object.freeze({
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
     examples: [
-      ['singularity-flow workspace list', 'Every registered workspace.'],
+      ['singularity-flow workspace list --table', 'Every saved non-archived workspace in a numbered Markdown table; choose through /sf-workspace.'],
       ['singularity-flow workspace use payments', 'Make a workspace the active one for this session.'],
       ['singularity-flow workspace prepare https://git.example/payments.git --id payments', 'Record and preflight setup without creating the destination.'],
       ['singularity-flow workspace bootstrap resume bst_… --confirm payments', 'Recheck and register the exact recorded workspace plan; clone now only when --clone or --initialize was prepared.'],

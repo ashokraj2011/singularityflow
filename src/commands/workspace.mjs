@@ -4,7 +4,7 @@ import {
   activateWorkspaceContext, activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from '../workspace-context.mjs';
-import { optionBoolean, optionString, table } from '../util.mjs';
+import { optionBoolean, optionString, SingularityFlowError, table } from '../util.mjs';
 
 const HOT_ACTIONS = new Set(['list', 'current', 'prompt', 'use', 'switch']);
 let legacy = null;
@@ -29,6 +29,11 @@ export async function run(argv, context = {}) {
   if (!HOT_ACTIONS.has(action)) return (await loadLegacy()).run(argv);
 
   const { options = {} } = context;
+  if (optionBoolean(options, 'table') && (action !== 'list' || optionBoolean(options, 'json'))) {
+    throw new SingularityFlowError('Use --table only with workspace list, without --json.', {
+      code: 'WORKSPACE_TABLE_FORMAT_INVALID'
+    });
+  }
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
   // List/current/prompt are also the first surfaces an older checkout reaches after installing a
@@ -84,6 +89,10 @@ export async function run(argv, context = {}) {
       };
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (optionBoolean(options, 'table')) {
+      const { renderWorkspaceRoster } = await import('../workspace-roster.mjs');
+      return console.log(renderWorkspaceRoster(result));
+    }
     return console.log(table(result, [
       { key: 'active', label: 'ACTIVE' },
       { key: 'anchorKey', label: 'JIRA' },

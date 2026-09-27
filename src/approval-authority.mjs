@@ -53,6 +53,9 @@ export function normalizeApprovalAuthorities(value = null, securityValue = {}) {
     if (!authority || typeof authority !== 'object' || Array.isArray(authority)) {
       throw new SingularityFlowError(`Approval authority '${id}' must be an object.`);
     }
+    if (authority.allowAnyGitIdentity != null && typeof authority.allowAnyGitIdentity !== 'boolean') {
+      throw new SingularityFlowError(`Approval authority '${id}'.allowAnyGitIdentity must be boolean.`);
+    }
     const members = authority.members ?? [];
     if (!Array.isArray(members)) throw new SingularityFlowError(`Approval authority '${id}'.members must be an array.`);
     const githubTeams = authority.githubTeams ?? [];
@@ -113,7 +116,7 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId, securi
   }
   const authorityIds = [...new Set(configured)];
   for (const authorityId of authorityIds) {
-    if (!registry[authorityId]) {
+    if (!Object.hasOwn(registry, authorityId)) {
       throw new SingularityFlowError(`Phase '${phaseId}' approval references unknown authority '${authorityId}'.`);
     }
   }
@@ -188,7 +191,49 @@ function memberIdentity(member = {}) {
   return email ? `email:${email}` : null;
 }
 
-/** Prove a pinned approval policy has enough distinct eligible humans to ever complete. */
+// One recorded decision covers one authority group, and each actor can decide only once. A
+// union count cannot prove that overlapping required groups have a distinct reviewer assignment.
+// Use iterative augmenting paths so even a large, finite pinned registry needs no recursion.
+function unmatchedRequiredAuthorities(registry, configured, required) {
+  const allowed = new Set(configured);
+  const groups = [...new Set(required)].sort();
+  const candidates = new Map(groups.map((id) => {
+    const authority = allowed.has(id) && Object.hasOwn(registry, id) ? registry[id] : null;
+    // An any-identity group has an unlimited *structural* supply. This synthetic identity is not
+    // a real actor, a membership assertion, or an approval; it never leaves this capacity check.
+    const identities = authority?.allowAnyGitIdentity ? [`unbounded:${id}`]
+      : [...new Set((authority?.members ?? []).map(memberIdentity).filter(Boolean))].sort();
+    return [id, identities];
+  }));
+  const byIdentity = new Map();
+  const byGroup = new Map();
+  for (const initial of groups) {
+    const queue = [initial];
+    const visited = new Set(queue);
+    const predecessor = new Map();
+    let free = null;
+    for (let index = 0; index < queue.length && free == null; index += 1) {
+      const group = queue[index];
+      for (const identity of candidates.get(group)) {
+        if (predecessor.has(identity)) continue;
+        predecessor.set(identity, group);
+        const assigned = byIdentity.get(identity);
+        if (assigned == null) { free = identity; break; }
+        if (!visited.has(assigned)) { visited.add(assigned); queue.push(assigned); }
+      }
+    }
+    while (free != null) {
+      const group = predecessor.get(free);
+      const previous = byGroup.get(group) ?? null;
+      byIdentity.set(free, group);
+      byGroup.set(group, free);
+      free = previous;
+    }
+  }
+  return groups.filter((id) => !byGroup.has(id));
+}
+
+/** Check static capacity of pinned configured identities; never assert current human availability. */
 export function approvalPolicyCapacity(authorities, policy) {
   // Policy approvals may waive a phase only when their deterministic predicate succeeds. When it
   // does not, they fall back to ordinary human review and therefore need the same attainable
@@ -201,7 +246,7 @@ export function approvalPolicyCapacity(authorities, policy) {
   const eligible = new Set();
   let unbounded = false;
   for (const authorityId of configured) {
-    const authority = registry[authorityId];
+    const authority = Object.hasOwn(registry, authorityId) ? registry[authorityId] : null;
     if (!authority) continue;
     if (authority.allowAnyGitIdentity) unbounded = true;
     for (const member of authority.members ?? []) {
@@ -209,10 +254,8 @@ export function approvalPolicyCapacity(authorities, policy) {
       if (key) eligible.add(key);
     }
   }
-  const missingAuthorities = (policy?.requiredAuthorities ?? []).filter((authorityId) => {
-    const authority = registry[authorityId];
-    return !authority?.allowAnyGitIdentity && !(authority?.members ?? []).some(memberIdentity);
-  });
+  const missingAuthorities = unmatchedRequiredAuthorities(registry, configured,
+    policy?.requiredAuthorities ?? []);
   const minimum = policy?.minimum ?? 1;
   return {
     attainable: missingAuthorities.length === 0 && (unbounded || eligible.size >= minimum),
@@ -231,7 +274,7 @@ export function assertApprovalPolicyAttainable(authorities, policy, phaseId) {
       ? [`requires ${capacity.minimum} distinct approval identities but only ${capacity.eligibleIdentities} are pinned`]
       : []),
     ...(capacity.missingAuthorities.length
-      ? [`required authority groups have no eligible members: ${capacity.missingAuthorities.join(', ')}`]
+      ? [`required authority groups cannot be assigned distinct eligible reviewers: ${capacity.missingAuthorities.join(', ')}`]
       : [])
   ];
   throw new SingularityFlowError(
@@ -257,7 +300,7 @@ export function matchApprovalAuthority(authorities, policy, actor, { preferredAu
     ...configured
   ])];
   for (const authorityId of ordered) {
-    const authority = registry[authorityId];
+    const authority = Object.hasOwn(registry, authorityId) ? registry[authorityId] : null;
     if (!authority) continue;
     if (
       authority.allowAnyGitIdentity

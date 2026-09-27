@@ -7,6 +7,7 @@ import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from 
 import { readAgentBrief } from './agent-briefs.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson } from './records.mjs';
+import { inputFindingSeverity } from './lifecycle-evidence-policy.mjs';
 import {
   resolveSkillPhaseEvidenceBinding, verifyApprovedSkillOutputContinuity,
   verifyTemplateProducerSetContinuity
@@ -34,11 +35,6 @@ function embeddedInputContent(buffer, maxBytes) {
   // budget is always spent on producer-owned content.
   const authored = Buffer.from(authoredArtifactText(buffer.toString('utf8')), 'utf8');
   return utf8Prefix(authored, maxBytes);
-}
-
-function severity(mode, optional, status) {
-  if (status === 'captured' || (optional && ['missing', 'unapproved'].includes(status))) return null;
-  return mode === 'enforce' ? 'error' : 'warning';
 }
 
 function inputMessage(consumer, entry) {
@@ -302,7 +298,7 @@ export async function collectInputs(root, workflow, phase, {
         };
       }
     }
-    const level = severity(mode, record.optional, status);
+    const level = inputFindingSeverity(mode, record.optional, status);
     const message = inputMessage(phase, record);
     if (level === 'error' && message) errors.push(message);
     if (level === 'warning' && message) warnings.push(message);

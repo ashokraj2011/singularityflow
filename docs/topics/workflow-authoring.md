@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 22
+version: 23
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -101,9 +101,9 @@ is refused. Deleted draft IDs fence queued saves and cannot be recreated.
 
 `workflow author history WFD-DEMO001 --json` lists retained revisions. `workflow author show
 WFD-DEMO001 --revision 1 --json` is read-only: it projects the exact saved package's deterministic
-findings, ordered artifact graph, static validation coverage and legal next action. It does not
-publish or activate the candidate. Full lifecycle simulation, approval/publication state and
-installed-host readiness remain distinct unavailable or unevaluated states. Copilot uses
+findings, ordered artifact graph, structural lifecycle simulation coverage and legal next action.
+It does not publish or activate the candidate. Actual approval/publication state and installed-host
+readiness remain distinct unavailable or unevaluated states. Copilot uses
 `/sf-workflows author history …` or `/sf-workflows author show …`.
 
 ## Guide and preview an exact package
@@ -195,7 +195,44 @@ agent/template bodies and approved task, check and reviewer references. Unsuppor
 effects, missing artifacts, ambiguous references and unclaimed attachments block emission. Edit,
 fork and shared-consumer impact are not inferred. New SKP packages can be lowered proposal-only;
 they have no confirmed runtime binding and cannot be submitted as executable skill phases. Static
-ordered-input and registered rework-policy validation is not complete lifecycle simulation.
+validation is supplemented by the bounded Story simulation below, not live lifecycle execution.
+
+## Simulate a Story workflow before submitting it
+
+In **Configuration Center → Shared workflow drafts**, save the selected package revision, then
+choose **Preview**. The lifecycle table shows each scenario's phase, expected route and projected
+outcome. Simulation runs for that exact saved revision and approved source, not on every keystroke.
+The full bounded report is available in Preview JSON; the UI labels a shortened table as a summary.
+
+- **Saved draft — Shell:** `singularity-flow workflow author preview WFD-<ID> --revision <N> --json`.
+- **Saved draft — Copilot:** `/sf-workflows author preview WFD-<ID> --revision <N> --json`.
+- **Installed workflow — Shell:** `singularity-flow workflow simulate <WORKFLOW-ID> --json`.
+- **Installed workflow — Copilot:** `/sf-workflows simulate <WORKFLOW-ID> --json`.
+
+The `story-structural-lifecycle/v1` profile exercises ordered progression, generation-zero and
+publication gates, ordinary and skill input/output relationships, declared artifact-set members,
+reviewer thresholds, quality-check refusal, human and external-prerequisite waits, rework
+invalidation, repair-budget exhaustion and completion. It uses shared lifecycle, evidence-policy,
+sequence, approval and repair-budget predicates; it does not create a second execution owner.
+Configured reviewer capacity is checked with distinct identity-to-required-group matching, not
+just the total number of names across groups.
+
+`complete-for-profile` means every supported structural scenario was projected, not that a Story
+was executed or that real prerequisites are ready. Successful output bytes, checks, publication and
+human decisions are explicitly hypothetical. Simulation runs no repository command, model, MCP
+tool or browser, writes no files and grants no approval. Real artifact/receipt integrity, human
+availability, provider membership, active Story state, historical amendment impact, Initiative
+workflows and native host enforcement are outside this profile. A human wait is not a deadlock.
+
+Unsupported or unresolved contracts, missing confirmed SKP bindings and over-budget input/output
+return `invalid` or `incomplete`, never truncated success. The profile is bounded to 64 phases,
+1,024 scenarios and 16,384 events per workflow, with 2 MiB input and 1 MiB output limits. The
+aggregate saved-package report is also bounded. Installed simulate-all is capped at 64 workflows
+and 2 MiB combined output; exceeding either refuses the whole catalog result and directs you to
+select one exact workflow. The simulation profile and exact reports form part
+of the Preview plan hash. Changed drafts, configuration or simulation interpretation require a new
+Preview and separate review; an old plan cannot authorize new bytes. A complete structural report
+does not bypass other package findings or enable imported skill execution.
 
 ## Submit separately for configuration review
 
@@ -227,8 +264,8 @@ The application checkout, index and approved `sflow/config` ref remain unchanged
 
 Submission is **review required**, not approved, active or executing. Merge/approval, approved
 configuration refresh and any separate Start action remain their existing owners' operations.
-SKP proposal-to-post-consent binding/digest design, qualified skill execution, full lifecycle
-simulation and mediated-host confirmation are not complete. Native installed-host/crash and
+SKP proposal-to-post-consent binding/digest design, qualified skill execution, simulation beyond
+the supported Story structural profile and mediated-host confirmation are not complete. Native installed-host/crash and
 Windows qualification of private recovery is still separate from its implementation tests. The usage
 lookup below covers approved configuration, not retained or historical Stories. No new skill
 runtime binding is fabricated to bypass those gaps.

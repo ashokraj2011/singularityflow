@@ -145,6 +145,10 @@ import {
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
+import { advanceCompletedPhase, nextPhaseAfterSkillAmendment, reopenPhaseRange } from './lifecycle-transitions.mjs';
+export { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
+import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
+export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 import {
@@ -3694,31 +3698,6 @@ async function persistObservedTestReports(root, config, workflow, phase, command
   return receipt;
 }
 
-export function qualityValidationVerdict(checks = [], { required = false } = {}) {
-  const known = new Set(['passed', 'failed', 'blocked', 'skipped-warning', 'unavailable']);
-  const invalid = checks.filter((check) => !known.has(check?.status));
-  const explicitFailures = checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
-  // Invalid or unknown output is never equivalent to a passing command. Keep it in `failed` as
-  // well as `invalid` so every existing gate fails closed while callers gain the precise reason.
-  const failed = [...explicitFailures, ...invalid];
-  const unavailable = checks.filter((check) => ['skipped-warning', 'unavailable'].includes(check.status));
-  const unavailableRequired = unavailable.filter((check) => (check.requirement ?? 'required') === 'required');
-  let verdict;
-  if (!checks.length) verdict = required ? 'invalid' : 'not-required';
-  else if (invalid.length) verdict = 'invalid';
-  else if (explicitFailures.length) verdict = 'failed';
-  else if (unavailable.length === checks.length) verdict = 'unavailable';
-  else if (unavailable.length) verdict = 'partial';
-  else verdict = 'passed';
-  return {
-    verdict,
-    failed,
-    invalid,
-    unavailable,
-    unavailableRequired
-  };
-}
-
 async function submitPhaseTransition(root, config, workflow, {
   phaseId, runChecks = true, persist = true, submissionContext = null,
   architectureCandidateSnapshot = null, actor = null, agent = undefined
@@ -4202,16 +4181,14 @@ async function submitPhaseTransition(root, config, workflow, {
       actor: actorKey(session.actor),
       agent: session.agent
     });
-    const upcoming = nextPhaseAfterSkillAmendment(workflow, phase);
+    const upcoming = advanceCompletedPhase(workflow, phase, phase.submittedAt);
     if (upcoming) {
-      upcoming.status = 'in_progress'; upcoming.startedAt = phase.submittedAt; workflow.currentPhase = upcoming.id;
       await ensureWorkIntervalBaseline(root, config, workflow, {
         phaseId: upcoming.id,
         itemDirectory: workDir(root, config, workflow.workItem.id),
         itemRelative: workDirRelative(config, workflow.workItem.id)
       });
     }
-    else { workflow.currentPhase = null; workflow.status = 'complete'; }
     await markIntentAmendmentRevalidated(root, config, workflow, phase, phase.submittedAt, session.actor);
     workflow.history.push(waiver?.eligible ? {
       at: phase.submittedAt,
@@ -4289,21 +4266,6 @@ export async function submitConfirmedConvergencePhase(root, config, workflow, {
 }
 
 function nextPhase(workflow, phase) { const id = workflow.phaseOrder[workflow.phaseOrder.indexOf(phase.id) + 1]; return id ? workflow.phases[id] : null; }
-
-export function nextPhaseAfterSkillAmendment(workflow, phase) {
-  const amendment = [...(workflow.skillVersionAmendments ?? [])].reverse().find((entry) =>
-    entry.status === 'approved' && entry.affectedPhaseIds.includes(phase.id));
-  if (!amendment) return nextPhase(workflow, phase);
-  for (let index = workflow.phaseOrder.indexOf(phase.id) + 1;
-    index < workflow.phaseOrder.length; index += 1) {
-    const candidate = workflow.phases[workflow.phaseOrder[index]];
-    // A verified dependency proof allows its already-approved evidence and decision to survive.
-    // Do not silently re-open that phase while advancing through the linear Story workflow.
-    if (amendment.preservedPhaseIds.includes(candidate.id) && candidate.status === 'approved') continue;
-    return candidate;
-  }
-  return null;
-}
 
 async function writeDecision(root, config, workflow, phase, decision) {
   const safe = decision.at.replace(/[:.]/g, '-');
@@ -4796,9 +4758,8 @@ export async function approvePhase(root, config, workflow, {
       };
     }
     if (resolved.length) decision.resolvedChangeRequests = resolved.map((request) => request.id);
-    const upcoming = nextPhaseAfterSkillAmendment(workflow, phase);
+    const upcoming = advanceCompletedPhase(workflow, phase, decision.at);
     if (upcoming) {
-      upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id;
       // Gated with every other durable write here. Under `persist: false` the caller owns
       // persistence, and the publication unit's `phase-approved` branch writes this baseline inside
       // the transaction instead.
@@ -4810,7 +4771,6 @@ export async function approvePhase(root, config, workflow, {
         });
       }
     }
-    else { workflow.currentPhase = null; workflow.status = 'complete'; }
     await markIntentAmendmentRevalidated(root, config, workflow, phase, decision.at, session.actor);
   }
   workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
@@ -5365,15 +5325,9 @@ export async function rejectPhase(root, config, workflow, {
     createdAt: timestamp
   });
   if (budgetPreview) workflow.repairBudgets = budgetPreview.repairBudgets;
-  for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
-    const affected = workflow.phases[workflow.phaseOrder[index]];
-    affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
-    affected.status = index === targetIndex ? 'in_progress' : 'not_started'; affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
-    affected.submissionArchitectureDecision = null;
-    if (index === targetIndex) { affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = changeRequest.comment; }
-    await updateArtifactMetadata(root, config, workflow, affected);
-  }
-  workflow.currentPhase = targetId; workflow.status = 'in_progress';
+  for (const id of reopenPhaseRange(workflow, {
+    targetId, at: timestamp, actor: key, reason: changeRequest.comment
+  })) await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
     itemDirectory: workDir(root, config, workflow.workItem.id),

@@ -38,7 +38,11 @@ test('complete-package compiler resolves forward candidate agent/template refere
   const f = await fixture(t); const before = { head: git(f.root, 'rev-parse', 'HEAD'), index: await readFile(path.join(f.root, '.git/index')), remote: git(f.root, 'ls-remote', '--heads', f.remote, 'main', 'sflow/config') };
   const p = await preview(f);
   assert.deepEqual(p.result.findings, []);
-  assert.equal(p.result.readiness.authoring, 'valid'); assert.equal(p.result.readiness.simulation, 'incomplete'); assert.equal(p.result.readiness.confirmation, 'absent'); assert.equal(p.result.readiness.execution, 'not-run'); assert.equal(p.result.effects.approvalGranted, false);
+  assert.equal(p.result.readiness.authoring, 'valid'); assert.equal(p.result.readiness.simulation, 'complete-for-profile'); assert.equal(p.result.readiness.confirmation, 'absent'); assert.equal(p.result.readiness.execution, 'not-run'); assert.equal(p.result.effects.approvalGranted, false);
+  assert.equal(p.result.simulation.profile, 'story-structural-lifecycle/v1');
+  assert.equal(p.result.simulation.workflows.length, 1);
+  assert.equal(p.result.simulation.workflows[0].effects.executed, false);
+  assert.ok(p.result.simulation.workflows[0].scenarios.some((scenario) => scenario.id === 'happy-path'));
   assert.deepEqual(p.result.assets.map((asset) => asset.path), ['.github/agents/team-notes-note-writer.agent.md', 'singularity/templates/team-notes/note-template.md', 'singularity/workflow.yml']);
   assert.match(p.result.assets.find((asset) => asset.path.endsWith('.agent.md')).content, /tools: \[\]/u);
   assert.ok(p.result.dependencyLocks.some((lock) => lock.id === 'reviewers' && lock.source === 'approved-catalog'));
@@ -92,6 +96,9 @@ test('custom managed roots retain only the exact approved asset policy in immuta
   assert.equal(planSha256, `sha256:${recordSha256(core)}`);
   const altered = structuredClone(core); altered.approvedAssetPolicy.roots.push('unapproved/templates');
   assert.notEqual(`sha256:${recordSha256(altered)}`, planSha256, 'exact review identity binds the approved policy');
+  const alteredSimulation = structuredClone(core);
+  alteredSimulation.simulation.profile = 'different-lifecycle-profile';
+  assert.notEqual(`sha256:${recordSha256(alteredSimulation)}`, planSha256, 'exact review identity binds simulation profile and scenarios');
   assert.deepEqual(await captureWorkflowDraftPackageProposal(f.root, { draftId: p.source.draftId,
     revision: p.source.revision, expectedPlanSha256: planSha256 }), proposal);
 });

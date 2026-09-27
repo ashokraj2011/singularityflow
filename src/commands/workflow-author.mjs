@@ -226,6 +226,7 @@ function showView(selected, scope, preview) {
     displayName: selected.record.displayName,
     assessment: { status: preview.readiness.authoring, definitionGapCount: missingDecisions.length,
       coverage: preview.coverage, execution: 'not-started',
+      simulation: preview.readiness.simulation,
       approval: 'not-granted', publication: 'not-proposed', activation: 'inactive',
       host: 'unverified', policy: scope.approvedConfiguration ?? { status: 'unavailable' } },
     graph: { nodes: preview.graph, edges: preview.graph.flatMap((node) => node.inputs.map((input) => ({
@@ -255,6 +256,7 @@ function emit(value, json) {
       console.log(`${JSON.stringify(view.displayName)} — ${view.subject.draftId} revision ${view.subject.revision}`);
       console.log(`Shared head: ${view.durability.head}`);
       console.log(`Graph: ${view.graph.coverage}; native-host readiness has not been established.`);
+      console.log(`Structural lifecycle: ${view.assessment.simulation}. Projected scenarios only; no tests, models or human decisions were executed.`);
       for (const decision of view.missingDecisions) console.log(`Unresolved: ${decision.fieldPath} (${decision.label})`);
       console.log('This Show operation requested no proposal, approval, installation, or execution.');
     } else console.log(JSON.stringify(value.data, null, 2));

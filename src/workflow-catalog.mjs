@@ -7,9 +7,11 @@ import { exists, SingularityFlowError, writeText } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
+import { simulateResolvedWorkflowLifecycle } from './workflow-lifecycle-simulation.mjs';
 
 const starterPath = path.join(PACKAGE_ROOT, 'templates', 'workflow.yml');
 const OPTIONAL_CATALOG_REASON_MAX_CHARS = 512;
+export const WORKFLOW_SIMULATION_CATALOG_LIMITS = Object.freeze({ workflows: 64, outputBytes: 2 * 1024 * 1024 });
 
 async function starterDefinition() { return validateDefinition(YAML.parse(await readFile(starterPath, 'utf8'))); }
 function canonical(value) {
@@ -94,28 +96,45 @@ export async function optionalWorkflowCatalog(loadCatalog) {
 export async function simulateWorkflow(root, workType = null) {
   const definition = await loadDefinition(root);
   const ids = workType ? [workType] : Object.keys(definition.workTypes);
-  return ids.map((id) => {
+  const overBudget = () => new SingularityFlowError(
+    'Installed workflow simulation exceeds its catalog budget. Select one workflow with singularity-flow workflow simulate <WORKFLOW-ID> --json (Copilot: /sf-workflows simulate <WORKFLOW-ID> --json); no partial catalog is a complete result.',
+    { code: 'WCA_SIMULATION_LIMIT' }
+  );
+  if (ids.length > WORKFLOW_SIMULATION_CATALOG_LIMITS.workflows) throw overBudget();
+  const simulations = [];
+  let outputBytes = 2;
+  for (const id of ids) {
     const profile = definition.workTypes[id];
     if (!profile) throw new Error(`Unknown workflow '${id}'.`);
     const resolved = resolveWorkType(definition, id);
-    const phases = profile.phases.map((phaseId, index) => {
-      const base = definition.phases[phaseId]; const override = profile.phaseOverrides?.[phaseId] ?? {};
-      const approval = override.approval ?? base.approval ?? {};
-      return { order: index + 1, id: phaseId, label: override.label ?? base.label, template: profile.templateOverrides?.[phaseId] ?? base.defaultTemplate, inputs: (override.inputs ?? base.inputs ?? []).map((input) => typeof input === 'string' ? input : input.phase), authorities: approval.authorities ?? [], minimumApprovals: approval.minimum ?? 1, qualityCommands: override.qualityCommands ?? base.qualityCommands ?? [], worldModelViews: override.worldModel?.views ?? base.worldModel?.views ?? [], rejectTo: resolved.phases[index].approval.rejectTo, repairBudget: resolved.phases[index].repairBudget };
-    });
-    return { id, label: profile.label, inputsMode: definition.inputsMode ?? 'off', documents: profile.documents ?? definition.documents ?? {}, sequenceGates: { ...(definition.sequenceGates ?? {}), ...(profile.sequenceGates ?? {}) }, reworkLoops: resolved.reworkLoops ?? [], phases };
-  });
+    const phases = resolved.phases.map((phase, index) => ({ order: index + 1,
+      id: phase.id, label: phase.label, template: phase.template,
+      inputs: phase.inputs.map((input) => input.phase), authorities: phase.approval.authorities,
+      approvalMode: phase.approval.mode, minimumApprovals: phase.approval.minimum,
+      qualityCommands: phase.qualityCommands ?? [], worldModelViews: phase.worldModel?.views ?? [],
+      rejectTo: phase.approval.rejectTo, repairBudget: phase.repairBudget }));
+    const simulation = { id, label: profile.label, inputsMode: resolved.inputsMode, documents: resolved.documents,
+      sequenceGates: resolved.sequenceGates, reworkLoops: resolved.reworkLoops ?? [], phases,
+      lifecycle: simulateResolvedWorkflowLifecycle(resolved) };
+    outputBytes += Buffer.byteLength(JSON.stringify(simulation)) + (simulations.length ? 1 : 0);
+    if (outputBytes > WORKFLOW_SIMULATION_CATALOG_LIMITS.outputBytes) throw overBudget();
+    simulations.push(simulation);
+  }
+  return simulations;
 }
 
 export function simulationText(simulations) {
   const lines = [];
   for (const simulation of simulations) {
-    lines.push(`${simulation.label} (${simulation.id})`, `Inputs: ${simulation.inputsMode}`, '');
+    lines.push(`${simulation.label} (${simulation.id})`, `Inputs: ${simulation.inputsMode}`,
+      `Structural lifecycle: ${simulation.lifecycle?.status ?? 'not-reported'} (${simulation.lifecycle?.profile ?? 'unavailable'}).`,
+      'Projected scenarios only: no tests, models, human decisions or external operations were executed.', '');
     if (simulation.reworkLoops?.length) {
       lines.push(`Rework loops: ${simulation.reworkLoops.map((loop) =>
         `${loop.from} → ${loop.to} (maximum ${loop.maxAttempts}${loop.resetOnPhase ? `; reset on new ${loop.resetOnPhase} generation` : ''})`).join('; ')}`, '');
     }
     for (const phase of simulation.phases) lines.push(`${String(phase.order).padStart(2)}. ${phase.label} [${phase.id}]`, `    template=${phase.template} · inputs=${phase.inputs.join(', ') || 'none'} · approvals=${phase.minimumApprovals} (${phase.authorities.join(', ') || 'none'}) · world-model=${phase.worldModelViews.join(', ') || 'none'}`);
+    for (const finding of simulation.lifecycle?.findings ?? []) lines.push(`    ${finding.code}: ${finding.message}`);
     lines.push('');
   }
   return `${lines.join('\n')}\n`;

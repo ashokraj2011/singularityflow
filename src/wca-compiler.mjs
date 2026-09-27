@@ -19,8 +19,9 @@ import { scanEntries } from './secrets.mjs';
 import { SingularityFlowError, isPortableRepositoryPathComponent } from './util.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { captureEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
+import { simulateResolvedWorkflowLifecycle, WORKFLOW_LIFECYCLE_SIMULATION_PROFILE } from './workflow-lifecycle-simulation.mjs';
 
-export const WCA_COMPILER_PROFILE = 'wca-complete-package/v1';
+export const WCA_COMPILER_PROFILE = 'wca-complete-package/v2';
 export const WCA_PREVIEW_KIND = 'workflow-authoring-package-preview';
 export const WCA_REQUEST_SCHEMA = 'sflow-workflow-request@2';
 export const WCA_CATALOG_CHOICE_KIND = 'workflow-authoring-catalog-choices';
@@ -207,6 +208,9 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
   const attempt = (fieldPath, work) => { try { return work(); } catch (error) { add(error.code ?? 'WCA_VALIDATION_FAILED', fieldPath, error.code ? error.message : 'The existing configuration owner refused this candidate.'); return null; } };
   const candidate = structuredClone(captured.definition); const files = new Map(); const symbols = Object.fromEntries(GROUPS.map((group) => [group, new Map()]));
   let acceptedRequest = false;
+  const simulation = { schemaVersion: 1, kind: 'workflow-authoring-lifecycle-simulation',
+    profile: WORKFLOW_LIFECYCLE_SIMULATION_PROFILE, status: 'incomplete', workflows: [],
+    prerequisites: 'candidate-not-validated', execution: 'not-run', humanAvailability: 'not-verified', hostEnforcement: 'unavailable' };
   attempt('request', () => { requestShape(request); acceptedRequest = true; });
   const output = () => {
     const orderedFindings = findings.sort((a, b) => a.fieldPath.localeCompare(b.fieldPath, 'en') || a.code.localeCompare(b.code, 'en'));
@@ -217,11 +221,11 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       catalogChoices: workflowCompilerCatalogChoices(context),
       candidateAssetManifestSha256: digest(emitted.map(({ path: file, bytes, sha256 }) => ({ path: file, bytes, sha256 }))),
       catalogSha256: digest(locks), policySha256: digest({ approvalSecurity: captured.definition.approvalSecurity, sequenceGates: captured.definition.sequenceGates, codeDelivery: captured.definition.codeDelivery ?? null, environmentSha256: captured.environmentSha256, assetPolicy: captured.assetPolicy }),
-      dependencyLocks: locks, graph, skillProposals, findings: orderedFindings, fileOperations: operations, assets: emitted,
+      dependencyLocks: locks, graph, skillProposals, simulation, findings: orderedFindings, fileOperations: operations, assets: emitted,
       permissions: { effective: 'pre-change-approved-policy-only', addedOperations: [], removedOperations: [], newNativeTools: [], enforcement: 'not-verified' },
       candidateDefinition: candidate, candidateDefinitionSha256: digest(candidate),
-      readiness: { authoring: findings.length ? findings.every((finding) => finding.category === 'capability-unavailable') ? 'unavailable' : 'invalid' : 'valid', simulation: 'incomplete', behavior: 'not-evaluated', host: 'discovery-unverified', publication: 'not-proposed', activation: 'inactive', confirmation: 'absent', execution: 'not-run' },
-      coverage: { schema: acceptedRequest ? 'checked' : 'invalid', references: 'selected-closure', policy: 'pre-change-approved-source', graph: 'ordered-input-and-registered-rework-validation', hostEnforcement: 'unavailable', behavior: 'not-evaluated', sharedConsumerImpact: 'configuration-only' },
+      readiness: { authoring: findings.length ? findings.every((finding) => finding.category === 'capability-unavailable') ? 'unavailable' : 'invalid' : 'valid', simulation: simulation.status, behavior: 'not-evaluated', host: 'discovery-unverified', publication: 'not-proposed', activation: 'inactive', confirmation: 'absent', execution: 'not-run' },
+      coverage: { schema: acceptedRequest ? 'checked' : 'invalid', references: 'selected-closure', policy: 'pre-change-approved-source', graph: 'ordered-input-and-registered-rework-validation', simulation: simulation.status, simulationProfile: simulation.profile, hostEnforcement: 'unavailable', behavior: 'not-evaluated', sharedConsumerImpact: 'configuration-only' },
       effects: { configurationWritten: false, proposalCreated: false, approvalGranted: false, activated: false, executed: false },
       nextAction: findings.length ? { operation: 'workflow.author.edit', legalEffect: 'edit-inert-draft' } : { operation: 'workflow.author.review', legalEffect: 'needs-separate-exact-human-confirmation', available: false } };
     const preview = freeze(JSON.parse(canonicalJson({ ...core, planSha256: digest(core) })));
@@ -445,10 +449,31 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       for (const input of phase.inputs ?? []) { const inputId = typeof input === 'string' ? input : input.phase; if (order.indexOf(inputId) < 0 || order.indexOf(inputId) >= index) add('WCA_INPUT_ORDER_INVALID', `definitions.workflows.${key}.phases.${phaseId}.inputs`, 'Artifact dependencies must resolve to exact earlier selected producers; ordinary cycles are invalid.'); }
     }
   });
+  let candidateValidated = false;
   attempt('candidate.configuration', () => {
     validateDefinition(candidate); validateAgentCatalog(agents, candidate);
     for (const key of symbols.workflows.keys()) if (candidate.workTypes[key]) assertPlannedClaimsReady(resolveWorkType(candidate, key));
+    candidateValidated = true;
   });
+  if (candidateValidated && symbols.workflows.size) {
+    simulation.prerequisites = 'normalized-candidate';
+    for (const key of symbols.workflows.keys()) attempt(`simulation.${key}`, () => {
+      if (!candidate.workTypes[key]) { simulation.status = 'incomplete'; return; }
+      const report = simulateResolvedWorkflowLifecycle(resolveWorkType(candidate, key));
+      if (Buffer.byteLength(canonicalJson([...simulation.workflows, report])) > 2 * 1024 * 1024) {
+        add('WCA_SIMULATION_LIMIT', `simulation.${key}`, 'Lifecycle simulation exceeds its aggregate report budget; no partial report is a complete verdict.');
+        return;
+      }
+      simulation.workflows.push(report);
+      for (const finding of report.findings) add(finding.code, `simulation.${key}${finding.phaseId ? `.${finding.phaseId}` : ''}`, finding.message,
+        report.status === 'invalid' ? 'submission-blocker' : 'capability-unavailable');
+      if (report.status !== 'complete-for-profile' && !report.findings.length) {
+        add('WCA_SIMULATION_INCOMPLETE', `simulation.${key}`, 'The selected lifecycle cannot be completely projected by this profile; no execution readiness was inferred.', 'capability-unavailable');
+      }
+    });
+    simulation.status = simulation.workflows.some((report) => report.status === 'invalid') ? 'invalid'
+      : simulation.workflows.length === symbols.workflows.size && simulation.workflows.every((report) => report.status === 'complete-for-profile') ? 'complete-for-profile' : 'incomplete';
+  }
   locks.sort((a, b) => a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   if (!findings.length) attempt('candidate.files', () => emit('singularity/workflow.yml', YAML.stringify(candidate, { lineWidth: 0 })));
   if (findings.length) { files.clear(); operations.length = 0; }
@@ -475,7 +500,7 @@ export function workflowDraftPackageProposalFiles(preview) {
   const retained = PREVIEWS.get(preview); const captured = retained && CONTEXTS.get(retained.context);
   const draft = retained && SOURCES.get(retained.source);
   if (!captured || !draft) fail('Use a compiler-owned exact preview, not caller-written candidate files.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
-  if (preview.findings.length || preview.readiness.authoring !== 'valid') fail('This preview has unresolved package findings and cannot emit proposal files.', 'WCA_PACKAGE_NOT_SUBMITTABLE');
+  if (preview.findings.length || preview.readiness.authoring !== 'valid' || preview.readiness.simulation !== 'complete-for-profile') fail('This preview has unresolved package or lifecycle findings and cannot emit proposal files.', 'WCA_PACKAGE_NOT_SUBMITTABLE');
   const files = preview.assets.map((asset) => {
     const bytes = Buffer.from(asset.content);
     if (bytesDigest(bytes) !== asset.sha256 || bytes.length !== asset.bytes) fail('Compiler candidate closure is inconsistent.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');

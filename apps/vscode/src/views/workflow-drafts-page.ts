@@ -25,6 +25,29 @@ export function workflowDraftRecoveryLabel(view: SharedWorkflowDraftView): strin
   return 'No pending private checkpoint · acknowledged shared revisions remain in Git';
 }
 
+function lifecycleSimulationHtml(preview: Record<string, unknown>): string {
+  const value = preview.simulation;
+  const simulation = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  if (!simulation || !Array.isArray(simulation.workflows)) return '<p>Structural lifecycle simulation was not reported. This is not a complete lifecycle verdict.</p>';
+  return `<section aria-labelledby="draft-simulation-title"><h3 id="draft-simulation-title">Structural lifecycle simulation · ${escape(simulation.status)}</h3>
+    <p>Profile: <code>${escape(simulation.profile)}</code>. Hypothetical transitions only: no tests, models, human decisions or external operations were executed. This is not Ready to run.</p>
+    ${simulation.workflows.slice(0, 16).map((raw) => {
+      const report = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+      const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
+      const coverage = report.coverage && typeof report.coverage === 'object' ? report.coverage as Record<string, unknown> : {};
+      return `<details><summary>${escape(report.workflowId ?? '')} · ${escape(report.status)} · ${escape(scenarios.length)} scenarios</summary>
+        <p>Resolved contract: <code>${escape(report.sourceDefinitionSha256)}</code>. ${escape(coverage.phaseCount)} phases; ${escape(coverage.eventCount)} projected events.</p>
+        <p>Scenario summary: first ${Math.min(scenarios.length, 64)} of ${scenarios.length}. The exact Preview JSON below retains the full bounded report.</p>
+        <table><thead><tr><th>Scenario</th><th>Phase</th><th>Expected route</th><th>Projected outcome</th></tr></thead><tbody>${scenarios.slice(0, 64).map((rawScenario) => {
+          const item = rawScenario && typeof rawScenario === 'object' ? rawScenario as Record<string, unknown> : {};
+          return `<tr><td>${escape(item.id)}</td><td>${escape(item.phaseId ?? 'workflow')}</td><td>${escape(item.expected)}</td><td>${escape(item.outcome)}</td></tr>`;
+        }).join('')}</tbody></table>
+        <p>Excluded: ${escape(Array.isArray(coverage.excluded) ? coverage.excluded.join(', ') : 'not reported')}.</p>
+      </details>`;
+    }).join('')}
+    <details><summary>Exact saved-revision Preview JSON</summary><pre><code>${escape(JSON.stringify(preview, null, 2))}</code></pre></details></section>`;
+}
+
 function guidedHtml(view: SharedWorkflowDraftView): string {
   const editor = view.editor!; const disabled = view.busy || editor.readOnlyReason ? ' disabled' : '';
   const navigationDisabled = view.busy ? ' disabled' : '';
@@ -151,12 +174,13 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
       <button type="button" class="secondary" data-draft-action="copilot-review"${disabled}>Copy Copilot handoff</button></details></section>` : '<section><p>Open a shared draft to edit its partial package.</p></section>'}
     ${view.preview ? `<section id="draft-preview"><h2>Exact saved-package Preview · read-only</h2><p>Plan: <code>${escape(view.preview.planSha256)}</code>. Authoring: ${escape((view.preview.readiness as Record<string, unknown>)?.authoring)}. Host: ${escape((view.preview.readiness as Record<string, unknown>)?.host)}. Execution: ${escape((view.preview.readiness as Record<string, unknown>)?.execution)}.</p>
       <p>Static validity is not Ready to run. Human confirmation, membership, native host enforcement and activation remain separate; no operation was executed.</p>
+      ${lifecycleSimulationHtml(view.preview)}
       <ul>${Array.isArray(view.preview.findings) ? view.preview.findings.slice(0, 128).map((finding) => {
         const item = finding && typeof finding === 'object' ? finding as Record<string, unknown> : {};
         return `<li><code>${escape(item.code)}</code> · ${escape(item.fieldPath)} · ${escape(item.message)}</li>`;
       }).join('') : ''}</ul><p>Catalog choices are pinned to this Preview's approved source and saved revision. After a candidate edit, Preview again; no old assessment certifies new bytes.</p></section>` : ''}
     ${show ? `<section id="draft-show" aria-labelledby="draft-show-title"><h2 id="draft-show-title">Read-only Show · saved revision</h2>
-      ${coverage ? `<p>Authoring assessment: ${escape(assessment.status ?? 'not reported')}. These checks describe the exact saved package, not unsaved editor text.</p><dl>${([['schema', 'Request schema'], ['references', 'Reference resolution'], ['policy', 'Policy source'], ['graph', 'Workflow graph'], ['hostEnforcement', 'Native host enforcement'], ['behavior', 'Behavior evaluation']] as const).map(([key, label]) => `<dt>${label}</dt><dd>${escape(coverage[key] ?? 'not reported')}</dd>`).join('')}</dl>`
+      ${coverage ? `<p>Authoring assessment: ${escape(assessment.status ?? 'not reported')}. These checks describe the exact saved package, not unsaved editor text.</p><dl>${([['schema', 'Request schema'], ['references', 'Reference resolution'], ['policy', 'Policy source'], ['graph', 'Workflow graph'], ['simulation', 'Structural lifecycle simulation'], ['hostEnforcement', 'Native host enforcement'], ['behavior', 'Behavior evaluation']] as const).map(([key, label]) => `<dt>${label}</dt><dd>${escape(coverage[key] ?? 'not reported')}</dd>`).join('')}</dl>`
         : '<p>Assessment coverage was not reported. Complete-package validation, graph coverage and execution readiness are unavailable.</p>'}
       <p>Static validation is not Ready to run. No submission, approval, activation or host acceptance is implied.</p>
       ${edges.length ? `<details><summary>Declared input relationships (first ${Math.min(edges.length, 64)})</summary><ul>${edges.slice(0, 64).map((raw) => {

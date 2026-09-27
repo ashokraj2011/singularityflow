@@ -1,5 +1,6 @@
 /** Read-only, bounded remote Story discovery across materialized workspace repositories. */
 import path from 'node:path';
+import { isCliReadSuperseded } from './cli/client.ts';
 import type { WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
 
 export interface StoryRepository {
@@ -128,6 +129,8 @@ export async function discoverWorkspaceStoryRows(
           message: unreadableStoryMessage(repository, response)
         });
       } catch (error) {
+        // Cancel the obsolete projection as a whole: partial data is not a new-repository catalog.
+        if (isCliReadSuperseded(error)) throw error;
         issues.push({ repositoryId: repository.id, message: (error as Error).message });
       }
     }));

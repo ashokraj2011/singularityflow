@@ -151,6 +151,11 @@ Every public operation is classified before its implementation module is importe
 | comprehension.walkthrough.validate | read | never | — | — |
 | configuration.edit | mutation | never | — | — |
 | configuration.explain | read | never | — | — |
+| configuration.export-bundle | read | never | — | — |
+| configuration.initiative-materialize-preview | read | never | — | — |
+| configuration.read | read | never | — | — |
+| configuration.snapshot | read | never | — | — |
+| configuration.validate | read | never | — | — |
 | constitution.check | read | never | — | — |
 | constitution.except | mutation | never | — | — |
 | constitution.generate | mutation | never | — | — |
@@ -212,6 +217,7 @@ Every public operation is classified before its implementation module is importe
 | explain.code | read | never | — | — |
 | explain.code.narrate | read | optional | explain.code | copilot-cli |
 | factory-reset | mutation | never | — | — |
+| factory-reset.preview | read | never | — | — |
 | fault.list | read | never | — | — |
 | fault.report | mutation | never | — | — |
 | fault.show | read | never | — | — |
@@ -295,6 +301,7 @@ Every public operation is classified before its implementation module is importe
 | intent.workflow-create | mutation | never | — | — |
 | intent.workflow-guide | read | never | — | — |
 | jira | mutation | never | — | — |
+| jira.status | read | never | — | — |
 | journal.delete | mutation | never | — | — |
 | journal.doctor | read | never | — | — |
 | journal.export | mutation | never | — | — |
@@ -428,6 +435,9 @@ Every public operation is classified before its implementation module is importe
 | program.what-if | read | never | — | — |
 | progress | read | never | — | — |
 | prompt-log | mutation | never | — | — |
+| prompt-log.list | read | never | — | — |
+| prompt-log.status | read | never | — | — |
+| prompt-log.view | read | never | — | — |
 | proof.explain | read | never | — | — |
 | proof.gaps | read | never | — | — |
 | proof.signals | read | never | — | — |

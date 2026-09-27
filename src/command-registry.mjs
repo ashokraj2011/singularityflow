@@ -5,7 +5,12 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset']);
+
+const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
+  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
+]);
+const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -1301,10 +1306,19 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       : never('init.smart-detect.activate', definition, 'mutation');
   }
   if (definition.name === 'configuration') {
-    return positionals[1] === 'explain'
-      ? never('configuration.explain', definition, 'read')
+    return CONFIGURATION_READ_SUBCOMMANDS.includes(positionals[1])
+      ? never(`configuration.${positionals[1]}`, definition, 'read')
       : never('configuration.edit', definition, 'mutation');
   }
+  // These handlers only discover Jira via GET or read the existing audit files. Logging a CLI
+  // invocation is incidental diagnostics, not permission to treat the handler as a mutation.
+  if (definition.name === 'jira') return positionals[1] === 'status'
+    ? never('jira.status', definition, 'read') : never('jira', definition, 'mutation');
+  if (definition.name === 'prompt-log') return PROMPT_LOG_READ_SUBCOMMANDS.includes(positionals[1] ?? 'status')
+    ? never(`prompt-log.${positionals[1] ?? 'status'}`, definition, 'read')
+    : never('prompt-log', definition, 'mutation');
+  if (definition.name === 'factory-reset') return optionBoolean(options, 'dry-run')
+    ? never('factory-reset.preview', definition, 'read') : never('factory-reset', definition, 'mutation');
   if (definition.name === 'precheck') {
     if (!optionBoolean(options, 'run')) return never('precheck.quick', definition, 'read');
     return optionString(options, 'confirm-plan')
@@ -1470,6 +1484,9 @@ export function operationCatalog() {
   const initDefinition = commandDefinition('init');
   const precheckDefinition = commandDefinition('precheck');
   const configurationDefinition = commandDefinition('configuration');
+  const jiraDefinition = commandDefinition('jira');
+  const promptLogDefinition = commandDefinition('prompt-log');
+  const factoryResetDefinition = commandDefinition('factory-reset');
   const sgos = Object.entries(SGOS_SUBCOMMANDS).flatMap(([name, actions]) => {
     const definition = commandDefinition(name);
     return [
@@ -1525,8 +1542,14 @@ export function operationCatalog() {
     never('precheck.quick', precheckDefinition, 'read'),
     never('precheck.run.plan', precheckDefinition, 'read'),
     never('precheck.run.execute', precheckDefinition, 'mutation'),
-    never('configuration.explain', configurationDefinition, 'read'),
+    ...CONFIGURATION_READ_SUBCOMMANDS.map((name) => never(`configuration.${name}`, configurationDefinition, 'read')),
     never('configuration.edit', configurationDefinition, 'mutation'),
+    never('jira.status', jiraDefinition, 'read'),
+    never('jira', jiraDefinition, 'mutation'),
+    ...PROMPT_LOG_READ_SUBCOMMANDS.map((name) => never(`prompt-log.${name}`, promptLogDefinition, 'read')),
+    never('prompt-log', promptLogDefinition, 'mutation'),
+    never('factory-reset.preview', factoryResetDefinition, 'read'),
+    never('factory-reset', factoryResetDefinition, 'mutation'),
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),
     required('auto.plan'),

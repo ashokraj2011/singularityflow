@@ -1,7 +1,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createHmac } from 'node:crypto';
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
@@ -49,6 +49,30 @@ async function repository() {
   run('git', ['init', '-q'], { cwd: root });
   return root;
 }
+
+test('prompt-log read handlers leave existing audit bytes, modes, mtimes and entries unchanged', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const enabled = await setPromptAudit(root, true);
+  const recorded = await recordPromptAudit(root, {
+    agent: 'developer', phase: 'implementation', prompt: 'A local fixture prompt.'
+  });
+  async function auditSnapshot(directory) {
+    const rows = [];
+    for (const name of (await readdir(directory)).sort()) {
+      const file = path.join(directory, name);
+      const info = await stat(file);
+      rows.push({ name, mode: info.mode, mtimeMs: info.mtimeMs,
+        sha256: createHash('sha256').update(await readFile(file)).digest('hex') });
+    }
+    return rows;
+  }
+  const before = await auditSnapshot(enabled.directory);
+  assert.equal((await listPromptAudits(root)).records.length, 1);
+  assert.equal((await promptAuditStatus(root)).count, 1);
+  assert.equal((await readPromptAudit(root, recorded.id)).record.id, recorded.id);
+  assert.deepEqual(await auditSnapshot(enabled.directory), before);
+});
 
 function sealedPromptAuditV2(root, key, {
   id, prompt, recordedAt, previousMac = null

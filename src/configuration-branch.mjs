@@ -8,11 +8,11 @@
  */
 import path from 'node:path';
 import os from 'node:os';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import YAML from 'yaml';
 import {
-  chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, unlink, writeFile
+  chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile
 } from 'node:fs/promises';
 import { initializeDefinition, loadDefinition, resolveWorkType } from './config.mjs';
 import {
@@ -42,6 +42,7 @@ import {
 } from './transport-intents.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
+import { acquireFileLease, inspectFileLease } from './file-lease.mjs';
 import {
   configurationAssetPolicy, configurationAssetSearchRoots, DEFAULT_CONFIGURATION_ASSET_POLICY,
   isConfigurationAssetPath,
@@ -99,7 +100,7 @@ export const STORY_CONFIGURATION_OBJECT_CACHE_LIMITS = Object.freeze({
   entries: 32, files: 4096, listingBytes: 2 * 1024 * 1024,
   objectBytes: 8 * 1024 * 1024, materializedBytes: 64 * 1024 * 1024,
   storageFiles: 16 * 1024, storageBytes: 256 * 1024 * 1024,
-  leaseWaitMs: 5000
+  leaseWaitMs: 250
 });
 
 function stateMirrorRepositoryIdentity(remote) {
@@ -2049,33 +2050,114 @@ function storyObjectCacheRoot(env) {
     : path.join(os.homedir(), '.singularity-flow', 'cache', 'story-configuration', 'v1'));
 }
 
-async function storyObjectCacheStorage(root) {
+async function storyObjectCacheStorageUsage(root) {
   let files = 0;
   let directories = 0;
   let bytes = 0;
   const pending = [root];
   while (pending.length) {
     directories += 1;
-    if (files + directories + pending.length > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageFiles) return false;
+    if (files + directories + pending.length > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageFiles) {
+      return { valid: true, files: files + directories + pending.length, bytes, over: true };
+    }
     const directory = pending.pop();
     const info = await lstat(directory);
     if (!info.isDirectory() || info.isSymbolicLink()
-        || (typeof process.getuid === 'function' && info.uid !== process.getuid())) return false;
+        || (typeof process.getuid === 'function' && info.uid !== process.getuid())) return { valid: false };
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const candidate = path.join(directory, entry.name);
       const item = await lstat(candidate);
       if (item.isSymbolicLink()
-          || (typeof process.getuid === 'function' && item.uid !== process.getuid())) return false;
+          || (typeof process.getuid === 'function' && item.uid !== process.getuid())) return { valid: false };
       if (item.isDirectory()) pending.push(candidate);
       else if (item.isFile() && item.nlink === 1) {
         files += 1;
         bytes += item.size;
-      } else return false;
+      } else return { valid: false };
       if (files + directories + pending.length > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageFiles
-          || bytes > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageBytes) return false;
+          || bytes > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageBytes) {
+        return { valid: true, files: files + directories + pending.length, bytes, over: true };
+      }
     }
   }
+  return { valid: true, files: files + directories, bytes, over: false };
+}
+
+async function storyObjectCacheStorage(root) {
+  const usage = await storyObjectCacheStorageUsage(root);
+  return usage.valid && !usage.over;
+}
+
+// Retire an exact derived store by rename before removing it. A fresh entry lease already guards
+// the key, so two recoverers cannot reuse partially written objects or delete a successor. The
+// tombstone is on the same filesystem, outside the active cache namespace, and is never read.
+async function retireStoryObjectCacheDirectory(directory) {
+  const info = await lstat(directory).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!info) return false;
+  if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
+      || (typeof process.getuid === 'function' && info.uid !== process.getuid())) throw new Error('unsafe derived cache entry');
+  const retiredRoot = await mkdtemp(path.join(path.dirname(path.dirname(directory)), '.story-configuration-retired-'));
+  const retired = path.join(retiredRoot, 'store');
+  try { await rename(directory, retired); }
+  catch (error) { await removeTemporaryTree(retiredRoot).catch(() => {}); throw error; }
+  await removeTemporaryTree(retiredRoot).catch(() => {});
   return true;
+}
+
+async function storyObjectCacheEntries(root) {
+  const entries = await readdir(root);
+  if (entries.some((entry) => entry !== '.allocation.lock' && entry !== '.file-lease-reclaims'
+      && !/^[a-f0-9]{64}(?:\.incomplete)?$/u.test(entry))) return null;
+  if (entries.includes('.file-lease-reclaims')) {
+    const info = await lstat(path.join(root, '.file-lease-reclaims'));
+    if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
+        || (typeof process.getuid === 'function' && info.uid !== process.getuid())) return null;
+  }
+  const rows = [];
+  for (const key of entries.filter((entry) => /^[a-f0-9]{64}$/u.test(entry))) {
+    const directory = path.join(root, key);
+    const info = await lstat(directory);
+    if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
+        || (typeof process.getuid === 'function' && info.uid !== process.getuid())) return null;
+    const lease = await inspectFileLease(`${directory}.incomplete`, { legacyQuarantine: true });
+    rows.push({ key, directory, modified: info.mtimeMs, lease });
+  }
+  return rows;
+}
+
+// This is only local admission work. It must be called under the short allocation lease and
+// never across a native Git operation. Locked/unverifiable stores cannot become eviction victims.
+async function admitStoryObjectCacheEntry(root, key) {
+  const rows = await storyObjectCacheEntries(root);
+  if (!rows) return false;
+  let remaining = rows.length;
+  const exists = rows.some((row) => row.key === key);
+  let usage = await storyObjectCacheStorageUsage(root);
+  if (!usage.valid) return false;
+  const within = () => remaining + (exists ? 0 : 1) <= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.entries
+    && !usage.over && usage.files < STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageFiles
+    && usage.bytes < STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageBytes;
+  if (within()) return true;
+  const candidates = rows.filter((row) => row.key !== key
+    && ['missing', 'reclaimable'].includes(row.lease.state)).sort((left, right) =>
+    Number(right.lease.state === 'reclaimable') - Number(left.lease.state === 'reclaimable')
+    || left.modified - right.modified || left.key.localeCompare(right.key));
+  for (const candidate of candidates) {
+    const lease = await acquireFileLease(`${candidate.directory}.incomplete`, {
+      legacyQuarantine: true,
+      onReclaimed: () => retireStoryObjectCacheDirectory(candidate.directory)
+    });
+    if (!lease) continue;
+    try {
+      await retireStoryObjectCacheDirectory(candidate.directory);
+      remaining -= 1;
+      incrementCommandCounter('configuration.object-cache-evicted');
+    } finally { await lease.release({ cleanupConfirmed: true }); }
+    usage = await storyObjectCacheStorageUsage(root);
+    if (!usage.valid) return false;
+    if (within()) return true;
+  }
+  return false;
 }
 
 function storyObjectCacheConfigRows(rows, commit) {
@@ -2116,46 +2198,6 @@ async function storyObjectCacheMetadata(directory, commit) {
   return storyObjectCacheConfigRows(rows, commit);
 }
 
-// This cache is disposable but a surviving child must never inherit a store which another
-// invocation deletes/reuses. Persist an inode-and-nonce-bound quarantine *before* dispatch. A
-// crash-left marker is not automatically reaped; the original remote-clone path stays available.
-async function acquireStoryObjectCacheLease(file, { wait = false } = {}) {
-  const started = Date.now();
-  while (true) {
-    let handle;
-    try {
-      handle = await open(file, 'wx+', 0o600);
-      const info = await handle.stat();
-      const bytes = Buffer.from(`${randomUUID()}\n`);
-      await handle.writeFile(bytes);
-      await handle.sync();
-      return { file, handle, info, bytes };
-    } catch (error) {
-      await handle?.close().catch(() => {});
-      if (error?.code !== 'EEXIST' || !wait
-          || Date.now() - started >= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.leaseWaitMs) return null;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  }
-}
-
-async function releaseStoryObjectCacheLease(lease) {
-  let removed = false;
-  try {
-    const observed = Buffer.alloc(lease.bytes.length + 1);
-    const { bytesRead } = await lease.handle.read(observed, 0, observed.length, 0);
-    const info = await lstat(lease.file);
-    if (bytesRead === lease.bytes.length && lease.bytes.equals(observed.subarray(0, bytesRead))
-        && info.isFile() && !info.isSymbolicLink() && info.nlink === 1
-        && info.dev === lease.info.dev && info.ino === lease.info.ino) {
-      await unlink(lease.file);
-      removed = true;
-    }
-  } catch { /* Keep an unverified successor or crash marker; never infer process completion. */ }
-  finally { await lease.handle.close().catch(() => {}); }
-  return removed;
-}
-
 function storyObjectCacheLocal(state, args, options) {
   if (state.cleanupUnproven) return { status: 1, stdout: '', stderr: '', blocked: true };
   let result;
@@ -2182,6 +2224,8 @@ async function storyObjectCacheRemote(state, args, options) {
     // A rejected async runner can lose acknowledgement after dispatch. Do not infer that it
     // rejected before starting a helper, nor let an outer fallback retire the child's store.
     state.cleanupUnproven = true;
+    state.transportErrorRaised = true;
+    state.transportError = error;
     throw error;
   }
 }
@@ -2290,27 +2334,34 @@ async function cachedStoryConfigurationSnapshot(authority, { env, captureAuthori
     if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0
         || (typeof process.getuid === 'function' && rootInfo.uid !== process.getuid())) return null;
     const canonical = await realpath(root);
-    allocation = await acquireStoryObjectCacheLease(path.join(canonical, '.allocation.lock'), { wait: true });
-    if (!allocation) return null;
-    const entries = await readdir(canonical);
-    if (entries.some((entry) => entry !== '.allocation.lock'
-        && !/^[a-f0-9]{64}(?:\.incomplete)?$/u.test(entry))
-        || !await storyObjectCacheStorage(canonical)) return null;
+    allocation = await acquireFileLease(path.join(canonical, '.allocation.lock'), {
+      waitMs: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.leaseWaitMs
+    });
+    if (!allocation) {
+      incrementCommandCounter('configuration.object-cache-allocation-timeout');
+      return null;
+    }
+    if (!await admitStoryObjectCacheEntry(canonical, key)) return null;
     const directory = path.join(canonical, key);
-    const exists = await lstat(directory).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
-    if ((!exists && entries.filter((entry) => /^[a-f0-9]{64}$/u.test(entry)).length
-          >= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.entries)
-        || (exists && (!exists.isDirectory() || exists.isSymbolicLink()))) return null;
-    quarantine = await acquireStoryObjectCacheLease(`${directory}.incomplete`);
+    quarantine = await acquireFileLease(`${directory}.incomplete`, {
+      legacyQuarantine: true, onReclaimed: () => retireStoryObjectCacheDirectory(directory)
+    });
     if (!quarantine) {
       incrementCommandCounter('configuration.object-cache-quarantined');
       return null;
     }
+    const exists = await lstat(directory).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if (exists && (!exists.isDirectory() || exists.isSymbolicLink())) return null;
+    if (!exists) await mkdir(directory, { mode: 0o700 });
+    // No transfer, local clone, metadata probe, or snapshot validation may hold the allocator.
+    // A second key can therefore be admitted even while this key's native work is slow.
+    if (!await allocation.release({ cleanupConfirmed: true })) return null;
+    allocation = null;
+    await quarantine.protect();
     for (const forbidden of ['objects/info/alternates', 'info/attributes']) {
       if (await lstat(path.join(directory, forbidden)).then(() => true, (error) => error?.code !== 'ENOENT')) return null;
     }
     if (!exists) {
-      await mkdir(directory, { mode: 0o700 });
       const initialized = storyObjectCacheLocal(state, [
         'init', '--bare', '--quiet', '--template=',
         ...(authority.commit.length === 64 ? ['--object-format=sha256'] : []), directory
@@ -2337,12 +2388,30 @@ async function cachedStoryConfigurationSnapshot(authority, { env, captureAuthori
     const sealed = sealTemporaryGitReadTransport(directory, { env: gitEnv });
     if (sealed.cleanupUnproven) state.cleanupUnproven = true;
     if (!sealed.ok) return null;
-    if (!await storyObjectCacheStorage(canonical)
-        || !storyObjectCacheProfile(directory, authority.commit, localEnv, state)) {
+    if (!storyObjectCacheProfile(directory, authority.commit, localEnv, state)) {
       // A just-created, unsupported/over-budget derived entry has no admitted consumers. Reclaim
       // only that exact key while its lease is held and all native process outcomes are known.
       if (!exists && !state.cleanupUnproven) await removeTemporaryTree(directory);
       return null;
+    }
+    if (!await storyObjectCacheStorage(canonical)) {
+      allocation = await acquireFileLease(path.join(canonical, '.allocation.lock'), {
+        waitMs: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.leaseWaitMs
+      });
+      if (!allocation) {
+        incrementCommandCounter('configuration.object-cache-allocation-timeout');
+        return null;
+      }
+      if (!await admitStoryObjectCacheEntry(canonical, key)) {
+        if (!exists && !state.cleanupUnproven) await retireStoryObjectCacheDirectory(directory);
+        return null;
+      }
+      if (!await allocation.release({ cleanupConfirmed: true })) return null;
+      allocation = null;
+    }
+    if (exists) {
+      const now = new Date();
+      await utimes(directory, now, now);
     }
     // Local transport copies (never hardlinks) the verified objects into the same disposable
     // checkout profile used by ordinary reads. No cache file or serialized definition is mounted.
@@ -2377,23 +2446,32 @@ async function cachedStoryConfigurationSnapshot(authority, { env, captureAuthori
       throw error;
     }
   } catch (error) {
+    if (String(error?.code ?? '').startsWith('FILE_LEASE_')) return null;
     if (error instanceof SingularityFlowError) throw error;
     // Pure local cache admission/IO failures do not hide a readable live authority.
     return null;
   } finally {
     if (quarantine) {
       if (!state.cleanupUnproven) {
-        if (!await releaseStoryObjectCacheLease(quarantine)) state.cleanupUnproven = true;
-      } else await quarantine.handle.close().catch(() => {});
-    }
-    if (allocation && !await releaseStoryObjectCacheLease(allocation)) state.cleanupUnproven = true;
-    if (scratch && !state.cleanupUnproven) await removeTemporaryTree(scratch);
-    if (state.cleanupUnproven && state.snapshotError) throw state.snapshotError;
-    if (state.cleanupUnproven) throw new SingularityFlowError(
-      'A private Story configuration-cache operation has an unconfirmed completion outcome. Its store and temporary projection were preserved; no cached configuration was admitted.', {
-        code: 'STORY_CONFIGURATION_CACHE_OPERATION_UNCONFIRMED'
+        if (!await quarantine.release({ cleanupConfirmed: true }).catch(() => false)) state.cleanupUnproven = true;
+      } else {
+        await quarantine.retainQuarantine({ unknownChildren: true }).catch(() => {});
+        await quarantine.release().catch(() => {}); // closes the descriptor, preserves the fence
       }
-    );
+    }
+    if (allocation && !await allocation.release({ cleanupConfirmed: true }).catch(() => false)) state.cleanupUnproven = true;
+    if (scratch && !state.cleanupUnproven) await removeTemporaryTree(scratch).catch(() => { state.cleanupUnproven = true; });
+    // A transfer exception is not local cache corruption. Preserve the original transport or
+    // admission refusal (including non-SingularityFlowError launchers) without retrying network
+    // work through a second clone. Unknown completion still leaves the store quarantined.
+    if (state.transportErrorRaised) throw state.transportError;
+    if (state.cleanupUnproven && state.snapshotError) throw state.snapshotError;
+    // Unknown child completion fences this derived store, not the independent original reader.
+    // Cache-local uncertainty must never convert readable authority into a permanent refusal.
+    if (state.cleanupUnproven) {
+      incrementCommandCounter('configuration.object-cache-quarantined');
+      return null;
+    }
   }
 }
 

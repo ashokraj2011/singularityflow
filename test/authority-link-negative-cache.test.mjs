@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import childProcess from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { once } from 'node:events';
+import { randomUUID } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import {
   CAPABILITY_AUTHORITY_LINK_PATH, createCapabilityAuthorityLink, readCapabilityAuthorityLink
 } from '../src/capability-authority-link.mjs';
@@ -14,7 +17,7 @@ import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { readRecord } from '../src/schema-migrations.mjs';
 import { run } from '../src/util.mjs';
 
-async function fixture(t) {
+async function fixture(t, { fileUrl = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-negative-link-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repository = path.join(root, 'repository');
@@ -27,9 +30,10 @@ async function fixture(t) {
   run('git', ['add', '-A'], { cwd: repository });
   run('git', ['commit', '-qm', 'state without link'], { cwd: repository });
   const env = { ...process.env, SINGULARITY_FLOW_AUTHORITY_CACHE: cache };
+  const remote = fileUrl ? pathToFileURL(repository).href : repository;
   const observations = [];
   const transfers = [];
-  const read = () => readCapabilityAuthorityLink(repository, {
+  const read = () => readCapabilityAuthorityLink(remote, {
     env,
     remoteSession: new GitRemoteSession({ env, async runAsyncCommand(args, options) {
       observations.push(args);
@@ -40,7 +44,7 @@ async function fixture(t) {
       return runRemoteGitAsync(args, options);
     }
   });
-  return { root, repository, cache, env, read, observations, transfers };
+  return { root, repository, remote, cache, env, read, observations, transfers };
 }
 
 test('negative authority link is exact-state cached, freshly observed, and invalidated by a new state tip', async (t) => {
@@ -118,7 +122,7 @@ for (const [label, poison] of [
   ['overflow', { outputOverflow: true }], ['blocked', { blocked: true }],
   ['signal', { signal: 'SIGTERM' }], ['execution error', { error: new Error('Fixture execution outcome unknown') }]
 ]) {
-  test(`status-zero ${label} fetch cannot create absence evidence and permanently quarantines its store`, async (t) => {
+  test(`status-zero ${label} fetch cannot create absence evidence; quarantine is bypassed without reuse`, async (t) => {
     const f = await fixture(t);
     const result = await readCapabilityAuthorityLink(f.repository, {
       env: f.env,
@@ -136,9 +140,10 @@ for (const [label, poison] of [
     assert.ok(await lstat(`${store}.incomplete`));
     assert.equal((await readdir(f.cache)).some((name) => name.endsWith('.json')), false);
     const retry = await f.read();
-    assert.equal(retry.status, 'unavailable');
-    assert.equal(retry.failure.code, 'CAPABILITY_AUTHORITY_CACHE_CLEANUP_UNKNOWN');
-    assert.equal(f.transfers.length, 0, 'another operation cannot reuse, seal, or refill quarantine');
+    assert.equal(retry.status, 'missing');
+    assert.equal(retry.failure, null);
+    assert.equal(f.transfers.length, 1, 'one-off fallback reads a different private store');
+    assert.ok(await lstat(`${store}.incomplete`), 'fallback does not remove an unconfirmed store');
   });
 }
 
@@ -150,9 +155,9 @@ test('an existing valid negative receipt cannot bypass quarantine through the le
   const before = await readFile(path.join(f.cache, receipt));
   await writeFile(`${store}.incomplete`, 'Fixture interrupted owner\n');
   const result = await f.read();
-  assert.equal(result.status, 'unavailable');
-  assert.equal(result.failure.code, 'CAPABILITY_AUTHORITY_CACHE_CLEANUP_UNKNOWN');
-  assert.equal(f.transfers.length, 1);
+  assert.equal(result.status, 'missing');
+  assert.equal(result.failure, null);
+  assert.equal(f.transfers.length, 2);
   assert.deepEqual(await readFile(path.join(f.cache, receipt)), before);
   assert.ok(await lstat(path.join(store, 'HEAD')));
 });
@@ -171,15 +176,27 @@ test('a completed non-zero fetch leaves the store retryable rather than inventin
 
 test('a rejected transfer after dispatch preserves its pre-published operation quarantine', async (t) => {
   const f = await fixture(t);
+  const refusedScratch = [];
+  t.after(async () => {
+    // This runner throws without creating a child. The production owner cannot infer that from
+    // an opaque rejection, but the fixture can remove its explicitly recorded private scratch.
+    for (const scratch of refusedScratch) {
+      await rm(scratch, { recursive: true, force: true });
+      await rm(`${scratch}.incomplete`, { force: true });
+    }
+  });
   const result = await readCapabilityAuthorityLink(f.repository, {
-    env: f.env, async runRemoteCommand() { throw new Error('Fixture lost acknowledgement'); }
+    env: f.env, async runRemoteCommand(_args, options) {
+      if (!options.cwd.startsWith(f.root)) refusedScratch.push(options.cwd);
+      throw new Error('Fixture lost acknowledgement');
+    }
   });
   assert.equal(result.status, 'unavailable');
   assert.equal(result.failure.code, 'CAPABILITY_AUTHORITY_CACHE_OPERATION_UNCONFIRMED');
   const store = await retainedStore(f);
   assert.ok(await lstat(`${store}.incomplete`));
-  assert.equal((await f.read()).status, 'unavailable');
-  assert.equal(f.transfers.length, 0);
+  assert.equal((await f.read()).status, 'missing');
+  assert.equal(f.transfers.length, 1);
 });
 
 test('poisoned status-zero local tree output is refused before absence caching and preserves quarantine', async (t) => {
@@ -201,12 +218,12 @@ test('poisoned status-zero local tree output is refused before absence caching a
   try { result = await f.read(); }
   finally { childProcess.spawnSync = original; syncBuiltinESMExports(); }
   assert.equal(poisoned, 1);
-  assert.equal(result.status, 'unavailable');
+  assert.equal(result.status, 'missing', 'unconfirmed cache-local read uses verified one-off fallback');
   const store = await retainedStore(f);
   assert.ok(await lstat(`${store}.incomplete`));
   assert.equal((await readdir(f.cache)).some((name) => name.endsWith('.json')), false);
-  assert.equal((await f.read()).status, 'unavailable');
-  assert.equal(f.transfers.length, 1);
+  assert.equal((await f.read()).status, 'missing');
+  assert.equal(f.transfers.length, 3);
 });
 
 test('unknown scratch fetch keeps its store when a successor replaces the quarantine marker', async (t) => {
@@ -255,11 +272,11 @@ test('failed quarantine publication refuses before any Git work in the private s
   try { result = await f.read(); }
   finally { fsPromises.open = original; syncBuiltinESMExports(); }
   assert.equal(refused, 1);
-  assert.equal(result.status, 'unavailable');
-  assert.equal(result.failure.code, 'CAPABILITY_AUTHORITY_CACHE_QUARANTINE_UNAVAILABLE');
-  assert.equal(f.transfers.length, 0);
-  const store = await retainedStore(f);
-  assert.deepEqual(await readdir(store), [], 'initialization and quota Git work require persisted quarantine');
+  assert.equal(result.status, 'missing');
+  assert.equal(result.failure, null);
+  assert.equal(f.transfers.length, 1);
+  assert.equal((await readdir(f.cache)).some((name) => /^[a-f0-9]{64}$/.test(name)), false,
+    'initialization and quota Git work require persisted quarantine');
 });
 
 test('known completion does not remove an in-place successor marker or publish a cache receipt', async (t) => {
@@ -269,17 +286,133 @@ test('known completion does not remove an in-place successor marker or publish a
   const result = await readCapabilityAuthorityLink(f.repository, {
     env: f.env,
     async runRemoteCommand(args, options) {
-      store = options.cwd;
       const completed = await runRemoteGitAsync(args, options);
       assert.equal(completed.status, 0);
-      await writeFile(`${store}.incomplete`, replacement);
+      if (options.cwd.startsWith(f.cache)) {
+        store = options.cwd;
+        await writeFile(`${store}.incomplete`, replacement);
+      }
       return completed;
     }
   });
-  assert.equal(result.status, 'unavailable');
-  assert.equal(result.failure.code, 'CAPABILITY_AUTHORITY_CACHE_QUARANTINE_CHANGED');
+  assert.equal(result.status, 'missing');
+  assert.equal(result.failure, null);
   assert.equal(await readFile(`${store}.incomplete`, 'utf8'), replacement);
   assert.equal((await readdir(f.cache)).some((name) => name.endsWith('.json')), false);
-  assert.equal((await f.read()).status, 'unavailable');
-  assert.equal(f.transfers.length, 0);
+  assert.equal((await f.read()).status, 'missing');
+  assert.equal(f.transfers.length, 1);
 });
+
+async function completedChildPid() {
+  const child = childProcess.spawn(process.execPath, ['-e', 'process.exit(0)']);
+  const pid = child.pid;
+  await once(child, 'exit');
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  return pid;
+}
+
+function fixtureOwner(pid) {
+  const now = new Date().toISOString();
+  return { version: 2, pid, host: os.hostname(), nonce: randomUUID(), createdAt: now, heartbeatAt: now };
+}
+
+for (const status of ['missing', 'current']) {
+  test(`file fixture ${status} link bypasses a live-owner cache marker without touching its store`, async (t) => {
+    const f = await fixture(t, { fileUrl: true });
+    if (status === 'current') {
+      const link = createCapabilityAuthorityLink({
+        authorityRemote: f.remote, repositoryRemote: f.remote, capabilityIds: ['application']
+      });
+      await mkdir(path.join(f.repository, 'singularity'));
+      await writeFile(path.join(f.repository, CAPABILITY_AUTHORITY_LINK_PATH), canonicalJson(link));
+      run('git', ['add', '-A'], { cwd: f.repository });
+      run('git', ['commit', '-qm', 'routing fixture'], { cwd: f.repository });
+    }
+    const first = await f.read();
+    assert.equal(first.status, status);
+    const store = await retainedStore(f);
+    const marker = `${store}.incomplete`;
+    const owner = `${JSON.stringify(fixtureOwner(process.pid))}\n`;
+    await writeFile(marker, owner);
+    await writeFile(path.join(store, 'live-owner-sentinel'), 'must remain\n');
+    const bypass = await f.read();
+    const uncached = await readCapabilityAuthorityLink(f.remote, {
+      env: { ...f.env, SINGULARITY_FLOW_AUTHORITY_CACHE: 'off' }
+    });
+    assert.deepEqual(bypass, uncached, 'derived-cache state must not change the verified link result');
+    assert.equal(await readFile(marker, 'utf8'), owner);
+    assert.equal(await readFile(path.join(store, 'live-owner-sentinel'), 'utf8'), 'must remain\n');
+    assert.equal(f.transfers.length, 2, 'busy cache immediately takes a separate one-off path');
+  });
+}
+
+test('dead-owner authority marker is reclaimed and its store is moved aside before an exact rebuild', async (t) => {
+  const f = await fixture(t, { fileUrl: true });
+  await f.read();
+  const store = await retainedStore(f);
+  await writeFile(path.join(store, 'dead-owner-sentinel'), 'retained not reused\n');
+  await writeFile(`${store}.incomplete`, `${JSON.stringify(fixtureOwner(await completedChildPid()))}\n`);
+  const result = await f.read();
+  assert.equal(result.status, 'missing');
+  await assert.rejects(lstat(`${store}.incomplete`), { code: 'ENOENT' });
+  await assert.rejects(lstat(path.join(store, 'dead-owner-sentinel')), { code: 'ENOENT' });
+  const retired = (await readdir(f.cache)).find((name) => name.startsWith(`${path.basename(store)}.retained-`));
+  assert.ok(retired, 'old store was not deleted and did not become the new evidence store');
+  assert.equal(await readFile(path.join(f.cache, retired, 'dead-owner-sentinel'), 'utf8'), 'retained not reused\n');
+  assert.equal(f.transfers.length, 2, 'reclaimed store is rebuilt rather than reading old objects');
+  assert.equal((await f.read()).status, 'missing');
+  assert.equal(f.transfers.length, 2, 'rebuilt cache admits exact verified receipt');
+});
+
+for (const age of ['young', 'old']) {
+  test(`${age} legacy UUID authority marker cannot hide the readable link`, async (t) => {
+    const f = await fixture(t, { fileUrl: true });
+    await f.read();
+    const store = await retainedStore(f);
+    const marker = `${store}.incomplete`;
+    await writeFile(marker, `${randomUUID()}\n`);
+    if (age === 'old') {
+      const before = new Date(Date.now() - 16 * 60 * 1000);
+      await utimes(marker, before, before);
+    }
+    assert.equal((await f.read()).status, 'missing');
+    assert.ok(await lstat(marker), `${age} legacy operation has no trusted child-death evidence`);
+  });
+}
+
+test('legacy unknown-child quarantine stays preserved even when old; readable link uses one-off fallback', async (t) => {
+  const f = await fixture(t, { fileUrl: true });
+  await f.read();
+  const store = await retainedStore(f);
+  const marker = `${store}.incomplete`;
+  const bytes = `Authority object-store operation completion unconfirmed: ${randomUUID()}\n`;
+  await writeFile(marker, bytes);
+  const before = new Date(Date.now() - 16 * 60 * 1000);
+  await utimes(marker, before, before);
+  assert.equal((await f.read()).status, 'missing');
+  assert.equal(await readFile(marker, 'utf8'), bytes,
+    'age alone is not proof that an unrecorded child/process tree exited');
+  assert.ok(await lstat(path.join(store, 'HEAD')));
+});
+
+for (const childState of ['unknown', 'live']) {
+  test(`dead owner with ${childState} child evidence is not reclaimed by age or fallback`, async (t) => {
+    const f = await fixture(t, { fileUrl: true });
+    await f.read();
+    const store = await retainedStore(f);
+    const marker = `${store}.incomplete`;
+    const before = new Date(Date.now() - 16 * 60 * 1000);
+    const owner = {
+      ...fixtureOwner(await completedChildPid()), quarantine: true,
+      childPids: childState === 'live' ? [process.pid] : [], unknownChildren: childState === 'unknown',
+      createdAt: before.toISOString(), heartbeatAt: before.toISOString()
+    };
+    const bytes = `${JSON.stringify(owner)}\n`;
+    await writeFile(marker, bytes);
+    await utimes(marker, before, before);
+    await writeFile(path.join(store, 'child-owned-sentinel'), 'keep exact store\n');
+    assert.equal((await f.read()).status, 'missing');
+    assert.equal(await readFile(marker, 'utf8'), bytes);
+    assert.equal(await readFile(path.join(store, 'child-owned-sentinel'), 'utf8'), 'keep exact store\n');
+  });
+}

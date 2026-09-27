@@ -12,7 +12,7 @@
  * unless the selected repository changes, and an older answer is never published over the newer
  * request.
  */
-import { CORE_SNAPSHOT_SLICES, type SingularityFlowClient } from './cli/client.ts';
+import { CORE_SNAPSHOT_SLICES, isCliReadSuperseded, type SingularityFlowClient } from './cli/client.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './cli/snapshot.ts';
 
 export interface WorkspaceStateChange {
@@ -432,6 +432,7 @@ export class WorkspaceStore {
     while (!controller.signal.aborted && !this.disposed) {
       const generation = this.refreshGeneration;
       let failure: Error | null = null;
+      let superseded = false;
       let snapshot: RepositorySnapshot | null = null;
       const retryStartedAt = Date.now();
       let scheduledBackoffMs = 0;
@@ -448,6 +449,7 @@ export class WorkspaceStore {
           break;
         } catch (error) {
           if (controller.signal.aborted || this.disposed) return;
+          if (isCliReadSuperseded(error)) { superseded = true; break; }
           failure = error instanceof Error ? error : new Error(String(error));
           const delay = RETRY_DELAYS_MS[attempt];
           if (delay === undefined || !TRANSIENT_FAILURE.test(failure.message)) break;
@@ -464,6 +466,13 @@ export class WorkspaceStore {
       // A refresh request arrived while this generation was reading. Its result describes the old
       // request, so do not fan it out to every panel; take one follow-up snapshot instead.
       if (generation !== this.refreshGeneration) continue;
+
+      if (superseded) {
+        this.publish({ loading: false }, {
+          kind: 'loading', revisionChanged: false, changedSlices: Object.freeze([])
+        });
+        return;
+      }
 
       if (snapshot) {
         if (snapshot.notModified && this.state.snapshot) {
@@ -502,8 +511,15 @@ export class WorkspaceStore {
         this.publish({ snapshot: recovery, error: failure, loading: false, stale: false }, {
           kind: 'error', revisionChanged: true, changedSlices
         });
-      } catch {
+      } catch (error) {
         if (generation !== this.refreshGeneration) continue;
+        if (controller.signal.aborted || this.disposed) return;
+        if (isCliReadSuperseded(error)) {
+          this.publish({ loading: false }, {
+            kind: 'loading', revisionChanged: false, changedSlices: Object.freeze([])
+          });
+          return;
+        }
         this.publish({ error: failure, loading: false }, {
           kind: 'error', revisionChanged: false, changedSlices: Object.freeze([])
         });

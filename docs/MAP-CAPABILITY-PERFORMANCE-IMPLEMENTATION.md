@@ -28,6 +28,10 @@ If subprocess termination cannot be confirmed, the result remains unknown. The s
 its handles after bounded cleanup rather than claiming the process is dead. An incomplete object
 store is preserved and cannot be reused as negative evidence or evicted as an ordinary disposable
 cache entry. The four-slot pool bounds supervised invocations, not attested surviving processes.
+Writes now invalidate derived results without cancelling unrelated reads; only a repository switch
+cancels them with `CLI_READ_SUPERSEDED`. Busy or quarantined authority stores immediately use the
+verified one-off reader. See [CLI cache crash safety](CLI-CACHE-CRASH-SAFETY.md) for the crash
+recovery, unknown-child preservation and regression boundaries.
 
 ## What the user should see
 

@@ -14,7 +14,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { access, lstat, readFile, readdir, realpath as fsRealpath, rm } from 'node:fs/promises';
 import { gatewayDestinationRequest } from './gateway-destination.ts';
-import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
+import { resolveCli, SingularityFlowClient, isCliReadSuperseded, type CliLocation } from './cli/client.ts';
 import {
   CliError, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
   terminalCommand, recentCliCommandTimings,
@@ -2161,6 +2161,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         }
         if (refreshStoriesAfterMapping) void refreshStoriesAfterMapping().catch((error) => {
+          if (isCliReadSuperseded(error)) return;
           output.appendLine(`Story discovery after capability mapping needs attention: ${(error as Error).message}`);
         });
         return;
@@ -2177,6 +2178,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         }
         if (refreshStoriesAfterMapping) void refreshStoriesAfterMapping().catch((error) => {
+          if (isCliReadSuperseded(error)) return;
           output.appendLine(`Story discovery after capability activation needs attention: ${(error as Error).message}`);
         });
       }, mapped.capabilityId);
@@ -2209,6 +2211,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const { WorkspacePanel } = lazyPanels();
             await WorkspacePanel.refreshOpenCapabilityMap({ organisation: lead });
             if (refreshStoriesAfterMapping) void refreshStoriesAfterMapping().catch((error) => {
+              if (isCliReadSuperseded(error)) return;
               output.appendLine(`Story discovery after capability activation needs attention: ${(error as Error).message}`);
             });
           });
@@ -2714,6 +2717,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
           if (action === 'attach' && refreshStoriesAfterMapping) {
             void refreshStoriesAfterMapping().catch((error) => {
+              if (isCliReadSuperseded(error)) return;
               output.appendLine(`Story discovery after capability attachment needs attention: ${(error as Error).message}`);
             });
           }
@@ -4725,6 +4729,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (catalog.issues.length) issue = `Story discovery is incomplete: ${catalog.issues.map((entry) =>
           `${entry.repositoryId}: ${entry.message}`).join(' | ')}`;
       } catch (error) {
+        if (isCliReadSuperseded(error)) return;
         issue = `Story discovery is incomplete: ${(error as Error).message}`;
       }
       if (!repositoryEpoch.isCurrent(scope)) return;
@@ -4767,6 +4772,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }]);
     }
     const discover = (): void => { void refreshRemoteStories({ refreshSnapshot: false }).catch((error) => {
+      if (isCliReadSuperseded(error)) return;
       if (repositoryEpoch.isCurrent(scope)) {
         output.appendLine(`Story discovery needs attention: ${(error as Error).message}`);
       }

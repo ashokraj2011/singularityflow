@@ -197,6 +197,14 @@ function cacheableRead(args: string[]): boolean {
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
+  if (args[0] === 'adhoc') return args[1] === 'status' ? 'read' : 'mutation';
+  if (args[0] === 'jira') return args[1] === 'status' ? 'read' : 'mutation';
+  if (args[0] === 'prompt-log') return ['status', 'list', 'view'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
+  if (args[0] === 'impact') {
+    if (args[1] === 'study') return ['list', 'show', 'prompt-hash'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
+    if (args[1] === 'exposure') return (args[2] ?? 'status') === 'status' ? 'read' : 'mutation';
+    return ['preview', 'explain', 'refresh', 'status', 'compare', 'verify', 'doctor'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
+  }
   if (args[0] === 'revision' && args[1] === 'checks') {
     const action = args[2] ?? '';
     if (['capabilities', 'plan', 'status', 'result'].includes(action)) return 'read';
@@ -279,11 +287,14 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
       : 'mutation';
   }
   if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches'].includes(args[1] ?? 'list')) return 'read';
+  if (args[0] === 'workspace' && args[1] === 'bootstrap') {
+    return args[2] === 'status' ? 'read' : 'mutation';
+  }
   if (args[0] === 'workspace' && args[1] === 'refresh-configuration' && enabledBooleanOption(args, 'dry-run')) return 'read';
   if (args[0] === 'workspace' && args[1] === 'reinitialize' && enabledBooleanOption(args, 'dry-run')) return 'read';
   if (args[0] === 'workspace' && ['attach-capability', 'detach-capability'].includes(args[1] ?? '')
       && enabledBooleanOption(args, 'dry-run')) return 'read';
-  if (args[0] === 'goal') return ['list', 'show', 'status', 'next'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'goal') return ['list', 'show', 'status', 'next', 'propose', 'inspect', 'impact', 'change', 'trace'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'fault') return (args[1] ?? 'list') === 'report' ? 'mutation' : 'read';
   if (args[0] === 'fix') return hasOption(args, 'plan-only') ? 'read' : 'mutation';
   if (args[0] === 'repair') return ['list', 'show', 'status', 'history'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
@@ -355,6 +366,12 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     ].includes(action) ? 'read' : 'mutation';
   }
   return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
+}
+
+/** A repository-context cancellation, never a lifecycle/configuration fault. */
+export function isCliReadSuperseded(error: unknown): boolean {
+  return error !== null && typeof error === 'object'
+    && 'code' in error && error.code === 'CLI_READ_SUPERSEDED';
 }
 
 export interface CliLocation {
@@ -451,17 +468,23 @@ export class SingularityFlowClient {
    * results cannot enter the new repository's cache or in-flight set.
    */
   useRepository(repository: string): void {
-    if (repository !== this.options.repository) this.invalidateReadResults();
+    if (repository !== this.options.repository) this.invalidateReadResults(true);
     this.options.repository = repository;
   }
 
-  private invalidateReadResults(): void {
+  private invalidateReadResults(cancelExisting = false): void {
     this.readEpoch += 1;
     this.readResults.clear();
     this.readInFlight.clear();
+    // A write invalidates reuse, not the subscribers who already paid for this read. Clearing the
+    // sharing map makes every post-write request fresh; the epoch prevents old results being cached.
+    // Only changing the repository makes those subscribers' context unusable and cancels them.
+    if (!cancelExisting) return;
     for (const job of this.readJobs) {
       for (const subscriber of [...job.subscribers]) {
-        this.leaveRead(job, subscriber, new Error('The Singularity Flow read was superseded.'));
+        this.leaveRead(job, subscriber, Object.assign(
+          new Error('The Singularity Flow read was superseded.'), { code: 'CLI_READ_SUPERSEDED' }
+        ));
       }
     }
   }

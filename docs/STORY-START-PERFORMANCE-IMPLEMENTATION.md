@@ -52,9 +52,11 @@ falls back to the original path.
 
 An unconfirmed native-process outcome leaves a quarantine marker and any private checkout intact;
 it cannot admit a cached snapshot or permit automatic cleanup. An exceptional snapshot validation
-also preserves those private paths and its original diagnostic. There is no automatic quarantine
-reaper. Quarantined entries consume quota; disabling cache reuse selects the original read path
-without deleting preserved evidence.
+also preserves those private paths and its original diagnostic. Safely proven dead-owner entries
+can now be rebuilt, and idle entries are evicted under the short allocation lease. Unknown-child
+quarantines remain preserved regardless of age and consume quota; reads immediately bypass those
+entries without deleting preserved evidence. See [CLI cache crash safety](CLI-CACHE-CRASH-SAFETY.md)
+for the lease, signal, fallback and eviction rules.
 
 The one new local Git wrapper was reviewed separately in the Git bypass audit: fixed internal
 cache commands, disabled hooks/maintenance, bounded buffers/timeouts, isolated transport and

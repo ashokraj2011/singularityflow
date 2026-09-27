@@ -13,6 +13,7 @@ import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -527,6 +528,12 @@ async function operationResolutionContext(root, definition, subcommand) {
 }
 
 export async function main(argv) {
+  const uninstall = installFileLeaseSignalHandlers();
+  try { return await runMain(argv); }
+  finally { uninstall(); }
+}
+
+async function runMain(argv) {
   const modelMode = resolveModelMode(argv);
   const effectiveArgv = stripGlobalModelOptions(argv);
   // Product reinstall is intentionally not a repository operation. Resolving a root would invoke

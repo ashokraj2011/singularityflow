@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chmod, mkdir, mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import YAML from 'yaml';
 
 import {
@@ -17,6 +18,7 @@ import { configurationReadRoot, configurationReadSnapshot } from '../src/configu
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { removeTemporaryTree } from '../src/util.mjs';
+import { acquireFileLease } from '../src/file-lease.mjs';
 
 function git(cwd, ...args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
@@ -107,6 +109,208 @@ const projection = (snapshot) => ({ authority: snapshot.authority, observedCommi
       ? value.slice(value.indexOf('/.github/agents/') + 1) : value)), assets: snapshot.assets.map((asset) => ({
     ...asset, contents: asset.contents.toString('base64') })) });
 const cacheProfile = { skip: process.platform === 'win32' ? 'Windows cache profile is deliberately deferred; original clone remains supported.' : false };
+const cacheKeys = async (cache) => (await readdir(cache)).filter((entry) => /^[a-f0-9]{64}$/u.test(entry));
+
+async function advanceAuthority(f, number) {
+  await writeFile(path.join(f.source, 'singularity/templates/common/note.md'), `# Approved note ${number}\n`);
+  git(f.source, 'add', 'singularity/templates/common/note.md'); git(f.source, 'commit', '-qm', `approved revision ${number}`);
+  git(f.source, 'push', '-q', 'origin', `HEAD:${CONFIGURATION_BRANCH}`);
+  f.commit = git(f.source, 'rev-parse', 'HEAD');
+  f.authority = { ...f.authority, commit: f.commit };
+  f.key = recordSha256({ remote: f.remote, branch: CONFIGURATION_BRANCH, commit: f.commit });
+}
+
+async function waitForFixturePath(file) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (await lstat(file).then(() => true, () => false)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail('fixture did not reach its advertised process checkpoint');
+}
+
+test('33 exact revisions retain a bounded LRU cache and the newest revision remains a warm hit', cacheProfile, async (t) => {
+  const f = await fixture(t);
+  const oldest = f.key; await read(f);
+  for (let revision = 1; revision < 33; revision += 1) {
+    await advanceAuthority(f, revision);
+    const result = await read(f);
+    assert.equal(result.snapshot.observedCommit, f.commit);
+    assert.equal(result.counters['configuration.object-cache-miss'], 1);
+    assert.ok((await cacheKeys(f.cache)).length <= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.entries);
+    if (revision === 32) assert.equal(result.counters['configuration.object-cache-evicted'], 1);
+  }
+  assert.ok(!(await cacheKeys(f.cache)).includes(oldest));
+  const warm = await read(f);
+  assert.equal(warm.counters['configuration.object-cache-hit'], 1);
+  assert.equal(warm.counters['configuration.object-cache-fetch'] ?? 0, 0);
+});
+
+test('warm hit updates LRU modification time while holding the key lease', cacheProfile, async (t) => {
+  const f = await fixture(t); await read(f);
+  const directory = path.join(f.cache, f.key); const old = new Date(1_000);
+  await utimes(directory, old, old);
+  const result = await read(f);
+  assert.equal(result.counters['configuration.object-cache-hit'], 1);
+  assert.ok((await lstat(directory)).mtimeMs > old.getTime());
+});
+
+test('a live entry is never evicted and dead-owner quarantine is retired before older idle entries', cacheProfile, async (t) => {
+  const f = await fixture(t); await mkdir(f.cache, { mode: 0o700 });
+  const keys = [];
+  for (let index = 0; index < 32; index += 1) {
+    const key = index.toString(16).padStart(64, '0'); keys.push(key);
+    const directory = path.join(f.cache, key); await mkdir(directory, { mode: 0o700 });
+    await utimes(directory, new Date(1_000 + index), new Date(1_000 + index));
+  }
+  const live = await acquireFileLease(path.join(f.cache, `${keys[0]}.incomplete`));
+  assert.ok(live); t.after(() => live.release({ cleanupConfirmed: true }));
+  const deceased = path.join(f.cache, `${keys.at(-1)}.incomplete`);
+  const module = new URL('../src/file-lease.mjs', import.meta.url).href;
+  const fixtureOwner = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { acquireFileLease } from ${JSON.stringify(module)}; const lease = await acquireFileLease(${JSON.stringify(deceased)}); await lease.retainQuarantine({ childPids: [], unknownChildren: false });`],
+  { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(fixtureOwner.status, 0, fixtureOwner.stderr);
+  const result = await read(f);
+  assert.equal(result.counters['configuration.object-cache-evicted'], 1);
+  assert.equal(result.snapshot.observedCommit, f.commit);
+  const remaining = await cacheKeys(f.cache);
+  assert.ok(remaining.includes(keys[0]), 'the live lease and its store remain untouched');
+  assert.ok(remaining.includes(keys[1]), 'an older idle store loses to a provably dead quarantine');
+  assert.ok(!remaining.includes(keys.at(-1)));
+  assert.ok(await lstat(path.join(f.cache, `${keys[0]}.incomplete`)));
+});
+
+test('all live entries decline admission without deleting or waiting for their key leases', cacheProfile, async (t) => {
+  const f = await fixture(t); await mkdir(f.cache, { mode: 0o700 });
+  const leases = [];
+  t.after(() => Promise.all(leases.map((lease) => lease.release({ cleanupConfirmed: true }))));
+  for (let index = 0; index < 32; index += 1) {
+    const key = index.toString(16).padStart(64, '0'); const directory = path.join(f.cache, key);
+    await mkdir(directory, { mode: 0o700 });
+    leases.push(await acquireFileLease(`${directory}.incomplete`));
+  }
+  assert.ok(leases.every(Boolean));
+  const result = await read(f);
+  assert.equal(result.counters['configuration.object-cache-fetch'] ?? 0, 0);
+  assert.equal(result.counters['configuration.object-cache-evicted'] ?? 0, 0);
+  assert.equal(result.snapshot.observedCommit, f.commit);
+  assert.equal((await cacheKeys(f.cache)).length, 32);
+});
+
+test('an oversized idle derived entry is evicted before admitting the next exact snapshot', cacheProfile, async (t) => {
+  const f = await fixture(t); const key = '0'.repeat(64); const directory = path.join(f.cache, key);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const file = await open(path.join(directory, 'oversized-derived-object'), 'wx');
+  await file.truncate(STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageBytes + 1); await file.close();
+  const result = await read(f);
+  assert.equal(result.counters['configuration.object-cache-evicted'], 1);
+  assert.equal(result.counters['configuration.object-cache-miss'], 1);
+  assert.equal(result.snapshot.observedCommit, f.commit);
+  assert.deepEqual(await cacheKeys(f.cache), [f.key]);
+});
+
+test('the aggregate 16,384-file ceiling evicts an idle entry instead of disabling future cache admission', cacheProfile, async (t) => {
+  const f = await fixture(t); const key = '0'.repeat(64); const directory = path.join(f.cache, key);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  for (let offset = 0; offset < STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageFiles; offset += 128) {
+    await Promise.all(Array.from({ length: 128 }, (_, index) =>
+      writeFile(path.join(directory, `derived-${offset + index}`), '')));
+  }
+  const result = await read(f);
+  assert.equal(result.counters['configuration.object-cache-evicted'], 1);
+  assert.equal(result.counters['configuration.object-cache-miss'], 1);
+  assert.equal(result.snapshot.observedCommit, f.commit);
+  assert.deepEqual(await cacheKeys(f.cache), [f.key]);
+});
+
+test('a live allocation lease waits only the bounded admission interval before independent fallback', cacheProfile, async (t) => {
+  const f = await fixture(t); await mkdir(f.cache, { mode: 0o700 });
+  const lease = await acquireFileLease(path.join(f.cache, '.allocation.lock'));
+  assert.ok(lease); t.after(() => lease.release({ cleanupConfirmed: true }));
+  const started = performance.now(); const result = await read(f);
+  assert.equal(result.counters['configuration.object-cache-allocation-timeout'], 1);
+  assert.equal(result.counters['configuration.object-cache-fetch'] ?? 0, 0);
+  assert.ok(performance.now() - started < 1_200, 'no former five-second allocation wait');
+  assert.equal(result.snapshot.observedCommit, f.commit);
+  assert.ok(await lease.owns());
+});
+
+test('a real SIGKILL allocation owner is reclaimed without the former five-second penalty', cacheProfile, async (t) => {
+  const f = await fixture(t); await mkdir(f.cache, { mode: 0o700 });
+  const lock = path.join(f.cache, '.allocation.lock'); const checkpoint = path.join(f.base, 'allocation-held');
+  const module = new URL('../src/file-lease.mjs', import.meta.url).href;
+  const owner = spawn(process.execPath, ['--input-type=module', '-e',
+    `import { writeFile } from 'node:fs/promises'; import { acquireFileLease } from ${JSON.stringify(module)}; await acquireFileLease(${JSON.stringify(lock)}); await writeFile(${JSON.stringify(checkpoint)}, 'ready'); setInterval(() => {}, 1000);`],
+  { stdio: ['ignore', 'ignore', 'pipe'] });
+  t.after(() => { if (owner.exitCode == null && owner.signalCode == null) owner.kill('SIGKILL'); });
+  await waitForFixturePath(checkpoint); const exited = once(owner, 'exit'); owner.kill('SIGKILL'); await exited;
+  const started = performance.now(); const result = await read(f);
+  assert.equal(result.snapshot.observedCommit, f.commit);
+  assert.equal(result.counters['configuration.object-cache-miss'], 1);
+  assert.ok(performance.now() - started < 1_000, 'crash recovery retains no five-second cache timeout');
+  await assert.rejects(lstat(lock), { code: 'ENOENT' });
+});
+
+for (const signal of ['SIGTERM', 'SIGKILL']) {
+  test(`a configuration reader killed mid-fetch with ${signal} leaves no allocator and its next read uses a safe independent store`, cacheProfile, async (t) => {
+    const f = await fixture(t); const bin = path.join(f.base, `crash-${signal}-bin`); await mkdir(bin);
+    const checkpoint = path.join(f.base, `fetch-${signal}-started`);
+    const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+    const wrapper = path.join(bin, 'git');
+    await writeFile(wrapper, `#!${process.execPath}\nconst { spawnSync } = require('node:child_process'); const { writeFileSync, readFileSync } = require('node:fs'); const a = process.argv.slice(2); if (a.includes('fetch')) { writeFileSync(${JSON.stringify(checkpoint)}, JSON.stringify({ pid: process.pid })); setTimeout(() => { process.exitCode = 1; }, 500); } else { const r = spawnSync(${JSON.stringify(actualGit)}, a, { env: process.env, encoding: null, ...(a.includes('cat-file') ? { input: readFileSync(0) } : {}) }); if (r.stdout) process.stdout.write(r.stdout); if (r.stderr) process.stderr.write(r.stderr); process.exitCode = r.status ?? 1; }\n`);
+    await chmod(wrapper, 0o755);
+    const configuration = new URL('../src/configuration-branch.mjs', import.meta.url).href;
+    const leases = new URL('../src/file-lease.mjs', import.meta.url).href;
+    const owner = spawn(process.execPath, ['--input-type=module', '-e',
+      `import { installFileLeaseSignalHandlers } from ${JSON.stringify(leases)}; import { loadStoryConfigurationSnapshot } from ${JSON.stringify(configuration)}; installFileLeaseSignalHandlers(); await loadStoryConfigurationSnapshot(${JSON.stringify(f.authority)}, { env: process.env, useObjectCache: true });`],
+    { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` }, stdio: ['ignore', 'ignore', 'pipe'] });
+    t.after(() => { if (owner.exitCode == null && owner.signalCode == null) owner.kill('SIGKILL'); });
+    await waitForFixturePath(checkpoint);
+    const helper = JSON.parse(await readFile(checkpoint, 'utf8')).pid;
+    t.after(async () => {
+      // The fixture helper has no descendants and does no store writes. Confirm it has ended
+      // before removing the deliberately quarantined cache tree at fixture teardown.
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        try { process.kill(helper, 0); }
+        catch (error) { if (error.code === 'ESRCH') return; throw error; }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.fail('fixture helper completion was not confirmed');
+    });
+    const exited = once(owner, 'exit'); owner.kill(signal); await exited;
+    await assert.rejects(lstat(path.join(f.cache, '.allocation.lock')), { code: 'ENOENT' });
+    const marker = path.join(f.cache, `${f.key}.incomplete`); const retained = await readFile(marker);
+    const started = performance.now(); const result = await read(f);
+    assert.equal(result.snapshot.observedCommit, f.commit);
+    assert.equal(result.counters['configuration.object-cache-hit'] ?? 0, 0);
+    assert.equal(result.counters['configuration.object-cache-fetch'] ?? 0, 0);
+    assert.ok(performance.now() - started < 1_000, 'no abandoned global cache wait');
+    assert.deepEqual(await readFile(marker), retained, 'unknown child ownership is fenced, not guessed from age');
+  });
+}
+
+test('a slow fetch holds only its entry lease and another key can fill independently', cacheProfile, async (t) => {
+  const f = await fixture(t); const other = await fixture(t); other.cache = f.cache;
+  other.env = { ...other.env, SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE: f.cache };
+  const bin = path.join(f.base, 'slow-fetch-bin'); await mkdir(bin);
+  const checkpoint = path.join(f.base, 'fetch-started');
+  const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+  const wrapper = path.join(bin, 'git');
+  await writeFile(wrapper, `#!${process.execPath}\nconst { spawnSync } = require('node:child_process'); const { writeFileSync, readFileSync } = require('node:fs'); const a = process.argv.slice(2); const exec = () => { const r = spawnSync(${JSON.stringify(actualGit)}, a, { env: process.env, encoding: null, ...(a.includes('cat-file') ? { input: readFileSync(0) } : {}) }); if (r.stdout) process.stdout.write(r.stdout); if (r.stderr) process.stderr.write(r.stderr); process.exitCode = r.status ?? 1; }; if (a.includes('fetch')) { writeFileSync(${JSON.stringify(checkpoint)}, 'ready'); setTimeout(exec, 2_000); } else exec();\n`);
+  await chmod(wrapper, 0o755);
+  let firstFinished = false;
+  const first = read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } })
+    .finally(() => { firstFinished = true; });
+  await waitForFixturePath(checkpoint);
+  await assert.rejects(lstat(path.join(f.cache, '.allocation.lock')), { code: 'ENOENT' });
+  const second = await read(other);
+  assert.equal(second.counters['configuration.object-cache-miss'], 1);
+  assert.equal(second.snapshot.observedCommit, other.commit);
+  assert.equal(firstFinished, false, 'the other entry did not wait for the slow transfer');
+  assert.equal((await first).snapshot.observedCommit, f.commit);
+});
 
 test('CLI opt-in exact-object cache removes repeat remote transfer, retaining all ordinary/SKP bytes and modes', cacheProfile, async (t) => {
   const f = await fixture(t); const before = await f.before();
@@ -305,15 +509,17 @@ test('logical object/file budgets decline this additive cache profile without we
   assert.deepEqual(await readdir(f.cache), []);
 });
 
-test('entry and aggregate storage ceilings are refusal-to-cache bounds, not partial configuration results', cacheProfile, async (t) => {
+test('entry ceiling evicts an idle derived entry, while an oversized selected entry declines without partial configuration', cacheProfile, async (t) => {
   const f = await fixture(t); await mkdir(f.cache, { mode: 0o700 });
   for (let index = 0; index < STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.entries; index += 1) {
-    await mkdir(path.join(f.cache, index.toString(16).padStart(64, '0')));
+    await mkdir(path.join(f.cache, index.toString(16).padStart(64, '0')), { mode: 0o700 });
   }
   const full = await read(f);
-  assert.equal(full.counters['configuration.object-cache-fetch'] ?? 0, 0);
+  assert.equal(full.counters['configuration.object-cache-fetch'], 1);
+  assert.equal(full.counters['configuration.object-cache-evicted'], 1);
   assert.equal(full.snapshot.observedCommit, f.commit);
-  assert.equal((await readdir(f.cache)).length, STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.entries);
+  assert.equal((await readdir(f.cache)).filter((entry) => /^[a-f0-9]{64}$/u.test(entry)).length,
+    STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.entries);
   await removeTemporaryTree(f.cache); await mkdir(path.join(f.cache, f.key), { recursive: true, mode: 0o700 });
   const oversized = await open(path.join(f.cache, f.key, 'oversized-derived-object'), 'wx');
   await oversized.truncate(STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.storageBytes + 1); await oversized.close();
@@ -331,13 +537,13 @@ test('mutable caller authority selectors are captured before cache observation a
   const snapshot = await pending; assert.equal(snapshot.authority.remote, f.remote); assert.equal(snapshot.observedCommit, f.commit);
 });
 
-test('blocked native completion retains pre-dispatch quarantine and cannot admit a cache hit', cacheProfile, async (t) => {
+test('blocked native completion retains quarantine, declines cache and lets the independent transport report its refusal', cacheProfile, async (t) => {
   const f = await fixture(t);
   const session = new GitRemoteSession({ cwd: f.source, env: f.env, runAsyncCommand: async () => ({
     status: 0, stdout: `${f.commit}\trefs/heads/${CONFIGURATION_BRANCH}\n`, stderr: '', signal: null
   }) });
   await assert.rejects(read(f, { session, env: { ...f.env, SINGULARITY_FLOW_NO_NETWORK: '1' } }),
-    (error) => error.code === 'STORY_CONFIGURATION_CACHE_OPERATION_UNCONFIRMED');
+    (error) => error.code !== 'STORY_CONFIGURATION_CACHE_OPERATION_UNCONFIRMED');
   const entries = await readdir(f.cache); assert.ok(entries.includes(`${f.key}.incomplete`));
   const marker = await readFile(path.join(f.cache, `${f.key}.incomplete`), 'utf8');
   const original = await read(f); assert.equal(original.counters['configuration.object-cache-hit'] ?? 0, 0);
@@ -345,14 +551,48 @@ test('blocked native completion retains pre-dispatch quarantine and cannot admit
   assert.equal(await readFile(path.join(f.cache, `${f.key}.incomplete`), 'utf8'), marker);
 });
 
-test('actual native output-overflow preserves the quarantined store instead of treating status as completed', cacheProfile, async (t) => {
+for (const kind of ['structured-refusal', 'ordinary-error', 'type-error']) {
+  test(`a throwing cache transfer preserves its ${kind} without an accidental second transport attempt`, cacheProfile, async (t) => {
+    const f = await fixture(t); const calls = path.join(f.base, `calls-${kind}.txt`);
+    const execution = new URL('../src/git-execution.mjs', import.meta.url).href;
+    const configuration = new URL('../src/configuration-branch.mjs', import.meta.url).href;
+    const loader = path.join(f.base, `throwing-transfer-${kind}-loader.mjs`);
+    // Test-local ESM wrapping keeps the production reader API unchanged. Fresh ls-remote uses
+    // the real transport; only the already-dispatched cache transfer rejects. All other native
+    // Git operations remain the original implementation.
+    const wrapper = `\nimport { appendFileSync as fixtureAppend } from 'node:fs';\nexport async function runRemoteGitAsync(args, options) {\n  if (args.includes('fetch')) {\n    fixtureAppend(${JSON.stringify(calls)}, 'fetch\\n');\n    const error = ${kind === 'structured-refusal'
+      ? "new SingularityFlowError('fixture transport refusal', { code: 'REMOTE_AUTH_REQUIRED' })"
+      : kind === 'type-error' ? "new TypeError('fixture transfer launcher rejected')" : "new Error('fixture transfer connection lost')"};\n    ${kind === 'ordinary-error' ? "error.code = 'ECONNRESET';" : ''}\n    throw error;\n  }\n  if (args.includes('clone')) fixtureAppend(${JSON.stringify(calls)}, 'clone\\n');\n  return runFixtureOriginalRemoteGitAsync(args, options);\n}\n`;
+    await writeFile(loader, `export async function load(url, context, nextLoad) { const result = await nextLoad(url, context); if (url !== ${JSON.stringify(execution)}) return result; const source = String(result.source); const signature = 'export async function runRemoteGitAsync(args, {'; if (!source.includes(signature)) throw new Error('fixture transfer signature changed'); return { ...result, source: source.replace(signature, 'async function runFixtureOriginalRemoteGitAsync(args, {') + ${JSON.stringify(wrapper)} }; }\n`);
+    const child = spawnSync(process.execPath, ['--experimental-loader', loader, '--input-type=module', '-e',
+      `import { loadStoryConfigurationSnapshot } from ${JSON.stringify(configuration)}; let error = null; try { await loadStoryConfigurationSnapshot(${JSON.stringify(f.authority)}, { env: process.env, useObjectCache: true }); } catch (value) { error = { name: value.name, message: value.message, code: value.code ?? null }; } process.stdout.write(JSON.stringify({ error }));`],
+    { cwd: f.source, env: { ...f.env, NODE_NO_WARNINGS: '1' }, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(child.error, undefined, child.error?.message); assert.equal(child.status, 0, child.stderr);
+    const expected = kind === 'structured-refusal'
+      ? { name: 'SingularityFlowError', message: 'fixture transport refusal', code: 'REMOTE_AUTH_REQUIRED' }
+      : kind === 'type-error'
+        ? { name: 'TypeError', message: 'fixture transfer launcher rejected', code: null }
+        : { name: 'Error', message: 'fixture transfer connection lost', code: 'ECONNRESET' };
+    assert.deepEqual(JSON.parse(child.stdout).error, expected);
+    assert.equal(await readFile(calls, 'utf8'), 'fetch\n', 'no ordinary-clone retry after the transfer exception');
+    const marker = path.join(f.cache, `${f.key}.incomplete`); const retained = await readFile(marker);
+    assert.ok((await cacheKeys(f.cache)).includes(f.key));
+    const original = await read(f);
+    assert.equal(original.snapshot.observedCommit, f.commit);
+    assert.equal(original.counters['configuration.object-cache-hit'] ?? 0, 0);
+    assert.deepEqual(await readFile(marker), retained, 'the unknown-child store remains fenced');
+  });
+}
+
+test('actual native cache-only output overflow preserves the quarantined store and uses the original reader', cacheProfile, async (t) => {
   const f = await fixture(t); const bin = path.join(f.base, 'probe-bin'); await mkdir(bin);
   const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim(); assert.ok(path.isAbsolute(actualGit));
   const wrapper = path.join(bin, 'git');
-  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst a=process.argv.slice(2);\nif(a.includes('fsck')){process.stdout.write('X'.repeat(128*1024));}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
+  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('fsck')){process.stdout.write('X'.repeat(128*1024));}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...(a.includes('cat-file')?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
   await chmod(wrapper, 0o755);
-  await assert.rejects(read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } }),
-    (error) => error.code === 'STORY_CONFIGURATION_CACHE_OPERATION_UNCONFIRMED');
+  const result = await read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+  assert.equal(result.snapshot.observedCommit, f.commit);
+  assert.equal(result.counters['configuration.object-cache-hit'] ?? 0, 0);
   const entries = await readdir(f.cache);
   assert.ok(entries.includes(f.key)); assert.ok(entries.includes(`${f.key}.incomplete`));
   assert.ok(!entries.includes('.allocation.lock'));
@@ -362,15 +602,16 @@ test('actual native output-overflow preserves the quarantined store instead of t
   assert.equal(await readFile(path.join(f.cache, `${f.key}.incomplete`), 'utf8'), marker);
 });
 
-test('actual async fetch overflow preserves pre-dispatch quarantine and never silently falls back after unknown cleanup', cacheProfile, async (t) => {
+test('actual async cache fetch overflow preserves quarantine and falls back through an independent original store', cacheProfile, async (t) => {
   const f = await fixture(t); const bin = path.join(f.base, 'fetch-probe-bin'); await mkdir(bin);
   const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim(); assert.ok(path.isAbsolute(actualGit));
   const wrapper = path.join(bin, 'git');
-  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst a=process.argv.slice(2);\nif(a.includes('fetch')){process.stdout.write('X'.repeat(128*1024));setInterval(()=>{},1000);}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
+  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('fetch')){process.stdout.write('X'.repeat(128*1024));setInterval(()=>{},1000);}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...(a.includes('cat-file')?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
   await chmod(wrapper, 0o755);
   const before = await f.before();
-  await assert.rejects(read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } }),
-    (error) => error.code === 'STORY_CONFIGURATION_CACHE_OPERATION_UNCONFIRMED');
+  const result = await read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+  assert.equal(result.snapshot.observedCommit, f.commit);
+  assert.equal(result.counters['configuration.object-cache-hit'] ?? 0, 0);
   const entries = await readdir(f.cache); assert.ok(entries.includes(f.key));
   assert.ok(entries.includes(`${f.key}.incomplete`)); assert.ok(!entries.includes('.allocation.lock'));
   assert.deepEqual(await f.before(), before);

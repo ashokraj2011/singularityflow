@@ -163,7 +163,7 @@ test('native read concurrency is bounded across separate clients; a queued abort
   assert.equal(maximum, CLI_READ_CONCURRENCY);
 });
 
-test('repository and mutation invalidation reject old reads without clearing a newer flight', async (t) => {
+test('repository switching cancels old reads with a stable code without clearing a newer flight', async (t) => {
   const f = await fixture(t);
   const c = f.client();
   const args = ['status', '--delay', '220', '--case', 'epoch', '--json'];
@@ -171,15 +171,46 @@ test('repository and mutation invalidation reject old reads without clearing a n
   await until(async () => (await f.events()).some((row) => row.kind === 'start'));
   c.useRepository(os.tmpdir());
   const second = c.run(args);
-  assert.match((await first).message, /superseded/);
+  const refusal = await first;
+  assert.match(refusal.message, /superseded/);
+  assert.equal(refusal.code, 'CLI_READ_SUPERSEDED');
   const result = await second;
   assert.equal(result.cwd, await realpath(os.tmpdir()));
   assert.equal((await c.run(args)).pid, result.pid);
-  const old = c.run(['status', '--delay', '250', '--case', 'mutation-epoch', '--json'])
-    .then(() => null, (error) => error);
+});
+
+test('Jira status and a write preserve an in-flight snapshot, but post-write reads never share old work', async (t) => {
+  const f = await fixture(t);
+  const c = f.client();
+  const args = ['snapshot', '--delay', '500', '--case', 'write-epoch', '--json'];
+  const first = c.run(args);
+  await until(async () => (await f.events()).some((row) => row.kind === 'start'));
+  await c.run(['jira', 'status', '--json']);
+  // An identical read still shares the active read after a genuinely read-only Jira probe.
+  const beforeWrite = c.run(args);
   await c.run(['workflow', 'create', '--json']);
-  assert.match((await old).message, /superseded/);
-  assert.notEqual((await c.run(args)).pid, result.pid, 'a write invalidates previous result reuse');
+  const afterWrite = c.run(args);
+  const initial = await first;
+  assert.equal((await beforeWrite).pid, initial.pid);
+  const afterOldFinished = c.run(args);
+  const fresh = await afterWrite;
+  assert.notEqual(fresh.pid, initial.pid, 'a write detaches sharing instead of cancelling subscribers');
+  assert.equal((await afterOldFinished).pid, fresh.pid, 'old completion cannot delete a newer shared flight');
+  assert.equal((await c.run(args)).pid, fresh.pid, 'only the current epoch may populate the result cache');
+  assert.equal((await f.events()).filter((row) => row.kind === 'stop').length, 0);
+});
+
+test('an unrecognised command invalidates read reuse without cancelling an existing read', async (t) => {
+  const f = await fixture(t);
+  const c = f.client();
+  const args = ['status', '--delay', '250', '--case', 'unknown-epoch', '--json'];
+  const old = c.run(args);
+  await until(async () => (await f.events()).some((row) => row.kind === 'start'));
+  assert.equal(commandClass(['new-unregistered-command']), 'mutation');
+  await c.run(['new-unregistered-command', '--json']);
+  const fresh = c.run(args);
+  assert.notEqual((await old).pid, (await fresh).pid);
+  assert.equal((await f.events()).filter((row) => row.kind === 'stop').length, 0);
 });
 
 test('silent clients retain copied bounded timing events with sanitized command and subcommand', async (t) => {

@@ -7,7 +7,7 @@
  * approved catalog before using it.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, open, readFile, unlink } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rename } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -27,6 +27,8 @@ import {
 } from './util.mjs';
 import { gitRepositoryComparisonKey } from './git-repository-identity.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { acquireFileLease } from './file-lease.mjs';
+import { incrementCommandCounter } from './dx-command-timing.mjs';
 
 export const CAPABILITY_AUTHORITY_LINK_PATH = 'singularity/capability-authority.json';
 export const CAPABILITY_AUTHORITY_BRANCH = 'sflow/config';
@@ -182,23 +184,30 @@ function incompleteAuthorityStore() {
     'A previous authority object-store read has an unconfirmed process cleanup outcome. The store was preserved.');
 }
 
-/** Publish quarantine before dispatch: an interrupted host cannot lose an unknown child's store. */
-async function withAuthorityStoreOperation(directory, operation) {
-  if (await authorityStoreIncomplete(directory)) return incompleteAuthorityStore();
-  await mkdir(directory, { recursive: true });
-  const marker = `${directory}.incomplete`;
-  const markerBytes = Buffer.from(`Authority object-store operation completion unconfirmed: ${randomUUID()}\n`);
-  let handle;
-  let owned;
+/** Publish ownership and quarantine before dispatch; never delete a possible live child's store. */
+async function withAuthorityStoreOperation(directory, operation, { onCompleted = null } = {}) {
+  let lease;
   try {
-    handle = await open(marker, 'wx+', 0o600);
-    owned = await handle.stat();
-    await handle.writeFile(markerBytes);
-    await handle.sync();
+    await mkdir(path.dirname(directory), { recursive: true, mode: 0o700 });
+    lease = await acquireFileLease(`${directory}.incomplete`, {
+      waitMs: 0,
+      legacyQuarantine: true,
+      async onReclaimed() {
+        // This is a derived store, but a dead lease alone does not attest all of its descendants.
+        // Move it aside rather than deleting it; rebuild under the fresh lease so neither old
+        // objects nor receipts can be reused as evidence for this operation.
+        await rename(directory, `${directory}.retained-${randomUUID()}`).catch((error) => {
+          if (error?.code !== 'ENOENT') throw error;
+        });
+      }
+    });
+    if (!lease) return unavailableAuthorityStore(true, 'CAPABILITY_AUTHORITY_CACHE_BUSY',
+      'The private authority object store is busy or quarantined. Its contents were preserved.');
+    await mkdir(directory, { recursive: true });
+    await lease.protect();
   } catch {
-    await handle?.close().catch(() => {});
-    // No Git process starts unless its quarantine marker was successfully persisted. An occupied
-    // marker is never replaced, and failed marker publication cannot authorize deleting the store.
+    await lease?.release().catch(() => {});
+    // No Git process starts unless its exact lease and pre-dispatch quarantine were persisted.
     return unavailableAuthorityStore(true, 'CAPABILITY_AUTHORITY_CACHE_QUARANTINE_UNAVAILABLE',
       'The private authority object store could not publish its operation quarantine. The store was preserved.');
   }
@@ -219,7 +228,18 @@ async function withAuthorityStoreOperation(directory, operation) {
     return result.status === 0 && !processResultSucceeded(result) ? { ...result, status: 1 } : result;
   };
   try {
-    return await operation(state, runCommand);
+    const result = await operation(state, runCommand);
+    if (!state.cleanupUnproven && onCompleted) {
+      if (!await lease.owns()) return unavailableAuthorityStore(true,
+        'CAPABILITY_AUTHORITY_CACHE_QUARANTINE_CHANGED',
+        'The authority object-store quarantine changed. The store was preserved.');
+      try { await onCompleted(result, lease); }
+      catch {
+        return unavailableAuthorityStore(false, 'CAPABILITY_AUTHORITY_CACHE_RECORD_UNAVAILABLE',
+          'The private authority object store could not publish its derived receipt.');
+      }
+    }
+    return result;
   } catch {
     // A rejected runner can have lost acknowledgement after dispatch. Keep quarantine rather than
     // guessing it threw before starting a child or allowing the fallback's finally to remove it.
@@ -227,32 +247,21 @@ async function withAuthorityStoreOperation(directory, operation) {
     return unavailableAuthorityStore(true, 'CAPABILITY_AUTHORITY_CACHE_OPERATION_UNCONFIRMED',
       'The authority object-store operation did not return a confirmed process outcome. The store was preserved.');
   } finally {
-    const completionKnown = !state.cleanupUnproven;
-    let markerRemoved = false;
-    try {
-      if (completionKnown) {
-        // Keeping the original handle open prevents unlink/recreate inode reuse from satisfying
-        // this CAS. Its bounded nonce bytes also detect an in-place successor marker replacement.
-        const observed = Buffer.alloc(markerBytes.length + 1);
-        const { bytesRead } = await handle.read(observed, 0, observed.length, 0);
-        const current = await lstat(marker).catch(() => null);
-        if (bytesRead === markerBytes.length && markerBytes.equals(observed.subarray(0, bytesRead))
-            && current?.isFile() && current.nlink === 1
-            && current.dev === owned.dev && current.ino === owned.ino) {
-          await unlink(marker);
-          markerRemoved = true;
-        }
-      }
-    } catch { /* An unverified marker is preserved; no process-death claim follows from I/O. */ }
-    finally { await handle.close().catch(() => {}); }
-    if (completionKnown && !markerRemoved) return unavailableAuthorityStore(true,
-      'CAPABILITY_AUTHORITY_CACHE_QUARANTINE_CHANGED',
-      'The authority object-store quarantine could not be released by its exact owner. The store was preserved.');
+    if (state.cleanupUnproven) {
+      // The process adapters deliberately do not expose a trusted child/process-domain identity.
+      // Do not invent a PID, or treat the parent's death/lease age as proof its child exited.
+      await lease.retainQuarantine({ unknownChildren: true }).catch(() => {});
+      await lease.release().catch(() => {});
+    } else if (!await lease.release({ cleanupConfirmed: true }).catch(() => false)) {
+      return unavailableAuthorityStore(true,
+        'CAPABILITY_AUTHORITY_CACHE_QUARANTINE_CHANGED',
+        'The authority object-store quarantine could not be released by its exact owner. The store was preserved.');
+    }
   }
 }
 
 async function fetchAuthorityLink(repository, branch, stateCommit, directory, {
-  env, runRemoteCommand, enforceQuota = false
+  env, runRemoteCommand, enforceQuota = false, onCompleted = null
 }) {
   return withAuthorityStoreOperation(directory, async (state, runCommand) => {
     if (enforceQuota) {
@@ -309,7 +318,7 @@ async function fetchAuthorityLink(repository, branch, stateCommit, directory, {
     if (fetchedCommit !== stateCommit) return { status: 'stale', observedCommit: fetchedCommit };
     const result = authorityLinkAtCommit(directory, stateCommit, repository, transport.env, runCommand);
     return state.cleanupUnproven ? incompleteAuthorityStore() : result;
-  });
+  }, { onCompleted });
 }
 
 function authorityLinkAtCommit(directory, stateCommit, repository, env, runCommand) {
@@ -318,6 +327,7 @@ function authorityLinkAtCommit(directory, stateCommit, repository, env, runComma
   });
   if (tree.status !== 'ok') return {
     status: 'unavailable',
+    cacheLocal: true,
     failure: { code: 'CAPABILITY_AUTHORITY_LINK_READ_FAILED', message: tree.errors[0]?.message }
   };
   const bytes = tree.contents.get(CAPABILITY_AUTHORITY_LINK_PATH);
@@ -470,24 +480,28 @@ export async function readCapabilityAuthorityLink(repositoryRemote, {
   try {
     if (!cache) throw new Error('Capability-authority cache is disabled.');
     await refuseAuthorityCacheSymlinks(cache);
-    const { withRegistryFileLease } = await import('./workspace.mjs');
-    materialized = await withRegistryFileLease(cache.record, async () => {
-      await refuseAuthorityCacheSymlinks(cache);
-      const concurrent = await cachedAuthorityLink(cache.record, repository, branch, stateCommit, cache.directory);
-      if (concurrent) return concurrent;
-      const fetched = await fetchAuthorityLink(repository, branch, stateCommit, cache.directory, {
-        env: gitEnv, runRemoteCommand, enforceQuota: true
-      });
-      if (['current', 'missing'].includes(fetched.status)) {
-        const entry = createAuthorityCacheEntry(repository, branch, stateCommit, fetched);
-        await writeAtomic(cache.record, canonicalJson(entry), { mode: 0o600 }).catch(() => {});
+    materialized = await fetchAuthorityLink(repository, branch, stateCommit, cache.directory, {
+      env: gitEnv, runRemoteCommand, enforceQuota: true,
+      async onCompleted(result, lease) {
+        if (['current', 'missing'].includes(result.status) && await lease.owns()) {
+          await refuseAuthorityCacheSymlinks(cache);
+          const entry = createAuthorityCacheEntry(repository, branch, stateCommit, result);
+          await writeAtomic(cache.record, canonicalJson(entry), { mode: 0o600 });
+        }
       }
-      return fetched;
-    }, { timeoutMs: 10_000 });
-  } catch {
+    });
+    if (materialized.status === 'unavailable'
+        && (materialized.cacheLocal === true || /^CAPABILITY_AUTHORITY_CACHE_/.test(materialized.failure?.code ?? ''))) {
+      const error = new Error('Capability-authority cache could not serve this read.');
+      error.cacheBypassReason = materialized.failure?.code === 'CAPABILITY_AUTHORITY_CACHE_BUSY' ? 'busy' : 'local-failure';
+      throw error;
+    }
+  } catch (error) {
     // Cache storage is a performance aid, never authority and never a reason to hide a readable
     // state link. A private one-shot object store preserves the exact-ref proof if the cache is
     // unavailable, corrupted, or contended.
+    const bypassReason = !cache ? 'disabled' : error?.cacheBypassReason === 'busy' ? 'busy' : 'local-failure';
+    incrementCommandCounter(`capability-authority.cache-bypassed.${bypassReason}`);
     const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-authority-'));
     try {
       materialized = await fetchAuthorityLink(repository, branch, stateCommit, scratch, {

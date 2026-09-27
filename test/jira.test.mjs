@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  adfToText, assignIssue, getIssue, issueToMarkdown, listBoardStories, listBoards, listFields,
+  adfToText, assignIssue, discoverJiraConnection, getIssue, issueToMarkdown, listBoardStories, listBoards, listFields,
   listIssueTransitions, listMyIssues, moveIssueToSprint, normalizeIssue, setIssuePriority, transitionIssue
 } from '../src/jira.mjs';
 
@@ -21,6 +21,20 @@ function response(payload, status = 200) {
     async text() { return JSON.stringify(payload); }
   };
 }
+
+test('Jira status discovery only sends GET requests and never a write payload', async () => {
+  const requests = [];
+  const result = await discoverJiraConnection({ env, fetchImpl: async (url, options) => {
+    requests.push({ url, options });
+    if (url.includes('/myself')) return response({ accountId: 'dev', displayName: 'Developer' });
+    if (url.includes('/serverInfo')) return response({ serverTitle: 'Local fixture' });
+    if (url.includes('/project/search')) return response({ values: [{ key: 'ENG', name: 'Engineering' }] });
+    assert.fail(`unexpected discovery request ${url}`);
+  } });
+  assert.equal(result.connected, true);
+  assert.equal(requests.length, 3);
+  assert.ok(requests.every(({ options }) => options.method === 'GET' && options.body === undefined));
+});
 
 test('adfToText extracts paragraphs and hard breaks', () => {
   const adf = { type: 'doc', content: [

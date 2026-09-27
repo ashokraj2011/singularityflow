@@ -65,10 +65,10 @@ export class WorkspacesPanel {
   private static current: WorkspacesPanel | null = null;
 
   private readonly panel: vscode.WebviewPanel;
-  private readonly onMessage: (message: WorkspacesMessage) => Promise<string | null>;
-  private readonly reload: () => Promise<WorkspaceEntry[]>;
-  private readonly loadDetails: (path: string) => Promise<WorkspaceStatus>;
-  private readonly refreshConfiguration: (
+  private onMessage: (message: WorkspacesMessage) => Promise<string | null>;
+  private reload: () => Promise<WorkspaceEntry[]>;
+  private loadDetails: (path: string) => Promise<WorkspaceStatus>;
+  private refreshConfiguration: (
     path: string | null,
     request: {
       dryRun: boolean;
@@ -76,7 +76,7 @@ export class WorkspacesPanel {
       repositoryIds?: readonly string[];
     }
   ) => Promise<WorkspaceConfigurationRefreshResult>;
-  private readonly runFosAction: (
+  private runFosAction: (
     action: WorkspaceFosAction, repositoryPath: string | null
   ) => Promise<WorkspaceFosOutcome | null>;
   private readonly disposables: vscode.Disposable[] = [];
@@ -89,6 +89,8 @@ export class WorkspacesPanel {
   private details: WorkspaceStatus | null = null;
   private detailsLoading = false;
   private detailRequest = 0;
+  private refreshRequest = 0;
+  private ownerRevision = 0;
   private manageRevision = 0;
   private disposed = false;
   private repairPath: string | null = null;
@@ -156,20 +158,24 @@ export class WorkspacesPanel {
     configurationRepositoryId: string | null = null
   ): WorkspacesPanel {
     if (WorkspacesPanel.current) {
-      WorkspacesPanel.current.setAttachScope(attachScope);
-      WorkspacesPanel.current.setConfigurationRepositoryScope(selected, configurationRepositoryId);
-      WorkspacesPanel.current.panel.reveal(vscode.ViewColumn.Active);
+      const current = WorkspacesPanel.current;
+      current.replaceOwners(reload, onMessage, loadDetails, refreshConfiguration, runFosAction);
+      current.setAttachScope(attachScope);
+      current.setConfigurationRepositoryScope(selected, configurationRepositoryId);
+      current.panel.reveal(vscode.ViewColumn.Active);
       const upgradeSelection = upgradeScope
-        ? selected ?? WorkspacesPanel.current.rows.find((row) => !row.archived)?.path ?? null
+        ? selected ?? current.rows.find((row) => !row.archived)?.path ?? null
         : selected;
       // The panel is retained when hidden. Revealing its original rows made an old active marker
       // look authoritative even after the Navigator and CLI had switched workspaces. Re-read the
       // machine-wide registry every time the page is opened, preferring the explicitly clicked row
       // and otherwise the workspace that is active now.
-      void WorkspacesPanel.current.refresh(
+      void current.refresh(
         upgradeSelection, upgradeScope !== 'selected', upgradeScope === 'selected'
-      ).then(() => {
-        if (upgradeScope) return WorkspacesPanel.current?.previewConfiguration(upgradeScope);
+      ).then((refreshed) => {
+        if (refreshed && upgradeScope && WorkspacesPanel.current === current) {
+          return current.previewConfiguration(upgradeScope);
+        }
         return undefined;
       });
       return WorkspacesPanel.current;
@@ -188,12 +194,46 @@ export class WorkspacesPanel {
       upgradeSelection, attachScope, configurationRepositoryId
     );
     if (upgradeScope) {
-      void WorkspacesPanel.current.refresh(
+      const current = WorkspacesPanel.current;
+      void current.refresh(
         upgradeSelection, upgradeScope === 'all', upgradeScope === 'selected'
       )
-        .then(() => WorkspacesPanel.current?.previewConfiguration(upgradeScope));
+        .then((refreshed) => {
+          if (refreshed && WorkspacesPanel.current === current) {
+            return current.previewConfiguration(upgradeScope);
+          }
+          return undefined;
+        });
     }
     return WorkspacesPanel.current;
+  }
+
+  /** A retained webview belongs to the latest command invocation, not its original callbacks. */
+  private replaceOwners(
+    reload: WorkspacesPanel['reload'],
+    onMessage: WorkspacesPanel['onMessage'],
+    loadDetails: WorkspacesPanel['loadDetails'],
+    refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
+    runFosAction: WorkspacesPanel['runFosAction']
+  ): void {
+    this.ownerRevision++;
+    this.refreshRequest++;
+    this.detailRequest++;
+    this.manageRevision++;
+    this.invalidateConfigurationRequest();
+    this.edit = { ...EMPTY_EDIT_DRAFT };
+    this.details = null;
+    this.detailsLoading = false;
+    this.detailError = null;
+    this.error = null;
+    this.fosOutcome = null;
+    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH };
+    this.draft = { ...this.draft, busy: false };
+    this.reload = reload;
+    this.onMessage = onMessage;
+    this.loadDetails = loadDetails;
+    this.refreshConfiguration = refreshConfiguration;
+    this.runFosAction = runFosAction;
   }
 
   /** Keep an already-open panel in step with a workspace switch performed by another surface. */
@@ -226,8 +266,17 @@ export class WorkspacesPanel {
     preferred: string | null = null,
     preferActive = false,
     requirePreferred = false
-  ): Promise<void> {
-    this.rows = this.scopedRows(await this.reload());
+  ): Promise<boolean> {
+    const request = ++this.refreshRequest;
+    let entries: WorkspaceEntry[];
+    try {
+      entries = await this.reload();
+    } catch (error) {
+      if (this.disposed || request !== this.refreshRequest) return false;
+      throw error;
+    }
+    if (this.disposed || request !== this.refreshRequest) return false;
+    this.rows = this.scopedRows(entries);
     const requested = preferred && this.rows.some((row) => row.path === preferred) ? preferred : null;
     const active = this.rows.find((row) => row.active)?.path ?? null;
     const retained = this.selected && this.rows.some((row) => row.path === this.selected)
@@ -244,6 +293,7 @@ export class WorkspacesPanel {
       this.configuration = { ...EMPTY_CONFIGURATION_REFRESH };
       this.render();
     }
+    return !this.disposed && request === this.refreshRequest;
   }
 
   /** Never let a repository-inspection handoff select or offer a workspace from another authority. */
@@ -509,12 +559,14 @@ export class WorkspacesPanel {
   private async saveEdit(row: WorkspaceRow, supplied: string | null): Promise<void> {
     const name = (supplied ?? this.edit.name).trim();
     if (!this.edit.open || !name || this.edit.busy) return;
+    const owner = this.ownerRevision;
     this.edit.busy = true;
     this.error = null;
     this.render();
     const failure = await this.onMessage({
       type: 'run', command: updateCommand(row, name), title: `Updating ${row.name}`
     });
+    if (this.disposed || owner !== this.ownerRevision) return;
     this.error = failure;
     if (failure) {
       this.edit = { ...this.edit, busy: false };
@@ -705,15 +757,18 @@ export class WorkspacesPanel {
     repositoryPath: string | null
   ): Promise<void> {
     if (this.fosBusy) return;
+    const owner = this.ownerRevision;
     const workspacePath = this.selected;
     this.fosBusy = action;
     this.fosOutcome = null;
     this.render();
     try {
       const outcome = await this.runFosAction(action, repositoryPath);
-      if (this.selected === workspacePath) this.fosOutcome = outcome;
+      if (!this.disposed && owner === this.ownerRevision && this.selected === workspacePath) {
+        this.fosOutcome = outcome;
+      }
     } catch (error) {
-      if (this.selected === workspacePath) {
+      if (!this.disposed && owner === this.ownerRevision && this.selected === workspacePath) {
         this.fosOutcome = {
           action,
           status: 'attention',
@@ -725,13 +780,14 @@ export class WorkspacesPanel {
       }
     } finally {
       this.fosBusy = null;
-      this.render();
+      if (!this.disposed) this.render();
     }
   }
 
   /** Repair is independently guarded because a double-click must not start two clone/fetch waves. */
   private async repair(row: WorkspaceRow): Promise<void> {
     if (this.repairPath) return;
+    const owner = this.ownerRevision;
     this.repairPath = row.path;
     this.error = null;
     this.render();
@@ -742,6 +798,10 @@ export class WorkspacesPanel {
       failure = (error as Error).message;
     } finally {
       this.repairPath = null;
+    }
+    if (this.disposed || owner !== this.ownerRevision) {
+      if (!this.disposed) this.render(); // clear the busy indicator without publishing the old result
+      return;
     }
     if (failure === WORKSPACE_ACTION_CANCELLED) {
       this.render();
@@ -757,7 +817,9 @@ export class WorkspacesPanel {
 
   /** The three that differ only in verb and whether a success clears the selection. */
   private async actOnRow(row: WorkspaceRow, type: 'forget' | 'archive' | 'restore', clearsSelection: boolean): Promise<void> {
+    const owner = this.ownerRevision;
     const failure = await this.onMessage({ type, row });
+    if (this.disposed || owner !== this.ownerRevision) return;
     if (failure === WORKSPACE_ACTION_CANCELLED) return;
     this.error = failure;
     if (clearsSelection && !failure && this.selected === row.path) this.selected = null;
@@ -767,14 +829,17 @@ export class WorkspacesPanel {
   private async rename(row: WorkspaceRow, supplied: string | null): Promise<void> {
     const name = (supplied ?? '').trim();
     if (!name || name === row.name) return;
+    const owner = this.ownerRevision;
     const failure = await this.onMessage({
       type: 'run', command: renameCommand(row, name), title: `Renaming ${row.name}`
     });
+    if (this.disposed || owner !== this.ownerRevision) return;
     this.error = failure;
     await this.refresh();
   }
 
   private async duplicate(row: WorkspaceRow, message: InboundMessage): Promise<void> {
+    const owner = this.ownerRevision;
     // Re-checked here rather than trusted from the page: the disabled button is a courtesy, and
     // the directory rule is the one thing this screen exists to keep.
     const id = stringField(message, 'id') ?? this.draft.id;
@@ -791,6 +856,7 @@ export class WorkspacesPanel {
     const failure = await this.onMessage({
       type: 'run', command: duplicateCommand(row, id, base, ''), title: `Copying ${row.name}`
     });
+    if (this.disposed || owner !== this.ownerRevision) return;
     this.draft = failure ? { ...this.draft, busy: false } : { ...EMPTY_DRAFT };
     this.error = failure;
     await this.refresh();
@@ -799,6 +865,8 @@ export class WorkspacesPanel {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.ownerRevision++;
+    this.refreshRequest++;
     this.invalidateConfigurationRequest();
     this.manageRevision++;
     this.edit = { ...EMPTY_EDIT_DRAFT };

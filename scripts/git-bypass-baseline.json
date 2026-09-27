@@ -470,9 +470,10 @@
     },
     "src/capability-authority-link.mjs": {
       "counts": {
-        "command-run": 6
+        "command-run": 3,
+        "command-runCommand": 4
       },
-      "digest": "d9897e8a776c472e7b41e9a338b1f495d23ae9dc9c2e47c23136b2fa85076d6b"
+      "digest": "717212b5316ab985e1ac18c430a658bbc48a4cdf4814618ccfc63e253945cadd"
     },
     "src/capability-context.mjs": {
       "counts": {
@@ -552,7 +553,7 @@
       "counts": {
         "command-run": 26
       },
-      "digest": "893315359c751dd5d6901193bf6ca5fadd31c0980b628359537ea5bda47f5f07"
+      "digest": "687de0265364314ccb8de45cafdd76e3bc4dfcde135b2d3c8f9716999654981d"
     },
     "src/configuration-people.mjs": {
       "counts": {
@@ -919,9 +920,9 @@
     },
     "src/organisation.mjs": {
       "counts": {
-        "command-run": 81
+        "command-run": 79
       },
-      "digest": "9e28c0f4b0c8d93bc8d7d5a8424da12d709a495b2b819902d47681eb229b931e"
+      "digest": "7d94a49b5e2a395bc72e799fcadadeb761555a6e4d0ee958a3fd738e4f627091"
     },
     "src/performance-doctor.mjs": {
       "counts": {
@@ -1014,7 +1015,7 @@
       "counts": {
         "command-run": 1
       },
-      "digest": "e40b85762a4d0846a8eed02937ac5c6f34fbc3459977219c85b6f623d42895d1"
+      "digest": "9af258135276ae3f6e13b43a6529307087ae37b20e15e6b21e3c639a3c7eeffd"
     },
     "src/return-locator.mjs": {
       "counts": {

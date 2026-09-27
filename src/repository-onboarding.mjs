@@ -1727,9 +1727,17 @@ export async function inspectRepositoryOnboarding(remote, {
   }
   if (deferredCleanup.retained > 0) cleanupWarnings.push(TEMPORARY_CLEANUP_BACKLOG_WARNING);
   const stateRef = `refs/heads/${branch}`;
-  const observation = await session.observeAsync(repository, {
-    includeHead: true, refs: [CONFIGURATION_REF, stateRef]
+  let observation = await session.observeAsync(repository, {
+    includeHead: true, refs: [CONFIGURATION_REF, stateRef,
+      'refs/heads/sflow/config-history/*', `refs/heads/${ONBOARDING_REVIEW_PREFIX}*`]
   });
+  if (!observation.ok) {
+    // A provider may refuse/overflow retained-history inventory while answering the exact current
+    // authorities. A failed broad request is not absence and cannot suppress this narrow retry.
+    observation = await session.observeAsync(repository, {
+      includeHead: true, refs: [CONFIGURATION_REF, stateRef]
+    });
+  }
   if (!observation.ok) {
     const core = {
       schemaVersion: 1, // schema-transient: content-addressed preview envelope, never persisted

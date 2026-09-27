@@ -300,7 +300,10 @@ function stubVscode() {
       showWarningMessage: async (message) => { registered.warnings.push(message); },
       showTextDocument: async () => ({}),
       setStatusBarMessage: () => ({ dispose() {} }),
-      withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false })
+      withProgress: async (_options, task) => task({ report() {} }, {
+        isCancellationRequested: false,
+        onCancellationRequested() { return { dispose() {} }; }
+      })
     },
     commands: {
       registerCommand: (id, handler) => { registered.commands.set(id, handler); return { dispose() {} }; },
@@ -4241,6 +4244,125 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
+test('retained Workspaces rebinds every owner and rejects old aborted roster/detail/action results', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { WorkspacesPanel } = hostRequire(path.join(packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'));
+  const directory = '/work/retained-owner';
+  const entries = [{ id: 'retained-owner', path: directory, name: 'new-owner', anchorKey: 'retained-owner', active: 'yes' }];
+  const status = (name) => ({
+    workspace: { id: 'retained-owner', name, path: directory, leadRepository: 'app', capabilities: [] },
+    healthy: true, leadRepositoryPath: `${directory}/repos/app`, repositories: [], availableCapabilities: [],
+    warnings: [{ code: 'owner-marker', message: name }]
+  });
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((complete) => { resolve = complete; });
+    return { promise, resolve };
+  };
+  const oldRoster = deferred();
+  const oldDetails = deferred();
+  const oldConfiguration = deferred();
+  const oldAction = deferred();
+  const oldController = new AbortController();
+  const calls = { oldRoster: 0, oldAction: 0, roster: 0, details: 0, action: 0, configuration: 0, fos: 0 };
+  const original = WorkspacesPanel.show(context(), entries,
+    async () => {
+      calls.oldRoster++;
+      await oldRoster.promise;
+      if (oldController.signal.aborted) return [];
+      return [{ ...entries[0], name: 'OLD-ROSTER' }];
+    },
+    async () => { calls.oldAction++; return oldAction.promise; },
+    async () => oldDetails.promise,
+    async () => oldConfiguration.promise,
+    async () => { throw new Error('old FOS owner must not be called'); }, directory);
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  t.after(() => panel.dispose());
+  const pendingRoster = original.refresh(directory);
+  const pendingPreview = panel.post({ type: 'configuration-preview', scope: 'selected' });
+  const pendingAction = panel.post({ type: 'rename', path: directory, name: 'old-action-name' });
+  assert.equal(calls.oldRoster, 1);
+  assert.equal(calls.oldAction, 1);
+  oldController.abort();
+  const current = WorkspacesPanel.show(context(), entries,
+    async () => { calls.roster++; return entries; },
+    async () => { calls.action++; return null; },
+    async () => { calls.details++; return status('NEW-DETAIL'); },
+    async () => {
+      calls.configuration++;
+      return { status: 'preview', dryRun: true, planId: 'NEW-CONFIGURATION', total: 0, updated: 0, results: [] };
+    },
+    async () => { calls.fos++; return null; }, directory);
+  assert.equal(current, original, 'the same webview adopts the latest invocation owners');
+  await until(() => panel.webview.html.includes('NEW-DETAIL'), { attempts: 100, everyMs: 10 });
+  await panel.post({ type: 'create' });
+  await panel.post({ type: 'configuration-preview', scope: 'selected' });
+  await panel.post({ type: 'fos-action', action: 'doctor', path: directory });
+  assert.equal(calls.roster, 1);
+  assert.equal(calls.details, 1);
+  assert.equal(calls.action, 1);
+  assert.equal(calls.configuration, 1);
+  assert.equal(calls.fos, 1);
+  oldRoster.resolve();
+  oldDetails.resolve(status('OLD-DETAIL'));
+  oldConfiguration.resolve({ status: 'preview', dryRun: true, planId: 'OLD-CONFIGURATION', total: 0, updated: 0, results: [] });
+  oldAction.resolve('OLD-ACTION-FAILURE');
+  assert.equal(await pendingRoster, false, 'a stale roster cannot publish after owner replacement');
+  await Promise.all([pendingPreview, pendingAction]);
+  assert.equal(original.rows.length, 1);
+  assert.equal(original.selected, directory);
+  assert.match(panel.webview.html, /NEW-DETAIL/);
+  assert.doesNotMatch(panel.webview.html, /OLD-ROSTER|OLD-DETAIL|OLD-CONFIGURATION|OLD-ACTION-FAILURE/);
+  assert.equal(calls.oldRoster, 1, 'reopen never calls the permanently aborted original reader');
+});
+
+test('retained Workspaces owner replacement expires capability leases and clears completed old repair busy state', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { WorkspacesPanel } = hostRequire(path.join(packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'));
+  const directory = '/work/retained-lease';
+  const entries = [{ id: 'retained-lease', path: directory, name: 'retained-lease', anchorKey: 'retained-lease', active: 'yes' }];
+  const details = (name) => ({
+    workspace: { id: 'retained-lease', name, path: directory, leadRepository: 'app', capabilities: [] },
+    healthy: false, leadRepositoryPath: `${directory}/repos/app`,
+    repositories: [{ id: 'app', path: 'repos/app', absolutePath: `${directory}/repos/app`, state: 'missing' }],
+    availableCapabilities: [{ id: 'payments', name: 'Payments', depth: 0, ancestors: [], repository: 'app' }],
+    warnings: [{ code: 'owner-marker', message: name }]
+  });
+  let releaseAction;
+  const gate = new Promise((resolve) => { releaseAction = resolve; });
+  let actionLease;
+  let repairStarted = false;
+  WorkspacesPanel.show(context(), entries, async () => entries,
+    async (message) => {
+      if (message.type === 'repair') repairStarted = true;
+      else actionLease = message.isCurrent;
+      return gate;
+    },
+    async () => details('OLD-LEASE-DETAIL'), async () => null, async () => null, directory);
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  t.after(() => panel.dispose());
+  await until(() => panel.webview.html.includes('OLD-LEASE-DETAIL'), { attempts: 100, everyMs: 10 });
+  await panel.post({ type: 'edit', path: directory });
+  const pendingRepair = panel.post({ type: 'repair', path: directory });
+  assert.equal(repairStarted, true);
+  const pending = panel.post({ type: 'capability-attach', path: directory, id: 'payments' });
+  assert.equal(actionLease(), true);
+  WorkspacesPanel.show(context(), entries, async () => entries, async () => null,
+    async () => details('NEW-LEASE-DETAIL'), async () => null, async () => null, directory);
+  assert.equal(actionLease(), false, 'the old confirmation cannot authorize effects in the reopened editor');
+  await until(() => panel.webview.html.includes('NEW-LEASE-DETAIL'), { attempts: 100, everyMs: 10 });
+  assert.match(panel.webview.html, /Repairing…/);
+  releaseAction('OLD-LEASE-FAILURE');
+  await Promise.all([pending, pendingRepair]);
+  assert.match(panel.webview.html, /NEW-LEASE-DETAIL/);
+  assert.doesNotMatch(panel.webview.html, /OLD-LEASE-FAILURE/);
+  assert.match(panel.webview.html, new RegExp(`<button data-repair="${directory}">Repair workspace<\\/button>`));
+});
+
 test('Workspaces host rejects direct apply messages without an exact seeded-only preview', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();
@@ -4430,7 +4552,7 @@ test('Attach existing offers only workspaces from the inspected capability autho
       capabilityIds: ['payments-api'], authority: authority(first)
     });
     assert.ok(registered.warnings.some((message) =>
-      /could not safely match every local workspace/i.test(message)),
+      /could not read every local workspace manifest/i.test(message)),
     `expected incomplete-match warning, got: ${registered.warnings.join(' | ')}`);
     assert.match(panel.webview.html, /No matching local workspaces are available/);
     assert.doesNotMatch(panel.webview.html, /<td><a[^>]*>first-authority<\/a>/,

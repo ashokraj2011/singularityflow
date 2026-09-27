@@ -4,7 +4,7 @@ import {
   activateWorkspaceContext, activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from '../workspace-context.mjs';
-import { optionBoolean, optionString, SingularityFlowError, table } from '../util.mjs';
+import { mapLimit, optionBoolean, optionString, SingularityFlowError, table } from '../util.mjs';
 
 const HOT_ACTIONS = new Set(['list', 'current', 'prompt', 'use', 'switch']);
 let legacy = null;
@@ -76,14 +76,33 @@ export async function run(argv, context = {}) {
   }
 
   if (action === 'list') {
-    const { readWorkspaceRegistry } = await import('../workspace.mjs');
+    const { readWorkspace, readWorkspaceRegistry } = await import('../workspace.mjs');
     const workspaces = await readWorkspaceRegistry(registry);
     const active = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false }).catch(() => null);
-    const result = workspaces.map((workspace) => {
+    const result = await mapLimit(workspaces, 4, async (workspace) => {
       const selected = workspace.id === active?.workspaceId
         && (!active?.workspacePath || path.resolve(workspace.path) === path.resolve(active.workspacePath));
+      // These are freshly validated local manifest hints, not remote authority receipts. Matching
+      // choices needs no repository health/archive scan; the selected workspace is verified again
+      // by the attachment preview and its mutation-bound checks.
+      let hints = { manifestStatus: 'not-read', capabilityAuthorityUrl: null, leadRepositoryUrl: null };
+      if (!workspace.archivedAt) {
+        try {
+          const manifest = await readWorkspace(workspace.path);
+          const leadRepositoryUrl = manifest.repositories[manifest.leadRepository]?.url ?? null;
+          hints = {
+            manifestStatus: 'read',
+            capabilityAuthorityUrl: manifest.capabilityAuthority?.url ?? leadRepositoryUrl,
+            leadRepositoryUrl
+          };
+        } catch {
+          // Never turn an unreadable manifest into an apparently non-matching workspace.
+          hints.manifestStatus = 'unavailable';
+        }
+      }
       return {
         ...workspace,
+        ...hints,
         active: selected ? 'yes' : '',
         repositoryState: selected ? active?.repositoryState ?? null : null
       };

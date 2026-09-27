@@ -40,6 +40,7 @@ Use these for onboarding repositories, capabilities, and older workspaces.
 |---|---|
 | [Progressive capabilities](PROGRESSIVE-CAPABILITIES.md) | Starting with one simple capability and adding detail later |
 | [Fast onboarding and Git performance](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md) | Fast workspace attach, clone optimization, and safe Git acceleration |
+| [Map Capability performance implementation](MAP-CAPABILITY-PERFORMANCE-IMPLEMENTATION.md) | Implemented read-path speedups, diagnostics, verification limits, and remaining structural work |
 | [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md) | FOS milestones, evidence, and deferred gates |
 | [Capability authority discovery and workspace performance plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md) | Cross-laptop capability authority discovery and lead lookup performance |
 | [Capability map Git robustness plan](CAPABILITY-MAP-GIT-ROBUSTNESS-PLAN.md) | Failure-safe capability mapping, proposal refs, and map repair |

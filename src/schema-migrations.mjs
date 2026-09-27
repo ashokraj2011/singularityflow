@@ -44,6 +44,20 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function capabilityAuthorityCacheV1ToV2(source) {
+  const core = clone(source);
+  delete core.cacheSha256;
+  // Migration is not a repair of corrupt cache bytes. Such an entry must be re-read from Git.
+  if (source.cacheSha256 !== `sha256:${recordSha256(core)}`) {
+    throw new SingularityFlowError('Capability authority cache v1 failed its integrity check.', {
+      code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+      details: { family: 'capability-authority-cache-entry', storedVersion: 1 }
+    });
+  }
+  const migrated = { ...core, schemaVersion: 2, status: 'current' };
+  return { ...migrated, cacheSha256: `sha256:${recordSha256(migrated)}` };
+}
+
 function helpMetricsEventV1ToV2(source) {
   return {
     ...clone(source),
@@ -3567,7 +3581,8 @@ const families = [
     paths: [/^\$state\/singularity\/capability-authority\.json$/]
   }),
   family({
-    id: 'capability-authority-cache-entry', currentVersion: 1,
+    id: 'capability-authority-cache-entry', currentVersion: 2,
+    steps: [migration(1, 2, capabilityAuthorityCacheV1ToV2)],
     paths: [/^\$local\/capability-authority\/v1\/[a-f0-9]{64}\.json$/]
   }),
   family({ id: 'capability-authority-resolution', currentVersion: 1 }),

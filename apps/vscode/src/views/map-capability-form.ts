@@ -597,7 +597,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
       ${inlineError}
       ${capabilityHandoff}
       ${existingMapLookup}
-      <p>${capabilityMapReady ? '' : '<button type="button" data-repository-setup-primary="continueRepositorySetup">Continue to capability mapping</button>'}
+      <p>${capabilityMapReady ? '' : `<button type="button" data-repository-setup-primary="continueRepositorySetup"${form.inspectionStatus === 'checking' ? ' disabled' : ''}>${form.inspectionStatus === 'checking' ? 'Checking…' : 'Continue to capability mapping'}</button>`}
         <button type="button" class="secondary" data-repository-setup-primary="retryRepositorySetup">${pendingProjection ? 'Prepare state-refresh retry' : 'Check setup again'}</button>
         ${pendingProjection ? `<button type="button" class="secondary" data-repository-setup-copy-shell="${escape(outcome.nextActions.shell)}">Copy exact shell retry</button>
         <button type="button" class="secondary" data-repository-setup-copy-copilot="${escape(outcome.nextActions.copilot)}">Copy Copilot command</button>` : ''}</p>
@@ -659,7 +659,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     ${capabilityHandoff}
     ${existingMapLookup}
     ${capabilityMapReady ? '' : `<p><button type="button" data-repository-setup-primary="${escape(primary.message)}"
-      ${primary.disabled || form.repositorySetupApplying ? 'disabled' : ''}>${form.repositorySetupApplying ? 'Applying…' : escape(primary.label)}</button></p>`}
+      ${primary.disabled || form.repositorySetupApplying || form.inspectionStatus === 'checking' ? 'disabled' : ''}>${form.repositorySetupApplying ? 'Applying…' : form.inspectionStatus === 'checking' ? 'Checking…' : escape(primary.label)}</button></p>`}
     ${primary.disabled ? '<p class="muted">This preview cannot be applied. Refresh it or open Diagnostics.</p>' : ''}
     ${choices}
     ${moreOptions}

@@ -4,7 +4,7 @@ import { TextDecoder } from 'node:util';
 
 import { listLeadRepositories, rememberLeadRepository } from '../lead-repositories.mjs';
 import {
-  optionBoolean, optionString, optionStrings, SingularityFlowError
+  optionBoolean, optionString, optionStrings, requirePositional, SingularityFlowError
 } from '../util.mjs';
 
 let legacy = null;
@@ -12,7 +12,7 @@ let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set([
   'add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard',
-  'setup-proposals', 'setup-proposal', 'setup-activate'
+  'setup-proposals', 'setup-proposal', 'setup-activate', 'inspect-repository'
 ]);
 
 /**
@@ -31,17 +31,17 @@ const CAPABILITY_TEAM_REQUEST_MEMBER_FIELDS = new Set([
   'capabilityId', 'repositoryUrl', 'name'
 ]);
 
-async function printCommandRoutes(command, { skill = null, label = null } = {}) {
+async function printCommandRoutes(command, { skill = null, label = null, indent = '' } = {}) {
   const { safeCommandGuidance } = await import('../safe-command-guidance.mjs');
-  if (label) console.log(`${label}:`);
+  if (label) console.log(`${indent}${label}:`);
   const guidance = safeCommandGuidance({ command, skill });
   if (!guidance) {
-    console.log('Shell: unavailable — the supplied command was not safe to display.');
-    console.log('Copilot: unavailable — ask /sf-next for a current governed action.');
+    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
+    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
     return;
   }
-  console.log(`Shell: ${guidance.command}`);
-  console.log(`Copilot: ${guidance.copilotCommand}`);
+  console.log(`${indent}Shell: ${guidance.command}`);
+  console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
 }
 
 function isDirect(context = {}) {
@@ -79,6 +79,47 @@ async function loadExplanationSupport() {
 /** Progressive commands avoid loading the legacy monolith; expert compatibility commands retain it. */
 export async function load(context = {}) {
   if (!isDirect(context)) await loadLegacy();
+  else if (context.positionals?.[1] === 'inspect-repository') await loadOrganisation();
+}
+
+async function runInspectRepository(context) {
+  const options = context.options ?? {};
+  const { inspectCapabilityRepository } = await loadOrganisation();
+  const result = await inspectCapabilityRepository(
+    requirePositional(context.positionals ?? [], 2, 'Git repository URL'), {
+      leadUrls: optionStrings(options, 'lead'),
+      refresh: optionBoolean(options, 'refresh'),
+      searchKnown: optionBoolean(options, 'search-known'),
+      includeProposals: optionBoolean(options, 'include-proposals'),
+      stateBranch: optionString(options, 'state-branch', 'state')
+    });
+  if (optionBoolean(options, 'json')) { console.log(JSON.stringify(result, null, 2)); return result; }
+  console.log(`${result.repositoryUrl}: ${result.status}`);
+  if (result.authorityDiscovery?.source === 'state-link') {
+    console.log(`  authority: discovered from ${result.authorityDiscovery.stateBranch} and verified against the approved map`);
+  }
+  for (const match of result.matches) {
+    console.log(`  ${match.lead}: ${match.repositoryId}${match.capabilities.length ? ` (${match.capabilities.join(', ')})` : ''}`);
+  }
+  for (const conflict of result.conflicts ?? []) {
+    console.warn(`  conflict: ${conflict.kind} (${conflict.authorityCount} approved ${conflict.authorityCount === 1 ? 'authority' : 'authorities'})`);
+    console.warn(`    ${conflict.remediation}`);
+  }
+  for (const match of result.pendingMatches ?? []) {
+    const commit = match.proposalCommit ? `@${match.proposalCommit.slice(0, 12)}` : '';
+    const capabilities = match.capabilities?.length ? ` (${match.capabilities.join(', ')})` : '';
+    console.log(`  awaiting review ${match.proposalBranch ?? '<proposal>'}${commit} on ${match.lead}: ${match.repositoryId}${capabilities}`);
+  }
+  if (result.proposalCoverage !== 'complete') {
+    console.warn(`  pending proposal coverage: ${result.proposalCoverage} (${result.proposalInspection?.inspected ?? 0}/${result.proposalInspection?.total ?? 0} inspected); no new mapping is authorized`);
+  }
+  for (const failure of result.failures) {
+    console.warn(`  ${failure.lead}: ${failure.message}`);
+    if (failure.diagnosticAction?.command) await printCommandRoutes(failure.diagnosticAction.command, {
+      skill: failure.diagnosticAction.skill ?? null, indent: '    ', label: 'Diagnose'
+    });
+  }
+  return result;
 }
 
 function required(positionals, index, label) {
@@ -730,6 +771,7 @@ function capabilityAutoOptions(options) {
 
 export async function run(argv, context = {}) {
   const subcommand = context.positionals?.[1] ?? 'show';
+  if (subcommand === 'inspect-repository') return runInspectRepository(context);
   if (subcommand === 'onboard') return runOnboard(context);
   if (['setup-proposals', 'setup-proposal', 'setup-activate'].includes(subcommand)) {
     return runSetupProposalCommand(subcommand, context);

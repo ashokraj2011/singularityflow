@@ -160,6 +160,9 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
     forgetWorkspace, readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath
   } = await workspaceModule();
   const entries = await readWorkspaceRegistry(registryFile);
+  // Recovery reads preserve every registration. There is no reason to open each application's
+  // workflow (or its manifest) when the outcome cannot remove an entry in this mode.
+  if (preserveForRecovery) return { removed: [], remaining: entries };
   const removed = [];
   for (const entry of entries) {
     let lead = entry.leadRepositoryPath;
@@ -189,7 +192,6 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
         ? 'workflow.yml does not declare version 2'
         : `workflow.yml declares unsupported version ${workflow.version}`
     };
-    if (preserveForRecovery) continue;
     removed.push(incompatible);
     await forgetWorkspace(registryFile, entry.path);
   }

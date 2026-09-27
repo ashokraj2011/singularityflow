@@ -172,7 +172,7 @@ test('changed agent eligibility or producer template closure cannot silently reu
 
 test('template profile cannot impersonate native Agent/skill/configuration objects or executable files through approved root overlap', () => {
   for (const [root, relative] of [['.github/agents', 'intake-role.agent.md'], ['.github/workflows', 'pipeline.md'],
-    ['.github/skills', 'SKILL.md'], ['.claude', 'instructions.md'], ['.private-notes', 'ordinary.md'],
+    ['.github/skills', 'SKILL.md'], ['.private-agent', 'instructions.md'], ['.private-notes', 'ordinary.md'],
     ['singularity/templates', 'script.mjs']]) {
     const f = fixture(); f.approvedDefinition.templatesRoot = root;
     f.approvedDefinition.templates.shared.path = relative; f.approvedDefinition.templates.alias = relative;

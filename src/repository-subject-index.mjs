@@ -231,6 +231,7 @@ function localConfigurationAtRef(root, ref, relative, env = process.env) {
     env: {
       ...env,
       GIT_NO_LAZY_FETCH: '1',
+      GIT_NO_REPLACE_OBJECTS: '1',
       GIT_TERMINAL_PROMPT: '0',
       GCM_INTERACTIVE: 'Never'
     }
@@ -284,14 +285,21 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
     const ref = typeof item === 'string' ? item : item.ref;
     const branch = typeof item === 'string' ? item.split('/').slice(1).join('/') : item.branch;
     const commit = refHead(root, ref, { env });
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit ?? '')) {
+      index.unreadable.push(stateDiagnostic({ code: 'SUBJECT_STATE_UNAVAILABLE', path: null,
+        location: { ref, branch, commit: null }, reason: 'required ref commit is unavailable locally' }));
+      continue;
+    }
     const cacheKey = JSON.stringify([
       path.resolve(root), commit, workRoot, initiativeRoot,
       env === process.env ? 'ambient' : 'explicit-environment'
     ]);
     const load = () => {
-      const roots = rootsForRef(root, ref, { workRoot, initiativeRoot, env });
+      // The cache key and every policy/blob read describe one immutable object, even if a fetch
+      // advances the branch after refHead returned. Keep the original name only as location data.
+      const roots = rootsForRef(root, commit, { workRoot, initiativeRoot, env });
       const observed = roots.status === 'ok'
-        ? readRefTreeResult(root, ref, [roots.workRoot, roots.initiativeRoot], {
+        ? readRefTreeResult(root, commit, [roots.workRoot, roots.initiativeRoot], {
           // Filter by tree path before asking Git for blob sizes. A blobless workspace can have
           // every workflow.json locally while unrelated artifacts under the same root are absent.
           pathFilter: (file) => isSubjectRecord(file, roots), env
@@ -301,7 +309,7 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
     };
     // Destructive-readiness checks explicitly request a fresh scan so neither stale branch bytes
     // nor an earlier caller's environment-specific cache entry can authorize local deletion.
-    const cached = fresh ? load() : cachedRefSubjects(cacheKey, load);
+    const cached = fresh || env !== process.env ? load() : cachedRefSubjects(cacheKey, load);
     const { roots, observed } = cached;
     if (roots.status !== 'ok') {
       index.unreadable.push(stateDiagnostic({

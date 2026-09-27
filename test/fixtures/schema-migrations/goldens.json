@@ -9,7 +9,27 @@
   "repository-readiness-receipt": [{ "schemaVersion": 1 }],
   "effective-capability-resolution": [{ "schemaVersion": 1 }],
   "capability-authority-link": [{ "schemaVersion": 1 }],
-  "capability-authority-cache-entry": [{ "schemaVersion": 1 }],
+  "capability-authority-cache-entry": [
+    {
+      "schemaVersion": 1,
+      "kind": "capability-authority-cache-entry",
+      "repositoryIdentity": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "stateBranch": "state",
+      "stateCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "link": {},
+      "cacheSha256": "sha256:2140d93d3e7409916ac28aead1509798ff2f3fd2c5187bd2c9f09ab7a982af37"
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "capability-authority-cache-entry",
+      "repositoryIdentity": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "stateBranch": "state",
+      "stateCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "link": {},
+      "status": "current",
+      "cacheSha256": "sha256:d311cf453744aede0173ff7301ce726336b55f091f0d52d7e25db9b5ad467071"
+    }
+  ],
   "capability-authority-resolution": [{ "schemaVersion": 1 }],
   "workspace-capability-catalog-proof": [{ "schemaVersion": 1 }],
   "workspace-capability-bootstrap-receipt": [{ "schemaVersion": 1 }],

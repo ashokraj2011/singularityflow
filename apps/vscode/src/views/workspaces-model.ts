@@ -26,6 +26,10 @@ export interface WorkspaceEntry {
   active?: string;
   /** Readiness of the selected repository; present only for the active workspace. */
   repositoryState?: string | null;
+  /** Validated local manifest hints only; selected actions must still verify remote authority. */
+  manifestStatus?: 'read' | 'unavailable' | 'not-read';
+  capabilityAuthorityUrl?: string | null;
+  leadRepositoryUrl?: string | null;
 }
 
 /** The richer result of `workspace open <DIRECTORY> --json`. */

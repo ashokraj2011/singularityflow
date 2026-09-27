@@ -35,6 +35,7 @@ to understand which document is authoritative for a specific topic.
 | Plan retirement of the legacy CLI dispatcher and remaining desktop references | [Legacy CLI and desktop retirement plan](LEGACY-CLI-AND-DESKTOP-RETIREMENT-PLAN.md) |
 | Read the Architecture Review Board overview and implementation-status boundaries | [Architecture Review Board document](ARB-document-plain.html) |
 | Attach an existing checkout quickly and use safe Git acceleration | [Fast onboarding and Git performance](FAST-ONBOARDING-AND-GIT-PERFORMANCE.md) |
+| Inspect implemented Map Capability speedups and their remaining boundaries | [Map Capability performance implementation](MAP-CAPABILITY-PERFORMANCE-IMPLEMENTATION.md) |
 | Review FOS design, milestones, evidence, and deferred release gates | [FOS implementation plan](FOS-IMPLEMENTATION-PLAN.md) |
 | Make capability discovery portable across laptops and remove workspace Git fan-out | [Capability authority discovery and workspace performance plan](CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md) |
 | Plan Governed Delivery and Proof as reversible release milestones | [GDP milestone delivery roadmap](GDP-DELIVERY-ROADMAP.md) |

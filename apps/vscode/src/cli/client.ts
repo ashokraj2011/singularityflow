@@ -13,7 +13,7 @@ import {
   CAPABILITY_AUTHORITY_TIMEOUT_MS, CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, VALIDATION_TIMEOUT_MS,
   FACTORY_RESET_TRANSACTION_TIMEOUT_MS, WORKSPACE_MUTATION_TIMEOUT_MS, WORK_START_TIMEOUT_MS,
   STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
-  invokeCli, type OutputStream
+  invokeCli, cliInvocationTimeoutError, type OutputStream, type CliCommandTiming
 } from './runner.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
 
@@ -21,6 +21,53 @@ export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
   'repository', 'lifecycle', 'capabilities'
 ]);
 const READ_RESULT_CACHE_TTL_MS = 250;
+/** Bounds supervised invocations across clients, not attested living native processes. */
+export const CLI_READ_CONCURRENCY = 4;
+const queuedReads: Array<{ run: () => Promise<void>; cancelled: boolean }> = [];
+let runningReads = 0;
+
+function drainReads(): void {
+  while (runningReads < CLI_READ_CONCURRENCY && queuedReads.length) {
+    const ticket = queuedReads.shift()!;
+    if (ticket.cancelled) continue;
+    runningReads += 1;
+    // A slot includes bounded process-tree cleanup and unknown-close handle release, not only its
+    // subscribers' wait. Releasing a slot does not attest that every native descendant has died.
+    void ticket.run().finally(() => {
+      runningReads -= 1;
+      drainReads();
+    }).catch(() => {});
+  }
+}
+
+function queueRead(run: () => Promise<void>): { cancel(): void } {
+  const ticket = { run, cancelled: false };
+  queuedReads.push(ticket);
+  queueMicrotask(drainReads);
+  return { cancel: () => {
+    ticket.cancelled = true;
+    const index = queuedReads.indexOf(ticket);
+    if (index >= 0) queuedReads.splice(index, 1);
+  } };
+}
+
+interface ReadSubscriber {
+  resolve(value: unknown): void;
+  reject(error: Error): void;
+  signal?: AbortSignal;
+  onAbort: () => void;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+interface ClientRead {
+  key: string | null;
+  epoch: number;
+  controller: AbortController;
+  subscribers: Set<ReadSubscriber>;
+  ticket: { cancel(): void } | null;
+  started: boolean;
+  finished: boolean;
+}
 
 interface SnapshotEnvelope {
   included?: SnapshotSlice[];
@@ -141,6 +188,8 @@ function cacheableRead(args: string[]): boolean {
     // A peer can save or delete a shared draft at any moment. CAS cards must be owner reads,
     // not a replay of this window's previous acknowledgement.
     && !(args[0] === 'workflow' && args[1] === 'author')
+    // Recovery must freshly observe an exact proposal ref, including peer activation/deletion.
+    && !(args[0] === 'workflow' && args[1] === 'proposal-status')
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
     && args[0] !== 'factory-reset';
@@ -203,7 +252,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'workflow' && args[1] === 'author') {
     return ['list', 'read', 'show', 'history', 'op-status', 'preview', 'catalog'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
   }
-  if (args[0] === 'workflow') return (args[1] ?? 'list') === 'list' ? 'read' : 'mutation';
+  if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'phase') return (args[1] ?? '') === 'show' ? 'read' : 'mutation';
   if (args[0] === 'converge' || args[0] === 'explain') return 'read';
   if (args[0] === 'spec') {
@@ -368,6 +417,8 @@ export interface ClientOptions {
   /** Secrets are supplied by VS Code SecretStorage and exist only in the child process. */
   environment?: NodeJS.ProcessEnv;
   onOutput?: (text: string, stream: OutputStream) => void;
+  /** Sanitized completion diagnostics independent of whether child output is displayed. */
+  onTiming?: (event: CliCommandTiming) => void;
 }
 
 /**
@@ -380,7 +431,8 @@ export interface ClientOptions {
 export class SingularityFlowClient {
   private readonly options: ClientOptions;
   private readonly readResults = new Map<string, { expiresAt: number; value: unknown }>();
-  private readonly readInFlight = new Map<string, Promise<unknown>>();
+  private readonly readInFlight = new Map<string, ClientRead>();
+  private readonly readJobs = new Set<ClientRead>();
   private readEpoch = 0;
   constructor(options: ClientOptions) { this.options = options; }
 
@@ -395,8 +447,8 @@ export class SingularityFlowClient {
    * while somebody is mid-edit. The commands already carry no state between calls, so re-pointing
    * is genuinely just this: the next spawn runs somewhere else.
    *
-   * Callers must refresh whatever they have already read. This does not invalidate anything on its
-   * own, because it cannot know what a caller is holding.
+   * Callers must refresh whatever they have already read. Old native reads are cancelled and their
+   * results cannot enter the new repository's cache or in-flight set.
    */
   useRepository(repository: string): void {
     if (repository !== this.options.repository) this.invalidateReadResults();
@@ -407,14 +459,63 @@ export class SingularityFlowClient {
     this.readEpoch += 1;
     this.readResults.clear();
     this.readInFlight.clear();
+    for (const job of this.readJobs) {
+      for (const subscriber of [...job.subscribers]) {
+        this.leaveRead(job, subscriber, new Error('The Singularity Flow read was superseded.'));
+      }
+    }
   }
 
   private readResultKey(args: string[]): string {
-    return JSON.stringify([this.options.repository, args]);
+    return JSON.stringify([this.readEpoch, this.options.repository, args]);
+  }
+
+  private leaveRead(job: ClientRead, subscriber: ReadSubscriber, error: Error): void {
+    if (!job.subscribers.delete(subscriber)) return;
+    if (subscriber.timer) clearTimeout(subscriber.timer);
+    subscriber.signal?.removeEventListener('abort', subscriber.onAbort);
+    subscriber.reject(error);
+    if (job.subscribers.size || job.finished) return;
+    if (job.key && this.readInFlight.get(job.key) === job) this.readInFlight.delete(job.key);
+    this.readJobs.delete(job);
+    job.controller.abort(error);
+    if (!job.started) {
+      job.ticket?.cancel();
+      job.finished = true;
+    }
+  }
+
+  private finishRead(job: ClientRead, value: unknown, error: Error | null): void {
+    if (job.finished) return;
+    job.finished = true;
+    this.readJobs.delete(job);
+    if (job.key && this.readInFlight.get(job.key) === job) this.readInFlight.delete(job.key);
+    if (!error && job.key && job.subscribers.size && job.epoch === this.readEpoch) {
+      const now = Date.now();
+      for (const [key, cached] of this.readResults) {
+        if (cached.expiresAt < now) this.readResults.delete(key);
+      }
+      this.readResults.set(job.key, {
+        expiresAt: now + READ_RESULT_CACHE_TTL_MS, value: structuredClone(value)
+      });
+      // A long-lived extension host must not retain every expired distinct result indefinitely.
+      if (this.readResults.size > 32) this.readResults.delete(this.readResults.keys().next().value!);
+    }
+    for (const subscriber of job.subscribers) {
+      if (subscriber.timer) clearTimeout(subscriber.timer);
+      subscriber.signal?.removeEventListener('abort', subscriber.onAbort);
+      if (error) subscriber.reject(error);
+      else subscriber.resolve(structuredClone(value));
+    }
+    job.subscribers.clear();
   }
 
   private invoke<T>(args: string[], timeoutMs: number | null, signal?: AbortSignal, json = true,
     input: string | null = null): Promise<T> {
+    // Capture before entering the process-wide queue: repository changes and caller argv edits
+    // must never change which command a previously requested read eventually launches.
+    args = [...args];
+    const repository = this.options.repository;
     // JSON stdout is the read model, not progress. Streaming it into VS Code's Output channel made
     // every structured payload exist three times (runner buffer, Output channel, parsed object) and
     // could flood the UI with megabytes of implementation detail. Human progress and diagnostics
@@ -428,30 +529,29 @@ export class SingularityFlowClient {
     if (classification !== 'read') this.invalidateReadResults();
     const cacheable = json && input == null && classification === 'read' && cacheableRead(args);
     const cacheKey = cacheable ? this.readResultKey(args) : null;
-    if (cacheKey && !signal?.aborted) {
+    if (classification === 'read' && signal?.aborted) {
+      return Promise.reject(new Error('The Singularity Flow command was cancelled.'));
+    }
+    if (cacheKey) {
       const cached = this.readResults.get(cacheKey);
       if (cached && cached.expiresAt >= Date.now()) {
         return Promise.resolve(structuredClone(cached.value) as T);
       }
       if (cached) this.readResults.delete(cacheKey);
-      // An aborted subscriber must retain independent cancellation. Calls without a signal can
-      // safely share the exact same read process and receive independent result objects.
-      const active = signal == null ? this.readInFlight.get(cacheKey) : null;
-      if (active) return active.then((value) => structuredClone(value) as T);
     }
-    const epoch = this.readEpoch;
-    const pending = invokeCli<T>({
+    const invocation = {
       executable: this.options.location.executable,
       cli: this.options.location.cli,
-      repository: this.options.repository,
+      repository,
       args,
       json,
       input,
-      env: this.options.environment,
+      env: { ...(this.options.environment ?? process.env) },
       timeoutMs,
       commandClass: classification,
       onOutput: visibleOutput,
-      onTiming: (event) => {
+      onTiming: (event: CliCommandTiming) => {
+        try { this.options.onTiming?.(structuredClone(event)); } catch { /* diagnostic only */ }
         try {
           this.options.onOutput?.(
             `[Singularity Flow timing] ${JSON.stringify(event)}\n`,
@@ -460,24 +560,45 @@ export class SingularityFlowClient {
         } catch { /* timing diagnostics must never fail a command */ }
       },
       signal
-    });
-    if (!cacheKey) return pending;
-    const retained = pending.then((value) => {
-      if (epoch === this.readEpoch) {
-        this.readResults.set(cacheKey, {
-          expiresAt: Date.now() + READ_RESULT_CACHE_TTL_MS,
-          value: structuredClone(value)
-        });
-      }
-      return value;
-    });
-    if (signal == null) {
-      this.readInFlight.set(cacheKey, retained);
-      void retained.finally(() => {
-        if (this.readInFlight.get(cacheKey) === retained) this.readInFlight.delete(cacheKey);
-      }).catch(() => {});
+    };
+    // Writes keep the original runner deadline/rollback contract and never wait in the read pool.
+    if (classification !== 'read') return invokeCli<T>(invocation);
+    let job = cacheKey ? this.readInFlight.get(cacheKey) : undefined;
+    const fresh = !job;
+    if (!job) {
+      job = { key: cacheKey, epoch: this.readEpoch, controller: new AbortController(),
+        subscribers: new Set(), ticket: null, started: false, finished: false };
+      this.readJobs.add(job);
+      if (cacheKey) this.readInFlight.set(cacheKey, job);
     }
-    return retained;
+    const current = job;
+    const result = new Promise<T>((resolve, reject) => {
+      const subscriber: ReadSubscriber = {
+        resolve: (value) => resolve(value as T), reject, signal,
+        onAbort: () => this.leaveRead(current, subscriber, new Error('The Singularity Flow command was cancelled.'))
+      };
+      current.subscribers.add(subscriber);
+      signal?.addEventListener('abort', subscriber.onAbort, { once: true });
+      if (timeoutMs !== null) subscriber.timer = setTimeout(() => {
+        this.leaveRead(current, subscriber, cliInvocationTimeoutError(invocation, timeoutMs));
+      }, timeoutMs);
+      if (signal?.aborted) subscriber.onAbort();
+    });
+    if (fresh && current.subscribers.size) current.ticket = queueRead(async () => {
+      if (!current.subscribers.size || current.finished) return;
+      current.started = true;
+      try {
+        // Subscribers retain the existing command-specific deadlines, including explicit null
+        // contracts, across queue+execution. A runner timer owned by the first subscriber would
+        // wrongly kill later subscribers; their last departure still supervises native cleanup.
+        const value = await invokeCli({ ...invocation,
+          timeoutMs: null, signal: current.controller.signal });
+        this.finishRead(current, value, null);
+      } catch (error) {
+        this.finishRead(current, undefined, error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    return result;
   }
 
   /** A coherent, bounded read model. Heavy domains are added only when their surface opens. */

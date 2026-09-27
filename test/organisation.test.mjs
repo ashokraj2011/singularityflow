@@ -2436,8 +2436,8 @@ test('an activated mapping is discoverable from the delivery state branch on a n
     }
   });
   assert.equal(repairedLink.status, 'current');
-  assert.equal(repairCommands.filter((args) => args[0] === 'fetch').length, 1,
-    'a corrupt receipt is never authority and is rebuilt from the observed ref');
+  assert.equal(repairCommands.filter((args) => args[0] === 'fetch').length, 0,
+    'a corrupt receipt is never authority; complete exact-OID local objects rebuild it without fetching');
   assert.equal(repairCommands.some((args) => args[0] === 'clone'), false);
 
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(path.join(org.base, 'fresh-machine'));
@@ -6701,16 +6701,20 @@ test('choosing a workspace is what scopes the rest', async () => {
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   assert.match(extension, /\['workspace', 'use', target,[\s\S]*'--json'\]/);
 
-  // Choosing never opens a folder or creates another window. If activation started with no active
-  // workspace, the same window reloads once so Lifecycle and Configuration can bind to the selected
-  // repository instead of remaining stuck in their empty state.
+  // Selection delegates native navigation to the shared handoff: a different repository opens in
+  // this window, while an already-open first/deferred selection reloads to bind its services.
   const selecting = extension.slice(extension.indexOf('async function selectWorkspace'),
     extension.indexOf("registerCommand('singularityFlow.openWorkspace'"));
   assert.doesNotMatch(selecting, /vscode\.openFolder/,
-    'selecting a workspace never opens a folder or creates another window');
+    'selection delegates native navigation rather than creating a competing folder handoff');
   assert.match(selecting,
-    /if \(forceReload \|\| !workspaceSelected\.length \|\| selected\.repositoryState !== 'ready'\)[\s\S]*reloadWindow/,
-    'a first selection or deferred checkout reloads this window so repository services use the new state');
+    /openSelectedWorkspaceFolder\([\s\S]*forceReload \|\| !workspaceSelected\.length \|\| selected\.repositoryState !== 'ready', selectionIsCurrent\)/,
+    'a first/deferred selection retains the reload condition and exact navigation-current fence');
+  const handoff = extension.slice(extension.indexOf('const openSelectedWorkspaceFolder'),
+    extension.indexOf('const prepareDeferredWorkspaceForWork'));
+  assert.match(handoff, /if \(!reloadIfOpen\) return false;[\s\S]*workbench\.action\.reloadWindow/);
+  assert.match(handoff, /executeCommand\('vscode\.openFolder', vscode\.Uri\.file\(target\), false\)/,
+    'a different selected root replaces this window rather than creating another one');
 
   // Resolution consults the active workspace before the open folder, not after it.
   const active = extension.indexOf('const active = await activeWorkspaceRepository(context, output);');
@@ -6882,7 +6886,7 @@ test('capability readiness shares one asynchronous remote session across its wor
   assert.ok(start >= 0 && end > start, 'capability readiness implementation is present');
   const implementation = source.slice(start, end);
 
-  const session = implementation.indexOf('const session = new GitRemoteSession({ env: gitEnv });');
+  const session = implementation.indexOf('const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });');
   const workers = implementation.indexOf('const resolved = await mapLimit(');
   assert.ok(session >= 0 && session < workers,
     'the operation-scoped session must be created before workers fan out');

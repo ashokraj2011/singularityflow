@@ -17,7 +17,7 @@ import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
 import {
   CliError, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
-  terminalCommand,
+  terminalCommand, recentCliCommandTimings,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
@@ -60,6 +60,7 @@ import {
   type WorkspaceEntry, type WorkspaceStatus, type WorkspaceFosAction, type WorkspaceFosOutcome
 } from './views/workspaces-model.ts';
 import { unavailableCapabilityAuthorityMessage } from './views/capability-authority-diagnostics.ts';
+import { workspaceAuthorityChoices } from './views/workspace-authority-matching.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { deferredWorkspaceRepositories } from './views/workspace-start.ts';
 import { gitRemoteProblem } from './views/map-capability-form.ts';
@@ -341,6 +342,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // open request to one generation so an older authority handoff can never finish last and replace
   // the scope selected by a newer click.
   let openWorkspacesRequestGeneration = 0;
+  let openWorkspacesReadController: AbortController | null = null;
+  context.subscriptions.push({ dispose: () => openWorkspacesReadController?.abort() });
   let currentHelpWork: () => { id: string; kind?: string | null } | null = () => null;
 
   /**
@@ -2243,8 +2246,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     ) => {
     const requestGeneration = ++openWorkspacesRequestGeneration;
+    openWorkspacesReadController?.abort();
+    const readController = new AbortController();
+    openWorkspacesReadController = readController;
+    const readWithProgress = async <T>(title: string, read: () => Promise<T>): Promise<T> =>
+      vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true },
+        async (_progress, token) => {
+          const cancelled = token.onCancellationRequested(() => readController.abort());
+          if (token.isCancellationRequested) readController.abort();
+          try { return await read(); } finally { cancelled.dispose(); }
+        });
     const requestIsCurrent = (): boolean =>
-      requestGeneration === openWorkspacesRequestGeneration;
+      requestGeneration === openWorkspacesRequestGeneration && !readController.signal.aborted;
     const upgradeScope = request && typeof request === 'object'
       && 'upgradeScope' in request
       && (request.upgradeScope === 'selected' || request.upgradeScope === 'all')
@@ -2367,40 +2380,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const registry = new SingularityFlowClient({
       location, repository: process.cwd(), onOutput: (text) => output.append(text)
     });
-    const readEntries = (): Promise<WorkspaceEntry[]> =>
-      registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json']);
+    const readEntries = (signal?: AbortSignal): Promise<WorkspaceEntry[]> =>
+      registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json'], signal);
     const list = (): Promise<WorkspaceEntry[]> => readEntries().catch(() => []);
-    const statusCache = new Map<string, WorkspaceStatus>();
     const readWorkspaceStatus = (workspacePath: string): Promise<WorkspaceStatus> =>
       registry.run<WorkspaceStatus>([
-        'workspace', 'status', workspacePath, '--archive-readiness', '--no-fetch', '--json'
+        'workspace', 'status', workspacePath,
+        ...(requestedAuthority ? ['--level', 'readiness'] : ['--archive-readiness', '--no-fetch']),
+        '--json'
       ]);
-    const statusOnly = async (workspacePath: string): Promise<WorkspaceStatus> => {
-      const cached = statusCache.get(workspacePath);
-      if (cached) return cached;
-      // Inspecting an archived workspace must not restore it as a side effect. `status` reads the
-      // checkout and computes the immediate local archive proof from that same snapshot. The
-      // mutating archive command refreshes remotes and verifies again before changing the registry.
-      const status = await readWorkspaceStatus(workspacePath);
-      statusCache.set(workspacePath, status);
-      return status;
-    };
     let inspectedAuthorityOrganisation: (ObservedCapabilityAuthority & {
       capabilities?: RemoteCapability[] | null;
       repositories?: Record<string, { url?: string; defaultBranch?: string }>;
     }) | null = null;
     const details = async (workspacePath: string): Promise<WorkspaceStatus> => {
-      // Authority matching primes at most one read per candidate. Consume it once; a retained
-      // panel must not keep presenting that old manifest indefinitely.
-      const status = statusCache.get(workspacePath) ?? await readWorkspaceStatus(workspacePath);
-      statusCache.delete(workspacePath);
+      // Only the selected row receives a repository read. Never retain a manifest as mutation
+      // authority: attachment preview/apply and archival still perform their own fresh checks.
+      const status = await readWorkspaceStatus(workspacePath);
       const lead = status.repositories.find((repository) =>
         repository.id === status.workspace.leadRepository || repository.role === 'lead');
       const capabilityAuthorityUrl = status.workspace.capabilityAuthority?.url?.trim()
         || lead?.url?.trim();
       if (!capabilityAuthorityUrl) return status;
       try {
-        const organisation = await registry.run<{
+        // Consume a verified invocation-local catalog at most once for advisory choices. Retained
+        // panels must not continue presenting this snapshot after later registry/authority changes.
+        // Attachment preview/apply never uses this catalog as mutation authority.
+        const initialCatalogue = inspectedAuthorityOrganisation && requestedAuthority
+          && sameGitRepository(capabilityAuthorityUrl, requestedAuthority.leadUrl)
+          ? inspectedAuthorityOrganisation : null;
+        if (initialCatalogue) inspectedAuthorityOrganisation = null;
+        const organisation = initialCatalogue ?? await registry.run<{
           governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
           configurationBranch?: string; configurationCommit?: string;
           capabilities?: RemoteCapability[] | null;
@@ -2429,7 +2439,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     let entries: WorkspaceEntry[];
     try {
-      entries = await readEntries();
+      entries = await readWithProgress('Loading local workspace choices',
+        () => readEntries(readController.signal));
     } catch (error) {
       if (requestIsCurrent()) showRefusal(error);
       return;
@@ -2456,13 +2467,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             configurationCommit: requestedAuthority.configurationCommit
           };
         } else {
-          const readAuthority = (refresh: boolean) => registry.run<ObservedCapabilityAuthority & {
+          const readAuthority = (refresh: boolean) => readWithProgress('Checking the selected capability authority',
+            () => registry.run<ObservedCapabilityAuthority & {
             capabilities?: RemoteCapability[] | null;
             repositories?: Record<string, { url?: string; defaultBranch?: string }>;
           }>([
             'capability', 'organisation', requestedAuthority.leadUrl,
             ...(refresh ? ['--refresh'] : []), '--json'
-          ]);
+          ], readController.signal));
         // Prefer the commit-validated cache. Retry once from the remote only when an old cache
         // schema cannot express the split identity or its last observation was explicitly stale.
         // This avoids an unconditional clone while preventing either condition from masquerading
@@ -2502,30 +2514,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showWarningMessage(issue);
         return;
       }
-      const matchingPaths: string[] = [];
-      const candidates = entries.filter((entry) => !entry.archivedAt);
-      const observed = await Promise.all(candidates.map(async (entry) => {
-        try { return { entry, status: await statusOnly(entry.path), error: null }; }
-        catch (error) {
-          return { entry, status: null, error: (error as Error).message };
-        }
-      }));
+      const { matchingPaths, unreadable } = workspaceAuthorityChoices(entries, requestedAuthority.leadUrl);
       if (!requestIsCurrent()) return;
-      const unreadable = observed.filter((entry) => entry.error);
       if (unreadable.length) {
         void vscode.window.showWarningMessage(
-          `Capability attachment could not safely match every local workspace. Repair or forget ${unreadable.map(({ entry }) => entry.name).join(', ')}, then retry. No workspace was selected.`
+          `Capability attachment could not read every local workspace manifest. Reload with the current CLI, or repair ${unreadable.map((entry) => entry.name).join(', ')}, then retry. No workspace was selected.`
         );
         return;
-      }
-      for (const { entry, status } of observed) {
-        if (!status) continue;
-        const lead = status.repositories.find((repository) =>
-          repository.id === status.workspace.leadRepository || repository.role === 'lead');
-        const authorityUrl = status.workspace.capabilityAuthority?.url?.trim() || lead?.url?.trim();
-        if (authorityUrl && sameGitRepository(authorityUrl, requestedAuthority.leadUrl)) {
-          matchingPaths.push(entry.path);
-        }
       }
       if (!matchingPaths.length) {
         issue = 'No local workspace is bound to the verified capability authority. Create a workspace for this authority, or use an existing clone, before attaching the capability.';
@@ -2823,9 +2818,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const failure = await onMessage(message);
       // Anything that changes the registry changes the tree beside it.
       if (message.type !== 'switch') {
-        // Authority matching may have primed a status snapshot. Never reuse that pre-apply
-        // manifest after a workspace action (including a partial success or repair).
-        statusCache.clear();
         void refreshWorkspaceTree();
       }
       return failure;
@@ -3704,6 +3696,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (diagnosticHasRepository && 'repository' in target) diagnosticClient.useRepository(target.repository);
       else diagnosticClient.useRepository(os.tmpdir());
       const { DiagnosticsPanel } = lazyPanels();
+      output.appendLine(`\nRecent CLI timings (local, sanitized):\n${JSON.stringify(recentCliCommandTimings(), null, 2)}`);
       DiagnosticsPanel.show(context, diagnosticClient, () => diagnosticHasRepository);
     } catch (error) {
       showRefusal(error, { headline: 'Could not open Diagnostics' });
@@ -4574,8 +4567,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   });
   // Capability readiness is remote-derived status (state branch and world-model availability), not
-  // configuration. Read it after the local snapshot so Configuration renders immediately and then
-  // gains the remote status without delaying activation when VPN access is unavailable.
+  // configuration. Read it on demand so unopened views cannot delay activation on an office VPN.
   let readiness: CapabilityReadiness = {};
   let workspaceStoryCatalog: WorkspaceStoryCatalogRow[] = [];
   let workspaceStoryCatalogIssue: string | null = null;
@@ -4740,8 +4732,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, afterCurrent);
   };
   refreshStoriesAfterMapping = () => refreshRemoteStories({ afterCurrent: true });
-  // Readiness may touch a remote and logs load a second legacy CLI process. Neither may compete
-  // with the initial snapshot that establishes which repository and Story this window represents.
+  // Only Story discovery follows a confirmed initial snapshot. Readiness and logs stay on demand.
   // A failed initial read leaves these deferred; the first later confirmed snapshot starts them.
   let initialRefreshCompleted = false;
   let auxiliaryEpoch = -1;
@@ -4751,7 +4742,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const scope = repositoryEpoch.capture();
     if (!forceReadiness && auxiliaryEpoch === scope.epoch) return;
     auxiliaryEpoch = scope.epoch;
-    void refreshReadiness(forceReadiness);
+    // Capability readiness is demand-loaded by the capability surface or an explicit Refresh.
+    // Activation/switching must not fan out remote configuration reads for unopened views.
     // The Logs section is collapsed by default and already has an Open action. Reading up to 500
     // events here delays a new window for a summary nobody has requested yet; opening that section
     // or an explicit Refresh loads it instead. A repository switch still clears the old summary.
@@ -6498,6 +6490,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openCapabilities':
       async () => {
         const { CapabilitiesPanel } = lazyPanels();
+        void refreshReadiness();
         return CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       },
     'singularityFlow.openImpact': async () => {

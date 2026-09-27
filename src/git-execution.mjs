@@ -13,15 +13,19 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn, spawnSync } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { lstatSync, statSync } from 'node:fs';
+import { mkdtemp } from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
 import { StringDecoder } from 'node:string_decoder';
 import { resolvePlatformProcess } from './platform-process.mjs';
-import { processResultSucceeded } from './process-result.mjs';
+import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
+import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import {
   inheritEnterpriseGitEnvironment, remoteGitEnvironment
 } from './git-enterprise-environment.mjs';
 import {
-  networkDisabled, recordSubprocessTiming, run, signalProcessTree, SingularityFlowError
+  networkDisabled, recordSubprocessTiming, removeTemporaryTree, run, signalProcessTree, SingularityFlowError
 } from './util.mjs';
 
 const positive = (value, fallback) => {
@@ -546,7 +550,14 @@ function observationPatterns({ refs = [], includeHead = true, includeAllHeads = 
 function observationPatternsCover(available, requested) {
   const held = new Set(available);
   return requested.every((pattern) => held.has(pattern)
-    || (pattern.startsWith('refs/heads/') && pattern !== 'refs/heads/*' && held.has('refs/heads/*')));
+    || (pattern.startsWith('refs/heads/') && pattern !== 'refs/heads/*' && held.has('refs/heads/*'))
+    || [...held].some((broad) => {
+      // Only a literal branch namespace ending in /* proves completeness for a descendant.
+      // Other glob shapes (including wildcards in an ancestor component) are not containment.
+      if (!broad.startsWith('refs/heads/') || !broad.endsWith('/*')) return false;
+      const prefix = broad.slice(0, -1);
+      return !/[?*\[\]]/u.test(prefix) && pattern.startsWith(prefix);
+    }));
 }
 
 function strictRemoteText(value) {
@@ -883,4 +894,135 @@ export function requireRemoteObservation(observation, label = 'repository') {
       }
     }
   );
+}
+
+/**
+ * Seal a caller-owned private bare scratch/cache for local-only reads. This is not an authority
+ * witness and must never be used to tidy application checkouts. Unknown/non-SFlow transports
+ * refuse before mutation, rather than broadening the cleanup target.
+ */
+export function sealTemporaryGitReadTransport(root, { env = process.env } = {}) {
+  if (typeof root !== 'string' || !path.isAbsolute(root) || !workingDirectoryAvailable(root)) {
+    return { ok: false, cleanupUnproven: false };
+  }
+  try { if (!lstatSync(root).isDirectory()) return { ok: false, cleanupUnproven: false }; }
+  catch { return { ok: false, cleanupUnproven: false }; }
+  let cleanupUnproven = false;
+  const authorityEnv = remoteGitEnvironment(env);
+  const localEnv = inheritEnterpriseGitEnvironment(authorityEnv, {
+    ...authorityEnv, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1'
+  });
+  const local = (args) => {
+    const result = run('git', ['-c', `core.hooksPath=${gitDisabledHooksPath()}`, ...args], {
+      cwd: root, env: localEnv, allowFailure: true, timeoutMs: 30_000, maxBuffer: 4096
+    });
+    if (!processResultCompleted(result)) cleanupUnproven = true;
+    return result;
+  };
+  const refused = () => ({ ok: false, cleanupUnproven });
+  const bare = local(['rev-parse', '--is-bare-repository']);
+  const remotes = local(['remote']);
+  if (!processResultSucceeded(bare) || bare.stdout.trim() !== 'true'
+      || !processResultSucceeded(remotes)) return refused();
+  const names = remotes.stdout.split('\n').filter(Boolean);
+  if (names.some((name) => !/^sflow-frozen-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:$/u.test(name))) {
+    return refused();
+  }
+  for (const name of names) if (!processResultSucceeded(local(['remote', 'remove', name]))) return refused();
+  const legacy = local(['config', '--local', '--unset-all', 'extensions.partialClone']);
+  if (!processResultCompleted(legacy) || ![0, 5].includes(legacy.status)) return refused();
+  const remaining = local(['remote']);
+  const promisors = local(['config', '--local', '--get-regexp',
+    '^(remote\\..*\\.(promisor|partialclonefilter)|extensions\\.partialclone)$']);
+  if (!processResultSucceeded(remaining) || remaining.stdout !== ''
+      || !processResultCompleted(promisors) || promisors.status !== 1
+      || promisors.stdout !== '' || promisors.stderr !== '') return refused();
+  return { ok: true, cleanupUnproven: false };
+}
+
+/**
+ * Navigation-only manifest presence from two already-observed exact branch tips. No blob is read,
+ * no checkout is created, and a moving/unavailable authority never becomes missing-model proof.
+ * This owner also seals the disposable partial repository for minimum-supported Git versions,
+ * which do not all honor GIT_NO_LAZY_FETCH.
+ */
+export async function readRemoteGitTreePresence(remote, branchEntries, manifestPath, {
+  env = process.env, cwd = process.cwd(), runRemoteCommand = runRemoteGitAsync
+} = {}) {
+  const url = assertCredentialFreeRemote(remote);
+  if (!Array.isArray(branchEntries) || branchEntries.length < 1 || branchEntries.length > 2
+      || typeof manifestPath !== 'string' || Buffer.byteLength(manifestPath) > 512
+      || /[\u0000-\u001f\u007f-\u009f\\:*?\[\]]/u.test(manifestPath)
+      || manifestPath.split('/').some((part) => !part || part === '.' || part === '..')) {
+    throw new SingularityFlowError('Tree presence requires bounded exact branch tips and a literal repository path.', {
+      code: 'GIT_TREE_PRESENCE_INPUT_INVALID'
+    });
+  }
+  const entries = branchEntries.map((entry) => {
+    const branch = entry?.branch;
+    const commit = entry?.commit;
+    if (typeof branch !== 'string' || typeof commit !== 'string'
+        || !validAdvertisedRef(`refs/heads/${branch}`)
+        || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit)) {
+      throw new SingularityFlowError('Tree presence requires literal branch names and exact object IDs.', {
+        code: 'GIT_TREE_PRESENCE_INPUT_INVALID'
+      });
+    }
+    return { branch, commit };
+  });
+  if (new Set(entries.map((entry) => entry.branch)).size !== entries.length
+      || new Set(entries.map((entry) => entry.commit.length)).size !== 1) {
+    throw new SingularityFlowError('Tree presence requires distinct same-format branch tips.', {
+      code: 'GIT_TREE_PRESENCE_INPUT_INVALID'
+    });
+  }
+  const transport = frozenRemoteTransport(url, { env });
+  const authorityEnv = remoteGitEnvironment(env);
+  const localEnv = inheritEnterpriseGitEnvironment(authorityEnv, {
+    ...authorityEnv, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1'
+  });
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-ready-'));
+  let retained = false;
+  const unavailable = (failure = null) => ({ status: 'unavailable', presence: {}, failure,
+    ...(retained ? { cleanupRetained: true } : {}) });
+  const local = (args) => {
+    const result = run('git', ['-c', `core.hooksPath=${gitDisabledHooksPath()}`, ...args], {
+      cwd: scratch, env: localEnv, allowFailure: true, timeoutMs: 30_000, maxBuffer: 4096
+    });
+    if (!processResultCompleted(result)) retained = true;
+    return result;
+  };
+  try {
+    if (!processResultSucceeded(local(['init', '--quiet', '--bare', '--template=',
+      ...(entries[0].commit.length === 64 ? ['--object-format=sha256'] : [])]))) return unavailable();
+    const fetched = await runRemoteCommand([
+      '-c', `core.hooksPath=${gitDisabledHooksPath()}`, '--git-dir', scratch,
+      'fetch', '--quiet', '--no-tags', '--filter=blob:none', '--depth', '1', transport.remote,
+      ...entries.map(({ branch }, index) => `refs/heads/${branch}:refs/heads/read-${index}`)
+    ], { operation: 'remote-configuration', cwd, env: transport.env });
+    if (!processResultCompleted(fetched)) retained = true;
+    if (!processResultSucceeded(fetched)) return unavailable(fetched.failure);
+    // Fetch --filter creates an implicit promisor remote, even when its operand was a URL.
+    const sealed = sealTemporaryGitReadTransport(scratch, { env: localEnv });
+    if (sealed.cleanupUnproven) retained = true;
+    if (!sealed.ok) return unavailable();
+    const presence = {};
+    for (const [index, { branch, commit }] of entries.entries()) {
+      const exact = local(['rev-parse', '--verify', `refs/heads/read-${index}`]);
+      if (!processResultSucceeded(exact)) return unavailable();
+      if (exact.stdout.trim() !== commit) return { status: 'authority-moved', presence: {} };
+      const listed = local(['ls-tree', '-z', '--full-tree', commit, '--', manifestPath]);
+      if (!processResultSucceeded(listed)) return unavailable();
+      const rows = listed.stdout.split('\0').filter(Boolean);
+      if (rows.length === 0) presence[branch] = false;
+      else if (rows.length === 1 && new RegExp(`^100(?:644|755) blob [a-f0-9]{${commit.length}}\\t`)
+        .test(rows[0]) && rows[0].slice(rows[0].indexOf('\t') + 1) === manifestPath) presence[branch] = true;
+      else return unavailable();
+    }
+    return { status: 'current', presence };
+  } finally {
+    // Timeout/abort/overflow does not prove the full child tree has stopped. Preserve that private
+    // scratch rather than racing cleanup, and expose the content-free retention diagnostic.
+    if (!retained) await removeTemporaryTree(scratch);
+  }
 }

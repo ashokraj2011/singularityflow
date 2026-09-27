@@ -615,10 +615,13 @@ function selectedGitExecutable(
  */
 export type RemoteGitFailure = 'ref-absent' | 'timeout' | 'network-unavailable'
   | 'authentication-required' | 'git-unavailable' | 'fetch-failed' | 'cancelled' | 'output-overflow';
+/** `unknown` means the bounded supervisor released its handles without observing child closure. */
+export type ProcessCleanupStatus = 'not-started' | 'closed' | 'unknown';
 export interface RemoteGitResult {
   status: number | null;
   stdout: string;
   failure: RemoteGitFailure | null;
+  cleanupStatus?: ProcessCleanupStatus;
 }
 export type RemoteGitRunner = (
   args: string[],
@@ -628,6 +631,19 @@ export type RemoteGitRunner = (
 const PROCESS_TERMINATION_DEADLINE_MS = 2_000;
 const PROCESS_TERMINATION_GRACE_MS = 250;
 const TASKKILL_ATTEMPT_MS = 750;
+
+// A detached process or destroyed pipe can still emit a queued error. These non-capturing guards
+// retain no invocation/output state and keep that late event from crashing the extension host.
+const ignoreDetachedProcessError = () => {};
+function releaseUnconfirmedChildHandles(child: ChildProcess): void {
+  try { child.on('error', ignoreDetachedProcessError); } catch { /* malformed test/host handle */ }
+  for (const stream of [child.stdin, child.stdout, child.stderr]) {
+    if (!stream) continue;
+    try { stream.on?.('error', ignoreDetachedProcessError); } catch { /* continue releasing */ }
+    try { stream.destroy?.(); } catch { /* release the other handles even if one pipe is broken */ }
+  }
+  try { child.unref?.(); } catch { /* a failed spawn may have no process handle */ }
+}
 
 function windowsSystemTool(name: string): string {
   if (!/^[a-z0-9][a-z0-9.-]*$/i.test(name)) throw new TypeError('Unsafe Windows system-tool name.');
@@ -667,12 +683,23 @@ function runTaskkill(pid: number, force: boolean, timeoutMs: number): Promise<bo
   return new Promise((resolve) => {
     let settled = false;
     let killer: ChildProcess | undefined;
+    let observedClose = false;
     const finish = (killed: boolean) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (killer) {
+        killer.removeListener('error', onError);
+        killer.removeListener('close', onClose);
+        if (!observedClose) releaseUnconfirmedChildHandles(killer);
+      }
       resolve(killed);
     };
+    function onError() { finish(false); }
+    function onClose(code: number | null) {
+      observedClose = true;
+      finish(code === 0);
+    }
     const timer = setTimeout(() => {
       try { killer?.kill('SIGKILL'); } catch { /* best effort for the supervisor itself */ }
       finish(false);
@@ -685,8 +712,8 @@ function runTaskkill(pid: number, force: boolean, timeoutMs: number): Promise<bo
       finish(false);
       return;
     }
-    killer.once('error', () => finish(false));
-    killer.once('close', (code) => finish(code === 0));
+    killer.once('error', onError);
+    killer.once('close', onClose);
   });
 }
 
@@ -709,24 +736,24 @@ async function signalProcessTree(
 }
 
 /**
- * Quiesce a child tree before its caller reports timeout/cancellation, but settle independently of
- * `close` even when a broken child or pipe-holding descendant never emits it.
+ * Attempt to quiesce a child tree before reporting timeout/cancellation, but settle independently
+ * of `close`. An unknown result is not proof that an escaped descendant or native process died.
  */
-async function terminateProcessTree(child: ChildProcess): Promise<boolean> {
+async function terminateProcessTree(child: ChildProcess): Promise<'closed' | 'unknown'> {
   const deadline = Date.now() + PROCESS_TERMINATION_DEADLINE_MS;
   const remaining = () => Math.max(0, deadline - Date.now());
 
   const gracefulClose = waitForChildClose(child, Math.min(PROCESS_TERMINATION_GRACE_MS, remaining()));
   await signalProcessTree(child, 'SIGTERM', Math.min(TASKKILL_ATTEMPT_MS, Math.max(1, remaining())));
-  if (await gracefulClose) return true;
+  if (await gracefulClose) return 'closed';
 
   const forcedClose = waitForChildClose(child, remaining());
   await signalProcessTree(child, 'SIGKILL', Math.min(TASKKILL_ATTEMPT_MS, Math.max(1, remaining())));
-  if (await forcedClose) return true;
+  if (await forcedClose) return 'closed';
 
   // Do not let an uncooperative close event defeat the independent settlement deadline.
   try { child.kill('SIGKILL'); } catch { /* already gone or inaccessible */ }
-  return false;
+  return 'unknown';
 }
 
 /** A bounded, cancellable, non-interactive remote Git boundary for the extension host. */
@@ -738,20 +765,61 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   let settled = false;
   let child: ChildProcess | undefined;
   let stoppingFailure: RemoteGitFailure | null = null;
+  let cleanupStatus: ProcessCleanupStatus = 'not-started';
   const finish = (result: RemoteGitResult) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
     options.signal?.removeEventListener('abort', cancel);
-    resolve(result);
+    if (child) {
+      child.stdout?.removeListener('data', onStdout);
+      child.stderr?.removeListener('data', onStderr);
+      child.removeListener('error', onError);
+      child.removeListener('close', onClose);
+      if (cleanupStatus === 'unknown') releaseUnconfirmedChildHandles(child);
+    }
+    resolve({ ...result, cleanupStatus });
   };
   const stop = (failure: RemoteGitFailure) => {
     if (settled || stoppingFailure) return;
     stoppingFailure = failure;
     if (!child) return finish({ status: null, stdout: '', failure });
-    const settle = () => finish({ status: null, stdout: '', failure });
-    void terminateProcessTree(child).then(settle, settle);
+    const settle = (status: 'closed' | 'unknown') => {
+      if (cleanupStatus !== 'closed') cleanupStatus = status;
+      finish({ status: null, stdout: '', failure });
+    };
+    void terminateProcessTree(child).then(settle, () => settle('unknown'));
   };
+  function onStdout(chunk: Buffer) {
+    if (settled || stoppingFailure) return;
+    outputBytes += chunk.length;
+    if (outputBytes > outputLimit) return stop('output-overflow');
+    stdout += chunk.toString('utf8');
+  }
+  function onStderr(chunk: Buffer) {
+    if (settled || stoppingFailure) return;
+    outputBytes += chunk.length;
+    if (outputBytes > outputLimit) stop('output-overflow');
+    else stderr += chunk.toString('utf8');
+  }
+  function onError() {
+    if (!stoppingFailure) finish({ status: null, stdout: '', failure: 'git-unavailable' });
+  }
+  function onClose(code: number | null) {
+    cleanupStatus = 'closed';
+    if (stoppingFailure) return;
+    let failure: RemoteGitFailure | null = null;
+    if (code !== 0) {
+      failure = /authentication failed|could not read username|terminal prompts disabled|credential/i.test(stderr)
+        ? 'authentication-required'
+        : /could not resolve host|connection (?:timed out|refused)|network is unreachable|unable to access/i.test(stderr)
+          ? 'network-unavailable'
+          : /couldn't find remote ref|remote ref does not exist/i.test(stderr)
+            ? 'ref-absent'
+            : 'fetch-failed';
+    }
+    finish({ status: code, stdout: code === 0 ? stdout : '', failure });
+  }
   const cancel = () => stop('cancelled');
   const timer = setTimeout(() => stop('timeout'), options.timeout);
   if (options.signal?.aborted) return cancel();
@@ -770,35 +838,11 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
         env
       });
       child = launched;
-      launched.stdout?.on('data', (chunk: Buffer) => {
-        if (stoppingFailure) return;
-        outputBytes += chunk.length;
-        if (outputBytes > outputLimit) return stop('output-overflow');
-        stdout += chunk.toString('utf8');
-      });
-      launched.stderr?.on('data', (chunk: Buffer) => {
-        if (stoppingFailure) return;
-        outputBytes += chunk.length;
-        if (outputBytes > outputLimit) stop('output-overflow');
-        else stderr += chunk.toString('utf8');
-      });
-      launched.once('error', () => {
-        if (!stoppingFailure) finish({ status: null, stdout: '', failure: 'git-unavailable' });
-      });
-      launched.once('close', (code) => {
-        if (stoppingFailure) return;
-        let failure: RemoteGitFailure | null = null;
-        if (code !== 0) {
-          failure = /authentication failed|could not read username|terminal prompts disabled|credential/i.test(stderr)
-            ? 'authentication-required'
-            : /could not resolve host|connection (?:timed out|refused)|network is unreachable|unable to access/i.test(stderr)
-              ? 'network-unavailable'
-              : /couldn't find remote ref|remote ref does not exist/i.test(stderr)
-                ? 'ref-absent'
-                : 'fetch-failed';
-        }
-        finish({ status: code, stdout: code === 0 ? stdout : '', failure });
-      });
+      cleanupStatus = 'unknown';
+      launched.stdout?.on('data', onStdout);
+      launched.stderr?.on('data', onStderr);
+      launched.once('error', onError);
+      launched.once('close', onClose);
     } catch {
       if (!settled && !stoppingFailure) finish({ status: null, stdout: '', failure: 'git-unavailable' });
     }
@@ -814,6 +858,7 @@ export interface LocalGitResult {
   stdout: Buffer;
   stderr: string;
   failure: LocalGitFailure | null;
+  cleanupStatus?: ProcessCleanupStatus;
 }
 export type LocalGitRunner = (
   args: string[],
@@ -836,22 +881,53 @@ export const localGit: LocalGitRunner = async (args, options) => new Promise((re
   let child: ChildProcess | undefined;
   let timer: NodeJS.Timeout | undefined;
   let stoppingFailure: LocalGitFailure | null = null;
+  let cleanupStatus: ProcessCleanupStatus = 'not-started';
   const finish = (result: LocalGitResult) => {
     if (settled) return;
     settled = true;
     if (timer) clearTimeout(timer);
     options.signal?.removeEventListener('abort', cancel);
-    resolve(result);
+    if (child) {
+      child.stdout?.removeListener('data', onStdout);
+      child.stderr?.removeListener('data', onStderr);
+      child.removeListener('error', onError);
+      child.removeListener('close', onClose);
+      if (cleanupStatus === 'unknown') releaseUnconfirmedChildHandles(child);
+    }
+    resolve({ ...result, cleanupStatus });
   };
   const stop = (failure: LocalGitFailure) => {
     if (settled || stoppingFailure) return;
     stoppingFailure = failure;
     if (!child) return finish({ status: null, stdout: Buffer.alloc(0), stderr: '', failure });
-    const settle = () => finish({
-      status: null, stdout: Buffer.alloc(0), stderr: '', failure
-    });
-    void terminateProcessTree(child).then(settle, settle);
+    const settle = (status: 'closed' | 'unknown') => {
+      if (cleanupStatus !== 'closed') cleanupStatus = status;
+      finish({ status: null, stdout: Buffer.alloc(0), stderr: '', failure });
+    };
+    void terminateProcessTree(child).then(settle, () => settle('unknown'));
   };
+  function collect(target: Buffer[], chunk: Buffer) {
+    if (settled || stoppingFailure) return;
+    outputBytes += chunk.length;
+    if (outputBytes > outputLimit) return stop('output-overflow');
+    target.push(chunk);
+  }
+  function onStdout(chunk: Buffer) { collect(stdoutChunks, chunk); }
+  function onStderr(chunk: Buffer) { collect(stderrChunks, chunk); }
+  function onError() {
+    if (!stoppingFailure) finish({
+      status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable'
+    });
+  }
+  function onClose(code: number | null) {
+    cleanupStatus = 'closed';
+    if (!stoppingFailure) finish({
+      status: code,
+      stdout: code === 0 ? Buffer.concat(stdoutChunks) : Buffer.alloc(0),
+      stderr: Buffer.concat(stderrChunks).toString('utf8'),
+      failure: null
+    });
+  }
   const cancel = () => stop('cancelled');
   if (options.signal?.aborted) return cancel();
   timer = setTimeout(() => stop('timeout'), options.timeout);
@@ -872,27 +948,11 @@ export const localGit: LocalGitRunner = async (args, options) => new Promise((re
         env
       });
       child = launched;
-      const collect = (target: Buffer[], chunk: Buffer) => {
-        if (stoppingFailure) return;
-        outputBytes += chunk.length;
-        if (outputBytes > outputLimit) return stop('output-overflow');
-        target.push(chunk);
-      };
-      launched.stdout?.on('data', (chunk: Buffer) => collect(stdoutChunks, chunk));
-      launched.stderr?.on('data', (chunk: Buffer) => collect(stderrChunks, chunk));
-      launched.once('error', () => {
-        if (!stoppingFailure) finish({
-          status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable'
-        });
-      });
-      launched.once('close', (code) => {
-        if (!stoppingFailure) finish({
-          status: code,
-          stdout: code === 0 ? Buffer.concat(stdoutChunks) : Buffer.alloc(0),
-          stderr: Buffer.concat(stderrChunks).toString('utf8'),
-          failure: null
-        });
-      });
+      cleanupStatus = 'unknown';
+      launched.stdout?.on('data', onStdout);
+      launched.stderr?.on('data', onStderr);
+      launched.once('error', onError);
+      launched.once('close', onClose);
       if (options.input == null) launched.stdin?.end();
       else launched.stdin?.end(options.input);
     } catch {
@@ -1627,14 +1687,47 @@ export interface CliCommandTiming {
   schemaVersion: 2;
   event: 'dx.vscode-command-timing';
   command: string;
+  /** Closed diagnostic vocabulary; never a work ID, URL, path, option value, or raw argv. */
+  subcommand: string | null;
   commandClass: 'read' | 'mutation' | 'unknown';
   startedAt: string;
   durationMs: number;
   outcome: 'success' | 'error' | 'cancelled';
   cancelled: boolean;
   exitCode: number | null;
+  cleanupStatus: ProcessCleanupStatus;
   fallback: 'none';
   stages: { spawnMs: number };
+}
+
+const TIMING_COMMANDS = new Set([
+  'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'progress',
+  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change', 'proof',
+  'comprehension', 'configuration', 'documents', 'workflow', 'phase', 'converge', 'explain',
+  'spec', 'visual', 'capabilities', 'capability', 'session', 'workspace', 'revision', 'revise',
+  'factory-reset', 'init', 'inputs', 'recover', 'report', 'review', 'telemetry', 'help-metrics',
+  'story', 'epic', 'initiative', 'start', 'submit', 'repair', 'onboard', 'authority', 'local-reset',
+  'task', 'request', 'candidate', 'execution-unit', 'device', 'authority-store', 'learn', 'pack',
+  'memory', 'meta-tool', 'delivery', 'intent', 'program', 'process', 'sgos', 'wm', 'goal', 'fault',
+  'fix', 'journal', 'why', 'approvals', 'receipt', 'impact', 'context', 'tokens', 'clarification',
+  'architecture', 'local', 'cache', 'repositories', 'policy', 'evidence', 'env', 'skill', 'mcp',
+  'secrets', 'constitution', 'auto', 'adhoc', 'land', 'push', 'next', 'resume', 'return', 'run',
+  'reinstall', 'gate', 'specify', 'plan', 'implement', 'verify'
+]);
+const TIMING_SUBCOMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
+  workflow: new Set(['list', 'proposals', 'proposal', 'proposal-status', 'author', 'create', 'publish', 'activate']),
+  capability: new Set(['organisation', 'inspect-repository', 'leads', 'onboard', 'proposals', 'proposal', 'setup-proposals', 'setup-proposal', 'setup-activate', 'map', 'map-team', 'activate', 'world-model', 'fsck']),
+  configuration: new Set(['snapshot', 'validate', 'read', 'save', 'publish', 'export-bundle', 'initiative-materialize-preview', 'explain']),
+  workspace: new Set(['list', 'current', 'status', 'doctor', 'branches', 'create', 'prepare', 'update', 'repair', 'sync', 'archive', 'refresh-configuration', 'reinitialize', 'attach-capability', 'detach-capability']),
+  session: new Set(['current', 'doctor', 'context', 'candidates', 'status', 'attach', 'repair-selection']),
+  revision: new Set(['checks', 'attachments', 'activation', 'capabilities', 'status', 'card', 'show', 'abandon']),
+  wm: new Set(['build', 'light', 'ast'])
+};
+const recentTimings: CliCommandTiming[] = [];
+
+/** Bounded, copied process-local diagnostics also retain completions from silent clients. */
+export function recentCliCommandTimings(): readonly CliCommandTiming[] {
+  return recentTimings.map((event) => structuredClone(event));
 }
 
 export interface InvokeOptions {
@@ -1654,6 +1747,16 @@ export interface InvokeOptions {
   onTiming?: (event: CliCommandTiming) => void;
   /** Aborting a run the user cancelled, or that a newer refresh has superseded. */
   signal?: AbortSignal;
+}
+
+/** Preserve replay-safe recovery copy when a subscriber, rather than the child, owns its deadline. */
+export function cliInvocationTimeoutError(
+  options: Pick<InvokeOptions, 'executable' | 'cli' | 'repository' | 'args' | 'input'>,
+  timeoutMs: number
+): CliTimeoutError {
+  const command = options.input == null && cliArgsAreReplaySafe(options.args)
+    ? terminalCommand(options.repository, options.args, process.platform, options) : null;
+  return new CliTimeoutError(timeoutMs, command);
 }
 
 /**
@@ -1684,12 +1787,21 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     let timingReported = false;
     let timer: NodeJS.Timeout | undefined;
     let pendingFailure: { error: Error; outcome: CliCommandTiming['outcome']; cancelled: boolean } | null = null;
+    let cleanupStatus: ProcessCleanupStatus = 'not-started';
     const stdoutDecoder = new StringDecoder('utf8');
     const stderrDecoder = new StringDecoder('utf8');
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
+      if (child) {
+        child.stdout?.removeListener('data', onStdout);
+        child.stderr?.removeListener('data', onStderr);
+        child.removeListener('error', onChildError);
+        child.removeListener('close', onChildClose);
+        child.removeListener('close', onHostClose);
+        if (cleanupStatus === 'unknown') releaseUnconfirmedChildHandles(child);
+      }
     };
     const reportTiming = (
       outcome: CliCommandTiming['outcome'], exitCode: number | null, cancelled = false
@@ -1698,19 +1810,25 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       timingReported = true;
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
       try {
-        onTiming?.({
+        const command = TIMING_COMMANDS.has(args[0] ?? '') ? args[0]! : 'command';
+        const event: CliCommandTiming = {
           schemaVersion: 2,
           event: 'dx.vscode-command-timing',
-          command: args[0] ?? 'command',
+          command,
+          subcommand: TIMING_SUBCOMMANDS[command]?.has(args[1] ?? '') ? args[1]! : null,
           commandClass,
           startedAt: startedAtWall,
           durationMs,
           outcome,
           cancelled,
           exitCode,
+          cleanupStatus,
           fallback: 'none',
           stages: { spawnMs: durationMs }
-        });
+        };
+        recentTimings.push(event);
+        if (recentTimings.length > 128) recentTimings.shift();
+        onTiming?.(structuredClone(event));
       } catch { /* diagnostic only */ }
     };
     const succeed = (value: T) => {
@@ -1732,20 +1850,24 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       if (!child) return fail(error, outcome, cancelled);
       // Do not reject while taskkill/process-group cleanup is still in progress. The supervisor has
       // its own hard deadline, so a child that never emits `close` cannot strand this Promise.
-      const settle = () => {
+      const settle = (status: 'closed' | 'unknown') => {
+        if (cleanupStatus !== 'closed') cleanupStatus = status;
         const failure = pendingFailure;
         if (failure) fail(failure.error, failure.outcome, failure.cancelled);
       };
-      void terminateProcessTree(child).then(settle, settle);
+      void terminateProcessTree(child).then(settle, () => settle('unknown'));
     };
     function onAbort() {
+      // A shared read's final subscriber can exhaust its own existing deadline. Preserve that
+      // diagnostic outcome while using the same bounded process-tree termination boundary.
+      if (signal?.reason instanceof CliTimeoutError) return terminate(signal.reason, 'error');
       terminate(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
     }
 
-    if (signal?.aborted) return fail(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
+    if (signal?.aborted) return onAbort();
 
     const collect = (target: string[], chunk: Buffer, stream: OutputStream): void => {
-      if (pendingFailure) return;
+      if (settled || pendingFailure) return;
       outputBytes += chunk.length;
       if (outputBytes > MAX_OUTPUT_BYTES) {
         terminate(new Error('The Singularity Flow CLI returned too much data to display.'), 'error');
@@ -1754,6 +1876,15 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       const text = (stream === 'stdout' ? stdoutDecoder : stderrDecoder).write(chunk);
       if (text) target.push(text);
     };
+    function onStdout(chunk: Buffer) { collect(stdoutChunks, chunk, 'stdout'); }
+    function onStderr(chunk: Buffer) { collect(stderrChunks, chunk, 'stderr'); }
+    function onChildError(error: Error) {
+      if (!pendingFailure) fail(error);
+    }
+    function onHostClose(code: number | null) {
+      cleanupStatus = 'closed';
+      recordHostCliProcessCompleted(child?.pid, code);
+    }
 
     try {
       child = spawnImpl(executable, [cli, ...args], {
@@ -1763,8 +1894,9 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
       });
+      cleanupStatus = 'unknown';
       recordHostCliProcessStarted(child.pid);
-      child.once('close', (code) => recordHostCliProcessCompleted(child?.pid, code));
+      child.once('close', onHostClose);
     } catch (error) {
       return fail(error);
     }
@@ -1773,23 +1905,17 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       timer = setTimeout(() => {
         // A command consuming private stdin is not replayable from argv alone. Never print a
         // deceptively complete recovery command that omits its exact input payload.
-        const recoveryCommand = input == null && cliArgsAreReplaySafe(args) ? terminalCommand(
-          repository, args, process.platform, { executable, cli }
-        ) : null;
-        terminate(new CliTimeoutError(
-          timeoutMs,
-          recoveryCommand
-        ), 'error');
+        terminate(cliInvocationTimeoutError({ executable, cli, repository, args, input }, timeoutMs), 'error');
       }, timeoutMs);
     }
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    child.stdout?.on('data', (chunk: Buffer) => { collect(stdoutChunks, chunk, 'stdout'); });
-    child.stderr?.on('data', (chunk: Buffer) => { collect(stderrChunks, chunk, 'stderr'); });
-    child.on('error', (error) => {
-      if (!pendingFailure) fail(error);
-    });
-    child.on('close', (code) => {
+    child.stdout?.on('data', onStdout);
+    child.stderr?.on('data', onStderr);
+    child.on('error', onChildError);
+    child.on('close', onChildClose);
+    function onChildClose(code: number | null) {
+      cleanupStatus = 'closed';
       if (settled) return;
       // The termination supervisor also observes `close` and owns settlement for a timeout or
       // cancellation. Reporting here could beat a still-running Windows taskkill process.
@@ -1844,7 +1970,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       } catch {
         fail(new Error(`The CLI returned data this extension could not read: ${safeDisplayDiagnosticText(stdout.slice(0, 500))}`));
       }
-    });
+    }
 
     if (input == null) child.stdin?.end();
     else child.stdin?.end(input, 'utf8');

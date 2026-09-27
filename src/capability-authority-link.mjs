@@ -6,23 +6,27 @@
  * still observe the current `sflow/config` ref and prove the repository mapping from that exact
  * approved catalog before using it.
  */
-import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { lstat, mkdir, mkdtemp, open, readFile, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { frozenRemoteTransport, remoteFingerprint, sanitizeRemote,
   assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
-import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from './git-execution.mjs';
-import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import {
+  GitRemoteSession, requireRemoteObservation, runRemoteGitAsync, sealTemporaryGitReadTransport
+} from './git-execution.mjs';
+import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';
 import {
   mapLimit, removeTemporaryTree, run, SingularityFlowError, writeAtomic
 } from './util.mjs';
 import { gitRepositoryComparisonKey } from './git-repository-identity.mjs';
+import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 
 export const CAPABILITY_AUTHORITY_LINK_PATH = 'singularity/capability-authority.json';
 export const CAPABILITY_AUTHORITY_BRANCH = 'sflow/config';
@@ -73,14 +77,15 @@ async function refuseAuthorityCacheSymlinks(cache) {
   }
 }
 
-function createAuthorityCacheEntry(repository, branch, stateCommit, link) {
+function createAuthorityCacheEntry(repository, branch, stateCommit, result) {
   const core = {
     schemaVersion: currentSchemaVersion(AUTHORITY_CACHE_FAMILY),
     kind: AUTHORITY_CACHE_FAMILY,
     repositoryIdentity: repositoryIdentity(repository),
     stateBranch: branch,
     stateCommit,
-    link
+    status: result.status,
+    link: result.link ?? null
   };
   return Object.freeze({ ...core, cacheSha256: `sha256:${recordSha256(core)}` });
 }
@@ -93,31 +98,38 @@ function validateAuthorityCacheEntry(value, repository, branch, stateCommit) {
     && record.repositoryIdentity === repositoryIdentity(repository)
     && record.stateBranch === branch
     && record.stateCommit === stateCommit
-    && /^[0-9a-f]{40,64}$/i.test(record.stateCommit ?? '')
+    && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(record.stateCommit ?? '')
+    && ['current', 'missing'].includes(record.status)
+    && (record.status !== 'missing' || record.link === null)
     && record.cacheSha256 === `sha256:${recordSha256(core)}`;
   if (!valid) throw new Error('Capability authority cache entry does not match the observed ref.');
-  return validateCapabilityAuthorityLink(record.link, repository);
+  return record.status === 'missing'
+    ? { status: 'missing', link: null }
+    : { status: 'current', link: validateCapabilityAuthorityLink(record.link, repository) };
 }
 
-async function cachedAuthorityLink(file, repository, branch, stateCommit) {
+async function cachedAuthorityLink(file, repository, branch, stateCommit, directory) {
   try {
+    if (await authorityStoreIncomplete(directory)) return null;
     const bytes = await readFile(file, 'utf8');
+    if (await authorityStoreIncomplete(directory)) return null;
     return validateAuthorityCacheEntry(bytes, repository, branch, stateCommit);
   } catch {
     return null;
   }
 }
 
-function initializeAuthorityObjectStore(directory, stateCommit, env) {
-  const existing = run('git', ['rev-parse', '--is-bare-repository'], {
+function initializeAuthorityObjectStore(directory, stateCommit, env, runCommand) {
+  const existing = runCommand('git', ['rev-parse', '--is-bare-repository'], {
     cwd: directory, env, allowFailure: true, timeoutClass: 'local-read'
   });
-  if (existing.status === 0 && existing.stdout.trim() === 'true') return;
-  run('git', [
+  if (!processResultCompleted(existing)) return false;
+  if (processResultSucceeded(existing) && existing.stdout.trim() === 'true') return true;
+  return processResultSucceeded(runCommand('git', [
     'init', '--quiet', '--bare',
     ...(stateCommit.length === 64 ? ['--object-format=sha256'] : []),
     directory
-  ], { env });
+  ], { cwd: directory, env, allowFailure: true, timeoutClass: 'local-read' }));
 }
 
 function authorityCacheMaximumBytes(env) {
@@ -127,11 +139,11 @@ function authorityCacheMaximumBytes(env) {
     : DEFAULT_AUTHORITY_CACHE_MAX_BYTES;
 }
 
-function authorityObjectStoreBytes(directory, env) {
-  const measured = run('git', ['count-objects', '-v'], {
+function authorityObjectStoreBytes(directory, env, runCommand) {
+  const measured = runCommand('git', ['count-objects', '-v'], {
     cwd: directory, env, allowFailure: true, timeoutClass: 'local-read'
   });
-  if (measured.status !== 0) return null;
+  if (!processResultSucceeded(measured)) return null;
   const values = new Map(String(measured.stdout ?? '').split('\n').map((row) => {
     const [key, value] = row.trim().split(/:\s*/, 2);
     return [key, Number(value)];
@@ -143,13 +155,13 @@ function authorityObjectStoreBytes(directory, env) {
     : null;
 }
 
-async function enforceAuthorityObjectStoreQuota(directory, env) {
+async function enforceAuthorityObjectStoreQuota(directory, env, runCommand) {
   const info = await lstat(directory).catch((error) => {
     if (error?.code === 'ENOENT') return null;
     throw error;
   });
   if (!info) return;
-  const bytes = authorityObjectStoreBytes(directory, env);
+  const bytes = authorityObjectStoreBytes(directory, env, runCommand);
   if (bytes != null && bytes > authorityCacheMaximumBytes(env)) {
     // This is a derived, identity-keyed cache directory and the caller holds its record lease.
     // Removing it cannot remove an application checkout or any authoritative configuration.
@@ -157,28 +169,156 @@ async function enforceAuthorityObjectStoreQuota(directory, env) {
   }
 }
 
-async function fetchAuthorityLink(repository, branch, stateCommit, directory, {
-  env, runRemoteCommand
-}) {
+async function authorityStoreIncomplete(directory) {
+  return lstat(`${directory}.incomplete`).then(() => true, (error) => error?.code !== 'ENOENT');
+}
+
+function unavailableAuthorityStore(cleanupUnproven, code, message) {
+  return { status: 'unavailable', cleanupUnproven, failure: { code, message } };
+}
+
+function incompleteAuthorityStore() {
+  return unavailableAuthorityStore(true, 'CAPABILITY_AUTHORITY_CACHE_CLEANUP_UNKNOWN',
+    'A previous authority object-store read has an unconfirmed process cleanup outcome. The store was preserved.');
+}
+
+/** Publish quarantine before dispatch: an interrupted host cannot lose an unknown child's store. */
+async function withAuthorityStoreOperation(directory, operation) {
+  if (await authorityStoreIncomplete(directory)) return incompleteAuthorityStore();
   await mkdir(directory, { recursive: true });
-  initializeAuthorityObjectStore(directory, stateCommit, env);
-  const transport = frozenRemoteTransport(repository, { env });
-  const fetched = await runRemoteCommand([
-    'fetch', '--quiet', '--no-tags', '--depth', '1',
-    `--filter=blob:limit=${AUTHORITY_LINK_FETCH_BLOB_LIMIT}`,
-    transport.remote,
-    `+refs/heads/${branch}:${AUTHORITY_CACHE_REF}`
-  ], { cwd: directory, operation: 'remote-configuration', env: transport.env });
-  if (fetched.status !== 0) return { status: 'unavailable', failure: fetched.failure ?? null };
-  const fetchedCommit = run('git', ['rev-parse', '--verify', AUTHORITY_CACHE_REF], {
-    cwd: directory, env: transport.env, allowFailure: true, timeoutClass: 'local-read'
-  }).stdout.trim();
-  if (fetchedCommit !== stateCommit) return { status: 'stale', observedCommit: fetchedCommit };
-  const tree = readRefTreeResult(directory, AUTHORITY_CACHE_REF, [CAPABILITY_AUTHORITY_LINK_PATH], {
-    env: transport.env, maxBatchBytes: 1024 * 1024, maxObjectBytes: 256 * 1024
+  const marker = `${directory}.incomplete`;
+  const markerBytes = Buffer.from(`Authority object-store operation completion unconfirmed: ${randomUUID()}\n`);
+  let handle;
+  let owned;
+  try {
+    handle = await open(marker, 'wx+', 0o600);
+    owned = await handle.stat();
+    await handle.writeFile(markerBytes);
+    await handle.sync();
+  } catch {
+    await handle?.close().catch(() => {});
+    // No Git process starts unless its quarantine marker was successfully persisted. An occupied
+    // marker is never replaced, and failed marker publication cannot authorize deleting the store.
+    return unavailableAuthorityStore(true, 'CAPABILITY_AUTHORITY_CACHE_QUARANTINE_UNAVAILABLE',
+      'The private authority object store could not publish its operation quarantine. The store was preserved.');
+  }
+  const state = { cleanupUnproven: false };
+  const runCommand = (command, args, options) => {
+    if (state.cleanupUnproven) return { status: 1, stdout: '', stderr: '', blocked: true };
+    let result;
+    try {
+      if (command !== 'git') throw new TypeError('Authority object stores admit only Git commands.');
+      result = run('git', ['-c', `core.hooksPath=${gitDisabledHooksPath()}`, ...args], options);
+    } catch {
+      state.cleanupUnproven = true;
+      return { status: 1, stdout: '', stderr: '', blocked: true };
+    }
+    if (!processResultCompleted(result)) state.cleanupUnproven = true;
+    // The compatibility tree reader historically tests status alone. A poisoned status zero must
+    // not be parsed as current bytes, absence proof, or permission to delete this store.
+    return result.status === 0 && !processResultSucceeded(result) ? { ...result, status: 1 } : result;
+  };
+  try {
+    return await operation(state, runCommand);
+  } catch {
+    // A rejected runner can have lost acknowledgement after dispatch. Keep quarantine rather than
+    // guessing it threw before starting a child or allowing the fallback's finally to remove it.
+    state.cleanupUnproven = true;
+    return unavailableAuthorityStore(true, 'CAPABILITY_AUTHORITY_CACHE_OPERATION_UNCONFIRMED',
+      'The authority object-store operation did not return a confirmed process outcome. The store was preserved.');
+  } finally {
+    const completionKnown = !state.cleanupUnproven;
+    let markerRemoved = false;
+    try {
+      if (completionKnown) {
+        // Keeping the original handle open prevents unlink/recreate inode reuse from satisfying
+        // this CAS. Its bounded nonce bytes also detect an in-place successor marker replacement.
+        const observed = Buffer.alloc(markerBytes.length + 1);
+        const { bytesRead } = await handle.read(observed, 0, observed.length, 0);
+        const current = await lstat(marker).catch(() => null);
+        if (bytesRead === markerBytes.length && markerBytes.equals(observed.subarray(0, bytesRead))
+            && current?.isFile() && current.nlink === 1
+            && current.dev === owned.dev && current.ino === owned.ino) {
+          await unlink(marker);
+          markerRemoved = true;
+        }
+      }
+    } catch { /* An unverified marker is preserved; no process-death claim follows from I/O. */ }
+    finally { await handle.close().catch(() => {}); }
+    if (completionKnown && !markerRemoved) return unavailableAuthorityStore(true,
+      'CAPABILITY_AUTHORITY_CACHE_QUARANTINE_CHANGED',
+      'The authority object-store quarantine could not be released by its exact owner. The store was preserved.');
+  }
+}
+
+async function fetchAuthorityLink(repository, branch, stateCommit, directory, {
+  env, runRemoteCommand, enforceQuota = false
+}) {
+  return withAuthorityStoreOperation(directory, async (state, runCommand) => {
+    if (enforceQuota) {
+      await enforceAuthorityObjectStoreQuota(directory, env, runCommand);
+      if (state.cleanupUnproven) return incompleteAuthorityStore();
+      await mkdir(directory, { recursive: true });
+    }
+    if (!initializeAuthorityObjectStore(directory, stateCommit, env, runCommand)) return unavailableAuthorityStore(
+      state.cleanupUnproven, 'CAPABILITY_AUTHORITY_CACHE_INITIALIZATION_UNCONFIRMED',
+      'The private authority object store could not confirm its initialization.');
+    const transport = frozenRemoteTransport(repository, { env });
+    const seal = () => {
+      const result = sealTemporaryGitReadTransport(directory, { env });
+      if (result.cleanupUnproven) state.cleanupUnproven = true;
+      return result.ok ? null : unavailableAuthorityStore(state.cleanupUnproven,
+        'CAPABILITY_AUTHORITY_CACHE_TRANSPORT_UNVERIFIED',
+        'The private authority object store could not be sealed for local reads.');
+    };
+    const beforeRead = seal();
+    if (beforeRead) return beforeRead;
+    // A receipt can be corrupt/absent while its exact Git objects remain complete. Prove the
+    // bounded link read locally with lazy fetching disabled before transferring the same objects.
+    const local = authorityLinkAtCommit(directory, stateCommit, repository, transport.env, runCommand);
+    if (state.cleanupUnproven) return incompleteAuthorityStore();
+    if (['current', 'missing', 'invalid'].includes(local.status)) return local;
+    // Keep the existing fetch argv contract while disabling hooks through this owner's narrowly
+    // extended, already-attested frozen transport. No caller configuration is admitted here.
+    const count = Number(transport.env.GIT_CONFIG_COUNT);
+    const fetchEnv = inheritEnterpriseGitEnvironment(transport.env, {
+      ...transport.env, GIT_CONFIG_COUNT: String(count + 1),
+      [`GIT_CONFIG_KEY_${count}`]: 'core.hooksPath',
+      [`GIT_CONFIG_VALUE_${count}`]: gitDisabledHooksPath()
+    });
+    const fetched = await runRemoteCommand([
+      'fetch', '--quiet', '--no-tags', '--depth', '1',
+      `--filter=blob:limit=${AUTHORITY_LINK_FETCH_BLOB_LIMIT}`,
+      transport.remote,
+      `+refs/heads/${branch}:${AUTHORITY_CACHE_REF}`
+    ], { cwd: directory, operation: 'remote-configuration', env: fetchEnv });
+    if (!processResultSucceeded(fetched)) {
+      state.cleanupUnproven = !processResultCompleted(fetched);
+      return { status: 'unavailable', cleanupUnproven: state.cleanupUnproven, failure: fetched.failure ?? {
+        code: 'CAPABILITY_AUTHORITY_LINK_FETCH_FAILED', message: 'The authority-link transfer did not return a completed success.'
+      } };
+    }
+    const afterFetch = seal();
+    if (afterFetch) return afterFetch;
+    const fetchedTip = runCommand('git', ['rev-parse', '--verify', AUTHORITY_CACHE_REF], {
+      cwd: directory, env: transport.env, allowFailure: true, timeoutClass: 'local-read'
+    });
+    if (!processResultSucceeded(fetchedTip)) return unavailableAuthorityStore(state.cleanupUnproven,
+      'CAPABILITY_AUTHORITY_CACHE_REF_UNCONFIRMED', 'The transferred authority object-store ref could not be confirmed.');
+    const fetchedCommit = fetchedTip.stdout.trim();
+    if (fetchedCommit !== stateCommit) return { status: 'stale', observedCommit: fetchedCommit };
+    const result = authorityLinkAtCommit(directory, stateCommit, repository, transport.env, runCommand);
+    return state.cleanupUnproven ? incompleteAuthorityStore() : result;
+  });
+}
+
+function authorityLinkAtCommit(directory, stateCommit, repository, env, runCommand) {
+  const tree = readRefTreeResult(directory, stateCommit, [CAPABILITY_AUTHORITY_LINK_PATH], {
+    env, runCommand, maxBatchBytes: 1024 * 1024, maxObjectBytes: 256 * 1024
   });
   if (tree.status !== 'ok') return {
-    status: 'unavailable', failure: { code: 'CAPABILITY_AUTHORITY_LINK_READ_FAILED', message: tree.errors[0]?.message }
+    status: 'unavailable',
+    failure: { code: 'CAPABILITY_AUTHORITY_LINK_READ_FAILED', message: tree.errors[0]?.message }
   };
   const bytes = tree.contents.get(CAPABILITY_AUTHORITY_LINK_PATH);
   if (bytes == null) return { status: 'missing' };
@@ -318,12 +458,12 @@ export async function readCapabilityAuthorityLink(repositoryRemote, {
   const cache = authorityCachePaths(repository, branch, gitEnv);
   const hit = cache
     ? await refuseAuthorityCacheSymlinks(cache)
-      .then(() => cachedAuthorityLink(cache.record, repository, branch, stateCommit))
+      .then(() => cachedAuthorityLink(cache.record, repository, branch, stateCommit, cache.directory))
       .catch(() => null)
     : null;
   if (hit) return Object.freeze({
-    status: 'current', repository: sanitizeRemote(repository), stateBranch: branch,
-    stateCommit, link: hit, failure: null
+    status: hit.status, repository: sanitizeRemote(repository), stateBranch: branch,
+    stateCommit, link: hit.link, failure: null
   });
 
   let materialized;
@@ -333,14 +473,13 @@ export async function readCapabilityAuthorityLink(repositoryRemote, {
     const { withRegistryFileLease } = await import('./workspace.mjs');
     materialized = await withRegistryFileLease(cache.record, async () => {
       await refuseAuthorityCacheSymlinks(cache);
-      const concurrent = await cachedAuthorityLink(cache.record, repository, branch, stateCommit);
-      if (concurrent) return { status: 'current', link: concurrent };
-      await enforceAuthorityObjectStoreQuota(cache.directory, gitEnv);
+      const concurrent = await cachedAuthorityLink(cache.record, repository, branch, stateCommit, cache.directory);
+      if (concurrent) return concurrent;
       const fetched = await fetchAuthorityLink(repository, branch, stateCommit, cache.directory, {
-        env: gitEnv, runRemoteCommand
+        env: gitEnv, runRemoteCommand, enforceQuota: true
       });
-      if (fetched.status === 'current') {
-        const entry = createAuthorityCacheEntry(repository, branch, stateCommit, fetched.link);
+      if (['current', 'missing'].includes(fetched.status)) {
+        const entry = createAuthorityCacheEntry(repository, branch, stateCommit, fetched);
         await writeAtomic(cache.record, canonicalJson(entry), { mode: 0o600 }).catch(() => {});
       }
       return fetched;
@@ -355,7 +494,7 @@ export async function readCapabilityAuthorityLink(repositoryRemote, {
         env: gitEnv, runRemoteCommand
       });
     } finally {
-      await removeTemporaryTree(scratch);
+      if (!materialized?.cleanupUnproven) await removeTemporaryTree(scratch);
     }
   }
   return Object.freeze({

@@ -75,7 +75,7 @@ import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
 import {
-  GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
+  GitRemoteSession, readRemoteGitTreePresence, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
 import {
   forgetLeadRepository, leadRegistryFile, listLeadRepositories, listLeadRepositoryRegistryRecords,
@@ -101,6 +101,10 @@ export {
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
+// Presence is an immutable-tree fact, never an approval or freshness cache. Every use still makes
+// a fresh operation-scoped ref observation; unavailable reads never enter this bounded local LRU.
+const CAPABILITY_READINESS_TREE_CACHE_LIMIT = 128;
+const capabilityReadinessTrees = new Map();
 const CAPABILITY_INSPECTION_MAX_PROPOSALS = 64;
 const CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT = 4_096;
 // Git for Windows ultimately passes one UTF-16 command line to CreateProcessW. Keep explicit
@@ -1574,6 +1578,14 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
   });
 }
 
+function organisationObservationBranches(cached) {
+  const branches = new Set([CONFIGURATION_BRANCH, 'state']);
+  for (const candidate of [cached?.organisation?.sourceBranch, cached?.organisation?.stateProjection?.branch]) {
+    if (typeof candidate === 'string' && isGitRefName(candidate)) branches.add(candidate);
+  }
+  return branches;
+}
+
 /**
  * Borrow a lead repository for the length of one edit.
  *
@@ -2305,7 +2317,7 @@ async function capabilityMapFromState(remote, branch = 'state', {
  * When the remote is unreachable, only a previously validated cache is served, clearly marked
  * stale with its age and the remote failure.
  */
-export async function readOrganisation(url, { refresh = false, routingTrail = [] } = {}) {
+export async function readOrganisation(url, { refresh = false, routingTrail = [], remoteSession = null } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED',
@@ -2328,21 +2340,14 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
   // Build one sanitized enterprise environment for this complete authority read. Reusing it for
   // the observation, clone, state projection and local object reads both prevents ambient Git
   // selectors from redirecting the operation and avoids repeating system/global config probes.
-  const gitEnv = enterpriseGitEnvironment();
-  const session = new GitRemoteSession({ env: gitEnv });
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment();
+  const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
   // A current state projection is a separately moving remote ref. Include the cached projection
   // source in the same bounded observation as sflow/config so an unchanged configuration tip can
   // never make a later state publication look current forever.
   const cachedSourceBranch = String(cached?.organisation?.sourceBranch ?? '').trim();
   const cachedProjectionBranch = String(cached?.organisation?.stateProjection?.branch ?? '').trim();
-  const observedBranches = new Set([CONFIGURATION_BRANCH, 'state']);
-  if (isGitRefName(cachedSourceBranch) && cachedSourceBranch !== CONFIGURATION_BRANCH) {
-    observedBranches.add(cachedSourceBranch);
-  }
-  if (isGitRefName(cachedProjectionBranch)
-      && cachedProjectionBranch !== CONFIGURATION_BRANCH) {
-    observedBranches.add(cachedProjectionBranch);
-  }
+  const observedBranches = organisationObservationBranches(cached);
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: [...observedBranches].map((name) => `refs/heads/${name}`)
   });
@@ -2455,7 +2460,7 @@ export async function readOrganisation(url, { refresh = false, routingTrail = []
       });
       if (located.status === 'current' && located.link) {
         const lead = await readOrganisation(located.link.authority.remote, {
-          refresh, routingTrail: [...routingTrail, remote]
+          refresh, routingTrail: [...routingTrail, remote], remoteSession: session
         });
         const repositoryIds = Object.entries(lead.repositories ?? {})
           .filter(([, declaration]) => sameGitRepository(declaration?.url, remote))
@@ -2771,11 +2776,31 @@ export async function inspectCapabilityRepository(repositoryUrl, {
   const repository = assertCredentialFreeRemote(repositoryUrl);
   const suppliedLeads = [...(leadUrl == null ? [] : [leadUrl]), ...leadUrls]
     .map((url) => assertCredentialFreeRemote(url));
-  const authorityLink = await readCapabilityAuthorityLink(repository, {
-    stateBranch,
-    remoteSession: authorityRemoteSession,
-    runRemoteCommand: authorityRemoteCommand
-  }).catch((error) => {
+  // One fresh operation-scoped session observes each exact raw destination. The union includes
+  // the cached organisation's moving projection refs, not merely its configuration tip.
+  const inspectionSession = authorityRemoteSession ?? new GitRemoteSession({ env: enterpriseGitEnvironment() });
+  const primed = new Set();
+  const prime = async (url) => {
+    if (primed.has(url)) return;
+    primed.add(url);
+    // This read shapes the advertisement only; cache validity/future-version refusal remains
+    // owned by readOrganisation when that repository actually becomes an inspected authority.
+    const cached = await readOrganisationCache(url).catch(() => null);
+    const refs = [...organisationObservationBranches(cached)].map((branch) => `refs/heads/${branch}`);
+    refs.push(`refs/heads/${stateBranch}`);
+    if (includeProposals) refs.push(`refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*`);
+    await inspectionSession.observeAsync(url, { includeHead: false, refs: [...new Set(refs)] });
+  };
+  const authorityLink = await (async () => {
+    // Priming is part of this authority read, so an enterprise-admission refusal must use the
+    // same unavailable classification and diagnostic route as the subsequent link read.
+    await prime(repository);
+    return readCapabilityAuthorityLink(repository, {
+      stateBranch,
+      remoteSession: inspectionSession,
+      runRemoteCommand: authorityRemoteCommand
+    });
+  })().catch((error) => {
     const transportUnavailable = error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'
       || /^REMOTE_/u.test(String(error?.code ?? ''));
     return {
@@ -2828,7 +2853,8 @@ export async function inspectCapabilityRepository(repositoryUrl, {
 
   const inspected = await mapLimit(leads, Math.max(1, Math.min(4, leads.length)), async (url) => {
     try {
-      const organisation = await readOrganisation(url, { refresh });
+      await prime(url);
+      const organisation = await readOrganisation(url, { refresh, remoteSession: inspectionSession });
       const repositoryEntries = Object.entries(organisation.repositories ?? {})
         .filter(([, value]) => sameGitRepository(value?.url, repository));
       const rows = flattenTree(organisation.capabilities ?? []);
@@ -2883,6 +2909,7 @@ export async function inspectCapabilityRepository(repositoryUrl, {
             maximumProposals: CAPABILITY_INSPECTION_MAX_PROPOSALS,
             maximumAdvertisedProposals: proposalScanLimit,
             withCoverage: true,
+            remoteSession: inspectionSession,
             runRemoteCommand: proposalRemoteCommand
           });
           pendingProposals = catalog.proposals;
@@ -7574,62 +7601,107 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
 /**
  * Whether each repository a capability ships from is actually ready to be worked in.
  *
- * Two questions, asked of the remote rather than of a clone: does the orphan state branch exist,
- * and is there a world model. Both are things you otherwise discover at the moment you need them —
- * a phase that will not ground, a workspace with nowhere to record its governance — and both are
- * answerable in one `ls-remote` per repository.
+ * Two questions: does the state branch exist, and is there a world-model manifest. One exact
+ * branch advertisement per repository selects the tips; manifest presence then reuses an exact
+ * tree fact or a blobless metadata fetch. No model content or application checkout is needed.
  *
  * The world model is looked for on the state branch first and the default branch second, in that
  * order, because that is the order every reader resolves it in.
  */
-export async function capabilityReadiness(leadUrl, { stateBranch = 'state', outputDir = 'singularity/world-model' } = {}) {
-  const organisation = await readOrganisation(leadUrl);
-  const repositories = organisation.repositories ?? {};
-  const entries = Object.entries(repositories).filter(([, declared]) => Boolean(declared?.url));
+export async function capabilityReadiness(leadUrl, {
+  stateBranch = 'state', outputDir = 'singularity/world-model',
+  organisation: suppliedOrganisation = null, remoteSession = null,
+  runRemoteCommand = runRemoteGitAsync, refresh = false
+} = {}) {
+  if (typeof stateBranch !== 'string' || !isGitRefName(stateBranch)
+      || typeof outputDir !== 'string' || Buffer.byteLength(`${outputDir}/manifest.json`) > 512
+      || /[\u0000-\u001f\u007f-\u009f\\:*?\[\]]/u.test(outputDir)
+      || outputDir.split('/').some((part) => !part || part === '.' || part === '..')) {
+    throw new SingularityFlowError('Capability readiness requires literal branch and repository-relative model paths.', {
+      code: 'CAPABILITY_READINESS_INPUT_INVALID'
+    });
+  }
+  // Reuse a catalog already read by the caller for navigation only; it is not a grant, approval,
+  // or a substitute for the fresh exact remote observations below.
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment();
+  const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
+  const organisation = suppliedOrganisation ?? await readOrganisation(leadUrl, { remoteSession: session });
+  if (!organisation || typeof organisation !== 'object' || Array.isArray(organisation)
+      || !organisation.repositories || typeof organisation.repositories !== 'object'
+      || Array.isArray(organisation.repositories)) {
+    throw new SingularityFlowError('Capability readiness requires a repository catalog.', {
+      code: 'CAPABILITY_READINESS_INPUT_INVALID'
+    });
+  }
+  // Capture all caller-owned scalars before any worker awaits, so a later mutation cannot change
+  // the authority or branch selected by an in-flight readiness read.
+  const entries = Object.entries(organisation.repositories)
+    .filter(([, declared]) => Boolean(declared?.url)).map(([id, declared]) => {
+      const url = assertCredentialFreeRemote(declared.url);
+      const defaultBranch = declared.defaultBranch ?? 'main';
+      if (typeof defaultBranch !== 'string' || !isGitRefName(defaultBranch)) {
+        throw new SingularityFlowError('Capability readiness requires literal repository default branches.', {
+          code: 'CAPABILITY_READINESS_INPUT_INVALID'
+        });
+      }
+      return [id, { url, defaultBranch }];
+    });
   const workers = Math.max(1, Math.min(4, entries.length || 1));
   // One session is deliberately shared by the whole readiness operation. Apart from coalescing
   // identical remotes, this makes the worker limit real: the old synchronous `observe` blocked the
   // event loop inside each worker, so four repositories paid four serial office-proxy delays before
   // their fetches could become concurrent.
-  const gitEnv = enterpriseGitEnvironment();
-  const session = new GitRemoteSession({ env: gitEnv });
+  const pendingTrees = new Map();
   const resolved = await mapLimit(entries, workers, async ([id, declared]) => {
-    const url = declared?.url;
-    const advertised = await session.observeAsync(url, { includeHead: false, includeAllHeads: true });
+    const { url, defaultBranch } = declared;
+    const branches = [...new Set([stateBranch, defaultBranch])];
+    const advertised = await session.observeAsync(url, {
+      includeHead: false, refs: branches.map((branch) => `refs/heads/${branch}`)
+    });
+    if (!advertised.ok) return [id, {
+      url, stateBranch: null, hasStateBranch: null, worldModel: null,
+      status: 'unavailable', worldModelStatus: 'unavailable',
+      failure: publicRemoteFailure(advertised.failure)
+    }];
     const refs = advertised.refs;
-    const hasState = advertised.ok && refs.has(`refs/heads/${stateBranch}`);
-    const defaultBranch = declared.defaultBranch ?? 'main';
-    const inspect = [...new Set([stateBranch, defaultBranch])]
-      .filter((branch) => advertised.ok && refs.has(`refs/heads/${branch}`));
-    const models = new Map();
-    if (inspect.length) {
-      const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-ready-'));
-      try {
-        const transport = frozenRemoteTransport(url, { env: gitEnv });
-        run('git', ['init', '--quiet', '--bare', scratch], { env: transport.env });
-        const fetched = await runRemoteGitAsync([
-          '--git-dir', scratch, 'fetch', '--quiet', '--depth', '1', transport.remote,
-          ...inspect.map((branch, index) => `refs/heads/${branch}:refs/heads/read-${index}`)
-        ], { operation: 'remote-configuration', env: transport.env });
-        if (fetched.status === 0) {
-          inspect.forEach((branch, index) => {
-            models.set(branch, run('git', [
-              '--git-dir', scratch, 'cat-file', '-e',
-              `refs/heads/read-${index}:${outputDir}/manifest.json`
-            ], { allowFailure: true, env: transport.env }).status === 0);
-          });
+    const hasState = refs.has(`refs/heads/${stateBranch}`);
+    const inspect = branches.filter((branch) => refs.has(`refs/heads/${branch}`));
+    const branchEntries = inspect.map((branch) => ({ branch, commit: refs.get(`refs/heads/${branch}`) }));
+    const key = recordSha256({ profile: 'tree-manifest-presence/v1', remote: url,
+      cwd: session.cwd, stateBranch, defaultBranch, outputDir,
+      tips: branches.map((branch) => [branch, refs.get(`refs/heads/${branch}`) ?? null]) });
+    let tree = refresh ? null : capabilityReadinessTrees.get(key);
+    if (tree) {
+      capabilityReadinessTrees.delete(key);
+      capabilityReadinessTrees.set(key, tree);
+    } else {
+      if (!pendingTrees.has(key)) pendingTrees.set(key, inspect.length
+        ? readRemoteGitTreePresence(url, branchEntries, `${outputDir}/manifest.json`, {
+          env: gitEnv, cwd: session.cwd, runRemoteCommand
+        }) : Promise.resolve({ status: 'current', presence: {} }));
+      tree = await pendingTrees.get(key);
+      if (tree.status === 'current') {
+        capabilityReadinessTrees.set(key, Object.freeze({
+          status: 'current', presence: Object.freeze({ ...tree.presence })
+        }));
+        while (capabilityReadinessTrees.size > CAPABILITY_READINESS_TREE_CACHE_LIMIT) {
+          capabilityReadinessTrees.delete(capabilityReadinessTrees.keys().next().value);
         }
-      } finally {
-        await removeTemporaryTree(scratch);
       }
     }
-    const onState = hasState && models.get(stateBranch) === true;
+    const { status } = tree;
+    const failure = publicRemoteFailure(tree.failure);
+    const onState = status === 'current' && hasState && tree.presence[stateBranch] === true;
+    const worldModel = onState ? 'state-branch'
+      : status === 'current' && tree.presence[defaultBranch] === true ? defaultBranch : null;
     return [id, {
       url,
       stateBranch: hasState ? stateBranch : null,
       hasStateBranch: hasState,
       // Which copy a command would actually read, said plainly rather than left to be worked out.
-      worldModel: onState ? 'state-branch' : models.get(defaultBranch) ? defaultBranch : null
+      worldModel,
+      status, worldModelStatus: status === 'current' ? worldModel ? 'present' : 'missing' : 'unavailable',
+      ...(failure ? { failure } : {}), ...(tree.cleanupRetained ? { cleanupRetained: true } : {})
     }];
   });
   return Object.fromEntries(resolved);

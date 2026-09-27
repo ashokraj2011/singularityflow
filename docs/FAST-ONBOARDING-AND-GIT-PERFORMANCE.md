@@ -82,6 +82,11 @@ cross-platform shadow evidence.
 
 ## VS Code
 
+For the Map Capability journey, validated local workspace manifests now replace per-workspace Git
+scan fan-out, remote readiness loads on demand, and editor reads share a bounded cancellable pool.
+See [Map Capability performance: implementation and remaining work](MAP-CAPABILITY-PERFORMANCE-IMPLEMENTATION.md)
+for the exact implemented optimizations, diagnostics, and remaining structural boundaries.
+
 Open **Singularity Flow → Workspaces**, select a workspace, then use **Fast onboarding & Git**.
 The repository dropdown is populated from that workspace's verified status, so these actions do
 not ask you to find the same checkout again. While an action is active the section shows a busy

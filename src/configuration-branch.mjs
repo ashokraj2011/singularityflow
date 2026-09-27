@@ -72,6 +72,8 @@ const STORY_CONFIGURATION_VERIFIED_DEFINITIONS = new WeakMap();
 const STORY_CONFIGURATION_AUTHORING_GIT_BYTES = new WeakMap();
 const MIRROR_AUTHORING_GIT_BYTES = new WeakMap();
 const AUTHORING_GIT_BYTE_LIMITS = Object.freeze({ assets: 1024, objectBytes: 8 * 1024 * 1024, totalBytes: 16 * 1024 * 1024 });
+const LEGACY_MIRROR_GIT_LIMITS = Object.freeze({ assets: 16 * 1024, listingBytes: 16 * 1024 * 1024,
+  objectBytes: 8 * 1024 * 1024, totalBytes: 128 * 1024 * 1024 });
 const SNAPSHOT_TYPED_ARRAY = Object.getPrototypeOf(Uint8Array.prototype);
 const SNAPSHOT_BYTE_LENGTH = Object.getOwnPropertyDescriptor(SNAPSHOT_TYPED_ARRAY, 'byteLength').get;
 const SNAPSHOT_ARRAY_BUFFER = Object.getOwnPropertyDescriptor(SNAPSHOT_TYPED_ARRAY, 'buffer').get;
@@ -160,11 +162,21 @@ export async function legacyStateMirrorMatchesRepository(root, remote, {
       || manifest?.history?.commit !== manifest.source.commit
       || !await legacyMirrorAssetsMatch(root, manifest, { env })) return false;
 
+  return legacyMirrorRetainedHistoryMatches(remote, manifest, {
+    env, runRemoteCommand, verifyAssets: legacyMirrorAssetsMatch
+  });
+}
+
+async function legacyMirrorRetainedHistoryMatches(remote, manifest, {
+  env, runRemoteCommand, verifyAssets, checkout = true
+}) {
+  const historyBranch = stateConfigurationHistoryBranch(manifest.source.commit);
   const retained = await mkdtemp(path.join(os.tmpdir(), 'sflow-legacy-state-proof-'));
   try {
     const transport = frozenRemoteTransport(remote, { env });
     const cloned = await runRemoteCommand([
       '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags',
+      ...(checkout ? [] : ['--no-checkout']),
       '--single-branch', '--depth', '1', '--branch', historyBranch,
       transport.remote, retained
     ], {
@@ -175,9 +187,70 @@ export async function legacyStateMirrorMatchesRepository(root, remote, {
       cwd: retained, env: transport.env, allowFailure: true
     }).stdout.trim();
     return retainedCommit === manifest.source.commit
-      && await legacyMirrorAssetsMatch(retained, manifest, { env: transport.env });
+      && await verifyAssets(retained, manifest, { env: transport.env, ref: retainedCommit });
   } catch { return false; }
   finally { await removeTemporaryTree(retained); }
+}
+
+// The generic mirror reader has no checkout. Prove its compatibility from bounded immutable Git
+// objects instead of asking a missing filesystem projection to establish repository ownership.
+function legacyMirrorGitAssets(root, manifest, { env, ref }) {
+  try {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(ref ?? '')) return null;
+    const declared = Object.keys(manifest?.files ?? {}).sort();
+    const descriptors = manifest?.assets;
+    if (!declared.length || declared.length > LEGACY_MIRROR_GIT_LIMITS.assets
+        || !descriptors || typeof descriptors !== 'object' || Array.isArray(descriptors)
+        || JSON.stringify(Object.keys(descriptors).sort()) !== JSON.stringify(declared)
+        || !declared.includes('singularity/workflow.yml') || !declared.includes('singularity/portfolio.yml')) return null;
+    const localEnv = { ...env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' };
+    const options = { env: localEnv, maxBuffer: LEGACY_MIRROR_GIT_LIMITS.listingBytes, includeNonRegular: true };
+    const initial = configurationTreeEntries(root, ref, DEFAULT_CONFIGURATION_ASSET_POLICY, options);
+    const policyEntries = ['singularity/workflow.yml', 'singularity/portfolio.yml'].map((relative) => initial.get(relative));
+    if (policyEntries.some((entry) => !entry || !/^100(?:644|755)$/u.test(entry.mode))) return null;
+    const limits = { env: localEnv, maximumBytes: LEGACY_MIRROR_GIT_LIMITS.totalBytes,
+      maximumObjectBytes: LEGACY_MIRROR_GIT_LIMITS.objectBytes,
+      maximumBatchBytes: LEGACY_MIRROR_GIT_LIMITS.listingBytes,
+      code: 'STATE_CONFIGURATION_MIRROR_INVALID', label: 'Legacy mirror exact Git proof' };
+    const policyBlobs = readLocalGitBlobs(root, policyEntries.map((entry) => entry.object), limits);
+    const yaml = policyEntries.map((entry) => {
+      const bytes = policyBlobs.get(entry.object); const text = bytes.toString('utf8');
+      if (!Buffer.from(text).equals(bytes)) throw new Error('Legacy policy is not literal UTF-8.');
+      return YAML.parse(text) ?? {};
+    });
+    const entries = configurationTreeEntries(root, ref, configurationAssetPolicy(...yaml), options);
+    if (JSON.stringify([...entries.keys()].sort()) !== JSON.stringify(declared)) return null;
+    for (const relative of declared) {
+      const descriptor = descriptors[relative]; const actual = entries.get(relative);
+      if (!descriptor || !/^100(?:644|755)$/u.test(actual?.mode ?? '')
+          || !/^[0-9a-f]{64}$/u.test(manifest.files[relative] ?? '')
+          || descriptor.sha256 !== manifest.files[relative]
+          || descriptor.object !== actual.object || descriptor.mode !== actual.mode) return null;
+    }
+    const blobs = readLocalGitBlobs(root, [...entries.values()].map((entry) => entry.object), limits);
+    let retainedBytes = 0;
+    for (const relative of declared) {
+      const bytes = blobs.get(entries.get(relative).object);
+      retainedBytes += bytes.length;
+      if (retainedBytes > LEGACY_MIRROR_GIT_LIMITS.totalBytes
+          || createHash('sha256').update(bytes).digest('hex') !== manifest.files[relative]) return null;
+    }
+    return { portfolio: yaml[1] };
+  } catch { return null; }
+}
+
+async function legacyStateMirrorGitMatchesRepository(root, remote, manifest, { env, ref }) {
+  if (manifest?.subject?.repositoryIdentity != null || manifest?.format !== STATE_CONFIGURATION_FORMAT
+      || manifest?.source?.branch !== CONFIGURATION_BRANCH
+      || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(manifest?.source?.commit ?? '')) return false;
+  const historyBranch = stateConfigurationHistoryBranch(manifest.source.commit);
+  if (manifest?.history?.branch !== historyBranch || manifest?.history?.commit !== manifest.source.commit) return false;
+  const current = legacyMirrorGitAssets(root, manifest, { env, ref });
+  if (!current || Object.values(current.portfolio?.repositories ?? {})
+    .filter((entry) => sameGitRepository(entry?.url, remote)).length !== 1) return false;
+  return legacyMirrorRetainedHistoryMatches(remote, manifest, { env, runRemoteCommand: runRemoteGitAsync,
+    checkout: false,
+    verifyAssets: (retained, expected, options) => Boolean(legacyMirrorGitAssets(retained, expected, options)) });
 }
 
 function configurationRepositoryHead(root, env = process.env) {
@@ -513,13 +586,13 @@ export async function canonicalConfigurationAssets(root, paths = null, { env: ba
 }
 
 export function configurationTreeEntries(root, ref = 'HEAD', policy = null, {
-  env = process.env
+  env = process.env, maxBuffer, includeNonRegular = false
 } = {}) {
   const selectedPolicy = policy ?? configurationAssetPolicyFromRef(root, ref, { env });
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
     ...configurationAssetSearchRoots(selectedPolicy)
-  ], { cwd: root, allowFailure: true, env });
+  ], { cwd: root, allowFailure: true, env, ...(maxBuffer == null ? {} : { maxBuffer }) });
   if (listed.status !== 0) return new Map();
   return new Map(listed.stdout.split('\0').filter(Boolean).map((line) => {
     const first = line.indexOf(' ');
@@ -530,7 +603,7 @@ export function configurationTreeEntries(root, ref = 'HEAD', policy = null, {
       relative: slash(line.slice(second + 1))
     };
     return [entry.relative, entry];
-  }).filter(([, entry]) => /^100(?:644|755)$/.test(entry.mode)
+  }).filter(([, entry]) => (includeNonRegular || /^100(?:644|755)$/.test(entry.mode))
     && isConfigurationAsset(entry.relative, selectedPolicy)));
 }
 
@@ -1391,7 +1464,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
       }
     }
     if (declaredSubject == null
-        && !await legacyStateMirrorMatchesRepository(source, remote, { env: frozen.env })) {
+        && !await legacyStateMirrorGitMatchesRepository(source, remote, manifest, { env: frozen.env, ref: mirrorCommit })) {
       throw new SingularityFlowError(
         'Legacy state configuration mirror has no repository binding proof.', {
           code: 'STATE_CONFIGURATION_MIRROR_SUBJECT_MISMATCH'

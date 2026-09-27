@@ -419,6 +419,7 @@ export class BootstrapPanel {
   private journey: StartWizardProgress | null = null;
   private mapLoadRevision = 0;
   private inspectionRevision = 0;
+  private inspectionController: AbortController | null = null;
   private readonly inspectedOrganisations = new Map<string, Organisation>();
   private repositorySetupResult: RepositoryOnboardingResult | null = null;
   private activeMapController: AbortController | null = null;
@@ -1048,6 +1049,7 @@ export class BootstrapPanel {
 
   /** Revoke every result whose repository/setup pair may no longer match the form. */
   private invalidateInspection(preserveRepositorySetup = false): void {
+    this.abortInspectionRead();
     this.inspectionRevision++;
     this.inspectedOrganisations.clear();
     this.form.inspectionStatus = 'idle';
@@ -1075,6 +1077,25 @@ export class BootstrapPanel {
       this.form.repositorySetupApplying = false;
       this.form.repositorySetupNotice = null;
       this.repositorySetupResult = null;
+    }
+  }
+
+  private abortInspectionRead(): void {
+    this.inspectionController?.abort();
+    this.inspectionController = null;
+  }
+
+  private beginInspectionRead(): { revision: number; controller: AbortController } {
+    this.abortInspectionRead();
+    const controller = new AbortController();
+    this.inspectionController = controller;
+    return { revision: ++this.inspectionRevision, controller };
+  }
+
+  private async runInspection(argv: string[], controller: AbortController): ReturnType<Run> {
+    try { return await this.run(argv, controller.signal); }
+    finally {
+      if (this.inspectionController === controller) this.inspectionController = null;
     }
   }
 
@@ -1379,7 +1400,7 @@ export class BootstrapPanel {
       this.form.lead = '';
       return void this.update({ inspectionStatus: 'inconclusive', error: repositoryProblem });
     }
-    const revision = ++this.inspectionRevision;
+    const { revision, controller } = this.beginInspectionRead();
     this.inspectedOrganisations.clear();
     this.update({
       inspectionStatus: 'checking', inspectionComplete: false,
@@ -1394,8 +1415,9 @@ export class BootstrapPanel {
       repositorySetupApplying: false, repositorySetupNotice: completionNotice, error: null
     });
     const argv = repositoryOnboardingPreviewArgv(repositoryUrl, mode, stateBranch);
-    const { result, error, errorCode } = await this.run(argv);
-    if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
+    const { result, error, errorCode } = await this.runInspection(argv, controller);
+    if (this.disposed || controller.signal.aborted || revision !== this.inspectionRevision
+      || repositoryUrl !== this.form.repositoryUrl.trim()) return;
     if (error) {
       const failure = repositoryOnboardingCommandFailureCopy(errorCode ?? error);
       const message = `${failure.title}. ${failure.message}`;
@@ -1439,6 +1461,11 @@ export class BootstrapPanel {
       error: null
     };
     this.render();
+    // Only a readonly ready preview advances automatically. Restoration, migration, unfamiliar
+    // effects and reset-local retain their explicit exact-plan confirmation route.
+    if (mode === 'auto' && !this.form.repositorySetupMaintenance && repositoryOnboardingCanContinue(plan)) {
+      await this.continueRepositorySetup();
+    }
   }
 
   private async applyRepositorySetup(): Promise<void> {
@@ -1522,13 +1549,16 @@ export class BootstrapPanel {
   }
 
   private async continueRepositorySetup(): Promise<void> {
+    if (this.disposed || this.form.inspectionStatus === 'checking'
+      || this.inspectionController || this.form.repositorySetupApplying || this.form.busy) return;
     const plan = this.form.repositorySetupPlan;
+    if (!plan || !repositoryOnboardingPlanMatchesInput(plan, this.form.repositoryUrl.trim())) return;
     const applied = this.form.repositorySetupResult;
     const resultCanContinue = applied != null && applied.mode !== 'reset-local' && [
       'ready', 'ready-state-refresh-pending', 'linked-to-team-configuration',
       'sflow-repository-capability-not-mapped'
     ].includes(applied.status);
-    if (!plan || (!repositoryOnboardingCanContinue(plan) && !resultCanContinue)) return;
+    if (!repositoryOnboardingCanContinue(plan) && !resultCanContinue) return;
     if (this.form.repositorySetupMaintenance) {
       this.update({ repositorySetupResolved: true, repositorySetupNotice: 'Repository setup is ready.' });
       return;
@@ -1614,7 +1644,7 @@ export class BootstrapPanel {
       return void this.update({ inspectionStatus: 'inconclusive', inspectionComplete: false,
         inspectionMessage: repositoryProblem ?? leadProblem, error: repositoryProblem ?? leadProblem });
     }
-    const revision = ++this.inspectionRevision;
+    const { revision, controller } = this.beginInspectionRead();
     this.update({ inspectionStatus: 'checking', inspectionComplete: false,
       inspectionMatches: [], inspectionPendingMatches: [], replacement: null, inspectionMessage: null,
       inspectionRecoveryCommand: null, inspectionRecoveryCopilotCommand: null, inspectionFailures: [],
@@ -1633,8 +1663,9 @@ export class BootstrapPanel {
     if (options.includeKnownAuthorities) argv.push('--include-proposals');
     const terminalCommand = `singularity-flow ${formatCliArgsForDisplay(argv)}`;
     const terminalGuidance = commandGuidance(terminalCommand);
-    const { result, error } = await this.run(argv);
-    if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
+    const { result, error } = await this.runInspection(argv, controller);
+    if (this.disposed || controller.signal.aborted || revision !== this.inspectionRevision
+      || repositoryUrl !== this.form.repositoryUrl.trim()) return;
     if (error) return void this.update({ inspectionStatus: 'inconclusive', inspectionComplete: false,
       inspectionMessage: error, inspectionRecoveryCommand: terminalGuidance?.command ?? null,
       inspectionRecoveryCopilotCommand: terminalGuidance?.copilotCommand ?? null,
@@ -1773,6 +1804,7 @@ export class BootstrapPanel {
         // The explicit authority field can be edited by a queued webview message while its prior
         // check is still running. Advancing the revision prevents that stale result from binding.
         if (field === 'inspectionLeadUrl' && message.value !== previousInspectionLead) {
+          this.abortInspectionRead();
           this.inspectionRevision++;
           if (this.form.inspectionStatus === 'checking') {
             this.form.inspectionStatus = 'idle';
@@ -1786,6 +1818,7 @@ export class BootstrapPanel {
         if (field === 'kind' && message.value === 'collection') {
           // Choosing Collection is the explicit decision that the checked repository will not be
           // attached. Keep the chosen authority, but move the form onto the repository-free path.
+          this.abortInspectionRead();
           this.inspectionRevision++;
           this.form.collectionWithoutRepository = true;
           this.form.repositoryUrl = '';
@@ -2033,6 +2066,7 @@ export class BootstrapPanel {
     }
 
     if (message?.type === 'toggleCollectionWithoutRepository') {
+      this.abortInspectionRead();
       this.inspectionRevision++;
       const enabled = !this.form.collectionWithoutRepository;
       this.update({ collectionWithoutRepository: enabled, kind: enabled ? 'collection' : 'delivery',
@@ -2225,6 +2259,7 @@ export class BootstrapPanel {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.abortInspectionRead();
     if (this.activeMapController && !this.activeMapController.signal.aborted) {
       const operation = this.form.operation;
       if (operation && (operation.status === 'running' || operation.status === 'inspecting')) {

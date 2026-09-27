@@ -11410,7 +11410,9 @@ async function capabilityCommand(positionals, options) {
     const organisation = await readOrganisation(leadUrl, {
       refresh: optionBoolean(options, 'refresh')
     });
-    const model = composeCapabilityWorldModel(organisation, id, await capabilityReadiness(leadUrl));
+    const model = composeCapabilityWorldModel(organisation, id, await capabilityReadiness(leadUrl, {
+      organisation, refresh: optionBoolean(options, 'refresh')
+    }));
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(model, null, 2));
 
@@ -11446,7 +11448,9 @@ async function capabilityCommand(positionals, options) {
     });
     // Asked of the remotes, so it costs an ls-remote per repository — worth it on request, not on
     // every read of the map.
-    const readiness = withReadiness ? await capabilityReadiness(leadUrl) : null;
+    const readiness = withReadiness ? await capabilityReadiness(leadUrl, {
+      organisation, refresh: optionBoolean(options, 'refresh')
+    }) : null;
     if (optionBoolean(options, 'json')) {
       return console.log(JSON.stringify(readiness ? { ...organisation, readiness } : organisation, null, 2));
     }

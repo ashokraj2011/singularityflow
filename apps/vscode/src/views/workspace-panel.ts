@@ -259,7 +259,7 @@ export class WorkspacePanel {
   /** Return from capability setup without losing the workspace directory or identity already typed. */
   async refreshCapabilityMap(
     preferred: { organisation?: string | null; capabilityId?: string | null } = {},
-    options: { reveal?: boolean } = {}
+    options: { reveal?: boolean; refresh?: boolean } = {}
   ): Promise<void> {
     if (preferred.organisation?.trim()) this.preferredOrganisation = preferred.organisation.trim();
     if (preferred.capabilityId?.trim()) {
@@ -269,7 +269,9 @@ export class WorkspacePanel {
       if (!this.form.name) this.form.name = workspaceNameFromId(this.preferredCapabilityId);
     }
     if (options.reveal !== false) this.panel.reveal(vscode.ViewColumn.Active);
-    await this.loadOrganisations(true, Boolean(preferred.capabilityId?.trim()));
+    // The normal reader still observes current configuration/projection refs. Force bypass only
+    // belongs to explicit user Refresh, not the return from mapping the same authority.
+    await this.loadOrganisations(options.refresh === true, Boolean(preferred.capabilityId?.trim()));
   }
 
   /**
@@ -355,7 +357,7 @@ export class WorkspacePanel {
       if (target === 'repository') void this.onOpenCapabilities({ chooseRepository: true });
     },
     refresh: () => {
-      if (!this.form.busy) void this.refreshCapabilityMap({}, { reveal: false });
+      if (!this.form.busy) void this.refreshCapabilityMap({}, { reveal: false, refresh: true });
     },
     capability: (message) => {
       const id = stringField(message, 'id');

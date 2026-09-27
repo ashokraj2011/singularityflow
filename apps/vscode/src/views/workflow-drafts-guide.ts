@@ -64,7 +64,7 @@ export function workflowDraftGuide(text: string): WorkflowDraftGuide {
 
 export const WORKFLOW_DRAFT_GUIDE_FIELDS = ['id', 'label', 'description', 'phase-label', 'phase-inputs',
   'agent-description', 'agent-prompt', 'skill-description', 'skill-instructions', 'template-content', 'agent-tools', 'phase-review', 'rationale',
-  'phase-artifact-path', 'phase-artifact-kind', 'phase-artifact-minimum', 'phase-artifact-maximum', 'phase-write-scope'] as const;
+  'phase-artifact-path', 'phase-artifact-kind', 'phase-artifact-minimum', 'phase-artifact-maximum', 'phase-write-scope', 'workflow-label', 'workflow-description'] as const;
 export type WorkflowDraftGuideField = typeof WORKFLOW_DRAFT_GUIDE_FIELDS[number];
 const strings = (value: string): string[] => value.split(',').map((item) => item.trim()).filter(Boolean);
 export function workflowDraftContent(input: string | Record<string, unknown>, entry: Record<string, unknown>, field: string): string {
@@ -83,6 +83,11 @@ export function editWorkflowDraftGuide(text: string, field: WorkflowDraftGuideFi
   if (['id', 'label', 'description', 'rationale'].includes(field)) {
     if (field === 'id' && value && (value.length > 64 || !ID.test(value))) throw new Error('Package identity must be bounded lower-case kebab-case, or left unresolved.');
     payload[field] = value;
+  } else if (field === 'workflow-label' || field === 'workflow-description') {
+    const workflow = guide.workflows[index];
+    if (!workflow) throw new Error('Select a candidate workflow before editing its display fields.');
+    workflow[field === 'workflow-label' ? 'label' : 'description'] = value;
+    payload.definitions = { ...guide.definitions, workflows: guide.workflows };
   } else {
     const key: 'phases' | 'agents' | 'skills' | 'templates' = field.startsWith('phase-') ? 'phases' : field.startsWith('agent-') ? 'agents'
       : field.startsWith('skill-') ? 'skills' : 'templates';
@@ -122,6 +127,7 @@ export function editWorkflowDraftGuide(text: string, field: WorkflowDraftGuideFi
 /** A new incomplete component set, not filler prompts, hidden operations or approved bindings. */
 export function addWorkflowDraftStage(text: string, namespace: string): string {
   const envelope = workflowDraftEnvelope(text); const guide = workflowDraftGuide(text);
+  if (guide.payload.intent === 'edit' || guide.payload.intent === 'fork') throw new Error('Workflow-only edit/copy reuses approved stages. Shared phase, agent, skill and template creation needs a separate reviewed package.');
   if (namespace.length > 64 || !ID.test(namespace)) throw new Error('Choose a bounded lower-case package identity before adding stages.');
   namespace = namespace.slice(0, 48).replace(/-$/u, '');
   if (guide.phases.length >= 32 || guide.workflows.length > 1) throw new Error('This guide supports one workflow and at most 32 candidate stages; advanced content is retained.');
@@ -205,4 +211,30 @@ export function bindWorkflowDraftBase(text: string, baseRevision: string): strin
   envelope.payload = { schema: 'sflow-workflow-request@2', intent: 'create', ...guide.payload,
     baseRevision, target: { hosts: [], ...target, governs: 'story', authority: 'selected-repository' } };
   return JSON.stringify(envelope, null, 2);
+}
+
+/** Prepare one exact-parent workflow-only request. It never deletes unrelated draft content. */
+export function prepareWorkflowDraftChange(text: string, intent: 'edit' | 'fork', choice: {
+  id: string; rawDefinitionSha256: string; phaseOrder: string[]
+}, baseRevision: string): string {
+  const guide = workflowDraftGuide(text); const envelope = workflowDraftEnvelope(text);
+  if (!['edit', 'fork'].includes(intent) || !ID.test(choice.id) || choice.id.length > 64
+      || !/^sha256:[a-f0-9]{64}$/u.test(choice.rawDefinitionSha256)
+      || !Array.isArray(choice.phaseOrder) || !choice.phaseOrder.length || choice.phaseOrder.length > 32
+      || choice.phaseOrder.some((id) => typeof id !== 'string' || !ID.test(id))) throw new Error('Select one exact captured approved workflow with a bounded stage order.');
+  if (Object.values(guide.definitions).some((value) => !Array.isArray(value) || value.length)
+      || Array.isArray(envelope.assets) && envelope.assets.length || guide.payload.changes !== undefined
+      || guide.payload.bindings !== undefined || guide.payload.executionProposals !== undefined) {
+    throw new Error('Use an empty component package for this workflow-only edit/copy. Existing definitions, assets or decisions were retained, not deleted.');
+  }
+  const targetId = intent === 'edit' ? choice.id : guide.payload.id;
+  if (typeof targetId !== 'string' || !ID.test(targetId) || targetId.length > 64
+      || intent === 'fork' && targetId === choice.id) throw new Error('A linked copy requires your explicit new package/workflow identity; it cannot replace its source.');
+  const bound = workflowDraftEnvelope(bindWorkflowDraftBase(text, baseRevision));
+  const payload = bound.payload as Record<string, unknown>;
+  bound.payload = { ...payload, intent,
+    changes: [{ kind: 'workflow', id: targetId, operation: intent,
+      ...(intent === 'fork' ? { sourceId: choice.id } : {}), expectedDefinitionSha256: choice.rawDefinitionSha256 }],
+    definitions: { ...guide.definitions, workflows: [{ id: targetId, phases: [...choice.phaseOrder] }] } };
+  return JSON.stringify(bound, null, 2);
 }

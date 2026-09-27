@@ -1,10 +1,10 @@
 /** Deterministic, source-bound authoring preview. Nothing here approves, installs or executes. */
-import { readFile, lstat } from 'node:fs/promises';
+import { readFile, lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
-import { configurationReadRoot, configurationReadScope } from './configuration-read-scope.mjs';
+import { configurationReadRoot, configurationReadScope, configurationReadSnapshot } from './configuration-read-scope.mjs';
 import { loadDefinition, validateDefinition, resolveWorkType, assertPlannedClaimsReady } from './config.mjs';
 import { discoverAgents, parseAgentDependencies, validateAgentCatalog } from './agents.mjs';
 import { MODEL_TASKS, assertModelTask } from './model-tasks.mjs';
@@ -20,8 +20,9 @@ import { SingularityFlowError, isPortableRepositoryPathComponent } from './util.
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { captureEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 import { simulateResolvedWorkflowLifecycle, WORKFLOW_LIFECYCLE_SIMULATION_PROFILE } from './workflow-lifecycle-simulation.mjs';
+import { planWorkflowOnlyChanges, workflowDefinitionSha256 } from './wca-workflow-changes.mjs';
 
-export const WCA_COMPILER_PROFILE = 'wca-complete-package/v2';
+export const WCA_COMPILER_PROFILE = 'wca-complete-package/v3';
 export const WCA_PREVIEW_KIND = 'workflow-authoring-package-preview';
 export const WCA_REQUEST_SCHEMA = 'sflow-workflow-request@2';
 export const WCA_CATALOG_CHOICE_KIND = 'workflow-authoring-catalog-choices';
@@ -88,6 +89,38 @@ async function approvedBytes(root, relative, optional = false) {
   return bytes;
 }
 
+// Protect the entire approved package identity, including unassigned packages and resources
+// absent from the workflow catalog. Names come from the exact approved owner, not the app tree.
+async function approvedSkillIds(root, snapshot) {
+  const ids = new Set();
+  const capture = (key) => {
+    if (!ID.test(key) || key.length > 64 || !isPortableRepositoryPathComponent(key)) fail('Approved skill package identity is not portable.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
+    ids.add(key);
+    if (ids.size > 4096) fail('Approved skill identity catalog exceeds its bounded capture budget.', 'WCA_COMPILER_LIMIT');
+  };
+  if (snapshot) {
+    for (const entry of snapshot.assets) {
+      if (!entry.relative.startsWith('singularity/skills/')) continue;
+      const parts = entry.relative.slice('singularity/skills/'.length).split('/');
+      if (parts.length > 1) capture(parts[0]);
+    }
+    return ids;
+  }
+  // Older verified read overlays lack a retained snapshot. Inspect only their private approved
+  // projection's bounded directory names; never hydrate package bytes or follow symlinks.
+  const directory = path.join(root, 'singularity/skills');
+  const info = await lstat(directory).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!info) return ids;
+  if (!info.isDirectory() || info.isSymbolicLink()) fail('Approved skill identity catalog is unavailable.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
+  const entries = await readdir(directory, { withFileTypes: true });
+  if (entries.length > 4096) fail('Approved skill identity catalog exceeds its bounded capture budget.', 'WCA_COMPILER_LIMIT');
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) fail('Approved skill identity catalog contains a symbolic link.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
+    if (entry.isDirectory()) capture(entry.name);
+  }
+  return ids;
+}
+
 /** Opaque runtime context, captured only through the freshly refreshed approved-config owner. */
 export async function captureWorkflowCompilerContext(root) {
   return withApprovedConfigurationRead(root, async (authority) => {
@@ -103,6 +136,7 @@ export async function captureWorkflowCompilerContext(root) {
     const agents = await discoverAgents(root);
     const environmentCapture = await captureEnvironmentDeclaration(sourceRoot, { optional: true });
     const files = new Map([['singularity/workflow.yml', before]]);
+    const skills = await approvedSkillIds(sourceRoot, configurationReadSnapshot(root));
     for (const agent of agents.filter((value) => value.scope === 'repository')) files.set(portable(agent.source, 'Approved agent path'), Buffer.from(agent.text));
     for (const entry of Object.values(normalizeTemplateCatalog(definition.templates))) {
       const relative = portable(`${definition.templatesRoot}/${entry.path}`, 'Approved template path');
@@ -123,7 +157,7 @@ export async function captureWorkflowCompilerContext(root) {
     const view = freeze({ kind: 'workflow-authoring-compiler-context', schemaVersion: 1,
       source: { kind: authority.kind, repository, ref: authority.ref, observedCommit: authority.commit, baseRevision,
         workflowSha256: bytesDigest(before) }, profile: WCA_COMPILER_PROFILE });
-    CONTEXTS.set(view, { root, sourceRoot, definition: structuredClone(definition), agents, files, repository, baseRevision, assetPolicy,
+    CONTEXTS.set(view, { root, sourceRoot, definition: structuredClone(definition), rawDefinition: YAML.parse(before.toString('utf8')), agents, skills, files, repository, baseRevision, assetPolicy,
       environmentDeclaration: environmentCapture?.declaration ?? null, environmentSha256: environmentCapture ? bytesDigest(environmentCapture.bytes) : null,
       expectedAuthority: { kind: authority.kind, commit: authority.commit, sourceCommit: baseRevision, remoteFingerprint: remoteFingerprint(repository) } });
     return view;
@@ -187,7 +221,10 @@ export function workflowCompilerCatalogChoices(context, options = {}) {
     const entries = Object.entries(catalogs[catalogKind] ?? {}).filter(([key]) => catalogKind !== 'quality-command' || !ambiguousChecks.has(key)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
     const choices = entries.slice(cursor, cursor + limit).map(([key, value]) => ({
       ref: { source: 'catalog', kind: catalogKind, id: key },
-      label: Array.from(typeof value.label === 'string' ? value.label : key).slice(0, 256).join('')
+      label: Array.from(typeof value.label === 'string' ? value.label : key).slice(0, 256).join(''),
+      ...(catalogKind === 'workflow' && Object.hasOwn(captured.rawDefinition.workTypes ?? {}, key)
+        ? { rawDefinitionSha256: workflowDefinitionSha256(captured.rawDefinition.workTypes[key]),
+          phaseOrder: [...captured.rawDefinition.workTypes[key].phases] } : {})
     }));
     return { kind: catalogKind, choices, total: entries.length, nextCursor: cursor + choices.length < entries.length ? cursor + choices.length : null, unavailable: catalogKind === 'quality-command' ? ambiguousChecks.size : 0 };
   });
@@ -207,7 +244,7 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
   };
   const attempt = (fieldPath, work) => { try { return work(); } catch (error) { add(error.code ?? 'WCA_VALIDATION_FAILED', fieldPath, error.code ? error.message : 'The existing configuration owner refused this candidate.'); return null; } };
   const candidate = structuredClone(captured.definition); const files = new Map(); const symbols = Object.fromEntries(GROUPS.map((group) => [group, new Map()]));
-  let acceptedRequest = false;
+  let acceptedRequest = false; let workflowChanges = null;
   const simulation = { schemaVersion: 1, kind: 'workflow-authoring-lifecycle-simulation',
     profile: WORKFLOW_LIFECYCLE_SIMULATION_PROFILE, status: 'incomplete', workflows: [],
     prerequisites: 'candidate-not-validated', execution: 'not-run', humanAvailability: 'not-verified', hostEnforcement: 'unavailable' };
@@ -221,7 +258,7 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       catalogChoices: workflowCompilerCatalogChoices(context),
       candidateAssetManifestSha256: digest(emitted.map(({ path: file, bytes, sha256 }) => ({ path: file, bytes, sha256 }))),
       catalogSha256: digest(locks), policySha256: digest({ approvalSecurity: captured.definition.approvalSecurity, sequenceGates: captured.definition.sequenceGates, codeDelivery: captured.definition.codeDelivery ?? null, environmentSha256: captured.environmentSha256, assetPolicy: captured.assetPolicy }),
-      dependencyLocks: locks, graph, skillProposals, simulation, findings: orderedFindings, fileOperations: operations, assets: emitted,
+      dependencyLocks: locks, graph, skillProposals, simulation, workflowChanges, findings: orderedFindings, fileOperations: operations, assets: emitted,
       permissions: { effective: 'pre-change-approved-policy-only', addedOperations: [], removedOperations: [], newNativeTools: [], enforcement: 'not-verified' },
       candidateDefinition: candidate, candidateDefinitionSha256: digest(candidate),
       readiness: { authoring: findings.length ? findings.every((finding) => finding.category === 'capability-unavailable') ? 'unavailable' : 'invalid' : 'valid', simulation: simulation.status, behavior: 'not-evaluated', host: 'discovery-unverified', publication: 'not-proposed', activation: 'inactive', confirmation: 'absent', execution: 'not-run' },
@@ -234,7 +271,16 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
   if (!acceptedRequest) return output();
   if (source.lifecycle !== 'live') add('WCA_DRAFT_DELETED', 'source.lifecycle', 'Deleted retained revisions cannot create a current submission plan.');
   if (request.baseRevision !== captured.baseRevision) add('WCA_BASE_REVISION_STALE', 'baseRevision', 'The request must explicitly bind this exact approved configuration base commit.');
-  if (request.intent !== 'create' || request.changes?.length) add('WCA_CHANGE_OWNER_UNAVAILABLE', 'changes', 'Edit, fork and explicit object changes require the existing impact/change owner; no update or deletion is inferred.');
+  if (request.intent !== 'create') {
+    workflowChanges = planWorkflowOnlyChanges({ request, approvedDefinition: captured.rawDefinition,
+      agents: captured.agents.map(({ id, scope, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
+        id, scope, text, phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [],
+        worldModelViews: worldModelViews ?? [], dependencies: dependencies ?? [] })) });
+    for (const finding of workflowChanges.findings) add(finding.code, finding.fieldPath ?? 'changes', finding.message);
+    if (workflowChanges.status !== 'ready') return output();
+    // The pure planner has no persistence capability. Its exact raw parent/dependency impact is
+    // included in this preview hash; ordinary config validation and submission own all writes.
+  } else if (request.changes?.length) add('WCA_CHANGE_OWNER_UNAVAILABLE', 'changes', 'Create requests cannot infer updates or deletion from explicit object changes. Select a supported workflow-only edit or linked fork.');
   if (request.executionProposals?.length) add('WCA_EXECUTION_PROPOSAL_UNADMITTED', 'executionProposals', 'Executable proposals remain inert and have no runtime admission owner.');
   if (request.target.hosts?.length) add('WCA_HOST_CONTRACT_UNAVAILABLE', 'target.hosts', 'No installed exact host/tool mapping contract has been verified by this compiler.');
   for (const group of GROUPS) attempt(`definitions.${group}`, () => {
@@ -244,11 +290,13 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       if (!plain(value)) fail('Candidate definitions must be ordinary objects.');
       const key = id(value.id, `${group} ID`);
       if (symbols[group].has(key)) fail('Candidate definitions repeat an object ID.', 'WCA_OBJECT_COLLISION');
-      const existing = group === 'workflows' ? candidate.workTypes[key] : group === 'phases' ? candidate.phases[key] : group === 'templates' ? candidate.templates?.[key] : group === 'agents' ? captured.agents.find((agent) => agent.id === key) : null;
-      if (existing || key.startsWith('sf-') || key.startsWith('sflow-')) fail('Candidate definitions cannot shadow approved or privileged installed objects.', 'WCA_OBJECT_COLLISION');
+      const existing = group === 'workflows' ? candidate.workTypes[key] : group === 'phases' ? candidate.phases[key] : group === 'templates' ? candidate.templates?.[key] : group === 'agents' ? captured.agents.find((agent) => agent.id === key) : group === 'skills' ? captured.skills.has(key) : null;
+      const selectedEdit = group === 'workflows' && workflowChanges?.replacements.some((row) => row.id === key && row.operation === 'edit');
+      if (existing && !selectedEdit || key.startsWith('sf-') || key.startsWith('sflow-')) fail('Candidate definitions cannot shadow approved or privileged installed objects.', 'WCA_OBJECT_COLLISION');
       symbols[group].set(key, value);
     }
   });
+  if (findings.some((finding) => finding.code === 'WCA_OBJECT_COLLISION')) return output();
   const bindings = new Map();
   const { catalogs, ambiguousChecks } = compilerCatalogs(captured);
   const pin = (kind, key, value) => {
@@ -352,7 +400,9 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       contents.set(relative, bytes);
     }
     const inspected = inspectSkillPackageContents(key, contents); skillPackages.set(key, inspected);
-    for (const [relative, bytes] of contents) emit(`.github/skills/${request.id}-${key}/${relative}`, bytes.toString('utf8'));
+    // Review/draft bytes must never enter native auto-discovery. Activation requires a separate
+    // qualified host adapter; approved configuration and retained snapshots use this inert root.
+    for (const [relative, bytes] of contents) emit(`singularity/skills/${key}/${relative}`, bytes.toString('utf8'));
   });
   const agents = [...captured.agents];
   for (const [key, value] of symbols.agents) attempt(`definitions.agents.${key}`, () => {
@@ -369,17 +419,21 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
     const content = `---\n${YAML.stringify({ name: key, description: value.description, tools: [], metadata: { 'sflow-phases': phases.join(','), 'sflow-default-for': phases.join(',') } })}---\n${prompt}\n`;
     const parsed = parseAgentDependencies(content, { source: sourcePath, agentId: key }); agents.push({ ...parsed, text: content, scope: 'repository' }); emit(sourcePath, content);
   });
-  for (const [key, value] of symbols.phases) attempt(`definitions.phases.${key}`, () => {
+  // Resolve ordinary candidate output contracts before compiling any SKP proposal. The package
+  // declaration order is not execution order and must not hide earlier workflow producers.
+  const phaseDefinitions = [...symbols.phases].sort(([, a], [, b]) => Number(a.kind === 'skill') - Number(b.kind === 'skill'));
+  for (const [key, value] of phaseDefinitions) attempt(`definitions.phases.${key}`, () => {
     if (value.kind === 'skill') {
       closed(value, ['id', 'kind', 'label', 'skill', 'contract', 'agent'], 'Skill phase definition');
       if (value.agent !== undefined) resolve(value.agent, 'agent', 'Skill phase agent');
       closed(value.skill, ['id', 'packageSha256'], 'Selected candidate skill');
       const inspected = skillPackages.get(value.skill?.id);
       if (!inspected || value.skill.packageSha256 !== undefined && inspected.manifest.packageSha256 !== value.skill.packageSha256) fail('The selected new skill must bind its exact captured candidate package.', 'SKP_SKILL_DRIFT');
-      const orders = [...symbols.workflows.values()].filter((workflow) => workflow.phases?.some((phase) => phase === key || phase?.id === key));
+      const phaseId = (phase) => typeof phase === 'string' ? phase : (phase?.ref ?? phase)?.id;
+      const orders = [...symbols.workflows.values()].filter((workflow) => workflow.phases?.some((phase) => phaseId(phase) === key));
       if (!orders.length || orders.some((workflow) => canonicalJson(workflow.phases) !== canonicalJson(orders[0].phases))) fail('New skill phase requires one exact unambiguous workflow order.', 'SKP_INPUT_ORDER');
-      const phaseOrder = orders[0].phases.map((phase) => typeof phase === 'string' ? phase : phase.id);
-      const approvedOutputs = Object.fromEntries(Object.entries(captured.definition.phases).map(([phaseId, phase]) => [phaseId, { outputs: phase.kind === 'skill' ? phase.skillBinding.bindingRefs.outputs : [{ id: 'primary', path: phase.artifact.path }] }]));
+      const phaseOrder = orders[0].phases.map(phaseId);
+      const approvedOutputs = Object.fromEntries(Object.entries(candidate.phases).map(([phaseId, phase]) => [phaseId, { outputs: phase.kind === 'skill' ? phase.skillBinding.bindingRefs.outputs : [{ id: 'primary', path: phase.artifact.path }] }]));
       for (const [phaseId, phase] of symbols.phases) if (phase.contract?.produces) approvedOutputs[phaseId] = { outputs: phase.contract.produces.map((output) => ({ id: output.id, path: output.path })) };
       const checks = Object.fromEntries(Object.entries(catalogs['quality-command']).filter(([checkId]) => !ambiguousChecks.has(checkId)).map(([checkId, command]) => {
         // The structured SKP check owner distinguishes absence from a legacy shell command.
@@ -425,19 +479,27 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
     closed(value, ['id', 'label', 'description', 'phases', 'plannedClaims', 'reworkLoops'], 'Workflow definition');
     if (value.label !== undefined) text(value.label, 'Workflow label', 512);
     if (value.description !== undefined && typeof value.description !== 'string') fail('Workflow description must be literal text.');
-    if (!Array.isArray(value.phases) || !value.phases.length || value.phases.length > WCA_COMPILER_LIMITS.phases) fail('Workflow phase order must be explicit and bounded.', 'WCA_GRAPH_INVALID');
-    const order = value.phases.map((entry) => { const selected = resolve(entry, 'phase', 'Workflow phase'); return selected.id ?? (typeof entry === 'string' ? entry : entry.id); });
+    const replacement = workflowChanges?.replacements.find((row) => row.id === key);
+    const selectedOrder = replacement?.definition.phases ?? value.phases;
+    if (!Array.isArray(selectedOrder) || !selectedOrder.length || selectedOrder.length > WCA_COMPILER_LIMITS.phases) fail('Workflow phase order must be explicit and bounded.', 'WCA_GRAPH_INVALID');
+    const order = selectedOrder.map((entry) => { const selected = resolve(entry, 'phase', 'Workflow phase'); return selected.id ?? (typeof entry === 'string' ? entry : entry.id); });
     if (new Set(order).size !== order.length || order[0] !== 'intake' || order.at(-1) !== 'conformance') fail('Workflow order must be unique and explicitly retain Intake and Conformance.', 'WCA_GRAPH_INVALID');
-    candidate.workTypes[key] = { label: value.label ?? request.label, description: value.description ?? '', phases: order, ...(value.plannedClaims !== undefined ? { plannedClaims: value.plannedClaims } : {}), ...(value.reworkLoops ? { reworkLoops: value.reworkLoops } : {}) };
+    candidate.workTypes[key] = replacement ? { ...structuredClone(replacement.definition), phases: order }
+      : { label: value.label ?? request.label, description: value.description ?? '', phases: order, ...(value.plannedClaims !== undefined ? { plannedClaims: value.plannedClaims } : {}), ...(value.reworkLoops ? { reworkLoops: value.reworkLoops } : {}) };
+    // Only the effective workType contract owns inputs, templates, artifact paths and approval.
+    // Retained overrides must neither be silently dropped nor checked against the base phase.
+    // Incomplete SKP proposals stay display-only and have no configured phase to resolve yet.
+    const effective = order.every((phaseId) => candidate.phases[phaseId])
+      ? new Map(resolveWorkType(candidate, key).phases.map((phase) => [phase.id, phase])) : null;
     for (const [index, phaseId] of order.entries()) {
       const proposed = skillProposals.find((proposal) => proposal.phaseId === phaseId);
-      const phase = candidate.phases[phaseId] ?? proposed?.phasePolicy;
+      const phase = effective?.get(phaseId) ?? candidate.phases[phaseId] ?? proposed?.phasePolicy;
       if (!phase) { add('WCA_PHASE_UNCOMPILED', `definitions.workflows.${key}.phases`, 'A selected phase could not be compiled.'); continue; }
-      if (phase.kind === 'skill') validateConfiguredSkillPhase(phase, phaseId);
+      if (phase.kind === 'skill') validateConfiguredSkillPhase(candidate.phases[phaseId], phaseId);
       if (!symbols.phases.has(phaseId)) {
         const selectedAgent = captured.agents.find((agent) => agent.defaultFor.includes(phaseId));
         if (selectedAgent) pin('agent', selectedAgent.id, selectedAgent);
-        const template = resolveTemplate(candidate, phase.defaultTemplate);
+        const template = phase.kind === 'skill' ? null : resolveTemplate(candidate, phase.template ?? phase.defaultTemplate);
         if (template?.source === 'agent') add('WCA_REMOTE_DEPENDENCY_UNAVAILABLE', `definitions.workflows.${key}.phases.${phaseId}`, 'A remote Agent dependency is not a captured complete preview input; preview will not fetch it.');
         else if (template?.path) {
           const relative = `${candidate.templatesRoot}/${template.path}`; const bytes = captured.files.get(relative);
@@ -450,7 +512,10 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
     }
   });
   let candidateValidated = false;
-  attempt('candidate.configuration', () => {
+  // Proposal-only skill contracts deliberately lack configured phases. Do not feed that
+  // incomplete projection to the full configuration owner and mislabel its missing bindings as
+  // an unrelated configuration failure, or simulate it as a confirmed execution contract.
+  if (!skillProposals.length) attempt('candidate.configuration', () => {
     validateDefinition(candidate); validateAgentCatalog(agents, candidate);
     for (const key of symbols.workflows.keys()) if (candidate.workTypes[key]) assertPlannedClaimsReady(resolveWorkType(candidate, key));
     candidateValidated = true;
@@ -475,7 +540,15 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       : simulation.workflows.length === symbols.workflows.size && simulation.workflows.every((report) => report.status === 'complete-for-profile') ? 'complete-for-profile' : 'incomplete';
   }
   locks.sort((a, b) => a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  if (!findings.length) attempt('candidate.files', () => emit('singularity/workflow.yml', YAML.stringify(candidate, { lineWidth: 0 })));
+  if (!findings.length) attempt('candidate.files', () => {
+    // Workflow-only edits must not serialize loadDefinition defaults back into unrelated shared
+    // definitions. Preserve the raw approved source and overlay only the exact reviewed targets.
+    const emittedDefinition = workflowChanges ? structuredClone(captured.rawDefinition) : candidate;
+    if (workflowChanges) for (const replacement of workflowChanges.replacements) {
+      emittedDefinition.workTypes[replacement.id] = structuredClone(replacement.definition);
+    }
+    emit('singularity/workflow.yml', YAML.stringify(emittedDefinition, { lineWidth: 0 }));
+  });
   if (findings.length) { files.clear(); operations.length = 0; }
   return output();
 }

@@ -109,10 +109,14 @@ test('where-used actual parsed preflight is bounded read-only and has no scope o
   assert.equal(operation.id, 'workflow.author.where-used'); assert.equal(operation.classification, 'read'); assert.equal(operation.modelPolicy, 'never');
   for (const argv of [[], ['../skill'], ['UPPER'], ['a'.repeat(129)], [SKILL, '--cursor', '1'],
     [SKILL, '--limit', '65'], [SKILL, '--cursor', '1025'], [SKILL, '--expected-source', H('a'), '--expected-source', H('b')],
-    [SKILL, '--package-sha256', 'invalid'], [SKILL, '--remote', '/other'], [SKILL, '--story', 'OTHER-1'],
+    [SKILL, '--package-sha256', 'invalid'], [SKILL, '--remote', '/other'], [SKILL, '--story', '../OTHER-1'],
+    [SKILL, '--ref', 'refs/heads/story'], [SKILL, '--story', 'OTHER-1', '--ref', 'refs/heads/../main'],
+    [SKILL, '--story', 'OTHER-1', '--commit', 'main'], [SKILL, '--story', 'OTHER-1', '--snapshot-revision', '65'],
     [SKILL, '--all'], [SKILL, '--confirmed', 'true'], [SKILL, '--input', '/private']]) {
     assert.throws(() => validateWorkflowAuthorRequest(parse(...argv)), { code: 'WCA_AUTHOR_REQUEST_INVALID' });
   }
+  assert.equal(validateWorkflowAuthorRequest(parse(SKILL, '--story', 'OTHER-1', '--ref', 'refs/heads/story',
+    '--commit', 'a'.repeat(40), '--snapshot-revision', '1', '--json')), 'where-used');
   for (const extra of [{ remote: '/other' }, { confirmed: true }, { packageSha256: { toString: () => H('a') } }]) {
     await assert.rejects(lookupApprovedSkillUsage('/unused-not-contacted', { skillId: SKILL, ...extra }), { code: 'SKP_USAGE_INVALID' });
   }

@@ -48,6 +48,31 @@ function lifecycleSimulationHtml(preview: Record<string, unknown>): string {
     <details><summary>Exact saved-revision Preview JSON</summary><pre><code>${escape(JSON.stringify(preview, null, 2))}</code></pre></details></section>`;
 }
 
+function workflowChangeImpactHtml(preview: Record<string, unknown>): string {
+  const value = preview.workflowChanges;
+  if (!value || typeof value !== 'object') return '';
+  const change = value as Record<string, unknown>;
+  const impact = change.impact && typeof change.impact === 'object' ? change.impact as Record<string, unknown> : {};
+  const dependencies = Array.isArray(impact.sharedDependencies) ? impact.sharedDependencies : [];
+  const replacements = Array.isArray(change.replacements) ? change.replacements : [];
+  return `<section aria-labelledby="draft-change-impact"><h3 id="draft-change-impact">Workflow edit / linked-copy impact · ${escape(change.status)}</h3>
+    <p>Selected approved configuration only. Shared definitions: ${escape(impact.sharedDefinitions ?? 'not reported')}. Existing Story pins: ${escape(impact.retainedStories)}. Other repositories: ${escape(impact.otherRepositories)}. No approval, activation or execution is granted.</p>
+    <ul>${replacements.slice(0, 16).map((raw) => {
+      const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+      return `<li>${escape(row.operation)} <code>${escape(row.id)}</code> from <code>${escape(row.sourceId)}</code> · changed policy fields: ${escape(Array.isArray(row.policyRelevantFields) ? row.policyRelevantFields.join(', ') || 'none' : 'not reported')}. Omitted raw fields are preserved.</li>`;
+    }).join('')}</ul>
+    <p>Declared shared dependency summary: first ${Math.min(dependencies.length, 64)} of ${dependencies.length}. The exact Preview JSON retains the full bounded graph and identities.</p>
+    <table><thead><tr><th>Shared dependency</th><th>Existing direct consumers</th></tr></thead><tbody>${dependencies.slice(0, 64).map((raw) => {
+      const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+      const consumers = Array.isArray(row.directDependents) ? row.directDependents : [];
+      const shown = consumers.slice(0, 32).map((rawConsumer) => {
+        const consumer = rawConsumer && typeof rawConsumer === 'object' ? rawConsumer as Record<string, unknown> : {};
+        return `${String(consumer.kind ?? '')}:${String(consumer.id ?? '')}`;
+      }).join(', ');
+      return `<tr><td>${escape(row.kind)}:<code>${escape(row.id)}</code></td><td>${escape(shown || 'none declared')}${consumers.length > 32 ? ` · first 32 of ${consumers.length}` : ''}</td></tr>`;
+    }).join('')}</tbody></table></section>`;
+}
+
 function guidedHtml(view: SharedWorkflowDraftView): string {
   const editor = view.editor!; const disabled = view.busy || editor.readOnlyReason ? ' disabled' : '';
   const navigationDisabled = view.busy ? ' disabled' : '';
@@ -62,7 +87,7 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
     ? (catalog as { groups: Record<string, unknown>[] }).groups : [];
   const selection = (kind: string, label: string, index = 0): string => {
     const selectionDisabled = view.busy || editor.readOnlyReason || view.dirty ? ' disabled' : '';
-    const group = groups.find((value) => value.kind === kind);
+    const group = groups.find((value) => value.kind === (kind.startsWith('workflow-') ? 'workflow' : kind));
     const choices = group && Array.isArray(group.choices) ? group.choices.slice(0, 64) : [];
     const id = `catalog-${kind}-${index}`;
     return choices.length ? `<label for="${id}">${escape(label)}<select id="${id}"${selectionDisabled}><option value="">Leave unresolved / choose explicitly</option>${choices.map((raw) => {
@@ -78,6 +103,10 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
     if (view.stage === 1) content = '<p>What should this workflow help people complete? Leave a field empty when undecided; no meaning is guessed.</p>'
       + answer('id', 'Package identity (lower-case kebab-case)', guide.payload.id)
       + answer('label', 'Package label', guide.payload.label) + answer('description', 'Goal / purpose', guide.payload.description)
+      + '<p>For an empty component package, select an exact approved workflow to edit or make a linked copy. Omitted advanced policy is preserved. A copy shares existing phases, agents, templates and skills; it does not change those objects or existing Story pins.</p>'
+      + selection('workflow-edit', 'Prepare workflow-only edit') + selection('workflow-fork', 'Prepare linked copy (uses your new package identity)')
+      + guide.workflows.map((workflow, index) => answer('workflow-label', 'Explicit workflow label override (leave unapplied to preserve source)', workflow.label, index)
+        + answer('workflow-description', 'Explicit workflow description override', workflow.description, index)).join('')
       + (view.preview?.approvedSource && typeof view.preview.approvedSource === 'object' ? `<p>Captured approved base: <code>${escape((view.preview.approvedSource as Record<string, unknown>).baseRevision)}</code>. This choice requests the selected repository Story scope only; host IDs are not granted.</p><button type="button" class="secondary" data-draft-action="catalog-answer" data-choice-kind="approved-base"${disabled}>Use captured approved base and repository Story target</button>` : '<p class="muted">Preview supplies the exact approved base for an explicit target choice; no revision is fabricated.</p>');
     else if (view.stage === 2) {
       const order = guide.workflows[0]?.phases;
@@ -85,7 +114,7 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
         + (Array.isArray(order) ? `<ol>${order.slice(0, 32).map((id, index) => `<li>${escape(id)}
           ${index > 0 ? `<button type="button" class="secondary" data-draft-action="move-stage" data-guide-index="${index}" data-guide-direction="-1"${disabled}>Move earlier</button>` : ''}
           ${index + 1 < order.length ? `<button type="button" class="secondary" data-draft-action="move-stage" data-guide-index="${index}" data-guide-direction="1"${disabled}>Move later</button>` : ''}</li>`).join('')}</ol>` : '<p>Stage order is unresolved.</p>')
-        + `<button type="button" data-draft-action="add-stage"${disabled}>Add new candidate stage</button>`
+        + (guide.payload.intent === 'edit' || guide.payload.intent === 'fork' ? '<p>Workflow-only changes reuse approved stages. Shared component edits need their own reviewed package. Skill order changes require a newly compiled confirmed binding.</p>' : `<button type="button" data-draft-action="add-stage"${disabled}>Add new candidate stage</button>`)
         + selection('phase', 'Append an existing approved catalog stage')
         + guide.phases.map((phase, index) => {
           const artifact = phase.artifact && typeof phase.artifact === 'object' ? phase.artifact as Record<string, unknown> : {};
@@ -148,6 +177,8 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
       <p id="draft-autosave" role="status">Shared autosave ${view.autosave ? 'on for this exact draft' : 'off'}.</p>
       <p id="draft-recovery-status" role="status" aria-live="polite">${escape(workflowDraftRecoveryLabel(view))}</p>
       <button type="button" class="secondary" data-draft-action="recovery-refresh"${disabled}>Refresh private recovery (read-only)</button>
+      <button type="button" class="secondary" data-draft-action="recovery-inspect-locks"${disabled}>Inspect interrupted private locks</button>
+      ${view.recovery.locks ? `<section><h3>Private lock ownership</h3><p>Inspection never removes a lock. Live, legacy, unknown and unsupported ownership stays blocked; elapsed time alone is not proof of death. Windows repair is unavailable without native process-domain proof.</p><table><thead><tr><th>Lock</th><th>Observed owner</th><th>Action</th></tr></thead><tbody>${view.recovery.locks.map((lock) => `<tr><td>${escape(lock.kind)}</td><td>${escape(lock.status)}${lock.owner ? ` · PID ${escape(lock.owner.pid)}` : ''}<br>${escape(lock.reason)}</td><td>${lock.status === 'dead' && lock.repairSupported && lock.reviewId ? `<button type="button" class="secondary" data-draft-action="recovery-repair-lock" data-lock-kind="${escape(lock.kind)}"${disabled}>Review dead lock repair…</button>` : 'No safe repair available'}</td></tr>`).join('')}</tbody></table></section>` : ''}
       ${view.recovery?.candidateAvailable ? `<section id="draft-recovery-choice" aria-labelledby="draft-recovery-title"><h3 id="draft-recovery-title">Recover private pending edits</h3>
         <p>A checkpoint was retained for this exact repository, authority and draft on this machine. Restore requires the same shared base; newer shared revisions are not overwritten or merged. Reconcile an unknown write with Check last write status before a shared write or checkpoint discard.</p>
         <p>Checkpoint captured: <code>${escape(view.recovery.candidate?.capturedAt ?? '')}</code>. Comparison is read-only and may normalize line endings for display; it is not bytewise merge approval.</p>
@@ -174,6 +205,7 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
       <button type="button" class="secondary" data-draft-action="copilot-review"${disabled}>Copy Copilot handoff</button></details></section>` : '<section><p>Open a shared draft to edit its partial package.</p></section>'}
     ${view.preview ? `<section id="draft-preview"><h2>Exact saved-package Preview · read-only</h2><p>Plan: <code>${escape(view.preview.planSha256)}</code>. Authoring: ${escape((view.preview.readiness as Record<string, unknown>)?.authoring)}. Host: ${escape((view.preview.readiness as Record<string, unknown>)?.host)}. Execution: ${escape((view.preview.readiness as Record<string, unknown>)?.execution)}.</p>
       <p>Static validity is not Ready to run. Human confirmation, membership, native host enforcement and activation remain separate; no operation was executed.</p>
+      ${workflowChangeImpactHtml(view.preview)}
       ${lifecycleSimulationHtml(view.preview)}
       <ul>${Array.isArray(view.preview.findings) ? view.preview.findings.slice(0, 128).map((finding) => {
         const item = finding && typeof finding === 'object' ? finding as Record<string, unknown> : {};
@@ -232,6 +264,7 @@ export const SHARED_WORKFLOW_DRAFTS_SCRIPT = `
     const fields = editorFields();
     if (!fields) return;
     const extra = {};
+    if (target.dataset.lockKind) extra.lockKind = target.dataset.lockKind;
     if (target.dataset.guideStage) extra.stage = Number(target.dataset.guideStage);
     if (target.dataset.guideIndex) extra.index = Number(target.dataset.guideIndex);
     if (target.dataset.guideDirection) extra.direction = Number(target.dataset.guideDirection);

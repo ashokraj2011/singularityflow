@@ -63,6 +63,13 @@
       },
       "digest": "72d3565db0c7171c2fbf35b060e63253305a4de5698c8c5a3e46f96387368757"
     },
+    "apps/vscode/src/views/workflow-drafts-recovery.ts": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "c20974a3d309334542a2c4f72bf59353eba9e152393ad1265edaec7f43ab3cca"
+    },
     "apps/vscode/src/views/workspace-form.ts": {
       "counts": {
         "command-git-literal": 1

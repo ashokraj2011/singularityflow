@@ -1,9 +1,11 @@
 /** Private encrypted editor checkpoints only: no shared draft, execution, or approval authority. */
 import { constants, type Stats } from 'node:fs';
-import { lstat, mkdir, open, readdir, rename, unlink, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, readlink, rename, unlink, type FileHandle } from 'node:fs/promises';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { TextDecoder } from 'node:util';
+import { hostname } from 'node:os';
+import { execFile } from 'node:child_process';
 
 export const WORKFLOW_DRAFT_RECOVERY_MAX_TEXT_BYTES = 5 * 1024 * 1024;
 export const WORKFLOW_DRAFT_RECOVERY_MAX_ENVELOPE_BYTES = 20 * 1024 * 1024;
@@ -16,6 +18,25 @@ const FORMAT = 'sflow-workflow-draft-recovery/aes-256-gcm@1';
 const FILE = /^[a-f0-9]{64}\.wdr\.enc$/u;
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 const queues = new Map<string, Promise<void>>();
+const LOCK_MAX_BYTES = 4096;
+const PROCESS_NONCE = randomUUID();
+const OWNER_PID = process.pid;
+const OWNER_PLATFORM = process.platform;
+const OWNER_HOSTNAME = hostname();
+const signalZero = process.kill.bind(process);
+
+export type WorkflowDraftRecoveryLockKind = 'scope' | 'key-init';
+export interface WorkflowDraftRecoveryLockInspection {
+  schemaVersion: 1; kind: WorkflowDraftRecoveryLockKind;
+  scope: WorkflowDraftRecoveryScope; scopeSha256: string | null; directorySha256: string;
+  status: 'absent' | 'live' | 'dead' | 'unknown' | 'legacy'; reason: string;
+  owner: { pid: number; processNonce: string; lockNonce: string; createdAt: string } | null;
+  repairSupported: boolean; reviewId: string | null;
+}
+export interface WorkflowDraftRecoveryLockRepairResult {
+  status: 'repaired' | 'cancelled'; kind: WorkflowDraftRecoveryLockKind;
+  checkpointChanged: false; keyChanged: false;
+}
 
 export interface WorkflowDraftRecoveryScope { repository: string; authority: string; draftId: string }
 export interface WorkflowDraftRecoveryCheckpoint {
@@ -36,6 +57,11 @@ export interface WorkflowDraftRecoveryStore {
   /** Create-only without an expected ID. Replacement requires the exact prior private checkpoint. */
   write(checkpoint: WorkflowDraftRecoveryCheckpoint, expectedCheckpointId?: string | null): Promise<void>;
   remove(scope: WorkflowDraftRecoveryScope, expectedCheckpointId: string): Promise<boolean>;
+  /** Read-only exact-scope diagnostics. No lock is removed and no key is initialized. */
+  inspectLocks?(scope: WorkflowDraftRecoveryScope): Promise<{ scope: WorkflowDraftRecoveryScope; locks: WorkflowDraftRecoveryLockInspection[] }>;
+  /** Private inspection tickets cannot authorize liveness; native rechecks must independently prove death. */
+  repairLock?(scope: WorkflowDraftRecoveryScope, reviewId: string,
+    confirm: (inspection: WorkflowDraftRecoveryLockInspection) => Promise<boolean>): Promise<WorkflowDraftRecoveryLockRepairResult>;
 }
 export interface WorkflowDraftRecoverySecrets {
   get(key: string): PromiseLike<string | undefined>;
@@ -164,12 +190,142 @@ async function regular(file: string): Promise<Stats | null> {
   if (info && (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1)) unsafe();
   return info;
 }
+interface ProcessDomain { profile: 'linux-boot-pid-namespace/v1' | 'macos-boot-session/v1'; sha256: string }
+interface LockRecord {
+  schemaVersion: 1; kind: 'workflow-draft-recovery-lock'; purpose: 'mutation' | 'repair';
+  target: WorkflowDraftRecoveryLockKind; directorySha256: string; scopeSha256: string | null;
+  owner: { pid: number; processNonce: string; domain: ProcessDomain | null };
+  lockNonce: string; createdAt: string;
+}
+interface CapturedLock { identity: Identity; bytes: Buffer; record: LockRecord | null; legacy: boolean }
+let nativeDomainPromise: Promise<ProcessDomain | null> | null = null;
+async function nativeDomain(): Promise<ProcessDomain | null> {
+  nativeDomainPromise ??= (async () => {
+    // Fixed local OS observations only. No caller can supply a probe, PID, command or death result.
+    // Boot plus Linux PID namespace disambiguates another host/container and PID reuse. An owner
+    // from a different or unqualified domain remains unknown, even if its numeric PID is absent.
+    if (OWNER_PLATFORM === 'linux') {
+      let handle: FileHandle | null = null;
+      try {
+        handle = await open('/proc/sys/kernel/random/boot_id', constants.O_RDONLY | NOFOLLOW);
+        const bytes = Buffer.alloc(1024); const read = await handle.read(bytes, 0, bytes.length, 0);
+        const boot = bytes.subarray(0, read.bytesRead).toString('utf8').trim().toLowerCase();
+        const namespace = await readlink('/proc/self/ns/pid');
+        if (!UUID.test(boot) || !/^pid:\[\d{1,20}\]$/u.test(namespace)) return null;
+        return { profile: 'linux-boot-pid-namespace/v1', sha256: hash(JSON.stringify([OWNER_PLATFORM, OWNER_HOSTNAME, boot, namespace])) };
+      } catch { return null; }
+      finally { await handle?.close().catch(() => undefined); }
+    }
+    if (OWNER_PLATFORM === 'darwin') {
+      const boot = await new Promise<string | null>((resolve) => {
+        execFile('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid'], { shell: false, encoding: 'utf8',
+          timeout: 1000, maxBuffer: 1024, windowsHide: true }, (error, stdout) => {
+          const value = typeof stdout === 'string' ? stdout.trim().toLowerCase() : '';
+          resolve(!error && UUID.test(value) ? value : null);
+        });
+      });
+      return boot ? { profile: 'macos-boot-session/v1', sha256: hash(JSON.stringify([OWNER_PLATFORM, OWNER_HOSTNAME, boot])) } : null;
+    }
+    // Windows has no qualified same-boot/process-domain owner in this implementation. A PID or
+    // hostname match alone cannot qualify repair. Read/inspect remains supported, not deletion.
+    return null;
+  })();
+  return nativeDomainPromise;
+}
+function lockTarget(name: string): { target: WorkflowDraftRecoveryLockKind; scopeSha256: string | null } {
+  if (name === '.key-init.lock') return { target: 'key-init', scopeSha256: null };
+  const match = /^\.([a-f0-9]{64})\.lock$/u.exec(name);
+  if (!match) invalid();
+  return { target: 'scope', scopeSha256: match[1]! };
+}
+function lockRecord(directory: Directory, name: string, domain: ProcessDomain | null, purpose: LockRecord['purpose']): LockRecord {
+  return { schemaVersion: 1, kind: 'workflow-draft-recovery-lock', purpose, ...lockTarget(name),
+    directorySha256: hash(directory.path), owner: { pid: OWNER_PID, processNonce: PROCESS_NONCE, domain },
+    lockNonce: randomUUID(), createdAt: new Date().toISOString() };
+}
+function parseLock(bytes: Buffer, directory: Directory, name: string, purpose: LockRecord['purpose']): LockRecord | null {
+  try {
+    const value = closed(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
+      ['schemaVersion', 'kind', 'purpose', 'target', 'directorySha256', 'scopeSha256', 'owner', 'lockNonce', 'createdAt']);
+    const owner = closed(value.owner, ['pid', 'processNonce', 'domain']);
+    const target = lockTarget(name);
+    if (value.schemaVersion !== 1 || value.kind !== 'workflow-draft-recovery-lock' || value.purpose !== purpose
+        || value.target !== target.target || value.directorySha256 !== hash(directory.path)
+        || value.scopeSha256 !== target.scopeSha256 || !Number.isSafeInteger(owner.pid)
+        || Number(owner.pid) < 1 || Number(owner.pid) > 2147483647
+        || typeof owner.processNonce !== 'string' || !UUID.test(owner.processNonce)
+        || typeof value.lockNonce !== 'string' || !UUID.test(value.lockNonce)
+        || typeof value.createdAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value.createdAt)
+        || !Number.isFinite(Date.parse(value.createdAt)) || new Date(value.createdAt).toISOString() !== value.createdAt) return null;
+    let domain: ProcessDomain | null = null;
+    if (owner.domain !== null) {
+      const observed = closed(owner.domain, ['profile', 'sha256']);
+      if (!['linux-boot-pid-namespace/v1', 'macos-boot-session/v1'].includes(String(observed.profile))
+          || typeof observed.sha256 !== 'string' || !HEX.test(observed.sha256)) return null;
+      domain = { profile: observed.profile as ProcessDomain['profile'], sha256: observed.sha256 };
+    }
+    return { schemaVersion: 1, kind: 'workflow-draft-recovery-lock', purpose, ...target,
+      directorySha256: hash(directory.path), owner: { pid: Number(owner.pid), processNonce: owner.processNonce, domain },
+      lockNonce: value.lockNonce, createdAt: value.createdAt };
+  } catch { return null; }
+}
+async function captureLock(directory: Directory, name: string, purpose: LockRecord['purpose'] = 'mutation'): Promise<CapturedLock | null> {
+  await unchanged(directory); const file = path.join(directory.path, name); const before = await regular(file);
+  if (!before) return null;
+  if (before.size > LOCK_MAX_BYTES) return { identity: before, bytes: Buffer.alloc(0), record: null, legacy: false };
+  const handle = await open(file, constants.O_RDONLY | NOFOLLOW | (constants.O_NONBLOCK ?? 0));
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.nlink !== 1 || !sameFile(before, info)) unsafe();
+    const bytes = Buffer.alloc(LOCK_MAX_BYTES + 1); const read = await handle.read(bytes, 0, bytes.length, 0);
+    const content = bytes.subarray(0, read.bytesRead);
+    const after = await regular(file);
+    await unchanged(directory);
+    if (!after || !sameFile(info, after)) unsafe();
+    return { identity: { dev: info.dev, ino: info.ino }, bytes: Buffer.from(content), legacy: content.length === 0,
+      record: content.length <= LOCK_MAX_BYTES ? parseLock(content, directory, name, purpose) : null };
+  } finally { await handle.close(); }
+}
+async function processState(record: LockRecord): Promise<{ status: 'live' | 'dead' | 'unknown'; reason: string }> {
+  if (record.owner.pid === OWNER_PID && record.owner.processNonce === PROCESS_NONCE) {
+    return { status: 'live', reason: 'CURRENT_PROCESS_OWNER' };
+  }
+  const domain = await nativeDomain();
+  if (!domain || !record.owner.domain) return { status: 'unknown', reason: 'NATIVE_PROCESS_DOMAIN_UNAVAILABLE' };
+  if (record.owner.domain.profile !== domain.profile || record.owner.domain.sha256 !== domain.sha256) {
+    return { status: 'unknown', reason: 'NATIVE_PROCESS_DOMAIN_MISMATCH' };
+  }
+  try { signalZero(record.owner.pid, 0); return { status: 'live', reason: 'NATIVE_PROCESS_PRESENT' }; }
+  catch (error) {
+    return errorCode(error) === 'ESRCH' ? { status: 'dead', reason: 'NATIVE_PROCESS_ABSENT_IN_EXACT_DOMAIN' }
+      : { status: 'unknown', reason: 'NATIVE_PROCESS_PROBE_UNAVAILABLE' };
+  }
+}
+async function barrierAbsent(directory: Directory, name: string): Promise<void> {
+  if (await regular(path.join(directory.path, `${name}.repair`))) refuse('WORKFLOW_DRAFT_RECOVERY_BUSY',
+    'Private recovery lock maintenance is active or interrupted. No checkpoint, encryption key or maintenance lock was removed.');
+}
+async function releaseOwnedLock(directory: Directory, file: string, identity: Identity, bytes: Buffer): Promise<void> {
+  await unchanged(directory);
+  const current = await regular(file);
+  if (!current || !sameFile(identity, current)) unsafe();
+  const handle = await open(file, constants.O_RDONLY | NOFOLLOW);
+  try {
+    const info = await handle.stat(); const observed = Buffer.alloc(LOCK_MAX_BYTES + 1);
+    const read = await handle.read(observed, 0, observed.length, 0);
+    if (!sameFile(identity, info) || !observed.subarray(0, read.bytesRead).equals(bytes)) unsafe();
+  } finally { await handle.close(); }
+  await unchanged(directory); const final = await regular(file);
+  if (!final || !sameFile(identity, final)) unsafe();
+  await unlink(file);
+}
 async function lock<T>(directory: Directory, name: string, work: () => Promise<T>): Promise<T> {
   const file = path.join(directory.path, name);
+  const metadata = Buffer.from(JSON.stringify(lockRecord(directory, name, await nativeDomain(), 'mutation')));
   let handle: FileHandle | null = null;
   const expires = Date.now() + 2000;
   while (!handle) {
-    await unchanged(directory);
+    await unchanged(directory); await barrierAbsent(directory, name);
     try { handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW, 0o600); }
     catch (error) {
       if (errorCode(error) !== 'EEXIST') throw error;
@@ -180,13 +336,16 @@ async function lock<T>(directory: Directory, name: string, work: () => Promise<T
     }
   }
   const identity = await handle.stat();
-  try { await unchanged(directory); return await work(); }
+  let written = false;
+  try {
+    await handle.writeFile(metadata); await handle.sync(); written = true;
+    await unchanged(directory); await barrierAbsent(directory, name); return await work();
+  }
   finally {
     await handle.close();
-    await unchanged(directory);
-    const current = await regular(file);
-    if (!current || !sameFile(identity, current)) unsafe();
-    await unlink(file);
+    if (written) await releaseOwnedLock(directory, file, identity, metadata);
+    else { await unchanged(directory); const current = await regular(file);
+      if (!current || !sameFile(identity, current)) unsafe(); await unlink(file); }
   }
 }
 async function bytesAt(directory: Directory, file: string): Promise<{ bytes: Buffer; identity: Identity } | null> {
@@ -323,7 +482,91 @@ export function createWorkflowDraftRecoveryStore(directory: string, secrets: Wor
   const secretName = `singularityFlow.workflowDraftRecovery.aes256.${hash(directory)}`;
   const queueKey = (scope: WorkflowDraftRecoveryScope) => `${directory}\0${scopeHash(scope)}`;
   const location = (scope: WorkflowDraftRecoveryScope) => path.join(directory, `${scopeHash(scope)}.wdr.enc`);
+  interface Review { scope: WorkflowDraftRecoveryScope; directory: Directory; name: string;
+    captured: CapturedLock; inspection: WorkflowDraftRecoveryLockInspection; expires: number }
+  const reviews = new Map<string, Review>();
+  const inspected = async (scope: WorkflowDraftRecoveryScope, folder: Directory | null, kind: WorkflowDraftRecoveryLockKind): Promise<WorkflowDraftRecoveryLockInspection> => {
+    const name = kind === 'scope' ? `.${scopeHash(scope)}.lock` : '.key-init.lock';
+    const captured = folder ? await captureLock(folder, name) : null;
+    const barrier = folder ? await regular(path.join(folder.path, `${name}.repair`)) : null;
+    const record = captured?.record ?? null;
+    const state = barrier ? { status: 'unknown' as const, reason: 'INTERRUPTED_OR_ACTIVE_REPAIR_BARRIER' }
+      : !captured ? { status: 'absent' as const, reason: 'NO_LOCK' }
+        : captured.legacy ? { status: 'legacy' as const, reason: 'LEGACY_EMPTY_LOCK_HAS_NO_OWNER_PROOF' }
+          : !record ? { status: 'unknown' as const, reason: 'LOCK_OWNER_RECORD_INVALID_OR_UNBOUNDED' }
+            : await processState(record);
+    const reviewId = state.status === 'dead' && folder && captured ? randomUUID() : null;
+    const inspection: WorkflowDraftRecoveryLockInspection = Object.freeze({ schemaVersion: 1, kind,
+      scope: Object.freeze({ ...scope }), scopeSha256: kind === 'scope' ? scopeHash(scope) : null,
+      directorySha256: hash(directory), ...state,
+      owner: record ? Object.freeze({ pid: record.owner.pid, processNonce: record.owner.processNonce,
+        lockNonce: record.lockNonce, createdAt: record.createdAt }) : null,
+      repairSupported: reviewId !== null, reviewId });
+    if (reviewId && folder && captured) {
+      for (const [id, review] of reviews) if (review.expires < Date.now()) reviews.delete(id);
+      while (reviews.size >= 64) reviews.delete(reviews.keys().next().value!);
+      reviews.set(reviewId, { scope: { ...scope }, directory: folder, name, captured, inspection, expires: Date.now() + 120000 });
+    }
+    return inspection;
+  };
   return {
+    async inspectLocks(input) {
+      const scope = captureScope(input);
+      return guarded(async () => {
+        const folder = await directoryAt(directory, false);
+        const locks = [await inspected(scope, folder, 'scope'), await inspected(scope, folder, 'key-init')];
+        return { scope, locks };
+      });
+    },
+    async repairLock(input, reviewId, confirm) {
+      const scope = captureScope(input);
+      if (typeof reviewId !== 'string' || !UUID.test(reviewId) || typeof confirm !== 'function') invalid();
+      const review = reviews.get(reviewId);
+      reviews.delete(reviewId); // One-use, including cancellation, errors and concurrent attempts.
+      if (!review || review.expires < Date.now() || !equalScope(review.scope, scope)) refuse('WORKFLOW_DRAFT_RECOVERY_LOCK_REVIEW_REQUIRED',
+        'Inspect this exact private recovery scope again. No current one-use repair review is available.');
+      return guarded(async () => {
+        if (await confirm(review.inspection) !== true) return { status: 'cancelled', kind: review.inspection.kind,
+          checkpointChanged: false, keyChanged: false };
+        if (review.expires < Date.now()) refuse('WORKFLOW_DRAFT_RECOVERY_LOCK_REVIEW_REQUIRED',
+          'The private lock review expired while confirmation was open. Inspect this exact scope again; no lock was removed.');
+        return queued(`${directory}\0lock-repair\0${review.name}`, async () => {
+          await unchanged(review.directory);
+          const barrier = path.join(directory, `${review.name}.repair`);
+          const metadata = Buffer.from(JSON.stringify(lockRecord(review.directory, review.name, await nativeDomain(), 'repair')));
+          let handle: FileHandle;
+          try { handle = await open(barrier, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW, 0o600); }
+          catch (error) {
+            if (errorCode(error) !== 'EEXIST') throw error;
+            await regular(barrier);
+            return refuse('WORKFLOW_DRAFT_RECOVERY_BUSY', 'Private recovery maintenance is already active or interrupted. No lock was removed.');
+          }
+          const identity = await handle.stat(); let written = false;
+          try {
+            await handle.writeFile(metadata); await handle.sync(); written = true;
+            const current = await captureLock(review.directory, review.name);
+            if (!current || !sameFile(current.identity, review.captured.identity) || !current.bytes.equals(review.captured.bytes)
+                || !current.record) refuse('WORKFLOW_DRAFT_RECOVERY_LOCK_CHANGED',
+              'The reviewed private recovery lock changed. Inspect it again; no replacement lock was removed.');
+            if ((await processState(current.record)).status !== 'dead') refuse('WORKFLOW_DRAFT_RECOVERY_LOCK_OWNER_UNPROVEN',
+              'The reviewed lock owner is live or cannot be proven absent in this exact native process domain. No lock was removed.');
+            const final = await captureLock(review.directory, review.name);
+            if (!final || !sameFile(final.identity, review.captured.identity) || !final.bytes.equals(review.captured.bytes)) {
+              refuse('WORKFLOW_DRAFT_RECOVERY_LOCK_CHANGED', 'The reviewed private recovery lock changed. No replacement lock was removed.');
+            }
+            // The exclusive barrier fences all participating acquisitions/repairs. A reused PID
+            // cannot adopt this nonce-owned file; an existing live/unknown owner was refused above.
+            await unchanged(review.directory); await unlink(path.join(directory, review.name)); await syncDirectory(review.directory);
+            return { status: 'repaired' as const, kind: review.inspection.kind, checkpointChanged: false as const, keyChanged: false as const };
+          } finally {
+            await handle.close();
+            if (written) await releaseOwnedLock(review.directory, barrier, identity, metadata);
+            else { await unchanged(review.directory); const current = await regular(barrier);
+              if (!current || !sameFile(identity, current)) unsafe(); await unlink(barrier); }
+          }
+        });
+      });
+    },
     async read(input) {
       const scope = captureScope(input);
       return queued(queueKey(scope), () => guarded(async () => {

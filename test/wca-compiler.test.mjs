@@ -10,9 +10,10 @@ import { captureWorkflowCompilerContext, captureWorkflowDraftCompilerSource, com
 import { compileConfirmedSkillPhase, compileSkillPhaseProposal, configurationPhaseFromCompiledSkill, skillCandidateCatalogSha256, skillContractSha256, skillPhaseCandidateSha256 } from '../src/skp-contract.mjs';
 import { configurationAssetPolicy } from '../src/configuration-assets.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { workflowDefinitionSha256 } from '../src/wca-workflow-changes.mjs';
 
 function git(root, ...argv) { const result = spawnSync('git', argv, { cwd: root, encoding: 'utf8', timeout: 30_000 }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); }
-async function fixture(t, configure = () => {}) {
+async function fixture(t, configure = () => {}, approvedSkills = []) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wca-compiler-')); t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'client'); const remote = path.join(base, 'authority.git'); await mkdir(root);
   git(base, 'init', '--bare', remote); git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Compiler Fixture'); git(root, 'config', 'user.email', 'compiler@example.test');
@@ -23,6 +24,12 @@ async function fixture(t, configure = () => {}) {
   await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(definition)); await writeFile(path.join(root, definition.templatesRoot, 'common/empty.md'), '# Exact approved template\n');
   if (environmentDeclaration) await writeFile(path.join(root, 'singularity/environments.yml'), YAML.stringify(environmentDeclaration));
   for (const [agent, phaseId] of [['product-owner', 'intake'], ['qa', 'conformance']]) await writeFile(path.join(root, `.github/agents/${agent}.agent.md`), `---\nname: ${agent}\ndescription: Exact base role\ntools: []\nmetadata:\n  sflow-phases: ${phaseId}\n  sflow-default-for: ${phaseId}\n---\nRead only the exact current approved inputs.\n`);
+  for (const phaseId of Object.keys(definition.phases).filter((key) => !['intake', 'conformance'].includes(key))) await writeFile(path.join(root, `.github/agents/${phaseId}-owner.agent.md`), `---\nname: ${phaseId}-owner\ndescription: Exact additional role\ntools: []\nmetadata:\n  sflow-phases: ${phaseId}\n  sflow-default-for: ${phaseId}\n---\nRead only exact approved inputs.\n`);
+  for (const relative of approvedSkills) {
+    const file = path.join(root, 'singularity/skills/inert-note', relative);
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, relative === 'SKILL.md' ? '---\nname: inert-note\ndescription: Approved existing procedure\n---\nReport the approved note.\n' : 'Approved retained resource.\n');
+  }
   git(root, 'add', '.'); git(root, 'commit', '-m', 'approved test source'); git(root, 'branch', 'sflow/config'); git(root, 'remote', 'add', 'origin', remote); git(root, 'push', 'origin', 'main', 'sflow/config');
   const commit = git(root, 'rev-parse', 'HEAD'); const store = openGitDraftStore({ root, remote, workspaceId: 'configuration' });
   const request = { schema: WCA_REQUEST_SCHEMA, intent: 'create', id: 'team-notes', label: 'Team notes', baseRevision: commit, target: { governs: 'story', authority: 'selected-repository', hosts: [] }, bindings: { analysisTask: { kind: 'execution-task', id: 'analyze' }, review: { kind: 'approval-authority', id: 'reviewers' } }, definitions: { workflows: [{ id: 'team-notes', phases: ['intake', 'team-note', 'conformance'] }], phases: [{ id: 'team-note', label: 'Team note', artifact: { path: 'artifacts/team-note/note.md', kind: 'custom:note', minimumBytes: 20, maximumBytes: 16_384 }, inputs: ['intake'], template: 'note-template', agent: 'note-writer', taskBinding: 'analysisTask', approvalBinding: 'review', qualityBindings: [], writeScope: 'artifact-only' }], agents: [{ id: 'note-writer', description: 'Write the selected note', prompt: 'Read the exact approved intake. Produce the selected note and stop for human review.', toolBindings: [], skillRefs: [] }], templates: [{ id: 'note-template', content: '# Team note\n\n## Inputs\n\n## Findings\n\n## Open questions\n' }] } };
@@ -33,6 +40,100 @@ async function preview(f, request = f.request, operationId = 'create-preview', a
   const context = await captureWorkflowCompilerContext(f.root); const source = await captureWorkflowDraftCompilerSource(context, { draftId: created.record.draftId });
   return { result: compileWorkflowDraftPackage({ context, source }), context, source, created };
 }
+
+test('workflow-only edit and linked fork bind exact raw parent and preserve omitted advanced policy with full impact', async (t) => {
+  for (const intent of ['edit', 'fork']) await t.test(intent, async (child) => {
+    const f = await fixture(child, (definition) => {
+      definition.workTypes.baseline.description = 'Original description';
+      definition.workTypes.baseline.templateOverrides = { intake: 'common/empty.md' };
+      definition.workTypes.baseline.documents = { allowedPhases: ['intake'] };
+      definition.workTypes.baseline.phaseOverrides = { intake: { label: 'Preserved intake' } };
+    });
+    const target = intent === 'edit' ? 'baseline' : 'baseline-copy';
+    const request = { schema: WCA_REQUEST_SCHEMA, intent, id: 'change-baseline', label: 'Reviewed change',
+      baseRevision: f.commit, target: f.request.target,
+      definitions: { workflows: [{ id: target, label: 'New label' }] },
+      changes: [{ kind: 'workflow', id: target, operation: intent, ...(intent === 'fork' ? { sourceId: 'baseline' } : {}),
+        expectedDefinitionSha256: workflowDefinitionSha256(f.definition.workTypes.baseline) }] };
+    const p = await preview(f, request);
+    assert.deepEqual(p.result.findings, []); assert.equal(p.result.compiler, 'wca-complete-package/v3');
+    assert.equal(p.result.workflowChanges.status, 'ready'); assert.equal(p.result.simulation.status, 'complete-for-profile');
+    assert.equal(p.result.workflowChanges.impact.sharedDefinitions, 'unchanged');
+    assert.equal(p.result.workflowChanges.impact.retainedStories, 'unchanged-not-inventoried');
+    assert.ok(p.result.workflowChanges.impact.sharedDependencies.some((row) => row.kind === 'phase'
+      && row.id === 'intake' && row.directDependents.some((value) => value.id === 'baseline')));
+    const result = YAML.parse(p.result.assets.find((asset) => asset.path === 'singularity/workflow.yml').content);
+    assert.equal(result.workTypes[target].label, 'New label');
+    assert.equal(result.workTypes[target].description, 'Original description');
+    assert.deepEqual(result.workTypes[target].templateOverrides, f.definition.workTypes.baseline.templateOverrides);
+    assert.deepEqual(result.workTypes[target].documents, f.definition.workTypes.baseline.documents);
+    assert.deepEqual(result.workTypes[target].phaseOverrides, f.definition.workTypes.baseline.phaseOverrides);
+    assert.equal(workflowDefinitionSha256(result.workTypes[target]), p.result.workflowChanges.replacements[0].afterDefinitionSha256);
+    const unchanged = structuredClone(result); const original = structuredClone(f.definition);
+    delete unchanged.workTypes[target]; delete original.workTypes[target];
+    assert.deepEqual(unchanged, original, 'unrelated raw shared definitions and original fork source are not normalized or rewritten');
+    assert.equal(p.result.assets.length, 1, 'linked dependencies are unchanged, not copied as native skill files');
+    assert.deepEqual(workflowDraftPackageProposalFiles(p.result).snapshotInputs.request, request);
+    assert.deepEqual(await previewWorkflowDraftPackage(f.root, { draftId: 'WFD-COMPILER1' }), p.result);
+  });
+});
+
+test('workflow-only preview refuses stale parent, mismatched operation and shared edits before candidate files', async (t) => {
+  for (const [name, change, code] of [
+    ['stale', (r) => { r.changes[0].expectedDefinitionSha256 = `sha256:${'0'.repeat(64)}`; }, 'WCA_CHANGE_PARENT_STALE'],
+    ['shared', (r) => { r.definitions.phases = [{ id: 'intake', label: 'replace' }]; }, 'WCA_CHANGE_SHARED_OBJECT_UNSUPPORTED'],
+    ['operation', (r) => { r.changes[0].operation = 'delete'; }, 'WCA_CHANGE_SHARED_OBJECT_UNSUPPORTED']
+  ]) await t.test(name, async (child) => {
+    const f = await fixture(child); const r = { schema: WCA_REQUEST_SCHEMA, intent: 'edit', id: 'change-baseline',
+      label: 'Reviewed change', baseRevision: f.commit, target: f.request.target,
+      definitions: { workflows: [{ id: 'baseline', label: 'Changed' }] },
+      changes: [{ kind: 'workflow', id: 'baseline', operation: 'edit', expectedDefinitionSha256: workflowDefinitionSha256(f.definition.workTypes.baseline) }] };
+    change(r); const p = await preview(f, r);
+    assert.ok(p.result.findings.some((finding) => finding.code === code), JSON.stringify(p.result.findings));
+    assert.equal(p.result.assets.length, 0); assert.equal(p.result.fileOperations.length, 0);
+  });
+});
+
+test('workflow-only checks and graph use effective phase inputs, output and approval rather than the base phase', async (t) => {
+  const f = await fixture(t, (definition) => {
+    definition.phases.helper = { ...structuredClone(definition.phases.intake), label: 'Helper',
+      artifact: { path: 'artifacts/helper/helper.md', minimumBytes: 20, maximumBytes: 16384 } };
+    definition.phases.conformance.inputs = ['helper'];
+    definition.workTypes.baseline.phaseOverrides = { conformance: { inputs: ['intake'],
+      approval: { mode: 'required', authorities: ['reviewers'], minimum: 1 },
+      artifact: { path: 'artifacts/conformance/effective.md' } } };
+  });
+  const request = { schema: WCA_REQUEST_SCHEMA, intent: 'edit', id: 'change-baseline', label: 'Reviewed change',
+    baseRevision: f.commit, target: f.request.target, definitions: { workflows: [{ id: 'baseline', label: 'New label' }] },
+    changes: [{ kind: 'workflow', id: 'baseline', operation: 'edit', expectedDefinitionSha256: workflowDefinitionSha256(f.definition.workTypes.baseline) }] };
+  const p = await preview(f, request); assert.deepEqual(p.result.findings, []);
+  const row = p.result.graph.find((phase) => phase.phaseId === 'conformance');
+  assert.deepEqual(row.inputs, ['intake']); assert.equal(row.humanReview, true);
+  assert.equal(row.artifact, 'artifacts/conformance/effective.md');
+});
+
+test('unassigned candidate skill bytes are emitted only into inert canonical configuration storage', async (t) => {
+  const f = await fixture(t); f.request.definitions.skills = [{ id: 'inert-note', description: 'Unassigned procedure candidate',
+    instructions: 'Read the admitted note and report only its stated findings.', operationBindings: [], resources: [] }];
+  const p = await preview(f); assert.deepEqual(p.result.findings, []);
+  assert.ok(p.result.assets.some((asset) => asset.path === 'singularity/skills/inert-note/SKILL.md'));
+  assert.ok(p.result.assets.every((asset) => !asset.path.startsWith('.github/skills/')));
+  assert.equal(p.result.readiness.activation, 'inactive'); assert.equal(p.result.readiness.execution, 'not-run');
+  assert.ok(!Object.values(p.result.candidateDefinition.phases).some((phase) => phase.kind === 'skill'));
+});
+
+test('candidate skill IDs cannot shadow an unassigned approved package, even when output resource paths differ', async (t) => {
+  for (const resources of [['SKILL.md'], ['references/retained.md']]) await t.test(resources[0], async (child) => {
+    const f = await fixture(child, () => {}, resources);
+    f.request.definitions.skills = [{ id: 'inert-note', description: 'Replacement candidate',
+      instructions: 'Report a different note.', operationBindings: [], resources: [] }];
+    const p = await preview(f);
+    assert.ok(p.result.findings.some((finding) => finding.code === 'WCA_OBJECT_COLLISION'), JSON.stringify(p.result.findings));
+    assert.equal(p.result.assets.length, 0); assert.equal(p.result.fileOperations.length, 0);
+    assert.equal(p.result.effects.configurationWritten, false);
+    assert.equal(git(f.root, 'rev-parse', 'HEAD'), f.commit);
+  });
+});
 
 test('complete-package compiler resolves forward candidate agent/template references and emits exact deterministic inert candidate bytes', async (t) => {
   const f = await fixture(t); const before = { head: git(f.root, 'rev-parse', 'HEAD'), index: await readFile(path.join(f.root, '.git/index')), remote: git(f.root, 'ls-remote', '--heads', f.remote, 'main', 'sflow/config') };
@@ -223,4 +324,26 @@ test('proposal-only SKP lowering preserves confirmed policy but cannot create a 
   catalog.skillPackages.note.eligibility = 'proposed-candidate-producer';
   assert.equal(compileSkillPhaseProposal({ phase, catalog, phaseOrder }).eligibility, 'proposed-candidate-producer');
   assert.throws(() => compileConfirmedSkillPhase({ phase, catalog, phaseOrder, confirmation }), (error) => error.code === 'SKP_SKILL_NOT_PHASE_PRODUCER');
+});
+
+test('mixed-package SKP proposals see earlier ordinary candidate outputs independently of declaration order and ref wrapping', async (t) => {
+  const f = await fixture(t);
+  const ordinary = structuredClone(f.request.definitions.phases[0]);
+  const skill = { id: 'team-skill', kind: 'skill', label: 'Findings', agent: 'note-writer',
+    skill: { id: 'analysis-procedure' }, contract: { task: 'analyze',
+      consumes: [{ phase: 'team-note', output: 'primary', required: true, state: 'approved' }],
+      produces: [{ id: 'primary', path: 'artifacts/team-skill/findings.md', kind: 'custom:note',
+        mediaType: 'text/markdown', encoding: 'utf-8', minimumBytes: 20, maximumBytes: 16384,
+        clauses: 'optional', claimRole: 'findings' }], checks: [], writeScope: 'artifact-only',
+      readScope: { inputs: true, sourcePaths: [] }, approval: { authorities: ['reviewers'], minimum: 1 } } };
+  f.request.definitions.phases = [skill, ordinary];
+  f.request.definitions.skills = [{ id: 'analysis-procedure', description: 'Produce findings',
+    instructions: 'Read the approved note and record findings.', operationBindings: [], resources: [] }];
+  f.request.definitions.workflows[0].phases = ['intake', 'team-note', 'team-skill', 'conformance'].map((id) => ({ ref: {
+    source: ['team-note', 'team-skill'].includes(id) ? 'candidate' : 'catalog', kind: 'phase', id } }));
+  const p = await preview(f);
+  assert.equal(p.result.skillProposals.length, 1, JSON.stringify(p.result.findings));
+  assert.deepEqual(p.result.findings.map((finding) => finding.code), ['WCA_SKP_CONFIRMATION_BINDING_PENDING'], JSON.stringify(p.result.findings));
+  assert.equal(p.result.skillProposals[0].bindingRefs.inputs[0].phase, 'team-note');
+  assert.equal(p.result.assets.length, 0); assert.equal(p.result.readiness.activation, 'inactive');
 });

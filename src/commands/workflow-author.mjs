@@ -9,7 +9,7 @@ import { captureTerminalActionAuthorization } from '../action-authorization.mjs'
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { draftDeletePlan, openGitDraftStore } from '../wca-git-drafts.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { SingularityFlowError, isPortableRepositoryPathComponent } from '../util.mjs';
 
 export const WORKFLOW_AUTHOR_INPUT_MAX_BYTES = 5 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES = 256 * 1024;
@@ -27,7 +27,7 @@ const OPTIONS = {
   preview: new Set(['json', 'revision']),
   catalog: new Set(['json', 'kind', 'limit', 'cursor']),
   submit: new Set(['json', 'revision']),
-  'where-used': new Set(['json', 'package-sha256', 'limit', 'cursor', 'expected-source'])
+  'where-used': new Set(['json', 'package-sha256', 'limit', 'cursor', 'expected-source', 'story', 'ref', 'commit', 'snapshot-revision'])
 };
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
 const OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u;
@@ -70,6 +70,13 @@ export function validateWorkflowAuthorRequest({ positionals, options }) {
       if (options[key] !== undefined && !/^sha256:[a-f0-9]{64}$/u.test(options[key])) fail(`--${key} requires one exact SHA-256 digest.`);
     }
     if (numberOption(options, 'cursor', 0, 1024, 0) > 0 && options['expected-source'] === undefined) fail('Later usage pages require --expected-source from the preceding page.');
+    if (options.story !== undefined && (options.story.length > 64 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(options.story)
+        || !isPortableRepositoryPathComponent(options.story))) fail('--story requires one exact bounded portable Story ID.');
+    if (options.story === undefined && ['ref', 'commit', 'snapshot-revision'].some((key) => options[key] !== undefined)) fail('Historical selectors require one explicitly selected --story; no Story scan is performed.');
+    if (options.ref !== undefined && (options.ref.length > 512 || !(options.ref === 'HEAD' || /^refs\/(?:heads|remotes)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(options.ref)) || /(?:\.\.|@\{|\/\/|\/$|\.lock(?:\/|$))/u.test(options.ref))) fail('--ref requires HEAD or one literal local refs/heads or refs/remotes ref.');
+    if (options.commit !== undefined && !HEAD.test(options.commit)) fail('--commit requires one exact local Git commit object ID reachable from the selected ref.');
+    numberOption(options, 'snapshot-revision', 1, 64, null);
+    if (options.story !== undefined) numberOption(options, 'cursor', 0, 512, 0);
   } else if (target !== undefined && (action === 'op-status' ? !OPERATION_ID.test(target) : !DRAFT_ID.test(target))) {
     fail(action === 'op-status' ? 'Select one bounded operation ID.' : 'Select one exact WFD draft ID.');
   }
@@ -268,13 +275,19 @@ function emit(value, json) {
 export async function run(root, positionals, options, { scope } = {}) {
   const action = validateWorkflowAuthorRequest({ positionals, options });
   if (action === 'where-used') {
-    const usage = await (await import('../skp-usage.mjs')).lookupApprovedSkillUsage(root, {
+    const selected = {
       skillId: positionals[3], packageSha256: options['package-sha256'],
       limit: numberOption(options, 'limit', 1, 64, 32), cursor: numberOption(options, 'cursor', 0, 1024, 0),
-      expectedSource: options['expected-source'] });
+      expectedSource: options['expected-source'] };
+    const usage = options.story === undefined
+      ? await (await import('../skp-usage.mjs')).lookupApprovedSkillUsage(root, selected)
+      : await (await import('../skp-story-usage.mjs')).lookupStorySkillUsage(root, { ...selected,
+        workId: options.story, ref: options.ref ?? 'HEAD', commit: options.commit,
+        snapshotRevision: numberOption(options, 'snapshot-revision', 1, 64, undefined) });
     return emit({ resultType: 'workflow-author', operation: { id: 'workflow.author.where-used',
       modelPolicy: 'never', classification: 'read' }, status: 'read',
-      scope: { approvedConfiguration: usage.source }, effects: EFFECTS_NONE, data: { usage } }, Boolean(options.json));
+      scope: options.story === undefined ? { approvedConfiguration: usage.source } : { selectedStory: usage.subject, source: usage.source },
+      effects: EFFECTS_NONE, data: { usage } }, Boolean(options.json));
   }
   if (!scope || scope.root !== root || typeof scope.remote !== 'string'
       || typeof scope.workspaceId !== 'string') fail('Select an explicit approved repository draft scope.', 'WCA_DRAFT_SCOPE_UNAVAILABLE');

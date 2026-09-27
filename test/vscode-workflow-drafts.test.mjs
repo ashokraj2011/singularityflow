@@ -16,7 +16,7 @@ const { SharedWorkflowDraftController, WORKFLOW_DRAFT_INPUT_MAX_BYTES, workflowD
 const { withWorkflowDraftInputFile } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-input.ts'));
 const { createWorkflowDraftRecoveryStore } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-recovery.ts'));
 const { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts'));
-const { addWorkflowDraftStage, editWorkflowDraftGuide, workflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog, WORKFLOW_DRAFT_STAGES } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts'));
+const { addWorkflowDraftStage, editWorkflowDraftGuide, workflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog, prepareWorkflowDraftChange, WORKFLOW_DRAFT_STAGES } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts'));
 
 const repository = path.resolve('/opened/explicit repository');
 const draftId = 'WFD-ABC123';
@@ -48,7 +48,7 @@ function packageShow(selected = revision()) {
 }
 
 function fixture(overrides = {}, clock, recoveryStore) {
-  const calls = []; const copied = []; const inputs = []; const notices = []; const rejected = []; const inputFiles = []; const compared = []; const discardReasons = [];
+  const calls = []; const copied = []; const inputs = []; const notices = []; const rejected = []; const inputFiles = []; const compared = []; const discardReasons = []; const lockReviews = [];
   let loadedRevision = revision();
   let listHead = firstHead;
   let confirmation = false;
@@ -80,15 +80,88 @@ function fixture(overrides = {}, clock, recoveryStore) {
     editorRejected: (binding, message) => rejected.push({ binding, message }),
     confirmDiscard: async (reason) => { discardReasons.push(reason); return confirmation; },
     compareRecovery: async (value) => compared.push(value),
+    confirmLockRepair: async (value) => { lockReviews.push(value); return overrides.confirmLockRepair ? overrides.confirmLockRepair(value, controller) : confirmation; },
     copyReview: async (callRoot, argv, surface) => copied.push({ root: callRoot, argv, surface })
   }, clock, recoveryStore);
   const edit = (inputText = '{"payload":{"id":"unsaved"},"assets":[]}', name = 'Edited') => ({
     binding: controller.view.editor.binding, name, inputText
   });
   const open = async () => { await controller.initialize(); await controller.receive({ type: 'open', draftId }); };
-  return { controller, calls, copied, inputs, notices, rejected, inputFiles, compared, discardReasons, open, edit,
+  return { controller, calls, copied, inputs, notices, rejected, inputFiles, compared, discardReasons, lockReviews, open, edit,
     setListHead: (value) => { listHead = value; }, confirm: (value) => { confirmation = value; } };
 }
+
+test('private lock actions require host-held inspection and native confirmation, never resume a save', async () => {
+  const store = memoryRecoveryStore(); const inspections = []; const repairs = [];
+  store.inspectLocks = async (scope) => {
+    inspections.push(scope);
+    return { scope, locks: [{ schemaVersion: 1, kind: 'scope', scope, scopeSha256: `sha256:${'9'.repeat(64)}`,
+      directorySha256: `sha256:${'8'.repeat(64)}`, status: 'dead', reason: '<private owner exited>',
+      owner: { pid: 42, processNonce: 'private-process', lockNonce: 'private-lock', createdAt: '2026-01-01T00:00:00.000Z' },
+      repairSupported: true, reviewId: 'host-ticket' }] };
+  };
+  store.repairLock = async (scope, ticket, confirm) => {
+    repairs.push({ scope, ticket });
+    const allowed = await confirm((await store.inspectLocks(scope)).locks[0]);
+    return { status: allowed ? 'repaired' : 'cancelled', kind: 'scope', checkpointChanged: false, keyChanged: false };
+  };
+  const f = fixture({}, undefined, store); await f.open(); const binding = f.controller.view.editor.binding;
+  const before = f.controller.view.editor.inputText;
+  await f.controller.receive({ type: 'recovery-repair-lock', binding, lockKind: 'scope' });
+  assert.match(f.controller.view.error, /Inspect a proven-dead/); assert.equal(repairs.length, 0);
+  await f.controller.receive({ type: 'recovery-inspect-locks', binding });
+  const html = sharedWorkflowDraftsHtml(f.controller.view);
+  assert.match(html, /Review dead lock repair/); assert.match(html, /&lt;private owner exited&gt;/); assert.doesNotMatch(html, /host-ticket/);
+  await f.controller.receive({ type: 'recovery-repair-lock', binding, lockKind: 'scope', confirmed: true });
+  assert.match(f.controller.view.error, /unsupported fields/); assert.equal(repairs.length, 0);
+  await f.controller.receive({ type: 'recovery-repair-lock', binding, lockKind: 'scope' });
+  assert.equal(f.lockReviews.length, 1); assert.match(f.controller.view.notice, /cancelled/);
+  await f.controller.receive({ type: 'recovery-inspect-locks', binding }); f.confirm(true);
+  await f.controller.receive({ type: 'recovery-repair-lock', binding, lockKind: 'scope' });
+  assert.match(f.controller.view.notice, /No save|no save/); assert.equal(f.controller.view.editor.inputText, before);
+  assert.equal(f.controller.view.autosave, false); assert.equal(f.calls.filter((call) => call.args[2] === 'save').length, 0);
+  assert.equal(repairs.at(-1).ticket, 'host-ticket'); assert.equal(inspections[0].draftId, draftId);
+});
+
+test('private lock repair rechecks the editor after native review and rejects another scope', async () => {
+  const store = memoryRecoveryStore(); let removed = false;
+  store.inspectLocks = async (scope) => ({ scope, locks: [{ schemaVersion: 1, kind: 'scope', scope,
+    scopeSha256: null, directorySha256: `sha256:${'8'.repeat(64)}`, status: 'dead', reason: 'dead in same domain',
+    owner: null, repairSupported: true, reviewId: 'ticket' }] });
+  store.repairLock = async (scope, ticket, confirm) => {
+    if (await confirm((await store.inspectLocks(scope)).locks[0])) removed = true;
+    return { status: 'repaired', kind: 'scope', checkpointChanged: false, keyChanged: false };
+  };
+  const f = fixture({ confirmLockRepair: async (_value, controller) => {
+    controller.view.editor.inputText = '{"payload":{"newer":"retain"}}'; return true;
+  } }, undefined, store); await f.open(); const binding = f.controller.view.editor.binding;
+  await f.controller.receive({ type: 'recovery-inspect-locks', binding });
+  await f.controller.receive({ type: 'recovery-repair-lock', binding, lockKind: 'scope' });
+  assert.equal(removed, false); assert.match(f.controller.view.error, /New captured edits/);
+  assert.match(f.controller.view.editor.inputText, /newer/);
+});
+
+test('guided edit and linked copy prepare exact raw parent without removing prior decisions or creating shared components', () => {
+  const envelope = JSON.stringify({ payload: { schema: 'sflow-workflow-request@2', id: 'new-copy', label: 'Package review', rationale: 'preserve me' }, assets: [] });
+  const choice = { id: 'original', rawDefinitionSha256: `sha256:${'d'.repeat(64)}`, phaseOrder: ['intake', 'conformance'] };
+  for (const intent of ['edit', 'fork']) {
+    const prepared = JSON.parse(prepareWorkflowDraftChange(envelope, intent, choice, firstHead));
+    const target = intent === 'edit' ? 'original' : 'new-copy';
+    assert.equal(prepared.payload.rationale, 'preserve me'); assert.deepEqual(prepared.assets, []);
+    assert.equal(prepared.payload.intent, intent); assert.equal(prepared.payload.baseRevision, firstHead);
+    assert.deepEqual(prepared.payload.definitions.workflows, [{ id: target, phases: choice.phaseOrder }]);
+    assert.equal(prepared.payload.changes[0].expectedDefinitionSha256, choice.rawDefinitionSha256);
+    assert.throws(() => addWorkflowDraftStage(JSON.stringify(prepared), 'extra'), /reuses approved stages/);
+    const updated = JSON.parse(editWorkflowDraftGuide(JSON.stringify(prepared), 'workflow-label', 'New label'));
+    assert.equal(updated.payload.definitions.workflows[0].label, 'New label');
+    assert.deepEqual(updated.payload.changes, prepared.payload.changes);
+  }
+  for (const extra of [{ definitions: { phases: [{ id: 'private-note' }] } }, { changes: [] }, { bindings: {} }]) {
+    const input = JSON.stringify({ payload: { ...JSON.parse(envelope).payload, ...extra }, assets: [] });
+    assert.throws(() => prepareWorkflowDraftChange(input, 'edit', choice, firstHead), /retained, not deleted/);
+  }
+  assert.throws(() => prepareWorkflowDraftChange(envelope, 'edit', { ...choice, rawDefinitionSha256: 'guessed' }, firstHead), /exact captured/);
+});
 
 test('shared draft editor reaches only the existing CLI at the frozen explicit root', async () => {
   const f = fixture(); await f.open();

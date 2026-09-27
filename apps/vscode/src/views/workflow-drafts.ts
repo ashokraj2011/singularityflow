@@ -79,6 +79,12 @@ class SharedWorkflowDraftsPanel {
                 : 'This replaces pending editor text and removes only its reviewed private checkpoint on this machine. It does not delete a shared draft or merge anything. Cancel keeps the text and checkpoint.' },
             label) === label;
         },
+        confirmLockRepair: async (inspection) => {
+          const label = 'Remove this dead private lock';
+          return await vscode.window.showWarningMessage('Repair this interrupted private checkpoint lock?', {
+            modal: true, detail: `Draft: ${inspection.scope.draftId}\nRepository: ${inspection.scope.repository}\nAuthority: ${inspection.scope.authority}\nLock: ${inspection.kind}${inspection.kind === 'key-init' ? ' (directory-wide key initialization)' : ''}\nDirectory: ${inspection.directorySha256}\nOwner PID: ${inspection.owner?.pid ?? 'unknown'}\nLock nonce: ${inspection.owner?.lockNonce ?? 'unknown'}\n${inspection.reason}\nOnly the exact proven-dead same-domain lock is removed after fresh ownership checks. Text, ciphertext, encryption key and shared Git draft are not changed. No save or retry runs. Cancel keeps everything.`
+          }, label) === label;
+        },
         copyReview: async (repository, argv, surface) => {
           if (surface === 'copilot') {
             const issue = workflowDraftCopilotContextIssue(repository,
@@ -98,7 +104,8 @@ class SharedWorkflowDraftsPanel {
       'autosave-on': handle, 'autosave-off': handle, stage: handle, 'back-drafts': handle, exit: handle,
       'guide-answer': handle, 'add-stage': handle, 'move-stage': handle, preview: handle, 'catalog-answer': handle,
       'submit-review': handle, 'copilot-submit-review': handle,
-      'recovery-restore': handle, 'recovery-compare': handle, 'recovery-discard': handle, 'recovery-refresh': handle
+      'recovery-restore': handle, 'recovery-compare': handle, 'recovery-discard': handle, 'recovery-refresh': handle,
+      'recovery-inspect-locks': handle, 'recovery-repair-lock': handle
     });
     panel.webview.onDidReceiveMessage((raw: unknown) => { void Promise.resolve(router.route(raw)).catch((error) => {
       this.controller.view.error = error instanceof Error ? error.message : String(error); this.render();

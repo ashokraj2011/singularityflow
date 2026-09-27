@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 23
+version: 24
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -161,9 +161,24 @@ qualification of an installed host's credential storage.
 **Refresh private recovery (read-only)** retries the exact local scope after storage becomes
 available or another editor changes its checkpoint, without replacing current editor text. An
 interrupted writer's leftover lock does not prevent reading its retained checkpoint, but mutations
-remain blocked rather than automatically removing a potentially live lock. Explicit lock repair
-and installed Windows/power-loss qualification remain separate work; this build does not claim
-race-free containment against a hostile same-user filesystem ancestor swap.
+remain blocked rather than automatically removing a potentially live lock.
+
+Choose **Inspect private locks (read-only)** to inspect the exact opened draft scope and the
+directory-wide key-init lock. **Review dead lock repair…** is offered only for a newly recorded
+owner proven absent in the same native process domain. A Cancel-default VS Code warning displays
+the exact scope, owner and lock nonce. After confirmation, one-use host-held review, fresh native
+liveness and inode/bytes/nonce checks, and a cross-process barrier fence removal of that exact lock.
+The webview cannot supply a death flag or confirmation ticket. Repair changes no editor text,
+ciphertext, encryption key, shared draft or approved configuration and starts no save/retry;
+refresh private recovery before choosing another action.
+
+Supported macOS/Linux probes bind the boot/process domain without exposing a raw host identifier.
+Time, an old timestamp or a numeric PID alone never proves safe removal. Live/unknown owners,
+another boot/domain, legacy empty locks and interrupted repair barriers stay blocked. Windows
+inspection works, but repair is unavailable without a qualified native process-domain owner.
+Native macOS child-process tests are not installed VS Code, Linux, Windows or power-loss
+qualification. This build also does not claim race-free containment against a hostile same-user
+filesystem ancestor swap. This local maintenance confirmation is not SKP runtime consent.
 
 Private checkpoint failure is shown independently from shared status and blocks a new shared
 Save in this editor. Before issuing a shared write, the editor durably retains the exact pending
@@ -191,11 +206,59 @@ new revision and preview again. A changed draft, authority, base, catalog or pol
 old plan rather than silently rebasing it.
 
 Current candidate emission supports complete ordinary artifact-only create packages with real
-agent/template bodies and approved task, check and reviewer references. Unsupported tool/source
-effects, missing artifacts, ambiguous references and unclaimed attachments block emission. Edit,
-fork and shared-consumer impact are not inferred. New SKP packages can be lowered proposal-only;
-they have no confirmed runtime binding and cannot be submitted as executable skill phases. Static
-validation is supplemented by the bounded Story simulation below, not live lifecycle execution.
+agent/template bodies and approved task, check and reviewer references, plus the explicit
+workflow-only changes below. Unsupported tool/source effects, missing artifacts, ambiguous
+references and unclaimed attachments block emission. New SKP packages can be lowered proposal-only;
+they have no confirmed runtime binding and cannot be submitted as executable skill phases. Their
+inert files use canonical `singularity/skills/<ID>/…` storage, never native `.github/skills`
+discovery. Static validation is supplemented by the bounded Story simulation below, not live
+lifecycle execution.
+
+## Edit or make a linked fork in a shared draft
+
+Start from an empty component package and an exact captured approved workflow choice. The UI's
+explicit edit/linked-copy selection prepares a workflow-only request; advanced JSON can express
+the same `sflow-workflow-request@2` shape. Read the parent identity from
+`workflow author catalog --kind workflow --json`: its `rawDefinitionSha256` belongs to the raw
+approved workflow, not a normalized runtime policy. Bind the request's `baseRevision` to that
+response's exact approved source. For a label-only edit, the payload includes:
+
+```json
+{
+  "schema": "sflow-workflow-request@2",
+  "intent": "edit",
+  "id": "reviewed-workflow-change",
+  "label": "Review workflow label",
+  "baseRevision": "<exact-approved-source-baseRevision>",
+  "target": { "governs": "story", "authority": "selected-repository", "hosts": [] },
+  "changes": [{
+    "kind": "workflow", "id": "customer-onboarding", "operation": "edit",
+    "expectedDefinitionSha256": "sha256:<raw-parent-digest>"
+  }],
+  "definitions": { "workflows": [{ "id": "customer-onboarding", "label": "Reviewed label" }] }
+}
+```
+
+Store this as the ordinary input envelope's `payload`, retain its literal `assets`, then Save and
+Preview the exact shared revision. For a linked fork, use `intent`/`operation: "fork"`, name the
+existing parent with `sourceId`, and select a new unused target ID in both the change and workflow
+patch. This gives a separate workflow row, not private copies of its dependencies.
+
+Only explicit label, description, phase order, planned-claims and rework-loop patches are supported.
+Omitted advanced fields and unrelated raw configuration remain intact; runtime normalization is
+used for validation/simulation, not to rewrite untouched shared definitions. Existing approved
+phases, roles, templates, approval and MCP contracts stay linked. Preview reports their bounded
+declared graph, exact dependency identities and direct configuration dependents. Effective
+workflow overrides own input, output, template and approval validation. Missing or ambiguous
+dependencies, privileged/existing fork targets, new shared objects or deletion block the plan.
+Changing a workflow's SKP phase membership/order requires separately recompiled confirmed
+contracts; existing bindings are never silently reused for a different topology.
+
+No existing Story is repinned. Impact is configuration-only, not a complete retained-Story or
+cross-repository inventory; external dependency content and host enforcement are not inferred.
+A stale parent, approved source or plan requires a fresh Preview and separate terminal review.
+Submission still creates only a configuration review proposal, not approval, activation or
+execution. Shared-object editing and the post-consent SKP binding contract remain unavailable.
 
 ## Simulate a Story workflow before submitting it
 
@@ -266,9 +329,10 @@ Submission is **review required**, not approved, active or executing. Merge/appr
 configuration refresh and any separate Start action remain their existing owners' operations.
 SKP proposal-to-post-consent binding/digest design, qualified skill execution, simulation beyond
 the supported Story structural profile and mediated-host confirmation are not complete. Native installed-host/crash and
-Windows qualification of private recovery is still separate from its implementation tests. The usage
-lookup below covers approved configuration, not retained or historical Stories. No new skill
-runtime binding is fabricated to bypass those gaps.
+Windows qualification of private recovery is still separate from its implementation tests. The
+usage lookup below distinguishes the approved configuration from one explicitly selected local
+Story revision; neither is a global consumer inventory. No new skill runtime binding is fabricated
+to bypass those gaps.
 
 ## Delete a shared draft
 
@@ -342,10 +406,38 @@ cursor. A changed approved authority or revision invalidates pagination rather t
 different inventories.
 
 Coverage is limited to that approved repository configuration under its Git read permissions.
-It excludes Story branches, historical retained versions, other authorities and ambient host/plugin
-agents. An empty result is not proof that no Story uses the skill. The report contains no personal
-productivity metrics or unrelated team content; native provider principal/revocation qualification
-and an authorized historical-subject inventory remain separate pending work.
+Without `--story`, it excludes Story branches, historical retained versions, other authorities and
+ambient host/plugin agents. An empty result is not proof that no Story uses the skill. The report
+contains no personal productivity metrics or unrelated team content; native provider
+principal/revocation qualification and a global historical-subject inventory remain pending.
+
+### Inspect one exact local Story revision
+
+Explicitly select the Story and its existing local Git ref:
+
+```bash
+singularity-flow workflow author where-used threat-model --story SECURITY-101 \
+  --ref refs/heads/security-review --commit <EXACT-GIT-OID> --snapshot-revision 2 --json
+```
+
+Copilot: `/sf-workflows author where-used threat-model --story SECURITY-101 --ref
+refs/heads/security-review --commit <EXACT-GIT-OID> --snapshot-revision 2 --json`.
+
+`--ref` defaults to `HEAD` and accepts one literal local `refs/heads/…` or `refs/remotes/…` ref.
+Without `--commit`, the exact observed tip is selected; a supplied commit must be reachable from
+that ref. `--snapshot-revision` asserts the accepted snapshot stored at the selected commit,
+not a request to search or adopt another revision. The reader verifies that Story's retained
+package, accepted amendment lineage and immutable review evidence. `--package-sha256` can assert
+the exact pinned package. Later pages require the returned `--expected-source`; even movement
+of the selected ref invalidates pagination instead of blending revisions.
+
+This bounded local-object lookup does not refresh configuration, contact a remote, unshallow or
+lazy-fetch missing objects, open the shared DraftStore, change a checkout or inspect another Story.
+Missing ancestry/bytes is unavailable, not evidence of no usage. Limits include 256 ancestry
+commits, snapshot revisions 1–64, 512 phase/reference rows and 64 rows/256 KiB per page; exceeding
+them refuses the lookup without partial-success claims. Existing Git repository readability is
+the access boundary, not authenticated per-team/provider membership. Other revisions/repositories,
+actual execution usage and native provider-principal/revocation evidence remain outside coverage.
 
 ## Diagnose a retained Story skill
 

@@ -8,7 +8,7 @@ This tracks implementation of *SPEC-SKP v0.2 — Skill Phases and Bring-Your-Own
 | M1 — inspection and contract compilation | Safe foundations implemented; milestone incomplete | `skill inspect` reads one explicit local directory without Git, network, model, or execution, captures bounded exact bytes, and returns candidate-only findings. The pure confirmed-contract compiler retains its existing semantics. WCA additionally lowers a new retained skill package proposal-only: it exposes exact outputs, checks, policy and package identity without confirmation or a runtime binding. The post-consent SKP binding/digest design remains unresolved; proposal bytes cannot masquerade as confirmed configuration. The current path-based directory scanner is not a native isolation boundary against a malicious concurrent ancestor-directory swap; do not use it as an approved asset writer without closing that race. `test/skp-inspect.test.mjs`, `test/skp-package.test.mjs`, `test/skp-contract.test.mjs`, `test/skp-cli.test.mjs`, `test/wca-compiler.test.mjs`. |
 | M2 — retained Story execution and evidence | Retention, evidence, and hardened AC-053 adoption implemented; milestone incomplete | Stories pin complete approved packages and compiled bindings. The accepted reader verifies bytes, digests, interpretation, configuration provenance, and immutable amendment lineage without a live-folder/latest-name fallback. Reviewed adoption changes exactly one package and reopens only proven affected phases; unknown dependency impact is refused. Other packages and unaffected approvals remain pinned. New decisions carry bounded offline-verifiable configuration ancestry and immutable rejection-review bindings. Existing lifecycle owners retain prior-output receipts, declared artifact membership, publication, and human-approval evidence. Skill preparation, generation, publication, submission, and approval remain refused with `SKP_HOST_ENFORCEMENT_UNAVAILABLE` pending M5; no executable pilot is claimed. `test/skp-snapshot.test.mjs`, `test/skp-amendment-audit.test.mjs`, `test/skp-amendment-plan.test.mjs`, `test/skp-amendment-snapshot.test.mjs`, `test/skp-amendment-transaction.test.mjs`, `test/skp-state-lifecycle.test.mjs`. |
 | M3 — BYO and mixed-workflow recipes | Read-only recipes, role validation, and portable transfer implemented; milestone incomplete | `workflow skills-recipe` previews intake → selected approved phases → conformance from exact approved configuration. Code requires explicit earlier acceptance criteria and planning owners; findings/evidence are not criteria. The source-bound digest and separately authorized ordinary proposal route grant no execution. Bundle v3 retains manifests, binary/CRLF bytes, compiled bindings and transitive MCP agent/Story-phase dependencies; complete server scopes are preserved without adding scheduled workflow steps. Source and bundle reader share the traversal, with disconnected-object refusal and Story/Initiative namespace separation. Historical v1/v2 identities and original closure semantics remain stable; import still refuses destination permission widening. Approved-destination import/copy plans bind authority kind, remote fingerprint, observed commit and source commit; a fresh owner plan and the existing proposal owner recheck that destination before mutation, including byte-identical authority changes. Installed hosts, ordinary command scripts and external resources remain prerequisites. Actual skill lifecycle runs depend on M5. `test/skp-workflow-recipe.test.mjs`, `test/skp-transport.test.mjs`, `test/workflow-transfer.test.mjs`, `test/workflow-transfer-cli.test.mjs`. |
-| M4 — guided shared authoring | Six-stage editing, shared/private persistence, bounded Story simulation, source-bound preview and ordinary-package review proposals implemented; milestone incomplete | `skill doctor` verifies an accepted Story package without live-source fallback. `workflow author` shares inert partial drafts through the freshly verified configuration authority, with exact remote-head CAS, retained revision/asset closure, operation-ID recovery and deletion fences. VS Code provides six guided stages, explicit per-draft shared-autosave opt-in, and encrypted local recovery with explicit Restore/Compare/Discard. Private checkpoint acknowledgement is separate from Git, exact base drift is refused, and uncertain shared writes retain their pending operation before issue. Deterministic Preview, bounded catalog choices and read-only Show use an exact retained draft and approved source. The versioned Story structural simulation covers progression, publication, inputs/outputs, artifact sets, approval waits/thresholds, check refusal, rework and repair budgets; the full report is bound into the exact Preview plan hash. Unsupported effects and missing decisions remain blockers. A valid ordinary artifact-only create package can be separately submitted through live direct-terminal review to the existing configuration-proposal owner. The review branch retains immutable request, asset and file bytes; exact staged Git bytes/modes, changed-path closure, committed tree and base-parent fences prevent unreviewed staging changes. Submission is not approval, activation or execution. Native-mediated confirmation, simulation outside this structural profile, installed-host/crash/Windows recovery qualification, edit/fork impact, authorized historical usage and confirmed SKP package emission remain incomplete. `test/skp-doctor.test.mjs`, `test/wca-git-drafts.test.mjs`, `test/wca-workflow-author-cli.test.mjs`, `test/wca-compiler.test.mjs`, `test/wca-simulation.test.mjs`, `test/workflow-simulation.test.mjs`, `test/vscode-workflow-simulation.test.mjs`, `test/wca-submission.test.mjs`, `test/wca-staged-proposal.test.mjs`, `test/vscode-workflow-drafts.test.mjs`, `test/vscode-workflow-drafts-recovery.test.mjs`, `test/vscode-workflow-drafts-comparison.test.mjs`. |
+| M4 — guided shared authoring | Six-stage editing, shared/private persistence, bounded Story simulation, workflow-only edit/fork impact, exact selected-Story usage and ordinary-package review proposals implemented; milestone incomplete | `skill doctor` verifies an accepted Story package without live-source fallback. `workflow author` shares inert partial drafts through the freshly verified configuration authority, with exact remote-head CAS, retained revision/asset closure, operation-ID recovery and deletion fences. VS Code provides six guided stages, explicit per-draft shared-autosave opt-in, encrypted local recovery with explicit Restore/Compare/Discard, and native-confirmed repair of proven-dead same-domain private locks on supported macOS/Linux paths. Private checkpoint acknowledgement is separate from Git, exact base drift is refused, and uncertain shared writes retain their pending operation before issue. Deterministic Preview, bounded catalog choices and read-only Show use an exact retained draft and approved source. Workflow-only edit/linked fork binds the raw parent digest, preserves omitted advanced fields and untouched shared definitions, and reports bounded declared dependencies; it does not repin existing Stories. Exact selected-Story usage verifies one local Git revision and accepted retained lineage without a fetch or global inventory. The versioned Story structural simulation covers progression, publication, inputs/outputs, artifact sets, approval waits/thresholds, check refusal, rework and repair budgets; the full report is bound into the exact Preview plan hash. Unsupported effects and missing decisions remain blockers. Valid supported ordinary packages can be separately submitted through live direct-terminal review to the existing configuration-proposal owner. The review branch retains immutable request, asset and file bytes; exact staged Git bytes/modes, changed-path closure, committed tree and base-parent fences prevent unreviewed staging changes. Submission is not approval, activation or execution. Native-mediated SKP confirmation, simulation outside this structural profile, installed-host/crash/Linux/Windows recovery qualification, wider shared-object/history inventory and confirmed SKP package emission remain incomplete. `test/skp-doctor.test.mjs`, `test/wca-git-drafts.test.mjs`, `test/wca-workflow-author-cli.test.mjs`, `test/wca-workflow-changes.test.mjs`, `test/wca-compiler.test.mjs`, `test/skp-story-usage.test.mjs`, `test/wca-simulation.test.mjs`, `test/workflow-simulation.test.mjs`, `test/vscode-workflow-simulation.test.mjs`, `test/wca-submission.test.mjs`, `test/wca-staged-proposal.test.mjs`, `test/vscode-workflow-drafts.test.mjs`, `test/vscode-workflow-drafts-recovery.test.mjs`, `test/vscode-workflow-drafts-lock-recovery.test.mjs`, `test/vscode-workflow-drafts-comparison.test.mjs`. |
 | M5 — host/platform qualification | Not implemented | `src/skp-host-admission.mjs` checks structured operation-bound enforcement evidence but is **not connected to a qualified host adapter** and cannot establish a sandbox itself. Real pre-effect read/write/tool/egress/control/process enforcement and delivery acknowledgement must be tested on supported installed hosts before launch. |
 | M6 — pilot/promotion | Not started | Requires actual end-to-end approved Story runs and measured release evidence. |
 
@@ -31,15 +31,30 @@ The two M2 audit gaps are now closed for new decisions. They retain bounded raw 
 - Installed Story structural simulation: Shell `singularity-flow workflow simulate <WORKFLOW-ID> --json`; Copilot `/sf-workflows simulate <WORKFLOW-ID> --json`. The report is hypothetical and read-only, not a Story execution or readiness grant.
 - Navigation-only approved choices: Shell `singularity-flow workflow author catalog --kind quality-command --limit 32 --cursor 0 --json`; Copilot `/sf-workflows author catalog --kind quality-command --limit 32 --cursor 0 --json`. A visible reviewer or operation ID grants neither membership nor execution.
 - Bounded approved-configuration usage: Shell `singularity-flow workflow author where-used <SKILL-ID> --limit 32 --cursor 0 --json`; Copilot `/sf-workflows author where-used <SKILL-ID> --limit 32 --cursor 0 --json`. Exact package references and ID-only agent declarations are distinct. Subsequent pages require the returned source digest with `--expected-source`; Story/history/provider-principal coverage is not claimed.
+- Exact selected-Story usage: Shell `singularity-flow workflow author where-used <SKILL-ID> --story <STORY> --ref refs/heads/<BRANCH> --commit <GIT-OID> --snapshot-revision <N> --json`; Copilot `/sf-workflows author where-used <SKILL-ID> --story <STORY> --ref refs/heads/<BRANCH> --commit <GIT-OID> --snapshot-revision <N> --json`. Ref, commit and snapshot selectors are optional assertions on one explicit Story; there is no fetch, Story scan or latest-package fallback.
 - Separate review proposal: Shell `singularity-flow workflow author submit WFD-<ID> --revision <N> --json`; Copilot `/sf-workflows author submit WFD-<ID> --revision <N> --json`. A headless invocation returns a terminal handoff; only a fresh live terminal review can submit. No caller-written confirmation flag or receipt substitutes for that event.
 
 Code recipes also require `--planned-claims required --clause-phases <CRITERIA> --claim-owners <CODE=PLAN>`. See [workflow authoring](topics/workflow-authoring.md) for examples.
 
 ## Remaining work
 
-1. Complete authenticated mediated host confirmation, simulation beyond the supported Story structural profile, installed-host/crash/Windows qualification of private recovery, supported edit/fork impact and authorized historical-subject usage. The bounded approved-configuration usage route below is not a complete Story inventory or native provider-principal/revocation qualification. Resolve the SKP proposal-to-post-consent binding/digest contract through the existing owners; do not manufacture confirmation to close the gap. Shared/private persistence, structural simulation and ordinary-package terminal review proposals are not full M4 readiness.
+1. Resolve the SKP proposal-to-post-consent binding/digest contract and authenticated mediated host confirmation through the existing owners; do not manufacture confirmation to close the gap. Complete simulation beyond the supported Story structural profile and installed-host/crash/Linux/Windows qualification of private recovery. Workflow-only edits and exact selected-Story history reads do not cover shared-object mutation, all consumers, global Story inventory or native provider-principal/revocation qualification. Shared/private persistence, structural simulation and ordinary-package terminal review proposals are not full M4 readiness.
 2. Qualify race-safe package capture and a real M5 host adapter with native enforcement and exact delivery evidence. Keep execution closed meanwhile.
 3. Run actual two-client shared-authoring and mixed/code/non-code Story pilots and collect M6 release evidence.
+
+The remaining post-consent contract needs three explicit owner steps; this is a design approach,
+not an implemented authorization or host capability:
+
+1. Define a versioned pre-consent subject that binds the exact retained draft, approved source,
+   package bytes, contract/policy and reviewed effect scope, without depending on future consent
+   or the final Preview digest.
+2. Define a separate finalization hash domain for the consumed subject, confirmed binding and
+   emitted candidate closure. Do not make the final Preview hash an input to a binding that the
+   same Preview contains; this would be self-referential rather than an exact review identity.
+3. Require real, one-use consent to that exact reviewed subject through an existing qualified
+   owner, recheck source freshness, then finalize through the SKP owner. A candidate or proposed
+   producer must never be silently promoted to approved eligibility. Finalization cannot infer
+   native enforcement, installed-host qualification, activation or execution permission.
 
 The current safe built-in-only runner selection does not qualify imported skill execution. Foundation tests are not substitutes for shared-authoring and native-host acceptance cases.
 
@@ -51,9 +66,40 @@ It does not open the shared draft store, fetch declared remote skills, search St
 other repositories, invoke a model, repair consumers or grant execution. The report identifies
 coverage exclusions and its source digest; source drift refuses later pages, and over-budget or
 credential-shaped projections are refused rather than disclosed as partial success.
-Git repository read access is not authenticated per-team or per-person membership. Authorized
-historical-subject lookup and native-provider access/revocation evidence remain pending.
-`test/skp-usage.test.mjs`, `test/wca-workflow-author-cli.test.mjs`.
+Git repository read access is not authenticated per-team or per-person membership. With explicit
+`--story`, the separate local-object reader verifies one selected accepted Story revision. `--ref`
+defaults to `HEAD` and can name one local `refs/heads/…` or `refs/remotes/…` ref; `--commit` must be
+reachable from that observed ref, and `--snapshot-revision` asserts the revision stored at that
+commit rather than searching for it. It verifies retained package bytes, accepted amendment
+lineage and immutable review evidence. The profile caps ancestry at 256 commits, snapshot revision
+at 64, phase/reference rows at 512, and each page at 64 rows/256 KiB. Later pages require the exact
+source digest. Missing or shallow ancestry, source drift and exceeded limits are refusals, not
+empty inventories; no unshallow, lazy fetch or draft-store contact is allowed. Other Stories,
+revisions, authorities, execution usage and native-provider access/revocation are not assessed.
+`test/skp-usage.test.mjs`, `test/skp-story-usage.test.mjs`, `test/wca-workflow-author-cli.test.mjs`.
+
+Workflow-only `edit` and linked `fork` requests use `sflow-workflow-request@2`, an exact raw parent
+`expectedDefinitionSha256` and the captured approved base revision. They may explicitly change
+workflow label, description, phase order, planned claims or rework loops; omitted advanced fields
+remain intact. Emitted YAML preserves unrelated raw configuration instead of serializing runtime
+defaults into shared policy. Existing phases, roles, templates, approval and MCP contracts remain
+linked; the bounded declared graph and dependency identities are bound into Preview. Effective
+workflow overrides, not only base phases, own input/output/template/review validation. New shared
+objects, deletion, ambiguous/missing dependencies and changed SKP phase order are not inferred.
+Changing SKP membership/order requires a separately recompiled confirmed contract. Existing Story
+pins are unchanged, and usage in other repositories or retained Stories is not inventoried by this
+impact planner. Native skill discovery, approval and execution remain unavailable.
+`test/wca-workflow-changes.test.mjs`, `test/wca-compiler.test.mjs`.
+
+Compiler `wca-complete-package/v3` emits unassigned candidate skill files only into inert canonical
+`singularity/skills/<ID>/…`, never native skill discovery. Creating an existing approved package
+ID is refused even when it is unassigned or currently contains only resource files; creation
+cannot overwrite a retained package through a missing `SKILL.md` shortcut. Mixed ordinary/SKP
+proposals resolve normalized earlier ordinary output contracts independently of declaration order.
+That improves proposal inspection only: new SKP phases still have no confirmed runtime binding,
+emit no candidate files, remain unsubmittable and report incomplete lifecycle simulation until
+the separate post-consent contract is implemented. No host qualification is inferred.
+`test/wca-compiler.test.mjs`, `test/vscode-workflow-drafts.test.mjs`.
 
 VS Code's **Configuration Center → Shared workflow drafts** (also available in the Command Palette)
 organizes Goal, Stages, Team & skills, Access & review, Review package, and Submit & next steps.
@@ -72,8 +118,18 @@ fallback. A still-pending or oversized visible edit is not durably captured. Ins
 crash/restart and Windows credential-storage qualification remain pending; unit fixtures are not
 release evidence. Read-only private refresh preserves the current editor and retries exact-scope
 inspection. An interrupted writer's lock leaves retained ciphertext readable but does not permit
-automatic mutation/unlocking. Explicit stale-lock repair and hostile same-user ancestor-swap
-containment remain unqualified. See [workflow authoring](topics/workflow-authoring.md#recover-private-pending-edits-in-vs-code).
+automatic mutation/unlocking. **Inspect private locks (read-only)** and **Review dead lock repair…**
+operate only on the opened draft's exact local scope or its directory-wide key-init lock. New closed
+owner records retain process/lock nonces and a hashed native process domain. Repair requires native
+same-domain process absence, a one-use host-held inspection ticket, Cancel-default native review,
+and fresh inode/bytes/nonce checks under a cross-process barrier. It removes only that lock, never
+ciphertext, keys or shared state, and does not resume a save. Age/PID alone, live or unknown owners,
+old empty locks, another boot/domain and interrupted repair barriers remain fail-closed. macOS and
+Linux have fixed native read-only probes; Windows repair is unavailable without a qualified
+process-domain owner. macOS child-process fixtures are implementation evidence, not installed
+VS Code, Linux, Windows or power-loss qualification. Hostile same-user ancestor-swap containment
+remains unqualified. `test/vscode-workflow-drafts-lock-recovery.test.mjs`.
+See [workflow authoring](topics/workflow-authoring.md#recover-private-pending-edits-in-vs-code).
 The exact-base Restore check requires a proven complete saved payload/asset closure; an advanced
 partial-envelope baseline can remain Compare-only without inferred fields. Actual encrypted-file
 restart tests complement the real-Git client fixture, not native credential or host qualification.

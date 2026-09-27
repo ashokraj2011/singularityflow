@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { TextDecoder } from 'node:util';
 import { addWorkflowDraftStage, bindWorkflowDraftBase, editWorkflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog,
-  WORKFLOW_DRAFT_GUIDE_FIELDS, workflowDraftGuide, type WorkflowDraftGuideField } from './workflow-drafts-guide.ts';
-import type { WorkflowDraftRecoveryCheckpoint, WorkflowDraftRecoveryScope, WorkflowDraftRecoveryStore } from './workflow-drafts-recovery.ts';
+  prepareWorkflowDraftChange, WORKFLOW_DRAFT_GUIDE_FIELDS, workflowDraftGuide, type WorkflowDraftGuideField } from './workflow-drafts-guide.ts';
+import type { WorkflowDraftRecoveryCheckpoint, WorkflowDraftRecoveryScope, WorkflowDraftRecoveryStore, WorkflowDraftRecoveryLockInspection } from './workflow-drafts-recovery.ts';
 
 export const WORKFLOW_DRAFT_INPUT_MAX_BYTES = 5 * 1024 * 1024;
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
@@ -36,7 +36,8 @@ export interface SharedWorkflowDraftView {
   durability: 'shared' | 'memory' | 'saving' | 'failed' | 'conflict' | 'uncertain' | 'deleted';
   recovery: { status: 'unavailable' | 'none' | 'checking' | 'writing' | 'saved' | 'failed';
     checkpoint: WorkflowDraftRecoveryCheckpoint | null; candidate: WorkflowDraftRecoveryCheckpoint | null;
-    candidateAvailable: boolean; restoreAllowed: boolean; message?: string };
+    candidateAvailable: boolean; restoreAllowed: boolean; message?: string;
+    locks?: WorkflowDraftRecoveryLockInspection[] };
 }
 interface AuthorResult {
   resultType: 'workflow-author'; status: string;
@@ -55,6 +56,8 @@ export interface WorkflowDraftPresentation {
   copyReview: (root: string, argv: readonly string[], surface: 'shell' | 'copilot') => Promise<void>;
   compareRecovery?: (comparison: { draftId: string; checkpointName: string; checkpointText: string;
     sharedName: string; sharedText: string; checkpointId: string; baseRevision: number; currentRevision: number }) => Promise<void>;
+  /** Native host consent, not a webview yes, timestamp or PID-only claim. */
+  confirmLockRepair?: (inspection: WorkflowDraftRecoveryLockInspection) => Promise<boolean>;
 }
 
 /** A copied Copilot route has no cwd operand; never infer its folder from a picker or HOME. */
@@ -311,6 +314,19 @@ export class SharedWorkflowDraftController {
     const candidate = this.view.recovery.candidate;
     const editor = this.view.editor;
     if (!editor || !this.recoveryStore) throw new Error('Private recovery is unavailable for this exact draft scope.');
+    if (action === 'recovery-inspect-locks') {
+      if (!this.recoveryStore.inspectLocks) throw new Error('Private lock inspection is unavailable in this host. Nothing was removed.');
+      const lease = this.editingLease(); const scope = this.recoveryScope(editor)!;
+      this.cancelTimer(); this.view.autosave = false; this.autosavePaused = true;
+      if (this.recoveryDrain) await this.recoveryDrain.catch(() => {});
+      this.assertEditingLease(lease);
+      const inspected = await this.recoveryStore.inspectLocks(scope);
+      this.assertEditingLease(lease);
+      if (this.scopeKey(inspected.scope) !== this.scopeKey(scope)) throw new Error('Lock inspection returned another private scope. Nothing was removed.');
+      this.view.recovery.locks = inspected.locks;
+      this.view.notice = 'Inspected private lock ownership only. Shared autosave is paused; text, checkpoint, encryption key and shared Git draft are unchanged. Only proven-dead same-domain locks can be explicitly repaired.';
+      return;
+    }
     if (action === 'recovery-refresh') {
       // A failed/foreign CAS is not permission to overwrite the winner. Retain current text in
       // memory while explicitly reading a new candidate; no queued replacement may cross it.
@@ -390,6 +406,32 @@ export class SharedWorkflowDraftController {
     this.view.recovery.status = 'saved';
     this.view.recovery.message = 'Restored private text in this editor only. Shared autosave is off; a pending operation must be inspected before explicit Save.';
     this.view.notice = 'Explicitly restored the exact-base private checkpoint. No shared write, approval or execution was requested.';
+  }
+  private async repairRecoveryLock(kind: unknown): Promise<void> {
+    if (kind !== 'scope' && kind !== 'key-init') throw new Error('Select one inspected private lock kind. Nothing was removed.');
+    const editor = this.view.editor; const scope = this.recoveryScope(editor);
+    const inspection = this.view.recovery.locks?.find((item) => item.kind === kind);
+    const repair = this.recoveryStore?.repairLock; const confirm = this.presentation.confirmLockRepair;
+    if (!editor || !scope || !repair || !confirm || !inspection?.reviewId || !inspection.repairSupported
+        || inspection.status !== 'dead') throw new Error('Inspect a proven-dead private lock first. Live, legacy, unknown or unsupported ownership cannot be repaired.');
+    const lease = this.editingLease();
+    this.cancelTimer(); this.view.autosave = false; this.autosavePaused = true;
+    if (this.recoveryDrain) await this.recoveryDrain.catch(() => {});
+    this.assertEditingLease(lease);
+    // The ticket stays host-side. The browser selects a kind, never supplies owner proof or consent.
+    const result = await repair(scope, inspection.reviewId, async (exact) => {
+      this.assertEditingLease(lease);
+      if (exact.reviewId !== inspection.reviewId || exact.kind !== kind
+          || this.scopeKey(exact.scope) !== this.scopeKey(scope)) throw new Error('Private lock review changed. Nothing was removed.');
+      const allowed = await confirm(exact);
+      this.assertEditingLease(lease);
+      return allowed;
+    });
+    this.assertEditingLease(lease);
+    this.view.recovery.locks = undefined;
+    this.view.notice = result.status === 'repaired'
+      ? 'Removed only the exact proven-dead private lock. Text, checkpoint, encryption key and shared draft are unchanged. Refresh private recovery before choosing another action; no save or retry was started.'
+      : 'Private lock repair cancelled. No lock, text, checkpoint, key or shared draft was changed.';
   }
   private schedule(): void {
     this.cancelTimer();
@@ -796,9 +838,9 @@ export class SharedWorkflowDraftController {
     if (this.view.busy && raw.type !== 'change') return;
     const allowed = ['change', 'refresh', 'open', 'create', 'save', 'reload', 'show', 'operation-status', 'terminal-review', 'copilot-review',
       'autosave-on', 'autosave-off', 'stage', 'back-drafts', 'exit', 'guide-answer', 'add-stage', 'move-stage', 'preview', 'catalog-answer', 'submit-review', 'copilot-submit-review',
-      'recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh'];
+      'recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh', 'recovery-inspect-locks', 'recovery-repair-lock'];
     if (!allowed.includes(raw.type)) { this.view.error = 'This shared-draft action is not supported.'; this.changed(); return; }
-    if (Object.keys(raw).some((key) => !['type', 'binding', 'name', 'inputText', 'draftId', 'stage', 'field', 'value', 'index', 'direction', 'choiceKind', 'choiceId'].includes(key))) {
+    if (Object.keys(raw).some((key) => !['type', 'binding', 'name', 'inputText', 'draftId', 'stage', 'field', 'value', 'index', 'direction', 'choiceKind', 'choiceId', 'lockKind'].includes(key))) {
       this.view.error = 'The shared-draft message contains unsupported fields.'; this.changed(); return;
     }
     try { this.capture(raw); } catch (error) {
@@ -810,7 +852,7 @@ export class SharedWorkflowDraftController {
     }
     if (raw.type === 'change') return;
     if (['save', 'reload', 'show', 'terminal-review', 'copilot-review', 'autosave-on', 'autosave-off', 'stage', 'back-drafts', 'exit', 'guide-answer', 'add-stage', 'move-stage', 'preview', 'catalog-answer', 'submit-review', 'copilot-submit-review',
-      'recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh'].includes(raw.type)
+      'recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh', 'recovery-inspect-locks', 'recovery-repair-lock'].includes(raw.type)
         && raw.binding !== this.view.editor?.binding) return;
     await this.leased(async () => {
       if (raw.type === 'refresh') { await this.list(); this.view.notice = 'Shared list refreshed. The open editor and its retained head have not been rebased.'; }
@@ -819,7 +861,8 @@ export class SharedWorkflowDraftController {
       else if (raw.type === 'show') { const lease = this.editingLease(); await this.flush(); this.assertEditingLease(lease); await this.show(); }
       else if (raw.type === 'preview') { const lease = this.editingLease(); await this.flush(); this.assertEditingLease(lease); await this.preview(); }
       else if (raw.type === 'operation-status') await this.operationStatus();
-      else if (['recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh'].includes(String(raw.type))) await this.recoveryAction(String(raw.type));
+      else if (raw.type === 'recovery-repair-lock') await this.repairRecoveryLock(raw.lockKind);
+      else if (['recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh', 'recovery-inspect-locks'].includes(String(raw.type))) await this.recoveryAction(String(raw.type));
       else if (raw.type === 'catalog-answer') {
         const editor = this.view.editor; const preview = this.view.preview;
         if (!editor || editor.readOnlyReason || this.view.dirty || !preview || !object(preview.source)
@@ -835,14 +878,23 @@ export class SharedWorkflowDraftController {
           if (typeof base !== 'string') throw new Error('The exact approved base is unavailable.');
           text = bindWorkflowDraftBase(editor.inputText, base);
         } else {
-          if (typeof raw.choiceKind !== 'string' || !['phase', 'agent', 'template', 'execution-task', 'approval-authority', 'quality-command'].includes(raw.choiceKind)
+          if (typeof raw.choiceKind !== 'string' || !['phase', 'agent', 'template', 'execution-task', 'approval-authority', 'quality-command', 'workflow-edit', 'workflow-fork'].includes(raw.choiceKind)
               || typeof raw.choiceId !== 'string' || !Number.isSafeInteger(raw.index)) throw new Error('Choose a typed catalog reference captured by Preview.');
-          const group = preview.catalogChoices.groups.find((value) => object(value) && value.kind === raw.choiceKind);
+          const kind = raw.choiceKind.startsWith('workflow-') ? 'workflow' : raw.choiceKind;
+          const group = preview.catalogChoices.groups.find((value) => object(value) && value.kind === kind);
           const choices = object(group) && Array.isArray(group.choices) && group.choices.length <= 64 ? group.choices : [];
           const selected = choices.find((value) => object(value) && object(value.ref) && value.ref.source === 'catalog'
-            && value.ref.kind === raw.choiceKind && value.ref.id === raw.choiceId);
+            && value.ref.kind === kind && value.ref.id === raw.choiceId);
           if (!selected) throw new Error('That reference was not present in the exact captured catalog choice set. No binding was changed.');
-          text = selectWorkflowDraftCatalog(editor.inputText, String(raw.choiceKind), raw.choiceId, Number(raw.index));
+          if (kind === 'workflow') {
+            if (!object(selected) || typeof selected.rawDefinitionSha256 !== 'string' || !Array.isArray(selected.phaseOrder)
+                || selected.phaseOrder.some((phase) => typeof phase !== 'string') || typeof preview.approvedSource.baseRevision !== 'string') {
+              throw new Error('The captured raw workflow parent is unavailable. No edit/copy was prepared.');
+            }
+            text = prepareWorkflowDraftChange(editor.inputText, raw.choiceKind === 'workflow-edit' ? 'edit' : 'fork', {
+              id: raw.choiceId, rawDefinitionSha256: selected.rawDefinitionSha256,
+              phaseOrder: selected.phaseOrder as string[] }, preview.approvedSource.baseRevision);
+          } else text = selectWorkflowDraftCatalog(editor.inputText, String(raw.choiceKind), raw.choiceId, Number(raw.index));
         }
         this.capture({ binding: editor.binding, name: editor.name, inputText: text }); this.changed();
         this.view.notice = 'Captured approved catalog reference applied as a candidate request only. Membership, tools and host acceptance were not granted. Preview again after the new shared checkpoint.';

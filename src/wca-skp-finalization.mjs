@@ -96,6 +96,11 @@ function files(values, maximum, { mode = false } = {}) {
     return { ...file };
   }).sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
 }
+// Native auto-discovery is outside this inactive profile regardless of the host/vendor name.
+// Canonical SKP review storage is singularity/skills; hidden host roots are never admitted.
+function nativeSkillDiscovery(file) {
+  return /^\.[^/]+\/skills(?:\/|$)/iu.test(file.path.normalize('NFKC'));
+}
 function validateSource(source, approvedSource, inputs) {
   closed(source, ['kind', 'schemaVersion', 'repository', 'workspaceId', 'draftId', 'revision', 'lifecycleEpoch', 'revisionSha256', 'head', 'payloadSha256', 'assetManifestSha256', 'lifecycle']);
   closed(approvedSource, ['kind', 'repository', 'ref', 'observedCommit', 'baseRevision', 'workflowSha256']);
@@ -236,6 +241,7 @@ export function prepareWorkflowSkillFinalization(input) {
   if (data.pendingFiles !== undefined) {
     data.pendingFiles = files(data.pendingFiles, WCA_SKP_FINALIZATION_LIMITS.closureBytes);
     if (data.pendingFiles.some((file) => file.path === 'singularity/workflow.yml')) fail('The pre-consent pending closure cannot contain a future finalized workflow.');
+    if (data.pendingFiles.some(nativeSkillDiscovery)) fail('The pending inactive closure cannot install native skill discovery bytes.');
   }
   if (!Array.isArray(data.dependencyLocks) || data.dependencyLocks.length > 256) fail('The dependency identity closure exceeds its budget.', 'WCA_SKP_FINALIZATION_LIMIT');
   for (const lock of data.dependencyLocks) {
@@ -443,7 +449,7 @@ export function sealWorkflowSkillFinalization(projection, input) {
       return !actual || actual.sha256 !== file.sha256 || actual.bytes !== file.bytes || actual.contentBase64 !== file.contentBase64;
     })) fail('The emitted closure differs from the exact reviewed skill package.');
   }
-  if (emitted.some((file) => file.path.startsWith('.github/skills/') || file.path.startsWith('.copilot/skills/') || file.path.startsWith('.claude/skills/'))) fail('An inactive review closure cannot install native skill discovery bytes.');
+  if (emitted.some(nativeSkillDiscovery)) fail('An inactive review closure cannot install native skill discovery bytes.');
   const core = { schemaVersion: currentSchemaVersion('workflow-authoring-skp-finalization'), kind: 'workflow-authoring-skp-finalization', profile: WCA_SKP_FINALIZATION_PROFILE,
     source: retained.selected.data.source, approvedSource: retained.selected.data.approvedSource,
     preConsentSubjectSha256: projection.preConsentSubjectSha256,
@@ -511,7 +517,7 @@ export function validateWorkflowSkillFinalizationRecord(input) {
   if (!workflow || canonicalJson(parsed) !== canonicalJson(definition) || digest(definition) !== record.emittedDefinitionSha256
       || digest(emitted.map(({ path, mode, bytes, sha256 }) => ({ path, mode, bytes, sha256 }))) !== record.emittedClosureSha256
       || digest(emitted.filter((file) => file.path !== 'singularity/workflow.yml').map(({ mode, ...rest }) => rest)) !== subject.pendingFilesSha256
-      || emitted.some((file) => file.path.startsWith('.github/skills/') || file.path.startsWith('.copilot/skills/') || file.path.startsWith('.claude/skills/'))) fail('The retained emitted closure is inconsistent or installs native skill bytes.');
+      || emitted.some(nativeSkillDiscovery)) fail('The retained emitted closure is inconsistent or installs native skill bytes.');
   if (!Array.isArray(subject.phases) || !subject.phases.length || subject.phases.length > WCA_SKP_FINALIZATION_LIMITS.phases
       || !Array.isArray(subject.packages) || subject.packages.length > WCA_SKP_FINALIZATION_LIMITS.phases
       || !Array.isArray(subject.classificationDecisions) || subject.classificationDecisions.length > WCA_SKP_FINALIZATION_LIMITS.phases

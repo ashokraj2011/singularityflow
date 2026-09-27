@@ -247,6 +247,17 @@ test('compiler adapter binds ordinary candidate and pending closure without acce
   assert.throws(() => sealWorkflowSkillFinalization({ phases: [] }, { definition: {}, files: [] }), { code: 'WCA_SKP_CONSENT_REQUIRED' });
 });
 
+test('inactive pending packages refuse native skill discovery roots for any host and Windows casing', () => {
+  for (const relative of ['.host/skills/SKILL.md', '.HOST/SKILLS/SKILL.md', '.another-host/skills/reference.md']) {
+    const input = fixture({ proposed: true, classified: true });
+    input.pendingFiles.push(file(relative, 'Unadmitted native discovery bytes.'));
+    assert.throws(() => prepareWorkflowSkillFinalization(input),
+      (error) => error.code === 'WCA_SKP_FINALIZATION_INVALID' && /native skill discovery/iu.test(error.message));
+  }
+  assert.equal(prepareWorkflowSkillFinalization(fixture({ proposed: true, classified: true })).finalization,
+    'requires-exact-terminal-consent');
+});
+
 test('selected candidate agent captures full exact document and rejects request, file, default and origin substitutions', () => {
   const input = fixture(); const prepared = prepareWorkflowSkillFinalization(input); const selected = prepared.subject.phases[0].selectedAgent;
   assert.equal(selected.source, 'candidate'); assert.equal(selected.path, '.github/agents/threat-notes-note-writer.agent.md');

@@ -9,7 +9,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import YAML from 'yaml';
 import {
   chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
@@ -47,7 +47,9 @@ import {
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 import { recordSha256 } from './records.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
-import { assertSkillPackagePath, SKP_CAPTURE_LIMITS } from './skp-package.mjs';
+import {
+  assertSkillPackagePath, inspectSkillPackageContents, SKP_CAPTURE_LIMITS
+} from './skp-package.mjs';
 import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
@@ -65,6 +67,10 @@ const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-autho
 // mutable. Keep the verified definition in a private slot so later Story policy/authority reads
 // cannot be widened by changing snapshot.definition after the approved bytes were loaded.
 const STORY_CONFIGURATION_VERIFIED_DEFINITIONS = new WeakMap();
+const SNAPSHOT_TYPED_ARRAY = Object.getPrototypeOf(Uint8Array.prototype);
+const SNAPSHOT_BYTE_LENGTH = Object.getOwnPropertyDescriptor(SNAPSHOT_TYPED_ARRAY, 'byteLength').get;
+const SNAPSHOT_ARRAY_BUFFER = Object.getOwnPropertyDescriptor(SNAPSHOT_TYPED_ARRAY, 'buffer').get;
+const SNAPSHOT_COPY_BYTES = Uint8Array.prototype.set;
 // This receipt is written by configuration refresh after it has compared repository bytes with the
 // installed package.  A copy found on an application branch is not approved authority and must not
 // be imported into a newly-created sflow/config branch.  Importing it let an application commit
@@ -1386,6 +1392,10 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
         }
       );
     }
+    // Keep selected skill bytes in this private owner before the mirror clone is removed. A later
+    // filesystem read of the materialized package cannot re-establish its committed identity.
+    const skillEntries = approvedSkillTreeEntries(source, frozen.env, mirrorCommit);
+    const skillBlobs = approvedSkillBlobs(source, skillEntries, frozen.env, manifest.files);
     const copied = await copyConfigurationAssetsFromRef(source, 'HEAD', destination, {
       env: frozen.env
     });
@@ -1412,6 +1422,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
       history: manifest.history ?? null,
       files: manifest.files,
       assets: Object.fromEntries(copied.map((relative) => [relative, treeEntries.get(relative)])),
+      skillEntries, skillBlobs,
       definition
     };
   } finally {
@@ -1618,10 +1629,15 @@ function missingStoryConfigurationWorkflow(authority, sourceCommit) {
 }
 
 /** Keep the complete skill subtree of the approved commit, including entries a checkout skips. */
-function approvedSkillTreeEntries(root, env) {
+function approvedSkillTreeEntries(root, env, commit) {
+  if (typeof commit !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit)) {
+    throw new SingularityFlowError('Approved skill capture requires the exact observed commit.', {
+      code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+    });
+  }
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--full-tree',
-    '--format=%(objectmode) %(objectname) %(path)', 'HEAD', '--', 'singularity/skills'
+    '--format=%(objectmode) %(objectname) %(path)', commit, '--', 'singularity/skills'
   ], { cwd: root, env, encoding: 'buffer', timeoutClass: 'local-read' }).stdout;
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const entries = new Map();
@@ -1688,6 +1704,62 @@ function approvedSkillTreeEntries(root, env) {
   return entries;
 }
 
+/** Raw committed package bytes only; no checkout, filter or materialized skill source read. */
+function approvedSkillBlobs(root, skillEntries, env, expectedHashes = null) {
+  const skillBlobs = new Map();
+  const bySkill = new Map();
+  for (const entry of skillEntries.values()) {
+    if (expectedHashes && (!Object.hasOwn(expectedHashes, entry.relative)
+        || !/^[a-f0-9]{64}$/.test(expectedHashes[entry.relative]))) {
+      throw new SingularityFlowError('Approved mirror skill is absent from its exact declared file closure.', {
+        code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+      });
+    }
+    const group = bySkill.get(entry.skillId) ?? [];
+    group.push(entry); bySkill.set(entry.skillId, group);
+  }
+  for (const [skillId, entries] of bySkill) {
+    if (entries.length > SKP_CAPTURE_LIMITS.files) {
+      throw new SingularityFlowError(`Approved skill '${skillId}' exceeds its file limit.`, {
+        code: 'SKP_BUDGET_EXCEEDED', details: {
+          dimension: 'files', limit: SKP_CAPTURE_LIMITS.files, actual: entries.length
+        }
+      });
+    }
+    const blobs = readLocalGitBlobs(root, entries.map((entry) => entry.object), {
+      env, maximumBytes: SKP_CAPTURE_LIMITS.totalBytes,
+      maximumObjectBytes: SKP_CAPTURE_LIMITS.referenceBytes,
+      maximumBatchBytes: SKP_CAPTURE_LIMITS.totalBytes,
+      code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID', limitCode: 'SKP_BUDGET_EXCEEDED',
+      label: `Approved skill '${skillId}'`
+    });
+    let totalBytes = 0;
+    for (const entry of entries) {
+      const contents = blobs.get(entry.object);
+      if (!contents || (entry.skillPath === 'SKILL.md' && contents.length > SKP_CAPTURE_LIMITS.entryBytes)) {
+        throw new SingularityFlowError(`Approved skill entry is unavailable or too large: ${entry.relative}.`, {
+          code: contents ? 'SKP_BUDGET_EXCEEDED' : 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+        });
+      }
+      totalBytes += contents.length;
+      if (totalBytes > SKP_CAPTURE_LIMITS.totalBytes) {
+        throw new SingularityFlowError(`Approved skill '${skillId}' exceeds its byte limit.`, {
+          code: 'SKP_BUDGET_EXCEEDED', details: {
+            dimension: 'totalBytes', limit: SKP_CAPTURE_LIMITS.totalBytes, actual: totalBytes
+          }
+        });
+      }
+      if (expectedHashes && createHash('sha256').update(contents).digest('hex') !== expectedHashes[entry.relative]) {
+        throw new SingularityFlowError('Approved mirror skill bytes differ from the exact declared Git package.', {
+          code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+        });
+      }
+      skillBlobs.set(entry.relative, Buffer.from(contents));
+    }
+  }
+  return skillBlobs;
+}
+
 async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   observedCommit,
   sourceCommit,
@@ -1710,11 +1782,21 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   const treeEntries = mirror?.assets
     ? new Map(Object.entries(mirror.assets))
     : configurationTreeEntries(scratch, 'HEAD', null, { env: gitEnv });
-  // State mirrors were already materialized from Git blobs and checked against the manifest.
-  // Direct sflow/config clones may have checkout conversions, so the skill subtree is read from
-  // the commit objects after validating its complete raw tree membership.
-  const skillEntries = mirror ? new Map() : approvedSkillTreeEntries(scratch, gitEnv);
-  const assetPaths = await configurationAssetPaths(scratch);
+  // Both direct clones and recovery mirrors retain skill bytes directly from exact commit objects.
+  // Materialized package paths are never authority to replace that already captured byte closure.
+  if (mirror && (!(mirror.skillEntries instanceof Map) || !(mirror.skillBlobs instanceof Map))) {
+    throw new SingularityFlowError('Approved mirror has no retained exact skill byte closure.', {
+      code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+    });
+  }
+  const skillEntries = mirror ? mirror.skillEntries : approvedSkillTreeEntries(scratch, gitEnv, observedCommit);
+  const materializedPaths = await configurationAssetPaths(scratch);
+  // A recovery mirror's package membership is the closed committed inventory retained above,
+  // not whichever skill paths happen to remain in its disposable materialization afterward.
+  const assetPaths = mirror ? [...new Set([
+    ...materializedPaths.filter((relative) => !relative.startsWith('singularity/skills/')),
+    ...skillEntries.keys()
+  ])].sort() : materializedPaths;
   if (!mirror) {
     const retainedSkills = assetPaths.filter((relative) =>
       relative.startsWith('singularity/skills/')).sort();
@@ -1727,55 +1809,18 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
       });
     }
   }
-  const skillBlobs = new Map();
-  if (!mirror) {
-    const bySkill = new Map();
-    for (const entry of skillEntries.values()) {
-      const group = bySkill.get(entry.skillId) ?? [];
-      group.push(entry);
-      bySkill.set(entry.skillId, group);
-    }
-    for (const [skillId, entries] of bySkill) {
-      if (entries.length > SKP_CAPTURE_LIMITS.files) {
-        throw new SingularityFlowError(`Approved skill '${skillId}' exceeds its file limit.`, {
-          code: 'SKP_BUDGET_EXCEEDED', details: {
-            dimension: 'files', limit: SKP_CAPTURE_LIMITS.files, actual: entries.length
-          }
-        });
-      }
-      const blobs = readLocalGitBlobs(scratch, entries.map((entry) => entry.object), {
-        env: gitEnv, maximumBytes: SKP_CAPTURE_LIMITS.totalBytes,
-        maximumObjectBytes: SKP_CAPTURE_LIMITS.referenceBytes,
-        maximumBatchBytes: SKP_CAPTURE_LIMITS.totalBytes,
-        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID', limitCode: 'SKP_BUDGET_EXCEEDED',
-        label: `Approved skill '${skillId}'`
-      });
-      let totalBytes = 0;
-      for (const entry of entries) {
-        const contents = blobs.get(entry.object);
-        if (!contents || (entry.skillPath === 'SKILL.md'
-            && contents.length > SKP_CAPTURE_LIMITS.entryBytes)) {
-          throw new SingularityFlowError(`Approved skill entry is unavailable or too large: ${entry.relative}.`, {
-            code: contents ? 'SKP_BUDGET_EXCEEDED' : 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
-          });
-        }
-        totalBytes += contents.length;
-        if (totalBytes > SKP_CAPTURE_LIMITS.totalBytes) {
-          throw new SingularityFlowError(`Approved skill '${skillId}' exceeds its byte limit.`, {
-            code: 'SKP_BUDGET_EXCEEDED', details: {
-              dimension: 'totalBytes', limit: SKP_CAPTURE_LIMITS.totalBytes, actual: totalBytes
-            }
-          });
-        }
-        skillBlobs.set(entry.relative, contents);
-      }
-    }
-  }
+  const skillBlobs = mirror ? mirror.skillBlobs : approvedSkillBlobs(scratch, skillEntries, gitEnv);
   for (const relative of assetPaths) {
     const file = path.join(scratch, relative);
-    const info = await lstat(file);
-    if (!info.isFile() || info.isSymbolicLink()) {
-      throw new SingularityFlowError(`Configuration asset must be a regular file: ${relative}`);
+    if (!skillEntries.has(relative)) {
+      const info = await lstat(file);
+      if (!info.isFile() || info.isSymbolicLink()) {
+        throw new SingularityFlowError(`Configuration asset must be a regular file: ${relative}`);
+      }
+    } else if (!skillBlobs.has(relative)) {
+      throw new SingularityFlowError('Approved skill package has incomplete committed byte closure.', {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+      });
     }
     const contents = skillBlobs.has(relative)
       ? Buffer.from(skillBlobs.get(relative)) : Buffer.from(await readFile(file));
@@ -1949,7 +1994,8 @@ export async function loadStoryConfigurationSnapshot(authority, { env = process.
 export async function inspectApprovedSkillPackage(snapshot, skillId, {
   expectedPackageSha256
 } = {}) {
-  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
+  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]
+      || !STORY_CONFIGURATION_VERIFIED_DEFINITIONS.has(snapshot)) {
     throw new SingularityFlowError(
       'Approved skill inspection requires a verified Story configuration snapshot.',
       { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
@@ -1961,6 +2007,7 @@ export async function inspectApprovedSkillPackage(snapshot, skillId, {
   }
   const prefix = `singularity/skills/${skillId}/`;
   const contents = new Map();
+  const expectedFiles = new Map();
   for (const entry of snapshot.assets) {
     if (!entry.relative.startsWith(prefix)) continue;
     if (!Buffer.isBuffer(entry.contents)
@@ -1975,22 +2022,36 @@ export async function inspectApprovedSkillPackage(snapshot, skillId, {
       throw new SingularityFlowError('Approved skill snapshot contains a duplicate or empty path.',
         { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' });
     }
-    // Copy before the dynamic import yields; a caller holding the snapshot cannot change the
-    // bytes that the package inspector receives after this digest check.
-    contents.set(relative, Buffer.from(entry.contents));
+    // The byte owner copies through native internal slots, never caller valueOf/length/iterator
+    // hooks. Keep this complete capture synchronous so the public snapshot cannot change between
+    // its committed identity check and byte ownership; do not reintroduce an import/await here.
+    contents.set(relative, entry.contents);
+    expectedFiles.set(relative, `sha256:${entry.sha256}`);
   }
-  const { inspectSkillPackageContents } = await import('./skp-package.mjs');
   const capture = inspectSkillPackageContents(skillId, contents, { expectedPackageSha256 });
+  if (capture.manifest.files.some((entry) => entry.sha256 !== expectedFiles.get(entry.path))) {
+    throw new SingularityFlowError('Copied approved skill differs from its verified snapshot identity.', {
+      code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+    });
+  }
   capture.source = Object.freeze({
     kind: 'approved-configuration', branch: CONFIGURATION_BRANCH, commit: snapshot.sourceCommit
   });
   return capture;
 }
 
-async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPaths = null } = {}) {
-  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
-    throw new SingularityFlowError('Story configuration materialization requires a verified snapshot.');
+function assertVerifiedStorySnapshot(snapshot) {
+  // Symbols are public projection metadata and can be copied. Check the private owner receipt
+  // before reading any caller properties, so a lookalike (including a Proxy) cannot mount bytes.
+  if (!STORY_CONFIGURATION_VERIFIED_DEFINITIONS.has(snapshot)) {
+    throw new SingularityFlowError('Story configuration reads require a verified owner snapshot.', {
+      code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+    });
   }
+}
+
+function captureStoryConfigurationSnapshotAssets(snapshot, { selectPaths = null } = {}) {
+  assertVerifiedStorySnapshot(snapshot);
   const selected = selectPaths == null ? null : new Set([...new Set(selectPaths)].sort());
   if (selected && !selected.has('singularity/workflow.yml')) {
     throw new SingularityFlowError(
@@ -2008,15 +2069,39 @@ async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPat
       );
     }
   }
-  const copied = [];
+  const captured = [];
   for (const entry of snapshot.assets) {
     if (selected && !selected.has(entry.relative)) continue;
-    if (createHash('sha256').update(entry.contents).digest('hex') !== entry.sha256) {
+    const bytes = entry.contents;
+    if (types.isProxy(bytes) || !Buffer.isBuffer(bytes)
+        || Object.getPrototypeOf(bytes) !== Buffer.prototype) {
+      throw new SingularityFlowError('Verified configuration contains non-native byte storage.', {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+      });
+    }
+    // Native internal-slot access and copying do not invoke public length, buffer, valueOf or
+    // iterator hooks. Shared-memory bytes cannot supply a stable retained configuration capture.
+    if (types.isSharedArrayBuffer(SNAPSHOT_ARRAY_BUFFER.call(bytes))) {
+      throw new SingularityFlowError('Shared-memory configuration bytes are not a stable snapshot.', {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+      });
+    }
+    const contents = Buffer.alloc(SNAPSHOT_BYTE_LENGTH.call(bytes));
+    SNAPSHOT_COPY_BYTES.call(contents, bytes);
+    if (createHash('sha256').update(contents).digest('hex') !== entry.sha256) {
       throw new SingularityFlowError(
         `Verified Story configuration snapshot changed in memory: ${entry.relative}.`,
         { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
       );
     }
+    captured.push({ ...entry, contents });
+  }
+  return captured;
+}
+
+async function writeCapturedStoryConfigurationAssets(captured, destination) {
+  const copied = [];
+  for (const entry of captured) {
     const target = path.join(destination, entry.relative);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, entry.contents);
@@ -2024,6 +2109,12 @@ async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPat
     copied.push(entry.relative);
   }
   return copied.sort();
+}
+
+async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPaths = null } = {}) {
+  // Capture and hash-check the complete selected closure before the first filesystem await.
+  const captured = captureStoryConfigurationSnapshotAssets(snapshot, { selectPaths });
+  return writeCapturedStoryConfigurationAssets(captured, destination);
 }
 
 /**
@@ -2035,20 +2126,14 @@ async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPat
  * then the ordinary configuration readers are redirected there for the callback only.
  */
 export async function withStoryConfigurationSnapshotRead(root, snapshot, fn, { selectPaths = null } = {}) {
-  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
-    throw new SingularityFlowError(
-      'Approved configuration diagnosis requires a verified Story configuration snapshot.'
-    );
-  }
+  assertVerifiedStorySnapshot(snapshot);
+  const policyPaths = snapshot.assets.filter((entry) =>
+    ['singularity/workflow.yml', 'singularity/portfolio.yml'].includes(entry.relative))
+    .map((entry) => entry.relative);
+  const policyAssets = captureStoryConfigurationSnapshotAssets(snapshot, { selectPaths: policyPaths });
   const yamlFromSnapshot = (relative) => {
-    const entry = snapshot.assets.find((candidate) => candidate.relative === relative);
+    const entry = policyAssets.find((candidate) => candidate.relative === relative);
     if (!entry) return {};
-    if (createHash('sha256').update(entry.contents).digest('hex') !== entry.sha256) {
-      throw new SingularityFlowError(
-        `Verified Story configuration snapshot changed in memory: ${relative}.`,
-        { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
-      );
-    }
     return YAML.parse(entry.contents.toString('utf8')) ?? {};
   };
   // Compute the policy from the complete retained snapshot before applying a selected-path view.
@@ -2068,9 +2153,10 @@ export async function withStoryConfigurationSnapshotRead(root, snapshot, fn, { s
       );
     }
   }
+  const captured = captureStoryConfigurationSnapshotAssets(snapshot, { selectPaths });
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-overlay-'));
   try {
-    await copyStoryConfigurationSnapshot(snapshot, scratch, { selectPaths });
+    await writeCapturedStoryConfigurationAssets(captured, scratch);
     // Match the durable configuration-source record rather than the transport branch. A verified
     // state mirror transports these bytes through `state`, but the authority it attests remains
     // the reviewed `sflow/config` source commit.
@@ -2143,7 +2229,7 @@ export async function materializeConfigurationSnapshot(root, {
   if (!resolvedAuthority) return null;
   const verifiedSnapshot = snapshot ?? await loadStoryConfigurationSnapshot(resolvedAuthority);
   if (snapshot) incrementCommandCounter('configuration.snapshot-reused');
-  if (!verifiedSnapshot?.[STORY_CONFIGURATION_SNAPSHOT]
+  if (!STORY_CONFIGURATION_VERIFIED_DEFINITIONS.has(verifiedSnapshot)
       || verifiedSnapshot.authority.remote !== resolvedAuthority.remote
       || verifiedSnapshot.authority.branch !== resolvedAuthority.branch
       || (resolvedAuthority.commit && verifiedSnapshot.observedCommit !== resolvedAuthority.commit)
@@ -2156,11 +2242,13 @@ export async function materializeConfigurationSnapshot(root, {
   const sourceRemote = resolvedAuthority.remote;
   const commit = verifiedSnapshot.sourceCommit;
   const mirror = verifiedSnapshot.mirror;
+  // No existing configuration is removed until every retained byte has been copied and checked.
+  const captured = captureStoryConfigurationSnapshotAssets(verifiedSnapshot);
   {
     const baseCommit = configurationRepositoryHead(root);
     const before = configurationTreeEntries(root, baseCommit);
     const removed = await clearConfigurationAssets(root);
-    const files = await copyStoryConfigurationSnapshot(verifiedSnapshot, root);
+    const files = await writeCapturedStoryConfigurationAssets(captured, root);
     if (!files.includes('singularity/workflow.yml')) {
       throw new SingularityFlowError(
         `${CONFIGURATION_BRANCH}@${commit.slice(0, 12)} does not contain singularity/workflow.yml.`);

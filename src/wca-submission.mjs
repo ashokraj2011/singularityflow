@@ -3,7 +3,9 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { captureWorkflowDraftPackageProposal, workflowDraftPackageProposalFiles } from './wca-compiler.mjs';
+import { workflowDraftPackageProposalFiles, revalidateWorkflowDraftPackage,
+  workflowDraftSkillSubmissionReview, finalizeWorkflowDraftSkillProposal,
+  revalidateFinalizedWorkflowDraftSkillProposal } from './wca-compiler.mjs';
 import { consumeActionAuthorization } from './action-authorization.mjs';
 import { proposeConfigurationChange } from './configuration-proposal.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
@@ -11,8 +13,10 @@ import { configurationAssetPolicy, DEFAULT_CONFIGURATION_ASSET_POLICY } from './
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { validateWorkflowSkillFinalizationRecord } from './wca-skp-finalization.mjs';
 
 const FAMILY = 'workflow-authoring-submission-snapshot';
+const SKILL_FAMILY = 'workflow-authoring-skill-submission-snapshot';
 const LIMIT = 16 * 1024 * 1024;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
 const digest = (value) => `sha256:${recordSha256(value)}`;
@@ -53,6 +57,9 @@ function planCore(preview, files, inputs) {
 
 /** Compiler branding is required here; a JSON review card is not a candidate-file capability. */
 export function workflowDraftSubmissionPlan(preview) {
+  if (preview?.skillFinalization?.status === 'requires-exact-terminal-consent') {
+    return workflowDraftSkillSubmissionReview(preview);
+  }
   const captured = workflowDraftPackageProposalFiles(preview);
   const immutable = { source: preview.source, approvedSource: preview.approvedSource,
     planSha256: preview.planSha256, files: captured.files, inputs: captured.snapshotInputs ?? null };
@@ -87,6 +94,7 @@ function snapshot(captured, review, authorization) {
 
 /** Inspect retained evidence; it cannot be interpreted as an approval or live execution grant. */
 export function validateWorkflowDraftSubmissionSnapshot(value) {
+  if (value?.kind === SKILL_FAMILY) return validateWorkflowDraftSkillSubmissionSnapshot(value);
   if (!value || typeof value !== 'object' || Array.isArray(value)
       || Object.keys(value).sort().join('\0') !== ['schemaVersion', 'kind', 'snapshotId', 'sourceDraft',
         'approvedSource', 'planSha256', 'actionPlanSha256', 'candidateTreeSha256', 'inputs', 'preview',
@@ -161,6 +169,78 @@ export function validateWorkflowDraftSubmissionSnapshot(value) {
   return value;
 }
 
+function skillSnapshot(captured, pendingPreview) {
+  const record = captured.preview.skillFinalization?.record;
+  if (!record) fail('The compiler did not retain exact terminal-consumed finalization.');
+  const core = { schemaVersion: currentSchemaVersion(SKILL_FAMILY), kind: SKILL_FAMILY,
+    snapshotId: record.finalizationSha256.slice(7), sourceDraft: captured.preview.source,
+    approvedSource: captured.preview.approvedSource, preConsentPreview: pendingPreview,
+    preview: captured.preview, inputs: captured.snapshotInputs, files: captured.files,
+    confirmation: record.confirmation, finalizationSha256: record.finalizationSha256,
+    operationRef: { owner: 'configuration-proposal', operation: 'author', subject: record.finalizationSha256.slice(7, 31) },
+    approval: 'not-granted', activation: 'inactive', execution: 'not-started' };
+  return { ...core, snapshotSha256: digest(core) };
+}
+
+/** A retained local-review record proves consistency, never fresh consent or host enforcement. */
+export function validateWorkflowDraftSkillSubmissionSnapshot(value) {
+  const fields = ['schemaVersion', 'kind', 'snapshotId', 'sourceDraft', 'approvedSource', 'preConsentPreview',
+    'preview', 'inputs', 'files', 'confirmation', 'finalizationSha256', 'operationRef', 'approval', 'activation', 'execution', 'snapshotSha256'];
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).sort().join('\0') !== fields.sort().join('\0')
+      || readRecord(SKILL_FAMILY, value).storedVersion !== 1
+      || value.kind !== SKILL_FAMILY || Buffer.byteLength(canonicalJson(value)) > LIMIT
+      || !SHA.test(value.snapshotSha256 ?? '') || !SHA.test(value.finalizationSha256 ?? '')
+      || value.approval !== 'not-granted' || value.activation !== 'inactive' || value.execution !== 'not-started') fail('The retained skill submission is invalid.');
+  const { snapshotSha256, ...core } = value;
+  const pending = value.preConsentPreview; const preview = value.preview;
+  if (!pending || !preview || !value.inputs || !Array.isArray(value.files) || value.files.length > 256
+      || !Array.isArray(preview.assets) || preview.assets.length > 256
+      || !Array.isArray(value.inputs.assets) || value.inputs.assets.length > 64
+      || Object.keys(value.inputs).sort().join('\0') !== 'assets\0request') fail('The retained skill input closure is incomplete.');
+  const { planSha256: pendingHash, ...pendingCore } = pending;
+  const { planSha256: previewHash, ...previewCore } = preview;
+  const subject = preview.skillFinalization?.subject; const finalization = preview.skillFinalization?.record;
+  const review = pending.skillFinalization?.review;
+  if (digest(core) !== snapshotSha256 || digest(pendingCore) !== pendingHash || digest(previewCore) !== previewHash
+      || preview.skillFinalization?.status !== 'finalized-inactive-proposal'
+      || pending.skillFinalization?.status !== 'requires-exact-terminal-consent'
+      || canonicalJson(subject) !== canonicalJson(pending.skillFinalization.subject)
+      || canonicalJson(value.sourceDraft) !== canonicalJson(preview.source)
+      || canonicalJson(value.sourceDraft) !== canonicalJson(pending.source)
+      || canonicalJson(value.approvedSource) !== canonicalJson(preview.approvedSource)
+      || canonicalJson(value.approvedSource) !== canonicalJson(pending.approvedSource)
+      || digest(value.inputs.request) !== value.sourceDraft.payloadSha256
+      || digest(value.inputs.request) !== pending.requestSha256 || pending.requestSha256 !== preview.requestSha256
+      || digest(value.inputs) !== subject?.retainedInputsSha256
+      || value.finalizationSha256 !== finalization?.finalizationSha256
+      || canonicalJson(value.confirmation) !== canonicalJson(finalization?.confirmation)
+      || value.confirmation?.actionPlanSha256 !== `sha256:${review?.plan?.planHash}`
+      || value.snapshotId !== value.finalizationSha256.slice(7)
+      || canonicalJson(value.operationRef) !== canonicalJson({ owner: 'configuration-proposal', operation: 'author', subject: value.snapshotId.slice(0, 24) })) fail('The retained skill submission failed its subject, source or consent bindings.');
+  const { planHash: reviewHash, planId: reviewId, ...reviewCore } = review.plan;
+  if (recordSha256(reviewCore) !== reviewHash || reviewId !== `wca-skp-${reviewHash.slice(0, 24)}`
+      || canonicalJson(reviewCore.subject) !== canonicalJson(subject)) fail('The retained skill review card is inconsistent.');
+  const assetPolicy = retainedAssetPolicy(preview.approvedAssetPolicy);
+  for (const file of value.files) if (!isConfigurationReadPath(file.path, assetPolicy)) fail('A retained skill file is outside the approved asset scope.');
+  validateWorkflowSkillFinalizationRecord({ subject, record: finalization, definition: preview.candidateDefinition, files: value.files, retainedInputs: value.inputs });
+  if (value.files.length !== preview.assets.length || value.files.some((file, index) => {
+    const asset = preview.assets[index];
+    return !asset || file.path !== asset.path || file.bytes !== asset.bytes || file.sha256 !== asset.sha256
+      || Buffer.from(file.contentBase64, 'base64').toString('utf8') !== asset.content;
+  }) || digest(value.files.map(({ path: file, bytes, sha256 }) => ({ path: file, bytes, sha256 }))) !== preview.candidateAssetManifestSha256) fail('The retained skill emitted closure differs from its preview.');
+  const assets = value.inputs.assets.map((asset) => {
+    if (!asset || Object.keys(asset).sort().join('\0') !== 'bytes\0contentBase64\0path\0sha256'
+        || typeof asset.contentBase64 !== 'string') fail('A retained skill input asset is malformed.');
+    const bytes = Buffer.from(asset.contentBase64, 'base64');
+    if (bytes.length !== asset.bytes || bytesDigest(bytes) !== asset.sha256 || bytes.toString('base64') !== asset.contentBase64) fail('A retained skill input asset changed.');
+    return { path: asset.path, bytes: asset.bytes, sha256: asset.sha256 };
+  }).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const manifest = { schemaVersion: 1, kind: 'workflow-authoring-asset-manifest', assets };
+  if (digest({ ...manifest, assetManifestSha256: digest(manifest) }) !== value.sourceDraft.assetManifestSha256) fail('The retained skill attachment closure changed.');
+  return value;
+}
+
 async function writeCandidateFile(root, relative, bytes, assetPolicy) {
   if (!isConfigurationReadPath(relative, assetPolicy) || path.posix.normalize(relative) !== relative
       || relative.includes('\\') || relative.startsWith('/') || relative.split('/').includes('..')) {
@@ -197,24 +277,30 @@ export async function createWorkflowDraftReviewProposal(root, options = {}) {
   const request = Object.freeze({ ...options });
   const selection = { draftId: request.draftId, revision: request.revision,
     expectedPlanSha256: request.expectedPlanSha256 };
-  const captured = await captureWorkflowDraftPackageProposal(root, selection);
-  const review = workflowDraftSubmissionPlan(captured.preview);
-  const authorization = await consumeActionAuthorization(root, request.confirmation, review.plan,
+  const pendingPreview = await revalidateWorkflowDraftPackage(root, selection);
+  const skill = pendingPreview.skillFinalization?.status === 'requires-exact-terminal-consent';
+  const review = workflowDraftSubmissionPlan(pendingPreview);
+  const captured = skill ? await finalizeWorkflowDraftSkillProposal(root, request)
+    : workflowDraftPackageProposalFiles(pendingPreview);
+  const authorization = skill ? null : await consumeActionAuthorization(root, request.confirmation, review.plan,
     review.action, { requireTerminalPresentation: true });
-  const retained = validateWorkflowDraftSubmissionSnapshot(snapshot(captured, review, authorization));
-  const retainedPath = `singularity/workflow-authoring-submissions/${review.plan.planHash}.json`;
+  const retained = validateWorkflowDraftSubmissionSnapshot(skill ? skillSnapshot(captured, pendingPreview) : snapshot(captured, review, authorization));
+  const subjectId = skill ? retained.snapshotId.slice(0, 24) : review.plan.planHash.slice(0, 24);
+  const retainedPath = skill ? `singularity/workflow-authoring-skill-submissions/${retained.snapshotId}.json`
+    : `singularity/workflow-authoring-submissions/${review.plan.planHash}.json`;
   // The proposal owner freshly verifies the exact pre-change authority again and handles push
   // recovery. Any changed draft/catalog/base invalidates the reviewed card before candidate I/O.
   return proposeConfigurationChange(root, { operation: 'author',
-    subject: review.plan.planHash.slice(0, 24), expectedAuthority: captured.expectedAuthority,
+    subject: subjectId, expectedAuthority: captured.expectedAuthority,
     message: `Propose workflow package ${captured.preview.source.draftId} revision ${request.revision}`,
     verifyStaged: ({ verifyFiles }) => verifyFiles([...captured.files, {
       path: retainedPath, mode: '100644', bytes: Buffer.byteLength(canonicalJson(retained)),
       sha256: bytesDigest(Buffer.from(canonicalJson(retained)))
     }]),
     mutate: async (scratch) => {
-      const current = await captureWorkflowDraftPackageProposal(root, selection);
-      if (workflowDraftSubmissionPlan(current.preview).plan.planHash !== review.plan.planHash) {
+      const current = skill ? await revalidateFinalizedWorkflowDraftSkillProposal(root, captured.preview)
+        : workflowDraftPackageProposalFiles(await revalidateWorkflowDraftPackage(root, selection));
+      if (current.preview.planSha256 !== captured.preview.planSha256) {
         fail('The exact submission plan changed; review the newer package.', 'WCA_PREVIEW_STALE');
       }
       for (const file of current.files) await writeCandidateFile(scratch, file.path,
@@ -222,7 +308,7 @@ export async function createWorkflowDraftReviewProposal(root, options = {}) {
       await writeCandidateFile(scratch, retainedPath, Buffer.from(canonicalJson(retained)), current.assetPolicy);
       return { resultType: 'workflow-authoring-submission', status: 'proposed',
         sourceDraft: retained.sourceDraft, snapshotPath: retainedPath,
-        snapshotSha256: retained.snapshotSha256, planSha256: retained.planSha256,
+        snapshotSha256: retained.snapshotSha256, planSha256: current.preview.planSha256,
         reviewedFiles: current.files.map(({ path: file, mode, bytes, sha256 }) => ({ path: file, mode, bytes, sha256 })),
         approval: 'not-granted', activation: 'inactive', execution: 'not-started' };
     }

@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
-  configurationReadScope, isConfigurationReadPath, withConfigurationReadRoot
+  configurationReadScope, isConfigurationReadPath, withConfigurationReadRoot,
+  withoutConfigurationReadScope
 } from './configuration-read-scope.mjs';
 import {
   configurationAssetPolicy, configurationAssetSearchRoots
@@ -414,7 +415,9 @@ export async function withRepositoryConfigurationCommitRead(root, {
  *
  * `preferAuthority` is for operations that describe a *new* Story. An active Story must keep
  * reading its immutable pinned configuration, while new-work intake must see the latest approved
- * catalog even when launched from that older Story checkout.
+ * catalog even when launched from that older Story checkout. `freshOwnerCapture` additionally
+ * suspends all caller overlays and forces the canonical freshly verified authority path. It is
+ * not a caller-provided approval witness; absence cannot fall back to local or working-tree input.
  */
 export async function withApprovedConfigurationRead(root, fn, {
   preferAuthority = false,
@@ -422,8 +425,19 @@ export async function withApprovedConfigurationRead(root, fn, {
   refreshAuthority = true,
   requireAuthorityRefresh = false,
   canonicalRemote = null,
-  selectPaths = null
+  selectPaths = null,
+  freshOwnerCapture = false
 } = {}) {
+  if (freshOwnerCapture) {
+    return withoutConfigurationReadScope(() => withApprovedConfigurationRead(root, fn, {
+      preferAuthority: true,
+      allowLocalHeads: false,
+      refreshAuthority: true,
+      requireAuthorityRefresh: true,
+      canonicalRemote: null,
+      selectPaths
+    }));
+  }
   const existingScope = configurationReadScope(root);
   if (existingScope) {
     // Nested readers share the already-observed authority. A narrower caller receives a genuinely

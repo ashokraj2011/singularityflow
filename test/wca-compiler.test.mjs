@@ -56,7 +56,7 @@ test('workflow-only edit and linked fork bind exact raw parent and preserve omit
       changes: [{ kind: 'workflow', id: target, operation: intent, ...(intent === 'fork' ? { sourceId: 'baseline' } : {}),
         expectedDefinitionSha256: workflowDefinitionSha256(f.definition.workTypes.baseline) }] };
     const p = await preview(f, request);
-    assert.deepEqual(p.result.findings, []); assert.equal(p.result.compiler, 'wca-complete-package/v3');
+    assert.deepEqual(p.result.findings, []); assert.equal(p.result.compiler, 'wca-complete-package/v4');
     assert.equal(p.result.workflowChanges.status, 'ready'); assert.equal(p.result.simulation.status, 'complete-for-profile');
     assert.equal(p.result.workflowChanges.impact.sharedDefinitions, 'unchanged');
     assert.equal(p.result.workflowChanges.impact.retainedStories, 'unchanged-not-inventoried');

@@ -1,5 +1,6 @@
 /** Deterministic partial-request edits. These values are proposals, never catalog authority. */
 export const WORKFLOW_DRAFT_STAGES = ['Goal', 'Stages', 'Team & skills', 'Access & review', 'Review package', 'Submit & next steps'] as const;
+export const WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE = 'local-reviewed-artifact-producer/v1';
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 export interface WorkflowDraftGuide {
@@ -63,10 +64,19 @@ export function workflowDraftGuide(text: string): WorkflowDraftGuide {
 }
 
 export const WORKFLOW_DRAFT_GUIDE_FIELDS = ['id', 'label', 'description', 'phase-label', 'phase-inputs',
-  'agent-description', 'agent-prompt', 'skill-description', 'skill-instructions', 'template-content', 'agent-tools', 'phase-review', 'rationale',
+  'agent-description', 'agent-prompt', 'skill-description', 'skill-instructions', 'skill-producer-classification', 'template-content', 'agent-tools', 'phase-review', 'rationale',
   'phase-artifact-path', 'phase-artifact-kind', 'phase-artifact-minimum', 'phase-artifact-maximum', 'phase-write-scope', 'workflow-label', 'workflow-description'] as const;
 export type WorkflowDraftGuideField = typeof WORKFLOW_DRAFT_GUIDE_FIELDS[number];
 const strings = (value: string): string[] => value.split(',').map((item) => item.trim()).filter(Boolean);
+
+/** Display a recognized request only; an unknown advanced declaration must not become "none". */
+export function workflowDraftSkillProducerClassification(skill: Record<string, unknown>): string | null {
+  if (skill.producerClassification === undefined && !Object.hasOwn(skill, 'producerClassification')) return '';
+  const classification = skill.producerClassification;
+  return object(classification) && Object.keys(classification).sort().join('\0') === 'eligibility\0profile'
+    && classification.profile === WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE && classification.eligibility === 'candidate-producer'
+    ? WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE : null;
+}
 export function workflowDraftContent(input: string | Record<string, unknown>, entry: Record<string, unknown>, field: string): string {
   if (typeof entry[field] === 'string') return entry[field];
   const envelope = typeof input === 'string' ? workflowDraftEnvelope(input) : input; const reference = entry[`${field}Asset`];
@@ -93,10 +103,18 @@ export function editWorkflowDraftGuide(text: string, field: WorkflowDraftGuideFi
       : field.startsWith('skill-') ? 'skills' : 'templates';
     const entries = guide[key]; const selected = entries[index];
     if (!selected) throw new Error('Create or select a candidate component before answering this question.');
+    if (selected.kind === 'skill' && (['phase-inputs', 'phase-review', 'phase-write-scope'].includes(field) || field.startsWith('phase-artifact-'))) {
+      throw new Error('SKP inputs, outputs, access and review contracts require advanced JSON. No competing ordinary-phase field was added.');
+    }
     const property: Record<string, string> = { 'phase-label': 'label', 'phase-inputs': 'inputs',
       'agent-description': 'description', 'agent-prompt': 'prompt', 'skill-description': 'description', 'skill-instructions': 'instructions',
       'template-content': 'content', 'agent-tools': 'toolBindings', 'phase-review': 'approvalBinding', 'phase-write-scope': 'writeScope' };
-    if (field.startsWith('phase-artifact-')) {
+    if (field === 'skill-producer-classification') {
+      if (value !== '' && value !== WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE) throw new Error('Choose no classification or the exact artifact-only terminal-review request. This choice never grants eligibility.');
+      if (workflowDraftSkillProducerClassification(selected) === null) throw new Error('The advanced producer classification is unsupported by this guide and was retained unchanged. Resolve it explicitly in advanced JSON.');
+      if (value === '') delete selected.producerClassification;
+      else selected.producerClassification = { profile: WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE, eligibility: 'candidate-producer' };
+    } else if (field.startsWith('phase-artifact-')) {
       if (selected.artifact !== undefined && !object(selected.artifact)) throw new Error('Resolve the artifact object in advanced JSON first; it was not replaced.');
       const artifact = object(selected.artifact) ? selected.artifact : {};
       const artifactProperties: Record<string, string> = { 'phase-artifact-path': 'path', 'phase-artifact-kind': 'kind',
@@ -176,6 +194,7 @@ export function selectWorkflowDraftCatalog(text: string, kind: string, id: strin
     if (!guide.workflows[0].phases.includes(id)) guide.workflows[0].phases.push(id);
   } else {
     const phase = guide.phases[index]; if (!phase) throw new Error('Select a candidate stage before binding a catalog component.');
+    if (phase.kind === 'skill' && kind !== 'agent') throw new Error('SKP output, task, quality and review contracts require advanced JSON. No ordinary-phase catalog field was added.');
     if (kind === 'agent' || kind === 'template') phase[kind] = { ref: { source: 'catalog', kind, id } };
     else {
       if (!['execution-task', 'approval-authority', 'quality-command'].includes(kind)) throw new Error('This catalog kind is not an editable phase binding.');

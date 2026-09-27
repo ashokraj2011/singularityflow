@@ -2331,6 +2331,12 @@ const families = [
   family({ id: 'workflow-authoring-catalog-choices', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-authoring-submission-snapshot', currentVersion: 1, immutable: true,
     paths: [/^singularity\/workflow-authoring-submissions\/[a-f0-9]{64}\.json$/] }),
+  // SKP uses a pre-consent subject and a separate final closure identity. Historical ordinary
+  // submission v1 records keep their original meaning; these families invent no native consent.
+  family({ id: 'workflow-authoring-skp-preconsent-subject', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-skp-finalization', currentVersion: 1, immutable: true }),
+  family({ id: 'workflow-authoring-skill-submission-snapshot', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/workflow-authoring-skill-submissions\/[a-f0-9]{64}\.json$/] }),
   family({
     id: 'learning-workspace', currentVersion: 1, immutable: true,
     paths: [/^\$git\/sgos\/learning\/[a-f0-9]{64}\/workspace\.json$/]

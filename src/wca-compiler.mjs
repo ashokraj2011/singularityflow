@@ -21,8 +21,12 @@ import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { captureEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 import { simulateResolvedWorkflowLifecycle, WORKFLOW_LIFECYCLE_SIMULATION_PROFILE } from './workflow-lifecycle-simulation.mjs';
 import { planWorkflowOnlyChanges, workflowDefinitionSha256 } from './wca-workflow-changes.mjs';
+import { prepareWorkflowSkillConsent, workflowSkillFinalizationReview,
+  consumeWorkflowSkillFinalizationConsent, finalizeWorkflowSkillConsent,
+  workflowSkillFinalizedProjection, sealWorkflowSkillFinalization,
+  renderWorkflowSkillCandidateAgent, WCA_SKP_LOCAL_PRODUCER_PROFILE } from './wca-skp-finalization.mjs';
 
-export const WCA_COMPILER_PROFILE = 'wca-complete-package/v3';
+export const WCA_COMPILER_PROFILE = 'wca-complete-package/v4';
 export const WCA_PREVIEW_KIND = 'workflow-authoring-package-preview';
 export const WCA_REQUEST_SCHEMA = 'sflow-workflow-request@2';
 export const WCA_CATALOG_CHOICE_KIND = 'workflow-authoring-catalog-choices';
@@ -161,7 +165,7 @@ export async function captureWorkflowCompilerContext(root) {
       environmentDeclaration: environmentCapture?.declaration ?? null, environmentSha256: environmentCapture ? bytesDigest(environmentCapture.bytes) : null,
       expectedAuthority: { kind: authority.kind, commit: authority.commit, sourceCommit: baseRevision, remoteFingerprint: remoteFingerprint(repository) } });
     return view;
-  }, { preferAuthority: true, requireAuthorityRefresh: true, allowLocalHeads: false });
+  }, { preferAuthority: true, requireAuthorityRefresh: true, allowLocalHeads: false, freshOwnerCapture: true });
 }
 
 /** Reads one actual immutable selected revision. Caller JSON cannot impersonate a retained read. */
@@ -233,11 +237,18 @@ export function workflowCompilerCatalogChoices(context, options = {}) {
 }
 
 /** Pure deterministic compilation over opaque exact source/context captures. */
-export function compileWorkflowDraftPackage({ context, source } = {}) {
+export function compileWorkflowDraftPackage(selection = {}) {
+  return compileOwnerWorkflowDraftPackage(selection);
+}
+
+function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization = null) {
   const captured = CONTEXTS.get(context); const draft = SOURCES.get(source);
   if (!captured || !draft || draft.context !== context) fail('Compiler context and draft source must be captured together by their owners.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
   const request = safeCopy(draft.payload);
   const findings = []; const locks = []; const operations = []; const graph = []; const skillProposals = [];
+  const skillEntries = [];
+  const finalized = finalization ? workflowSkillFinalizedProjection(finalization.prepared, finalization.projection) : null;
+  const finalizedPhases = new Map((finalized?.phases ?? []).map((entry) => [entry.phaseId, entry.configuredPhase]));
   const unavailable = new Set(['WCA_SKP_CONFIRMATION_BINDING_PENDING', 'WCA_HOST_CONTRACT_UNAVAILABLE', 'WCA_OPERATION_MAPPING_UNAVAILABLE', 'WCA_SKILL_ASSIGNMENT_UNAVAILABLE', 'WCA_CHANGE_OWNER_UNAVAILABLE', 'WCA_REMOTE_DEPENDENCY_UNAVAILABLE']);
   const add = (code, fieldPath, message, category = unavailable.has(code) ? 'capability-unavailable' : 'submission-blocker') => {
     if (findings.length < WCA_COMPILER_LIMITS.findings) findings.push({ code, fieldPath, message, category, requiredFor: 'package-preview', sourceRule: WCA_COMPILER_PROFILE, resolvingAction: 'workflow.author.edit' });
@@ -265,9 +276,46 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       coverage: { schema: acceptedRequest ? 'checked' : 'invalid', references: 'selected-closure', policy: 'pre-change-approved-source', graph: 'ordered-input-and-registered-rework-validation', simulation: simulation.status, simulationProfile: simulation.profile, hostEnforcement: 'unavailable', behavior: 'not-evaluated', sharedConsumerImpact: 'configuration-only' },
       effects: { configurationWritten: false, proposalCreated: false, approvalGranted: false, activated: false, executed: false },
       nextAction: findings.length ? { operation: 'workflow.author.edit', legalEffect: 'edit-inert-draft' } : { operation: 'workflow.author.review', legalEffect: 'needs-separate-exact-human-confirmation', available: false } };
+    let prepared = null; let finalizationRecord = null;
+    if (skillEntries.length && (finalized || findings.every((finding) => finding.code === 'WCA_SKP_CONFIRMATION_BINDING_PENDING'))) {
+      if (finalized && !findings.length) {
+        finalizationRecord = sealWorkflowSkillFinalization(finalization.projection, JSON.parse(canonicalJson({
+          definition: candidate,
+          files: emitted.map(({ path: file, content, bytes, sha256 }) => ({ path: file, mode: '100644', bytes, sha256, contentBase64: Buffer.from(content).toString('base64') }))
+        })));
+      } else if (!finalized) {
+        try {
+          prepared = prepareWorkflowSkillConsent(JSON.parse(canonicalJson({ source, approvedSource: context.source,
+            request, snapshotInputs: { request, assets: draft.assets.map((asset) => ({ path: asset.path,
+              bytes: asset.content.length, sha256: bytesDigest(asset.content), contentBase64: asset.content.toString('base64') })) },
+            candidateDefinition: { ...candidate, version: 3 }, pendingFiles: pendingSkillFiles,
+            entries: skillEntries, dependencyLocks: locks, policySha256: core.policySha256 })));
+        } catch (error) {
+          core.findings.push({ code: error.code ?? 'WCA_SKP_FINALIZATION_INVALID', fieldPath: 'skillFinalization', message: error.message,
+            category: 'submission-blocker', requiredFor: 'package-preview', sourceRule: WCA_COMPILER_PROFILE, resolvingAction: 'workflow.author.edit' });
+          core.readiness.authoring = 'invalid';
+        }
+      }
+    }
+    if (prepared) core.skillFinalization = { status: prepared.finalization, subject: prepared.subject,
+      review: workflowSkillFinalizationReview(prepared), approval: 'not-granted', activation: 'inactive', execution: 'not-started' };
+    if (prepared?.finalization === 'requires-exact-terminal-consent') {
+      core.readiness.authoring = 'review-required';
+      core.nextAction = { operation: 'workflow.author.submit', legalEffect: 'needs-separate-exact-human-terminal-review', available: true };
+      for (const finding of core.findings) if (finding.code === 'WCA_SKP_CONFIRMATION_BINDING_PENDING') {
+        finding.resolvingAction = 'workflow.author.submit';
+      }
+    }
+    if (finalizationRecord) {
+      core.skillFinalization = { status: 'finalized-inactive-proposal', subject: finalization.prepared.subject,
+        record: finalizationRecord, approval: 'not-granted', activation: 'inactive', execution: 'not-started' };
+      core.readiness.confirmation = 'consumed-terminal-local';
+      core.nextAction = { operation: 'workflow.author.review', legalEffect: 'requires-separate-configuration-review', available: false };
+    }
     const preview = freeze(JSON.parse(canonicalJson({ ...core, planSha256: digest(core) })));
-    PREVIEWS.set(preview, { context, source }); return preview;
+    PREVIEWS.set(preview, { context, source, prepared, finalization: finalizationRecord ? finalization : null }); return preview;
   };
+  let pendingSkillFiles = [];
   if (!acceptedRequest) return output();
   if (source.lifecycle !== 'live') add('WCA_DRAFT_DELETED', 'source.lifecycle', 'Deleted retained revisions cannot create a current submission plan.');
   if (request.baseRevision !== captured.baseRevision) add('WCA_BASE_REVISION_STALE', 'baseRevision', 'The request must explicitly bind this exact approved configuration base commit.');
@@ -384,7 +432,12 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
   });
   const skillPackages = new Map();
   for (const [key, value] of symbols.skills) attempt(`definitions.skills.${key}`, () => {
-    closed(value, ['id', 'description', 'instructions', 'instructionsAsset', 'operationBindings', 'qualityBindings', 'resources'], 'Skill definition');
+    closed(value, ['id', 'description', 'instructions', 'instructionsAsset', 'operationBindings', 'qualityBindings', 'resources', 'producerClassification'], 'Skill definition');
+    if (value.producerClassification !== undefined) {
+      closed(value.producerClassification, ['profile', 'eligibility'], 'Requested producer classification');
+      if (value.producerClassification.profile !== WCA_SKP_LOCAL_PRODUCER_PROFILE
+          || value.producerClassification.eligibility !== 'candidate-producer') fail('Select the explicit artifact-only local review classification; it is not approved eligibility.', 'WCA_SKP_PRODUCER_CLASSIFICATION_UNAVAILABLE');
+    }
     text(value.description, 'Skill description', 1024); const instructions = body(value, 'instructions', 'instructionsAsset', 'Skill instructions');
     if (!Array.isArray(value.operationBindings) || value.operationBindings.length) fail('New skill operations require an approved runtime mapping owner; no implicit native tool grant is emitted.', 'WCA_OPERATION_MAPPING_UNAVAILABLE');
     for (const binding of optionalArray(value.qualityBindings, 'Skill quality bindings')) bound(binding, 'quality-command');
@@ -415,8 +468,12 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       const reference = typeof phase.agent === 'string' ? { source: 'candidate', kind: 'agent', id: phase.agent } : phase.agent?.ref ?? phase.agent;
       return reference?.source === 'candidate' && reference.kind === 'agent' && reference.id === key;
     }).map((phase) => phase.id);
-    const sourcePath = `.github/agents/${request.id}-${key}.agent.md`;
-    const content = `---\n${YAML.stringify({ name: key, description: value.description, tools: [], metadata: { 'sflow-phases': phases.join(','), 'sflow-default-for': phases.join(',') } })}---\n${prompt}\n`;
+    const reviewedSkillAgent = phases.some((phaseId) => symbols.phases.get(phaseId)?.kind === 'skill')
+      ? renderWorkflowSkillCandidateAgent(JSON.parse(canonicalJson({ request,
+        assets: draft.assets.map((asset) => ({ path: asset.path, bytes: asset.content.length,
+          sha256: bytesDigest(asset.content), contentBase64: asset.content.toString('base64') })) })), key) : null;
+    const sourcePath = reviewedSkillAgent?.path ?? `.github/agents/${request.id}-${key}.agent.md`;
+    const content = reviewedSkillAgent?.text ?? `---\n${YAML.stringify({ name: key, description: value.description, tools: [], metadata: { 'sflow-phases': phases.join(','), 'sflow-default-for': phases.join(',') } })}---\n${prompt}\n`;
     const parsed = parseAgentDependencies(content, { source: sourcePath, agentId: key }); agents.push({ ...parsed, text: content, scope: 'repository' }); emit(sourcePath, content);
   });
   // Resolve ordinary candidate output contracts before compiling any SKP proposal. The package
@@ -425,7 +482,7 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
   for (const [key, value] of phaseDefinitions) attempt(`definitions.phases.${key}`, () => {
     if (value.kind === 'skill') {
       closed(value, ['id', 'kind', 'label', 'skill', 'contract', 'agent'], 'Skill phase definition');
-      if (value.agent !== undefined) resolve(value.agent, 'agent', 'Skill phase agent');
+      const selectedAgent = value.agent === undefined ? null : resolve(value.agent, 'agent', 'Skill phase agent');
       closed(value.skill, ['id', 'packageSha256'], 'Selected candidate skill');
       const inspected = skillPackages.get(value.skill?.id);
       if (!inspected || value.skill.packageSha256 !== undefined && inspected.manifest.packageSha256 !== value.skill.packageSha256) fail('The selected new skill must bind its exact captured candidate package.', 'SKP_SKILL_DRIFT');
@@ -447,8 +504,26 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       // No confirmation, approved eligibility, effect scope or runtime binding is invented. The
       // proposed producer classification is visibly distinct and refused by confirmed lowering.
       const phase = { id: value.id, kind: value.kind, label: value.label, skill: { id: value.skill.id, packageSha256: inspected.manifest.packageSha256 }, contract: value.contract };
-      skillProposals.push(compileSkillPhaseProposal({ phase, catalog, phaseOrder }));
-      add('WCA_SKP_CONFIRMATION_BINDING_PENDING', `definitions.phases.${key}`, 'Contract policy is validated proposal-only. A later real exact-plan confirmation must create its runtime binding through the SKP owner before candidate configuration emission.'); return;
+      const proposed = compileSkillPhaseProposal({ phase, catalog, phaseOrder });
+      if (selectedAgent) {
+        const exactAgent = agents.find((agent) => agent.id === selectedAgent.id);
+        if (!exactAgent || !(exactAgent.defaultFor ?? []).includes(key)) add('WCA_AGENT_BINDING_UNAVAILABLE', `definitions.phases.${key}.agent`, 'The selected agent must have one exact existing or candidate default mapping for this phase.');
+        else skillEntries.push({ phase, catalog, phaseOrder,
+          agent: { id: exactAgent.id, scope: exactAgent.scope, text: exactAgent.text },
+          packageManifest: inspected.manifest,
+          ...(symbols.skills.get(value.skill.id)?.producerClassification ? {
+            producerClassification: symbols.skills.get(value.skill.id).producerClassification } : {}) });
+      } else if (symbols.skills.get(value.skill.id)?.producerClassification) add('WCA_AGENT_BINDING_UNAVAILABLE', `definitions.phases.${key}.agent`, 'Finalization requires one explicitly selected exact phase agent.');
+      const configured = finalizedPhases.get(key);
+      if (configured) {
+        candidate.version = 3;
+        candidate.phases[key] = structuredClone(configured);
+        validateConfiguredSkillPhase(candidate.phases[key], key);
+      } else {
+        skillProposals.push(proposed);
+        add('WCA_SKP_CONFIRMATION_BINDING_PENDING', `definitions.phases.${key}`, 'Contract policy is validated proposal-only. Explicit producer classification and a real one-use terminal review are required before inactive candidate configuration emission.');
+      }
+      return;
     }
     closed(value, ['id', 'label', 'artifact', 'inputs', 'template', 'agent', 'skills', 'taskBinding', 'approvalBinding', 'qualityBindings', 'writeScope', 'clarification'], 'Phase definition');
     text(value.label, 'Phase label', 512); if (!plain(value.artifact)) fail('New phases require an explicit concrete artifact contract.', 'WCA_ARTIFACT_UNRESOLVED');
@@ -512,19 +587,22 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
     }
   });
   let candidateValidated = false;
+  // Config validation normalizes runtime defaults in place. Once SKP consent has bound the raw
+  // pending definition, validate/simulate a clone rather than changing reviewed emitted policy.
+  const validatedCandidate = finalized ? structuredClone(candidate) : candidate;
   // Proposal-only skill contracts deliberately lack configured phases. Do not feed that
   // incomplete projection to the full configuration owner and mislabel its missing bindings as
   // an unrelated configuration failure, or simulate it as a confirmed execution contract.
   if (!skillProposals.length) attempt('candidate.configuration', () => {
-    validateDefinition(candidate); validateAgentCatalog(agents, candidate);
-    for (const key of symbols.workflows.keys()) if (candidate.workTypes[key]) assertPlannedClaimsReady(resolveWorkType(candidate, key));
+    validateDefinition(validatedCandidate); validateAgentCatalog(agents, validatedCandidate);
+    for (const key of symbols.workflows.keys()) if (validatedCandidate.workTypes[key]) assertPlannedClaimsReady(resolveWorkType(validatedCandidate, key));
     candidateValidated = true;
   });
   if (candidateValidated && symbols.workflows.size) {
     simulation.prerequisites = 'normalized-candidate';
     for (const key of symbols.workflows.keys()) attempt(`simulation.${key}`, () => {
-      if (!candidate.workTypes[key]) { simulation.status = 'incomplete'; return; }
-      const report = simulateResolvedWorkflowLifecycle(resolveWorkType(candidate, key));
+      if (!validatedCandidate.workTypes[key]) { simulation.status = 'incomplete'; return; }
+      const report = simulateResolvedWorkflowLifecycle(resolveWorkType(validatedCandidate, key));
       if (Buffer.byteLength(canonicalJson([...simulation.workflows, report])) > 2 * 1024 * 1024) {
         add('WCA_SIMULATION_LIMIT', `simulation.${key}`, 'Lifecycle simulation exceeds its aggregate report budget; no partial report is a complete verdict.');
         return;
@@ -540,6 +618,7 @@ export function compileWorkflowDraftPackage({ context, source } = {}) {
       : simulation.workflows.length === symbols.workflows.size && simulation.workflows.every((report) => report.status === 'complete-for-profile') ? 'complete-for-profile' : 'incomplete';
   }
   locks.sort((a, b) => a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  pendingSkillFiles = [...files].map(([file, content]) => ({ path: file, content, bytes: Buffer.byteLength(content), sha256: bytesDigest(Buffer.from(content)) }));
   if (!findings.length) attempt('candidate.files', () => {
     // Workflow-only edits must not serialize loadDefinition defaults back into unrelated shared
     // definitions. Preserve the raw approved source and overlay only the exact reviewed targets.
@@ -589,4 +668,44 @@ export function workflowDraftPackageProposalFiles(preview) {
 export async function captureWorkflowDraftPackageProposal(root, options = {}) {
   const request = safeCopy(options); closed(request, ['draftId', 'revision', 'expectedPlanSha256'], 'Exact package proposal selection');
   return workflowDraftPackageProposalFiles(await revalidateWorkflowDraftPackage(root, request));
+}
+
+/** Exact review identity before bindings exist. This exports no consent or file-write grant. */
+export function workflowDraftSkillSubmissionReview(preview) {
+  const retained = PREVIEWS.get(preview);
+  if (!retained?.prepared || retained.prepared.finalization !== 'requires-exact-terminal-consent'
+      || preview.findings.some((finding) => finding.code !== 'WCA_SKP_CONFIRMATION_BINDING_PENDING')
+      || preview.skillProposals.length !== retained.prepared.subject.phases.length) {
+    fail('This skill package still needs an explicit producer classification, exact agent, or other authoring decision.', 'WCA_PACKAGE_NOT_SUBMITTABLE');
+  }
+  return workflowSkillFinalizationReview(retained.prepared);
+}
+
+/** Real terminal-owner consumption precedes any configured binding, file emission or proposal. */
+export async function finalizeWorkflowDraftSkillProposal(root, options = {}) {
+  const selection = safeCopy(options);
+  closed(selection, ['draftId', 'revision', 'expectedPlanSha256', 'confirmation'], 'Exact skill finalization selection');
+  if (typeof selection.confirmation !== 'string') fail('A one-use direct-terminal authorization is required.', 'WCA_SKP_CONSENT_REQUIRED');
+  const preview = await revalidateWorkflowDraftPackage(root, selection);
+  workflowDraftSkillSubmissionReview(preview);
+  const retained = PREVIEWS.get(preview);
+  const consent = await consumeWorkflowSkillFinalizationConsent(root, retained.prepared, selection.confirmation);
+  const projection = finalizeWorkflowSkillConsent(retained.prepared, consent);
+  const finalization = { prepared: retained.prepared, projection, prePlanSha256: preview.planSha256 };
+  const finalized = compileOwnerWorkflowDraftPackage({ context: retained.context, source: retained.source }, finalization);
+  return workflowDraftPackageProposalFiles(finalized);
+}
+
+/** Staging reuses no consent: it only rechecks the exact consumed subject against fresh owners. */
+export async function revalidateFinalizedWorkflowDraftSkillProposal(root, preview) {
+  const retained = PREVIEWS.get(preview);
+  if (!retained?.finalization) fail('Use an exact compiler-owned finalized skill projection.', 'WCA_SKP_CONSENT_REQUIRED');
+  const pending = await revalidateWorkflowDraftPackage(root, { draftId: preview.source.draftId,
+    revision: preview.source.revision, expectedPlanSha256: retained.finalization.prePlanSha256 });
+  workflowDraftSkillSubmissionReview(pending);
+  const fresh = PREVIEWS.get(pending);
+  const finalization = { ...retained.finalization, prepared: fresh.prepared };
+  const current = compileOwnerWorkflowDraftPackage({ context: fresh.context, source: fresh.source }, finalization);
+  if (current.planSha256 !== preview.planSha256) fail('The finalized closure changed; review a new subject.', 'WCA_PREVIEW_STALE');
+  return workflowDraftPackageProposalFiles(current);
 }

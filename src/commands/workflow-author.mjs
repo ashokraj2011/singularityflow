@@ -212,8 +212,10 @@ function nextRoute(argv) {
   return guidance ? { argv, command: guidance.command, copilotCommand: guidance.copilotCommand } : { argv };
 }
 function showView(selected, scope, preview) {
+  const terminalReview = preview.skillFinalization?.status === 'requires-exact-terminal-consent';
   const missingDecisions = preview.findings.map((finding) => ({ ...finding,
-    label: finding.message, status: 'unresolved' }));
+    label: finding.message, status: terminalReview && finding.code === 'WCA_SKP_CONFIRMATION_BINDING_PENDING'
+      ? 'requires-terminal-review' : 'unresolved' }));
   const payload = selected.payload;
   for (const [fieldPath, label] of [['id', 'Package identity'], ['label', 'Package label'],
     ['description', 'Purpose']]) {
@@ -231,7 +233,7 @@ function showView(selected, scope, preview) {
       lifecycleEpoch: selected.record.lifecycleEpoch, revisionSha256: selected.record.revisionSha256,
       lifecycle: selected.tombstone ? 'deleted' : 'live' },
     displayName: selected.record.displayName,
-    assessment: { status: preview.readiness.authoring, definitionGapCount: missingDecisions.length,
+    assessment: { status: preview.readiness.authoring, definitionGapCount: missingDecisions.filter((decision) => decision.status === 'unresolved').length,
       coverage: preview.coverage, execution: 'not-started',
       simulation: preview.readiness.simulation,
       approval: 'not-granted', publication: 'not-proposed', activation: 'inactive',
@@ -244,7 +246,11 @@ function showView(selected, scope, preview) {
     durability: { status: 'shared-acknowledged', head: selected.head, revision: selected.record.revision },
     capabilities: { guide: 'vscode-six-stage', completePackageCompiler: 'deterministic-preview',
       submission: 'separate-terminal-review', automaticSaving: 'vscode-opt-in', nativeHostConfirmation: 'unavailable' },
-    primaryAction: missingDecisions.length && !selected.tombstone ? { operationId: 'workflow.author.save',
+    primaryAction: terminalReview && missingDecisions.every((decision) => decision.status === 'requires-terminal-review') && !selected.tombstone
+      ? { operationId: 'workflow.author.submit', draftId: selected.record.draftId,
+        reasonCode: 'exact-skill-package-terminal-review-required', effect: 'separate-terminal-review-only',
+        requiresCurrentRevision: true, ...nextRoute(['workflow', 'author', 'submit', selected.record.draftId, '--revision', String(selected.record.revision), '--json']) }
+      : missingDecisions.length && !selected.tombstone ? { operationId: 'workflow.author.save',
       draftId: selected.record.draftId, reasonCode: 'draft-definition-incomplete',
       effect: 'edit-inert-draft', requiresCurrentRevision: true } : null
   };
@@ -264,7 +270,11 @@ function emit(value, json) {
       console.log(`Shared head: ${view.durability.head}`);
       console.log(`Graph: ${view.graph.coverage}; native-host readiness has not been established.`);
       console.log(`Structural lifecycle: ${view.assessment.simulation}. Projected scenarios only; no tests, models or human decisions were executed.`);
-      for (const decision of view.missingDecisions) console.log(`Unresolved: ${decision.fieldPath} (${decision.label})`);
+      for (const decision of view.missingDecisions) console.log(`${decision.status === 'requires-terminal-review' ? 'Review required' : 'Unresolved'}: ${decision.fieldPath} (${decision.label})`);
+      if (view.primaryAction?.effect === 'separate-terminal-review-only') {
+        console.log(`Shell: ${view.primaryAction.command}`);
+        console.log(`Copilot: ${view.primaryAction.copilotCommand}`);
+      }
       console.log('This Show operation requested no proposal, approval, installation, or execution.');
     } else console.log(JSON.stringify(value.data, null, 2));
   }
@@ -321,7 +331,9 @@ export async function run(root, positionals, options, { scope } = {}) {
               '--revision', String(revision)]) }, nativeConfirmation: 'unavailable' };
         } else {
           console.log(JSON.stringify({ preview, review }, null, 2));
-          console.log('Creates only a review proposal. No approval, activation or execution. Cancel is the default.');
+          console.log(preview.skillFinalization?.status === 'requires-exact-terminal-consent'
+            ? 'Review the exact producer classifications and skill contracts. Finalizes only an inactive review proposal; imported execution remains unavailable. Cancel is the default.'
+            : 'Creates only a review proposal. No approval, activation or execution. Cancel is the default.');
           const authorization = await captureTerminalActionAuthorization(root, review.plan, review.action,
             { label: 'Create review proposal' });
           if (!authorization) { status = 'cancelled'; data = { preview, review }; }

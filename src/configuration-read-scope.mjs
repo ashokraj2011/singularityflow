@@ -13,6 +13,11 @@ import {
 
 const scopes = new AsyncLocalStorage();
 
+/** Suspend caller overlays while an authority owner obtains a new verified capture. */
+export function withoutConfigurationReadScope(fn) {
+  return scopes.exit(fn);
+}
+
 export function isConfigurationReadPath(value, policy = scopes.getStore()?.assetPolicy) {
   return isConfigurationAssetPath(value, policy ?? DEFAULT_CONFIGURATION_ASSET_POLICY);
 }

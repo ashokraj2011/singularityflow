@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open, opendir } from 'node:fs/promises';
 import path from 'node:path';
+import { types } from 'node:util';
 import YAML from 'yaml';
 
 import { canonicalJson } from './records.mjs';
@@ -36,6 +37,20 @@ const ALLOWED_DECLARATION_KEYS = new Set([
 const ALLOWED_OUTPUT_KEYS = new Set(['id', 'path', 'kind', 'description']);
 const ALLOWED_INPUT_KEYS = new Set(['phase', 'output', 'required']);
 const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const BYTE_SEALS = new WeakMap();
+const INSPECTION_PROFILES = new WeakMap();
+const MAP_SIZE = Object.getOwnPropertyDescriptor(Map.prototype, 'size').get;
+const MAP_ENTRIES = Map.prototype.entries;
+const TYPED_ARRAY = Object.getPrototypeOf(Uint8Array.prototype);
+const BYTE_LENGTH = Object.getOwnPropertyDescriptor(TYPED_ARRAY, 'byteLength').get;
+const ARRAY_BUFFER = Object.getOwnPropertyDescriptor(TYPED_ARRAY, 'buffer').get;
+const COPY_BYTES = Uint8Array.prototype.set;
+const COPIED_BYTE_PROFILE = Object.freeze({ profile: 'copied-inert-bytes/v1',
+  byteOwnership: 'private-copy', liveDirectoryContainment: 'not-established',
+  approval: 'not-established', execution: 'not-admitted' });
+const LIVE_PATH_PROFILE = Object.freeze({ profile: 'local-directory-candidate/v1',
+  byteOwnership: 'candidate-copy', liveDirectoryContainment: 'unqualified',
+  approval: 'not-established', execution: 'not-admitted' });
 
 function fail(code, message, details) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -52,6 +67,70 @@ function packageDigest(core) {
 
 function comparePortable(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function byteOptions(options) {
+  if (!options || typeof options !== 'object' || Array.isArray(options) || types.isProxy(options)
+      || ![Object.prototype, null].includes(Object.getPrototypeOf(options))) {
+    fail('SKP_PACKAGE_CORRUPT', 'Exact byte capture options must be an ordinary closed object.');
+  }
+  const fields = Object.getOwnPropertyDescriptors(options);
+  if (Reflect.ownKeys(fields).some((key) => key !== 'expectedPackageSha256')
+      || Object.values(fields).some((field) => !Object.hasOwn(field, 'value'))) {
+    fail('SKP_PACKAGE_CORRUPT', 'Exact byte capture cannot use accessors or additional options.');
+  }
+  const expectedPackageSha256 = Object.hasOwn(fields, 'expectedPackageSha256')
+    ? fields.expectedPackageSha256.value : undefined;
+  if (expectedPackageSha256 !== undefined && (typeof expectedPackageSha256 !== 'string'
+      || !SHA256.test(expectedPackageSha256))) fail('SKP_SKILL_DRIFT', 'Expected skill package digest is invalid.');
+  return { expectedPackageSha256 };
+}
+
+/** Native internal-slot reads never invoke caller Buffer getters, iterators or valueOf hooks. */
+function ownedBytes(bytes, relativePath) {
+  if (types.isProxy(bytes) || !Buffer.isBuffer(bytes) || Object.getPrototypeOf(bytes) !== Buffer.prototype) {
+    fail('SKP_PACKAGE_CORRUPT', `Skill file '${relativePath}' must contain ordinary exact Buffer bytes.`);
+  }
+  let size;
+  try {
+    if (types.isSharedArrayBuffer(ARRAY_BUFFER.call(bytes))) {
+      fail('SKP_CAPTURE_UNSTABLE', 'Shared-memory skill bytes cannot be captured as a stable package.');
+    }
+    size = BYTE_LENGTH.call(bytes);
+  } catch (error) {
+    if (error instanceof SingularityFlowError) throw error;
+    fail('SKP_PACKAGE_CORRUPT', 'Skill file must contain an attached ordinary byte buffer.');
+  }
+  return { bytes, size };
+}
+
+function copyOwnedBytes(bytes, size = BYTE_LENGTH.call(bytes)) {
+  const copied = Buffer.alloc(size);
+  COPY_BYTES.call(copied, bytes);
+  return copied;
+}
+
+function freezeJson(value) {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeJson(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+function retainByteSeal(capture) {
+  // Buffers cannot be made immutable with Object.freeze. Never expose the private copies: public
+  // capture Maps, manifests and every extraction remain disposable projections of these bytes.
+  const stored = Object.freeze({
+    manifest: freezeJson(structuredClone(capture.manifest)),
+    contents: new Map([...capture.contents].map(([relative, bytes]) => [relative, copyOwnedBytes(bytes)])),
+    proposals: freezeJson(structuredClone(capture.proposals)),
+    findings: freezeJson(structuredClone(capture.findings)),
+    metrics: freezeJson(structuredClone(capture.metrics))
+  });
+  BYTE_SEALS.set(capture, stored);
+  INSPECTION_PROFILES.set(capture, COPIED_BYTE_PROFILE);
+  return capture;
 }
 
 function checkedLimits(requested = {}) {
@@ -520,6 +599,10 @@ export function skillInspectionView(capture) {
     proposals: capture.proposals,
     findings: capture.findings,
     metrics: capture.metrics,
+    captureProfile: INSPECTION_PROFILES.get(capture) ?? {
+      profile: 'unqualified-external-record', byteOwnership: 'not-established',
+      liveDirectoryContainment: 'not-established', approval: 'not-established', execution: 'not-admitted'
+    },
     confirmationRequired: true,
     executable: false
   }));
@@ -568,23 +651,36 @@ function sealSkillPackage(skillId, contents, { source, directories, totalBytes, 
 }
 
 /** Capture exact supplied bytes without consulting a directory, Git, a remote, or a model. */
-export function inspectSkillPackageContents(skillId, suppliedContents, {
-  expectedPackageSha256
-} = {}) {
+export function inspectSkillPackageContents(skillId, suppliedContents, options = {}) {
+  const { expectedPackageSha256 } = byteOptions(options);
   assertSkillId(skillId);
-  if (!(suppliedContents instanceof Map)) {
+  if (!types.isMap(suppliedContents) || Object.getPrototypeOf(suppliedContents) !== Map.prototype
+      || Reflect.ownKeys(suppliedContents).length) {
     fail('SKP_PACKAGE_CORRUPT', 'Skill contents must be a map of portable paths to Buffer bytes.');
   }
-  if (suppliedContents.size > SKP_CAPTURE_LIMITS.files) {
+  const suppliedSize = MAP_SIZE.call(suppliedContents);
+  if (suppliedSize > SKP_CAPTURE_LIMITS.files) {
     fail('SKP_BUDGET_EXCEEDED', `Skill package exceeds ${SKP_CAPTURE_LIMITS.files} files.`,
-      { dimension: 'files', limit: SKP_CAPTURE_LIMITS.files, actual: suppliedContents.size });
+      { dimension: 'files', limit: SKP_CAPTURE_LIMITS.files, actual: suppliedSize });
   }
-  const entries = [...suppliedContents];
-  for (const [relativePath, bytes] of entries) {
+  const entries = [];
+  let admittedBytes = 0;
+  // Snapshot every caller byte before parsing. No user callback/getter or async boundary can
+  // mutate another entry during the capture; concurrently writable SharedArrayBuffer is refused.
+  for (const [relativePath, suppliedBytes] of MAP_ENTRIES.call(suppliedContents)) {
     assertSkillPackagePath(relativePath);
-    if (!Buffer.isBuffer(bytes)) {
-      fail('SKP_PACKAGE_CORRUPT', `Skill file '${relativePath}' must contain exact Buffer bytes.`);
+    const { bytes, size } = ownedBytes(suppliedBytes, relativePath);
+    const maxBytes = relativePath === 'SKILL.md' ? SKP_CAPTURE_LIMITS.entryBytes : SKP_CAPTURE_LIMITS.referenceBytes;
+    if (size > maxBytes) {
+      fail('SKP_BUDGET_EXCEEDED', `Skill file '${relativePath}' exceeds ${maxBytes} bytes.`,
+        { dimension: relativePath === 'SKILL.md' ? 'entryBytes' : 'referenceBytes', path: relativePath,
+          limit: maxBytes, actual: size });
     }
+    admittedBytes += size;
+    if (admittedBytes > SKP_CAPTURE_LIMITS.totalBytes) fail('SKP_BUDGET_EXCEEDED',
+      `Skill package exceeds ${SKP_CAPTURE_LIMITS.totalBytes} total bytes.`,
+      { dimension: 'totalBytes', limit: SKP_CAPTURE_LIMITS.totalBytes, actual: admittedBytes });
+    entries.push([relativePath, copyOwnedBytes(bytes, size)]);
   }
   entries.sort(([left], [right]) => comparePortable(left, right));
   const aliases = new Map();
@@ -631,20 +727,54 @@ export function inspectSkillPackageContents(skillId, suppliedContents, {
       fail('SKP_BUDGET_EXCEEDED', `Skill package exceeds ${SKP_CAPTURE_LIMITS.totalBytes} total bytes.`,
         { dimension: 'totalBytes', limit: SKP_CAPTURE_LIMITS.totalBytes, actual: totalBytes });
     }
-    contents.set(relativePath, Buffer.from(bytes));
+    contents.set(relativePath, bytes);
   }
   if (!contents.has('SKILL.md')) {
     fail('SKP_SKILL_MISSING', 'Skill contents must contain an exact SKILL.md entry.');
   }
-  return sealSkillPackage(skillId, contents, {
+  return retainByteSeal(sealSkillPackage(skillId, contents, {
     source: { kind: 'in-memory' }, directories: directories.size, totalBytes,
     fileReads: 0, expectedPackageSha256
-  });
+  }));
+}
+
+/**
+ * Seal literal inert bytes only. The private brand proves byte ownership, not source containment,
+ * approved Git provenance, human consent, permissions or execution eligibility. Approval owners
+ * must independently prove those identities. This function does not accept a source directory.
+ */
+export function sealSkillPackageContents(skillId, suppliedContents, options = {}) {
+  const capture = inspectSkillPackageContents(skillId, suppliedContents, options);
+  const handle = Object.freeze({ kind: 'skill-package-byte-seal', skillId,
+    packageSha256: capture.manifest.packageSha256 });
+  BYTE_SEALS.set(handle, BYTE_SEALS.get(capture));
+  INSPECTION_PROFILES.set(handle, COPIED_BYTE_PROFILE);
+  return handle;
+}
+
+/** Return fresh literal bytes from a private seal or pure-byte capture, never a live path capture. */
+export function readSealedSkillPackage(handle, options = {}) {
+  const { expectedPackageSha256 } = byteOptions(options);
+  const stored = handle && typeof handle === 'object' ? BYTE_SEALS.get(handle) : null;
+  if (!stored) fail('SKP_CAPTURE_UNQUALIFIED',
+    'A privately sealed inert byte package is required; live-directory and caller-written records cannot authorize this read.');
+  verifySkillPackage(stored);
+  if (expectedPackageSha256 !== undefined && stored.manifest.packageSha256 !== expectedPackageSha256) {
+    fail('SKP_SKILL_DRIFT', 'Sealed skill bytes differ from the expected exact package.');
+  }
+  const capture = { source: { kind: 'in-memory' }, manifest: structuredClone(stored.manifest),
+    contents: new Map([...stored.contents].map(([relative, bytes]) => [relative, copyOwnedBytes(bytes)])),
+    proposals: structuredClone(stored.proposals), findings: structuredClone(stored.findings),
+    metrics: structuredClone(stored.metrics) };
+  BYTE_SEALS.set(capture, stored); INSPECTION_PROFILES.set(capture, COPIED_BYTE_PROFILE);
+  return capture;
 }
 
 /**
  * Capture exact bytes and return only evidence-bearing suggestions. The selected directory is
  * inspected twice; a content or membership change between passes refuses the entire candidate.
+ * Path lstat/O_NOFOLLOW checks do not pin every ancestor against a hostile directory swap.
+ * This unqualified local candidate must not be an authoritative approved asset writer input.
  */
 export async function inspectSkillPackage(selectedDirectory, {
   skillId, limits: requestedLimits, expectedPackageSha256
@@ -670,9 +800,11 @@ export async function inspectSkillPackage(selectedDirectory, {
   const second = await scan(directory, limits);
   assertStableSkillCapture(first, second);
   const contents = new Map(first.files);
-  return sealSkillPackage(id, contents, {
+  const capture = sealSkillPackage(id, contents, {
     source: { kind: 'local-directory', selectedPath: directory },
     directories: first.directories.length, totalBytes: first.totalBytes,
     fileReads: contents.size * 2, expectedPackageSha256
   });
+  INSPECTION_PROFILES.set(capture, LIVE_PATH_PROFILE);
+  return capture;
 }

@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 24
+version: 25
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -208,8 +208,9 @@ old plan rather than silently rebasing it.
 Current candidate emission supports complete ordinary artifact-only create packages with real
 agent/template bodies and approved task, check and reviewer references, plus the explicit
 workflow-only changes below. Unsupported tool/source effects, missing artifacts, ambiguous
-references and unclaimed attachments block emission. New SKP packages can be lowered proposal-only;
-they have no confirmed runtime binding and cannot be submitted as executable skill phases. Their
+references and unclaimed attachments block emission. New SKP packages are initially proposal-only;
+explicit artifact-only classification and one-use terminal review can finalize an inactive
+configuration proposal as described below. This never enables executable skill phases. Their
 inert files use canonical `singularity/skills/<ID>/…` storage, never native `.github/skills`
 discovery. Static validation is supplemented by the bounded Story simulation below, not live
 lifecycle execution.
@@ -258,7 +259,7 @@ No existing Story is repinned. Impact is configuration-only, not a complete reta
 cross-repository inventory; external dependency content and host enforcement are not inferred.
 A stale parent, approved source or plan requires a fresh Preview and separate terminal review.
 Submission still creates only a configuration review proposal, not approval, activation or
-execution. Shared-object editing and the post-consent SKP binding contract remain unavailable.
+execution. Shared-object editing and imported-skill execution remain unavailable.
 
 ## Simulate a Story workflow before submitting it
 
@@ -299,7 +300,8 @@ does not bypass other package findings or enable imported skill execution.
 
 ## Submit separately for configuration review
 
-For an ordinary package with no authoring blockers, use one exact saved revision:
+For an ordinary package with no authoring blockers, or an artifact-only SKP package marked
+`review-required`, use one exact saved revision:
 
 ```bash
 singularity-flow workflow author submit WFD-DEMO001 --revision 1 --json
@@ -327,12 +329,46 @@ The application checkout, index and approved `sflow/config` ref remain unchanged
 
 Submission is **review required**, not approved, active or executing. Merge/approval, approved
 configuration refresh and any separate Start action remain their existing owners' operations.
-SKP proposal-to-post-consent binding/digest design, qualified skill execution, simulation beyond
-the supported Story structural profile and mediated-host confirmation are not complete. Native installed-host/crash and
+Qualified skill execution, simulation beyond the supported Story structural profile and
+mediated-host confirmation are not complete. Native installed-host/crash and
 Windows qualification of private recovery is still separate from its implementation tests. The
 usage lookup below distinguishes the approved configuration from one explicitly selected local
-Story revision; neither is a global consumer inventory. No new skill runtime binding is fabricated
-to bypass those gaps.
+Story revision; neither is a global consumer inventory.
+
+### Artifact-only SKP package review
+
+In the guide's **Team & skills** stage, explicitly choose **Request artifact-only local review
+classification** for a new skill. No classification is selected by default. The equivalent skill
+definition field is:
+
+```json
+"producerClassification": {
+  "profile": "local-reviewed-artifact-producer/v1",
+  "eligibility": "candidate-producer"
+}
+```
+
+Declare the exact SKP phase inputs, outputs, checks, review and access contracts in advanced JSON,
+and explicitly select its agent. The limited profile refuses source writes, code tasks, source
+reads, native-host requests and new operations. Unrecognized advanced classifications remain
+unchanged by the guide and must be resolved explicitly. Saving or Preview grants no eligibility.
+
+After Save and Preview, use the same Shell `singularity-flow workflow author submit WFD-<ID>
+--revision <N> --json` or Copilot `/sf-workflows author submit WFD-<ID> --revision <N> --json` route.
+Copilot returns a terminal handoff; it cannot confirm on your behalf. The terminal binds exact
+classification, retained package/agent bytes, contract, policy, workflow order and source to a
+versioned pre-consent subject. Cancel is the default. Only its one-use consent finalizes reviewed
+SKP bindings. A separate finalization hash binds actual emitted files without circularly using
+the final Preview hash as an input to its own binding.
+
+The inactive branch retains a registered skill-submission snapshot under
+`singularity/workflow-authoring-skill-submissions/<finalization-hash>.json`, distinct from unchanged
+ordinary snapshot v1. The reader verifies closure/source/hash consistency; retained evidence is
+not live consent, authenticated provider identity or an execution grant. Approved capture uses
+owned exact Git blobs, not mutable live directory rereads. Live hostile ancestor containment is
+still unqualified. No installed runner is currently qualified: starting, preparing, generating,
+publishing or approving an imported skill phase remains refused with
+`SKP_HOST_ENFORCEMENT_UNAVAILABLE`.
 
 ## Delete a shared draft
 

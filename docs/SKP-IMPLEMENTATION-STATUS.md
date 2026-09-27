@@ -5,10 +5,10 @@ This tracks implementation of *SPEC-SKP v0.2 — Skill Phases and Bring-Your-Own
 | Milestone | Current status | Evidence and boundary |
 |---|---|---|
 | M0 — compatibility and closed readers | Protective guard and versioned readers implemented; milestone incomplete | Version-2 workflow validation refuses skill-producer fields instead of silently treating them as template phases. Version-3 definitions, version-11 Story records, version-3 WFA amendment snapshots, and version-3 skill workflow bundles have registered readers and migrations; historical records retain their identity and gain no invented audit evidence. This does not prove every M0 acceptance case. `test/skp-compatibility.test.mjs`, `test/mig-golden.test.mjs`, `test/mig-read.test.mjs`. |
-| M1 — inspection and contract compilation | Safe foundations implemented; milestone incomplete | `skill inspect` reads one explicit local directory without Git, network, model, or execution, captures bounded exact bytes, and returns candidate-only findings. The pure confirmed-contract compiler retains its existing semantics. WCA additionally lowers a new retained skill package proposal-only: it exposes exact outputs, checks, policy and package identity without confirmation or a runtime binding. The post-consent SKP binding/digest design remains unresolved; proposal bytes cannot masquerade as confirmed configuration. The current path-based directory scanner is not a native isolation boundary against a malicious concurrent ancestor-directory swap; do not use it as an approved asset writer without closing that race. `test/skp-inspect.test.mjs`, `test/skp-package.test.mjs`, `test/skp-contract.test.mjs`, `test/skp-cli.test.mjs`, `test/wca-compiler.test.mjs`. |
+| M1 — inspection and contract compilation | Safe capture and terminal-local inactive finalization implemented; milestone incomplete | `skill inspect` reads one explicit local directory without Git, network, model, or execution and returns candidate-only findings. Approved inspection captures exact retained Git blobs before mirror cleanup, checks original asset hashes and copies bytes synchronously without caller Buffer hooks. Private byte seals cannot establish approval, consent or containment. WCA uses a separate versioned pre-consent subject and post-consent closure hash; explicit artifact-only producer classification plus real one-use terminal review can finalize an inactive proposal. The pure confirmed-contract compiler retains its semantics. Live-directory inspection is not qualified against hostile ancestor swaps and cannot masquerade as approved capture. `test/skp-package-seal.test.mjs`, `test/skp-approved-mirror-capture.test.mjs`, `test/wca-skp-finalization.test.mjs`, `test/wca-skp-submission.test.mjs`. |
 | M2 — retained Story execution and evidence | Retention, evidence, and hardened AC-053 adoption implemented; milestone incomplete | Stories pin complete approved packages and compiled bindings. The accepted reader verifies bytes, digests, interpretation, configuration provenance, and immutable amendment lineage without a live-folder/latest-name fallback. Reviewed adoption changes exactly one package and reopens only proven affected phases; unknown dependency impact is refused. Other packages and unaffected approvals remain pinned. New decisions carry bounded offline-verifiable configuration ancestry and immutable rejection-review bindings. Existing lifecycle owners retain prior-output receipts, declared artifact membership, publication, and human-approval evidence. Skill preparation, generation, publication, submission, and approval remain refused with `SKP_HOST_ENFORCEMENT_UNAVAILABLE` pending M5; no executable pilot is claimed. `test/skp-snapshot.test.mjs`, `test/skp-amendment-audit.test.mjs`, `test/skp-amendment-plan.test.mjs`, `test/skp-amendment-snapshot.test.mjs`, `test/skp-amendment-transaction.test.mjs`, `test/skp-state-lifecycle.test.mjs`. |
 | M3 — BYO and mixed-workflow recipes | Read-only recipes, role validation, and portable transfer implemented; milestone incomplete | `workflow skills-recipe` previews intake → selected approved phases → conformance from exact approved configuration. Code requires explicit earlier acceptance criteria and planning owners; findings/evidence are not criteria. The source-bound digest and separately authorized ordinary proposal route grant no execution. Bundle v3 retains manifests, binary/CRLF bytes, compiled bindings and transitive MCP agent/Story-phase dependencies; complete server scopes are preserved without adding scheduled workflow steps. Source and bundle reader share the traversal, with disconnected-object refusal and Story/Initiative namespace separation. Historical v1/v2 identities and original closure semantics remain stable; import still refuses destination permission widening. Approved-destination import/copy plans bind authority kind, remote fingerprint, observed commit and source commit; a fresh owner plan and the existing proposal owner recheck that destination before mutation, including byte-identical authority changes. Installed hosts, ordinary command scripts and external resources remain prerequisites. Actual skill lifecycle runs depend on M5. `test/skp-workflow-recipe.test.mjs`, `test/skp-transport.test.mjs`, `test/workflow-transfer.test.mjs`, `test/workflow-transfer-cli.test.mjs`. |
-| M4 — guided shared authoring | Six-stage editing, shared/private persistence, bounded Story simulation, workflow-only edit/fork impact, exact selected-Story usage and ordinary-package review proposals implemented; milestone incomplete | `skill doctor` verifies an accepted Story package without live-source fallback. `workflow author` shares inert partial drafts through the freshly verified configuration authority, with exact remote-head CAS, retained revision/asset closure, operation-ID recovery and deletion fences. VS Code provides six guided stages, explicit per-draft shared-autosave opt-in, encrypted local recovery with explicit Restore/Compare/Discard, and native-confirmed repair of proven-dead same-domain private locks on supported macOS/Linux paths. Private checkpoint acknowledgement is separate from Git, exact base drift is refused, and uncertain shared writes retain their pending operation before issue. Deterministic Preview, bounded catalog choices and read-only Show use an exact retained draft and approved source. Workflow-only edit/linked fork binds the raw parent digest, preserves omitted advanced fields and untouched shared definitions, and reports bounded declared dependencies; it does not repin existing Stories. Exact selected-Story usage verifies one local Git revision and accepted retained lineage without a fetch or global inventory. The versioned Story structural simulation covers progression, publication, inputs/outputs, artifact sets, approval waits/thresholds, check refusal, rework and repair budgets; the full report is bound into the exact Preview plan hash. Unsupported effects and missing decisions remain blockers. Valid supported ordinary packages can be separately submitted through live direct-terminal review to the existing configuration-proposal owner. The review branch retains immutable request, asset and file bytes; exact staged Git bytes/modes, changed-path closure, committed tree and base-parent fences prevent unreviewed staging changes. Submission is not approval, activation or execution. Native-mediated SKP confirmation, simulation outside this structural profile, installed-host/crash/Linux/Windows recovery qualification, wider shared-object/history inventory and confirmed SKP package emission remain incomplete. `test/skp-doctor.test.mjs`, `test/wca-git-drafts.test.mjs`, `test/wca-workflow-author-cli.test.mjs`, `test/wca-workflow-changes.test.mjs`, `test/wca-compiler.test.mjs`, `test/skp-story-usage.test.mjs`, `test/wca-simulation.test.mjs`, `test/workflow-simulation.test.mjs`, `test/vscode-workflow-simulation.test.mjs`, `test/wca-submission.test.mjs`, `test/wca-staged-proposal.test.mjs`, `test/vscode-workflow-drafts.test.mjs`, `test/vscode-workflow-drafts-recovery.test.mjs`, `test/vscode-workflow-drafts-lock-recovery.test.mjs`, `test/vscode-workflow-drafts-comparison.test.mjs`. |
+| M4 — guided shared authoring | Six-stage editing, shared/private persistence, structural simulation, workflow-only changes, exact selected-Story usage and terminal-local proposals implemented; milestone incomplete | Shared drafts retain exact Git CAS/revision/assets; private encrypted recovery and proven-dead local lock repair remain separate. Preview captures fresh approved authority even inside caller-provided overlays. Workflow-only edits/forks preserve unrelated raw policy and do not repin Stories. Structural simulation is hypothetical and bound into Preview. Valid ordinary packages and explicitly classified artifact-only SKP packages have separate live terminal review. SKP review binds agent body/default mapping to retained request and emitted bytes, then retains pre-consent and finalization identities in a new closed snapshot family. Staged bytes/modes, changed paths, committed tree and base-parent fences prevent unreviewed writes. Submission is not approval, activation or execution. Mediated-host confirmation, broader simulation, installed-host/crash/Linux/Windows recovery, shared-object/history inventory and native runner qualification remain incomplete. `test/wca-compiler.test.mjs`, `test/wca-skp-finalization.test.mjs`, `test/wca-skp-submission.test.mjs`, `test/wca-submission.test.mjs`, `test/wca-staged-proposal.test.mjs`, `test/vscode-workflow-drafts-skill-classification.test.mjs`, `test/vscode-workflow-drafts.test.mjs`, `test/vscode-workflow-drafts-recovery.test.mjs`, `test/vscode-workflow-drafts-lock-recovery.test.mjs`. |
 | M5 — host/platform qualification | Not implemented | `src/skp-host-admission.mjs` checks structured operation-bound enforcement evidence but is **not connected to a qualified host adapter** and cannot establish a sandbox itself. Real pre-effect read/write/tool/egress/control/process enforcement and delivery acknowledgement must be tested on supported installed hosts before launch. |
 | M6 — pilot/promotion | Not started | Requires actual end-to-end approved Story runs and measured release evidence. |
 
@@ -38,23 +38,46 @@ Code recipes also require `--planned-claims required --clause-phases <CRITERIA> 
 
 ## Remaining work
 
-1. Resolve the SKP proposal-to-post-consent binding/digest contract and authenticated mediated host confirmation through the existing owners; do not manufacture confirmation to close the gap. Complete simulation beyond the supported Story structural profile and installed-host/crash/Linux/Windows qualification of private recovery. Workflow-only edits and exact selected-Story history reads do not cover shared-object mutation, all consumers, global Story inventory or native provider-principal/revocation qualification. Shared/private persistence, structural simulation and ordinary-package terminal review proposals are not full M4 readiness.
-2. Qualify race-safe package capture and a real M5 host adapter with native enforcement and exact delivery evidence. Keep execution closed meanwhile.
+1. Qualify authenticated mediated-host confirmation, simulation beyond the supported Story structural profile and installed-host/crash/Linux/Windows private recovery. Workflow-only edits and selected-Story reads do not cover shared-object mutation, all consumers, global Story inventory or native provider-principal/revocation qualification. Terminal-local inactive finalization is not full M4 readiness.
+2. Qualify live-directory capture against hostile ancestor swaps and implement a real M5 host adapter with native enforcement and exact delivery evidence. Keep execution closed meanwhile.
 3. Run actual two-client shared-authoring and mixed/code/non-code Story pilots and collect M6 release evidence.
 
-The remaining post-consent contract needs three explicit owner steps; this is a design approach,
-not an implemented authorization or host capability:
+## Delivered terminal-local skill finalization
 
-1. Define a versioned pre-consent subject that binds the exact retained draft, approved source,
+1. A versioned pre-consent subject binds the exact retained draft, approved source,
    package bytes, contract/policy and reviewed effect scope, without depending on future consent
    or the final Preview digest.
-2. Define a separate finalization hash domain for the consumed subject, confirmed binding and
+2. A separate finalization hash domain binds the consumed subject, confirmed binding and
    emitted candidate closure. Do not make the final Preview hash an input to a binding that the
    same Preview contains; this would be self-referential rather than an exact review identity.
-3. Require real, one-use consent to that exact reviewed subject through an existing qualified
-   owner, recheck source freshness, then finalize through the SKP owner. A candidate or proposed
-   producer must never be silently promoted to approved eligibility. Finalization cannot infer
+3. The existing direct-terminal action owner consumes real one-use consent to the reviewed
+   subject. Fresh source checks precede finalization and proposal writes. A proposed producer
+   requires the exact explicit local classification below, never silent approved eligibility. Finalization cannot infer
    native enforcement, installed-host qualification, activation or execution permission.
+
+In **Team & skills**, select **Request artifact-only local review classification** for the exact
+new skill; the default is no classification. Its advanced JSON is:
+
+```json
+"producerClassification": {
+  "profile": "local-reviewed-artifact-producer/v1",
+  "eligibility": "candidate-producer"
+}
+```
+
+SKP phase contracts remain explicit advanced JSON, not an ordinary template fallback. Save and
+Preview the exact revision, then use Shell `singularity-flow workflow author submit WFD-<ID>
+--revision <N> --json` or Copilot `/sf-workflows author submit WFD-<ID> --revision <N> --json`.
+Headless Copilot only returns a terminal handoff. The live terminal presents classification,
+package, contracts, policy and source identities with Cancel as default. Confirmation creates an
+inactive configuration review branch; it does not run the skill. Missing classification, stale
+sources, forged receipts or replay refuse without candidate writes.
+
+New SKP proposals retain `workflow-authoring-skill-submission-snapshot@1` under
+`singularity/workflow-authoring-skill-submissions/<finalization-hash>.json`. Nested pre-consent
+subject and finalization records have separate registered version-1 families and hash domains.
+Ordinary submission snapshots remain version 1 in their original dialect. Historical record
+validation proves consistency only; persisted JSON is never a live confirmation capability.
 
 The current safe built-in-only runner selection does not qualify imported skill execution. Foundation tests are not substitutes for shared-authoring and native-host acceptance cases.
 
@@ -91,14 +114,15 @@ pins are unchanged, and usage in other repositories or retained Stories is not i
 impact planner. Native skill discovery, approval and execution remain unavailable.
 `test/wca-workflow-changes.test.mjs`, `test/wca-compiler.test.mjs`.
 
-Compiler `wca-complete-package/v3` emits unassigned candidate skill files only into inert canonical
+Compiler `wca-complete-package/v4` emits unassigned candidate skill files only into inert canonical
 `singularity/skills/<ID>/…`, never native skill discovery. Creating an existing approved package
 ID is refused even when it is unassigned or currently contains only resource files; creation
 cannot overwrite a retained package through a missing `SKILL.md` shortcut. Mixed ordinary/SKP
 proposals resolve normalized earlier ordinary output contracts independently of declaration order.
-That improves proposal inspection only: new SKP phases still have no confirmed runtime binding,
-emit no candidate files, remain unsubmittable and report incomplete lifecycle simulation until
-the separate post-consent contract is implemented. No host qualification is inferred.
+Before consent, new SKP phases emit no candidate files and retain proposal-only bindings.
+Complete artifact-only packages with explicit classification and agent selection can proceed to
+separate terminal review; confirmed emission changes only reviewed SKP phases and leaves ordinary
+policy intact. Post-consent structural simulation is still hypothetical. No host qualification is inferred.
 `test/wca-compiler.test.mjs`, `test/vscode-workflow-drafts.test.mjs`.
 
 VS Code's **Configuration Center → Shared workflow drafts** (also available in the Command Palette)
@@ -138,7 +162,8 @@ restart tests complement the real-Git client fixture, not native credential or h
 The UI displays actual source-bound Preview/catalog/Show results and copies rooted Shell or
 Copilot submission-review routes; it does not submit, approve, delete or execute from the webview.
 The terminal independently refreshes and presents the saved package with Cancel as default. New
-SKP phases remain proposal-only and block runtime configuration emission. The shared
+SKP phases remain proposal-only until exact local classification and one-use consent finalize an
+inactive proposal. Imported execution stays blocked. The shared
 `story-structural-lifecycle/v1` report now projects a bounded set of Story lifecycle scenarios from
 normalized contracts and shared runtime predicates. `complete-for-profile` is not evidence of real
 artifact contents, command/model behavior, approval/publication, human availability or host

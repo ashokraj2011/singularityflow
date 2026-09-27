@@ -1,7 +1,8 @@
 /** Escaped, nonce-shell content. Draft JSON is never executable webview markup. */
 import { WORKFLOW_DRAFT_INPUT_MAX_BYTES, type SharedWorkflowDraftView } from './workflow-drafts-model.ts';
 import { escape } from './webview.ts';
-import { workflowDraftContent, workflowDraftEnvelope, workflowDraftGuide, WORKFLOW_DRAFT_STAGES, type WorkflowDraftGuideField } from './workflow-drafts-guide.ts';
+import { workflowDraftContent, workflowDraftEnvelope, workflowDraftGuide, workflowDraftSkillProducerClassification,
+  WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE, WORKFLOW_DRAFT_STAGES, type WorkflowDraftGuideField } from './workflow-drafts-guide.ts';
 
 export function workflowDraftDurabilityLabel(view: SharedWorkflowDraftView): string {
   const revision = view.editor?.record.revision ?? '?';
@@ -82,6 +83,14 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
     return `<label for="${id}">${escape(label)}<textarea id="${id}" rows="${['agent-prompt', 'skill-instructions', 'template-content', 'description', 'rationale'].includes(field) ? 4 : 1}" spellcheck="false"${view.busy || editor.readOnlyReason ? ' readonly' : ''}>${escape(text(value))}</textarea></label>
       <button type="button" class="secondary" data-draft-action="guide-answer" data-guide-field="${field}" data-guide-input="${id}" data-guide-index="${index}"${disabled}>Apply answer</button>`;
   };
+  const producerClassification = (skill: Record<string, unknown>, index: number): string => {
+    const selected = workflowDraftSkillProducerClassification(skill); const unsupported = selected === null;
+    const id = `guide-skill-producer-classification-${index}`;
+    return `<label for="${id}">Producer classification request (not approval)<select id="${id}"${unsupported || view.busy || editor.readOnlyReason ? ' disabled' : ''}>
+      ${unsupported ? '<option value="" selected>Advanced classification retained · edit advanced JSON</option>' : `<option value=""${selected === '' ? ' selected' : ''}>None · no producer classification requested</option><option value="${WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE}"${selected === WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE ? ' selected' : ''}>Request artifact-only producer classification · terminal review required</option>`}</select></label>
+      <button type="button" class="secondary" data-draft-action="guide-answer" data-guide-field="skill-producer-classification" data-guide-input="${id}" data-guide-index="${index}"${unsupported ? ' data-guide-unsupported="true" disabled' : disabled}>Apply classification request</button>
+      <p class="${unsupported ? 'warning' : 'muted'}">${unsupported ? 'The advanced classification is not supported by this guide and remains unchanged. Resolve it explicitly in advanced JSON.' : 'This records a request for local-reviewed-artifact-producer/v1 only. It grants no eligibility, tools, source effects or execution. Exact package bytes and SKP contracts still require terminal review for an inactive proposal.'}</p>`;
+  };
   const catalog = view.preview?.catalogChoices;
   const groups = catalog && typeof catalog === 'object' && Array.isArray((catalog as Record<string, unknown>).groups)
     ? (catalog as { groups: Record<string, unknown>[] }).groups : [];
@@ -117,22 +126,23 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
         + (guide.payload.intent === 'edit' || guide.payload.intent === 'fork' ? '<p>Workflow-only changes reuse approved stages. Shared component edits need their own reviewed package. Skill order changes require a newly compiled confirmed binding.</p>' : `<button type="button" data-draft-action="add-stage"${disabled}>Add new candidate stage</button>`)
         + selection('phase', 'Append an existing approved catalog stage')
         + guide.phases.map((phase, index) => {
+          if (phase.kind === 'skill') return `<details><summary>${escape(phase.id)} · SKP stage</summary>${answer('phase-label', 'Stage label', phase.label, index)}<p>SKP phase creation and raw input, output, task, access and review contracts use advanced JSON only. The guide does not invent or replace those contracts.</p></details>`;
           const artifact = phase.artifact && typeof phase.artifact === 'object' ? phase.artifact as Record<string, unknown> : {};
           return `<details><summary>${escape(phase.id)} · stage content</summary>${answer('phase-label', 'Stage label', phase.label, index)}${answer('phase-inputs', 'Required input stage IDs (comma-separated, unresolved IDs allowed)', phase.inputs, index)}${selection('execution-task', 'Select the actual execution task', index)}
             <details><summary>Required output contract (your explicit choices)</summary>${answer('phase-artifact-path', `Own-artifact path under artifacts/${String(phase.id)}/`, artifact.path, index)}${answer('phase-artifact-kind', 'Artifact kind (for example custom:findings — not a ready-made meaning)', artifact.kind, index)}${answer('phase-artifact-minimum', 'Minimum literal bytes', artifact.minimumBytes, index)}${answer('phase-artifact-maximum', 'Maximum literal bytes', artifact.maximumBytes, index)}${answer('phase-write-scope', 'Write scope: type artifact-only to request own-artifact edits; no source grant', phase.writeScope, index)}</details></details>`;
         }).join('');
     } else if (view.stage === 3) content = '<p>Who or what does each step? Supply actual purpose and procedural text. Empty text remains a decision gap. Reuse requires an explicit choice from the captured approved catalog. Model generation and human/deterministic role adapters are unavailable here.</p>'
       + guide.agents.map((agent, index) => `<details><summary>${escape(agent.id)} · candidate agent</summary>${answer('agent-description', 'Role purpose', agent.description, index)}${answer('agent-prompt', agent.promptAsset ? 'Hand-written prompt · captured literal asset (no host file read)' : 'Hand-written prompt', workflowDraftContent(envelope, agent, 'prompt'), index)}</details>`).join('')
-      + guide.skills.map((skill, index) => `<details><summary>${escape(skill.id)} · candidate skill</summary>${answer('skill-description', 'Skill purpose', skill.description, index)}${answer('skill-instructions', 'Procedural instructions', workflowDraftContent(envelope, skill, 'instructions'), index)}</details>`).join('')
+      + guide.skills.map((skill, index) => `<details><summary>${escape(skill.id)} · candidate skill</summary>${answer('skill-description', 'Skill purpose', skill.description, index)}${answer('skill-instructions', 'Procedural instructions', workflowDraftContent(envelope, skill, 'instructions'), index)}${producerClassification(skill, index)}</details>`).join('')
       + guide.templates.map((template, index) => `<details><summary>${escape(template.id)} · candidate template</summary>${answer('template-content', 'Required output template', workflowDraftContent(envelope, template, 'content'), index)}</details>`).join('')
-      + guide.phases.map((phase, index) => `<details><summary>${escape(phase.id)} · reuse existing components explicitly</summary>${selection('agent', 'Approved catalog agent', index)}${selection('template', 'Approved catalog template', index)}</details>`).join('');
+      + guide.phases.map((phase, index) => `<details><summary>${escape(phase.id)} · reuse existing components explicitly</summary>${selection('agent', 'Approved catalog agent', index)}${phase.kind === 'skill' ? '<p>SKP contracts remain advanced JSON-only; there is no template fallback.</p>' : selection('template', 'Approved catalog template', index)}</details>`).join('');
     else if (view.stage === 4) content = '<p>What may each agent do, and who reviews the work? Typed references are requests, not approved catalog selections. Optional tools default to none. No policy floor, mandatory gate or planned-claim obligation is removed.</p>'
       + '<p class="warning">Native operation/host mapping is unavailable. Captured reviewer/quality catalog IDs are navigation-only: they do not prove membership or grant execution. Nonempty operation bindings may be unsupported.</p>'
       + guide.agents.map((agent, index) => `<details><summary>${escape(agent.id)} · requested operations</summary>${answer('agent-tools', 'Requested operation binding aliases (comma-separated)', agent.toolBindings, index)}</details>`).join('')
-      + guide.phases.map((phase, index) => `<details><summary>${escape(phase.id)} · requested review</summary>${answer('phase-review', 'Existing reviewer binding alias, or leave unresolved', phase.approvalBinding, index)}${selection('approval-authority', 'Actual approved reviewer group', index)}${selection('quality-command', 'Actual approved quality check', index)}</details>`).join('');
+      + guide.phases.map((phase, index) => `<details><summary>${escape(phase.id)} · requested review</summary>${phase.kind === 'skill' ? '<p>SKP reviewer, check and effect contracts require explicit advanced JSON and exact terminal review. No ordinary-phase review alias is inserted.</p>' : answer('phase-review', 'Existing reviewer binding alias, or leave unresolved', phase.approvalBinding, index) + selection('approval-authority', 'Actual approved reviewer group', index) + selection('quality-command', 'Actual approved quality check', index)}</details>`).join('');
     else if (view.stage === 5) content = `<p>Is this the package you want to propose? Candidate components: ${guide.workflows.length} workflows, ${guide.phases.length} stages, ${guide.agents.length} agents, ${guide.skills.length} skills, ${guide.templates.length} templates.</p>`
       + '<p>These counts are not a completeness or readiness verdict. Show is pinned to an acknowledged revision and reports its actual coverage.</p>' + answer('rationale', 'Review explanation', guide.payload.rationale);
-    else content = `<p>Submit this package for the required review?</p><p class="warning">Trusted submission confirmation is unavailable in this editor. Shared persistence and Preview are not approval, active configuration or execution. These buttons copy review routes only; the terminal separately revalidates and presents an exact package, or refuses unresolved findings. Headless Copilot cannot mint consent.</p>
+    else content = `<p>Submit this package for the required review?</p><p class="warning">Trusted submission confirmation is unavailable in this editor. Shared persistence and Preview are not approval, active configuration or execution. These buttons copy review routes only; the terminal separately revalidates and reviews explicit producer classification, exact package bytes and SKP contracts, or refuses unresolved findings. Confirmation creates an inactive review proposal, not approval or imported-skill execution. Headless Copilot cannot mint consent.</p>
       <button type="button" class="secondary" data-draft-action="submit-review"${view.busy || view.recovery?.candidateAvailable || ['failed', 'checking'].includes(view.recovery?.status) ? ' disabled' : ''}>Copy rooted Shell submission-review command</button>
       <button type="button" class="secondary" data-draft-action="copilot-submit-review"${view.busy || view.recovery?.candidateAvailable || ['failed', 'checking'].includes(view.recovery?.status) ? ' disabled' : ''}>Copy Copilot submission handoff</button>`;
   } catch (error) { content = `<p class="warning">${escape(error instanceof Error ? error.message : String(error))}</p><p>Advanced JSON is retained unchanged. Resolve its shape before guided edits.</p>`; }
@@ -308,6 +318,7 @@ export const SHARED_WORKFLOW_DRAFTS_SCRIPT = `
         const action = button.dataset.draftAction;
         const edits = ['save', 'guide-answer', 'add-stage', 'move-stage', 'catalog-answer', 'autosave-on'];
         button.disabled = message.busy === true || (message.readOnly === true && edits.includes(action))
+          || button.dataset.guideUnsupported === 'true'
           || (action === 'catalog-answer' && message.dirty === true)
           || (['save', 'autosave-on', 'submit-review', 'copilot-submit-review'].includes(action) && message.recoveryBlocked === true)
           || (action === 'recovery-restore' && message.restoreAllowed !== true)

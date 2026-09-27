@@ -10,8 +10,8 @@ import { stdin as input, stdout as output } from 'node:process';
 import { chmodSync, constants as fsConstants, existsSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
 import {
-  applyWorkflowImport, copyWorkflow as copyWorkflowDefinition, exportWorkflowBundle,
-  planWorkflowCopy, planWorkflowImport, readWorkflowBundle
+  exportWorkflowBundle,
+  planWorkflowCopy, planWorkflowImport, readWorkflowBundle, workflowTransferProposal
 } from './workflow-transfer.mjs';
 import {
   activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
@@ -8276,9 +8276,17 @@ async function receiptCommand(positionals, options) {
   console.log(renderEvidenceReceipt(receipt));
 }
 
-async function authorProposedOrLocalConfiguration(root, proposal) {
+async function authorProposedOrLocalConfiguration(root, proposal, {
+  requireExpectedRemoteAuthority = false
+} = {}) {
   const attachment = await readFosAttachment(root);
   if (attachment?.descriptor?.route?.kind !== 'local') {
+    if (requireExpectedRemoteAuthority && !proposal.expectedAuthority?.remoteFingerprint) {
+      throw new SingularityFlowError(
+        'No exact approved remote workflow transfer destination is available. Refresh configuration and preview again.',
+        { code: 'WORKFLOW_TRANSFER_DESTINATION_UNAVAILABLE' }
+      );
+    }
     return proposeConfigurationChange(root, proposal);
   }
   await fosStoryConfigurationAuthority(root); // Prove repository/worktree and locator, not just stored pin bytes.
@@ -8326,6 +8334,9 @@ function configurationProposalFileSubject(root, requestedPath) {
 async function workflowCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'workflow subcommand'); const root = repoRoot();
   if (subcommand === 'author') {
+    if (positionals[2] === 'where-used') {
+      return (await import('./commands/workflow-author.mjs')).run(root, positionals, options);
+    }
     const { resolveWorkflowAuthorScope } = await import('./wca-author-scope.mjs');
     const scope = await resolveWorkflowAuthorScope(root);
     return (await import('./commands/workflow-author.mjs')).run(root, positionals, options, { scope });
@@ -8433,8 +8444,12 @@ async function workflowCommand(positionals, options) {
   }
 
   const proposing = optionBoolean(options, 'propose');
-  const author = async ({ operation, subject, message, mutate }) => {
-    if (proposing) return authorProposedOrLocalConfiguration(root, { operation, subject, message, mutate });
+  const author = async ({
+    operation, subject, message, mutate, expectedAuthority = null, requireExpectedRemoteAuthority = false
+  }) => {
+    if (proposing) return authorProposedOrLocalConfiguration(root, {
+      operation, subject, message, mutate, expectedAuthority
+    }, { requireExpectedRemoteAuthority });
     assertLocalConfigurationAuthoringAllowed(root);
     return mutate(root);
   };
@@ -8493,11 +8508,16 @@ async function workflowCommand(positionals, options) {
       );
     }
     const ids = bundle.workflows?.map((entry) => entry.id).filter(Boolean) ?? [];
+    const proposal = await withApprovedConfigurationRead(root, async () =>
+      workflowTransferProposal(await planWorkflowImport(root, bundle), {
+        expectedPlanSha256, requireApprovedDestination: proposing
+      }), { preferAuthority: true });
     const imported = await author({
       operation: 'import-workflows',
       subject: ids.length === 1 ? ids[0] : `bundle-${String(bundle.bundleSha256 ?? expectedPlanSha256).replace(/^sha256:/, '').slice(0, 12)}`,
       message: `[configuration] import workflows ${ids.join(', ') || 'bundle'}`,
-      mutate: (target) => applyWorkflowImport(target, bundle, { expectedPlanSha256 })
+      requireExpectedRemoteAuthority: true,
+      ...proposal
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(imported, null, 2));
     if (printProposal(imported)) return;
@@ -8528,10 +8548,15 @@ async function workflowCommand(positionals, options) {
         `Preview the copy first with singularity-flow workflow copy ${sourceId} ${targetId} --dry-run --json, then pass its --confirm plan SHA-256.`
       );
     }
+    const proposal = await withApprovedConfigurationRead(root, async () =>
+      workflowTransferProposal(await planWorkflowCopy(root, input), {
+        expectedPlanSha256, requireApprovedDestination: proposing
+      }), { preferAuthority: true });
     const copied = await author({
       operation: 'copy-workflow', subject: targetId,
       message: `[configuration] copy workflow ${sourceId} to ${targetId}`,
-      mutate: (target) => copyWorkflowDefinition(target, { ...input, expectedPlanSha256 })
+      requireExpectedRemoteAuthority: true,
+      ...proposal
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(copied, null, 2));
     if (printProposal(copied)) return;

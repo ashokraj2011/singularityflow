@@ -664,6 +664,7 @@ Every public operation is classified before its implementation module is importe
 | workflow.author.save | mutation | never | — | — |
 | workflow.author.show | read | never | — | — |
 | workflow.author.submit | mutation | never | — | — |
+| workflow.author.where-used | read | never | — | — |
 | workflow.copy | mutation | never | — | — |
 | workflow.copy.preview | read | never | — | — |
 | workflow.create | mutation | never | — | — |

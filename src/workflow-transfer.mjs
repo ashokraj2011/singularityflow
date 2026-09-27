@@ -12,8 +12,13 @@ import {
   lstat, mkdir, open, readFile, readdir, rename, rm, writeFile
 } from 'node:fs/promises';
 import YAML from 'yaml';
-import { configurationReadRoot, configurationReadSnapshot } from './configuration-read-scope.mjs';
+import {
+  configurationReadRoot, configurationReadScope, configurationReadSnapshot,
+  withConfigurationReadRoot
+} from './configuration-read-scope.mjs';
 import { inspectApprovedSkillPackage } from './configuration-branch.mjs';
+import { executeGitQuery } from './git-query.mjs';
+import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { SKP_CONTRACT_COMPILER, validateConfiguredSkillPhase } from './skp-contract.mjs';
@@ -50,6 +55,7 @@ const MAX_SKILL_PACKAGES = 32;
 const MAX_SKILL_BUNDLE_BYTES = 112 * 1024 * 1024;
 const MAX_OBJECTS = 8192;
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const TRANSFER_PLANS = new WeakMap();
 const SKILL_SEMANTICS = Object.freeze({
   skillPackageReader: SKP_PACKAGE_FORMAT, skillTextParser: SKP_PARSER_PROFILE,
   skillPhaseBinding: SKP_CONTRACT_COMPILER
@@ -80,6 +86,77 @@ function canonicalJson(value) { return JSON.stringify(canonicalValue(value)); }
 function digest(value) {
   const bytes = typeof value === 'string' || Buffer.isBuffer(value) ? value : canonicalJson(value);
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+function captureTransferDestination(root) {
+  const scope = configurationReadScope(root);
+  if (!scope?.authority) return null;
+  const authority = clone(scope.authority);
+  const sourceCommit = authority.kind === 'verified-state-mirror'
+    ? authority.manifest?.source?.commit : authority.commit;
+  if (!['approved-configuration-ref', 'verified-state-mirror'].includes(authority.kind)
+      || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(authority.commit ?? '')
+      || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sourceCommit ?? '')
+      || (authority.kind === 'verified-state-mirror'
+        && authority.manifest?.source?.branch !== 'sflow/config')
+      || (authority.remote != null
+        && (typeof authority.remote !== 'string' || !authority.remote.trim()))) {
+    fail('Workflow transfer requires an exact approved destination identity.',
+      'WORKFLOW_TRANSFER_DESTINATION_INVALID');
+  }
+  // Ref aliases and the disposable read mount are transport details, not destination identity.
+  const identity = Object.freeze({
+    kind: authority.kind, branch: 'sflow/config', commit: authority.commit, sourceCommit,
+    remoteFingerprint: authority.remote == null ? null : remoteFingerprint(authority.remote)
+  });
+  return {
+    identity, authority, assetPolicy: clone(scope.assetPolicy),
+    configurationSnapshot: scope.configurationSnapshot
+  };
+}
+
+/**
+ * Capture a mutation only from a plan produced by this owner. The proposal owner independently
+ * checks the expected remote/source/mirror before invoking it; the scratch must then reproduce
+ * the reviewed target bytes under the same approved scope. Serialized plans cannot grant scope.
+ */
+export function workflowTransferProposal(plan, {
+  expectedPlanSha256, requireApprovedDestination = false
+} = {}) {
+  const retained = TRANSFER_PLANS.get(plan);
+  if (!retained) fail('Workflow transfer requires a freshly captured owner plan.',
+    'WORKFLOW_TRANSFER_PLAN_INVALID');
+  assertConfirmation(expectedPlanSha256, retained.planSha256, 'Workflow transfer');
+  const { destination, operation } = retained;
+  if (requireApprovedDestination && !destination) {
+    fail('No exact approved workflow transfer destination is available. Refresh configuration and preview again.',
+      'WORKFLOW_TRANSFER_DESTINATION_UNAVAILABLE');
+  }
+  const input = clone(retained.input);
+  const mutate = async (target) => {
+    const apply = () => operation === 'import'
+      ? applyWorkflowImport(target, input, { expectedPlanSha256: retained.planSha256 })
+      : copyWorkflow(target, { ...input, expectedPlanSha256: retained.planSha256 });
+    if (!destination) return apply();
+    let actualCommit = null;
+    try { actualCommit = executeGitQuery(target, 'repository.head'); }
+    catch { /* A non-Git target cannot prove this base. */ }
+    if (actualCommit !== destination.identity.sourceCommit) {
+      fail('The approved workflow transfer destination changed. Preview again; use --propose from an application or Story checkout.',
+        'WORKFLOW_TRANSFER_DESTINATION_CHANGED', {
+          expectedCommit: destination.identity.sourceCommit, actualCommit
+        });
+    }
+    return withConfigurationReadRoot(target, target, destination.authority, apply, {
+      assetPolicy: destination.assetPolicy, configurationSnapshot: destination.configurationSnapshot
+    });
+  };
+  const expectedAuthority = destination ? {
+    kind: destination.identity.kind, commit: destination.identity.commit,
+    sourceCommit: destination.identity.sourceCommit,
+    remoteFingerprint: destination.identity.remoteFingerprint
+  } : null;
+  return { expectedAuthority, mutate };
 }
 
 function textAssetFormat(bytes) {
@@ -1592,6 +1669,7 @@ async function skillGitAttributes(root, bundle) {
 }
 
 export async function planWorkflowImport(root, bundleOrPath) {
+  const destination = captureTransferDestination(root);
   const bundle = await normalizedBundle(bundleOrPath);
   const target = await targetSnapshot(root, bundle);
   const values = { story: target.story?.value ?? {}, initiative: target.initiative?.value ?? {} };
@@ -1729,6 +1807,7 @@ export async function planWorkflowImport(root, bundleOrPath) {
   }
   const planCore = {
     schemaVersion: 1, resultType: 'workflow-import-plan', bundleSha256: bundle.bundleSha256,
+    ...(destination ? { destinationAuthority: destination.identity } : {}),
     targetStateSha256: digest(state),
     operations: {
       add: add.sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`)),
@@ -1750,6 +1829,7 @@ export async function planWorkflowImport(root, bundleOrPath) {
   Object.defineProperty(result, '_internal', {
     value: { bundle, target, assetTargets }, enumerable: false, configurable: false, writable: false
   });
+  TRANSFER_PLANS.set(result, { destination, operation: 'import', input: clone(bundle), planSha256 });
   return result;
 }
 
@@ -1895,6 +1975,7 @@ async function locateWorkflow(root, id) {
 }
 
 export async function planWorkflowCopy(root, { sourceId, targetId, label } = {}) {
+  const destination = captureTransferDestination(root);
   const target = requireId(targetId, 'Target workflow identifier');
   if (typeof label !== 'string' || !label.trim()) fail('Workflow copy requires a non-empty label.',
     'WORKFLOW_COPY_LABEL_REQUIRED');
@@ -1917,6 +1998,7 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label } = {})
   for (const id of Object.keys(closure.agentLocks)) reuse.push(entry('agent-lock', id));
   const core = {
     schemaVersion: 1, resultType: 'workflow-copy-plan', sourceId: source,
+    ...(destination ? { destinationAuthority: destination.identity } : {}),
     sourceSelector: located.selector, targetId: target,
     governs: located.governs, targetStateSha256: digest({
       story: located.documents.story?.text ?? '', initiative: located.documents.initiative?.text ?? ''
@@ -1935,10 +2017,14 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label } = {})
       linked: true
     }
   };
-  return {
+  const result = {
     ...core, planSha256: digest(core), status: conflicts.length ? 'blocked' : 'ready',
     added: core.operations.add, reused: core.operations.reuse, conflicts
   };
+  TRANSFER_PLANS.set(result, {
+    destination, operation: 'copy', input: { sourceId, targetId, label }, planSha256: result.planSha256
+  });
+  return result;
 }
 
 export async function copyWorkflow(root, {

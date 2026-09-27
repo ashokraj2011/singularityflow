@@ -14,7 +14,7 @@ import { SingularityFlowError } from '../util.mjs';
 export const WORKFLOW_AUTHOR_INPUT_MAX_BYTES = 5 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES = 256 * 1024;
 const ASSET_MAX_BYTES = 4 * 1024 * 1024;
-const ACTIONS = new Set(['list', 'read', 'create', 'save', 'history', 'op-status', 'delete', 'show', 'preview', 'catalog', 'submit']);
+const ACTIONS = new Set(['list', 'read', 'create', 'save', 'history', 'op-status', 'delete', 'show', 'preview', 'catalog', 'submit', 'where-used']);
 const OPTIONS = {
   list: new Set(['json', 'limit', 'cursor']),
   read: new Set(['json', 'revision']),
@@ -26,7 +26,8 @@ const OPTIONS = {
   show: new Set(['json', 'revision']),
   preview: new Set(['json', 'revision']),
   catalog: new Set(['json', 'kind', 'limit', 'cursor']),
-  submit: new Set(['json', 'revision'])
+  submit: new Set(['json', 'revision']),
+  'where-used': new Set(['json', 'package-sha256', 'limit', 'cursor', 'expected-source'])
 };
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
 const OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u;
@@ -50,7 +51,7 @@ function numberOption(options, name, minimum, maximum, fallback) {
 /** Entry preflight must run before repository selection or any shared-store contact. */
 export function validateWorkflowAuthorRequest({ positionals, options }) {
   const action = positionals[2] ?? 'list';
-  if (!ACTIONS.has(action)) fail('Use workflow author list, read, create, save, history, op-status, delete, show, preview, catalog, or submit.');
+  if (!ACTIONS.has(action)) fail('Use workflow author list, read, create, save, history, op-status, delete, show, preview, catalog, submit, or where-used.');
   const length = positionals.length;
   if (action === 'list' ? ![2, 3].includes(length) : action === 'catalog' ? length !== 3
     : action === 'create' ? ![3, 4].includes(length) : length !== 4) {
@@ -63,7 +64,13 @@ export function validateWorkflowAuthorRequest({ positionals, options }) {
     }
   }
   const target = positionals[3];
-  if (target !== undefined && (action === 'op-status' ? !OPERATION_ID.test(target) : !DRAFT_ID.test(target))) {
+  if (action === 'where-used') {
+    if (typeof target !== 'string' || target.length > 128 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(target)) fail('Select one bounded portable skill ID.');
+    for (const key of ['package-sha256', 'expected-source']) {
+      if (options[key] !== undefined && !/^sha256:[a-f0-9]{64}$/u.test(options[key])) fail(`--${key} requires one exact SHA-256 digest.`);
+    }
+    if (numberOption(options, 'cursor', 0, 1024, 0) > 0 && options['expected-source'] === undefined) fail('Later usage pages require --expected-source from the preceding page.');
+  } else if (target !== undefined && (action === 'op-status' ? !OPERATION_ID.test(target) : !DRAFT_ID.test(target))) {
     fail(action === 'op-status' ? 'Select one bounded operation ID.' : 'Select one exact WFD draft ID.');
   }
   for (const key of ['operation-id']) {
@@ -258,6 +265,15 @@ function emit(value, json) {
 /** Scope is resolved by the existing approved configuration owner, never by input JSON. */
 export async function run(root, positionals, options, { scope } = {}) {
   const action = validateWorkflowAuthorRequest({ positionals, options });
+  if (action === 'where-used') {
+    const usage = await (await import('../skp-usage.mjs')).lookupApprovedSkillUsage(root, {
+      skillId: positionals[3], packageSha256: options['package-sha256'],
+      limit: numberOption(options, 'limit', 1, 64, 32), cursor: numberOption(options, 'cursor', 0, 1024, 0),
+      expectedSource: options['expected-source'] });
+    return emit({ resultType: 'workflow-author', operation: { id: 'workflow.author.where-used',
+      modelPolicy: 'never', classification: 'read' }, status: 'read',
+      scope: { approvedConfiguration: usage.source }, effects: EFFECTS_NONE, data: { usage } }, Boolean(options.json));
+  }
   if (!scope || scope.root !== root || typeof scope.remote !== 'string'
       || typeof scope.workspaceId !== 'string') fail('Select an explicit approved repository draft scope.', 'WCA_DRAFT_SCOPE_UNAVAILABLE');
   const store = openGitDraftStore({ root, remote: scope.remote, workspaceId: scope.workspaceId,

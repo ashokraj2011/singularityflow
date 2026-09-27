@@ -9,11 +9,13 @@ aliases:
   - workflow-import
   - workflow-copy
   - skill-inspect
+  - skill-where-used
 questions:
   - How do I export or import several workflows with their dependencies?
   - How do I duplicate a workflow without duplicating its shared phase contracts?
   - How do I inspect a local skill before proposing it as a workflow phase?
   - How do I inspect a skill in approved configuration?
+  - Where is an approved skill used in this repository's workflows?
 commands:
   - workflow
   - configuration
@@ -22,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 20
+version: 21
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -177,8 +179,9 @@ The application checkout, index and approved `sflow/config` ref remain unchanged
 Submission is **review required**, not approved, active or executing. Merge/approval, approved
 configuration refresh and any separate Start action remain their existing owners' operations.
 SKP proposal-to-post-consent binding/digest design, qualified skill execution, full lifecycle
-simulation, durable private recovery, mediated-host confirmation and authorized where-used are
-not complete. No new skill runtime binding is fabricated to bypass those gaps.
+simulation, durable private recovery and mediated-host confirmation are not complete. The usage
+lookup below covers approved configuration, not retained or historical Stories. No new skill
+runtime binding is fabricated to bypass those gaps.
 
 ## Delete a shared draft
 
@@ -231,6 +234,31 @@ the package digest, candidates, findings, and package-inspector costs. Git and r
 costs are not included in those metrics. It checks the retained file hashes in
 memory and does not write to the checkout. A supplied expected digest must match exactly. The
 inspection still does not admit execution or assert that an active Story contains the same revision.
+
+## Find where an approved skill is used
+
+Select one skill in the opened repository's freshly verified approved configuration:
+
+```bash
+singularity-flow workflow author where-used threat-model --limit 32 --cursor 0 --json
+```
+
+Copilot: `/sf-workflows author where-used threat-model --limit 32 --cursor 0 --json`.
+This read verifies the selected retained package and reports bounded configuration references,
+workflow occurrences and proven code/planning contract relationships. ID-only agent references
+are distinguished from exact package bindings. It does not fetch remote skills, open shared
+drafts, launch a model, change consumers or grant execution.
+
+Use `--package-sha256 sha256:<64-hex-digits>` to assert the exact selected package. For subsequent
+pages, pass the returned source digest with `--expected-source sha256:<64-hex-digits>` and the next
+cursor. A changed approved authority or revision invalidates pagination rather than combining
+different inventories.
+
+Coverage is limited to that approved repository configuration under its Git read permissions.
+It excludes Story branches, historical retained versions, other authorities and ambient host/plugin
+agents. An empty result is not proof that no Story uses the skill. The report contains no personal
+productivity metrics or unrelated team content; native provider principal/revocation qualification
+and an authorized historical-subject inventory remain separate pending work.
 
 ## Diagnose a retained Story skill
 
@@ -338,6 +366,15 @@ singularity-flow workflow export \
 Import is preview-first. Review the exact `add`, `reuse`, `conflicts`, and shared-dependency sets,
 then apply the unchanged bundle with the returned plan SHA. `--propose` keeps the change inside the
 normal governed configuration-review path.
+Approved-destination previews also bind the authority kind, remote fingerprint, `sflow/config`
+source revision and observed mirror revision when applicable. A byte-identical configuration in
+a different authority or a newer approved commit cannot reuse the old confirmation. Import and
+Copy refresh and recheck that identity before the proposal owner writes; the owner checks it again
+before applying to its disposable checkout. Review a fresh preview after any stale-plan refusal.
+The VS Code review document and confirmation detail display those destination bindings alongside
+the plan digest; a local content-only plan is explicitly labeled as granting no remote authorization.
+Working-tree-only local authoring retains its local preview semantics. Old bundle formats remain
+readable, but earlier approved-destination plan digests need a fresh preview.
 
 ```bash
 singularity-flow workflow import ./workflow-bundle.json --dry-run --json

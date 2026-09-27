@@ -50,6 +50,18 @@ test('SGOS option strictness does not change non-SGOS operation resolution', () 
   }).id, 'status');
 });
 
+test('approved skill where-used stays read-only and cannot invoke a model', () => {
+  const operation = resolveOperation({
+    requestedCommand: 'workflow',
+    positionals: ['workflow', 'author', 'where-used', 'threat-model'],
+    options: { json: true, limit: '32', cursor: '0' }
+  });
+  assert.equal(operation.id, 'workflow.author.where-used');
+  assert.equal(operation.classification, 'read');
+  assert.equal(operation.modelPolicy, 'never');
+  assert.equal(operationCatalog().find((entry) => entry.id === operation.id)?.modelPolicy, 'never');
+});
+
 test('mixed deterministic commands classify their actual operation rather than their top-level name', () => {
   const classify = (requestedCommand, positionals, options = {}) => resolveOperation({ requestedCommand, positionals, options }).classification;
   assert.equal(classify('report', ['report']), 'read');

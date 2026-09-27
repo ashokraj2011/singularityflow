@@ -284,6 +284,8 @@ Usage:
   singularity-flow workflow author delete WFD-ID [--operation-id ID] [--json]
   singularity-flow workflow author preview WFD-ID [--revision N] [--json]
   singularity-flow workflow author catalog [--kind KIND] [--limit N] [--cursor N] [--json]
+  singularity-flow workflow author where-used SKILL-ID [--package-sha256 SHA256] [--limit N] [--cursor N] [--expected-source SHA256] [--json]
+                                                        read-only approved-configuration usage; not a complete Story inventory
   singularity-flow workflow author submit WFD-ID --revision N [--json]
                                                         shared inert Git drafts; not configuration approval or activation
                                                         --expected-authority REMOTE asserts the observed destination; never overrides it

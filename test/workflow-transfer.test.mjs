@@ -8,6 +8,8 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { discoverAgents, parseAgentDependencies } from '../src/agents.mjs';
 import { mcpServersForContext } from '../src/mcp.mjs';
+import { withConfigurationReadRoot } from '../src/configuration-read-scope.mjs';
+import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import {
   applyWorkflowImport,
   copyWorkflow,
@@ -15,7 +17,8 @@ import {
   planWorkflowCopy,
   planWorkflowImport,
   readWorkflowBundle,
-  WORKFLOW_BUNDLE_SCHEMA_VERSION
+  WORKFLOW_BUNDLE_SCHEMA_VERSION,
+  workflowTransferProposal
 } from '../src/workflow-transfer.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -90,6 +93,79 @@ async function addPortableFeature(root, label = 'Portable feature') {
   configuration.workTypes['portable-feature'].label = label;
   await writeWorkflowConfiguration(root, configuration);
 }
+
+test('transfer plan confirmation binds exact approved remote source and mirror commits, not mount paths or ref aliases', async (t) => {
+  const source = await initializedRepository(t, 'sflow-transfer-authority-source-');
+  const target = await initializedRepository(t, 'sflow-transfer-authority-target-');
+  const mount = await initializedRepository(t, 'sflow-transfer-authority-mount-');
+  await addPortableFeature(source);
+  const bundle = await exportWorkflowBundle(source, ['portable-feature']);
+  const original = { kind: 'approved-configuration-ref', ref: 'sflow/config',
+    remote: 'https://authority.example.test/one.git', commit: 'a'.repeat(40) };
+  const makePlan = (authority, configurationRoot = target, copy = false) =>
+    withConfigurationReadRoot(target, configurationRoot, authority, () => copy
+      ? planWorkflowCopy(target, { sourceId: 'feature', targetId: 'feature-copy', label: 'Feature copy' })
+      : planWorkflowImport(target, bundle));
+  const plan = await makePlan(original);
+  assert.equal(plan.status, 'ready');
+  assert.deepEqual(plan.destinationAuthority, {
+    kind: original.kind, branch: 'sflow/config', commit: original.commit,
+    sourceCommit: original.commit, remoteFingerprint: remoteFingerprint(original.remote)
+  });
+  assert.doesNotMatch(JSON.stringify(plan), /authority\.example\.test|sflow-transfer-authority-(target|mount)-/);
+  assert.equal((await makePlan({ ...original, ref: 'refs/remotes/origin/sflow/config' }, mount)).planSha256,
+    plan.planSha256);
+  const changedRemote = await makePlan({ ...original, remote: 'https://authority.example.test/two.git' });
+  const changedCommit = await makePlan({ ...original, commit: 'b'.repeat(40) });
+  for (const changed of [changedRemote, changedCommit]) {
+    assert.equal(changed.targetStateSha256, plan.targetStateSha256);
+    assert.notEqual(changed.planSha256, plan.planSha256);
+    assert.throws(() => workflowTransferProposal(changed, { expectedPlanSha256: plan.planSha256 }),
+      { code: 'WORKFLOW_TRANSFER_PLAN_STALE' });
+  }
+  const mirror = { kind: 'verified-state-mirror', ref: 'state', remote: original.remote,
+    commit: 'c'.repeat(40), manifest: { source: { branch: 'sflow/config', commit: original.commit } } };
+  const mirrorPlan = await makePlan(mirror);
+  const prepared = workflowTransferProposal(mirrorPlan, { expectedPlanSha256: mirrorPlan.planSha256 });
+  assert.deepEqual(prepared.expectedAuthority, {
+    kind: mirror.kind, commit: mirror.commit, sourceCommit: original.commit,
+    remoteFingerprint: remoteFingerprint(original.remote)
+  });
+  for (const changed of [
+    { ...mirror, commit: 'd'.repeat(40) },
+    { ...mirror, manifest: { source: { branch: 'sflow/config', commit: 'e'.repeat(40) } } }
+  ]) assert.notEqual((await makePlan(changed)).planSha256, mirrorPlan.planSha256);
+  const copyPlan = await makePlan(original, target, true);
+  for (const changed of [{ ...original, remote: 'https://authority.example.test/two.git' },
+    { ...original, commit: 'b'.repeat(40) }]) {
+    const copyChanged = await makePlan(changed, target, true);
+    assert.equal(copyChanged.targetStateSha256, copyPlan.targetStateSha256);
+    assert.notEqual(copyChanged.planSha256, copyPlan.planSha256);
+  }
+  assert.throws(() => workflowTransferProposal(structuredClone(plan), { expectedPlanSha256: plan.planSha256 }),
+    { code: 'WORKFLOW_TRANSFER_PLAN_INVALID' });
+});
+
+test('transfer retains local authoring and refuses malformed or unavailable approved destination grants', async (t) => {
+  const root = await initializedRepository(t, 'sflow-transfer-local-authority-');
+  const bundle = await exportWorkflowBundle(root, ['feature']);
+  const plan = await planWorkflowImport(root, bundle);
+  assert.equal(Object.hasOwn(plan, 'destinationAuthority'), false);
+  const prepared = workflowTransferProposal(plan, { expectedPlanSha256: plan.planSha256 });
+  assert.equal(prepared.expectedAuthority, null);
+  assert.equal((await prepared.mutate(root)).changed, false);
+  assert.throws(() => workflowTransferProposal(plan, {
+    expectedPlanSha256: plan.planSha256, requireApprovedDestination: true
+  }), { code: 'WORKFLOW_TRANSFER_DESTINATION_UNAVAILABLE' });
+  for (const authority of [
+    { kind: 'working-tree', commit: 'a'.repeat(40), remote: null },
+    { kind: 'approved-configuration-ref', commit: null, remote: 'https://example.test/a.git' },
+    { kind: 'approved-configuration-ref', commit: 'a'.repeat(40), remote: '' },
+    { kind: 'verified-state-mirror', commit: 'b'.repeat(40), remote: 'https://example.test/a.git',
+      manifest: { source: { branch: 'main', commit: 'a'.repeat(40) } } }
+  ]) await assert.rejects(() => withConfigurationReadRoot(root, root, authority,
+    () => planWorkflowImport(root, bundle)), { code: 'WORKFLOW_TRANSFER_DESTINATION_INVALID' });
+});
 
 async function mcpClosureFixture(t, { transitive = false } = {}) {
   const source = await initializedRepository(t, 'sflow-workflow-mcp-closure-source-');

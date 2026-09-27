@@ -1,6 +1,13 @@
 export type WorkflowMutationPreview = {
   status?: string;
   planSha256?: string;
+  destinationAuthority?: {
+    kind: string;
+    branch: string;
+    commit: string;
+    sourceCommit: string;
+    remoteFingerprint: string | null;
+  };
   changedPaths?: string[];
   added?: unknown[];
   reused?: unknown[];
@@ -90,6 +97,13 @@ function dependencyText(plan: WorkflowMutationPreview): string {
     : 'shared contracts remain linked';
 }
 
+function destinationText(plan: WorkflowMutationPreview): string {
+  const destination = plan.destinationAuthority;
+  if (!destination) return 'local working-tree content; no remote authorization';
+  return `${destination.kind}; branch=${destination.branch}; source commit=${destination.sourceCommit}; `
+    + `observed commit=${destination.commit}; remote fingerprint=${destination.remoteFingerprint ?? 'local-only'}`;
+}
+
 /**
  * Complete, untruncated modal detail for a workflow import/copy decision.
  *
@@ -107,6 +121,7 @@ export function workflowMutationPlanDetail(plan: WorkflowMutationPreview): strin
     `Shared dependencies: ${dependencyText(plan)}`,
     `Predicted changed paths: ${plan.changedPaths?.length ? plan.changedPaths.join(', ') : 'none'}`,
     `Exact plan: ${plan.planSha256 ?? 'unavailable'}`,
+    `Bound destination: ${destinationText(plan)}`,
     '',
     AUTHORITY_DISPOSITION
   ].join('\n');
@@ -118,6 +133,7 @@ export function workflowMutationPlanMarkdown(plan: WorkflowMutationPreview, titl
     `# ${title}`, '',
     `- Status: **${markdownEscape(plan.status ?? 'preview')}**`,
     `- Exact plan: \`${markdownEscape(plan.planSha256 ?? 'unavailable')}\``,
+    `- Bound destination: ${markdownEscape(destinationText(plan))}`,
     `- Shared dependencies: ${markdownEscape(dependencyText(plan))}`, '',
     ...markdownSection('Predicted changed paths', plan.changedPaths ?? []),
     AUTHORITY_DISPOSITION, '',

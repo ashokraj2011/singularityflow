@@ -261,3 +261,20 @@ test('workflow import confirmation renders every operation beyond eight without 
   assert.match(markdown, /## Predicted changed paths \(2\)/);
   assert.match(detail, /governed authority creates a review proposal; local authority records a local edit/);
 });
+
+test('workflow transfer review displays the exact bound destination, not only its plan digest', () => {
+  const destinationAuthority = {
+    kind: 'verified-state-mirror', branch: 'sflow/config', commit: 'a'.repeat(40),
+    sourceCommit: 'b'.repeat(40), remoteFingerprint: 'c'.repeat(64)
+  };
+  const plan = { status: 'ready', planSha256: `sha256:${'d'.repeat(64)}`, destinationAuthority };
+  for (const rendered of [workflowMutationPlanDetail(plan), workflowMutationPlanMarkdown(plan, 'Copy workflow')]) {
+    assert.match(rendered, /Bound destination:/);
+    for (const value of Object.values(destinationAuthority)) assert.ok(rendered.includes(value));
+    assert.ok(rendered.includes(plan.planSha256));
+  }
+  for (const rendered of [workflowMutationPlanDetail({}), workflowMutationPlanMarkdown({}, 'Local import')]) {
+    assert.match(rendered, /local working-tree content; no remote authorization/);
+    assert.doesNotMatch(rendered, /remote fingerprint=/);
+  }
+});

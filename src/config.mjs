@@ -1365,9 +1365,12 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     }
     const template = phase.defaultTemplate;
     if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);
-    for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
+    for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
+      const override = declaredCatalogValue(workType.templateOverrides, id);
+      if (override) assertTemplate(override, `Work type '${workTypeId}' template override for '${id}'`);
+    }
     if (phase.kind !== 'skill' && !template
-        && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) {
+        && !Object.values(definition.workTypes).some((type) => declaredCatalogValue(type.templateOverrides, id))) {
       throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
     }
     const normalizedApproval = normalizeApprovalPolicy(
@@ -2044,30 +2047,34 @@ export async function initializationStatus(root) {
   };
 }
 
+function declaredCatalogValue(catalog, id) {
+  return catalog != null && Object.hasOwn(catalog, id) ? catalog[id] : undefined;
+}
+
 export function resolveWorkType(definition, workTypeId) {
-  const workType = definition.workTypes[workTypeId];
+  const workType = declaredCatalogValue(definition.workTypes, workTypeId);
   if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
   // Some callers resolve already-loaded definitions directly. Refuse unsupported declarations
   // here too, before any copied phase or override can become an effective Story contract.
   for (const id of workType.phases) {
-    const source = definition.phases[id];
+    const source = declaredCatalogValue(definition.phases, id);
     assertConfiguredPhaseProducer(source, `Phase '${id}'`, id, definition.version);
     if (source?.kind === 'skill') {
-      assertNoSkillPhaseOverride(workType.phaseOverrides?.[id],
+      assertNoSkillPhaseOverride(declaredCatalogValue(workType.phaseOverrides, id),
         `Work type '${workTypeId}' phase '${id}' override`);
-      if (workType.templateOverrides?.[id] != null) {
+      if (declaredCatalogValue(workType.templateOverrides, id) != null) {
         throw new SingularityFlowError(`Work type '${workTypeId}' cannot give skill phase '${id}' a template override.`,
           { code: 'SKP_PHASE_BINDING_INVALID' });
       }
-    } else assertSupportedPhaseProducer(workType.phaseOverrides?.[id],
+    } else assertSupportedPhaseProducer(declaredCatalogValue(workType.phaseOverrides, id),
       `Work type '${workTypeId}' phase '${id}' override`);
   }
   const reworkLoops = normalizeReworkLoops(workType.reworkLoops, {
     workTypeId, phases: workType.phases
   });
   let phases = workType.phases.map((id, order) => {
-    const phase = structuredClone(definition.phases[id]);
-    const override = structuredClone(workType.phaseOverrides?.[id] ?? {});
+    const phase = structuredClone(declaredCatalogValue(definition.phases, id));
+    const override = structuredClone(declaredCatalogValue(workType.phaseOverrides, id) ?? {});
     const merged = {
       ...phase,
       ...override,
@@ -2087,7 +2094,7 @@ export function resolveWorkType(definition, workTypeId) {
     };
     // A catalog id resolves to its path here, so every downstream reader — generation, the
     // designer, the catalog view — receives a path and never has to know which form was written.
-    const declaredTemplate = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
+    const declaredTemplate = declaredCatalogValue(workType.templateOverrides, id) ?? phase.defaultTemplate;
     const resolvedTemplate = phase.kind === 'skill' ? null
       : resolveTemplate(definition, declaredTemplate, { label: `Work type '${workTypeId}' phase '${id}' template` });
     const template = phase.kind === 'skill' ? null

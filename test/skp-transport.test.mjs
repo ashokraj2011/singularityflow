@@ -139,8 +139,8 @@ test('export import / equivalent retained package and compiled binding with exac
   const value = await fixture(t);
   await rm(value.directory, { recursive: true, force: true });
   const bundle = await value.exportBundle();
-  assert.equal(bundle.schemaVersion, 2);
-  assert.equal(currentSchemaVersion('workflow-bundle'), 2);
+  assert.equal(bundle.schemaVersion, 3);
+  assert.equal(currentSchemaVersion('workflow-bundle'), 3);
   assert.deepEqual(bundle.skillPackages[0].manifest, value.capture.manifest);
   assert.equal(bundle.skillPackages[0].source.commit, value.approved.sourceCommit);
   assert.deepEqual(bundle.skillPackages[0].phaseBindings.map((entry) => entry.phaseId), ['threat-model']);
@@ -338,7 +338,15 @@ test('live matching bytes cannot replace an approved snapshot, and v1 keeps its 
   const value = await fixture(t);
   await assert.rejects(() => exportWorkflowBundle(value.source, ['story:skill-mixed-feature']),
     { code: 'SKP_APPROVED_CONFIGURATION_REQUIRED' });
+  // A v3 export with the new MCP closure cannot be relabelled as a historical one-pass bundle.
+  // Isolate this v1 identity fixture from shared MCP scopes; the transfer suite covers real
+  // historical v1/v2 inventories with unresolved auxiliary scope phases separately.
+  const historical = await config(value.target);
+  const exportOnly = structuredClone(historical);
+  exportOnly.mcpServers = {};
+  await saveConfig(value.target, exportOnly);
   const ordinary = await exportWorkflowBundle(value.target, ['story:feature']);
+  await saveConfig(value.target, historical);
   ordinary.schemaVersion = 1;
   delete ordinary.skillPackages;
   delete ordinary.semantics;
@@ -351,7 +359,8 @@ test('live matching bytes cannot replace an approved snapshot, and v1 keeps its 
   assert.equal(opened.schemaVersion, 1);
   assert.equal(opened.bundleSha256, ordinary.bundleSha256);
   assert.deepEqual(await readFile(file), before);
-  assert.equal((await planWorkflowImport(value.target, opened)).status, 'ready');
+  const historicalPlan = await planWorkflowImport(value.target, opened);
+  assert.equal(historicalPlan.status, 'ready', JSON.stringify(historicalPlan.conflicts));
   const migration = readRecord('workflow-bundle', ordinary);
   assert.equal(migration.storedVersion, 1);
   assert.deepEqual(migration.record.skillPackages, []);

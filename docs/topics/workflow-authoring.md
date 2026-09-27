@@ -22,7 +22,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 19
+version: 20
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -309,10 +309,23 @@ or credential. Repository-wide policy and installed World Model view contracts a
 import validates them on the destination but never overwrites them. It does not include local caches,
 runtime ledgers, work-item artifacts, or application source.
 
-For approved skill phases, bundle v2 includes the exact package manifest, binary-preserving retained
+New exports use bundle v3. MCP assignments reachable from selected phases or agents are included,
+including agent-only assignments with an unrestricted phase list. The entire assignment remains
+unchanged: every named Story phase and agent is followed transitively, including their inputs,
+templates, artifact sets and review definitions. Cycles are deduplicated; extra dependency phases
+do not become scheduled steps in the selected workflow. Initiative phase names alone never select
+same-named Story defaults. Unassigned global host declarations are not copied merely because they
+are available; explicitly required servers are included. Historical v1/v2 files keep their stored
+schema, digest and original dependency interpretation. Re-export from the source to obtain the
+new closure; compatibility reading does not invent missing objects.
+
+For approved skill phases, bundle v3 includes the exact package manifest, binary-preserving retained
 file bytes, and compiled binding. Import preserves CRLF/binary bytes through Git and checks the
-destination's policy and tool/read/check constraints; it cannot widen them. Pure template workflows
-retain the historical bundle dialect. A copied or imported skill still requires separate host admission.
+destination's policy and tool/read/check constraints; it cannot widen them. Historical v2 skill
+bundles remain readable. A copied or imported skill still requires separate host admission.
+Local files merely linked in prompt prose, command implementation scripts, installed tools/MCP
+hosts, credentials and generated Story output are not bundled. The reader checks the closure within
+the supplied bundle; it does not prove the completeness of an omitted optional source-catalog row.
 
 ```bash
 singularity-flow workflow export \

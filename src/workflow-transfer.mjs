@@ -363,6 +363,10 @@ function strings(value) {
   return Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : [];
 }
 
+function ownCatalogEntry(catalog, id) {
+  return plainObject(catalog) && Object.hasOwn(catalog, id) ? catalog[id] : undefined;
+}
+
 function collectNamedDependencies(value, result, { governs = 'story' } = {}) {
   walk(value, (key, entry, parent) => {
     if (key === 'artifactSet' && typeof entry === 'string') result.artifactSets.add(entry);
@@ -428,6 +432,141 @@ function templateReferences(governs, workflow, phases) {
   }
   return [...references.values()].sort((a, b) =>
     `${a.phaseId ?? ''}:${a.reference}`.localeCompare(`${b.phaseId ?? ''}:${b.reference}`));
+}
+
+// Export and the closed bundle reader traverse the same graph. MCP declarations can lead back
+// to phases, default agents and agent-backed templates, so a single pass cannot close it. Keep
+// complete server scopes rather than silently narrowing a shared server to the chosen workflow.
+function workflowDependencyClosure(configs, workflows, agents, missingCode, { legacy = false } = {}) {
+  const dependencies = {
+    artifactSets: new Set(), authorities: { story: new Set(), initiative: new Set() },
+    mcpServers: new Set(), agents: new Set(),
+    authorityCandidates: { story: new Set(), initiative: new Set() },
+    applicabilityPolicies: new Set(), templateCatalog: new Set(), worldModelViews: new Set()
+  };
+  const selectedPhases = { story: new Set(), initiative: new Set() };
+  const processedPhases = { story: new Set(), initiative: new Set() };
+  const processedArtifactSets = new Set();
+  const processedAgents = new Set();
+  const processedServers = new Set();
+  const defaultAgents = new Map();
+  for (const agent of agents.values()) {
+    for (const phaseId of agent.defaultFor) {
+      const ids = defaultAgents.get(phaseId) ?? [];
+      ids.push(agent.id); defaultAgents.set(phaseId, ids);
+    }
+  }
+  const serversByPhase = new Map();
+  const serversByAgent = new Map();
+  for (const [id, server] of Object.entries(configs.story?.mcpServers ?? {})) {
+    for (const [index, keys] of [[serversByPhase, server.phases], [serversByAgent, server.agents]]) {
+      for (const key of keys ?? []) {
+        const ids = index.get(key) ?? [];
+        ids.push(id); index.set(key, ids);
+      }
+    }
+  }
+  for (const { governs, id } of workflows) {
+    const definition = ownCatalogEntry(configs[governs]?.[STORE[governs].workflows], id);
+    if (!definition) fail(`Workflow dependency '${governs}:${id}' is not defined.`, missingCode);
+    collectNamedDependencies(definition, dependencies, { governs });
+    for (const phaseId of definition.phases ?? []) selectedPhases[governs].add(phaseId);
+  }
+  const size = () => selectedPhases.story.size + selectedPhases.initiative.size
+    + dependencies.artifactSets.size + dependencies.agents.size + dependencies.mcpServers.size;
+  let references = [];
+  let previousSize = -1;
+  while (previousSize !== size()) {
+    previousSize = size();
+    if (previousSize > MAX_OBJECTS) fail('Workflow dependency closure exceeds the object limit.',
+      'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
+    for (const governs of ['story', 'initiative']) {
+      for (const phaseId of selectedPhases[governs]) {
+        if (processedPhases[governs].has(phaseId)) continue;
+        processedPhases[governs].add(phaseId);
+        const phase = ownCatalogEntry(configs[governs]?.[STORE[governs].phases], phaseId);
+        if (!phase) fail(`Workflow dependency phase '${governs}:${phaseId}' is not defined.`, missingCode);
+        if (governs !== 'story' && (phase.kind === 'skill' || phase.skillBinding != null)) {
+          fail(`Workflow bundle cannot transfer unsupported Initiative skill phase '${phaseId}'.`,
+            'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
+        }
+        collectNamedDependencies(phase, dependencies, { governs });
+        for (const id of phaseReferences(phase)) selectedPhases[governs].add(id);
+        if (governs === 'story' || legacy) {
+          for (const id of defaultAgents.get(phaseId) ?? []) dependencies.agents.add(id);
+        }
+        if (governs === 'story') {
+          for (const id of serversByPhase.get(phaseId) ?? []) dependencies.mcpServers.add(id);
+        }
+      }
+    }
+    for (const id of dependencies.artifactSets) {
+      if (processedArtifactSets.has(id)) continue;
+      processedArtifactSets.add(id);
+      const value = ownCatalogEntry(configs.story?.artifactSets, id);
+      if (!value) fail(`Referenced artifact set '${id}' is not defined.`, missingCode);
+      collectNamedDependencies(value, dependencies, { governs: 'story' });
+    }
+
+    const referenced = new Map();
+    const addReferences = (values) => {
+      for (const value of values) referenced.set(
+        `${value.governs}:${value.phaseId ?? ''}:${value.reference}`, value);
+    };
+    for (const governs of ['story', 'initiative']) {
+      const phases = Object.fromEntries([...selectedPhases[governs]].map((id) =>
+        [id, configs[governs][STORE[governs].phases][id]]));
+      // Auxiliary Story phases reached through MCP also own templates when only an Initiative
+      // workflow was selected. They are dependencies, not an implicitly selected Story workflow.
+      addReferences(templateReferences(governs, {}, phases));
+      for (const workflow of workflows.filter((entry) => entry.governs === governs)) {
+        addReferences(templateReferences(governs,
+          configs[governs][STORE[governs].workflows][workflow.id], {}));
+      }
+    }
+    for (const id of dependencies.artifactSets) {
+      const owners = [...selectedPhases.story].filter((phaseId) =>
+        configs.story.phases[phaseId]?.artifactSet === id);
+      for (const output of configs.story.artifactSets[id].outputs ?? []) {
+        if (typeof output?.template !== 'string') continue;
+        for (const phaseId of owners.length ? owners : [null]) addReferences([
+          { governs: 'story', reference: output.template, phaseId }
+        ]);
+      }
+    }
+    references = [...referenced.values()].sort((a, b) =>
+      `${a.governs}:${a.phaseId ?? ''}:${a.reference}`
+        .localeCompare(`${b.governs}:${b.phaseId ?? ''}:${b.reference}`));
+    for (const { governs, reference } of references) {
+      if (reference.startsWith('agent:')) {
+        dependencies.agents.add(parseAgentTemplateReference(reference).agentId);
+      } else if (isTemplateReference(reference)) {
+        if (governs !== 'story') fail(`Initiative workflow template '${reference}' cannot use the Story template catalog.`, missingCode);
+        const id = parseTemplateReference(reference);
+        if (ownCatalogEntry(configs.story?.templates, id) == null) fail(`Referenced template catalog entry '${id}' is not defined.`, missingCode);
+        dependencies.templateCatalog.add(id);
+      }
+    }
+    for (const id of dependencies.agents) {
+      if (processedAgents.has(id)) continue;
+      processedAgents.add(id);
+      const agent = agents.get(id);
+      if (!agent) fail(`Referenced governed agent '${id}' is not installed.`, missingCode);
+      for (const view of agent.worldModelViews) dependencies.worldModelViews.add(view);
+      if (!legacy) {
+        for (const serverId of serversByAgent.get(id) ?? []) dependencies.mcpServers.add(serverId);
+      }
+    }
+    for (const id of dependencies.mcpServers) {
+      if (processedServers.has(id)) continue;
+      processedServers.add(id);
+      const server = ownCatalogEntry(configs.story?.mcpServers, id);
+      if (!server) fail(`Referenced MCP server '${id}' is not defined.`, missingCode);
+      if (!legacy) for (const phaseId of server.phases ?? []) selectedPhases.story.add(phaseId);
+      for (const agentId of server.agents ?? []) dependencies.agents.add(agentId);
+    }
+  }
+  return { dependencies, selectedPhases, references };
 }
 
 function configuredTemplateRoot(config, governs, storyConfig) {
@@ -511,14 +650,10 @@ function dependencyInventory(bundle) {
   };
 }
 
-function validateBundleClosure(bundle, agents) {
-  const dependencies = {
-    artifactSets: new Set(), authorities: { story: new Set(), initiative: new Set() },
-    mcpServers: new Set(), agents: new Set(),
-    authorityCandidates: { story: new Set(), initiative: new Set() },
-    applicabilityPolicies: new Set(), templateCatalog: new Set(), worldModelViews: new Set()
-  };
-  const selectedPhases = { story: new Set(), initiative: new Set() };
+function validateBundleClosure(bundle, agents, storedVersion) {
+  const { dependencies, selectedPhases, references } = workflowDependencyClosure(
+    bundle.objects, bundle.workflows, agents, 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING',
+    { legacy: storedVersion < 3 });
   for (const workflow of bundle.workflows) {
     const store = STORE[workflow.governs];
     const definition = bundle.objects[workflow.governs][store.workflows][workflow.id];
@@ -528,59 +663,14 @@ function validateBundleClosure(bundle, agents) {
           'SKP_PHASE_BINDING_INVALID');
       }
     }
-    collectNamedDependencies(definition, dependencies, { governs: workflow.governs });
-    for (const phaseId of definition.phases ?? []) {
-      if (!Object.hasOwn(bundle.objects[workflow.governs][store.phases], phaseId)) {
-        fail(`Workflow bundle is missing phase '${workflow.governs}:${phaseId}'.`,
-          'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
-      }
-      selectedPhases[workflow.governs].add(phaseId);
-    }
   }
   for (const governs of ['story', 'initiative']) {
     const store = STORE[governs];
-    const queue = [...selectedPhases[governs]];
-    for (let cursor = 0; cursor < queue.length; cursor += 1) {
-      const phaseId = queue[cursor];
-      const phase = bundle.objects[governs][store.phases][phaseId];
-      if (!phase) {
-        fail(`Workflow bundle is missing phase '${governs}:${phaseId}'.`,
-          'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
-      }
-      if (governs !== 'story' && (phase.kind === 'skill' || phase.skillBinding != null)) {
-        fail(`Workflow bundle cannot transfer unsupported Initiative skill phase '${phaseId}'.`,
-          'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
-      }
-      collectNamedDependencies(phase, dependencies, { governs });
-      for (const referenced of phaseReferences(phase)) {
-        if (!Object.hasOwn(bundle.objects[governs][store.phases], referenced)) {
-          fail(`Workflow bundle phase '${governs}:${phaseId}' references absent phase '${referenced}'.`,
-            'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
-        }
-        if (!selectedPhases[governs].has(referenced)) {
-          selectedPhases[governs].add(referenced);
-          queue.push(referenced);
-        }
-      }
-    }
     for (const phaseId of Object.keys(bundle.objects[governs][store.phases])) {
       if (!selectedPhases[governs].has(phaseId)) {
         fail(`Workflow bundle contains unreferenced phase '${governs}:${phaseId}'.`,
           'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
       }
-    }
-  }
-  const artifactSetQueue = [...dependencies.artifactSets];
-  for (let cursor = 0; cursor < artifactSetQueue.length; cursor += 1) {
-    const id = artifactSetQueue[cursor];
-    const artifactSet = bundle.objects.story.artifactSets[id];
-    if (!artifactSet) {
-      fail(`Workflow bundle is missing artifact set '${id}'.`, 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
-    }
-    const before = new Set(dependencies.artifactSets);
-    collectNamedDependencies(artifactSet, dependencies, { governs: 'story' });
-    for (const dependency of dependencies.artifactSets) {
-      if (!before.has(dependency)) artifactSetQueue.push(dependency);
     }
   }
   for (const id of Object.keys(bundle.objects.story.artifactSets)) {
@@ -608,22 +698,11 @@ function validateBundleClosure(bundle, agents) {
       }
     }
   }
-  for (const [id, server] of Object.entries(bundle.objects.story.mcpServers)) {
-    if ((server?.phases ?? []).some((phaseId) => selectedPhases.story.has(phaseId))) {
-      dependencies.mcpServers.add(id);
-    }
-  }
-  for (const id of dependencies.mcpServers) {
-    if (!Object.hasOwn(bundle.objects.story.mcpServers, id)) {
-      fail(`Workflow bundle is missing MCP server '${id}'.`, 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
-    }
-  }
-  for (const [id, server] of Object.entries(bundle.objects.story.mcpServers)) {
+  for (const id of Object.keys(bundle.objects.story.mcpServers)) {
     if (!dependencies.mcpServers.has(id)) {
       fail(`Workflow bundle contains unreferenced MCP server '${id}'.`,
         'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
     }
-    for (const agentId of server.agents ?? []) dependencies.agents.add(agentId);
   }
   for (const id of dependencies.applicabilityPolicies) {
     if (!Object.hasOwn(bundle.objects.initiative.applicabilityPolicies, id)) {
@@ -737,23 +816,8 @@ function validateBundleClosure(bundle, agents) {
     }
     referencedTemplateAssets.add(key);
   };
-  for (const workflow of bundle.workflows) {
-    const store = STORE[workflow.governs];
-    const definition = bundle.objects[workflow.governs][store.workflows][workflow.id];
-    const phases = bundle.objects[workflow.governs][store.phases];
-    for (const { reference, phaseId } of templateReferences(workflow.governs, definition, phases)) {
-      checkTemplate(workflow.governs, reference, phaseId);
-    }
-  }
-  for (const [artifactSetId, artifactSet] of Object.entries(bundle.objects.story.artifactSets)) {
-    const ownerPhases = Object.entries(bundle.objects.story.phases)
-      .filter(([, phase]) => phase?.artifactSet === artifactSetId)
-      .map(([phaseId]) => phaseId);
-    for (const output of artifactSet.outputs ?? []) {
-      if (typeof output?.template !== 'string') continue;
-      if (!ownerPhases.length) checkTemplate('story', output.template, null);
-      for (const phaseId of ownerPhases) checkTemplate('story', output.template, phaseId);
-    }
+  for (const { governs, reference, phaseId } of references) {
+    checkTemplate(governs, reference, phaseId);
   }
   for (const key of templateAssets.keys()) {
     if (!referencedTemplateAssets.has(key)) {
@@ -774,11 +838,6 @@ function validateBundleClosure(bundle, agents) {
         'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
     }
     dependencies.agents.add(defaults[0].id);
-  }
-  for (const phaseId of selectedPhases.initiative) {
-    for (const agent of [...agents.values()].filter((candidate) => candidate.defaultFor.includes(phaseId))) {
-      dependencies.agents.add(agent.id);
-    }
   }
   for (const id of dependencies.agents) {
     if (!agents.has(id)) fail(`Workflow bundle is missing governed agent '${id}'.`,
@@ -902,13 +961,6 @@ async function buildBundle(root, workflowIds) {
   }
 
   const objects = emptyObjects();
-  const dependencies = {
-    artifactSets: new Set(), authorities: { story: new Set(), initiative: new Set() },
-    mcpServers: new Set(), agents: new Set(),
-    authorityCandidates: { story: new Set(), initiative: new Set() },
-    applicabilityPolicies: new Set(), worldModelViews: new Set()
-  };
-  const selectedPhases = { story: new Set(), initiative: new Set() };
   const workflows = [];
 
   for (const { governs, id } of selected) {
@@ -924,50 +976,31 @@ async function buildBundle(root, workflowIds) {
     const targetMap = governs === 'story' ? objects.story.workTypes : objects.initiative.initiativeProfiles;
     addMapEntry(targetMap, id, definition, `${governs}-workflow`);
     workflows.push({ id, governs, definitionSha256: digest(definition) });
-    for (const phaseId of definition.phases ?? []) selectedPhases[governs].add(phaseId);
-    collectNamedDependencies(definition, dependencies, { governs });
   }
 
+  const discovered = await discoverAgents(sourceRoot);
+  const { dependencies, selectedPhases, references } = workflowDependencyClosure(
+    configs, workflows, new Map(discovered.map((agent) => [agent.id, agent])),
+    'WORKFLOW_DEPENDENCY_MISSING');
   for (const governs of ['story', 'initiative']) {
     const config = configs[governs];
     const store = STORE[governs];
-    const queue = [...selectedPhases[governs]];
-    for (let cursor = 0; cursor < queue.length; cursor += 1) {
-      const phaseId = queue[cursor];
+    for (const phaseId of selectedPhases[governs]) {
       const phase = config?.[store.phases]?.[phaseId];
-      if (!phase) fail(`Workflow dependency phase '${governs}:${phaseId}' is not defined.`,
-        'WORKFLOW_DEPENDENCY_MISSING');
-      if (governs !== 'story' && (phase.kind === 'skill' || phase.skillBinding != null)) {
-        fail(`Workflow bundle cannot transfer unsupported Initiative skill phase '${phaseId}'.`,
-          'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
-      }
       const targetMap = governs === 'story' ? objects.story.phases : objects.initiative.initiativePhases;
       addMapEntry(targetMap, phaseId, phase, `${governs}-phase`);
-      collectNamedDependencies(phase, dependencies, { governs });
-      for (const reference of phaseReferences(phase)) {
-        if (!selectedPhases[governs].has(reference) && config?.[store.phases]?.[reference]) {
-          selectedPhases[governs].add(reference); queue.push(reference);
-        }
-      }
     }
   }
 
-  for (const [id, value] of Object.entries(configs.story?.mcpServers ?? {})) {
-    if ((value?.phases ?? []).some((phase) => selectedPhases.story.has(phase))) dependencies.mcpServers.add(id);
-  }
   for (const id of dependencies.artifactSets) {
     const value = configs.story?.artifactSets?.[id];
     if (!value) fail(`Referenced artifact set '${id}' is not defined.`, 'WORKFLOW_DEPENDENCY_MISSING');
     addMapEntry(objects.story.artifactSets, id, value, 'artifact-set');
-    // Artifact sets own output templates and can carry their own approval contract.  They are
-    // part of the executable dependency closure rather than passive display metadata.
-    collectNamedDependencies(value, dependencies, { governs: 'story' });
   }
   for (const id of dependencies.mcpServers) {
     const value = configs.story?.mcpServers?.[id];
     if (!value) fail(`Referenced MCP server '${id}' is not defined.`, 'WORKFLOW_DEPENDENCY_MISSING');
     addMapEntry(objects.story.mcpServers, id, value, 'mcp-server');
-    for (const agent of value.agents ?? []) dependencies.agents.add(agent);
   }
   for (const governs of ['story', 'initiative']) {
     for (const id of dependencies.authorities[governs]) {
@@ -994,73 +1027,35 @@ async function buildBundle(root, workflowIds) {
     addMapEntry(objects.initiative.applicabilityPolicies, id, value, 'applicability-policy');
   }
 
-  // Resolve every template before freezing the agent set.  Agent-backed templates (`agent:id`)
-  // are dependencies too; collecting them after serializing agents silently produced incomplete
-  // bundles for otherwise valid workflow overrides.
   const templateSelections = [];
   const sourceTemplateRoots = {};
-  for (const { governs, id } of selected) {
-    const store = STORE[governs];
-    const workflow = configs[governs][store.workflows][id];
-    const phaseMap = Object.fromEntries([...selectedPhases[governs]].map((phaseId) =>
-      [phaseId, configs[governs][store.phases][phaseId]]));
-    const rootPath = configuredTemplateRoot(configs[governs], governs, configs.story);
-    sourceTemplateRoots[governs] = rootPath;
-    const references = templateReferences(governs, workflow, phaseMap);
-    if (governs === 'story') {
-      for (const [artifactSetId, artifactSet] of Object.entries(objects.story.artifactSets)) {
-        const ownerPhases = Object.entries(phaseMap)
-          .filter(([, phase]) => phase?.artifactSet === artifactSetId)
-          .map(([phaseId]) => phaseId);
-        for (const output of artifactSet?.outputs ?? []) {
-          if (typeof output?.template !== 'string') continue;
-          if (!ownerPhases.length) references.push({ governs, reference: output.template, phaseId: null });
-          for (const phaseId of ownerPhases) references.push({
-            governs, reference: output.template, phaseId
-          });
-        }
-      }
-    }
-    for (const { reference } of references) {
-      if (reference.startsWith('agent:')) {
-        const { agentId } = parseAgentTemplateReference(reference);
-        dependencies.agents.add(agentId);
-        continue;
-      }
-      let fileReference = reference;
-      if (isTemplateReference(reference)) {
-        if (governs !== 'story') {
-          fail(`Initiative workflow template '${reference}' cannot use the Story template catalog.`,
-            'WORKFLOW_DEPENDENCY_MISSING');
-        }
-        const templateId = parseTemplateReference(reference);
-        const declaration = configs.story?.templates?.[templateId];
-        if (declaration == null) {
-          fail(`Referenced template catalog entry '${templateId}' is not defined.`,
-            'WORKFLOW_DEPENDENCY_MISSING');
-        }
-        addMapEntry(objects.story.templates, templateId, declaration, 'template');
-        fileReference = typeof declaration === 'string' ? declaration : declaration?.path;
-        if (typeof fileReference !== 'string' || !fileReference) {
-          fail(`Template catalog entry '${templateId}' does not define a path.`,
-            'WORKFLOW_DEPENDENCY_MISSING');
-        }
-      }
-      const relative = templateAssetPath(rootPath, fileReference);
-      const rootRelative = relative === rootPath ? '' : relative.slice(rootPath.length + 1);
-      if (!rootRelative) fail(`Template '${reference}' does not identify a file below ${rootPath}.`,
-        'WORKFLOW_BUNDLE_PATH_INVALID');
-      templateSelections.push({ governs, reference, relative, rootRelative });
+  for (const governs of ['story', 'initiative']) {
+    if (selectedPhases[governs].size || selected.some((entry) => entry.governs === governs)) {
+      sourceTemplateRoots[governs] = configuredTemplateRoot(configs[governs], governs, configs.story);
     }
   }
-
-  const discovered = await discoverAgents(sourceRoot);
+  for (const { governs, reference } of references) {
+    if (reference.startsWith('agent:')) continue;
+    let fileReference = reference;
+    if (isTemplateReference(reference)) {
+      const templateId = parseTemplateReference(reference);
+      const declaration = configs.story.templates[templateId];
+      addMapEntry(objects.story.templates, templateId, declaration, 'template');
+      fileReference = typeof declaration === 'string' ? declaration : declaration?.path;
+      if (typeof fileReference !== 'string' || !fileReference) {
+        fail(`Template catalog entry '${templateId}' does not define a path.`,
+          'WORKFLOW_DEPENDENCY_MISSING');
+      }
+    }
+    const rootPath = sourceTemplateRoots[governs] ??=
+      configuredTemplateRoot(configs[governs], governs, configs.story);
+    const relative = templateAssetPath(rootPath, fileReference);
+    const rootRelative = relative === rootPath ? '' : relative.slice(rootPath.length + 1);
+    if (!rootRelative) fail(`Template '${reference}' does not identify a file below ${rootPath}.`,
+      'WORKFLOW_BUNDLE_PATH_INVALID');
+    templateSelections.push({ governs, reference, relative, rootRelative });
+  }
   const sourceAgentLock = await readAgentLock(sourceRoot);
-  for (const phaseId of new Set([...selectedPhases.story, ...selectedPhases.initiative])) {
-    for (const agent of discovered.filter((candidate) => candidate.defaultFor.includes(phaseId))) {
-      dependencies.agents.add(agent.id);
-    }
-  }
   const assets = [];
   const agentLocks = {};
   const assetIdentity = new Map();
@@ -1176,7 +1171,8 @@ async function buildBundle(root, workflowIds) {
 
 async function validateBundle(raw) {
   // The registry supplies compatibility, while the transfer reader verifies the original stored
-  // identity. A v1 bundle is never re-hashed or republished as an approved v2 skill package.
+  // identity. Historical v1/v2 bundles retain their original dependency interpretation; the new
+  // complete MCP closure is required only for v3, never invented by a compatibility projection.
   const { storedVersion } = readRecord(WORKFLOW_BUNDLE_FAMILY, raw);
   if (!plainObject(raw) || raw.kind !== WORKFLOW_BUNDLE_KIND) {
     fail(`Workflow bundle must use ${WORKFLOW_BUNDLE_KIND} schema version ${WORKFLOW_BUNDLE_SCHEMA_VERSION}.`);
@@ -1201,11 +1197,18 @@ async function validateBundle(raw) {
       fail(`Workflow bundle has unknown or missing '${governs}' object catalogs.`);
     }
   }
+  let objectCount = 0;
   for (const { governs, section } of configSections(raw)) {
     if (!plainObject(raw.objects[governs]?.[section])) {
       fail(`Workflow bundle object catalog '${governs}.${section}' must be an object.`);
     }
+    for (const id of Object.keys(raw.objects[governs][section])) {
+      requireId(id, `${governs}.${section} object identifier`);
+      objectCount += 1;
+    }
   }
+  if (objectCount > MAX_OBJECTS) fail('Workflow bundle has too many configuration objects.',
+    'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
   const expected = digest(bundleWithoutDigest(raw));
   if (raw.bundleSha256 !== expected) fail('Workflow bundle digest does not match its content.',
     'WORKFLOW_BUNDLE_DIGEST_MISMATCH');
@@ -1273,20 +1276,9 @@ async function validateBundle(raw) {
         'WORKFLOW_AGENT_LOCK_MISSING');
     }
   }
-  validateBundleClosure(raw, agents);
+  validateBundleClosure(raw, agents, storedVersion);
   validateSkillPackages(raw, storedVersion);
 
-  let objectCount = 0;
-  for (const [governs, section] of Object.entries(raw.objects)) {
-    if (!plainObject(section)) fail('Workflow bundle object sections must be objects.');
-    for (const [catalog, values] of Object.entries(section)) {
-      if (!plainObject(values)) fail('Workflow bundle object catalogs must be objects.');
-      for (const id of Object.keys(values)) requireId(id, `${governs}.${catalog} object identifier`);
-      objectCount += Object.keys(values).length;
-    }
-  }
-  if (objectCount > MAX_OBJECTS) fail('Workflow bundle has too many configuration objects.',
-    'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
   const workflowIdentities = new Set();
   for (const entry of raw.workflows) {
     if (!plainObject(entry) || !['story', 'initiative'].includes(entry.governs) || !ID.test(entry.id ?? '')) {

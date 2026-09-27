@@ -139,6 +139,39 @@ test('legacy Evidence Packet integrity remains bound to raw v2 bytes before addi
   assert.deepEqual(rawBytes, Buffer.from(JSON.stringify(stored)));
 });
 
+test('historical workflow bundle projections keep stored identities without inventing strict closure', () => {
+  for (const storedVersion of [1, 2]) {
+    const stored = {
+      schemaVersion: storedVersion,
+      kind: 'sflow-workflow-bundle',
+      bundleSha256: `sha256:${'d'.repeat(64)}`,
+      workflows: [{ governs: 'story', id: 'feature' }],
+      // The historical contract retained a whole selected MCP row without requiring all of
+      // its scoped phases in this inventory. Projection must not fill that gap or certify v3.
+      objects: { story: {
+        phases: { analysis: { label: 'Analysis' } },
+        mcpServers: { browser: { phases: ['analysis', 'design-intake'], agents: ['qa'] } }
+      } },
+      ...(storedVersion === 2 ? { skillPackages: [] } : {})
+    };
+    const rawBytes = Buffer.from(`${JSON.stringify(stored)}\n`);
+    const before = Buffer.from(rawBytes);
+    const opened = readRecord('workflow-bundle', rawBytes);
+    assert.equal(opened.storedVersion, storedVersion);
+    assert.equal(opened.record.schemaVersion, 3);
+    assert.deepEqual(opened.migratedThrough, storedVersion === 1
+      ? [{ from: 1, to: 2 }, { from: 2, to: 3 }] : [{ from: 2, to: 3 }]);
+    assert.deepEqual(opened.record, { ...stored, schemaVersion: 3, skillPackages: [] });
+    assert.equal(opened.record.bundleSha256, stored.bundleSha256);
+    assert.deepEqual(opened.record.objects, stored.objects);
+    assert.equal(Object.hasOwn(opened.record.objects.story.phases, 'design-intake'), false);
+    assert.equal(Object.hasOwn(opened.record, 'dependencyClosure'), false);
+    assert.equal(Object.hasOwn(opened.record, 'approvalProvenance'), false);
+    assert.deepEqual(rawBytes, before);
+    assert.equal(stored.schemaVersion, storedVersion);
+  }
+});
+
 test('legacy context manifests preserve their exact regions and cache identities', () => {
   const stored = {
     schemaVersion: 2,

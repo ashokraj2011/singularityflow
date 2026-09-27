@@ -9532,7 +9532,7 @@ user-invocable: false
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~793 body tokens</span>
+          <span class="pill">~794 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workflows</code></dd></div>
@@ -9551,7 +9551,7 @@ disable-model-invocation: true
 argument-hint: &quot;[list|author list|author where-used SKILL-ID|author preview WFD-ID|author submit WFD-ID --revision N|skills-recipe ID ...|simulate ID|export ...|import FILE|copy SOURCE TARGET ...]&quot;
 
 ---
-# Workflow catalog, shared drafts, and transfer
+# Workflows and shared drafts
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
@@ -9561,9 +9561,10 @@ argument-hint: &quot;[list|author list|author where-used SKILL-ID|author preview
 Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
 For `author`, use only the opened Git root.
-`list|read|history|show|preview|catalog|where-used|op-status` is read-only; relay exact revision, coverage and gaps.
-`author where-used &lt;SKILL-ID&gt; --json`: approved configuration only, not all Stories or teams.
-Relay bindings, exclusions and paging; use returned `--expected-source` on later pages. No repairs.
+`list|read|history|show|preview|catalog|where-used|op-status` is read-only; relay revision/coverage/gaps.
+`author where-used &lt;SKILL-ID&gt; --json`: approved configuration; explicit `--story &lt;ID&gt;` selects
+one accepted local Story. Preserve `--ref`, `--commit`, `--snapshot-revision`; no fetch or inventory.
+Relay bindings/exclusions/paging; later pages need returned `--expected-source`. No repairs.
 Create/Save require user direction, unique operation ID, observed head and matching
 `--expected-authority`. Input is inert JSON. Never rebase, change replayed requests or recreate
 deleted drafts. Lost acknowledgement: `author op-status &lt;ID&gt; --json`.
@@ -9571,16 +9572,16 @@ Headless `author submit &lt;WFD-ID&gt; --revision N` or `author delete` only han
 never supply receipts, answers or tokens. Direct terminal captures the named human action.
 Submit creates only an exact review proposal; no approval, activation or execution.
 
-Install: preview YAML/Markdown. No unconfirmed `--replace` or auto-commit.
+Install: preview first; no unconfirmed `--replace` or auto-commit.
 
 BYO preview: `singularity-flow workflow skills-recipe &lt;NEW-ID&gt; --label &lt;TEXT&gt;
---phases &lt;APPROVED-PHASE-IDS&gt; --json`. Code requires explicit `--planned-claims required
+--phases &lt;APPROVED-PHASE-IDS&gt; --json`. Code requires `--planned-claims required
 --clause-phases &lt;CRITERIA&gt; --claim-owners &lt;CODE=PLAN&gt;`. Relay revision, sequence and readiness;
 never infer opt-out, confirmation or execution. Proposals need separate authorization.
 
-Export only explicit selections to a new file:
+Export explicit selections to a new file:
 `singularity-flow workflow export --workflow &lt;ID&gt; [--workflow &lt;ID&gt;...] --out &lt;FILE&gt; --json`.
-Report complete dependency closure and locks. Policy/World Model contracts remain prerequisites. Never edit bundles.
+Report complete dependency closure/locks. Policy/World Model contracts are prerequisites; never edit bundles.
 
 Import preview: `singularity-flow workflow import &lt;FILE&gt; --dry-run --propose --json`.
 Skill invocation is not confirmation. After digest/path/collision review and explicit acceptance run
@@ -9594,8 +9595,7 @@ No isolation claim. Review plan/collisions and wait:
 `singularity-flow workflow copy &lt;[story|initiative:]SOURCE&gt; &lt;TARGET&gt; --label &lt;TEXT&gt; --confirm &lt;PLAN-SHA256&gt; --propose --json`.
 Run once; never overwrite, bypass review, commit, activate, merge or refresh automatically.
 
-Stop on dependency/collision/stale-plan/bundle/authority refusal.
-Relay paired Shell/Copilot routes; the CLI owns deterministic actions.
+Stop on dependency/collision/stale-plan/bundle/authority refusal; relay paired Shell/Copilot routes.
 </code></pre>
       </div>
     </details>

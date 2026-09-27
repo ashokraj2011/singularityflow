@@ -49,7 +49,8 @@ test('workflow skill governs dependency-complete transfer and linked duplication
   assert.match(content, /never overwrite, bypass review, commit, activate, merge or refresh automatically/);
   assert.match(content, /show\|preview\|catalog\|where-used\|op-status` is read-only/);
   assert.match(content, /author where-used <SKILL-ID> --json/);
-  assert.match(content, /approved configuration only, not all Stories or teams/);
+  assert.match(content, /approved configuration; explicit `--story <ID>` selects\s+one accepted local Story/);
+  assert.match(content, /Preserve `--ref`, `--commit`, `--snapshot-revision`; no fetch or inventory/);
   assert.match(content, /--expected-source/);
   assert.match(content, /Plans bind destination authority\/revision/);
   assert.match(content, /Headless `author submit <WFD-ID> --revision N` or `author delete` only hands off/);

@@ -1,20 +1,25 @@
-/** Pure workflow-only changes. This is impact data, never a writer or an authority capability. */
+/** Pure bounded change planning. This is impact data, never a writer or an authority capability. */
 import { createHash } from 'node:crypto';
+import { types } from 'node:util';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
+import { resolveWorkType, validateDefinition } from './config.mjs';
 
 export const WCA_WORKFLOW_CHANGES_PROFILE = 'wca-workflow-only-changes/v1';
+export const WCA_SHARED_PHASE_CHANGES_PROFILE = 'wca-shared-phase-impact/v1';
 export const WCA_WORKFLOW_CHANGE_LIMITS = Object.freeze({ changes: 16, workflows: 256,
   phases: 512, agents: 256, catalogEntries: 512, nodes: 4096, edges: 8192,
   inputNodes: 100000, depth: 32, inputBytes: 8 * 1024 * 1024, outputBytes: 2 * 1024 * 1024 });
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
 const PATCH_FIELDS = ['label', 'description', 'phases', 'plannedClaims', 'reworkLoops'];
+const SHARED_PHASE_FIELDS = ['label', 'description', 'artifact', 'artifactSet', 'defaultTemplate',
+  'inputs', 'approval', 'repairBudget', 'clarification', 'specificationQuality', 'testEvidenceFrom'];
 const GROUPS = ['workflows', 'phases', 'agents', 'skills', 'templates'];
 const digest = (value) => `sha256:${recordSha256(value)}`;
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const plain = (value) => value !== null && typeof value === 'object'
-  && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+  && !types.isProxy(value) && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
 function fail(code, message, fieldPath = 'changes') {
   throw Object.assign(new SingularityFlowError(message, { code }), { fieldPath });
 }
@@ -51,7 +56,7 @@ function copyJson(value) {
       if (Buffer.from(item).toString('utf8') !== item) fail('WCA_CHANGE_INVALID', 'Workflow changes require exact UTF-8 data.');
       return item;
     }
-    if ((!plain(item) && !Array.isArray(item)) || active.has(item)) fail('WCA_CHANGE_INVALID', 'Workflow changes require ordinary acyclic JSON data.');
+    if (types.isProxy(item) || (!plain(item) && !Array.isArray(item)) || active.has(item)) fail('WCA_CHANGE_INVALID', 'Workflow changes require ordinary acyclic JSON data.');
     if (Reflect.ownKeys(item).some((key) => typeof key !== 'string')
         || Object.values(Object.getOwnPropertyDescriptors(item)).some((entry) => !Object.hasOwn(entry, 'value'))) {
       fail('WCA_CHANGE_INVALID', 'Workflow changes cannot contain accessors or symbol fields.');
@@ -84,6 +89,13 @@ export function workflowDefinitionSha256(rawWorkType) {
   return digest(value);
 }
 
+/** Exact raw phase identity; defaults, effective overrides and labels are not substitutes. */
+export function phaseDefinitionSha256(rawPhase) {
+  const value = copyJson(rawPhase);
+  if (!plain(value)) fail('WCA_CHANGE_INVALID', 'An exact raw phase definition is required.');
+  return digest(value);
+}
+
 function catalog(value, maximum) {
   if (value === undefined) return {};
   if (!plain(value)) fail('WCA_CHANGE_INVALID', 'An approved dependency catalog is unavailable.');
@@ -108,7 +120,7 @@ function phaseIds(value) {
   return values;
 }
 
-function dependencyGraph(definition, agents, replacements) {
+function dependencyGraph(definition, agents, replacements, { fullCatalog = false } = {}) {
   const nodes = new Map(); const edges = new Map();
   const key = (kind, id) => `${kind}:${stableId(id)}`;
   const addNode = (kind, id, value, extras = {}) => {
@@ -187,7 +199,9 @@ function dependencyGraph(definition, agents, replacements) {
     if (!plain(value)) return;
     for (const [name, child] of Object.entries(value)) {
       if (name === 'artifactSet' && typeof child === 'string') link(from, 'artifact-set', child);
-      if (name === 'inputs') for (const input of list(child, name)) {
+      // A compiled SKP readScope.inputs is a boolean, not a phase-reference collection.
+      // Actual phase/binding input declarations are separately required to be arrays below.
+      if (name === 'inputs' && Array.isArray(child)) for (const input of list(child, name)) {
         const phaseId = typeof input === 'string' ? input : input?.phase;
         if (phaseId !== undefined) link(from, 'phase', phaseId, 'input');
       }
@@ -207,9 +221,23 @@ function dependencyGraph(definition, agents, replacements) {
         for (const reference of list(child, name)) view(from, reference);
       }
       if (name === 'defaultTemplate' || name === 'template' && typeof child === 'string') template(from, child);
+      if (fullCatalog) {
+        if (['allowedPhases', 'blockRequiredUnfulfilledAt', 'clausePhases'].includes(name) && Array.isArray(child)) {
+          for (const id of child) link(from, 'phase', identifier(id), 'policy-phase-reference');
+        }
+        if (name === 'phaseOverrides' && plain(child)) for (const id of Object.keys(child)) {
+          link(from, 'phase', identifier(id), 'phase-override');
+        }
+        if (name === 'when' && plain(child)) for (const [field, kind] of [['phase', 'phase'], ['agent', 'agent'], ['workType', 'workflow']]) {
+          for (const id of child[field] == null ? [] : Array.isArray(child[field]) ? child[field] : [child[field]]) {
+            link(from, kind, identifier(id), 'injection-condition');
+          }
+        }
+      }
       named(from, child);
     }
   };
+  if (fullCatalog) named(key('policy', 'repository'), policy);
   for (const [id, phase] of Object.entries(phases)) {
     if (!plain(phase)) fail('WCA_CHANGE_INVALID', 'Captured phases must be ordinary objects.');
     const from = key('phase', id); named(from, phase);
@@ -244,12 +272,35 @@ function dependencyGraph(definition, agents, replacements) {
     for (const reference of list(agent.worldModelViews ?? [], 'Agent world-model views')) view(from, reference);
     for (const dependency of agent.dependencies ?? []) link(from, 'agent-dependency', `${agent.id}/${dependency.id}`, 'agent-dependency');
     for (const [id, server] of Object.entries(servers)) if ((server.agents ?? []).includes(agent.id)) link(from, 'mcp-server', id, 'agent-server-scope');
+    if (fullCatalog) {
+      // Eligibility is not execution or a tool grant. Unrestricted roles are eligible for every
+      // configured phase; dormant installed declarations outside this exact catalog stay dormant.
+      for (const id of (agent.phases ?? []).length ? agent.phases : Object.keys(phases)) {
+        if (Object.hasOwn(phases, id)) link(from, 'phase', id, 'agent-phase-eligibility');
+      }
+      for (const id of agent.defaultFor ?? []) if (Object.hasOwn(phases, id)) link(from, 'phase', id, 'agent-default-for');
+      for (const [id, server] of Object.entries(servers)) if (!(server.agents ?? []).length) {
+        link(from, 'mcp-server', id, 'unrestricted-server-agent-eligibility');
+      }
+      for (const dependency of agent.dependencies ?? []) {
+        const declarations = dependency.phase != null ? [dependency.phase]
+          : (dependency.phases ?? []).length ? dependency.phases
+            : ['skill', 'template'].includes(dependency.type) ? Object.keys(phases) : [];
+        for (const phaseId of declarations) if (Object.hasOwn(phases, phaseId)) {
+          link(key('agent-dependency', `${agent.id}/${dependency.id}`), 'phase', phaseId, 'agent-dependency-phase-scope');
+        }
+      }
+    }
   }
   for (const [id, server] of Object.entries(servers)) {
     if (!plain(server)) fail('WCA_CHANGE_INVALID', 'Captured server entries must be ordinary objects.');
     const from = key('mcp-server', id);
     for (const phaseId of server.phases ?? []) link(from, 'phase', phaseId, 'complete-server-scope');
     for (const agentId of server.agents ?? []) link(from, 'agent', agentId, 'complete-server-scope');
+    if (fullCatalog) {
+      if (!(server.phases ?? []).length) for (const phaseId of Object.keys(phases)) link(from, 'phase', phaseId, 'unrestricted-server-phase-scope');
+      if (!(server.agents ?? []).length) for (const agent of agents) link(from, 'agent', agent.id, 'unrestricted-server-agent-scope');
+    }
   }
   const workflow = (from, value) => {
     if (!plain(value)) fail('WCA_CHANGE_INVALID', 'Captured workflows must be ordinary objects.');
@@ -268,7 +319,7 @@ function dependencyGraph(definition, agents, replacements) {
     const values = adjacency.get(edge.from) ?? []; values.push(edge.to); adjacency.set(edge.from, values);
     const consumers = dependents.get(edge.to) ?? new Set(); consumers.add(edge.from); dependents.set(edge.to, consumers);
   }
-  const selected = new Set(roots); const pending = [...roots];
+  const selected = new Set(fullCatalog ? nodes.keys() : roots); const pending = [...roots];
   for (let index = 0; index < pending.length; index += 1) for (const to of adjacency.get(pending[index]) ?? []) {
     if (!selected.has(to)) { selected.add(to); pending.push(to); }
   }
@@ -356,6 +407,173 @@ export function planWorkflowOnlyChanges(input = {}) {
       graph: projected.graph, impact: { ...empty.impact, sharedDependencies: projected.sharedDependencies,
         changedWorkflowIds: replacements.map((row) => row.id), sharedDefinitions: 'unchanged',
         coverage: 'declared-approved-graph-complete-within-bounds;content-and-runtime-readiness-owned-by-compiler' } };
+    const planned = { ...result, planSha256: digest(result) };
+    bound(Buffer.byteLength(canonicalJson(planned)), WCA_WORKFLOW_CHANGE_LIMITS.outputBytes);
+    return freeze(planned);
+  } catch (error) {
+    if (!(error instanceof SingularityFlowError)) throw error;
+    const result = { ...empty, findings: [{ code: error.code, fieldPath: error.fieldPath ?? 'changes',
+      message: error.message, category: 'submission-blocker', resolvingAction: 'workflow.author.edit' }] };
+    return freeze({ ...result, planSha256: digest(result) });
+  }
+}
+
+function validatedSharedPhaseDefinition(definition, agents, { prospective = false } = {}) {
+  const projected = structuredClone(definition);
+  projected.agentCatalog = agents;
+  projected.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+  try { return validateDefinition(projected); }
+  catch (error) {
+    fail(prospective && error?.code?.startsWith('SKP_')
+      ? 'WCA_SHARED_PHASE_SKP_RECOMPILE_REQUIRED'
+      : prospective ? 'WCA_SHARED_PHASE_DEFINITION_INVALID' : 'WCA_SHARED_PHASE_SOURCE_INVALID',
+    prospective
+      ? 'The complete prospective definition is refused by the existing configuration owner; resolve all consumer contracts before reviewing this replacement.'
+      : 'The complete captured source definition is unavailable or invalid under the existing configuration owner.',
+    'changes');
+  }
+}
+
+function reverseSharedPhaseImpact(before, after, phaseIds) {
+  const nodeMap = new Map([...before.nodes, ...after.nodes].map((node) => [`${node.kind}:${node.id}`, node]));
+  const incoming = new Map();
+  const edgeMap = new Map([...before.edges, ...after.edges].map((edge) => [canonicalJson(edge), edge]));
+  for (const edge of edgeMap.values()) {
+    const values = incoming.get(edge.to) ?? new Set(); values.add(edge.from); incoming.set(edge.to, values);
+  }
+  const roots = new Set(phaseIds.map((id) => `phase:${id}`));
+  const selected = new Set(roots); const pending = [...roots];
+  for (let index = 0; index < pending.length; index += 1) for (const from of incoming.get(pending[index]) ?? []) {
+    if (!selected.has(from)) { selected.add(from); pending.push(from); }
+  }
+  const direct = new Set([...roots].flatMap((root) => [...(incoming.get(root) ?? [])]));
+  const consumers = [...selected].filter((key) => !roots.has(key)).sort(compare).map((key) => ({
+    kind: nodeMap.get(key).kind, id: nodeMap.get(key).id, relation: direct.has(key) ? 'direct' : 'transitive'
+  }));
+  return { consumers, edges: [...edgeMap.values()].filter((edge) => selected.has(edge.from) && selected.has(edge.to))
+    .sort((left, right) => compare(canonicalJson(left), canonicalJson(right))) };
+}
+
+function effectiveSharedPhaseSha256(phase) {
+  const value = structuredClone(phase);
+  // resolveWorkType retains the raw fallback for compatibility, but its resolved `template`
+  // owns consumption. A work-type template override can mask a shared fallback replacement.
+  delete value.defaultTemplate;
+  return digest(value);
+}
+
+function unchangedSharedPhaseExtensions(before, after, allowed) {
+  for (const key of new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])) {
+    if (!allowed.includes(key) && (Object.hasOwn(before ?? {}, key) !== Object.hasOwn(after ?? {}, key)
+        || digest({ value: before?.[key] ?? null }) !== digest({ value: after?.[key] ?? null }))) {
+      fail('WCA_SHARED_PHASE_EFFECT_CHANGE_UNSUPPORTED', 'Unknown nested artifact extensions must remain exactly unchanged in this structural profile.');
+    }
+  }
+}
+
+/**
+ * Plan exact existing ordinary phase replacements against one caller-captured catalog. This
+ * pure API proves no catalog provenance or authorization: only a future separately confirmed
+ * owner may recapture its inputs and use the impact plan. It emits no files or writer capability.
+ * Execution/producer/source/MCP fields and unrecognized extensions must stay exactly unchanged.
+ */
+export function planSharedPhaseChanges(input = {}) {
+  const empty = { profile: WCA_SHARED_PHASE_CHANGES_PROFILE, status: 'blocked', source: null,
+    replacements: [], dependencyLocks: [], graph: { before: { nodes: [], edges: [] }, after: { nodes: [], edges: [] } },
+    impact: { scope: 'captured-approved-configuration-only', consumers: [], affectedWorkflows: [],
+      retainedStories: 'unchanged-not-inventoried', otherRepositories: 'unknown-not-inventoried',
+      permissions: 'not-granted', execution: 'not-run', activation: 'inactive',
+      submission: 'unavailable-from-this-planning-profile' }, findings: [] };
+  try {
+    const copied = copyJson(input); closed(copied, ['approvedDefinition', 'agents', 'changes'], 'Shared phase planner input');
+    const { approvedDefinition: definition, agents, changes } = copied;
+    if (!plain(definition)) fail('WCA_SHARED_PHASE_SOURCE_INVALID', 'Exact captured raw configuration data is required.');
+    list(agents, 'Complete captured agent metadata'); bound(agents.length, WCA_WORKFLOW_CHANGE_LIMITS.agents);
+    if (!agents.length || agents.some((agent) => !plain(agent) || typeof agent.text !== 'string')) {
+      fail('WCA_SHARED_PHASE_CATALOG_INCOMPLETE', 'Complete captured agent metadata and exact source text are required; no discovery or name fallback occurs.');
+    }
+    list(changes, 'Explicit shared phase changes'); bound(changes.length, WCA_WORKFLOW_CHANGE_LIMITS.changes);
+    if (!changes.length) fail('WCA_CHANGE_INVALID', 'Select at least one explicit shared phase replacement.');
+    const phases = catalog(definition.phases, WCA_WORKFLOW_CHANGE_LIMITS.phases);
+    // Bound and resolve every declared source dependency before invoking the broader validator.
+    // fullCatalog never changes the historical workflow-only graph or its digest semantics.
+    const before = dependencyGraph(definition, agents, [], { fullCatalog: true });
+    const validatedBefore = validatedSharedPhaseDefinition(definition, agents);
+    const candidate = structuredClone(definition); const seen = new Set(); const replacements = [];
+    for (const change of changes) {
+      closed(change, ['kind', 'id', 'operation', 'expectedDefinitionSha256', 'replacement'], 'Shared phase replacement');
+      if (change.kind !== 'phase' || change.operation !== 'edit') {
+        fail('WCA_SHARED_PHASE_UNSUPPORTED', 'This read-only profile supports exact existing ordinary phase edits, not deletion, forks or other shared object kinds.');
+      }
+      const id = identifier(change.id);
+      if (seen.has(id)) fail('WCA_CHANGE_INVALID', 'Shared phase replacements repeat an identity.'); seen.add(id);
+      if (id.startsWith('sf-') || id.startsWith('sflow-')) fail('WCA_SHARED_PHASE_UNSUPPORTED', 'Privileged installed phase identities cannot be replaced.');
+      if (!Object.hasOwn(phases, id)) fail('WCA_SHARED_PHASE_SOURCE_UNAVAILABLE', 'The exact shared phase is absent from the captured source catalog.');
+      const source = phases[id]; const expected = phaseDefinitionSha256(source);
+      if (typeof change.expectedDefinitionSha256 !== 'string' || !SHA.test(change.expectedDefinitionSha256)
+          || change.expectedDefinitionSha256 !== expected) {
+        fail('WCA_CHANGE_PARENT_STALE', 'The exact raw phase parent changed; recapture and review the current catalog before planning an edit.');
+      }
+      if (!plain(change.replacement)) fail('WCA_CHANGE_INVALID', 'Shared phase replacement must contain the complete exact raw object.');
+      if (source.kind === 'skill' || change.replacement.kind === 'skill') {
+        fail('WCA_SHARED_PHASE_SKP_RECOMPILE_REQUIRED', 'Compiled skill phases require a separately confirmed recompiled binding; this profile cannot replace them.');
+      }
+      const changedFields = [...new Set([...Object.keys(source), ...Object.keys(change.replacement)])].filter((field) =>
+        Object.hasOwn(source, field) !== Object.hasOwn(change.replacement, field)
+        || digest({ value: source[field] ?? null }) !== digest({ value: change.replacement[field] ?? null })).sort(compare);
+      if (changedFields.some((field) => !SHARED_PHASE_FIELDS.includes(field))) {
+        fail('WCA_SHARED_PHASE_EFFECT_CHANGE_UNSUPPORTED', 'Execution, producer, MCP/tool, source-boundary and unknown-extension changes are outside this structural review profile.');
+      }
+      const replacement = structuredClone(change.replacement);
+      unchangedSharedPhaseExtensions(source.artifact, replacement.artifact,
+        ['path', 'kind', 'minimumBytes', 'maximumBytes', 'allowedExtensions', 'allowedMediaTypes', 'validation']);
+      unchangedSharedPhaseExtensions(source.artifact?.validation, replacement.artifact?.validation,
+        ['requiredHeadings', 'forbiddenPlaceholders']);
+      if (typeof replacement.label !== 'string' || !replacement.label.trim() || Buffer.byteLength(replacement.label) > 512
+          || /[\u0000-\u001f\u007f]/u.test(replacement.label)
+          || replacement.description !== undefined && (typeof replacement.description !== 'string'
+            || Buffer.byteLength(replacement.description) > 30000 || /\0/u.test(replacement.description))) {
+        fail('WCA_CHANGE_INVALID', 'Phase display fields require bounded literal text.');
+      }
+      candidate.phases[id] = replacement;
+      replacements.push({ kind: 'phase', id, operation: 'edit', expectedDefinitionSha256: expected,
+        beforeDefinitionSha256: expected, afterDefinitionSha256: phaseDefinitionSha256(replacement),
+        changedFields, definition: replacement });
+    }
+    replacements.sort((left, right) => compare(left.id, right.id));
+    for (const phase of Object.values(phases)) if (phase.kind === 'skill'
+        && (phase.skillBinding?.bindingRefs?.inputs ?? []).some((input) => replacements.some((replacement) =>
+          replacement.id === input.phase && replacement.changedFields.some((field) => !['label', 'description'].includes(field))))) {
+      fail('WCA_SHARED_PHASE_SKP_RECOMPILE_REQUIRED', 'A confirmed skill consumes this changed producer contract. Recompile its exact binding under separate consent before changing the shared structure.');
+    }
+    const after = dependencyGraph(candidate, agents, [], { fullCatalog: true });
+    const validatedAfter = validatedSharedPhaseDefinition(candidate, agents, { prospective: true });
+    const impact = reverseSharedPhaseImpact(before.graph, after.graph, replacements.map((row) => row.id));
+    const affectedWorkflows = impact.consumers.filter((row) => row.kind === 'workflow').map((row) => {
+      const oldResolved = resolveWorkType(validatedBefore, row.id); const newResolved = resolveWorkType(validatedAfter, row.id);
+      const effectivePhases = replacements.filter((replacement) => oldResolved.phases.some((phase) => phase.id === replacement.id))
+        .map((replacement) => {
+          const oldPhase = oldResolved.phases.find((phase) => phase.id === replacement.id);
+          const newPhase = newResolved.phases.find((phase) => phase.id === replacement.id);
+          const beforeSha256 = effectiveSharedPhaseSha256(oldPhase); const afterSha256 = effectiveSharedPhaseSha256(newPhase);
+          return { id: replacement.id, beforeSha256, afterSha256,
+            status: beforeSha256 === afterSha256 ? 'unchanged-effective-phase' : 'changed-effective-phase',
+            overrideFields: Object.keys(definition.workTypes[row.id].phaseOverrides?.[replacement.id] ?? {}).sort(compare),
+            templateOverride: Object.hasOwn(definition.workTypes[row.id].templateOverrides ?? {}, replacement.id) };
+        });
+      return { id: row.id, relation: row.relation, effectivePhases,
+        status: effectivePhases.some((phase) => phase.status === 'changed-effective-phase')
+          ? 'effective-phase-changed' : effectivePhases.length ? 'effective-phase-unchanged' : 'declared-dependency-only' };
+    });
+    const result = { ...empty, status: 'ready-for-review',
+      source: { definitionSha256: digest(definition), agentCatalogSha256: digest(before.graph.nodes.filter((node) => node.kind === 'agent')) },
+      replacements, dependencyLocks: before.dependencyLocks,
+      graph: { before: before.graph, after: after.graph }, impact: { ...empty.impact, consumers: impact.consumers,
+        consumerEdges: impact.edges, affectedWorkflows, changedPhaseIds: replacements.map((row) => row.id),
+        coverage: 'complete-declared-catalog-reference-impact-within-bounds;eligibility-is-not-execution',
+        validation: 'existing-definition-owner-on-private-source-and-prospective-clones',
+        excluded: ['retained-story-inventory', 'other-repository-inventory', 'agent-and-template-byte-readiness',
+          'external-dependency-hydration', 'real-human-availability', 'host-qualification', 'authorization', 'submission'] } };
     const planned = { ...result, planSha256: digest(result) };
     bound(Buffer.byteLength(canonicalJson(planned)), WCA_WORKFLOW_CHANGE_LIMITS.outputBytes);
     return freeze(planned);

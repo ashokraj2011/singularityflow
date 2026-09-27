@@ -20,7 +20,8 @@ import { SingularityFlowError, isPortableRepositoryPathComponent } from './util.
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { captureEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 import { simulateResolvedWorkflowLifecycle, WORKFLOW_LIFECYCLE_SIMULATION_PROFILE } from './workflow-lifecycle-simulation.mjs';
-import { planWorkflowOnlyChanges, workflowDefinitionSha256 } from './wca-workflow-changes.mjs';
+import { planWorkflowOnlyChanges, workflowDefinitionSha256, planSharedPhaseChanges,
+  WCA_SHARED_PHASE_CHANGES_PROFILE } from './wca-workflow-changes.mjs';
 import { prepareWorkflowSkillConsent, workflowSkillFinalizationReview,
   consumeWorkflowSkillFinalizationConsent, finalizeWorkflowSkillConsent,
   workflowSkillFinalizedProjection, sealWorkflowSkillFinalization,
@@ -30,7 +31,7 @@ export const WCA_COMPILER_PROFILE = 'wca-complete-package/v4';
 export const WCA_PREVIEW_KIND = 'workflow-authoring-package-preview';
 export const WCA_REQUEST_SCHEMA = 'sflow-workflow-request@2';
 export const WCA_CATALOG_CHOICE_KIND = 'workflow-authoring-catalog-choices';
-export const WCA_COMPILER_LIMITS = Object.freeze({ requestBytes: 5 * 1024 * 1024, objects: 128, workflows: 16, phases: 64, assets: 128, assetBytes: 8 * 1024 * 1024, findings: 128, nodes: 100_000, depth: 32 });
+export const WCA_COMPILER_LIMITS = Object.freeze({ requestBytes: 5 * 1024 * 1024, objects: 128, workflows: 16, sharedAffectedWorkflows: 64, phases: 64, assets: 128, assetBytes: 8 * 1024 * 1024, findings: 128, nodes: 100_000, depth: 32 });
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
@@ -255,7 +256,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   };
   const attempt = (fieldPath, work) => { try { return work(); } catch (error) { add(error.code ?? 'WCA_VALIDATION_FAILED', fieldPath, error.code ? error.message : 'The existing configuration owner refused this candidate.'); return null; } };
   const candidate = structuredClone(captured.definition); const files = new Map(); const symbols = Object.fromEntries(GROUPS.map((group) => [group, new Map()]));
-  let acceptedRequest = false; let workflowChanges = null;
+  let acceptedRequest = false; let workflowChanges = null; let sharedObjectChanges = null;
   const simulation = { schemaVersion: 1, kind: 'workflow-authoring-lifecycle-simulation',
     profile: WORKFLOW_LIFECYCLE_SIMULATION_PROFILE, status: 'incomplete', workflows: [],
     prerequisites: 'candidate-not-validated', execution: 'not-run', humanAvailability: 'not-verified', hostEnforcement: 'unavailable' };
@@ -269,7 +270,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       catalogChoices: workflowCompilerCatalogChoices(context),
       candidateAssetManifestSha256: digest(emitted.map(({ path: file, bytes, sha256 }) => ({ path: file, bytes, sha256 }))),
       catalogSha256: digest(locks), policySha256: digest({ approvalSecurity: captured.definition.approvalSecurity, sequenceGates: captured.definition.sequenceGates, codeDelivery: captured.definition.codeDelivery ?? null, environmentSha256: captured.environmentSha256, assetPolicy: captured.assetPolicy }),
-      dependencyLocks: locks, graph, skillProposals, simulation, workflowChanges, findings: orderedFindings, fileOperations: operations, assets: emitted,
+      dependencyLocks: locks, graph, skillProposals, simulation, workflowChanges,
+      ...(sharedObjectChanges ? { sharedObjectChanges } : {}), findings: orderedFindings, fileOperations: operations, assets: emitted,
       permissions: { effective: 'pre-change-approved-policy-only', addedOperations: [], removedOperations: [], newNativeTools: [], enforcement: 'not-verified' },
       candidateDefinition: candidate, candidateDefinitionSha256: digest(candidate),
       readiness: { authoring: findings.length ? findings.every((finding) => finding.category === 'capability-unavailable') ? 'unavailable' : 'invalid' : 'valid', simulation: simulation.status, behavior: 'not-evaluated', host: 'discovery-unverified', publication: 'not-proposed', activation: 'inactive', confirmation: 'absent', execution: 'not-run' },
@@ -319,7 +321,48 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   if (!acceptedRequest) return output();
   if (source.lifecycle !== 'live') add('WCA_DRAFT_DELETED', 'source.lifecycle', 'Deleted retained revisions cannot create a current submission plan.');
   if (request.baseRevision !== captured.baseRevision) add('WCA_BASE_REVISION_STALE', 'baseRevision', 'The request must explicitly bind this exact approved configuration base commit.');
-  if (request.intent !== 'create') {
+  const sharedPhaseRequest = request.intent === 'edit'
+    && request.changes?.some((change) => change?.profile === WCA_SHARED_PHASE_CHANGES_PROFILE);
+  if (sharedPhaseRequest) {
+    attempt('changes', () => {
+      const patches = request.definitions?.phases;
+      if (!Array.isArray(patches) || !patches.length || patches.length > WCA_COMPILER_LIMITS.objects) fail('Shared phase changes need bounded complete paired phase replacements.');
+      for (const group of GROUPS.filter((name) => name !== 'phases')) if ((request.definitions?.[group] ?? []).length) {
+        fail('Shared phase review cannot mix workflow, agent, skill or template object updates.', 'WCA_SHARED_PHASE_UNSUPPORTED');
+      }
+      if (Object.keys(request.bindings ?? {}).length || request.assets?.length || draft.assets.length || request.executionProposals?.length) {
+        fail('Shared phase review cannot attach resources, binding aliases or executable proposals.', 'WCA_SHARED_PHASE_UNSUPPORTED');
+      }
+      const byId = new Map();
+      for (const patch of patches) {
+        closed(patch, ['id', 'replacement'], 'Shared phase definition'); const key = id(patch.id, 'Shared phase ID');
+        if (byId.has(key)) fail('Shared phase patches repeat an identity.', 'WCA_OBJECT_COLLISION');
+        byId.set(key, patch.replacement);
+      }
+      const changes = request.changes.map((change) => {
+        closed(change, ['profile', 'kind', 'id', 'operation', 'expectedDefinitionSha256'], 'Shared phase change');
+        if (change.profile !== WCA_SHARED_PHASE_CHANGES_PROFILE || !byId.has(change.id)) fail('Every shared phase change needs its exact profile and paired replacement.');
+        const { profile, ...row } = change; return { ...row, replacement: byId.get(change.id) };
+      });
+      if (changes.length !== byId.size) fail('Every shared phase replacement needs one explicit matching change.');
+      sharedObjectChanges = planSharedPhaseChanges({ approvedDefinition: captured.rawDefinition,
+        agents: captured.agents.map(({ id: key, scope, text: body, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
+          id: key, scope, text: body, phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [],
+          worldModelViews: worldModelViews ?? [], dependencies: dependencies ?? [] })), changes });
+    });
+    for (const finding of sharedObjectChanges?.findings ?? []) add(finding.code, finding.fieldPath ?? 'changes', finding.message);
+    if (findings.length || sharedObjectChanges?.status !== 'ready-for-review') return output();
+    const affected = sharedObjectChanges.impact.affectedWorkflows;
+    if (!affected.length || affected.length > WCA_COMPILER_LIMITS.sharedAffectedWorkflows) {
+      add('WCA_COMPILER_LIMIT', 'changes', 'Shared phase preview needs between one and 64 complete affected workflow simulations; no consumers were omitted.');
+      return output();
+    }
+    for (const replacement of sharedObjectChanges.replacements) candidate.phases[replacement.id] = structuredClone(replacement.definition);
+    for (const workflow of affected) symbols.workflows.set(workflow.id, { id: workflow.id });
+    for (const lock of sharedObjectChanges.dependencyLocks) locks.push({ source: lock.kind === 'execution-task'
+      ? 'installed-runtime-registry' : lock.source === 'installed-agent-registry' ? 'installed-agent-registry' : 'approved-catalog',
+      kind: lock.kind, id: lock.id, definitionSha256: lock.definitionSha256, baseRevision: captured.baseRevision });
+  } else if (request.intent !== 'create') {
     workflowChanges = planWorkflowOnlyChanges({ request, approvedDefinition: captured.rawDefinition,
       agents: captured.agents.map(({ id, scope, text, phases, defaultFor, tools, worldModelViews, dependencies }) => ({
         id, scope, text, phases: phases ?? [], defaultFor: defaultFor ?? [], tools: tools ?? [],
@@ -332,6 +375,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   if (request.executionProposals?.length) add('WCA_EXECUTION_PROPOSAL_UNADMITTED', 'executionProposals', 'Executable proposals remain inert and have no runtime admission owner.');
   if (request.target.hosts?.length) add('WCA_HOST_CONTRACT_UNAVAILABLE', 'target.hosts', 'No installed exact host/tool mapping contract has been verified by this compiler.');
   for (const group of GROUPS) attempt(`definitions.${group}`, () => {
+    if (sharedObjectChanges && group === 'phases') return;
     const values = request.definitions?.[group] ?? [];
     if (!Array.isArray(values) || values.length > (group === 'workflows' ? WCA_COMPILER_LIMITS.workflows : WCA_COMPILER_LIMITS.objects)) fail('Candidate collection exceeds its bounded object budget.', 'WCA_COMPILER_LIMIT');
     for (const value of values) {
@@ -554,11 +598,12 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     closed(value, ['id', 'label', 'description', 'phases', 'plannedClaims', 'reworkLoops'], 'Workflow definition');
     if (value.label !== undefined) text(value.label, 'Workflow label', 512);
     if (value.description !== undefined && typeof value.description !== 'string') fail('Workflow description must be literal text.');
-    const replacement = workflowChanges?.replacements.find((row) => row.id === key);
+    const replacement = workflowChanges?.replacements.find((row) => row.id === key)
+      ?? (sharedObjectChanges ? { definition: captured.rawDefinition.workTypes[key] } : null);
     const selectedOrder = replacement?.definition.phases ?? value.phases;
     if (!Array.isArray(selectedOrder) || !selectedOrder.length || selectedOrder.length > WCA_COMPILER_LIMITS.phases) fail('Workflow phase order must be explicit and bounded.', 'WCA_GRAPH_INVALID');
     const order = selectedOrder.map((entry) => { const selected = resolve(entry, 'phase', 'Workflow phase'); return selected.id ?? (typeof entry === 'string' ? entry : entry.id); });
-    if (new Set(order).size !== order.length || order[0] !== 'intake' || order.at(-1) !== 'conformance') fail('Workflow order must be unique and explicitly retain Intake and Conformance.', 'WCA_GRAPH_INVALID');
+    if (new Set(order).size !== order.length || !sharedObjectChanges && (order[0] !== 'intake' || order.at(-1) !== 'conformance')) fail('Workflow order must be unique and explicitly retain Intake and Conformance.', 'WCA_GRAPH_INVALID');
     candidate.workTypes[key] = replacement ? { ...structuredClone(replacement.definition), phases: order }
       : { label: value.label ?? request.label, description: value.description ?? '', phases: order, ...(value.plannedClaims !== undefined ? { plannedClaims: value.plannedClaims } : {}), ...(value.reworkLoops ? { reworkLoops: value.reworkLoops } : {}) };
     // Only the effective workType contract owns inputs, templates, artifact paths and approval.
@@ -622,9 +667,12 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
   if (!findings.length) attempt('candidate.files', () => {
     // Workflow-only edits must not serialize loadDefinition defaults back into unrelated shared
     // definitions. Preserve the raw approved source and overlay only the exact reviewed targets.
-    const emittedDefinition = workflowChanges ? structuredClone(captured.rawDefinition) : candidate;
+    const emittedDefinition = workflowChanges || sharedObjectChanges ? structuredClone(captured.rawDefinition) : candidate;
     if (workflowChanges) for (const replacement of workflowChanges.replacements) {
       emittedDefinition.workTypes[replacement.id] = structuredClone(replacement.definition);
+    }
+    if (sharedObjectChanges) for (const replacement of sharedObjectChanges.replacements) {
+      emittedDefinition.phases[replacement.id] = structuredClone(replacement.definition);
     }
     emit('singularity/workflow.yml', YAML.stringify(emittedDefinition, { lineWidth: 0 }));
   });

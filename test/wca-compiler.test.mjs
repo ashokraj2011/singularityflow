@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -10,7 +11,8 @@ import { captureWorkflowCompilerContext, captureWorkflowDraftCompilerSource, com
 import { compileConfirmedSkillPhase, compileSkillPhaseProposal, configurationPhaseFromCompiledSkill, skillCandidateCatalogSha256, skillContractSha256, skillPhaseCandidateSha256 } from '../src/skp-contract.mjs';
 import { configurationAssetPolicy } from '../src/configuration-assets.mjs';
 import { recordSha256 } from '../src/records.mjs';
-import { workflowDefinitionSha256 } from '../src/wca-workflow-changes.mjs';
+import { workflowDefinitionSha256, phaseDefinitionSha256, WCA_SHARED_PHASE_CHANGES_PROFILE } from '../src/wca-workflow-changes.mjs';
+import { validateWorkflowDraftSubmissionSnapshot } from '../src/wca-submission.mjs';
 
 function git(root, ...argv) { const result = spawnSync('git', argv, { cwd: root, encoding: 'utf8', timeout: 30_000 }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); }
 async function fixture(t, configure = () => {}, approvedSkills = []) {
@@ -40,6 +42,129 @@ async function preview(f, request = f.request, operationId = 'create-preview', a
   const context = await captureWorkflowCompilerContext(f.root); const source = await captureWorkflowDraftCompilerSource(context, { draftId: created.record.draftId });
   return { result: compileWorkflowDraftPackage({ context, source }), context, source, created };
 }
+
+function sharedPhaseRequest(f, phaseId = 'intake') {
+  return { schema: WCA_REQUEST_SCHEMA, intent: 'edit', id: 'shared-phase-review', label: 'Reviewed shared phase',
+    baseRevision: f.commit, target: f.request.target,
+    changes: [{ profile: WCA_SHARED_PHASE_CHANGES_PROFILE, kind: 'phase', id: phaseId,
+      operation: 'edit', expectedDefinitionSha256: phaseDefinitionSha256(f.definition.phases[phaseId]) }],
+    definitions: { phases: [{ id: phaseId, replacement: { ...structuredClone(f.definition.phases[phaseId]), label: 'Exact reviewed shared phase' } }] } };
+}
+
+test('explicit shared phase preview binds every captured consumer and emits only exact raw replacements', async (t) => {
+  const f = await fixture(t, (definition) => {
+    definition.workTypes.baseline.description = 'Preserve exact raw policy';
+    definition.workTypes.baseline.retainedExtension = { exact: true };
+    definition.workTypes.masked = { ...structuredClone(definition.workTypes.baseline), label: 'Masked workflow',
+      phaseOverrides: { intake: { label: 'Exact local label' } } };
+    definition.workTypes.sibling = { ...structuredClone(definition.workTypes.baseline), label: 'Sibling workflow' };
+  });
+  const request = sharedPhaseRequest(f); const beforeRefs = git(f.root, 'show-ref');
+  const beforeHead = git(f.root, 'rev-parse', 'HEAD'); const beforeStatus = git(f.root, 'status', '--porcelain');
+  const beforeBytes = await readFile(path.join(f.root, 'singularity/workflow.yml'));
+  const p = await preview(f, request);
+  assert.equal(p.result.readiness.authoring, 'valid', JSON.stringify(p.result.findings));
+  assert.equal(p.result.readiness.simulation, 'complete-for-profile');
+  assert.equal(p.result.workflowChanges, null);
+  assert.equal(p.result.sharedObjectChanges.profile, WCA_SHARED_PHASE_CHANGES_PROFILE);
+  assert.deepEqual(p.result.sharedObjectChanges.impact.affectedWorkflows.map((row) => row.id), ['baseline', 'masked', 'sibling']);
+  assert.equal(p.result.sharedObjectChanges.impact.affectedWorkflows.find((row) => row.id === 'masked').status, 'effective-phase-unchanged');
+  assert.equal(p.result.simulation.workflows.length, 3);
+  const raw = YAML.parse(p.result.assets.find((asset) => asset.path === 'singularity/workflow.yml').content);
+  const expected = structuredClone(f.definition); expected.phases.intake = request.definitions.phases[0].replacement;
+  assert.deepEqual(raw, expected, 'unrelated catalog policy and advanced raw workflow fields are not normalized or rewritten');
+  assert.equal(p.result.assets.length, 1); assert.equal(p.result.effects.approvalGranted, false);
+  const closure = workflowDraftPackageProposalFiles(p.result); assert.deepEqual(closure.snapshotInputs.request, request);
+  assert.equal(closure.files[0].path, 'singularity/workflow.yml');
+  assert.equal(closure.expectedAuthority.sourceCommit, f.commit);
+  assert.equal(git(f.root, 'rev-parse', 'HEAD'), beforeHead);
+  assert.equal(git(f.root, 'status', '--porcelain'), beforeStatus);
+  assert.deepEqual(await readFile(path.join(f.root, 'singularity/workflow.yml')), beforeBytes);
+  const afterRefs = git(f.root, 'show-ref').split('\n').filter((row) => !row.includes('/sflow/drafts/'));
+  assert.deepEqual(afterRefs, beforeRefs.split('\n'), 'only the explicit inert draft create writes its dedicated shared ref');
+});
+
+test('shared phase requests cannot mix implicit definitions, widen effects, skip exact profile or omit affected simulations', async (t) => {
+  for (const [name, mutate, code] of [
+    ['stale', (r) => { r.changes[0].expectedDefinitionSha256 = `sha256:${'0'.repeat(64)}`; }, 'WCA_CHANGE_PARENT_STALE'],
+    ['effect', (r) => { r.definitions.phases[0].replacement.writeScope = 'source-and-artifact'; }, 'WCA_SHARED_PHASE_EFFECT_CHANGE_UNSUPPORTED'],
+    ['mixed', (r) => { r.definitions.agents = [{ id: 'new-agent' }]; }, 'WCA_SHARED_PHASE_UNSUPPORTED'],
+    ['delete', (r) => { r.changes[0].operation = 'delete'; }, 'WCA_SHARED_PHASE_UNSUPPORTED'],
+    ['profile', (r) => { delete r.changes[0].profile; }, 'WCA_CHANGE_SHARED_OBJECT_UNSUPPORTED']
+  ]) await t.test(name, async (child) => {
+    const f = await fixture(child); const request = sharedPhaseRequest(f); mutate(request); const p = await preview(f, request);
+    assert.ok(p.result.findings.some((finding) => finding.code === code), JSON.stringify(p.result.findings));
+    assert.equal(p.result.assets.length, 0); assert.equal(p.result.fileOperations.length, 0);
+    assert.throws(() => workflowDraftPackageProposalFiles(p.result), { code: 'WCA_PACKAGE_NOT_SUBMITTABLE' });
+  });
+});
+
+test('shared impact recompilation refuses byte-identical raw parent at a changed approved commit', async (t) => {
+  const f = await fixture(t); const request = sharedPhaseRequest(f); const p = await preview(f, request);
+  git(f.root, 'switch', 'sflow/config'); git(f.root, 'commit', '--allow-empty', '-m', 'Move exact authority commit');
+  git(f.root, 'push', 'origin', 'sflow/config'); git(f.root, 'switch', 'main');
+  await assert.rejects(revalidateWorkflowDraftPackage(f.root, { draftId: 'WFD-COMPILER1', revision: 1,
+    expectedPlanSha256: p.result.planSha256 }), { code: 'WCA_PREVIEW_STALE' });
+});
+
+test('actual terminal shared phase submission uses existing proposal fences and preserves app/index/Story bytes',
+  { skip: process.platform !== 'darwin' || !existsSync('/usr/bin/expect') }, async (t) => {
+    const f = await fixture(t, (definition) => {
+      definition.workTypes.sibling = { ...structuredClone(definition.workTypes.baseline), label: 'Sibling' };
+    });
+    const request = sharedPhaseRequest(f); const p = await preview(f, request);
+    const storyPath = path.join(f.root, 'singularity/work-items/KEEP/context/retained-skill-pin.json');
+    await mkdir(path.dirname(storyPath), { recursive: true }); await writeFile(storyPath, '{"exactPrivateSentinel":"unchanged"}\n');
+    await writeFile(path.join(f.root, 'contributor-note.txt'), 'Private staged application bytes\n'); git(f.root, 'add', 'contributor-note.txt');
+    const before = { refs: git(f.root, 'show-ref'), head: git(f.root, 'rev-parse', 'HEAD'), status: git(f.root, 'status', '--porcelain'),
+      index: await readFile(path.join(f.root, '.git/index')), workflow: await readFile(path.join(f.root, 'singularity/workflow.yml')),
+      story: await readFile(storyPath) };
+    const code = `
+      import {previewWorkflowDraftPackage} from ${JSON.stringify(new URL('../src/wca-compiler.mjs', import.meta.url).href)};
+      import {captureTerminalActionAuthorization} from ${JSON.stringify(new URL('../src/action-authorization.mjs', import.meta.url).href)};
+      import {createWorkflowDraftReviewProposal,workflowDraftSubmissionPlan} from ${JSON.stringify(new URL('../src/wca-submission.mjs', import.meta.url).href)};
+      const root=${JSON.stringify(f.root)};
+      try {
+        const preview=await previewWorkflowDraftPackage(root,{draftId:'WFD-COMPILER1',revision:1});
+        const review=workflowDraftSubmissionPlan(preview);
+        const grant=await captureTerminalActionAuthorization(root,review.plan,review.action,{label:'Create review proposal'});
+        const result=await createWorkflowDraftReviewProposal(root,{draftId:'WFD-COMPILER1',revision:1,
+          expectedPlanSha256:${JSON.stringify(p.result.planSha256)},confirmation:grant.token});
+        console.log('SHARED_PHASE_RESULT:'+JSON.stringify({ok:true,result}));
+      }catch(error){console.log('SHARED_PHASE_RESULT:'+JSON.stringify({ok:false,error:{code:error.code,message:error.message}}));}
+    `;
+    const script = `set timeout 40\nspawn -noecho $env(SF_SHARED_NODE) --input-type=module -e $env(SF_SHARED_CODE)\nexpect {\n -exact {Type Create review proposal} { send -- "Create review proposal\\r" }\n timeout { exit 124 }\n eof { exit 125 }\n}\nexpect { eof {} timeout { exit 124 } }\nset result [wait]\nexit [lindex $result 3]\n`;
+    const observed = await new Promise((resolve, reject) => {
+      const child = spawn('/usr/bin/expect', ['-c', script], { cwd: f.root, env: { ...process.env,
+        NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Shared Phase Fixture', SINGULARITY_FLOW_DISABLE_MODELS: '1',
+        SF_SHARED_NODE: process.execPath, SF_SHARED_CODE: code }, stdio: ['pipe', 'pipe', 'pipe'] });
+      let output = ''; const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Private shared-phase PTY fixture timed out')); }, 50000);
+      child.stdout.on('data', (chunk) => { output += chunk; }); child.stderr.on('data', (chunk) => { output += chunk; });
+      child.on('error', (error) => { clearTimeout(timer); reject(error); });
+      child.on('close', (status) => { clearTimeout(timer); resolve({ status, output }); });
+    });
+    assert.equal(observed.status, 0, observed.output.slice(-2000));
+    const matched = observed.output.match(/SHARED_PHASE_RESULT:(\{[^\r\n]+\})/u); assert.ok(matched, observed.output.slice(-2000));
+    const answer = JSON.parse(matched[1]); assert.equal(answer.ok, true, JSON.stringify(answer)); const result = answer.result;
+    assert.equal(result.reviewRequired, true); assert.equal(result.approval, 'not-granted'); assert.equal(result.activation, 'inactive');
+    assert.equal(git(f.root, '--git-dir', f.remote, 'rev-parse', 'refs/heads/sflow/config'), f.commit);
+    assert.equal(git(f.root, '--git-dir', f.remote, 'rev-parse', 'refs/heads/main'), f.commit);
+    const snapshot = JSON.parse(git(f.root, '--git-dir', f.remote, 'show', `${result.commit}:${result.snapshotPath}`));
+    assert.deepEqual(validateWorkflowDraftSubmissionSnapshot(snapshot), snapshot);
+    assert.deepEqual(snapshot.inputs.request, request); assert.deepEqual(snapshot.preview.sharedObjectChanges, p.result.sharedObjectChanges);
+    const candidate = YAML.parse(git(f.root, '--git-dir', f.remote, 'show', `${result.commit}:singularity/workflow.yml`));
+    const expected = structuredClone(f.definition); expected.phases.intake = request.definitions.phases[0].replacement;
+    assert.deepEqual(candidate, expected);
+    assert.deepEqual(git(f.root, '--git-dir', f.remote, 'diff-tree', '--no-commit-id', '--name-only', '-r', result.commit).split('\n').sort(),
+      ['singularity/workflow.yml', result.snapshotPath].sort());
+    assert.equal(git(f.root, 'rev-parse', 'HEAD'), before.head); assert.equal(git(f.root, 'status', '--porcelain'), before.status);
+    assert.deepEqual(await readFile(path.join(f.root, '.git/index')), before.index);
+    assert.deepEqual(await readFile(path.join(f.root, 'singularity/workflow.yml')), before.workflow);
+    assert.deepEqual(await readFile(storyPath), before.story);
+    for (const ref of before.refs.split('\n').filter((row) => row.endsWith('refs/heads/main') || row.endsWith('refs/heads/sflow/config'))) {
+      assert.ok(git(f.root, 'show-ref').split('\n').includes(ref));
+    }
+  });
 
 test('workflow-only edit and linked fork bind exact raw parent and preserve omitted advanced policy with full impact', async (t) => {
   for (const intent of ['edit', 'fork']) await t.test(intent, async (child) => {

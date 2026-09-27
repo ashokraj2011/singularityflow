@@ -260,6 +260,13 @@
       },
       "digest": "9a33537154d9a6797adf9d8bb9d4b0e52cc07bd419f4cd8dc63d223b1462726b"
     },
+    "scripts/skp-qualification.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "727d7ca7449d27e8fe4963671f3b6f79064d9bfd7469eec83549742aa99281f7"
+    },
     "scripts/stamp-agent-models.mjs": {
       "counts": {
         "process-import": 1,
@@ -1317,9 +1324,9 @@
     },
     "package.json": {
       "counts": {
-        "package-script": 60
+        "package-script": 63
       },
-      "digest": "14399b7fbc883cac40c25b48091c119fd451e0f673af14e62c0acf3d6992f24d"
+      "digest": "1c252592cd970540df649f0adeda857ad1b2634efd43fa72a5e8f172365e0458"
     },
     "apps/vscode/package.json": {
       "counts": {

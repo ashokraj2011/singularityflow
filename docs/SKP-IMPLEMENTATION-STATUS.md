@@ -38,9 +38,41 @@ Code recipes also require `--planned-claims required --clause-phases <CRITERIA> 
 
 ## Remaining work
 
-1. Qualify authenticated mediated-host confirmation, simulation beyond the supported Story structural profile and installed-host/crash/Linux/Windows private recovery. Workflow-only edits and selected-Story reads do not cover shared-object mutation, all consumers, global Story inventory or native provider-principal/revocation qualification. Terminal-local inactive finalization is not full M4 readiness.
+1. Implement/integrate authenticated mediated-host confirmation and broader shared-agent/template/skill edits; qualify installed-host/crash/Linux/Windows private recovery. Exact ordinary shared-phase edits now bind every declared consumer in the captured catalog, but do not cover global Story/history inventory or native provider-principal/revocation qualification. Simulation now projects prospective package-amendment invalidation; historical receipt validation and contract/parser/adapter/runtime changes remain separate. Terminal-local inactive finalization is not full M4 readiness.
 2. Qualify live-directory capture against hostile ancestor swaps and implement a real M5 host adapter with native enforcement and exact delivery evidence. Keep execution closed meanwhile.
 3. Run actual two-client shared-authoring and mixed/code/non-code Story pilots and collect M6 release evidence.
+
+## September 27 source-side completion pass
+
+The user confirmed that no approved isolated runner or Windows/Linux test hosts are available.
+No imported-skill execution or release qualification is enabled by this pass.
+
+- **Shared phase review:** explicit `wca-shared-phase-impact/v1` requests replace exact ordinary
+  raw phases through fresh Preview and the existing separately authorized proposal writer.
+  Complete bounded reverse catalog impact, effective overrides and all affected workflow
+  simulations are bound into review. Only selected phase YAML changes; app files, approved refs
+  and Story pins remain unchanged. Agent/template/skill/effect mutations are not supported.
+  `test/wca-shared-phase-changes.test.mjs`, `test/wca-compiler.test.mjs`.
+- **Broader structural simulation:** the existing skill amendment planner identifies affected,
+  preserved and unknown phases for prospective single-package changes. Hypothetical fresh
+  publication/review invalidates only dependent evidence and preserves proven-independent
+  approvals. Unknown dependencies and unavailable generations refuse reuse. Retained historical
+  submission readers continue checking their stored reports, not today's simulation output.
+  `test/wca-simulation.test.mjs`.
+- **Qualification and pilot tooling:** `npm run qualification:skp` is read-only;
+  `npm run test:platform:skp` runs fixed bounded checkout fixtures. Its source-bound, content-free
+  report distinguishes actual local Git/CLI/PTY observations from native installed-host and
+  human evidence. `npm run test:release:skp` returns 2 for missing qualification. The pilot plan
+  records prerequisite and denominator/timing/merge/Passport fields without creating a pilot
+  result. Source-checkout commands have no product Copilot equivalent; Copilot may explicitly
+  run these shell commands but cannot qualify itself. `test/skp-qualification.test.mjs`.
+
+The real adapter is still missing. The registered model provider is Copilot CLI: its current ACP
+permission/post-run checks do not prove pre-effect read, egress, credential or control-plane
+containment. Local staged-prompt verification is not exact host delivery acknowledgement.
+Connecting supplied evidence labels to lifecycle admission would not fix those missing controls.
+M5 requires an approved existing host/runner and observed enforcement; M6 requires actual human
+clients and end-to-end accepted Stories. The test harness is tooling, not their completion.
 
 ## Delivered terminal-local skill finalization
 

@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 25
+version: 26
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -259,7 +259,35 @@ No existing Story is repinned. Impact is configuration-only, not a complete reta
 cross-repository inventory; external dependency content and host enforcement are not inferred.
 A stale parent, approved source or plan requires a fresh Preview and separate terminal review.
 Submission still creates only a configuration review proposal, not approval, activation or
-execution. Shared-object editing and imported-skill execution remain unavailable.
+execution. The explicit shared-phase review profile below supports bounded ordinary phase edits;
+shared agent/template/skill/effect changes and imported-skill execution remain unavailable.
+
+### Review an ordinary shared phase change
+
+An advanced `sflow-workflow-request@2` edit can select the explicit
+`wca-shared-phase-impact/v1` profile. Each `changes` row names `kind: phase`, `operation: edit`,
+the exact existing phase ID and `expectedDefinitionSha256` of its raw approved definition.
+Its paired `definitions.phases` row contains that ID and the complete raw `replacement` object.
+Do not substitute an effective/default-filled phase for the raw parent. Other definition groups,
+resources, binding aliases and executable proposals cannot be mixed into this profile.
+
+Preview binds and displays all declared reverse consumers in the captured configuration,
+including dependent phases, agents, MCP scopes and workflows. Every affected workflow is resolved
+and structurally simulated; overridden or masked fields are distinguished from effective changes.
+An exceeded limit refuses the whole plan rather than hiding consumers. Only reviewed ordinary
+phase display, artifact, template selection, input, approval, repair, clarification,
+specification-quality and test-evidence fields can change. Producer, generation, source-write,
+command, tool and unknown-extension policy stays byte-identical. Structural changes to a producer
+consumed by an exact skill binding require separately recompiled consent; they cannot reuse a stale
+binding. Agent/template bytes, retained Story inventory and other repositories are not assessed.
+
+Save the advanced draft through the existing authoring owner, then use Shell
+`singularity-flow workflow author preview WFD-<ID> --revision <N> --json` or Copilot
+`/sf-workflows author preview WFD-<ID> --revision <N> --json`. The separate Shell
+`singularity-flow workflow author submit WFD-<ID> --revision <N> --json` or Copilot
+`/sf-workflows author submit WFD-<ID> --revision <N> --json` follows the existing terminal review.
+The proposal overlays only selected raw phase definitions in the approved YAML. It does not
+rewrite application files, approve configuration, repin a Story or grant execution.
 
 ## Simulate a Story workflow before submitting it
 
@@ -276,7 +304,12 @@ The full bounded report is available in Preview JSON; the UI labels a shortened 
 The `story-structural-lifecycle/v1` profile exercises ordered progression, generation-zero and
 publication gates, ordinary and skill input/output relationships, declared artifact-set members,
 reviewer thresholds, quality-check refusal, human and external-prerequisite waits, rework
-invalidation, repair-budget exhaustion and completion. It uses shared lifecycle, evidence-policy,
+invalidation, repair-budget exhaustion, prospective skill-package amendment invalidation and
+completion. Package-change scenarios use the existing dependency planner to identify affected,
+proven-independent and unknown phases. They project fresh generations/reviews only for affected
+phases and retain independent approvals unchanged; unknown impact or an unavailable publishable
+generation yields an explicit refusal scenario. These are not real amendment decisions, observed
+receipts or grants. It uses shared lifecycle, evidence-policy,
 sequence, approval and repair-budget predicates; it does not create a second execution owner.
 Configured reviewer capacity is checked with distinct identity-to-required-group matching, not
 just the total number of names across groups.
@@ -297,6 +330,23 @@ select one exact workflow. The simulation profile and exact reports form part
 of the Preview plan hash. Changed drafts, configuration or simulation interpretation require a new
 Preview and separate review; an old plan cannot authorize new bytes. A complete structural report
 does not bypass other package findings or enable imported skill execution.
+
+### Run the checkout qualification harness
+
+These developer commands run from the source checkout, not an installed npm package. Shell
+`npm run qualification:skp` produces a read-only plan. Shell `npm run test:platform:skp` executes
+a fixed bounded set of contract, local Git/two-client, real CLI/controller and eligible local
+terminal fixtures. There is no Copilot product command for this release harness; Copilot can run
+these exact shell commands explicitly in the source checkout, but cannot attest an installed host
+or human pilot. It cannot accept arbitrary test paths, imported attestations or approval flags.
+
+The content-free report binds source/test byte digests and observed local OS/Node/Git identity,
+discloses failures, skips, TODOs, cancellation, unavailable cells and source drift, and keeps real
+native enforcement, installed artifacts and human pilots separate. `npm run test:release:skp`
+also requires release qualification and exits 2 while that evidence is missing. Passing fixture
+tests exit 0 without turning `not-qualified` into a release pass. The included pilot measurement
+plan records prerequisites, attempts, timing/waits, failures, merge and Change Passport observations;
+it does not invent participants, observations or permission to launch an imported skill.
 
 ## Submit separately for configuration review
 

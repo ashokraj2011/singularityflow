@@ -9,6 +9,7 @@ import { compileConfirmedSkillPhase, configurationPhaseFromCompiledSkill, skillC
   skillContractSha256, skillPhaseCandidateSha256 } from '../src/skp-contract.mjs';
 import { simulateResolvedWorkflowLifecycle, WORKFLOW_LIFECYCLE_SIMULATION_PROFILE,
   WORKFLOW_LIFECYCLE_SIMULATION_LIMITS } from '../src/workflow-lifecycle-simulation.mjs';
+import { planSkillAmendmentEvidence } from '../src/skp-amendment-plan.mjs';
 
 const hash = (char) => `sha256:${char.repeat(64)}`;
 function definition() {
@@ -262,15 +263,15 @@ test('ordinary input cycles, unbounded loops and mismatched effective loop budge
   assert.equal(report.status, 'invalid'); assert.ok(report.findings.some((finding) => finding.code === 'WCA_SIMULATION_REWORK_BUDGET_MISMATCH'));
 });
 
-function skillFixture(extraOutputs = []) {
+function skillFixture(extraOutputs = [], { primaryOutputId = 'notes' } = {}) {
   const phase = { id: 'analysis', kind: 'skill', label: 'Analysis', skill: { id: 'analysis-skill', packageSha256: hash('a') }, contract: {
     task: 'analyze', consumes: [{ phase: 'intake', output: 'primary', required: true, state: 'approved' }],
-    produces: [{ id: 'notes', path: 'artifacts/analysis/analysis.md', kind: 'custom:notes', mediaType: 'text/markdown', encoding: 'utf-8', minimumBytes: 20, maximumBytes: 16384, clauses: 'none', claimRole: 'findings' }, ...extraOutputs],
+    produces: [{ id: primaryOutputId, path: 'artifacts/analysis/analysis.md', kind: 'custom:notes', mediaType: 'text/markdown', encoding: 'utf-8', minimumBytes: 20, maximumBytes: 16384, clauses: 'none', claimRole: 'findings' }, ...extraOutputs],
     checks: [], writeScope: 'artifact-only', readScope: { inputs: true, sourcePaths: [] }, approval: { authorities: ['reviewers'], minimum: 1 }
   } };
   const catalog = { skillPackages: { 'analysis-skill': { packageSha256: hash('a'), eligibility: 'candidate-producer' } }, phases: { intake: { outputs: [{ id: 'primary', path: 'artifacts/intake/intake.md' }] } }, checks: {}, approvalAuthorities: definition().approvalAuthorities, approvalSecurity: { profile: 'team' }, readPaths: [], sourceScopes: {}, artifactSets: {} };
   if (extraOutputs.length) {
-    phase.contract.primaryOutput = 'notes'; phase.contract.artifactSet = 'analysis-outputs';
+    phase.contract.primaryOutput = primaryOutputId; phase.contract.artifactSet = 'analysis-outputs';
     catalog.artifactSets['analysis-outputs'] = { primary: 'analysis.md', members: phase.contract.produces.map((output) => ({
       path: output.path.slice('artifacts/analysis/'.length), role: output.id, required: output.required !== false, authority: 'governed'
     })) };
@@ -297,6 +298,97 @@ test('confirmed multi-output skills join the exact governed artifact set and sel
   assert.equal(find(report, 'optional-output:analysis:extra').events[1].disposition, 'refused-exact-selected-output-required');
   const altered = structuredClone(resolved); const set = altered.artifactSets[altered.phases[1].artifactSet]; set.members[1].required = true;
   assert.ok(simulateResolvedWorkflowLifecycle(altered).findings.some((finding) => finding.code === 'WCA_SIMULATION_SKP_ARTIFACT_SET_INVALID'));
+});
+
+function amendmentFixture({ sharedPackage = false } = {}) {
+  const value = definition(); value.version = 3;
+  const order = ['intake', 'analysis', 'audit', 'review', 'conformance'];
+  const selected = order.slice(1).map((id) => ({ id,
+    skillId: sharedPackage && ['analysis', 'audit'].includes(id) ? 'shared-skill' : `${id}-skill`,
+    producer: ['analysis', 'audit'].includes(id) ? 'intake' : id === 'review' ? 'analysis' : 'review' }));
+  const catalog = { skillPackages: Object.fromEntries(selected.map(({ skillId }) => [skillId,
+    { packageSha256: hash('a'), eligibility: 'candidate-producer' }])),
+  phases: Object.fromEntries(order.map((id) => [id, { outputs: [{ id: id === 'intake' ? 'primary' : 'notes',
+    path: `artifacts/${id}/${id}.md` }] }])), checks: {}, approvalAuthorities: value.approvalAuthorities,
+  approvalSecurity: { profile: 'team' }, readPaths: [], sourceScopes: {}, artifactSets: {} };
+  const catalogSha256 = skillCandidateCatalogSha256(catalog);
+  for (const { id, skillId, producer } of selected) {
+    const phase = { id, kind: 'skill', label: id, skill: { id: skillId, packageSha256: hash('a') }, contract: {
+      task: 'analyze', consumes: [{ phase: producer, output: producer === 'intake' ? 'primary' : 'notes', required: true, state: 'approved' }],
+      produces: [{ id: 'notes', path: `artifacts/${id}/${id}.md`, kind: 'custom:notes', mediaType: 'text/markdown',
+        encoding: 'utf-8', minimumBytes: 20, maximumBytes: 16384, clauses: 'none', claimRole: 'findings' }],
+      checks: [], writeScope: 'artifact-only', readScope: { inputs: true, sourcePaths: [] },
+      approval: { authorities: ['reviewers'], minimum: 1 }
+    } };
+    const compiled = compileConfirmedSkillPhase({ phase, catalog, phaseOrder: order,
+      confirmation: { contractSha256: skillContractSha256(id, phase.contract), catalogSha256, packageSha256: hash('a'),
+        candidateSha256: skillPhaseCandidateSha256(phase, order, catalogSha256), planSha256: hash('b'), draftRevision: 1 } });
+    value.phases[id] = configurationPhaseFromCompiledSkill(compiled);
+  }
+  value.workTypes.notes.phases = order;
+  return resolveWorkType(value, 'notes');
+}
+
+test('hypothetical package amendment shares the owner dependency proof and revalidates dependents while preserving independent approvals', () => {
+  const resolved = amendmentFixture(); const before = structuredClone(resolved);
+  const expected = planSkillAmendmentEvidence(resolved, { replacedSkillIds: ['analysis-skill'] });
+  const report = simulateResolvedWorkflowLifecycle(resolved);
+  assert.equal(report.status, 'complete-for-profile', JSON.stringify(report.findings));
+  const amendment = find(report, 'package-amendment:analysis-skill');
+  assert.equal(amendment.outcome, 'expected-transition'); assert.equal(amendment.dependencyProof, 'ready');
+  assert.deepEqual(amendment.affectedPhases, expected.affectedPhaseIds);
+  assert.deepEqual(amendment.preservedPhases, expected.preservedPhaseIds);
+  assert.deepEqual(amendment.revalidatedPhases, ['analysis', 'review', 'conformance']);
+  assert.deepEqual(amendment.preservedPhases, ['intake', 'audit']);
+  assert.equal(amendment.preservedEvidenceUnchanged, true);
+  assert.equal(amendment.priorAffectedApprovals, 'invalidated');
+  assert.equal(amendment.priorGenerations, 'retained-but-not-fresh');
+  const progression = amendment.events.filter((event) => event.action === 'new-publication-and-review-assumed');
+  assert.equal(progression[0].to, 'review', 'the transition owner skips the approved independent audit');
+  assert.equal(progression.at(-1).to, 'complete');
+  assert.equal(amendment.actualAmendment, 'not-created'); assert.equal(amendment.actualReceiptAcceptance, 'not-assessed');
+  assert.equal(amendment.observed, false); assert.equal(report.effects.executed, false);
+  assert.ok(report.coverage.dimensions.includes('skill-amendment-invalidation'));
+  assert.ok(report.coverage.excluded.includes('historical-amendment-impact'));
+  assert.deepEqual(resolved, before);
+  assert.deepEqual(report, simulateResolvedWorkflowLifecycle(structuredClone(resolved)));
+});
+
+test('one hypothetical package replacement covers every selected phase sharing that package', () => {
+  const report = simulateResolvedWorkflowLifecycle(amendmentFixture({ sharedPackage: true }));
+  assert.equal(report.status, 'complete-for-profile', JSON.stringify(report.findings));
+  const amendment = find(report, 'package-amendment:shared-skill');
+  assert.deepEqual(amendment.affectedPhases, ['analysis', 'audit', 'review', 'conformance']);
+  assert.deepEqual(amendment.preservedPhases, ['intake']);
+  assert.equal(report.scenarios.filter((scenario) => scenario.id === 'package-amendment:shared-skill').length, 1);
+});
+
+test('unknown amendment dependencies refuse selective reuse without changing ordinary structural readiness or inventing independence', () => {
+  const resolved = skillFixture(); const before = structuredClone(resolved);
+  const report = simulateResolvedWorkflowLifecycle(resolved);
+  assert.equal(report.status, 'complete-for-profile');
+  const amendment = find(report, 'package-amendment:analysis-skill');
+  assert.equal(amendment.outcome, 'expected-refusal'); assert.equal(amendment.dependencyProof, 'blocked');
+  assert.deepEqual(amendment.affectedPhases, ['analysis']);
+  assert.deepEqual(amendment.unknownPhases, ['conformance']);
+  assert.deepEqual(amendment.preservedPhases, ['intake']);
+  assert.equal(amendment.preservedEvidenceReuse, 'not-authorized');
+  assert.equal(amendment.revalidation, 'not-projected');
+  assert.equal(amendment.events[0].disposition, 'refused-dependency-unproven');
+  assert.deepEqual(resolved, before);
+});
+
+test('dependency-proven amendment still refuses an affected phase with no publishable generation', () => {
+  const resolved = skillFixture([], { primaryOutputId: 'primary' });
+  resolved.phases[2].inputs = [{ phase: 'analysis', optional: false }];
+  resolved.phases[2].generation.requirement = 'none';
+  const report = simulateResolvedWorkflowLifecycle(resolved);
+  assert.equal(report.status, 'complete-for-profile', JSON.stringify(report.findings));
+  const amendment = find(report, 'package-amendment:analysis-skill');
+  assert.equal(amendment.dependencyProof, 'ready'); assert.equal(amendment.outcome, 'expected-refusal');
+  assert.deepEqual(amendment.affectedPhases, ['analysis', 'conformance']);
+  assert.equal(amendment.events[0].disposition, 'refused-generation-unavailable');
+  assert.equal(amendment.actualAmendment, 'not-created');
 });
 
 test('unconfirmed skill proposal is incomplete and never receives an invented runtime binding', () => {

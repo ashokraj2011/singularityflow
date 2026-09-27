@@ -5,6 +5,7 @@ import { approvalPolicyCapacity, approvalRequirementsMet, remainingRequiredAutho
 import { normalizeReworkLoops, normalizeRepairBudget, repairBudgetPhaseForRejection, consumeRepairAttempt } from './repair-budget.mjs';
 import { advanceCompletedPhase, reopenPhaseRange } from './lifecycle-transitions.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
+import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import path from 'node:path';
 import { assertPlannedClaimsReady } from './config.mjs';
 import { resolvedArtifactSet, memberRoot } from './artifact-sets.mjs';
@@ -16,13 +17,15 @@ export const WORKFLOW_LIFECYCLE_SIMULATION_LIMITS = Object.freeze({ phases: 64, 
   nodes: 50000, depth: 32 });
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const DIMENSIONS = ['progression', 'generation-publication', 'input-output-continuity', 'approval-waits',
-  'approval-thresholds', 'quality-refusal', 'external-prerequisites', 'rework-invalidation', 'repair-budgets', 'completion'];
+  'approval-thresholds', 'quality-refusal', 'external-prerequisites', 'rework-invalidation',
+  'skill-amendment-invalidation', 'repair-budgets', 'completion'];
 const ASSUMPTIONS = Object.freeze([
   'All projected output bytes, published generations, successful checks and human decisions are hypothetical scenario inputs, not observed evidence.',
   'Configured reviewer capacity is static policy feasibility, not authenticated provider membership or actual human availability.',
   'Policy-waiver eligibility is not inferred; the human-review fallback is exercised.',
   'No real host enforcement, model behavior, artifact content, command outcome, network availability or execution readiness is established.',
-  'Confirmed SKP provenance is supplied by the configuration owner; this report creates no confirmation or evidence acceptance.'
+  'Confirmed SKP provenance is supplied by the configuration owner; this report creates no confirmation or evidence acceptance.',
+  'Skill-package amendments are proposed one at a time against declared dependencies; accepted lineage, retained receipts and reviewed adoption are not observed.'
 ]);
 const EXCLUDED = ['native-host-enforcement', 'real-artifact-or-receipt-validation', 'human-availability',
   'provider-membership', 'command-or-model-behavior', 'publication-and-approval-evidence', 'active-Story-state',
@@ -340,6 +343,76 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
         event('prepare-later-phase', 'not_started', 'not_started', sequenceGateMode(initial, 'currentPhase') === 'soft' ? 'human-override-required-not-assumed' : 'refused', 'sequence:evaluateSequence')
       ]);
       if (outOfOrder.allowed) finding('WCA_SIMULATION_SEQUENCE_UNREACHABLE');
+    }
+    const selectedSkillIds = [...new Set(captured.phases.filter((phase) => phase.kind === 'skill')
+      .map((phase) => phase.skillBinding.bindingRefs.skill?.id))];
+    for (const skillId of selectedSkillIds) {
+      if (!validId(skillId)) throw failure('WCA_SIMULATION_INVALID');
+      const impact = planSkillAmendmentEvidence(captured, { replacedSkillIds: [skillId] });
+      const detail = { skillId, affectedPhases: [...impact.affectedPhaseIds],
+        preservedPhases: [...impact.preservedPhaseIds], unknownPhases: impact.unknown.map(({ phaseId }) => phaseId),
+        dependencyProof: impact.status, assurance: 'hypothetical-dependency-only',
+        actualAmendment: 'not-created', actualReceiptAcceptance: 'not-assessed', observed: false };
+      if (impact.status !== 'ready') {
+        scenario(`package-amendment:${skillId}`, null, 'unknown-dependencies-refuse-selective-reuse', 'expected-refusal', [
+          event('proposed-package-replacement', 'pinned-package', 'pinned-package',
+            'refused-dependency-unproven', 'skp:planSkillAmendmentEvidence')
+        ], { ...detail, revalidation: 'not-projected', preservedEvidenceReuse: 'not-authorized' });
+        continue;
+      }
+      if (impact.affectedPhaseIds.some((id) => happy.phases[id].generationPolicy.requirement === 'none')) {
+        scenario(`package-amendment:${skillId}`, null, 'affected-evidence-requires-publishable-generation', 'expected-refusal', [
+          event('proposed-package-replacement', 'pinned-package', 'pinned-package',
+            'refused-generation-unavailable', 'state:assertSelectableSkillAmendmentReopen')
+        ], { ...detail, revalidation: 'not-projected', preservedEvidenceReuse: 'not-authorized' });
+        continue;
+      }
+      // This private aggregate only projects the existing reviewed owner's post-adoption state.
+      // It is never returned as Story state, approval evidence or an accepted amendment record.
+      const projected = structuredClone(happy);
+      const preservedBefore = impact.preservedPhaseIds.map((id) => JSON.stringify(projected.phases[id]));
+      const first = impact.affectedPhaseIds[0];
+      const amendment = { status: 'approved', affectedPhaseIds: [...impact.affectedPhaseIds],
+        preservedPhaseIds: [...impact.preservedPhaseIds] };
+      projected.skillVersionAmendments = [amendment]; projected.status = 'in_progress'; projected.currentPhase = first;
+      for (const [index, id] of impact.affectedPhaseIds.entries()) {
+        const phase = projected.phases[id];
+        phase.approvals = phase.approvals.map((approval) => ({ ...approval, invalidatedAt: at(1000) }));
+        phase.status = index ? 'not_started' : 'in_progress';
+        phase.skillAmendmentRevalidation = { state: 'affected', generationAtAdoption: phase.generation };
+        if (!phaseNeedsGeneration(projected, phase)
+            || phase.approvalPolicy.mode !== 'none' && approvalRequirementsMet(phase.approvalPolicy, phase.approvals)) {
+          throw failure('WCA_SIMULATION_OWNER_MISMATCH');
+        }
+      }
+      const amendmentEvents = [
+        event('reviewed-adoption-assumed', 'pinned-package', 'reviewed-package',
+          'hypothetical-separate-human-decision', 'state:storySkillVersionDecision'),
+        event('selective-revalidation-assumed', 'approved-evidence', 'affected-evidence-stale',
+          'old-generations-and-approvals-not-reusable', 'sequence:phaseNeedsGeneration')
+      ];
+      const revalidatedPhases = [];
+      for (const id of impact.affectedPhaseIds) {
+        const phase = projected.phases[id];
+        if (projected.currentPhase !== id || !evaluateSequence(projected, { requestedPhase: id }).allowed) {
+          throw failure('WCA_SIMULATION_OWNER_MISMATCH');
+        }
+        phase.generation += 1;
+        if (phaseNeedsGeneration(projected, phase)) throw failure('WCA_SIMULATION_OWNER_MISMATCH');
+        phase.approvals = phase.approvalPolicy.mode === 'none' ? [] : symbolicApprovals(phase.approvalPolicy);
+        phase.status = 'approved'; revalidatedPhases.push(id);
+        const upcoming = advanceCompletedPhase(projected, phase, at(1001 + revalidatedPhases.length));
+        amendmentEvents.push(event('new-publication-and-review-assumed', id, upcoming?.id ?? 'complete',
+          'conditional-on-fresh-evidence-skips-only-approved-independent-phases', 'lifecycle:advanceCompletedPhase'));
+      }
+      const preservedUnchanged = impact.preservedPhaseIds.every((id, index) =>
+        JSON.stringify(projected.phases[id]) === preservedBefore[index]);
+      if (!preservedUnchanged || projected.status !== 'complete') throw failure('WCA_SIMULATION_OWNER_MISMATCH');
+      scenario(`package-amendment:${skillId}`, first, 'reviewed-replacement-revalidates-only-proven-dependents', 'expected-transition',
+        amendmentEvents, { ...detail, revalidatedPhases, preservedEvidenceUnchanged: preservedUnchanged,
+          priorGenerations: 'retained-but-not-fresh', priorAffectedApprovals: 'invalidated',
+          conditions: ['verified-accepted-lineage', 'separate-reviewed-package-adoption', 'fresh-publication-and-required-human-approval',
+            'qualified-host-before-real-skill-execution'] });
     }
     for (const phase of captured.phases) for (const targetId of phase.approval.rejectTo ?? []) {
       if (!validId(targetId)) throw failure('WCA_SIMULATION_INVALID');

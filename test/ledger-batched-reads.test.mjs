@@ -209,7 +209,10 @@ test('a state refresh does not fetch again when the tracking ref already names t
   git(reader, ['reflog', 'expire', '--expire=now', '--all']);
   git(reader, ['gc', '--prune=now', '--quiet']);
   assert.notEqual(git(reader, ['cat-file', '-e', `${observed}^{commit}`], { allowFailure: true }).status, 0);
-  await writeFile(path.join(reader, '.git', 'refs', 'remotes', 'origin', 'state'), `${observed}\n`);
+  // gc packed every remote ref; with no loose origin/HEAD left, it also removed their directory.
+  const looseRef = path.join(reader, '.git', 'refs', 'remotes', 'origin', 'state');
+  await mkdir(path.dirname(looseRef), { recursive: true });
+  await writeFile(looseRef, `${observed}\n`);
   const missing = await remoteCommands();
   assert.equal(missing.fetches, 1, 'a missing object is fetched even when the tracking ref matches');
   assert.equal(git(reader, ['cat-file', '-e', `${observed}^{commit}`], { allowFailure: true }).status, 0);

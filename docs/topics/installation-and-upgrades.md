@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 23
+version: 24
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -253,8 +253,11 @@ on every surface before the command runs, then continues the command on the new 
   A requirement raised before its release was published installs nothing; publish the build there.
 - When the machine already runs the required build on PATH (a VS Code window that has not reloaded
   yet), the command continues on that build instead of installing the release again.
-- The check reads the approved file at most once a day per repository while the build satisfies
-  it. A repository without the file never pays for it. A development checkout never updates itself.
+- The check reads each repository's approved configuration at most once a day per build, on the
+  first mutation, whether or not the working tree carries the file: approved configuration lives on
+  `sflow/config`, and a Story pins its own copy when it starts, so neither `main` nor an older
+  Story has it. A requirement file written after the last check, such as a new Story's copy, is read
+  at once. A development checkout never updates itself.
 - A failed download or install never fails the command: it says what to run and continues on the
   current build. Set `SINGULARITY_FLOW_PRODUCT_UPDATE=off` to switch the check off.
 

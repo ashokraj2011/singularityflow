@@ -159,8 +159,9 @@ release:
 ```
 
 The reviewed file is the organisation's trust channel for the artifact-builder key, so the key is
-never taken from the release location itself. After the review merges, a teammate's next mutation
-in that repository on an older build installs the release on every surface. The installer verifies
+never taken from the release location itself. After the review merges, a teammate on an older build
+installs the release on every surface at their first mutation in that repository after its daily
+check, on `main` or any Story, and at once in a Story started after the merge. The installer verifies
 the signature, snapshots rollback bytes and restores every surface if a step fails, then continues
 the command on the new build. A `singularity/product.yml` that exists only in a working tree
 installs nothing.

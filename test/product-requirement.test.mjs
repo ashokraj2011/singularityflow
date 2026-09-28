@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -281,23 +281,51 @@ test('a requirement check never fails the command it precedes', async (t) => {
   assert.equal(Object.values(checks.repositories)[0].verdict, 'none', 'the last verdict is recorded per repository');
 });
 
-test('only a repository whose configuration carries a requirement pays for the check, and a verdict stands for a day', async (t) => {
+test('every repository is checked at most once a day per build, with or without the file in its working tree', async (t) => {
   const root = await temporary(t, 'sflow-requirement-repo-');
   const home = await temporary(t, 'sflow-requirement-machine-');
+  const HOUR = 60 * 60 * 1000;
+  const T0 = Date.parse('2026-09-28T00:00:00.000Z');
   const due = (overrides = {}) => productRequirementDue({
     root, command: 'next', classification: 'mutation', homeDirectory: home, environment: {}, info: OLDER, ...overrides
   });
-  assert.equal(await due(), null, 'no requirement file, no check');
-  await mkdir(path.join(root, 'singularity'), { recursive: true });
-  await writeFile(path.join(root, 'singularity', 'product.yml'), 'schemaVersion: 1\n');
-  assert.match(await due(), /^0\.9\.0 \(a{40}/u);
+  const verdict = async (at, read) => enforceProductRequirement({
+    root, runningBuild: versionLine(OLDER), argv: ['next'], homeDirectory: home, write: () => {}, info: OLDER,
+    now: () => new Date(at).toISOString(), read, pathBuild: () => null
+  });
+  const satisfied = async () => ({
+    requirement: { minimumBuild: { builtAt: '2026-01-01T00:00:00.000Z', commit: null } }, authority: { commit: 'e'.repeat(40) }
+  });
+  const unreachable = async () => { throw Object.assign(new Error('offline'), { code: 'NETWORK' }); };
+  const requirementFile = path.join(root, 'singularity', 'product.yml');
+  const writeRequirement = async (modifiedAt) => {
+    await mkdir(path.dirname(requirementFile), { recursive: true });
+    await writeFile(requirementFile, 'schemaVersion: 1\n');
+    await utimes(requirementFile, new Date(modifiedAt), new Date(modifiedAt));
+  };
+
+  // Approved configuration lives on sflow/config and a Story pins its own copy, so neither main nor
+  // an older Story carries the file: its absence is no evidence of anything.
+  assert.match(await due({ now: T0 }), /^0\.9\.0 \(a{40}/u, 'no verdict yet: checked without a requirement file');
   assert.equal(await due({ classification: 'read' }), null, 'reads never update');
   assert.equal(await due({ environment: { SINGULARITY_FLOW_PRODUCT_UPDATE: 'off' } }), null);
   assert.equal(await due({ info: DEVELOPMENT }), null);
-  await enforceProductRequirement({
-    root, runningBuild: await due(), argv: ['next'], homeDirectory: home, write: () => {}, info: OLDER,
-    read: async () => ({ requirement: { minimumBuild: { builtAt: '2026-01-01T00:00:00.000Z', commit: null } }, authority: { commit: 'e'.repeat(40) } })
-  });
-  assert.equal(await due(), null, 'a satisfied verdict stands');
-  assert.match(await due({ now: Date.now() + 25 * 60 * 60 * 1000 }), /^0\.9\.0/u, 'after a day it is checked again');
+
+  await verdict(T0, async () => null);
+  assert.equal(await due({ now: T0 + HOUR }), null, 'a verdict of none stands');
+  assert.match(await due({ now: T0 + 25 * HOUR }), /^0\.9\.0/u, 'after a day it is checked again');
+  assert.match(await due({ now: T0 + HOUR, info: NEWER }), /^0\.9\.0 \(c{40}/u, 'another build checks for itself');
+
+  await writeRequirement(T0 + 2 * HOUR);
+  assert.match(await due({ now: T0 + 3 * HOUR }), /^0\.9\.0/u, 'a requirement file written after the verdict is read at once');
+  await verdict(T0 + 3 * HOUR, satisfied);
+  assert.equal(await due({ now: T0 + 4 * HOUR }), null, 'a satisfied verdict stands');
+  await verdict(T0 + 5 * HOUR, async () => null);
+  assert.equal(await due({ now: T0 + 6 * HOUR }), null, 'an unmerged draft already present is not read again on every command');
+
+  await verdict(T0 + 7 * HOUR, unreachable);
+  assert.match(await due({ now: T0 + 9 * HOUR }), /^0\.9\.0/u, 'where a requirement file exists, an unreachable authority is retried within the hour');
+  await rm(requirementFile);
+  assert.equal(await due({ now: T0 + 9 * HOUR }), null, 'elsewhere an offline machine is not slowed every hour');
+  assert.match(await due({ now: T0 + 14 * HOUR }), /^0\.9\.0/u);
 });

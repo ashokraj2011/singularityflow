@@ -2,9 +2,15 @@
  * Whether a mutation in this repository must first check the build its approved configuration
  * requires.
  *
- * Cheap, because it runs before every mutation: one lstat for the materialized requirement file,
- * and one small machine-local record of the last verdict per repository. A repository without the
- * file never pays for more. The approved read and any install load only when this returns a build.
+ * Cheap, because it runs before every mutation: one small machine-local record of the last verdict
+ * per repository, and one lstat. The approved read and any install load only when this returns a
+ * build.
+ *
+ * The verdict, not the working tree, decides. Approved configuration lives on `sflow/config`, and a
+ * Story pins its own copy when it starts, so neither `main` nor a Story begun before the
+ * requirement was merged carries the file. Every repository is therefore read at most once a day
+ * per build. A requirement file written after a verdict of none (a new Story's copy) is read at
+ * once; one that was already there, such as an unmerged draft, is not read again on every command.
  */
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import os from 'node:os';
@@ -23,6 +29,8 @@ export const REQUIREMENT_VERDICT_TTL_MS = Object.freeze({
   unavailable: 60 * 60 * 1000,
   failed: 60 * 60 * 1000
 });
+/** An unreachable authority is retried sooner only where a requirement is known to exist. */
+export const UNAVAILABLE_WITHOUT_REQUIREMENT_FILE_TTL_MS = 6 * 60 * 60 * 1000;
 
 export function requirementChecksFile(homeDirectory = os.homedir()) {
   return path.join(homeDirectory, '.singularity-flow', 'installations', PRODUCT_REQUIREMENT_CHECKS);
@@ -46,14 +54,20 @@ export async function productRequirementDue({
     if (!root || classification !== 'mutation' || PRODUCT_ALIGNMENT_EXEMPT_COMMANDS.has(command)) return null;
     if (productUpdateDisabled(environment)) return null;
     if (!info?.commit && !info?.sourceSha256) return null;
-    if (!(await lstat(path.join(root, 'singularity', 'product.yml')).catch(() => null))?.isFile()) return null;
     const running = versionLine(info);
     const key = await realpath(root).catch(() => path.resolve(root));
     let entry = null;
     try { entry = JSON.parse(await readFile(requirementChecksFile(homeDirectory), 'utf8'))?.repositories?.[key] ?? null; }
     catch { entry = null; }
-    const ttl = REQUIREMENT_VERDICT_TTL_MS[entry?.verdict];
-    if (entry?.build === running && ttl && now - Date.parse(entry.checkedAt ?? '') < ttl) return null;
+    if (entry?.build !== running) return running;
+    const requirement = await lstat(path.join(root, 'singularity', 'product.yml')).catch(() => null);
+    const file = Boolean(requirement?.isFile());
+    const checkedAt = Date.parse(entry.checkedAt ?? '');
+    if (file && entry.verdict === 'none' && !(requirement.mtimeMs <= checkedAt)) return running;
+    const ttl = entry.verdict === 'unavailable' && !file
+      ? UNAVAILABLE_WITHOUT_REQUIREMENT_FILE_TTL_MS
+      : REQUIREMENT_VERDICT_TTL_MS[entry.verdict];
+    if (ttl && now - checkedAt < ttl) return null;
     return running;
   } catch {
     return null;

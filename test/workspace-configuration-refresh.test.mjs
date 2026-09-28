@@ -4027,6 +4027,8 @@ test('every machine proposing the same packaged configuration shares one review'
   assert.equal(first.status, 'review-required');
   assert.equal(second.status, 'review-required');
   assert.equal(second.proposalBranch, first.proposalBranch, 'the review is named by what it proposes');
+  assert.match(first.proposalBranch, /^sflow\/config-refresh\/[0-9a-f]{8}-[0-9a-f]{12}$/u,
+    'the approved commit and the proposed tree name it; the proposing build does not, so any build joins it');
   assert.equal(second.candidateCommit, first.candidateCommit, 'the second proposal joins the open review');
   assert.equal(second.reviewShared, true);
   const reviews = run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh/'])

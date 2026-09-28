@@ -2955,10 +2955,11 @@ function commitRefreshCandidate(root, refresh, env, subject) {
 
 /**
  * A review is named by what it proposes: the approved commit it starts from and the exact tree it
- * would make current, never the proposing machine's own commit. Every teammate whose new build
- * proposes the same change therefore shares one review instead of opening a copy each.
+ * would make current. Never by the proposing machine's own commit or build: every teammate proposing
+ * the same change shares one review, whichever build each runs. The commit message still names the
+ * build that opened it.
  */
-function reviewProposal(root, candidateCommit, sourceCommit, product, env) {
+function reviewProposal(root, candidateCommit, sourceCommit, env) {
   const tree = refHead(root, `${candidateCommit}^{tree}`, { env });
   const parent = refHead(root, `${candidateCommit}^1`, { env });
   if (!tree || !parent) {
@@ -2966,8 +2967,7 @@ function reviewProposal(root, candidateCommit, sourceCommit, product, env) {
       code: 'CONFIGURATION_REVIEW_UNREADABLE'
     });
   }
-  const revision = String(product.revision).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 16);
-  return { tree, parent, branch: `sflow/config-refresh/${revision}-${sourceCommit.slice(0, 8)}-${tree.slice(0, 12)}` };
+  return { tree, parent, branch: `sflow/config-refresh/${sourceCommit.slice(0, 8)}-${tree.slice(0, 12)}` };
 }
 
 /** The commit of this exact review when it is already open: the same tree on the same parent. */
@@ -2997,7 +2997,7 @@ async function proposeCandidate(candidate) {
   if (!refresh.changed) return result('current');
   const candidateCommit = commitRefreshCandidate(root, refresh, env, 'propose packaged configuration');
   if (!candidateCommit) return result('current');
-  const proposal = reviewProposal(root, candidateCommit, sourceCommit, refresh.product, env);
+  const proposal = reviewProposal(root, candidateCommit, sourceCommit, env);
   const pushed = await runRemoteGitAsync([
     'push', `--force-with-lease=refs/heads/${proposal.branch}:`, 'origin', `HEAD:refs/heads/${proposal.branch}`
   ], { cwd: root, operation: 'remote-push', env });

@@ -165,3 +165,8 @@ the signature, snapshots rollback bytes and restores every surface if a step fai
 the command on the new build. A `singularity/product.yml` that exists only in a working tree
 installs nothing.
 
+Publish the release before raising `minimumBuild` to it. A teammate's machine installs a release
+only when the build stamped inside its npm tarball meets `minimumBuild` and is not older than the
+build already running, so a requirement that points past what the location holds installs nothing:
+each command says so, continues on the current build, and checks again an hour later.
+

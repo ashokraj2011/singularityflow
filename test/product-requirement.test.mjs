@@ -15,6 +15,8 @@ import {
   productRequirementVerdict, readApprovedProductRequirement
 } from '../src/product-requirement.mjs';
 import { productRequirementDue, requirementChecksFile } from '../src/product-requirement-gate.mjs';
+import { versionLine } from '../src/build-info.mjs';
+import { parseBuildLine } from '../src/product-alignment.mjs';
 import { distributionFixture } from './helpers/distribution-artifacts.mjs';
 import { harness } from './helpers/distribution-harness.mjs';
 
@@ -116,7 +118,7 @@ test('an https release is copied file by file as its RELEASE.json names them, an
 });
 
 test('the required release installs on every surface only when the pinned key signed it', async (t) => {
-  const release = await distributionFixture();
+  const release = await distributionFixture({ buildInfo: NEWER });
   t.after(() => Promise.all([rm(release.directory, { recursive: true, force: true }), rm(release.keyDirectory, { recursive: true, force: true })]));
   const home = await temporary(t, 'sflow-requirement-home-');
   const tempRoot = await temporary(t, 'sflow-requirement-plans-');
@@ -128,7 +130,7 @@ test('the required release installs on every surface only when the pinned key si
   const refused = harness(release.version);
   await assert.rejects(installRequiredRelease(forged, {
     execute: refused.execute, exists: refused.exists, homeDirectory: home,
-    environment: { ...process.env, HOME: home }, tempRoot
+    environment: { ...process.env, HOME: home }, tempRoot, running: OLDER
   }), /signature|trusted|key/iu);
   assert.equal(refused.calls.some(([command, verb, scope]) => command === 'npm' && verb === 'install' && scope === '--global'), false,
     'a release another key signed never reaches an installed surface');
@@ -136,7 +138,7 @@ test('the required release installs on every surface only when the pinned key si
   const machine = harness(release.version);
   const installed = await installRequiredRelease(requirement, {
     execute: machine.execute, exists: machine.exists, homeDirectory: home,
-    environment: { ...process.env, HOME: home }, tempRoot
+    environment: { ...process.env, HOME: home }, tempRoot, running: OLDER
   });
   assert.equal(installed.status, 'installed');
   assert.equal(installed.version, release.version);
@@ -160,7 +162,7 @@ test('a mutation on an older build installs the required build and hands the com
   const installs = [];
   const outcome = await enforceProductRequirement({
     root, runningBuild: 'older', argv: ['submit', '--json'], homeDirectory: home, execute, info: OLDER,
-    write: (line) => lines.push(line), read: async () => found,
+    write: (line) => lines.push(line), read: async () => found, pathBuild: () => null,
     install: async (value) => { installs.push(value); }
   });
   assert.deepEqual(outcome, { status: 'handed-off', exitCode: 4 });
@@ -169,6 +171,91 @@ test('a mutation on an older build installs the required build and hands the com
   assert.equal(handed[0].env.SINGULARITY_FLOW_PRODUCT_UPDATE, 'off', 'the handed-off command cannot update again');
   assert.equal(handed[0].env.SINGULARITY_FLOW_PRODUCT_ALIGNMENT, 'off');
   assert.ok(lines.some((line) => /requires a build from 2026-09-20T00:00:00.000Z or later/u.test(line)));
+});
+
+test('a release that cannot meet the requirement, or would downgrade, is never installed', async (t) => {
+  const home = await temporary(t, 'sflow-requirement-home-');
+  const tempRoot = await temporary(t, 'sflow-requirement-plans-');
+  const fixture = async (buildInfo) => {
+    const release = await distributionFixture({ buildInfo });
+    t.after(() => Promise.all([rm(release.directory, { recursive: true, force: true }), rm(release.keyDirectory, { recursive: true, force: true })]));
+    return release;
+  };
+  const attempt = async (release, { requirement: overrides = {}, running = OLDER, ...options } = {}) => {
+    const requirement = parseProductRequirement(requirementText({
+      source: release.directory, key: await readFile(release.publicKeyPath, 'utf8'), ...overrides
+    }));
+    const machine = harness(release.version);
+    const outcome = installRequiredRelease(requirement, {
+      execute: machine.execute, exists: machine.exists, homeDirectory: home,
+      environment: { ...process.env, HOME: home }, tempRoot, running, ...options
+    });
+    return { outcome, machine };
+  };
+  const staged = (machine) => machine.calls.filter(([command, verb]) => command === 'npm' && verb === 'install');
+
+  // Published before the requirement was raised: installing it would repeat on every command.
+  const stale = await fixture({ ...OLDER, commit: 'd'.repeat(40), builtAt: '2026-09-10T00:00:00.000Z' });
+  const below = await attempt(stale);
+  await assert.rejects(below.outcome, { code: 'PRODUCT_RELEASE_BELOW_REQUIREMENT' });
+  assert.deepEqual(staged(below.machine), [], 'nothing is staged or installed for a release that cannot satisfy the requirement');
+
+  // The exact required commit, but older than the build already running: an update never downgrades.
+  const pinned = await readFile(stale.publicKeyPath, 'utf8');
+  const exact = parseProductRequirement(requirementText({ source: stale.directory, key: pinned })
+    .replace(`  builtAt: ${REQUIRED_AT}`, `  builtAt: ${REQUIRED_AT}\n  commit: ${'d'.repeat(40)}`));
+  const machine = harness(stale.version);
+  await assert.rejects(installRequiredRelease(exact, {
+    execute: machine.execute, exists: machine.exists, homeDirectory: home,
+    environment: { ...process.env, HOME: home }, tempRoot,
+    running: { ...OLDER, commit: 'f'.repeat(40), builtAt: '2026-09-15T00:00:00.000Z' }
+  }), { code: 'PRODUCT_RELEASE_DOWNGRADE' });
+  assert.deepEqual(staged(machine), []);
+
+  const unstamped = await attempt(await fixture(null));
+  await assert.rejects(unstamped.outcome, { code: 'PRODUCT_RELEASE_UNSTAMPED' });
+
+  // The verified snapshot is judged again: a shared folder can change after the first look.
+  const current = await fixture(NEWER);
+  const applied = [];
+  const swapped = await attempt(current, {
+    prepare: async () => ({ confirmation: 'INSTALL', bundle: { tarball: path.join(stale.directory, stale.tarballName) } }),
+    apply: async (plan) => { applied.push(plan); }
+  });
+  await assert.rejects(swapped.outcome, { code: 'PRODUCT_RELEASE_BELOW_REQUIREMENT' });
+  assert.deepEqual(applied, [], 'a snapshot that no longer satisfies the requirement is never applied');
+});
+
+test('a window whose CLI predates an installed update hands the command over instead of installing again', async (t) => {
+  const root = await temporary(t, 'sflow-requirement-repo-');
+  const home = await temporary(t, 'sflow-requirement-machine-');
+  const { publicKey } = generateKeyPairSync('ed25519');
+  const requirement = parseProductRequirement(requirementText({ source: '/shared/sflow', key: pem(publicKey) }));
+  const found = { requirement, authority: { kind: 'configuration-branch', ref: 'sflow/config', commit: 'e'.repeat(40) } };
+  const run = async (onPath) => {
+    const lines = [];
+    const handed = [];
+    const installs = [];
+    const outcome = await enforceProductRequirement({
+      root, runningBuild: versionLine(OLDER), argv: ['next'], homeDirectory: home, info: OLDER,
+      write: (line) => lines.push(line), read: async () => found,
+      pathBuild: () => (onPath ? parseBuildLine(versionLine(onPath)) : null),
+      execute: (command, args, options) => { handed.push({ command, args, env: options.env }); return { status: 0 }; },
+      install: async (value) => { installs.push(value); }
+    });
+    return { outcome, lines, handed, installs };
+  };
+  const delegated = await run(NEWER);
+  assert.deepEqual(delegated.outcome, { status: 'handed-off', exitCode: 0 });
+  assert.deepEqual(delegated.installs, [], 'the installed build already meets the requirement: nothing is installed again');
+  assert.deepEqual(delegated.handed.map((entry) => [entry.command, entry.args]), [['singularity-flow', ['next']]]);
+  assert.equal(delegated.handed[0].env.SINGULARITY_FLOW_PRODUCT_UPDATE, 'off');
+  assert.ok(delegated.lines.some((line) => line.includes(`continuing this command on the installed ${versionLine(NEWER)}`)));
+
+  const stillOld = await run(OLDER);
+  assert.equal(stillOld.installs.length, 1, 'a PATH build that is itself too old does not stop the install');
+  const unreadable = await run(null);
+  assert.equal(unreadable.installs.length, 1);
 });
 
 test('a requirement check never fails the command it precedes', async (t) => {

@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 21
+version: 22
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -245,6 +245,11 @@ on every surface before the command runs, then continues the command on the new 
   installs nothing, because it names both what to install and who may sign it.
 - The release is verified against the key the reviewed file carries, never a key shipped beside
   the release, and is installed by the same transactional distribution installer, with rollback.
+- A release is installed only when the build stamped inside it meets the requirement and is not
+  older than the running build, judged before anything is staged and again on the verified bytes.
+  A requirement raised before its release was published installs nothing; publish the build there.
+- When the machine already runs the required build on PATH (a VS Code window that has not reloaded
+  yet), the command continues on that build instead of installing the release again.
 - The check reads the approved file at most once a day per repository while the build satisfies
   it. A repository without the file never pays for it. A development checkout never updates itself.
 - A failed download or install never fails the command: it says what to run and continues on the

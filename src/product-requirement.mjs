@@ -26,10 +26,14 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { BUILD_INFO } from './build-info.mjs';
+import { inspectNpmTarballBuildSources } from '../scripts/install-staged-artifacts.mjs';
+import { BUILD_INFO, versionLine } from './build-info.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { applyLocalReinstall, prepareDistributionInstall } from './reinstall.mjs';
+import {
+  compareBuilds, parseBuildLine, parseStampedBuildInfo, stampedBuildLine
+} from './product-alignment.mjs';
 import { PRODUCT_ALIGNMENT_SWITCH } from './product-alignment-gate.mjs';
 import { PRODUCT_UPDATE_SWITCH, requirementChecksFile } from './product-requirement-gate.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -175,6 +179,92 @@ export async function materializeRelease(source, { fetchImpl = globalThis.fetch,
   }
 }
 
+/** The identity a `--build` line names: its full commit or source digest, and its stamp instant. */
+function buildLineIdentity(parsed) {
+  if (!parsed?.stamped) return null;
+  const first = (/^[^\s()]+ \((.+)\)$/u.exec(parsed.line)?.[1] ?? '').split(' · ')[0];
+  return Object.freeze({
+    commit: /^[0-9a-f]{40,64}$/u.test(first) ? first : null,
+    sourceSha256: first.startsWith('source ') ? first.slice('source '.length) : null,
+    builtAt: parsed.builtAt
+  });
+}
+
+/** The build `singularity-flow` on PATH runs, or null. Never throws. */
+function pathCliBuild({ execute, environment }) {
+  try {
+    const result = execute('singularity-flow', ['--build'], {
+      allowFailure: true, timeoutMs: 30_000,
+      env: { ...environment, [PRODUCT_UPDATE_SWITCH]: 'off', [PRODUCT_ALIGNMENT_SWITCH]: 'off' }
+    });
+    if (result?.status !== 0 || result.timedOut || result.error) return null;
+    return parseBuildLine(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+/** The one npm tarball a release's RELEASE.json names. Nothing in the release is trusted yet. */
+async function releaseTarball(directory) {
+  const file = path.join(directory, 'RELEASE.json');
+  const info = await lstat(file).catch(() => null);
+  if (!info?.isFile() || info.size > SMALL_BYTES) {
+    throw new SingularityFlowError('The release has no readable RELEASE.json.', { code: 'PRODUCT_RELEASE_UNAVAILABLE' });
+  }
+  let release;
+  try { release = JSON.parse(await readFile(file, 'utf8')); }
+  catch { throw new SingularityFlowError('The release RELEASE.json is not JSON.', { code: 'PRODUCT_RELEASE_UNAVAILABLE' }); }
+  const tarballs = (Array.isArray(release?.artefacts) ? release.artefacts : [])
+    .filter((name) => typeof name === 'string' && RELEASE_NAME.test(name) && name.endsWith('.tgz'));
+  if (tarballs.length !== 1) {
+    throw new SingularityFlowError('The release RELEASE.json must name exactly one npm tarball.', { code: 'PRODUCT_RELEASE_UNAVAILABLE' });
+  }
+  return path.join(directory, tarballs[0]);
+}
+
+/**
+ * The build a release installs, read from the stamp inside its npm tarball: the bytes that become
+ * the CLI, never a name written beside them.
+ */
+async function releaseBuild(tarball) {
+  let inspected;
+  try { inspected = await inspectNpmTarballBuildSources(tarball); }
+  catch (error) {
+    throw new SingularityFlowError(`The release's npm tarball has no readable build stamp (${error.message}).`, {
+      code: 'PRODUCT_RELEASE_UNSTAMPED'
+    });
+  }
+  const info = parseStampedBuildInfo(inspected.buildInfoSource);
+  const build = stampedBuildLine(inspected.versionSource, inspected.buildInfoSource);
+  if (!info || !build?.stamped) {
+    throw new SingularityFlowError("The release's npm tarball is not a stamped build.", { code: 'PRODUCT_RELEASE_UNSTAMPED' });
+  }
+  return Object.freeze({ info, build });
+}
+
+/**
+ * A release is installed only when it meets the requirement and is not older than the build it
+ * replaces. Without this, a requirement raised before its release was published would install the
+ * same unsatisfying release again on every command, and an older one would downgrade the machine.
+ */
+function assertReleaseInstallable(requirement, offered, running) {
+  if (productRequirementVerdict(requirement, offered.info) !== 'satisfied') {
+    throw new SingularityFlowError(
+      `The release at ${requirement.release.source} is ${offered.build.line}, which does not meet the build from `
+      + `${requirement.minimumBuild.builtAt} this repository requires. Nothing was installed; publish the required build there.`,
+      { code: 'PRODUCT_RELEASE_BELOW_REQUIREMENT' }
+    );
+  }
+  const current = parseBuildLine(versionLine(running));
+  if (compareBuilds(offered.build, current) === -1) {
+    throw new SingularityFlowError(
+      `The release at ${requirement.release.source} is ${offered.build.line}, older than the running ${current.line}. `
+      + 'Nothing was installed: an update never downgrades.',
+      { code: 'PRODUCT_RELEASE_DOWNGRADE' }
+    );
+  }
+}
+
 /**
  * Install the required release on every surface through the distribution installer, with the
  * confirmation the reviewed requirement already gave. The installer verifies the signature,
@@ -185,6 +275,7 @@ export async function installRequiredRelease(requirement, {
   exists = commandExists,
   homeDirectory = os.homedir(),
   environment = process.env,
+  running = BUILD_INFO,
   tempRoot = os.tmpdir(),
   fetchImpl = globalThis.fetch,
   prepare = prepareDistributionInstall,
@@ -193,6 +284,8 @@ export async function installRequiredRelease(requirement, {
   const release = await materializeRelease(requirement.release.source, { fetchImpl, tempRoot });
   const keyDirectory = await mkdtemp(path.join(tempRoot, 'sflow-release-key-'));
   try {
+    // Refuse a release that cannot satisfy the requirement before the installer stages anything.
+    assertReleaseInstallable(requirement, await releaseBuild(await releaseTarball(release.directory)), running);
     const artifactKey = path.join(keyDirectory, 'artifact-builder-public.pem');
     await writeFile(artifactKey, requirement.release.artifactPublicKey, { mode: 0o600 });
     const plan = await prepare({
@@ -200,6 +293,9 @@ export async function installRequiredRelease(requirement, {
       cliOnly: !exists('code') || !exists('copilot'),
       execute, exists, homeDirectory, environment, tempRoot
     });
+    // Judge again the verified snapshot the installer activates: a shared folder can change after
+    // the first look, and only these bytes carry the pinned key's signature.
+    assertReleaseInstallable(requirement, await releaseBuild(plan.bundle.tarball), running);
     const applied = await apply(plan, {
       confirmation: plan.confirmation, execute, exists, homeDirectory, environment
     });
@@ -242,6 +338,7 @@ export async function enforceProductRequirement({
   write = (line) => process.stderr.write(`${line}\n`),
   read = readApprovedProductRequirement,
   install = installRequiredRelease,
+  pathBuild = pathCliBuild,
   info = BUILD_INFO,
   now = () => new Date().toISOString()
 } = {}) {
@@ -265,9 +362,24 @@ export async function enforceProductRequirement({
     await record(verdict, { authorityCommit: found.authority.commit });
     return Object.freeze({ status: verdict });
   }
+  const handOff = () => {
+    const handed = execute('singularity-flow', argv, {
+      stdio: 'inherit', allowFailure: true,
+      env: { ...environment, [PRODUCT_UPDATE_SWITCH]: 'off', [PRODUCT_ALIGNMENT_SWITCH]: 'off' }
+    });
+    return Object.freeze({ status: 'handed-off', exitCode: Number.isInteger(handed.status) ? handed.status : 1 });
+  };
+  // The machine may already run the required build on PATH while this process is older: a VS Code
+  // window keeps its bundled CLI until it reloads. Installing again would repeat on every command.
+  const onPath = pathBuild({ execute, environment });
+  const onPathIdentity = buildLineIdentity(onPath);
+  if (onPathIdentity && productRequirementVerdict(requirement, onPathIdentity) === 'satisfied') {
+    write(`Singularity Flow: this repository requires a build from ${requirement.minimumBuild.builtAt} or later; continuing this command on the installed ${onPath.line}.`);
+    return handOff();
+  }
   write(`Singularity Flow: this repository requires a build from ${requirement.minimumBuild.builtAt} or later. Installing its signed release from ${requirement.release.source}.`);
   try {
-    await install(requirement, { execute, exists, homeDirectory, environment });
+    await install(requirement, { execute, exists, homeDirectory, environment, running: info });
   } catch (error) {
     write(`Singularity Flow could not install the required release (${error.message}). Install it with the release's own wrapper: ${requirement.release.source}. Continuing on this build.`);
     await record('failed', { authorityCommit: found.authority.commit, code: error?.code ?? null });
@@ -275,10 +387,6 @@ export async function enforceProductRequirement({
   }
   await record('installed', { authorityCommit: found.authority.commit });
   write('Singularity Flow: continuing this command on the required build.');
-  const handed = execute('singularity-flow', argv, {
-    stdio: 'inherit', allowFailure: true,
-    env: { ...environment, [PRODUCT_UPDATE_SWITCH]: 'off', [PRODUCT_ALIGNMENT_SWITCH]: 'off' }
-  });
-  return Object.freeze({ status: 'handed-off', exitCode: Number.isInteger(handed.status) ? handed.status : 1 });
+  return handOff();
 }
 

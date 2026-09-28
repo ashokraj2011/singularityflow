@@ -93,6 +93,15 @@ export class LoadedBundle {
     return Boolean(this.loaded && current && current !== this.loaded);
   }
 
+  /**
+   * Whether this window runs a build the machine has since replaced, whether or not its reload was
+   * accepted. A new version's VSIX lands beside this one, leaving these files unchanged, so an offered
+   * reload counts too.
+   */
+  reloadPending(): boolean {
+    return this.offered || this.replaced();
+  }
+
   /** Offer one reload per window. `force` is for an update this window itself just installed. */
   async offerReload(host: Pick<ProductAlignmentHost, 'inform' | 'reload'>, force = false): Promise<boolean> {
     if (this.offered || (!force && !this.replaced())) return false;
@@ -183,11 +192,15 @@ interface RefreshResult {
  * Once per newly loaded build, open a review for each registered repository whose approved
  * configuration lags this build's packaged configuration. Nothing is applied: a review-only refresh
  * never pushes `sflow/config`, and a person merges each review.
+ *
+ * A window waiting to reload onto a newer build proposes nothing: its CLI would propose the
+ * configuration the machine just replaced, and the reloaded build proposes its own.
  */
 export async function openConfigurationReviews(host: ProductAlignmentHost, {
-  loadedBuild
-}: { loadedBuild: string }): Promise<string> {
+  loadedBuild, bundle = null
+}: { loadedBuild: string; bundle?: Pick<LoadedBundle, 'reloadPending'> | null }): Promise<string> {
   if (loadedBuild === 'unstamped' || !packagedExtension(host.extensionPath)) return 'skipped-development';
+  if (bundle?.reloadPending()) return 'skipped-reload-pending';
   if (host.remembered<string>(CONFIGURATION_REVIEW_KEY) === loadedBuild) return 'skipped-recent';
   let lagging: string[];
   try {

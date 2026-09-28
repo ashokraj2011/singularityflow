@@ -181,6 +181,26 @@ test('a new build opens a configuration review for each lagging repository, once
   assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'skipped-recent', 'once per build');
 });
 
+test('a window waiting to reload onto a newer build opens no configuration review', async (t) => {
+  const directory = await extension(t);
+  const item = refreshHost(directory, {
+    preview: { results: [{ status: 'would-update', repository: 'app', configurationChanged: true }] },
+    opened: { results: [{ status: 'review-required', repository: 'app', proposalBranch: 'sflow/config-refresh/r1-aaaa-bbbb' }] }
+  });
+  const bundle = new LoadedBundle(path.join(directory, 'dist', 'extension.cjs'));
+  assert.equal(bundle.reloadPending(), false);
+  // Alignment installed this window's VSIX and offered the reload, which was dismissed.
+  assert.equal(await bundle.offerReload(item, true), true);
+  assert.equal(bundle.reloadPending(), true);
+  assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD, bundle }), 'skipped-reload-pending');
+  assert.deepEqual(item.events.filter(([kind]) => kind === 'run'), [], 'the stale window proposes nothing');
+  assert.equal(item.state.get(CONFIGURATION_REVIEW_KEY), undefined, 'the reloaded build still opens its own reviews');
+
+  const replacedInPlace = new LoadedBundle(path.join(directory, 'dist', 'extension.cjs'));
+  await writeFile(path.join(directory, 'dist', 'extension.cjs'), 'module.exports = { replaced: true };\n');
+  assert.equal(replacedInPlace.reloadPending(), true, 'files replaced in place count before any offer');
+});
+
 test('a build whose configuration is current opens nothing, and an unavailable check retries next window', async (t) => {
   const directory = await extension(t);
   const current = refreshHost(directory, { preview: { results: [{ status: 'current', repository: 'app' }] } });

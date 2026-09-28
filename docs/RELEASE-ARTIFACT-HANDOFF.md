@@ -137,3 +137,31 @@ before continuing.
 verification without publishing a new candidate. It still begins by reconciling any reserved
 recovery state left by an interrupted earlier `dist/` promotion; absent that state, it writes nothing
 to `dist/`.
+
+## 5. Let teammates update themselves
+
+Copy the promoted `dist/` directory unchanged to where teammates can reach it: a shared folder, or
+an https location that serves each file by name, for example
+`https://releases.example.com/singularity-flow/current/RELEASE.json`. Then add or update
+`singularity/product.yml` in approved configuration, through the ordinary configuration review:
+
+```yaml
+schemaVersion: 1
+minimumBuild:
+  builtAt: 2026-09-28T10:00:00.000Z   # the promoted build's stamp time
+  commit: <the release's source commit>  # optional
+release:
+  source: https://releases.example.com/singularity-flow/current/   # or /shared/singularity-flow/current
+  artifactPublicKey: |
+    -----BEGIN PUBLIC KEY-----
+    ...the artifact-builder public key...
+    -----END PUBLIC KEY-----
+```
+
+The reviewed file is the organisation's trust channel for the artifact-builder key, so the key is
+never taken from the release location itself. After the review merges, a teammate's next mutation
+in that repository on an older build installs the release on every surface. The installer verifies
+the signature, snapshots rollback bytes and restores every surface if a step fails, then continues
+the command on the new build. A `singularity/product.yml` that exists only in a working tree
+installs nothing.
+

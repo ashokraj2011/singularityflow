@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 19
+version: 20
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -224,6 +224,25 @@ interrupted clone left behind. If the CLI running that command was the one repla
 continues on the aligned build. A failed pass never fails the command:
 it prints the retry command, `singularity-flow product align`. Set
 `SINGULARITY_FLOW_PRODUCT_ALIGNMENT=off` to switch the automatic pass off.
+
+## Keep a team on one build
+
+A repository can require a minimum build in its approved configuration, `singularity/product.yml`.
+It names the build, where the signed release lives (a shared folder or an https location), and the
+artifact-builder public key that must have signed it. See `docs/RELEASE-ARTIFACT-HANDOFF.md` for
+the file and how to publish a release there.
+
+On a teammate's machine, the next mutation in that repository on an older build installs the release
+on every surface before the command runs, then continues the command on the new build:
+
+- Only a file read from the approved configuration authority counts. A copy in a working tree
+  installs nothing, because it names both what to install and who may sign it.
+- The release is verified against the key the reviewed file carries, never a key shipped beside
+  the release, and is installed by the same transactional distribution installer, with rollback.
+- The check reads the approved file at most once a day per repository while the build satisfies
+  it. A repository without the file never pays for it. A development checkout never updates itself.
+- A failed download or install never fails the command: it says what to run and continues on the
+  current build. Set `SINGULARITY_FLOW_PRODUCT_UPDATE=off` to switch the check off.
 
 ## State and safety
 

@@ -3821,6 +3821,14 @@ const families = [
     paths: [/^\$local\/installations\/alignment-current\.json$/]
   }),
   family({
+    id: 'product-requirement', currentVersion: 1,
+    paths: [/^singularity\/product\.yml$/]
+  }),
+  family({
+    id: 'product-requirement-checks', currentVersion: 1,
+    paths: [/^\$local\/installations\/requirement-checks\.json$/]
+  }),
+  family({
     id: 'distribution-install-transaction', currentVersion: 1,
     paths: [/^\$local\/installations\/distribution-install-pending\.json$/]
   }),

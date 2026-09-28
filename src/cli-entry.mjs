@@ -15,6 +15,7 @@ import { withOperationContext } from './operation-context.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { firstRunPassDue } from './product-alignment-gate.mjs';
+import { productRequirementDue } from './product-requirement-gate.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -675,6 +676,19 @@ async function runMain(argv) {
   // subcommands; classification is known only after the now-measured dispatch probes complete.
   timingInput.commandClass = operation.classification;
   timingInput.operationId = operation.id;
+  // A repository whose approved configuration requires a newer build installs that build's signed
+  // release before any mutation runs on an older one, then continues the command on it.
+  const requiredBuild = await productRequirementDue({
+    root, command: definition.name, classification: operation.classification
+  });
+  if (requiredBuild) {
+    const { enforceProductRequirement } = await import('./product-requirement.mjs');
+    const required = await enforceProductRequirement({ root, runningBuild: requiredBuild, argv });
+    if (required.status === 'handed-off') {
+      process.exitCode = required.exitCode;
+      return null;
+    }
+  }
   // A new build's first mutation brings every product surface on the machine to the installed
   // build and repairs machine-local state, once. Reads never do: they must stay free of side
   // effects. The gate is one small file read; the pass and its modules load only when due.

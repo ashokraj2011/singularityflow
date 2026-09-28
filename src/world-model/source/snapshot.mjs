@@ -1,5 +1,4 @@
 import { constants as fsConstants } from 'node:fs';
-import { createHash } from 'node:crypto';
 import {
   closeSync, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync,
   rmSync
@@ -7,6 +6,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
+import { readLocalGitBlobs } from '../../git-blob-batch.mjs';
 import { gitCommonDir } from '../../git.mjs';
 import { withoutGitProcessOverrides } from '../../git-enterprise-environment.mjs';
 import { run } from '../../util.mjs';
@@ -70,14 +70,6 @@ function git(root, args, {
     contractFailure(`Unable to capture exact Git source: ${(result.error?.message ?? stderr).trim() || `git ${args[0]} failed`}.`, 'WMB_SOURCE_SNAPSHOT_REQUIRED');
   }
   return allowFailure ? result : result.stdout;
-}
-
-function gitBlobObjectId(bytes, gitObjectFormat) {
-  const algorithm = gitObjectFormat === 'sha1' ? 'sha1' : 'sha256';
-  return createHash(algorithm)
-    .update(Buffer.from(`blob ${bytes.length}\0`, 'utf8'))
-    .update(bytes)
-    .digest('hex');
 }
 
 function offlineGitEnvironment(env = process.env, { indexFile = null } = {}) {
@@ -198,10 +190,49 @@ function scopedSourceCommit(root, scopeManifest, revision = 'HEAD', { env = unde
   return COMMIT_PATTERN.test(commit) ? commit : null;
 }
 
-function blobBytes(root, objectId, { env = undefined } = {}) {
-  return Buffer.from(git(root, ['cat-file', 'blob', objectId], {
-    binary: true, env, timeoutClass: 'local-read'
-  }));
+/**
+ * Content digests of exact source blobs, read in bounded batches and reused within this process.
+ *
+ * A Git object identity always names the same bytes, so a blob's SHA-256 and length never need to
+ * be computed twice. One Story start builds and re-verifies the same Source Snapshot several
+ * times; reading each file through its own `git cat-file blob` made that hundreds of processes.
+ * The batch reader keeps this module's contract: no lazy fetch, no replacement objects, and every
+ * returned body is re-hashed against the requested identity. A missing object is still the typed
+ * WMB_SOURCE_SNAPSHOT_REQUIRED refusal. The retained map holds only digests and is bounded.
+ */
+const BLOB_DIGEST_LIMIT = 100_000;
+const BLOB_READ_CHUNK = 512;
+const MAXIMUM_SOURCE_BLOB_BYTES = 512 * 1024 * 1024;
+const blobDigestCache = new Map();
+
+function blobDigests(root, objectIds, { env = undefined } = {}) {
+  const digests = new Map();
+  const pending = [];
+  for (const objectId of new Set(objectIds)) {
+    const cached = blobDigestCache.get(objectId);
+    if (cached) digests.set(objectId, cached);
+    else pending.push(objectId);
+  }
+  for (let offset = 0; offset < pending.length; offset += BLOB_READ_CHUNK) {
+    const chunk = pending.slice(offset, offset + BLOB_READ_CHUNK);
+    const blobs = readLocalGitBlobs(path.resolve(root), chunk, {
+      env: offlineGitEnvironment(env ?? process.env),
+      maximumObjectBytes: MAXIMUM_SOURCE_BLOB_BYTES,
+      code: 'WMB_SOURCE_SNAPSHOT_REQUIRED',
+      label: 'Exact Git source'
+    });
+    if (blobDigestCache.size + chunk.length > BLOB_DIGEST_LIMIT) blobDigestCache.clear();
+    for (const objectId of chunk) {
+      const bytes = blobs.get(objectId);
+      if (!Buffer.isBuffer(bytes)) {
+        contractFailure('Unable to capture exact Git source: a listed blob was not returned.', 'WMB_SOURCE_SNAPSHOT_REQUIRED');
+      }
+      const digest = Object.freeze({ contentSha256: `sha256:${sha256Bytes(bytes)}`, bytes: bytes.length });
+      blobDigestCache.set(objectId, digest);
+      digests.set(objectId, digest);
+    }
+  }
+  return digests;
 }
 
 function fileType(mode) {
@@ -394,18 +425,16 @@ export function createExactSourceSnapshot(root, {
   const before = scope
     ? { commit: scopedSourceCommit(root, scope) ?? exactIdentity(root).commit }
     : exactIdentity(root);
-  const files = treeEntries(root, before.commit)
-    .filter((entry) => !scope || pathInsideScope(entry.path, scope))
-    .map((entry) => {
-      const bytes = blobBytes(root, entry.gitObjectId);
-      return {
-        path: entry.path,
-        type: fileType(entry.mode),
-        mode: entry.mode,
-        contentSha256: `sha256:${sha256Bytes(bytes)}`,
-        bytes: bytes.length
-      };
-    });
+  const listed = treeEntries(root, before.commit)
+    .filter((entry) => !scope || pathInsideScope(entry.path, scope));
+  const digests = blobDigests(root, listed.map((entry) => entry.gitObjectId));
+  const files = listed.map((entry) => ({
+    path: entry.path,
+    type: fileType(entry.mode),
+    mode: entry.mode,
+    contentSha256: digests.get(entry.gitObjectId).contentSha256,
+    bytes: digests.get(entry.gitObjectId).bytes
+  }));
   if (scope) {
     before.tree = sha256Bytes(Buffer.from(JSON.stringify(files.map((file) => ({
       path: file.path,
@@ -464,18 +493,16 @@ export function createExactSourceSnapshotAtRevision(root, revision, {
       ? scopedSourceCommit(root, scope, requested.commit, { env: localEnv }) ?? requested.commit
       : requested.commit;
     effective = exactIdentity(root, effectiveCommit, { env: localEnv });
-    files = treeEntries(root, effective.commit, { env: localEnv })
-      .filter((entry) => !scope || pathInsideScope(entry.path, scope))
-      .map((entry) => {
-        const bytes = blobBytes(root, entry.gitObjectId, { env: localEnv });
-        return {
-          path: entry.path,
-          type: fileType(entry.mode),
-          mode: entry.mode,
-          contentSha256: `sha256:${sha256Bytes(bytes)}`,
-          bytes: bytes.length
-        };
-      });
+    const listed = treeEntries(root, effective.commit, { env: localEnv })
+      .filter((entry) => !scope || pathInsideScope(entry.path, scope));
+    const digests = blobDigests(root, listed.map((entry) => entry.gitObjectId), { env: localEnv });
+    files = listed.map((entry) => ({
+      path: entry.path,
+      type: fileType(entry.mode),
+      mode: entry.mode,
+      contentSha256: digests.get(entry.gitObjectId).contentSha256,
+      bytes: digests.get(entry.gitObjectId).bytes
+    }));
   } catch (error) {
     if (error?.code === 'WMB_SOURCE_REVISION_INVALID') throw error;
     contractFailure(
@@ -547,6 +574,11 @@ export function createDiscoveredCandidateRoster(root, {
   // then is each discovered path classified by the exact retained scope.
   const discovered = treeEntries(root, identity.commit, { env: localEnv });
   const selectedFiles = new Map(source.files.map((entry) => [entry.path, entry]));
+  // The batch reader re-hashes every body against its tree identity before a digest is admitted,
+  // so an object that does not match its identity is refused before this comparison.
+  const insideDigests = blobDigests(root, discovered
+    .filter((entry) => classifyScopePath(entry.path, scope).status === 'inside')
+    .map((entry) => entry.gitObjectId), { env: localEnv });
   const candidates = discovered.map((entry) => {
     const descriptor = {
       path: entry.path,
@@ -557,11 +589,11 @@ export function createDiscoveredCandidateRoster(root, {
     const classification = classifyScopePath(entry.path, scope);
     if (classification.status === 'inside') {
       const selected = selectedFiles.get(entry.path);
-      const bytes = blobBytes(root, entry.gitObjectId, { env: localEnv });
-      const contentSha256 = `sha256:${sha256Bytes(bytes)}`;
-      const observedObjectId = gitBlobObjectId(bytes, identity.commit.length === 64 ? 'sha256' : 'sha1');
+      const digest = insideDigests.get(entry.gitObjectId);
+      const contentSha256 = digest.contentSha256;
+      const observedObjectId = entry.gitObjectId;
       if (!selected || selected.type !== descriptor.type || selected.mode !== descriptor.mode
-          || selected.contentSha256 !== contentSha256 || selected.bytes !== bytes.length
+          || selected.contentSha256 !== contentSha256 || selected.bytes !== digest.bytes
           || entry.gitObjectId !== observedObjectId) {
         contractFailure(
           `Candidate-roster selected path '${entry.path}' does not match the exact Source Snapshot.`,
@@ -570,7 +602,7 @@ export function createDiscoveredCandidateRoster(root, {
             expectedContentSha256: selected?.contentSha256 ?? null,
             receivedContentSha256: contentSha256,
             expectedBytes: selected?.bytes ?? null,
-            receivedBytes: bytes.length,
+            receivedBytes: digest.bytes,
             expectedObjectId: observedObjectId,
             receivedObjectId: entry.gitObjectId
           }
@@ -580,7 +612,7 @@ export function createDiscoveredCandidateRoster(root, {
       return {
         ...descriptor,
         contentSha256,
-        bytes: bytes.length,
+        bytes: digest.bytes,
         status: 'selected',
         reasonCode: null
       };
@@ -894,17 +926,15 @@ function verifyCandidateGitProjection(root, snapshot, authority, {
       'show', '-s', '--format=%P', snapshot.revision.commit
     ], { env, timeoutClass: 'local-read' })).trim().split(/\s+/).filter(Boolean);
     entries = treeEntries(root, snapshot.revision.commit, { env });
-    exact = entries.map((entry) => {
-      const bytes = blobBytes(root, entry.gitObjectId, { env });
-      return {
-        path: entry.path,
-        type: fileType(entry.mode),
-        mode: entry.mode,
-        contentSha256: `sha256:${sha256Bytes(bytes)}`,
-        bytes: bytes.length,
-        objectId: entry.gitObjectId
-      };
-    });
+    const digests = blobDigests(root, entries.map((entry) => entry.gitObjectId), { env });
+    exact = entries.map((entry) => ({
+      path: entry.path,
+      type: fileType(entry.mode),
+      mode: entry.mode,
+      contentSha256: digests.get(entry.gitObjectId).contentSha256,
+      bytes: digests.get(entry.gitObjectId).bytes,
+      objectId: entry.gitObjectId
+    }));
   } catch (error) {
     if (historical && error?.code === 'WMB_SOURCE_SNAPSHOT_REQUIRED') {
       contractFailure(

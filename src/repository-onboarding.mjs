@@ -20,7 +20,9 @@ import {
   configurationTreeEntries, isConfigurationAsset, legacyStateMirrorMatchesRepository,
   stateConfigurationHistoryBranch
 } from './configuration-branch.mjs';
-import { DEFAULT_CONFIGURATION_ASSET_POLICY } from './configuration-assets.mjs';
+import {
+  DEFAULT_CONFIGURATION_ASSET_POLICY, configurationAssetSearchRoots
+} from './configuration-assets.mjs';
 import {
   capabilityTree, flattenCapabilityTree, loadCapabilities
 } from './capabilities.mjs';
@@ -83,6 +85,10 @@ const SNAPSHOT_MAX_ADMISSION_WORK_BYTES = 2 * SNAPSHOT_MAX_BYTES;
 const SNAPSHOT_REMOTE_NAME = 'sflow-snapshot';
 const SNAPSHOT_TREE_LIST_MAX_BYTES = 16 * 1024 * 1024;
 const CLASSIFICATION_CACHE_MAX_BYTES = 2 * 1024 * 1024;
+// Every ledger write moves the state tip but changes only this root entry. Mirror and locator
+// classification never read it, so the rest of the root tree is their exact content identity.
+const STATE_LEDGER_ROOT = 'ledger';
+const CONTENT_REUSABLE_STATE_KINDS = Object.freeze(['configuration-mirror', 'delivery-locator']);
 const TEMPORARY_CLEANUP_WARNING =
   'Repository inspection completed, but another process still has its disposable snapshot open. '
   + 'The onboarding decision is valid; SFlow queued cleanup and will retry after the locking process exits.';
@@ -165,7 +171,16 @@ function cacheableClassification(state, configuration) {
         && state.validationError == null && (state.seedChanges?.length ?? 0) === 0));
 }
 
-async function readClassificationCache(identity, env) {
+function legacyProofStillObserved(state, observation) {
+  // The classifier proves an unbound legacy mirror from its retained history branch. That branch is
+  // not part of the cache identity, so a reused proof needs the same freshly observed history ref.
+  if (state?.kind !== 'configuration-mirror' || state.subjectBound === true) return true;
+  const branch = state.history?.branch;
+  return typeof branch === 'string' && exactCommit(state.history.commit)
+    && observation.refs.get(`refs/heads/${branch}`) === state.history.commit;
+}
+
+async function readClassificationCache(identity, env, observation) {
   if (!identity) return null;
   try {
     const file = classificationCacheFile(identity, env);
@@ -176,9 +191,22 @@ async function readClassificationCache(identity, env) {
     const stored = JSON.parse(await readFile(file, 'utf8'));
     const { digest, ...record } = stored;
     if (digest !== `sha256:${recordSha256(record)}`
-        || JSON.stringify(record.identity) !== JSON.stringify(identity)
-        || !cacheableClassification(record.state, record.configuration)) return null;
-    return { state: record.state, configuration: record.configuration };
+        || !cacheableClassification(record.state, record.configuration)
+        || !legacyProofStillObserved(record.state, observation)) return null;
+    const { stateCommit: recordedState, ...recordedRest } = record.identity ?? {};
+    const { stateCommit: observedState, ...observedRest } = identity;
+    // The configuration verdict is keyed by its own exact commit and the executable build.
+    if (JSON.stringify(recordedRest) !== JSON.stringify(observedRest)) return null;
+    if (recordedState === observedState) {
+      return { exact: true, state: record.state, configuration: record.configuration };
+    }
+    // A moved state tip can still carry exactly the classified content. The caller proves that from
+    // the new tip's own tree before reusing anything.
+    const stateContent = /^sha256:[0-9a-f]{64}$/u.test(String(record.stateContent ?? ''))
+      && exactCommit(recordedState) && exactCommit(observedState)
+      && CONTENT_REUSABLE_STATE_KINDS.includes(record.state.kind)
+      ? record.stateContent : null;
+    return { exact: false, state: record.state, configuration: record.configuration, stateContent };
   } catch {
     // A cache miss, interrupted write, or inaccessible machine-local file never blocks a fresh
     // authority read. Only immutable observed Git refs can select reusable classification data.
@@ -186,9 +214,12 @@ async function readClassificationCache(identity, env) {
   }
 }
 
-async function writeClassificationCache(identity, state, configuration, env) {
+async function writeClassificationCache(identity, state, configuration, stateContent, env) {
   if (!identity || !cacheableClassification(state, configuration)) return;
-  const record = { identity, state, configuration };
+  const record = {
+    identity, state, configuration,
+    ...(stateContent && CONTENT_REUSABLE_STATE_KINDS.includes(state.kind) ? { stateContent } : {})
+  };
   const bytes = JSON.stringify({ ...record, digest: `sha256:${recordSha256(record)}` });
   if (Buffer.byteLength(bytes) > CLASSIFICATION_CACHE_MAX_BYTES) return;
   try {
@@ -848,7 +879,7 @@ async function removeSnapshotBeforeAdmissionRetry(directory, queueRoot) {
 
 async function cloneObservedBranch(remote, branch, expectedCommit, {
   env, runRemoteCommand = runRemoteGitAsync, prefix = 'sflow-repository-onboarding-',
-  checkout = true, cleanupQueueRoot = null, depth = 1
+  checkout = true, cleanupQueueRoot = null, depth = 1, reuseAfterSurvey = null
 }) {
   const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   const transport = frozenRemoteTransport(remote, { env });
@@ -868,10 +899,18 @@ async function cloneObservedBranch(remote, branch, expectedCommit, {
   let admission;
   try { admission = snapshotTreeSurvey(survey.scratch, survey.env); }
   catch (error) { return cleanupAfterFailure(survey.scratch, error, queueRoot); }
+  // The admitted survey holds every tree of the observed commit. A caller with an exact earlier
+  // verdict may prove from those trees alone that nothing it reads changed, and skip admission.
+  let reused = null;
+  if (reuseAfterSurvey) {
+    try { reused = await reuseAfterSurvey(survey.scratch, survey.env); }
+    catch { reused = null; }
+  }
   // Admission may create another bounded snapshot. Do not let a Windows AV/indexer lock turn the
   // survey into a queued, still-resident tree while proceeding to allocate the next one. Queue the
   // locked survey for recovery, but stop this attempt until its disk budget has actually released.
   await removeSnapshotBeforeAdmissionRetry(survey.scratch, queueRoot);
+  if (reused != null) return { reused, commit: survey.commit };
   let snapshot = null;
   let admitted = snapshotAdmission(admission.files);
   let cumulativeAdmissionBytes = 0;
@@ -1148,18 +1187,70 @@ async function classifyStateObjectStore(root, remote, branch, commit, env, runRe
 }
 
 /**
+ * The exact content identity of what a mirror or locator classification reads: the state commit's
+ * root tree without its ledger entry. Git trees are content addressed, so equal listings are equal
+ * bytes. Works on a blobless snapshot because it reads only the root tree.
+ */
+function stateClassificationContent(root, env) {
+  const listed = run('git', ['ls-tree', '-z', '--full-tree', 'HEAD'], {
+    cwd: root, env: { ...env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' },
+    encoding: 'buffer', maxBuffer: SNAPSHOT_TREE_LIST_MAX_BYTES, timeoutClass: 'local-read'
+  });
+  // latin1 maps every byte to one code unit, so a non-UTF-8 name cannot collide with another.
+  const entries = Buffer.from(listed.stdout).toString('latin1').split('\0').filter(Boolean);
+  if (entries.some((entry) => !/^[0-7]{6} (?:blob|tree|commit) [0-9a-f]{40,64}\t./u.test(entry))) {
+    throw new SingularityFlowError('State root tree contains an unsupported entry.', {
+      code: 'REPOSITORY_ONBOARDING_SNAPSHOT_UNAVAILABLE'
+    });
+  }
+  const kept = entries.filter((entry) => entry.slice(entry.indexOf('\t') + 1) !== STATE_LEDGER_ROOT);
+  return `sha256:${sha256(Buffer.from(kept.join('\0'), 'latin1'))}`;
+}
+
+function classificationReadsLedger(root, env) {
+  // Custom template, agent and prompt roots may name any portable path. A mirror whose policy could
+  // reach into the ledger subtree has no ledger-independent identity and is only reused exactly.
+  const policy = configurationAssetPolicyFromRef(root, 'HEAD', { env });
+  return configurationAssetSearchRoots(policy).some((entry) => {
+    const folded = entry.toLowerCase();
+    return folded === STATE_LEDGER_ROOT || folded.startsWith(`${STATE_LEDGER_ROOT}/`);
+  });
+}
+
+function reusableStateContent(root, env, state) {
+  if (!CONTENT_REUSABLE_STATE_KINDS.includes(state?.kind)) return null;
+  try {
+    if (state.kind === 'configuration-mirror' && classificationReadsLedger(root, env)) return null;
+    return stateClassificationContent(root, env);
+  } catch {
+    // Missing this identity only disables reuse across state commits.
+    return null;
+  }
+}
+
+/**
  * Classify the already-observed state ref without doing another ref advertisement.
  *
  * The snapshot is cloned exactly once and the classifier applies strict precedence: complete
  * mirror, subject-bound locator, valid lifecycle ledger, then unrecognized/invalid.
  */
-export async function classifyRepositoryState(remote, {
+export async function classifyRepositoryState(remote, options = {}) {
+  return (await classifyObservedState(remote, options)).state;
+}
+
+/**
+ * `reusable` is an earlier exact verdict of this build for another commit of the same state
+ * branch. It is reused, with only the commit replaced, when the bounded survey of the observed
+ * commit proves the same classification content; otherwise the branch is read in full.
+ */
+async function classifyObservedState(remote, {
   stateBranch = STATE_BRANCH_DEFAULT,
   observation,
   env = process.env,
   runRemoteCommand = runRemoteGitAsync,
   cleanupWarnings = null,
-  cleanupQueueRoot = null
+  cleanupQueueRoot = null,
+  reusable = null
 } = {}) {
   const repository = assertCredentialFreeRemote(remote);
   const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
@@ -1173,28 +1264,47 @@ export async function classifyRepositoryState(remote, {
     );
   }
   const commit = observation.refs.get(ref) ?? null;
-  if (!commit) return Object.freeze({ kind: 'none', branch, commit: null });
+  if (!commit) {
+    return { state: Object.freeze({ kind: 'none', branch, commit: null }), content: null, reused: false };
+  }
   const warnings = cleanupWarnings ?? [];
+  const candidate = reusable?.stateContent && reusable.state?.branch === branch
+    && CONTENT_REUSABLE_STATE_KINDS.includes(reusable.state.kind) ? reusable : null;
   const snapshot = await cloneObservedBranch(repository, branch, commit, {
     env, runRemoteCommand, prefix: 'sflow-state-classifier-', checkout: false,
-    cleanupQueueRoot: queueRoot
+    cleanupQueueRoot: queueRoot,
+    reuseAfterSurvey: candidate ? async (root, surveyEnv) =>
+      (stateClassificationContent(root, surveyEnv) === candidate.stateContent ? candidate : null)
+      : null
   });
-  const result = await withDisposableReadSnapshot(snapshot.scratch, async () => {
+  if (snapshot.reused) {
+    return {
+      state: Object.freeze({ ...snapshot.reused.state, commit }),
+      content: snapshot.reused.stateContent, reused: true
+    };
+  }
+  const classified = await withDisposableReadSnapshot(snapshot.scratch, async () => {
+    let state;
     try {
-      return await classifyStateObjectStore(
+      state = await classifyStateObjectStore(
         snapshot.scratch, repository, branch, commit, snapshot.env, runRemoteCommand
       );
     } catch (error) {
-      return Object.freeze({
-        kind: 'invalid', branch, commit,
-        reason: error?.message ?? String(error),
-        code: error?.code ?? 'REPOSITORY_STATE_MARKER_INVALID'
-      });
+      return {
+        state: Object.freeze({
+          kind: 'invalid', branch, commit,
+          reason: error?.message ?? String(error),
+          code: error?.code ?? 'REPOSITORY_STATE_MARKER_INVALID'
+        }),
+        content: null
+      };
     }
+    return { state, content: reusableStateContent(snapshot.scratch, snapshot.env, state) };
   }, { cleanupWarnings: warnings, cleanupQueueRoot: queueRoot });
-  return cleanupWarnings == null && warnings.length
-    ? Object.freeze({ ...result, localCleanupWarnings: Object.freeze([...warnings]) })
-    : result;
+  const state = cleanupWarnings == null && warnings.length
+    ? Object.freeze({ ...classified.state, localCleanupWarnings: Object.freeze([...warnings]) })
+    : classified.state;
+  return { state, content: classified.content, reused: false };
 }
 
 async function inspectConfigurationSnapshot(remote, commit, {
@@ -1649,7 +1759,7 @@ function nextActions(remote, mode, stateBranch, planId = null) {
 export async function inspectRepositoryOnboarding(remote, {
   mode = 'auto', stateBranch = STATE_BRANCH_DEFAULT, env = process.env,
   remoteSession = null, runRemoteCommand = runRemoteGitAsync,
-  cleanupQueueRoot = null, refresh = false, useClassificationCache = true,
+  cleanupQueueRoot = null, refresh = false, useClassificationCache = !refresh,
   classificationCacheBuildIdentity = classificationBuildIdentity()
 } = {}) {
   const requestedRepository = canonicalRepositoryLocator(remote);
@@ -1760,16 +1870,20 @@ export async function inspectRepositoryOnboarding(remote, {
     const plan = withPlanId(core);
     return Object.freeze({ ...plan, nextActions: nextActions(requestedRepository, selectedMode, branch) });
   }
-  const cacheIdentity = selectedMode === 'auto' && !refresh && useClassificationCache
+  const cacheIdentity = selectedMode === 'auto' && useClassificationCache
     ? classificationCacheIdentity(
         repository, branch, observation, classificationCacheBuildIdentity
       )
     : null;
-  const cachedClassification = await readClassificationCache(cacheIdentity, env);
-  let state = cachedClassification?.state ?? await classifyRepositoryState(repository, {
-    stateBranch: branch, observation, env: gitEnv, runRemoteCommand, cleanupWarnings,
-    cleanupQueueRoot: queueRoot
-  });
+  const cachedClassification = await readClassificationCache(cacheIdentity, env, observation);
+  const exactClassification = cachedClassification?.exact ? cachedClassification : null;
+  const classified = exactClassification
+    ? { state: exactClassification.state, content: null, reused: true }
+    : await classifyObservedState(repository, {
+      stateBranch: branch, observation, env: gitEnv, runRemoteCommand, cleanupWarnings,
+      cleanupQueueRoot: queueRoot, reusable: cachedClassification
+    });
+  let state = classified.state;
   const classifiedState = state;
   if (state.kind === 'delivery-locator') {
     state = await verifyDeliveryLocator(repository, state, { refresh });
@@ -1779,12 +1893,16 @@ export async function inspectRepositoryOnboarding(remote, {
     });
   }
   const configurationCommit = observation.refs.get(CONFIGURATION_REF) ?? null;
+  // A matching record's configuration verdict is keyed by this exact configuration commit and
+  // build, so it stays valid even when the state branch had to be read again.
   const configuration = cachedClassification?.configuration
     ?? await inspectConfigurationSnapshot(repository, configurationCommit, {
     env: gitEnv, runRemoteCommand, cleanupWarnings, cleanupQueueRoot: queueRoot
   });
-  if (!cachedClassification && cacheIdentity) {
-    await writeClassificationCache(cacheIdentity, classifiedState, configuration, env);
+  if (!exactClassification && cacheIdentity) {
+    await writeClassificationCache(
+      cacheIdentity, classifiedState, configuration, classified.content, env
+    );
   }
   const setup = deriveModeSetup(selectedMode, state, configuration);
   const relevantRefs = [CONFIGURATION_REF, stateRef];
@@ -2690,7 +2808,7 @@ async function finishWithRegistration(plan, target, values = {}) {
 export async function applyRepositoryOnboarding(remote, {
   mode = 'auto', stateBranch = STATE_BRANCH_DEFAULT, confirmPlan,
   env = process.env, runRemoteCommand = runRemoteGitAsync,
-  cleanupQueueRoot = null,
+  cleanupQueueRoot = null, refresh = false,
   classificationCacheBuildIdentity = classificationBuildIdentity()
 } = {}) {
   const requestedRepository = canonicalRepositoryLocator(remote);
@@ -2705,9 +2823,12 @@ export async function applyRepositoryOnboarding(remote, {
     );
   }
   const gitEnv = enterpriseGitEnvironment(env);
+  // Apply always re-observes the live refs and re-advertises a delivery locator's authority. The
+  // exact verdict the preview recorded for those same commits and this same build is reused; an
+  // explicit refresh reads every branch again.
   let plan = await inspectRepositoryOnboarding(requestedRepository, {
     mode: selectedMode, stateBranch, env: gitEnv, runRemoteCommand, cleanupQueueRoot,
-    refresh: true, useClassificationCache: false, classificationCacheBuildIdentity
+    refresh: true, useClassificationCache: !refresh, classificationCacheBuildIdentity
   });
   if (plan.planId !== confirmation) {
     throw new SingularityFlowError(

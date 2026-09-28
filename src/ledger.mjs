@@ -7,9 +7,10 @@ import {
 } from './util.mjs';
 import { readRefTree as readRefTreeShared } from './git-ref-tree.mjs';
 import { scopedRead } from './read-scope.mjs';
+import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import {
   defaultBranchName, fetchRemote, gitCommitIdentityArgs,
-  gitCommitIdentityEnvironment, gitCommitSigningArgs, gitDir, hasRemote,
+  gitCommitIdentityEnvironment, gitCommitSigningArgs, gitCommonDir, gitDir, hasRemote,
   refExists, resolveGitCommitIdentity, resolveGitCommitSigning, validateGitCommitIdentity,
   validateGitCommitSigning
 } from './git.mjs';
@@ -526,7 +527,7 @@ function stateTrackingConcurrencyError(config, expectedCommit, observedCommit) {
  */
 /** Async initialization-only counterpart: onboarding must never block the extension event loop. */
 async function ensureRemoteBranchFetchedAsync(root, config, {
-  offline = false, env = process.env, transportRemote = undefined
+  offline = false, env = process.env, transportRemote = undefined, requireFetch = false
 } = {}) {
   if (!hasRemoteInEnvironment(root, config.remote, env)) return LEDGER_REMOTE_VIEW.NO_REMOTE;
   if (offline) return LEDGER_REMOTE_VIEW.NOT_CHECKED;
@@ -553,6 +554,16 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
   if (observed.status !== 'observed' || !observed.commit) {
     return observed.timedOut
       ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
+  }
+  // The fresh observation above is the authority. When the tracking ref already names that exact
+  // commit and the object is local, a fetch would transfer nothing and only negotiate again. After an
+  // uncertain publication the caller requires the fetch itself as its proof of the remote tip.
+  if (!requireFetch && before.status === 'direct' && before.commit === observed.commit && git(root, [
+    'cat-file', '-e', `${observed.commit}^{commit}`
+  ], {
+    allowFailure: true, env: { ...env, GIT_NO_LAZY_FETCH: '1' }, timeoutMs: 5_000
+  }).status === 0) {
+    return LEDGER_REMOTE_VIEW.REFRESHED;
   }
   // Fetch only into FETCH_HEAD. A configured refspec—or Git's ordinary destination handling—must
   // not dereference and mutate the tracking ref before its exact old-value lease is checked.
@@ -1442,7 +1453,11 @@ function validPinBinding(pinRef, expectedCommit) {
 
 function localPinObservation(root, pinRef, expectedCommit, env = process.env) {
   if (!validPinBinding(pinRef, expectedCommit)) return { status: 'invalid', commit: null };
-  const observed = directRefObservation(root, pinRef, env);
+  return pinStatus(root, expectedCommit, directRefObservation(root, pinRef, env), env);
+}
+
+/** The recorded pin's status given one exact observation of its ref. */
+function pinStatus(root, expectedCommit, observed, env = process.env) {
   if (observed.status === 'absent') return { status: 'missing', commit: null };
   if (observed.status !== 'direct') return { status: observed.status, commit: null };
   if (observed.commit !== expectedCommit && git(root, [
@@ -1454,6 +1469,95 @@ function localPinObservation(root, pinRef, expectedCommit, env = process.env) {
     status: observed.commit === expectedCommit ? 'expected' : 'mismatch',
     commit: observed.commit
   };
+}
+
+/**
+ * Observe every recorded pin from one listing instead of one or two processes per pin. `[perf]`
+ *
+ * `verifyLedger` observed each entry's pin with its own `for-each-ref`, a `symbolic-ref` probe
+ * whenever the pin was absent, and did both twice per entry. A workspace whose pins live only on
+ * its remote paid four processes per ledger entry inside every Story start and editor snapshot.
+ *
+ * One listing answers the direct and live symbolic cases exactly. Git omits a dangling symbolic
+ * ref from listings without any diagnostic, so absence is admitted only where the files ref store
+ * has no loose ref at that name: packed refs are never symbolic and always appear in the listing.
+ * A loose entry, a reftable or unknown store, or a failed listing keeps the exact single-ref probe.
+ */
+async function localPinIndex(root, env = process.env) {
+  const format = git(root, ['rev-parse', '--show-ref-format'], {
+    allowFailure: true, env, maxBuffer: 1024, timeoutMs: 5_000
+  });
+  if (format.status !== 0 || String(format.stdout ?? '').trim() !== 'files') return null;
+  const listed = git(root, [
+    'for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)',
+    'refs/singularity/pins/', 'refs/heads/singularity/pins/'
+  ], { allowFailure: true, env, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeoutMs: 30_000 });
+  if (listed.status !== 0 || listed.error || listed.timedOut || !Buffer.isBuffer(listed.stdout)) return null;
+  const refs = new Map();
+  for (const line of listed.stdout.toString('utf8').split('\n')) {
+    if (!line) continue;
+    const match = /^([^\x00]+)\x00([0-9a-f]{40}|[0-9a-f]{64})\x00([^\x00]*)$/u.exec(line);
+    if (!match) return null;
+    refs.set(match[1], match[3] ? { status: 'symbolic', commit: null } : { status: 'direct', commit: match[2] });
+  }
+  const commonDirectory = gitCommonDir(root);
+  return {
+    async observe(ref) {
+      const found = refs.get(ref);
+      if (found) return found;
+      try {
+        await lstat(path.join(commonDirectory, ...ref.split('/')));
+      } catch (error) {
+        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return { status: 'absent', commit: null };
+      }
+      return directRefObservation(root, ref, env);
+    }
+  };
+}
+
+/**
+ * Hash each pinned configuration from batched object reads. `[perf]`
+ *
+ * One `git show <commit>:<path>` per ledger entry was the other per-entry loop in `verifyLedger`.
+ * The pinned file rarely changes, so most entries name the same few blobs. Specs are resolved in
+ * one lazy-fetch-free pass and each distinct blob is read once. Anything that is not an available
+ * blob here — an absent commit or path, a tree, or a partial-clone object not yet local — takes the
+ * original `git show`, so every answer, including an implicit promisor fetch, is unchanged.
+ */
+function pinnedConfigurationHashes(root, specs) {
+  const answers = new Map();
+  const unique = [...new Set(specs)];
+  if (!unique.length) return answers;
+  const localEnv = { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' };
+  const checked = git(root, ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+    allowFailure: true, env: localEnv, input: `${unique.join('\n')}\n`, maxBuffer: unique.length * 256 + 1024
+  });
+  const rows = checked.status === 0 ? String(checked.stdout ?? '').trimEnd().split('\n') : [];
+  const blobs = new Map();
+  if (rows.length === unique.length) {
+    unique.forEach((spec, index) => {
+      const [oid, type] = rows[index].trim().split(' ');
+      if (type === 'blob' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid ?? '')) blobs.set(spec, oid);
+    });
+  }
+  let contents = new Map();
+  if (blobs.size) {
+    try {
+      contents = readLocalGitBlobs(root, [...new Set(blobs.values())], { env: localEnv, label: 'Pinned configuration' });
+    } catch {
+      contents = new Map();
+    }
+  }
+  for (const spec of unique) {
+    const bytes = contents.get(blobs.get(spec));
+    if (Buffer.isBuffer(bytes)) {
+      answers.set(spec, { readable: true, sha256: sha256(bytes.toString('utf8')) });
+      continue;
+    }
+    const shown = git(root, ['show', spec], { allowFailure: true });
+    answers.set(spec, shown.status === 0 ? { readable: true, sha256: sha256(shown.stdout) } : { readable: false, sha256: null });
+  }
+  return answers;
 }
 
 // A ledger entry authorizes repair of exactly its recorded pin, not a symbolic target. The old
@@ -1596,7 +1700,7 @@ async function appendOnce(root, config, intent, publishedCommit, {
 } = {}) {
   const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
   const remoteView = await ensureRemoteBranchFetchedAsync(root, config, {
-    env, transportRemote
+    env, transportRemote, requireFetch: requireFreshRemoteAuthority
   });
   // A failed push can mean either "the remote refused it" or "the remote accepted it and the
   // response was lost".  The next attempt must distinguish those states from a successful remote
@@ -1642,43 +1746,10 @@ async function appendOnce(root, config, intent, publishedCommit, {
     const publishedPin = await publishPinAsync(
       root, config, intent, publishedCommit, { env, transportRemote }
     );
-    const entry = entryFromIntent(intent, publishedCommit, idempotency.value);
-    entry.transport.pinRef = publishedPin;
-    entry.transport.pinTransport = config.pinTransport;
-    entry.transport.retentionDays = config.retentionDays;
-    entry.parentEntryHash = head.entryHash;
-    const location = entryPath(entry);
-    const nextHead = {
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      sequence: Number(head.sequence) + 1,
-      entryHash: location.hash,
-      previousHeadHash: sha256(canonicalJson(head)),
-      updatedAt: nowIso()
-    };
-    await writeCanonicalJson(path.join(worktree, location.path), entry);
-    await writeCanonicalJson(path.join(worktree, idempotencyPath(idempotency.hash)), {
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      eventId: intent.eventId,
-      idempotencyKey: idempotency.value,
-      idempotencyHash: idempotency.hash,
-      entryHash: location.hash,
-      entryPath: location.path,
-      sequence: nextHead.sequence
-    });
-    await writeCanonicalJson(path.join(worktree, eventPath(intent.eventId)), {
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      eventId: intent.eventId,
-      idempotencyHash: idempotency.hash,
-      entryHash: location.hash,
-      sequence: nextHead.sequence
-    });
-    await writeCanonicalJson(path.join(worktree, HEAD_PATH), nextHead);
-    git(worktree, ['add', location.path, idempotencyPath(idempotency.hash), eventPath(intent.eventId), HEAD_PATH], { env });
-    git(worktree, commitArgs(
-      config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`,
-      commitIdentity, commitSigning
-    ), { env: gitCommitIdentityEnvironment(env, commitIdentity) });
-    const ledgerCommit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+    const { entryHash, sequence, ledgerCommit } = await commitLedgerEntry(
+      worktree, config, intent, publishedCommit, idempotency, head, publishedPin,
+      { env, commitIdentity, commitSigning }
+    );
     if (hasRemoteInEnvironment(root, config.remote, env)) {
       const pushed = await pushLedgerAsync(
         worktree, config, expectedRemoteSha, { env, transportRemote }
@@ -1699,11 +1770,55 @@ async function appendOnce(root, config, intent, publishedCommit, {
     return {
       duplicate: false,
       eventId: intent.eventId,
-      entryHash: location.hash,
-      sequence: nextHead.sequence,
+      entryHash,
+      sequence,
       ledgerCommit
     };
   }, { env });
+}
+
+/** Write and commit one ledger entry on `head`, its idempotency and event records, and the new head. */
+async function commitLedgerEntry(worktree, config, intent, publishedCommit, idempotency, head, pin, {
+  env = process.env, commitIdentity, commitSigning
+} = {}) {
+  const entry = entryFromIntent(intent, publishedCommit, idempotency.value);
+  entry.transport.pinRef = pin;
+  entry.transport.pinTransport = config.pinTransport;
+  entry.transport.retentionDays = config.retentionDays;
+  entry.parentEntryHash = head.entryHash;
+  const location = entryPath(entry);
+  const nextHead = {
+    schemaVersion: LEDGER_SCHEMA_VERSION,
+    sequence: Number(head.sequence) + 1,
+    entryHash: location.hash,
+    previousHeadHash: sha256(canonicalJson(head)),
+    updatedAt: nowIso()
+  };
+  await writeCanonicalJson(path.join(worktree, location.path), entry);
+  await writeCanonicalJson(path.join(worktree, idempotencyPath(idempotency.hash)), {
+    schemaVersion: LEDGER_SCHEMA_VERSION,
+    eventId: intent.eventId,
+    idempotencyKey: idempotency.value,
+    idempotencyHash: idempotency.hash,
+    entryHash: location.hash,
+    entryPath: location.path,
+    sequence: nextHead.sequence
+  });
+  await writeCanonicalJson(path.join(worktree, eventPath(intent.eventId)), {
+    schemaVersion: LEDGER_SCHEMA_VERSION,
+    eventId: intent.eventId,
+    idempotencyHash: idempotency.hash,
+    entryHash: location.hash,
+    sequence: nextHead.sequence
+  });
+  await writeCanonicalJson(path.join(worktree, HEAD_PATH), nextHead);
+  git(worktree, ['add', location.path, idempotencyPath(idempotency.hash), eventPath(intent.eventId), HEAD_PATH], { env });
+  git(worktree, commitArgs(
+    config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`,
+    commitIdentity, commitSigning
+  ), { env: gitCommitIdentityEnvironment(env, commitIdentity) });
+  const ledgerCommit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+  return { entryHash: location.hash, sequence: nextHead.sequence, ledgerCommit };
 }
 
 export async function appendLedgerIntent(root, rawConfig, intent, publishedCommit, {
@@ -1730,6 +1845,52 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
     }
   }
   throw lastError;
+}
+
+/**
+ * Build, but do not publish, the commit that appendLedgerIntent would publish for this intent.
+ *
+ * The base is the current remote-tracking state ref, which is also the exact lease the caller must
+ * push under. Nothing is fetched or pushed here. Returns null when there is no remote or no tracked
+ * ledger head to build on, or when the event is already recorded; the caller then uses the ordinary
+ * appendLedgerIntent path, which owns initialization, retries and duplicate reconciliation.
+ */
+export async function prepareLedgerAppend(root, rawConfig, intent, publishedCommit, {
+  env = process.env, commitIdentity = null, commitSigning = null
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  if (!hasRemoteInEnvironment(root, config.remote, env)) return null;
+  const operation = frozenCommitOperation(root, config, { env, commitIdentity, commitSigning });
+  const tracked = remoteRef(config);
+  const expectedRemoteSha = optionalDirectStateRef(root, config, tracked, env);
+  if (!expectedRemoteSha || ledgerHead(root, config, { env }) !== tracked) return null;
+  const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
+  const pin = pinRef(config, intent);
+  return temporaryWorktree(root, tracked, async (worktree) => {
+    if (await eventAlreadyRecorded(worktree, idempotency.hash)) return null;
+    const head = await loadHead(worktree);
+    const { entryHash, sequence, ledgerCommit } = await commitLedgerEntry(
+      worktree, config, intent, publishedCommit, idempotency, head, pin, {
+        env, commitIdentity: operation.commitIdentity, commitSigning: operation.commitSigning
+      }
+    );
+    return Object.freeze({
+      branch: config.branch, eventId: intent.eventId, entryHash, sequence, ledgerCommit,
+      pinRef: pin, expectedRemoteSha
+    });
+  }, { env });
+}
+
+/**
+ * Align the local state refs with a state commit the caller just published under an exact lease,
+ * exactly as publishToStateBranch does after its own push.
+ */
+export function recordStatePublication(root, rawConfig, commit, expectedRemoteSha, {
+  env = process.env
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRemoteSha, env);
+  synchronizeLocalStateRefAfterRemotePush(root, config, commit, env);
 }
 
 /**
@@ -1761,7 +1922,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   replaceRoots = [], removePaths = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
   baseRef: suppliedBaseRef = null, refreshRemote = true, guardedRemoteRefs = {},
   env = process.env, transportRemote = undefined, exactBlobSha256 = {}, pathPreconditions = {},
-  commitIdentity = null, commitSigning = null
+  commitIdentity = null, commitSigning = null, deferPush = false
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const sourceGuards = normalizedGuardedRemoteRefs(root, guardedRemoteRefs, { env });
@@ -1813,9 +1974,17 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
   }
 
-  if (refreshRemote) await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
+  // A deferred build never contacts the remote: its caller already holds the base and the lease.
+  if (refreshRemote && !deferPush) {
+    await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
+  }
   let ref = ledgerHead(root, config, { env });
   let initializedCommit = null;
+  if (!ref && deferPush) {
+    throw new SingularityFlowError('A deferred state publication needs an existing state branch.', {
+      code: 'state_branch.publication_base_unavailable', details: { branch: config.branch }
+    });
+  }
   if (!ref) {
     const initialized = await initializeLedger(root, config, {
       env, repairPins: false, transportRemote, commitIdentity, commitSigning
@@ -1904,6 +2073,10 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     // Publishing the same bytes twice is a no-op rather than an empty commit: this runs on every
     // capability edit, and most edits change one file out of several.
     if (!git(worktree, ['diff', '--cached', '--name-only'], { env }).stdout.trim()) {
+      // A deferred build is published, and verified, by its caller's own leased transaction.
+      if (deferPush) {
+        return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
+      }
       if (hasRemoteInEnvironment(root, config.remote, env) && suppliedExpectedRemoteSha !== undefined) {
         const observed = await observeRemoteBranch(worktree, config, { env, transportRemote });
         if (observed.status !== 'observed') {
@@ -1958,6 +2131,12 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
           { code: 'state_branch.projection_bytes_changed', details: { path: file } }
         );
       }
+    }
+    if (deferPush) {
+      return {
+        branch: config.branch, commit, changed: true,
+        published: entries.map(([file]) => file), removed: removedFiles
+      };
     }
     if (hasRemoteInEnvironment(root, config.remote, env)) {
       const pushed = await pushLedgerAsync(
@@ -2085,32 +2264,194 @@ async function remoteLedgerIntents(root, config, { offline = false } = {}) {
     `refs/remotes/${config.remote}`
   ], { allowFailure: true }).stdout.trim().split('\n').filter(Boolean)
     .filter((ref) => ref !== `${config.remote}/HEAD` && ref !== `${config.remote}/${config.branch}`);
+  const listed = batchedRefIntentFiles(root, refs);
+  const bodies = presentObjects(root, [...listed.values()].filter(Boolean).flat().map((file) => file.oid), 'blob');
   const candidates = [];
   for (const ref of refs) {
-    const files = git(root, [
-      'ls-tree',
-      '-r',
-      '--name-only',
-      ref,
-      'singularity'
-    ], { allowFailure: true }).stdout.trim().split('\n').filter(
-      (file) => file.includes(`/${LEDGER_INTENT_DIRECTORY}/`) && file.endsWith('.json')
-    );
+    const files = listed.get(ref);
+    if (!files) {
+      candidates.push(...perRefLedgerIntents(root, ref));
+      continue;
+    }
+    // A ref with no intent files contributed nothing before either; its publishing walk was unused.
+    if (!files.length) continue;
     const published = publishingCommits(root, ref);
-    for (const intentPath of files) {
-      const content = git(root, ['show', `${ref}:${intentPath}`], { allowFailure: true });
-      if (content.status !== 0 || !content.stdout.trim()) continue;
-      let intent;
-      try {
-        intent = readRecord('ledger-intent', content.stdout).record;
-      } catch (error) {
-        if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
-        continue;
-      }
-      candidates.push({ intent, intentPath, publishedCommit: published.get(intentPath) ?? null, source: ref });
+    for (const { intentPath, oid } of files) {
+      const text = bodies.has(oid) ? bodies.get(oid).toString('utf8') : showRefFile(root, ref, intentPath);
+      const candidate = intentCandidate(text, intentPath, published, ref);
+      if (candidate) candidates.push(candidate);
     }
   }
   return candidates;
+}
+
+/** One intent read from a ref, parsed exactly as before; unreadable or non-intent bytes are skipped. */
+function intentCandidate(text, intentPath, published, ref) {
+  if (text === null || !text.trim()) return null;
+  let intent;
+  try {
+    intent = readRecord('ledger-intent', text).record;
+  } catch (error) {
+    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+    return null;
+  }
+  return { intent, intentPath, publishedCommit: published.get(intentPath) ?? null, source: ref };
+}
+
+function showRefFile(root, ref, file) {
+  const content = git(root, ['show', `${ref}:${file}`], { allowFailure: true });
+  return content.status === 0 ? content.stdout : null;
+}
+
+/** The original per-ref read, kept for any ref the batched walk cannot prove exactly. */
+function perRefLedgerIntents(root, ref) {
+  const files = git(root, [
+    'ls-tree',
+    '-r',
+    '--name-only',
+    ref,
+    'singularity'
+  ], { allowFailure: true }).stdout.trim().split('\n').filter(
+    (file) => file.includes(`/${LEDGER_INTENT_DIRECTORY}/`) && file.endsWith('.json')
+  );
+  const published = publishingCommits(root, ref);
+  const candidates = [];
+  for (const intentPath of files) {
+    const candidate = intentCandidate(showRefFile(root, ref, intentPath), intentPath, published, ref);
+    if (candidate) candidates.push(candidate);
+  }
+  return candidates;
+}
+
+const OBJECT_BATCH = 2048;
+const LOCAL_OBJECT_ENV = { GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' };
+
+/**
+ * Read local objects of one type in bounded `cat-file --batch` processes. `[perf]`
+ *
+ * Missing objects (a partial clone), unexpected types and failed batches are simply absent from
+ * the answer; callers fall back to the original per-file read, which keeps any promisor fetch it
+ * used to make. No lazy fetch or replacement object is ever used here.
+ */
+function presentObjects(root, oids, type) {
+  const found = new Map();
+  const unique = [...new Set(oids)];
+  for (let offset = 0; offset < unique.length; offset += OBJECT_BATCH) {
+    const group = unique.slice(offset, offset + OBJECT_BATCH);
+    const batch = git(root, ['cat-file', '--batch'], {
+      allowFailure: true, env: { ...process.env, ...LOCAL_OBJECT_ENV },
+      encoding: 'buffer', input: `${group.join('\n')}\n`, maxBuffer: 1024 * 1024 * 1024
+    });
+    if (batch.status !== 0 || !Buffer.isBuffer(batch.stdout)) continue;
+    const bytes = batch.stdout;
+    let cursor = 0;
+    for (const oid of group) {
+      const newline = bytes.indexOf(0x0a, cursor);
+      if (newline < 0) break;
+      const header = bytes.toString('utf8', cursor, newline).split(' ');
+      if (header[1] === 'missing' || header.length !== 3) {
+        cursor = newline + 1;
+        continue;
+      }
+      const size = Number(header[2]);
+      const bodyStart = newline + 1;
+      const bodyEnd = bodyStart + size;
+      if (header[0] !== oid || !Number.isSafeInteger(size) || bodyEnd >= bytes.length || bytes[bodyEnd] !== 0x0a) break;
+      if (header[1] === type) found.set(oid, bytes.subarray(bodyStart, bodyEnd));
+      cursor = bodyEnd + 1;
+    }
+  }
+  return found;
+}
+
+function treeRecords(body, oidLength) {
+  const entries = [];
+  let cursor = 0;
+  const rawLength = oidLength / 2;
+  while (cursor < body.length) {
+    const space = body.indexOf(0x20, cursor);
+    const nul = body.indexOf(0x00, space + 1);
+    if (space < 0 || nul < 0 || nul + 1 + rawLength > body.length) return null;
+    const mode = body.toString('utf8', cursor, space);
+    const name = body.subarray(space + 1, nul);
+    const oid = body.subarray(nul + 1, nul + 1 + rawLength).toString('hex');
+    entries.push({ mode, name, oid });
+    cursor = nul + 1 + rawLength;
+  }
+  return entries;
+}
+
+// Git quotes these bytes in a non -z `ls-tree` listing, which the old path filter then rejected.
+const QUOTED_PATH_BYTE = (byte) => byte < 0x20 || byte === 0x22 || byte === 0x5c || byte >= 0x7f;
+
+/**
+ * Intent files for every ref, from each distinct tree object read once. `[perf]`
+ *
+ * The old loop listed each ref's whole `singularity` tree and then ran one `git show` per intent:
+ * on a real workspace ~80 refs, most of them configuration-history snapshots with no intents at
+ * all, cost ~300 processes inside every Story start's validation. Tree objects are
+ * content-addressed and shared between refs, so one batch per tree depth reads all of them.
+ *
+ * The answer per ref is exactly the old one: the same `ref:singularity` resolution, the same
+ * pre-order `ls-tree -r` order, and the same path filter. A ref maps to `null` — and keeps the
+ * old per-ref read — whenever this walk cannot prove that: a tree that is not local, a gitlink or a
+ * name Git would quote under the intent filter, or any malformed object.
+ */
+function batchedRefIntentFiles(root, refs) {
+  const listed = new Map();
+  if (!refs.length) return listed;
+  const checked = git(root, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], {
+    allowFailure: true, env: { ...process.env, ...LOCAL_OBJECT_ENV },
+    input: `${refs.map((ref) => `${ref}:singularity`).join('\n')}\n`, maxBuffer: refs.length * 256 + 1024
+  });
+  const rows = checked.status === 0 ? String(checked.stdout ?? '').trimEnd().split('\n') : [];
+  if (rows.length !== refs.length) return listed;
+  const roots = new Map();
+  refs.forEach((ref, index) => {
+    const [oid, type] = rows[index].trim().split(' ');
+    if (type === 'missing' || (type && type !== 'tree' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid ?? ''))) {
+      // No `singularity` tree (or a non-directory there): the old listing matched no intent path.
+      listed.set(ref, []);
+    } else if (type === 'tree' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid ?? '')) {
+      roots.set(ref, oid);
+    }
+  });
+  const trees = new Map();
+  let frontier = [...new Set(roots.values())];
+  while (frontier.length) {
+    const read = presentObjects(root, frontier, 'tree');
+    const next = [];
+    for (const oid of frontier) {
+      const body = read.get(oid);
+      const entries = body ? treeRecords(body, oid.length) : null;
+      trees.set(oid, entries);
+      for (const entry of entries ?? []) {
+        if (entry.mode === '40000' && !trees.has(entry.oid)) next.push(entry.oid);
+      }
+    }
+    frontier = [...new Set(next)].filter((oid) => !trees.has(oid));
+  }
+  const walk = (oid, prefix, output) => {
+    const entries = trees.get(oid);
+    if (!entries) return false;
+    for (const entry of entries) {
+      const name = entry.name.toString('utf8');
+      const file = `${prefix}${name}`;
+      if (entry.mode === '40000') {
+        if (!walk(entry.oid, `${file}/`, output)) return false;
+        continue;
+      }
+      if (!file.includes(`/${LEDGER_INTENT_DIRECTORY}/`) || !file.endsWith('.json')) continue;
+      if (entry.mode === '160000' || Buffer.from(file, 'utf8').some(QUOTED_PATH_BYTE)) return false;
+      output.push({ intentPath: file, oid: entry.oid });
+    }
+    return true;
+  };
+  for (const [ref, oid] of roots) {
+    const output = [];
+    listed.set(ref, walk(oid, 'singularity/', output) ? output : null);
+  }
+  return listed;
 }
 
 /**
@@ -2332,6 +2673,10 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
     const remotePins = offline
       ? new Map()
       : await remotePinObservations(root, config.remote, pinBindings);
+    const pinIndex = pinBindings.length ? await localPinIndex(root) : null;
+    const configurationHashes = pinnedConfigurationHashes(root, [...entries.values()]
+      .filter((entry) => entry.payload?.configSha256 && entry.payload?.configPath)
+      .map((entry) => `${entry.transport.publishedCommit}:${entry.payload.configPath}`));
     for (const [hash, entry] of entries) {
       const expected = ledgerIdempotencyKey(entry, entry.transport?.publishedCommit);
       if (entry.idempotencyKey !== expected.value) errors.push(`Entry ${hash} has an invalid idempotency key.`);
@@ -2342,15 +2687,21 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
         const pinRef = entry.transport.pinRef;
         const expectedCommit = entry.transport.publishedCommit;
         const bindingValid = validPinBinding(pinRef, expectedCommit);
-        const localBefore = bindingValid ? localPinObservation(root, pinRef, expectedCommit) : { status: 'invalid' };
+        const localBefore = !bindingValid ? { status: 'invalid' }
+          : pinIndex ? pinStatus(root, expectedCommit, await pinIndex.observe(pinRef))
+            : localPinObservation(root, pinRef, expectedCommit);
         const remoteObserved = remotePins.get(pinRef) ?? null;
+        const alreadyCurrent = !offline && remoteObserved?.status === 'expected'
+          && localBefore.status === 'expected' && expectedCommitAvailable(root, expectedCommit);
+        const fetchAttempted = !offline && !alreadyCurrent;
         const fetched = offline
           ? { status: 'not-checked', remote: config.remote, pinRef }
-          : remoteObserved?.status === 'expected' && localBefore.status === 'expected'
-              && expectedCommitAvailable(root, expectedCommit)
+          : alreadyCurrent
             ? { ...remoteObserved, pinRef }
             : await fetchExpectedPin(root, config.remote, pinRef, expectedCommit, remoteObserved);
-        const localAfter = bindingValid ? localPinObservation(root, pinRef, expectedCommit) : { status: 'invalid' };
+        // Only a fetch can move the local pin; without one the observation above is still exact.
+        const localAfter = !bindingValid ? { status: 'invalid' }
+          : fetchAttempted ? localPinObservation(root, pinRef, expectedCommit) : localBefore;
         const localStatus = localAfter.status;
         pinDiagnostics.push({
           entryHash: hash,
@@ -2400,13 +2751,10 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
         errors.push(`Entry ${hash} has no source pin.`);
       }
       if (entry.payload?.configSha256 && entry.payload?.configPath) {
-        const configAtSource = git(root, [
-          'show',
-          `${entry.transport.publishedCommit}:${entry.payload.configPath}`
-        ], { allowFailure: true });
-        if (configAtSource.status !== 0) {
+        const configAtSource = configurationHashes.get(`${entry.transport.publishedCommit}:${entry.payload.configPath}`);
+        if (!configAtSource?.readable) {
           errors.push(`Entry ${hash} cannot read pinned configuration ${entry.payload.configPath}.`);
-        } else if (sha256(configAtSource.stdout) !== entry.payload.configSha256) {
+        } else if (configAtSource.sha256 !== entry.payload.configSha256) {
           errors.push(`Entry ${hash} pinned configuration hash does not match ${entry.payload.configPath}.`);
         }
       }

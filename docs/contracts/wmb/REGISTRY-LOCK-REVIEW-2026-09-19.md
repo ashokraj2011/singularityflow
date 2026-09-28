@@ -420,6 +420,51 @@ refresh, runtime, materialization, cache, publication, commands, and View policy
 include the frozen schema version, testing overview's optional `test-impact`, and required
 `runtime-frequency` limitation assertions.
 
+## Batched Exact Source Snapshot read acceptance
+
+**Review boundary:** working tree based on `main@b9bcb152bb00a34672f9c276d9ed77a96b78d908`
+
+Since the last accepted lock at `ab9f5623fa3616d921f7159211c69f126d7e3df7`, exactly one packaged
+kernel path changed. `source/snapshot.mjs` now reads an Exact Source Snapshot's blob bytes through
+the shared bounded batch reader (`src/git-blob-batch.mjs`: one batch check, then `cat-file --batch`
+groups of at most 24 MiB or 512 objects) instead of one `git cat-file blob` process per file. It also
+keeps a per-process digest cache keyed by blob object id. The reviewed effect:
+
+- every body is re-hashed against its Git object id before it is admitted;
+- lazy fetches and replace refs stay disabled, and a blob missing from the local object store is
+  still the typed `WMB_SOURCE_OBJECT_UNAVAILABLE` refusal;
+- the per-object ceiling stays 512 MiB, the output ceiling of the previous per-file read;
+- snapshot records (paths, modes, object ids, SHA-256 digests and byte counts) are unchanged. On a
+  real 83-file repository, the previous and changed implementations produced byte-identical current
+  and historical snapshots.
+
+`src/git-blob-batch.mjs` stays outside the source-digest boundary. It returns only bytes it has
+verified against their object ids, and the only admission limit it applies is the per-object ceiling
+passed in from `source/snapshot.mjs`. Its batch sizes bound throughput, not admission.
+
+The coverage extractor, Extractor Registry and View Registry source blobs remain
+`063af8c31e245f2e6280680edd7693ac135e3b86`, `95d2cfdecb6a4d399d6d36c42c900a9fb99287ba` and
+`c3187362f5cca055ff6fd667079ac99acd4d7666` at both boundaries. No extractor algorithm, declared Fact
+type, parser declaration, permission, View Contract, cache policy or publication authority changed.
+Because extractor identities intentionally bind the complete packaged World-Model kernel, the
+reviewed change moves every built-in extractor identity mechanically:
+
+| Identity | Previously accepted | Accepted at this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:c7fb97c6492ade4be5ac53811ce610faf3fa873f62aea96d5b93f3604d987cde` | `sha256:b4aefa776a1b8813671d7f0df65d21af0e0e8aed2234bf536fd4af21146dbb53` |
+| Coverage implementation | `sha256:f9325983f02aefdca22556f6945fa7df7fa7aea71c50408dc082ede8cd8f9923` | `sha256:0feeab49e967840b15bf5755b77b17e4c72020d10f2275ad095583367a8fd552` |
+| Coverage conformance receipt | `sha256:f5b3243bd82794b40e9e8b797eeaf1f40f59d8bf56e70d72508830c0bcf5e33c` | `sha256:d3bcdbc15b07656b63b575b008f0678ecf5c243b2afdf47328db4aca070c8704` |
+| Coverage manifest | `sha256:c0848f266a5db5cf27ad59d3058f12f21578be9cab624078fb52ae14060aed56` | `sha256:c6f23123e313932c4656f8af151ed818ff16d3776efeb259166d11b886869efc` |
+| Built-in Extractor Registry | `sha256:559285187f036990893a6b062df871b70339be4bed7ee94e8896b21c3e163542` | `sha256:b7d5cfaa65ad4294da1c8ae565eae238ca5e83cadde2e43e543e9ba5f092c949` |
+
+Neither column was copied from a failing assertion. Executing the registry modules at `b9bcb152`
+reproduced every previously accepted identity, and executing them on the changed tree produced the
+accepted ones. The registry, extractor-registry limits, source-digest, implementation-manifest,
+kernel-stamp, extractor execution, initial-extractor, extraction, view-projection, views,
+retained-owner, extraction-profile owner, candidate-snapshot, batched source-read,
+authority-refresh, runtime, materialization, cache, publication and command owner suites passed
+(20 files, 225/225).
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

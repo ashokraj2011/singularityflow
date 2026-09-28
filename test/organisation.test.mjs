@@ -4182,6 +4182,9 @@ test('activation success survives a later projection failure with an exact repai
   const proposed = await mapCapability(org.platform, {
     capabilityId: 'calculator', name: 'Calculator', kind: 'collection', parent: 'commerce'
   });
+  // Without atomic pushes the audit and the projection are published separately, so the projection
+  // can fail after its audit has landed.
+  run('git', ['config', 'receive.advertiseAtomic', 'false'], { cwd: org.platform });
   const hook = path.join(org.platform, 'hooks', 'pre-receive');
   const counter = path.join(org.platform, 'hooks', 'state-push-count');
   await writeFile(hook, `#!/bin/sh
@@ -4214,6 +4217,155 @@ exit 0
   assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
     cwd: org.platform
   }).stdout, /calculator/);
+});
+
+/** Map, merge and publish one capability, then propose a second for activation. */
+async function activationFixture() {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
+  });
+  await mergeProposal(org.platform, first);
+  await publishOrganisationCapabilityMap(org.platform);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection', parent: 'commerce'
+  });
+  const stateBefore = run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim();
+  return { org, proposed, stateBefore };
+}
+
+/** A pre-receive hook that records the refs of every push, one line per push. */
+async function recordPushes(remote) {
+  const log = path.join(remote, 'hooks', 'push-log');
+  const hook = path.join(remote, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+refs=""
+while read old new ref; do refs="$refs $ref"; done
+echo "$refs" >> "${log}"
+exit 0
+`);
+  await chmod(hook, 0o755);
+  return async () => (await readFile(log, 'utf8')).trim().split('\n')
+    .map((line) => line.trim().split(' ').sort());
+}
+
+function activationEvents(remote, proposalCommit) {
+  return run('git', ['ls-tree', '-r', '--name-only', 'state', 'ledger/entries/organisation'], {
+    cwd: remote
+  }).stdout.trim().split('\n').filter(Boolean).map((file) => JSON.parse(run('git', [
+    'show', `state:${file}`
+  ], { cwd: remote }).stdout)).filter((entry) => entry.subject?.workId === `capability-proposal:${proposalCommit}`);
+}
+
+test('activation publishes its audit and state projection in one atomic push', async () => {
+  const { org, proposed, stateBefore } = await activationFixture();
+  const pushes = await recordPushes(org.platform);
+  const timer = commandTimer('capability-activate-atomic', { commandClass: 'mutation' });
+  const activated = await withCommandTiming(timer, () => activateCapabilityProposal(
+    org.platform, proposed.branch, { confirm: proposed.commit, acknowledgeUnprotected: true }
+  ));
+  const counters = timer.finish().counters;
+  assert.equal(activated.status, 'activated');
+  assert.equal(activated.audit.recorded, true);
+  assert.equal(activated.audit.duplicate, false);
+  assert.equal(activated.projection.published, true);
+  // Authority and prior-audit observations, the checkout clone and its two fetches, the decision
+  // push, and one observation on each side of the single publication.
+  assert.deepEqual({
+    clone: counters['git.remote.command.clone'], fetch: counters['git.remote.command.fetch'],
+    push: counters['git.remote.command.push'], advertisements: counters['git.remote.command.ls-remote']
+  }, { clone: 1, fetch: 2, push: 2, advertisements: 4 });
+  const merge = activated.targetCommit;
+  const history = `refs/heads/sflow/config-history/${merge}`;
+  const [configurationPush, publication, ...rest] = await pushes();
+  assert.deepEqual(configurationPush, ['refs/heads/sflow/config']);
+  assert.deepEqual(rest, [], 'the audit, pin, history and mirror moved in one push');
+  assert.ok(publication.includes('refs/heads/state') && publication.includes(history));
+  assert.ok(publication.some((ref) => ref.startsWith('refs/singularity/pins/organisation/')));
+
+  // Exactly the sequential shape: the mirror commit sits on the audit commit, which sits on the
+  // state tip the activation observed.
+  const tip = run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim();
+  assert.equal(tip, activated.projection.commit);
+  assert.equal(run('git', ['rev-parse', `${tip}^`], { cwd: org.platform }).stdout.trim(),
+    activated.audit.ledgerCommit);
+  assert.equal(run('git', ['rev-parse', `${activated.audit.ledgerCommit}^`], {
+    cwd: org.platform
+  }).stdout.trim(), stateBefore);
+  assert.equal(run('git', ['rev-parse', history], { cwd: org.platform }).stdout.trim(), merge);
+  const manifest = JSON.parse(run('git', ['show', 'state:configuration/manifest.json'], {
+    cwd: org.platform
+  }).stdout);
+  assert.deepEqual(manifest.source, { branch: 'sflow/config', commit: merge });
+  assert.deepEqual(manifest.history, { branch: `sflow/config-history/${merge}`, commit: merge });
+  const [event] = activationEvents(org.platform, proposed.commit);
+  assert.equal(event.transport.pinRef.startsWith('refs/singularity/pins/organisation/'), true);
+  assert.equal(run('git', ['rev-parse', event.transport.pinRef], { cwd: org.platform }).stdout.trim(), merge);
+  assert.equal(event.payload.targetCommit, merge);
+  assert.deepEqual(event.payload.protection, activated.protection);
+});
+
+test('a refused atomic activation publication falls back to the sequential pushes', async () => {
+  const { org, proposed } = await activationFixture();
+  const log = path.join(org.platform, 'hooks', 'refused-log');
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+count=0
+while read old new ref; do count=$((count + 1)); done
+echo "$count" >> "${log}"
+if [ "$count" -gt 1 ]; then
+  echo "only single-ref pushes are accepted here" >&2
+  exit 1
+fi
+exit 0
+`);
+  await chmod(hook, 0o755);
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit, acknowledgeUnprotected: true
+  });
+  assert.equal(activated.status, 'activated');
+  assert.equal(activated.projection.published, true);
+  const counts = (await readFile(log, 'utf8')).trim().split('\n').map(Number);
+  assert.deepEqual(counts, [1, 3, 1, 1, 1, 1], 'one refused transaction, then the sequential pushes');
+  assert.equal(activationEvents(org.platform, proposed.commit).length, 1);
+  assert.equal(run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim(),
+    activated.projection.commit);
+});
+
+test('an atomic activation whose acknowledgement was lost is not published twice', {
+  skip: process.platform === 'win32' ? 'requires POSIX fixture hooks' : false
+}, async () => {
+  const { org, proposed } = await activationFixture();
+  // Refs update before post-receive runs. Holding the multi-ref push past the client timeout makes
+  // the landed transaction look failed to the client.
+  const hook = path.join(org.platform, 'hooks', 'post-receive');
+  await writeFile(hook, `#!/bin/sh
+count=0
+while read old new ref; do count=$((count + 1)); done
+if [ "$count" -gt 1 ]; then sleep 6; fi
+exit 0
+`);
+  await chmod(hook, 0o755);
+  const previousTimeout = process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS;
+  process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS = '2000';
+  let activated;
+  try {
+    activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+      confirm: proposed.commit, acknowledgeUnprotected: true
+    });
+  } finally {
+    if (previousTimeout === undefined) delete process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS;
+    else process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS = previousTimeout;
+  }
+  await writeFile(hook, '#!/bin/sh\nexit 0\n');
+  assert.equal(activated.status, 'activated');
+  assert.equal(activated.audit.duplicate, false);
+  assert.equal(activated.projection.published, true);
+  assert.equal(activationEvents(org.platform, proposed.commit).length, 1,
+    'the verified landing is reported once, never appended again');
+  assert.equal(run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim(),
+    activated.projection.commit);
 });
 
 test('mapping leaves nothing behind: the lead is borrowed, not checked out', async () => {

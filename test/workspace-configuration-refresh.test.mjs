@@ -4010,6 +4010,30 @@ test('a review-only refresh proposes packaged configuration on a review branch a
     result.candidateCommit);
 });
 
+test('every machine proposing the same packaged configuration shares one review', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-shared-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'application');
+  const propose = async () => {
+    const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+    return (await refreshWorkspaceConfigurations({
+      registryFile: registry, confirmPlan: preview.planId, reviewOnly: true
+    })).results[0];
+  };
+  const first = await propose();
+  // Commit times have one-second resolution: a later proposal is a different commit of the same change.
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const second = await propose();
+  assert.equal(first.status, 'review-required');
+  assert.equal(second.status, 'review-required');
+  assert.equal(second.proposalBranch, first.proposalBranch, 'the review is named by what it proposes');
+  assert.equal(second.candidateCommit, first.candidateCommit, 'the second proposal joins the open review');
+  assert.equal(second.reviewShared, true);
+  const reviews = run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh/'])
+    .stdout.split('\n').filter(Boolean);
+  assert.deepEqual(reviews, [`refs/heads/${first.proposalBranch}`], 'one review, not one per machine');
+});
+
 test('a review-only refresh never creates a first configuration authority', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-bootstrap-'));
   t.after(() => rm(root, { recursive: true, force: true }));

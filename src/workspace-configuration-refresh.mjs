@@ -19,7 +19,7 @@ import {
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { gitCommitIdentity } from './git.mjs';
+import { gitCommitIdentity, refHead } from './git.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
@@ -2954,6 +2954,35 @@ function commitRefreshCandidate(root, refresh, env, subject) {
 }
 
 /**
+ * A review is named by what it proposes: the approved commit it starts from and the exact tree it
+ * would make current, never the proposing machine's own commit. Every teammate whose new build
+ * proposes the same change therefore shares one review instead of opening a copy each.
+ */
+function reviewProposal(root, candidateCommit, sourceCommit, product, env) {
+  const tree = refHead(root, `${candidateCommit}^{tree}`, { env });
+  const parent = refHead(root, `${candidateCommit}^1`, { env });
+  if (!tree || !parent) {
+    throw new SingularityFlowError('The proposed configuration commit could not be read back. Nothing was proposed.', {
+      code: 'CONFIGURATION_REVIEW_UNREADABLE'
+    });
+  }
+  const revision = String(product.revision).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 16);
+  return { tree, parent, branch: `sflow/config-refresh/${revision}-${sourceCommit.slice(0, 8)}-${tree.slice(0, 12)}` };
+}
+
+/** The commit of this exact review when it is already open: the same tree on the same parent. */
+async function openReviewCommit(root, proposal, env) {
+  const fetched = await runRemoteGitAsync([
+    'fetch', '--quiet', '--no-tags', '--refmap=', 'origin', `refs/heads/${proposal.branch}`
+  ], { cwd: root, operation: 'remote-configuration', env });
+  if (fetched.status !== 0) return null;
+  const commit = refHead(root, 'FETCH_HEAD^{commit}', { env });
+  if (!commit) return null;
+  return refHead(root, `${commit}^{tree}`, { env }) === proposal.tree
+    && refHead(root, `${commit}^1`, { env }) === proposal.parent ? commit : null;
+}
+
+/**
  * A review-only refresh proposes each packaged configuration change on a review branch and never
  * pushes `sflow/config` itself. It is what self-repair runs: a person approves the change.
  */
@@ -2968,20 +2997,22 @@ async function proposeCandidate(candidate) {
   if (!refresh.changed) return result('current');
   const candidateCommit = commitRefreshCandidate(root, refresh, env, 'propose packaged configuration');
   if (!candidateCommit) return result('current');
-  const branch = proposalBranch(candidateCommit, sourceCommit, refresh.product);
-  const retained = await runRemoteGitAsync([
-    'push', `--force-with-lease=refs/heads/${branch}:`, 'origin', `HEAD:refs/heads/${branch}`
+  const proposal = reviewProposal(root, candidateCommit, sourceCommit, refresh.product, env);
+  const pushed = await runRemoteGitAsync([
+    'push', `--force-with-lease=refs/heads/${proposal.branch}:`, 'origin', `HEAD:refs/heads/${proposal.branch}`
   ], { cwd: root, operation: 'remote-push', env });
-  if (retained.status !== 0) {
-    const observed = await remoteHeads(repository.remote, [branch], { env });
-    if (observed.get(branch) !== candidateCommit) {
-      throw new SingularityFlowError(
-        `The configuration review for '${repository.displayRemote}' could not be opened. `
-          + remoteFailureMessage(retained)
-      );
-    }
+  if (pushed.status === 0) return result('review-required', { candidateCommit, proposalBranch: proposal.branch });
+  // Another machine, or an earlier attempt whose push outcome was lost, opened this exact review.
+  const open = await openReviewCommit(root, proposal, env);
+  if (!open) {
+    throw new SingularityFlowError(
+      `The configuration review for '${repository.displayRemote}' could not be opened. `
+        + remoteFailureMessage(pushed)
+    );
   }
-  return result('review-required', { candidateCommit, proposalBranch: branch });
+  return result('review-required', {
+    candidateCommit: open, proposalBranch: proposal.branch, ...(open === candidateCommit ? {} : { reviewShared: true })
+  });
 }
 
 async function publishCandidate(candidate) {

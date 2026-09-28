@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 22
+version: 23
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -123,7 +123,10 @@ After a new build loads, VS Code runs this refresh as a review: for each registe
 approved configuration lags the build's packaged configuration, it opens a
 `sflow/config-refresh/*` review branch and names it. Nothing changes until someone merges the review.
 The shell form is `workspace refresh-configuration --confirm-plan <PLAN-ID> --review-only`. A review-only
-refresh never creates a first configuration authority.
+refresh never creates a first configuration authority. A review is named by the approved commit it
+starts from and the exact configuration it proposes, so every teammate whose new build proposes the
+same change joins that one review instead of opening another. A window waiting to reload onto a
+newer build opens none; the reloaded build does.
 
 Use `workspace refresh-configuration --dry-run` to preview all repositories, or add a workspace
 reference and repeatable `--repository ID` filters for a bounded repair. Repository customizations

@@ -136,10 +136,19 @@ test('the required release installs on every surface only when the pinned key si
     'a release another key signed never reaches an installed surface');
 
   const machine = harness(release.version);
+  const streams = [];
   const installed = await installRequiredRelease(requirement, {
-    execute: machine.execute, exists: machine.exists, homeDirectory: home,
+    execute: (command, args, options) => {
+      streams.push({ command, args, stdio: options?.stdio });
+      return machine.execute(command, args, options);
+    },
+    exists: machine.exists, homeDirectory: home,
     environment: { ...process.env, HOME: home }, tempRoot, running: OLDER
   });
+  const globalInstall = streams.find(({ command, args }) => command === 'npm' && args[0] === 'install' && args[1] === '--global');
+  assert.deepEqual(globalInstall.stdio, ['inherit', 2, 2],
+    "npm's own output goes to stderr: stdout carries the --json result of the command that continues");
+  assert.equal(streams.some(({ stdio }) => stdio === 'inherit'), false);
   assert.equal(installed.status, 'installed');
   assert.equal(installed.version, release.version);
   assert.ok(machine.calls.some(([command, verb, scope]) => command === 'npm' && verb === 'install' && scope === '--global'),

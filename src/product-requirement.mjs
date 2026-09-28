@@ -266,6 +266,15 @@ function assertReleaseInstallable(requirement, offered, running) {
 }
 
 /**
+ * The installer's own commands write to stderr. Stdout belongs to the command this update precedes,
+ * whose `--json` result a caller such as VS Code parses; npm's summary there would corrupt it.
+ */
+function toStandardError(execute) {
+  return (command, args, options = {}) => execute(command, args,
+    options?.stdio === 'inherit' ? { ...options, stdio: ['inherit', 2, 2] } : options);
+}
+
+/**
  * Install the required release on every surface through the distribution installer, with the
  * confirmation the reviewed requirement already gave. The installer verifies the signature,
  * snapshots rollback bytes, and restores every touched surface if any step fails.
@@ -283,6 +292,7 @@ export async function installRequiredRelease(requirement, {
 } = {}) {
   const release = await materializeRelease(requirement.release.source, { fetchImpl, tempRoot });
   const keyDirectory = await mkdtemp(path.join(tempRoot, 'sflow-release-key-'));
+  execute = toStandardError(execute);
   try {
     // Refuse a release that cannot satisfy the requirement before the installer stages anything.
     assertReleaseInstallable(requirement, await releaseBuild(await releaseTarball(release.directory)), running);

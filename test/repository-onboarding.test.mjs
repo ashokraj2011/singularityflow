@@ -186,7 +186,7 @@ async function prepareConfigurationProposalMode(fixture, mode) {
   return plan;
 }
 
-test('repeat onboarding preview reuses exact-ref metadata while refresh and apply revalidate', async () => {
+test('repeat onboarding preview reuses exact-ref metadata while refresh and new builds revalidate', async () => {
   const fixture = await repositoryFixture();
   try {
     await ensureConfigurationBranch(fixture.remote, { capability });
@@ -271,10 +271,21 @@ test('repeat onboarding preview reuses exact-ref metadata while refresh and appl
     assert.ok(clones > afterRefresh, 'a new executable build revalidates unchanged refs');
     const afterNewBuild = clones;
 
+    const current = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(current.planId, first.planId);
+    assert.ok(clones > afterNewBuild, 'returning to the first build revalidates its verdict too');
+    const beforeApply = clones;
+    const beforeApplyAdvertisements = advertisements;
     await assert.rejects(applyRepositoryOnboarding(fixture.remote, {
       ...options, confirmPlan: `sha256:${'0'.repeat(64)}`
     }), (error) => error.code === 'REPOSITORY_ONBOARDING_CONFIRMATION_MISMATCH');
-    assert.ok(clones > afterNewBuild, 'apply deeply revalidates before checking the plan ID');
+    assert.equal(clones, beforeApply,
+      'apply reuses the verdict the preview recorded for the same commits and build');
+    assert.ok(advertisements > beforeApplyAdvertisements, 'apply still checks live Git refs');
+    await assert.rejects(applyRepositoryOnboarding(fixture.remote, {
+      ...options, refresh: true, confirmPlan: `sha256:${'0'.repeat(64)}`
+    }), (error) => error.code === 'REPOSITORY_ONBOARDING_CONFIRMATION_MISMATCH');
+    assert.ok(clones > beforeApply, 'an explicit refresh deeply revalidates before checking the plan ID');
     const beforeMove = clones;
 
     const editor = path.join(fixture.base, 'advance-configuration');
@@ -300,7 +311,134 @@ test('repeat onboarding preview reuses exact-ref metadata while refresh and appl
     run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateEditor });
     const stateAdvanced = await inspectRepositoryOnboarding(fixture.remote, options);
     assert.notEqual(stateAdvanced.state.commit, advanced.state.commit);
-    assert.ok(clones > beforeStateMove, 'a changed state ref invalidates the cache');
+    assert.equal(stateAdvanced.state.commit,
+      run('git', ['rev-parse', 'HEAD'], { cwd: stateEditor }).stdout.trim());
+    assert.equal(clones, beforeStateMove + 1,
+      'a moved state ref is surveyed once; its unchanged content reuses the verdict');
+    assert.deepEqual({ ...stateAdvanced.state, commit: null }, { ...advanced.state, commit: null });
+    assert.deepEqual(stateAdvanced.configuration, advanced.configuration);
+    const exactAgain = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(exactAgain.planId, stateAdvanced.planId);
+    assert.equal(clones, beforeStateMove + 1, 'the moved commit is then an exact hit');
+
+    // A ledger write changes only ledger/, which a mirror classification never reads.
+    await mkdir(path.join(stateEditor, 'ledger'), { recursive: true });
+    await writeFile(path.join(stateEditor, 'ledger', 'head.json'), '{"sequence":1}\n');
+    run('git', ['add', '-A'], { cwd: stateEditor });
+    run('git', ['commit', '-qm', 'Record a ledger event'], { cwd: stateEditor });
+    run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateEditor });
+    const beforeLedgerWrite = clones;
+    const ledgerAdvanced = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(clones, beforeLedgerWrite + 1, 'a ledger-only write reuses the verdict after one survey');
+    assert.deepEqual({ ...ledgerAdvanced.state, commit: null }, { ...advanced.state, commit: null });
+
+    // Anything else in the state tree is classification input and is read again in full.
+    await writeFile(path.join(stateEditor, 'NOTES.md'), 'state notes\n');
+    run('git', ['add', '-A'], { cwd: stateEditor });
+    run('git', ['commit', '-qm', 'Change non-ledger state content'], { cwd: stateEditor });
+    run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateEditor });
+    const beforeContentChange = clones;
+    const contentChanged = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.ok(clones > beforeContentChange + 1, 'changed state content is classified again');
+    assert.equal(contentChanged.state.kind, 'configuration-mirror');
+  } finally {
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+function countingGit() {
+  const counts = { clones: 0 };
+  const runRemoteCommand = async (args, options) => {
+    if (args.includes('clone')) counts.clones += 1;
+    return runRemoteGitAsync(args, options);
+  };
+  return { counts, runRemoteCommand };
+}
+
+function advanceState(fixture, name) {
+  const editor = path.join(fixture.base, name);
+  run('git', ['clone', '-q', '--branch', 'state', fixture.remote, editor], { cwd: fixture.base });
+  run('git', ['config', 'user.name', 'Onboarding Tester'], { cwd: editor });
+  run('git', ['config', 'user.email', 'onboarding@example.test'], { cwd: editor });
+  run('git', ['commit', '--allow-empty', '-qm', 'Advance state ref'], { cwd: editor });
+  run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: editor });
+}
+
+test('a reused legacy mirror verdict needs the same observed retained-history ref', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    await publishStateMirror(fixture, { retainHistory: true, subjectBound: false });
+    const { counts, runRemoteCommand } = countingGit();
+    const options = {
+      env: {
+        ...process.env,
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(fixture.base, 'local', 'workspaces.json')
+      },
+      runRemoteCommand, classificationCacheBuildIdentity: `source:${'a'.repeat(64)}`
+    };
+    const first = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(first.state.subjectBound, false);
+    assert.equal(first.state.repositoryBound, true);
+    assert.equal(first.state.legacyBinding.method, 'retained-history-and-portfolio');
+    const afterFirst = counts.clones;
+    assert.equal((await inspectRepositoryOnboarding(fixture.remote, options)).planId, first.planId);
+    assert.equal(counts.clones, afterFirst, 'an unchanged legacy proof is reused');
+
+    advanceState(fixture, 'advance-legacy-state');
+    const moved = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(counts.clones, afterFirst + 1, 'a moved state tip with the same content is surveyed once');
+    assert.equal(moved.state.legacyBinding.method, 'retained-history-and-portfolio');
+
+    // The proof read the retained history branch, which the cache identity does not name.
+    const historyRef = `refs/heads/${first.state.history.branch}`;
+    const other = run('git', ['rev-parse', 'refs/heads/main'], { cwd: fixture.remote }).stdout.trim();
+    run('git', ['update-ref', historyRef, other], { cwd: fixture.remote });
+    const beforeHistoryMove = counts.clones;
+    const unproven = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.ok(counts.clones > beforeHistoryMove + 1, 'a moved history ref proves the mirror again');
+    assert.equal(unproven.state.repositoryBound, false);
+    assert.equal(unproven.state.legacyBinding, undefined);
+  } finally {
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('a mirror whose asset policy can reach the ledger is reused only for its exact commit', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const editor = path.join(fixture.base, 'ledger-policy');
+    run('git', ['clone', '-q', '--branch', CONFIGURATION_BRANCH, fixture.remote, editor], {
+      cwd: fixture.base
+    });
+    run('git', ['config', 'user.name', 'Onboarding Tester'], { cwd: editor });
+    run('git', ['config', 'user.email', 'onboarding@example.test'], { cwd: editor });
+    const workflowFile = path.join(editor, 'singularity', 'workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.worldModel = { ...(workflow.worldModel ?? {}), promptSource: 'ledger/world-model-prompt.md' };
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    run('git', ['commit', '-qam', 'Read a prompt from the ledger subtree'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', `HEAD:${CONFIGURATION_BRANCH}`], { cwd: editor });
+    await publishStateMirror(fixture);
+    const { counts, runRemoteCommand } = countingGit();
+    const options = {
+      env: {
+        ...process.env,
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(fixture.base, 'local', 'workspaces.json')
+      },
+      runRemoteCommand, classificationCacheBuildIdentity: `source:${'a'.repeat(64)}`
+    };
+    const first = await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(first.state.kind, 'configuration-mirror');
+    assert.equal(first.state.compatibility, 'current');
+    assert.equal(first.configuration.status, 'current');
+    const afterFirst = counts.clones;
+    await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.equal(counts.clones, afterFirst, 'the exact commit is still reused');
+    advanceState(fixture, 'advance-ledger-policy-state');
+    await inspectRepositoryOnboarding(fixture.remote, options);
+    assert.ok(counts.clones > afterFirst + 1, 'without a ledger-independent identity the branch is read again');
   } finally {
     await rm(fixture.base, { recursive: true, force: true });
   }

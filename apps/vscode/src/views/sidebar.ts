@@ -111,6 +111,7 @@ const SECTION_META: Record<SidebarSection, {
     more: [
       { id: 'journal', label: 'Local Journal', icon: 'book' },
       { id: 'comprehension-center', label: 'Comprehension Center', icon: 'code' },
+      { id: 'change-explorer', label: 'Change Explorer', icon: 'code' },
       { id: 'activity-log', label: 'Activity log', icon: 'commit' },
       { id: 'prompt-audit', label: 'Prompt audit', icon: 'prompt' },
       { id: 'local-reset', label: 'Local Data & Reset', icon: 'remove' }
@@ -177,7 +178,8 @@ const ACTION_COMMANDS: Record<string, string> = {
   'capability-proposals': 'singularityFlow.reviewCapabilityProposals',
   'flow-impact': 'singularityFlow.openFlowImpact',
   'command-center': 'singularityFlow.openCommandCenter',
-  'comprehension-center': 'singularityFlow.openComprehensionCenter'
+  'comprehension-center': 'singularityFlow.openComprehensionCenter',
+  'change-explorer': 'singularityFlow.openChangeExplorer'
 };
 
 interface FavoriteMenu {

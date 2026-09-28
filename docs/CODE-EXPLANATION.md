@@ -54,6 +54,14 @@ repository.
 provider preserves the computed explanation as the automatic fallback. `--length` is accepted only
 with `--narrate`; using it on the computed-only route is refused.
 
+### Subject views (`XPL2`)
+
+`singularity-flow explain --subject change|clause|test|line|gap|generation` asks one exact question
+over the same capture and returns typed, cited statements with no model and no authority. It leaves
+`explain code` and its schema unchanged, and VS Code draws the same `change` view as the
+**Change Explorer**. See [Explain for humans](XPL2-EXPLAIN-FOR-HUMANS.md) for the subjects, catalogs,
+compatibility rules and acceptance status.
+
 ## Subject and interval
 
 This tranche describes the exact repository change-set compatibility subject returned by the

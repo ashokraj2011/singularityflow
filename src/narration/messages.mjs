@@ -440,6 +440,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Code explanation projected ${slot(s.units, '0')} change unit(s); ${slot(s.unexplained, '0')} remain unexplained.`,
     preserves: true
   },
+  'explanation.subject-reported': {
+    headline: (s) => `Explained the ${slot(s.subject, 'change')} subject (${slot(s.status, 'available')}) with ${slot(s.statements, '0')} cited statement(s); nothing was changed.`,
+    preserves: true
+  },
   'comprehension.replay-reported': {
     headline: (s) => `Projected ${slot(s.events, '0')} comprehension replay event(s) for ${slot(s.workId)}${s.truncated ? ' (truncated)' : ''}.`,
     preserves: true

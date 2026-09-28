@@ -20,7 +20,7 @@ const entries = {
   converge: ['sf-converge'],
   about: ['sf-about'],
   help: ['sf-help'],
-  explain: ['sf-docs', 'sf-explain-code'],
+  explain: ['sf-docs', 'sf-explain-code', 'sf-explain'],
   show: ['sf-show'],
   harness: ['sf-harness'],
   init: ['sf-init'],
@@ -190,7 +190,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     candidates: 'sf-stories'
   }),
   explain: route('sf-docs', {
-    code: 'sf-explain-code'
+    code: 'sf-explain-code',
+    '--subject': 'sf-explain'
   }),
   precheck: route('sf-ready'),
   choices: route('sf-start', {

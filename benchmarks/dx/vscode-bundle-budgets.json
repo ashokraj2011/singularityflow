@@ -8,7 +8,7 @@
     "gateway-runtime.cjs": { "maximumBytes": 8925000, "maximumModules": 615 },
     "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
     "help-runtime.cjs": { "maximumBytes": 4030000, "maximumModules": 435 },
-    "lazy-panels-runtime.cjs": { "maximumBytes": 2050000, "maximumModules": 195 },
+    "lazy-panels-runtime.cjs": { "maximumBytes": 2050000, "maximumModules": 200 },
     "support-runtime.cjs": { "maximumBytes": 3835000, "maximumModules": 416 },
     "world-model-build.cjs": { "maximumBytes": 8980000, "maximumModules": 620 }
   }

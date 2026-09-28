@@ -1368,6 +1368,9 @@ export interface ComprehensionIdeSnapshot {
       }>;
     };
   };
+  /** XPL2 change view built inside the same leased capture; null when unavailable. */
+  explanationView?: unknown;
+  explanationViewUnavailableReason?: string | null;
   replay: null | {
     replaySha256: string;
     workId: string;

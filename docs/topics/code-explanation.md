@@ -9,18 +9,22 @@ questions:
   - What changed in the generated code?
   - Why is each current code change present?
   - What evidence exists for the current code changes?
+  - Which change unit does this line belong to?
+  - What is known, and what is not recorded, about this requirement?
 keywords:
   - hunks
   - impact
   - proof
   - narrative
+  - subject
+  - change-explorer
 commands:
   - explain
 related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 3
+version: 4
 ---
 ## Purpose and prerequisites
 
@@ -38,7 +42,11 @@ the computed layer remains explicit about every unavailable join.
 - **Copilot:** `/sf-explain-code` resolves the governed repository boundary and relays the same
   computed result. Model narration is separate and optional.
 - **VS Code:** open the code-explanation action exposed by Singularity Flow; the extension renders
-  the engine result and does not manufacture missing impact or proof.
+  the engine result and does not manufacture missing impact or proof. **Change Explorer** (a tab of
+  the Comprehension Center, also its own command) draws the same subject view as a map of intent,
+  changed code and recorded results, with an inventory, an inspector and an exact native diff.
+- **Subjects:** `singularity-flow explain --subject change|clause|test|line|gap|generation --json`
+  asks one exact question over the same capture. `/sf-explain` relays it in Copilot.
 
 ## Guided workflow
 
@@ -69,6 +77,26 @@ lineage.
 Review the computed records first. Request narration only when an advisory reader-facing summary is
 useful, and keep the computed IDs visible so every accepted sentence remains traceable.
 
+## Ask one exact question with `--subject`
+
+```text
+singularity-flow explain --subject change --json
+singularity-flow explain --subject clause --id ORD:AC-001 --json
+singularity-flow explain --subject test --id TEST-OR-COMMAND --json
+singularity-flow explain --subject line --path src/a.ts --line 42 [--side before] --json
+singularity-flow explain --subject gap --json
+singularity-flow explain --subject generation --phase implementation --gen 2 --json
+```
+
+Each subject view is built from the same leased capture as `explain code`. Every sentence is a
+registered template over typed arguments and cites admitted sources or the read observation that
+found something absent; `not recorded`, `disabled`, `unavailable` and `not applicable` stay
+distinct. A region-level association is never shown as hunk-level, a declared test tag is a mapping,
+not coverage, and no test-to-clause-to-code join is inferred. `--for reviewer|auditor|developer`
+reorders and folds statements without changing the set or its hashes. Output is bounded to 64 KiB by
+default; a bounded page says so and keeps the full counts. Unknown subjects are refused, never sent
+to the documentation search. `--narrate` is not offered for subjects in this release.
+
 ## State and safety
 
 `--narrate [--length brief|standard|long]` requests a separate optional model operation. The three
@@ -94,6 +122,9 @@ security, privacy, and the deferred authority prerequisites.
   upgrade missing Candidate-bound authority.
 - If narration is refused or invalid, use the unchanged computed result; no governed evidence was
   lost.
+- If a subject view says `bounded-delivery`, narrow the question with `--subject line` or
+  `--subject clause`, or raise `--max-bytes`; the counts already cover the whole change.
+- If the Change Explorer says the snapshot changed, refresh it; it never mixes two captures.
 
 ## Related topics
 

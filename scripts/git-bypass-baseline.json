@@ -1341,6 +1341,12 @@
         "package-script": 3
       },
       "digest": "fe2e35302cb3259f1e0ba8b3bf1fb434694a5a4c1a9b527e5de89ebeb82d5cd0"
+    },
+    "apps/vscode/src/views/change-explorer-source.ts": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "824ddda0377a1b344f19c17ed9affcec246efe5376f6e8a43e22a96e3f5c9521"
     }
   }
 }

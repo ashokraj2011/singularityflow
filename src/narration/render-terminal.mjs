@@ -327,6 +327,82 @@ function codeExplanationTerminalValue(value, fallback = 'unavailable', maximum =
   return selected.length > maximum ? `${selected.slice(0, maximum - 1)}…` : selected;
 }
 
+const XPL2_SECTIONS = [
+  ['What changed', ['change-inventory', 'file-type', 'mode-change', 'hunk', 'opaque-unit', 'declaration-overlap']],
+  ['Why it is linked', ['clause-declared', 'clause-required', 'region-association', 'test-tag', 'cause-not-recorded']],
+  ['What was checked', ['test-result', 'clause-untagged', 'gap-observed', 'no-complete-evaluation']],
+  ['Limits and unknowns', ['admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable', 'generation-recorded']]
+];
+
+/** Computed XPL2 subject view: typed statements with citations, in the selected audience's order. */
+function explanationSubjectText(result) {
+  const explanation = result.data?.explanation;
+  if (!explanation) return [headline(result), preservationLine(result)].filter(Boolean).join('\n');
+  const safe = codeExplanationTerminalValue;
+  const short = (value) => safe(value).replace(/^sha256:/u, '').slice(0, 12);
+  const snapshot = explanation.snapshot ?? {};
+  const subject = explanation.subject ?? {};
+  const audience = explanation.presentation?.audience ?? 'reviewer';
+  const plan = explanation.presentation?.audiences?.[audience] ?? { order: [], folded: [] };
+  const folded = new Set(plan.folded ?? []);
+  const byId = new Map((explanation.statements ?? []).map((entry) => [entry.id, entry]));
+  const ordered = (plan.order ?? []).map((id) => byId.get(id)).filter(Boolean);
+  const cite = (entry) => `${safe(entry.text)} [${entry.cites.map((id) => safe(id)).join(', ')}]`;
+  const lines = [
+    style.heading(headline(result)),
+    `Subject: ${safe(subject.kind)} · ${safe(subject.status)}${subject.reason ? ` (${safe(subject.reason)})` : ''} · audience ${safe(audience)}`,
+    `Source: ${safe(snapshot.truth)} · baseline ${short(snapshot.baseline?.revision)} → capture ${short(snapshot.compatibilityCandidateSha256)}`
+      + `${snapshot.workId ? ` · Story ${safe(snapshot.workId)}` : ''}${snapshot.phase ? ` · phase ${safe(snapshot.phase)}` : ''}`,
+    'Authority: none — this view grants no approval, test result or merge verdict.'
+  ];
+  if ((subject.choices ?? []).length) {
+    lines.push('', style.heading('Exact choices'));
+    for (const choice of subject.choices) lines.push(`  ${safe(choice.kind)}: ${safe(choice.label)}`);
+  }
+  if ((explanation.derived ?? []).length) {
+    lines.push('', style.heading('Answer'));
+    for (const entry of explanation.derived) lines.push(`  ${safe(entry.id)}  ${cite(entry)}`);
+  }
+  if ((explanation.attention ?? []).length && ['change', 'gap'].includes(subject.kind)) {
+    lines.push('', style.heading('Needs attention'));
+    for (const entry of explanation.attention) {
+      const statement = byId.get(entry.statement);
+      if (statement) lines.push(`  ${safe(entry.id)} [${safe(entry.category)}] ${cite(statement)}`);
+    }
+  }
+  for (const [title, kinds] of XPL2_SECTIONS) {
+    const members = ordered.filter((entry) => kinds.includes(entry.kind));
+    const shown = members.filter((entry) => !folded.has(entry.id));
+    if (!members.length) continue;
+    lines.push('', style.heading(title));
+    for (const entry of shown) lines.push(`  ${safe(entry.id)}  ${cite(entry)}`);
+    if (shown.length < members.length) {
+      lines.push(`  ${members.length - shown.length} more folded for the ${safe(audience)} audience; --for auditor lists everything.`);
+    }
+  }
+  const counts = explanation.inventory?.counts;
+  if (counts) {
+    lines.push('', `Counts: ${counts.files} file(s) · ${counts.textHunks} text hunk(s) · ${counts.opaqueUnits} opaque · `
+      + `${counts.causeBoundUnits} hunk-bound cause link(s) · ${counts.unexplainedUnits} without an exact cause · ${counts.clauses} clause(s)`);
+  }
+  if (explanation.delivery?.complete === false) {
+    lines.push(`Delivery bounded: ${explanation.delivery.returnedUnits} of ${explanation.delivery.totalUnits} unit(s) shown; narrow with --subject line or clause, or raise --max-bytes.`);
+  }
+  lines.push('', style.heading('Sources'));
+  for (const source of explanation.sources ?? []) {
+    const properties = source.properties ?? {};
+    lines.push(`  ${safe(source.id)}  ${safe(source.label ?? source.family)} · integrity ${safe(properties.integrity)} · `
+      + `${safe(properties.origin)} · ${safe(properties.applicability)} · ${safe(properties.availability)}`
+      + `${source.digest ? ` · ${short(source.digest)}` : ''}`);
+  }
+  for (const observation of explanation.observations ?? []) {
+    lines.push(`  ${safe(observation.id)}  read observation · ${safe(observation.reason)} · ${safe(observation.scope)}`);
+  }
+  lines.push('', `Explanation set ${short(explanation.explanationSetSha256)} · view ${short(explanation.explanationSha256)}`);
+  lines.push(style.detail(preservationLine(result)));
+  return lines.filter((line) => line != null).join('\n');
+}
+
 function codeExplanationText(result) {
   const { context = {}, explanation, narrative = null } = result.data ?? {};
   if (!explanation) return [headline(result), preservationLine(result)].filter(Boolean).join('\n');
@@ -490,6 +566,7 @@ export function renderCommandResult(result) {
     ].filter(Boolean).join('\n');
   }
   if (result.operation.id.startsWith('comprehension.')) return comprehensionText(result);
+  if (result.operation.id.startsWith('explain.subject')) return explanationSubjectText(result);
   if (result.operation.id.startsWith('explain.code')) return codeExplanationText(result);
   if (result.operation.id === 'change.show.shadow') return shadowPassportText(result);
   if (result.operation.id.startsWith('proof.')) return proofObservationText(result);

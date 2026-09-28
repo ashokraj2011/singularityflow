@@ -216,6 +216,7 @@ Every public operation is classified before its implementation module is importe
 | explain | read | never | — | — |
 | explain.code | read | never | — | — |
 | explain.code.narrate | read | optional | explain.code | copilot-cli |
+| explain.subject | read | never | — | — |
 | factory-reset | mutation | never | — | — |
 | factory-reset.preview | read | never | — | — |
 | fault.list | read | never | — | — |

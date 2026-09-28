@@ -3165,6 +3165,9 @@ records, and current pilot limits, read
 singularity-flow explain [TOPIC|ALIAS] [--here] [--section HEADING] [--max-bytes N] [--json]
 singularity-flow explain [code [--hunk H-ID | --symbol ID | --clause ID] [--since REVISION]
   [--narrate] [--length brief|standard|long] [--json]]
+singularity-flow explain --subject change|clause|test|line|gap|generation [--id ID]
+  [--path PATH --line N [--side before|after]] [--phase PHASE --gen N] [--since REVISION]
+  [--work-id ID] [--for reviewer|auditor|developer] [--max-bytes N] [--json]
 singularity-flow why [QUESTION] [--json]
 ```
 
@@ -3175,6 +3178,15 @@ projection of current change units. It keeps unavailable causes, impact, and pro
 of inventing them. `--narrate` is optional advisory prose over that computed projection; it does not
 become evidence. In Copilot use `/sf-explain-code`. See
 [Code explanation](docs/CODE-EXPLANATION.md) for the current authority boundary and deferred joins.
+
+`explain --subject` asks one exact question about the same current change: the whole `change`, a
+`clause` or `test` by `--id`, a `line` by `--path`, `--line` and optional `--side`, the known
+`gap` register, or a recorded phase `generation`. Every sentence comes from a registered template and
+cites admitted sources or read observations; unknown, disabled and not-recorded stay distinct. It is
+model-free and read-only, and grants no approval. `--for` reorders and folds for a reviewer, auditor
+or developer without changing the statement set. The default output is bounded to 64 KiB and says
+when it is a page. In Copilot use `/sf-explain`; in VS Code open **Change Explorer**. See
+[Explain for humans](docs/XPL2-EXPLAIN-FOR-HUMANS.md).
 
 ### Governed reference expansion
 

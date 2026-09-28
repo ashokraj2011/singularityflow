@@ -119,6 +119,13 @@ async function situationHere() {
 export async function run(argv, {
   positionals, options, operation: suppliedOperation = null
 } = { positionals: [], options: new Map(), operation: null }) {
+  // An explicit subject selects the repository-bound XPL2 route. It is checked first so that
+  // `explain code --subject ...` or `explain <topic> --subject ...` is refused instead of one of
+  // the two older routes silently ignoring the option [XPL2-REQ-002].
+  if (optionString(options, 'subject') != null) {
+    const { runExplanationSubject } = await import('../comprehension/xpl2/command.mjs');
+    return runExplanationSubject(argv, { positionals, options, operation: suppliedOperation });
+  }
   if (positionals[1] === 'code') {
     const { runCodeExplanation } = await import('../comprehension/code-explanation-command.mjs');
     return runCodeExplanation(argv, { positionals, options, operation: suppliedOperation });

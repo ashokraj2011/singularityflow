@@ -650,6 +650,8 @@ function resolveComprehensionOperation(definition, positionals) {
  * computed explanation rather than making code inspection unavailable.
  */
 function resolveExplainOperation(definition, positionals, options) {
+  // XPL2 subject views are model-free reads over the same leased comprehension projection.
+  if (optionString(options, 'subject') != null) return never('explain.subject', definition, 'read');
   if (positionals[1] !== 'code') return never('explain', definition, 'read');
   return optionBoolean(options, 'narrate')
     ? optional('explain.code.narrate', 'explain.code', definition)
@@ -1608,6 +1610,7 @@ export function operationCatalog() {
     never('explain', explainDefinition, 'read'),
     never('explain.code', explainDefinition, 'read'),
     optional('explain.code.narrate', 'explain.code', explainDefinition),
+    never('explain.subject', explainDefinition, 'read'),
     ...COMPREHENSION_SUBCOMMANDS.filter((name) => !['walkthrough', 'backfill'].includes(name))
       .map((name) => never(`comprehension.${name}`, comprehensionDefinition, 'read')),
     never('comprehension.backfill.validate', comprehensionDefinition, 'read'),

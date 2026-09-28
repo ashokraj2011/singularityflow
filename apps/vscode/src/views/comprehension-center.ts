@@ -12,8 +12,15 @@ import { enumField, integerField, registerMessageRouter, stringField } from './m
 import { navigateTo } from './navigate.ts';
 import { commandData } from './surface-adapters.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import {
+  acceptExplorerRequest, changeExplorerBody, EXPLORER_SCRIPT, explorerSummary, resolveExplorerUnit,
+  type ExplorerAudience, type ExplorerRenderInput, type Xpl2Explanation
+} from './change-explorer.ts';
+import { changeExplorerDiffHost } from './change-explorer-diff.ts';
+import { containedWorkingPath } from './change-explorer-source.ts';
 
-type Tab = 'explanation' | 'regions' | 'source' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
+type Tab = 'explorer' | 'explanation' | 'regions' | 'source' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
+const TABS = ['explorer', 'explanation', 'regions', 'source', 'brownfield', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const;
 
 function shortDigest(value: unknown): string {
   const digest = String(value ?? '');
@@ -186,14 +193,16 @@ export function comprehensionCenterBody(
   tab: Tab,
   loading: boolean,
   error: string | null,
-  source: ComprehensionSourceExpansion | null = null
+  source: ComprehensionSourceExpansion | null = null,
+  explorer: ExplorerRenderInput | null = null
 ): string {
   const tabs: Array<[Tab, string]> = [
-    ['explanation', 'Code explanation'], ['regions', 'Regions'], ['source', 'Source'], ['brownfield', 'Brownfield'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
+    ['explorer', 'Change Explorer'], ['explanation', 'Code explanation'], ['regions', 'Regions'], ['source', 'Source'], ['brownfield', 'Brownfield'], ['diff', 'Diff'], ['evidence', 'Evidence'], ['causes', 'Cause map'], ['walkthrough', 'Walkthrough'],
     ['replay', 'Replay'], ['unknowns', 'Unknowns']
   ];
   const content = !snapshot
     ? '<div class="empty"><p>The comprehension projection is not available yet.</p></div>'
+    : tab === 'explorer' ? (explorer ? changeExplorerBody(explorer) : '<div class="empty"><p>The Change Explorer view is not available yet.</p></div>')
     : tab === 'explanation' ? codeExplanation(snapshot)
       : tab === 'regions' ? regions(snapshot)
       : tab === 'source' ? sourceView(source)
@@ -251,7 +260,20 @@ export class ComprehensionCenterPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly store: WorkspaceStore;
   private readonly client: SingularityFlowClient;
+  private readonly extension: vscode.ExtensionContext;
   private readonly subscriptions: vscode.Disposable[] = [];
+  /**
+   * The exact comprehension slice the Change Explorer is showing. A newer snapshot does not
+   * replace it silently: the page offers a refresh, and every diff, preview and message is
+   * resolved against this pinned slice [XPL2-REQ-004, XPL2 5.1].
+   */
+  private pinned: ComprehensionIdeSnapshot | null = null;
+  private newerSnapshot = false;
+  private audience: ExplorerAudience = 'reviewer';
+  private diffController: AbortController | null = null;
+  /** The explorer render on screen and the highest request number accepted from it. */
+  private explorerSession: string | null = null;
+  private explorerRequest = 0;
   private subscription: { dispose(): void } | null = null;
   private lease: SliceLease | null = null;
   private leaseAcquisition: Promise<void> | null = null;
@@ -268,15 +290,48 @@ export class ComprehensionCenterPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
-    client: SingularityFlowClient
+    client: SingularityFlowClient,
+    extension: vscode.ExtensionContext,
+    tab: Tab = 'explanation'
   ) {
     this.panel = panel;
     this.store = store;
     this.client = client;
+    this.extension = extension;
+    this.tab = tab;
     const router = registerMessageRouter('singularityFlow.comprehensionCenter', {
       tab: (message) => {
-        const tab = enumField(message, 'tab', ['explanation', 'regions', 'source', 'brownfield', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const);
+        const tab = enumField(message, 'tab', TABS);
         if (tab) { this.tab = tab; this.render(); }
+      },
+      // Change Explorer actions are closed names; each carries the explanation-set digest and,
+      // where relevant, one exact unit digest that is resolved against the pinned view [XPL2-AC-048].
+      'explorer-open-diff': (message) => {
+        if (!this.acceptExplorer(message)) return this.staleExplorerSelection();
+        return void this.openExplorerDiff(message);
+      },
+      'explorer-open-file': (message) => {
+        if (!this.acceptExplorer(message)) return this.staleExplorerSelection();
+        const unit = resolveExplorerUnit(this.pinnedView(), message.set, message.unit);
+        if (!unit) return this.staleExplorerSelection();
+        return void this.openFile(unit.pathAfter ?? unit.pathBefore ?? '', unit.hunk?.after.start ?? null);
+      },
+      'explorer-copy': (message) => {
+        if (!this.acceptExplorer(message)) return this.staleExplorerSelection();
+        const view = this.pinnedView();
+        if (!view || message.set !== view.explanationSetSha256) return this.staleExplorerSelection();
+        return void vscode.env.clipboard.writeText(explorerSummary(view)).then(
+          () => vscode.window.showInformationMessage('Change summary copied. It is record-derived and grants no approval.'),
+          () => undefined
+        );
+      },
+      'explorer-audience': (message) => {
+        if (!this.acceptExplorer(message)) return;
+        const audience = enumField(message, 'audience', ['reviewer', 'auditor', 'developer'] as const);
+        const view = this.pinnedView();
+        if (!audience || !view || message.set !== view.explanationSetSha256) return;
+        this.audience = audience;
+        this.render();
       },
       refresh: () => void this.refresh(),
       narrate: () => void this.prefillNarration(),
@@ -315,9 +370,84 @@ export class ComprehensionCenterPanel {
           && change.revisionChanged === false && !this.error) return;
       if (change.kind === 'snapshot' && revision !== this.lastSliceRevision) this.cancelSourceLoad();
       this.lastSliceRevision = revision;
+      this.updatePinned(state.snapshot?.comprehension ?? null);
       this.render();
     });
+    this.updatePinned(store.current.snapshot?.comprehension ?? null);
     this.render();
+  }
+
+  private pinnedView(): Xpl2Explanation | null {
+    return (this.pinned?.explanationView as Xpl2Explanation | null | undefined) ?? null;
+  }
+
+  /** Pin the first slice; later different ones only raise "Snapshot changed" until refresh. */
+  private updatePinned(latest: ComprehensionIdeSnapshot | null, { replace = false } = {}): void {
+    if (!latest) return;
+    const current = this.pinnedView();
+    const next = (latest.explanationView as Xpl2Explanation | null | undefined) ?? null;
+    if (replace || !this.pinned || !current || !next
+        || path.resolve(latest.context.repository) !== path.resolve(this.pinned.context.repository)) {
+      this.pinned = latest;
+      this.newerSnapshot = false;
+      return;
+    }
+    if (next.explanationSetSha256 === current.explanationSetSha256) {
+      this.pinned = latest;
+      this.newerSnapshot = false;
+    } else {
+      this.newerSnapshot = true;
+    }
+  }
+
+  /** Only the render on screen may act, and each request number only once, in order. */
+  private acceptExplorer(message: Record<string, unknown>): boolean {
+    const accepted = acceptExplorerRequest(this.explorerSession, this.explorerRequest, message);
+    if (accepted === null) return false;
+    this.explorerRequest = accepted;
+    return true;
+  }
+
+  private staleExplorerSelection(): void {
+    this.error = 'That selection belongs to a different snapshot or change unit. Refresh the Change Explorer and select it again.';
+    this.render();
+  }
+
+  private async openExplorerDiff(message: Record<string, unknown>): Promise<void> {
+    const slice = this.pinned;
+    const unit = resolveExplorerUnit(this.pinnedView(), message.set, message.unit);
+    if (!slice || !unit) return this.staleExplorerSelection();
+    if (path.resolve(this.client.repository) !== path.resolve(slice.context.repository)) {
+      this.error = 'The selected repository changed. Refresh the Change Explorer before opening a diff.';
+      this.render();
+      return;
+    }
+    const file = this.pinnedView()?.inventory.files.find((entry) => entry.fileId === unit.fileId);
+    const reference = (ref: string | undefined) => ref ? slice.sourceReferences.find((entry) => entry.ref === ref) ?? null : null;
+    const before = reference(file?.sources.before);
+    const after = reference(file?.sources.after);
+    if (!before && !after) {
+      this.error = `${unit.unitId} has no exact before or after source that can be shown as a document.`;
+      this.render();
+      return;
+    }
+    this.diffController?.abort();
+    const controller = new AbortController();
+    this.diffController = controller;
+    try {
+      await changeExplorerDiffHost(this.extension)({
+        client: this.client,
+        context: { base: slice.context.base, workId: slice.context.workId, phase: slice.context.phase },
+        path: unit.path, unitId: unit.unitId, before, after, signal: controller.signal
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      this.error = `The exact diff could not be opened: ${error instanceof Error ? error.message : String(error)} `
+        + 'If the repository moved, refresh the snapshot; the captured bytes are never replaced by the live file.';
+      this.render();
+    } finally {
+      if (this.diffController === controller) this.diffController = null;
+    }
   }
 
   private async prefillNarration(): Promise<void> {
@@ -330,18 +460,23 @@ export class ComprehensionCenterPanel {
   static show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
-    client: SingularityFlowClient
+    client: SingularityFlowClient,
+    { tab = null }: { tab?: Tab | null } = {}
   ): ComprehensionCenterPanel {
     if (ComprehensionCenterPanel.current) {
-      ComprehensionCenterPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      ComprehensionCenterPanel.current.renewLease();
-      return ComprehensionCenterPanel.current;
+      const current = ComprehensionCenterPanel.current;
+      if (tab && current.tab !== tab) { current.tab = tab; current.render(); }
+      current.panel.reveal(vscode.ViewColumn.Active);
+      current.renewLease();
+      return current;
     }
+    // The hidden webview is not retained: leased source, diff and explorer payloads are released
+    // with the lease and rebuilt from the Store when the panel is shown again [XPL2-REQ-029].
     const panel = vscode.window.createWebviewPanel(
       'singularityFlow.comprehensionCenter', 'Comprehension Center', vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
+      { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
     );
-    const current = new ComprehensionCenterPanel(panel, store, client);
+    const current = new ComprehensionCenterPanel(panel, store, client, context, tab ?? 'explanation');
     ComprehensionCenterPanel.current = current;
     void current.ensureLease();
     return current;
@@ -389,13 +524,23 @@ export class ComprehensionCenterPanel {
     this.lease?.dispose();
     this.lease = null;
     this.cancelSourceLoad();
+    // Hidden means released: the pinned explorer slice and any in-flight exact reads go with it.
+    this.diffController?.abort();
+    this.diffController = null;
+    this.pinned = null;
+    this.newerSnapshot = false;
   }
 
   private async refresh(): Promise<void> {
     this.cancelSourceLoad();
     this.loading = true;
     this.render();
-    try { await this.store.refresh(); this.error = null; }
+    try {
+      await this.store.refresh();
+      this.error = null;
+      // An explicit refresh is the only way the Change Explorer moves to a newer snapshot.
+      this.updatePinned(this.store.current.snapshot?.comprehension ?? null, { replace: true });
+    }
     catch (error) { this.error = error instanceof Error ? error.message : String(error); }
     finally { this.loading = false; if (!this.disposed) this.render(); }
   }
@@ -469,9 +614,9 @@ export class ComprehensionCenterPanel {
   }
 
   private allowedPath(file: string): boolean {
-    const snapshot = this.store.current.snapshot?.comprehension;
-    return Boolean(snapshot?.manifest.regions.some((region) =>
-      region.location.pathAfter === file || region.location.pathBefore === file));
+    return [this.store.current.snapshot?.comprehension, this.pinned].some((snapshot) =>
+      Boolean(snapshot?.manifest.regions.some((region) =>
+        region.location.pathAfter === file || region.location.pathBefore === file)));
   }
 
   private async openFile(file: string, line: number | null = null): Promise<void> {
@@ -486,10 +631,9 @@ export class ComprehensionCenterPanel {
       this.render();
       return;
     }
-    const repository = path.resolve(repositoryRoot);
-    const target = path.resolve(repository, file);
-    if (target !== repository && !target.startsWith(`${repository}${path.sep}`)) {
-      this.error = 'The selected path resolves outside the governed repository and was not opened.';
+    const { target, refusal } = await containedWorkingPath(repositoryRoot, file);
+    if (!target) {
+      this.error = refusal;
       this.render();
       return;
     }
@@ -503,16 +647,37 @@ export class ComprehensionCenterPanel {
     }
   }
 
+  private explorerInput(token: string): ExplorerRenderInput | null {
+    // The view on screen is always the pinned one, so every message resolves against exactly what
+    // the reader saw; after a hide released the pin, the next render pins the current slice again.
+    if (!this.pinned) this.updatePinned(this.store.current.snapshot?.comprehension ?? null);
+    const slice = this.pinned;
+    if (!slice) return null;
+    return {
+      view: (slice.explanationView as Xpl2Explanation | null | undefined) ?? null,
+      unavailableReason: slice.explanationViewUnavailableReason ?? null,
+      patch: slice.diff.status === 'available' ? slice.diff.patch : null,
+      patchFiles: slice.diff.fileProjectionStatus === 'available' ? slice.diff.files : [],
+      timeline: slice.replay?.events ?? null,
+      audience: this.audience,
+      newerSnapshot: this.newerSnapshot,
+      token
+    };
+  }
+
   private render(): void {
     if (this.disposed) return;
     const token = nonce();
+    // A new page is a new explorer session: requests from the page it replaces are refused.
+    this.explorerSession = this.tab === 'explorer' ? token : null;
+    this.explorerRequest = 0;
     this.panel.webview.html = page(
       'Comprehension Center',
       comprehensionCenterBody(
         this.store.current.snapshot?.comprehension ?? null, this.tab, this.loading, this.error,
-        this.source
+        this.source, this.tab === 'explorer' ? this.explorerInput(token) : null
       ),
-      contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'help' }
+      contentSecurityPolicy(this.panel.webview, token), token, `${SCRIPT}\n${EXPLORER_SCRIPT}`, { nav: 'help' }
     );
   }
 

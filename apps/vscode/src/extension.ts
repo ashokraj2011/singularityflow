@@ -871,7 +871,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
-    'singularityFlow.openComprehensionCenter',
+    'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
@@ -6735,6 +6735,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await reconcileActiveWorkspaceSelection();
       const { ComprehensionCenterPanel } = lazyPanels();
       return ComprehensionCenterPanel.show(context, store, client);
+    },
+    // The Change Explorer is a mode of the Comprehension Center: same lease, same snapshot.
+    'singularityFlow.openChangeExplorer': async () => {
+      await reconcileActiveWorkspaceSelection();
+      const { ComprehensionCenterPanel } = lazyPanels();
+      return ComprehensionCenterPanel.show(context, store, client, { tab: 'explorer' });
     },
     'singularityFlow.createSgosWorkflow': async () => {
       await reconcileActiveWorkspaceSelection();

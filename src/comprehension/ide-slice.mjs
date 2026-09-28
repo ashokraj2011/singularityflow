@@ -14,6 +14,8 @@ import { buildComprehensionReplay } from './replay.mjs';
 import { comprehensionSourceReferences } from './source-expansion.mjs';
 import { buildComprehensionWalkthroughDraft } from './walkthrough.mjs';
 import { buildCodeExplanation } from './code-explanation.mjs';
+import { readStoryClauseSources } from './xpl2/clause-sources.mjs';
+import { explainXpl2Subject } from './xpl2/subjects.mjs';
 
 /**
  * Construct one coherent read projection from the same contracts used by `comprehension` CLI.
@@ -21,7 +23,7 @@ import { buildCodeExplanation } from './code-explanation.mjs';
  * promote an unreviewed cause, disposition, test result, or structural fact into authority.
  */
 async function loadComprehensionIdeSliceOnce(root, {
-  base = null, workId = null, phase = null
+  base = null, workId = null, phase = null, includeExplanationInputs = false
 } = {}) {
   const subjectIndex = await buildRepositorySubjectIndex(root);
   const context = {
@@ -100,6 +102,21 @@ async function loadComprehensionIdeSliceOnce(root, {
   const codeExplanation = buildCodeExplanation({
     context, manifest, diff, structure, evidence, graph
   });
+  // The Change Explorer view is built from exactly the same inputs, inside the same capture, so
+  // the map, inventory, inspector and CLI subject views describe one snapshot [XPL2-REQ-004].
+  // It is optional: a failure is reported as unavailable and never blocks the rest of the slice.
+  let explanationView = null;
+  let explanationViewUnavailableReason = null;
+  let clauseSources = null;
+  try {
+    clauseSources = await readStoryClauseSources(root, selectedWorkflow);
+    explanationView = explainXpl2Subject({
+      context, manifest, codeExplanation, evidence, workflow: selectedWorkflow,
+      clauseSources, replay, sourceReferences
+    }, { subject: 'change' });
+  } catch (error) {
+    explanationViewUnavailableReason = error?.code ?? 'XPL2_VIEW_UNAVAILABLE';
+  }
 
   // The patch and cached navigation hints are read after the change-set record. Re-read the exact
   // baseline-to-worktree subject before releasing the slice; a concurrent editor change must
@@ -115,7 +132,14 @@ async function loadComprehensionIdeSliceOnce(root, {
     );
   }
 
+  // CLI subject views rebuild from these exact inputs. They stay out of the serialized IDE
+  // snapshot, which carries only the computed view.
+  const explanationInputs = includeExplanationInputs
+    ? { workflow: selectedWorkflow, clauseSources }
+    : undefined;
+
   return {
+    ...(explanationInputs ? { explanationInputs } : {}),
     schemaVersion: 1, // schema-transient: leased, read-only IDE projection; never persisted
     kind: 'comprehension-ide-slice',
     mode: 'observe-only',
@@ -131,6 +155,8 @@ async function loadComprehensionIdeSliceOnce(root, {
     structure,
     evidence,
     codeExplanation,
+    explanationView,
+    explanationViewUnavailableReason,
     walkthrough: {
       draft,
       unavailableReason: draft ? null : draftUnavailableReason
@@ -162,7 +188,8 @@ async function loadComprehensionIdeSliceOnce(root, {
       evidence: evidence.status,
       brownfield: 'available',
       source: sourceReferences.length ? 'available' : 'not-applicable',
-      codeExplanation: codeExplanation.status
+      codeExplanation: codeExplanation.status,
+      explanationView: explanationView ? 'available' : 'unavailable'
     }
   };
 }

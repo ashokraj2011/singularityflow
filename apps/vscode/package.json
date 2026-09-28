@@ -677,6 +677,11 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "singularityFlow.openChangeExplorer",
+        "title": "Singularity Flow: Change Explorer",
+        "icon": "$(git-compare)"
+      },
+      {
         "command": "singularityFlow.openComprehensionCenter",
         "title": "Singularity Flow: Comprehension Center",
         "icon": "$(references)"

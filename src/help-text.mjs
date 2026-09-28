@@ -81,6 +81,7 @@ Usage:
     [--registry URL] [--cli-only] [--no-copilot-telemetry] [--json]
   singularity-flow product status [--json]
   singularity-flow product align [--dry-run] [--json]
+  singularity-flow product reviews [--json]
   singularity-flow stack status [--epic EPIC-ID] [--json]
   singularity-flow stack sync --epic EPIC-ID [--json]
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]

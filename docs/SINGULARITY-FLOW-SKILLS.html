@@ -6441,7 +6441,7 @@ argument-hint: &quot;[WORK-ID] [describe|create]&quot;
     <details>
       <summary>
         <span class="skill-number">096</span>
-        <span class="skill-title"><strong>sflow-product</strong><span>Check which build each installed Singularity Flow surface runs, and bring every surface to the build this machine installed.</span></span>
+        <span class="skill-title"><strong>sflow-product</strong><span>Check which build each installed Singularity Flow surface runs, bring every surface to the build this machine installed, and open the build&#39;s configuration reviews.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -6450,11 +6450,11 @@ argument-hint: &quot;[WORK-ID] [describe|create]&quot;
           <span class="pill">mutation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~451 body tokens</span>
+          <span class="pill">~502 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-product</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>status | align</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>status | align | reviews</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-product/SKILL.md</code></dd></div>
         </dl>
@@ -6464,9 +6464,9 @@ argument-hint: &quot;[WORK-ID] [describe|create]&quot;
         </div>
         <pre data-source="sflow-product"><code>---
 name: sflow-product
-description: Check which build each installed Singularity Flow surface runs, and bring every surface to the build this machine installed.
+description: Check which build each installed Singularity Flow surface runs, bring every surface to the build this machine installed, and open the build&#39;s configuration reviews.
 disable-model-invocation: true
-argument-hint: &quot;status | align&quot;
+argument-hint: &quot;status | align | reviews&quot;
 ---
 # Keep every Singularity Flow surface on one build
 
@@ -6489,7 +6489,9 @@ This skill compares each with the build the installation receipt recorded.
    `next` step exactly. Never downgrade a surface, and never replace a development checkout.
 5. If a step failed, show its reason and the retry command `singularity-flow product align`. Never
    substitute `npm install`, `code --install-extension`, or a reinstall of your own.
-6. Report `configurationReviews` (the reviews this build opened for registered repositories) and
+6. When asked to open this build&#39;s configuration reviews, run `singularity-flow product reviews --json`
+   and report each `proposalBranch` exactly. It proposes only; never merge or push `sflow/config`.
+7. Report `configurationReviews` (the reviews this build opened for registered repositories) and
    `requirements` (each repository&#39;s last required-build check on this machine) exactly as
    returned. For a `failed` requirement, show its `reason`; never install a release yourself.
 </code></pre>

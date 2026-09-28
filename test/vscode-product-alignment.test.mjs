@@ -174,44 +174,48 @@ test('an unavailable CLI leaves the check due for the next window', async (t) =>
   assert.equal(item.state.get(PRODUCT_CHECK_KEY), undefined);
 });
 
-function refreshHost(extensionPath, { preview, bound = { planId: 'plan-1' }, opened, fail = false }) {
-  const item = host(extensionPath, {});
-  item.run = async (args) => {
-    item.events.push(['run', args.join(' ')]);
-    if (fail) throw new Error('offline');
-    if (args.includes('--review-only')) return opened;
-    return args.includes('--repository') ? bound : preview;
-  };
-  return item;
-}
+const opened = (overrides = {}) => ({
+  status: 'ran', outcome: 'reviews-opened',
+  reviews: [{ repository: 'app', proposalBranch: 'sflow/config-refresh/aaaaaaaa-bbbbbbbbbbbb' }], ...overrides
+});
 
-test('a new build opens a configuration review for each lagging repository, once, and applies nothing', async (t) => {
+test('a new build opens its configuration reviews through the shared pass, once, and applies nothing', async (t) => {
   const directory = await extension(t);
-  const item = refreshHost(directory, {
-    preview: { results: [
-      { status: 'would-update', repository: 'app', configurationChanged: true },
-      { status: 'would-update', repository: 'state-only', configurationChanged: false },
-      { status: 'current', repository: 'lib', configurationChanged: false }
-    ] },
-    opened: { results: [{ status: 'review-required', repository: 'app', proposalBranch: 'sflow/config-refresh/r1-aaaa-bbbb' }] }
-  });
+  const item = host(directory, { reviews: opened() });
   assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'reviews-opened');
-  assert.deepEqual(item.events.filter(([kind]) => kind === 'run').map(([, args]) => args), [
-    'workspace refresh-configuration --dry-run --json',
-    'workspace refresh-configuration --repository app --dry-run --json',
-    'workspace refresh-configuration --repository app --confirm-plan plan-1 --review-only --json'
-  ], 'the plan is bound to exactly the lagging repository, and the apply is review-only');
-  assert.match(item.events.find(([kind]) => kind === 'inform')[1], /app → sflow\/config-refresh\/r1-aaaa-bbbb.*Nothing changes until each review is merged/u);
+  assert.deepEqual(item.events.filter(([kind]) => kind === 'run').map(([, args]) => args), ['product reviews --json'],
+    'the window runs the one pass the CLI shares with a terminal, never a refresh of its own');
+  assert.ok(item.events.some(([kind]) => kind === 'progress'));
+  assert.match(item.events.find(([kind]) => kind === 'inform')[1],
+    /app → sflow\/config-refresh\/aaaaaaaa-bbbbbbbbbbbb.*Nothing changes until each review is merged/u);
   assert.equal(item.state.get(CONFIGURATION_REVIEW_KEY), BUILD);
   assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'skipped-recent', 'once per build');
+
+  const recorded = host(directory, { reviews: opened({ status: 'recorded' }) });
+  assert.equal(await openConfigurationReviews(recorded, { loadedBuild: BUILD }), 'reviews-opened',
+    'reviews a terminal already opened for this build are reported, not opened again');
+});
+
+test('a pass a terminal is still running is left to it, and a failed pass is retried by a later window', async (t) => {
+  const directory = await extension(t);
+  const running = host(directory, { reviews: { status: 'running', outcome: null, reviews: [] } });
+  assert.equal(await openConfigurationReviews(running, { loadedBuild: BUILD }), 'running');
+  assert.equal(running.state.get(CONFIGURATION_REVIEW_KEY), undefined, 'a later window reports what the terminal opened');
+
+  const offline = host(directory, { reviews: new Error('Configuration reviews could not be opened: Cannot read the authority.') });
+  assert.equal(await openConfigurationReviews(offline, { loadedBuild: BUILD }), 'failed');
+  assert.match(offline.events.find(([kind]) => kind === 'warn')[1], /Cannot read the authority\. Run `singularity-flow product reviews` to retry/u);
+  assert.equal(offline.state.get(CONFIGURATION_REVIEW_KEY), undefined);
+
+  const earlierFailure = host(directory, { reviews: { status: 'recorded', outcome: 'failed', reviews: [], reason: 'offline' } });
+  assert.equal(await openConfigurationReviews(earlierFailure, { loadedBuild: BUILD }), 'failed');
+  assert.equal(earlierFailure.events.some(([kind]) => kind === 'warn'), false, 'the window that ran the failed pass already warned');
+  assert.equal(earlierFailure.state.get(CONFIGURATION_REVIEW_KEY), undefined);
 });
 
 test('a window waiting to reload onto a newer build opens no configuration review', async (t) => {
   const directory = await extension(t);
-  const item = refreshHost(directory, {
-    preview: { results: [{ status: 'would-update', repository: 'app', configurationChanged: true }] },
-    opened: { results: [{ status: 'review-required', repository: 'app', proposalBranch: 'sflow/config-refresh/r1-aaaa-bbbb' }] }
-  });
+  const item = host(directory, { reviews: opened() });
   const bundle = new LoadedBundle(path.join(directory, 'dist', 'extension.cjs'));
   assert.equal(bundle.reloadPending(), false);
   // Alignment installed this window's VSIX and offered the reload, which was dismissed.
@@ -226,15 +230,12 @@ test('a window waiting to reload onto a newer build opens no configuration revie
   assert.equal(replacedInPlace.reloadPending(), true, 'files replaced in place count before any offer');
 });
 
-test('a build whose configuration is current opens nothing, and an unavailable check retries next window', async (t) => {
+test('a build whose configuration is current opens nothing, and a development host never proposes', async (t) => {
   const directory = await extension(t);
-  const current = refreshHost(directory, { preview: { results: [{ status: 'current', repository: 'app' }] } });
+  const current = host(directory, { reviews: { status: 'ran', outcome: 'current', reviews: [] } });
   assert.equal(await openConfigurationReviews(current, { loadedBuild: BUILD }), 'current');
-  assert.equal(current.events.filter(([kind]) => kind === 'run').length, 1);
-  const offline = refreshHost(directory, { fail: true });
-  assert.equal(await openConfigurationReviews(offline, { loadedBuild: BUILD }), 'unavailable');
-  assert.equal(offline.state.get(CONFIGURATION_REVIEW_KEY), undefined);
-  assert.equal(await openConfigurationReviews(refreshHost(await extension(t, { packaged: false }), { preview: {} }), { loadedBuild: BUILD }),
+  assert.equal(current.events.some(([kind]) => kind === 'inform'), false);
+  assert.equal(current.state.get(CONFIGURATION_REVIEW_KEY), BUILD);
+  assert.equal(await openConfigurationReviews(host(await extension(t, { packaged: false }), { reviews: opened() }), { loadedBuild: BUILD }),
     'skipped-development');
 });
-

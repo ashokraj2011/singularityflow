@@ -1,8 +1,8 @@
 ---
 name: sflow-product
-description: Check which build each installed Singularity Flow surface runs, and bring every surface to the build this machine installed.
+description: Check which build each installed Singularity Flow surface runs, bring every surface to the build this machine installed, and open the build's configuration reviews.
 disable-model-invocation: true
-argument-hint: "status | align"
+argument-hint: "status | align | reviews"
 ---
 # Keep every Singularity Flow surface on one build
 
@@ -25,6 +25,8 @@ This skill compares each with the build the installation receipt recorded.
    `next` step exactly. Never downgrade a surface, and never replace a development checkout.
 5. If a step failed, show its reason and the retry command `singularity-flow product align`. Never
    substitute `npm install`, `code --install-extension`, or a reinstall of your own.
-6. Report `configurationReviews` (the reviews this build opened for registered repositories) and
+6. When asked to open this build's configuration reviews, run `singularity-flow product reviews --json`
+   and report each `proposalBranch` exactly. It proposes only; never merge or push `sflow/config`.
+7. Report `configurationReviews` (the reviews this build opened for registered repositories) and
    `requirements` (each repository's last required-build check on this machine) exactly as
    returned. For a `failed` requirement, show its `reason`; never install a release yourself.

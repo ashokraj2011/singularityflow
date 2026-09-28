@@ -206,6 +206,30 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Alignment stopped at the ${slot(s.surface)} surface: ${slot(s.reason)}`,
     preserves: false
   },
+  'product.reviews-opened': {
+    headline: (s) => `Opened ${slot(s.count)} configuration review(s) for this build. Nothing changes until each is merged.`,
+    preserves: false
+  },
+  'product.reviews-recorded': {
+    headline: (s) => `This build already proposed its configuration: ${slot(s.count)} review(s).`,
+    preserves: true
+  },
+  'product.reviews-current': {
+    headline: () => "Every registered repository's approved configuration matches this build.",
+    preserves: true
+  },
+  'product.reviews-running': {
+    headline: () => "This build's configuration reviews are being opened in the background; `singularity-flow product status` shows them.",
+    preserves: true
+  },
+  'product.reviews-development': {
+    headline: () => 'A development checkout proposes no configuration reviews of its own.',
+    preserves: true
+  },
+  'product.reviews-failed': {
+    headline: (s) => `Configuration reviews could not be opened: ${slot(s.reason)}`,
+    preserves: true
+  },
   'fastpath.milestone': {
     headline: (s) => `${slot(s.verb)} reached ${slot(s.milestone)}.`,
     preserves: true

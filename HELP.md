@@ -270,6 +270,9 @@ same version, and an older build then refuses records that a newer one wrote.
 - `singularity-flow product align` brings a lagging surface to that installed build from the bytes
   the receipt retained, then verifies it. It never downgrades a newer surface, never replaces a
   development checkout, and never runs while an install or its recovery owns the product surfaces.
+- `singularity-flow product reviews` opens this build's configuration reviews: one review-only
+  proposal per registered repository whose approved configuration lags. It runs once per build and
+  reports a pass already recorded; nothing is applied until a person merges each review.
 
 A new build runs one alignment pass before its first mutation command, and VS Code runs one after a
 window opens. If the CLI running the command was the one replaced, the command continues on the
@@ -3250,7 +3253,7 @@ singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"
 sf-local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
 singularity-flow reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 sf-reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
-singularity-flow product status|align [--dry-run] [--json]
+singularity-flow product status|align|reviews [--dry-run] [--json]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow choices begin|answer|status ...
 singularity-flow clarification status [PHASE] [--json]

@@ -200,8 +200,11 @@ export const SECRETS_SUBCOMMANDS = Object.freeze(['scan', 'protect']);
 export const ENV_READ_SUBCOMMANDS = Object.freeze(['status', 'audit']);
 export const ENV_MUTATION_SUBCOMMANDS = Object.freeze(['bind', 'unbind']);
 export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MUTATION_SUBCOMMANDS]);
-/** `status` only reads; `align` replaces installed product surfaces with the installed build. */
-export const PRODUCT_SUBCOMMANDS = Object.freeze(['status', 'align']);
+/**
+ * `status` only reads; `align` replaces installed product surfaces with the installed build;
+ * `reviews` opens this build's configuration reviews, pushing review branches only.
+ */
+export const PRODUCT_SUBCOMMANDS = Object.freeze(['status', 'align', 'reviews']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
@@ -1595,6 +1598,7 @@ export function operationCatalog() {
     never('product.status', productDefinition, 'read'),
     never('product.align.preview', productDefinition, 'read'),
     never('product.align', productDefinition, 'mutation'),
+    never('product.reviews', productDefinition, 'mutation'),
     never('report.render', reportDefinition, 'read'),
     never('report.write', reportDefinition, 'mutation'),
     ...TELEMETRY_READ_SUBCOMMANDS.map((name) => never(`telemetry.${name}`, telemetryDefinition, 'read')),

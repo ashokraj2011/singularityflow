@@ -428,6 +428,7 @@ Every public operation is classified before its implementation module is importe
 | process.stop | mutation | never | — | — |
 | product.align | mutation | never | — | — |
 | product.align.preview | read | never | — | — |
+| product.reviews | mutation | never | — | — |
 | product.status | read | never | — | — |
 | program.approve | mutation | never | — | — |
 | program.approve.plan | read | never | — | — |

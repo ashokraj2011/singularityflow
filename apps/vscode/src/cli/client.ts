@@ -695,7 +695,7 @@ export class SingularityFlowClient {
     }
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
     // Alignment reinstalls product surfaces from retained bytes; npm resolves the CLI's dependencies.
-    if (args[0] === 'product' && args[1] === 'align') return WORKSPACE_MUTATION_TIMEOUT_MS;
+    if (args[0] === 'product' && (args[1] === 'align' || args[1] === 'reviews')) return WORKSPACE_MUTATION_TIMEOUT_MS;
     if (args[0] === 'repair' && args[1] === 'attempt') return VALIDATION_TIMEOUT_MS;
     if (args[0] === 'story' && args[1] === 'enhance-description') {
       return STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS;

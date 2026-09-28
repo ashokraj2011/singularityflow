@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 26
+version: 27
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -122,15 +122,18 @@ use the new authority revision.
 After a new build loads, VS Code runs this refresh as a review: for each registered repository whose
 approved configuration lags the build's packaged configuration, it opens a
 `sflow/config-refresh/*` review branch and names it. Nothing changes until someone merges the review.
-The shell form is `workspace refresh-configuration --confirm-plan <PLAN-ID> --review-only`. A review-only
+The shell form is `singularity-flow product reviews`: the one pass per build, which a window and a
+terminal share through one machine-local record, so it never runs twice or twice at once. Step by
+step, it is `workspace refresh-configuration --confirm-plan <PLAN-ID> --review-only`. A review-only
 refresh never creates a first configuration authority. A review is named by the approved commit it
 starts from and the exact configuration it proposes, so every teammate whose new build proposes the
 same change joins that one review instead of opening another. A window waiting to reload onto a
 newer build opens none; the reloaded build does.
 
-A terminal has no window to wait in, so a new build's first mutation starts the same review-only
-refresh as a background worker, once per build. `singularity-flow product status` lists the reviews
-it opened. Set `SINGULARITY_FLOW_CONFIGURATION_REVIEWS=off` to switch the background pass off.
+A terminal has no window to wait in, so a new build's first mutation starts the same pass as a
+background worker. `singularity-flow product status` lists the reviews it opened. A pass that failed
+is tried again after an hour. A first mutation that is itself a configuration refresh starts no
+worker beside it. Set `SINGULARITY_FLOW_CONFIGURATION_REVIEWS=off` to switch the background pass off.
 
 Use `workspace refresh-configuration --dry-run` to preview all repositories, or add a workspace
 reference and repeatable `--repository ID` filters for a bounded repair. Repository customizations
@@ -274,7 +277,7 @@ on every surface before the command runs, then continues the command on the new 
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, `product align`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
+These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, `product align`, `product reviews`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
 
 ## Troubleshooting
 

@@ -11,7 +11,19 @@ import os from 'node:os';
 import { startConfigurationReviews } from './configuration-review-pass.mjs';
 import { repairLocalState } from './local-state-repair.mjs';
 import { alignBeforeFirstMutation, recordBuildPass } from './product-alignment.mjs';
-import { commandExists, run } from './util.mjs';
+import { commandExists, parseArgs, run } from './util.mjs';
+
+/** Commands that refresh configuration in the foreground and own the refresh cache while they do. */
+const FOREGROUND_REFRESHES = new Set(['refresh-configuration', 'reinitialize']);
+
+function refreshesConfiguration(argv) {
+  try {
+    const [command, subcommand] = parseArgs(argv ?? []).positionals;
+    return command === 'workspace' && FOREGROUND_REFRESHES.has(subcommand);
+  } catch {
+    return false;
+  }
+}
 
 export async function firstRunPass({
   runningBuild,
@@ -34,7 +46,12 @@ export async function firstRunPass({
     if (healer.outcome === 'failed') write(`Singularity Flow could not repair machine-local state (${healer.id}): ${healer.reason}`);
   }
   if (product.status === 'skipped') return Object.freeze({ status: 'skipped', healers });
-  const reviews = await startReviews({ runningBuild, homeDirectory, environment });
+  // A foreground refresh is this build's configuration pass: the person is refreshing configuration
+  // explicitly, and a background refresh of the same registry beside it would contend for its cache.
+  // `singularity-flow product reviews` still runs the shared pass on request.
+  const reviews = refreshesConfiguration(argv)
+    ? Object.freeze({ status: 'foreground-refresh' })
+    : await startReviews({ runningBuild, homeDirectory, environment });
   if (reviews.status === 'started') {
     write('Singularity Flow: checking this build\'s packaged configuration against your registered repositories in the background. `singularity-flow product status` shows any review it opens.');
   }

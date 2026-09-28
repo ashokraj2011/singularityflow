@@ -9,7 +9,7 @@ import os from 'node:os';
 
 import { BUILD_INFO, versionLine } from '../build-info.mjs';
 import { PRODUCT_SUBCOMMANDS } from '../command-registry.mjs';
-import { recordedConfigurationReviews } from '../configuration-review-pass.mjs';
+import { recordedConfigurationReviews, runConfigurationReviewPass } from '../configuration-review-pass.mjs';
 import {
   commandResult, effects, failed, noEffects, noop, succeeded
 } from '../narration/command-result.mjs';
@@ -22,7 +22,8 @@ import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 const OPTIONS = Object.freeze({
   status: ['json', 'extension-path', 'timings'],
-  align: ['json', 'extension-path', 'dry-run', 'trigger', 'timings']
+  align: ['json', 'extension-path', 'dry-run', 'trigger', 'timings'],
+  reviews: ['json', 'timings']
 });
 const TRIGGERS = new Set(['command', 'vscode-activation', 'first-mutation']);
 const LABELS = Object.freeze({
@@ -127,6 +128,52 @@ function verdictOutcome(plan) {
   return succeeded(`product.${plan.verdict}`, slots);
 }
 
+/**
+ * This build's configuration-review pass, in the foreground: the one pass per build that a new
+ * build's first mutation otherwise starts in the background. A pass already recorded is reported
+ * as it is; a worker still running is left to finish.
+ */
+export async function productReviews({
+  json = false, runningBuild = runningStampedBuild(), pass = runConfigurationReviewPass
+} = {}) {
+  const result = runningBuild
+    ? await pass({ runningBuild })
+    : { status: 'development', outcome: 'development', reviews: [] };
+  const data = {
+    resultType: 'product-configuration-reviews',
+    schemaVersion: 1, // schema-transient: public CLI result envelope
+    status: result.status,
+    outcome: result.outcome ?? null,
+    reviews: (result.reviews ?? []).map((entry) => ({ ...entry })),
+    startedAt: result.startedAt ?? null,
+    completedAt: result.completedAt ?? null,
+    reason: result.reason ?? null
+  };
+  if (!json) {
+    if (data.status === 'development') console.log('A development checkout proposes no configuration reviews of its own.');
+    else printRecords({ configurationReviews: data, requirements: [] });
+  }
+  const count = data.reviews.length;
+  const failure = ['failed', 'unavailable'].includes(data.outcome);
+  const outcome = data.status === 'development' ? noop('product.reviews-development')
+    : data.status === 'running' ? noop('product.reviews-running')
+      : data.outcome === 'current' ? noop('product.reviews-current')
+        : failure ? failed('product.reviews-failed', { reason: data.reason ?? data.outcome })
+          : data.status === 'ran' ? succeeded('product.reviews-opened', { count })
+            : noop('product.reviews-recorded', { count });
+  emitCommandResult(commandResult({
+    operation: { id: 'product.reviews', classification: 'mutation' },
+    outcome,
+    // Opening a review pushes a review branch; approved configuration itself never changes.
+    effects: data.status === 'ran' && count ? effects({ stateChanged: true }) : noEffects(),
+    restState: 'informational',
+    data
+  }), { json });
+  // A pass that failed just now fails the command; an earlier recorded failure is only reported.
+  if (failure && data.status === 'ran') process.exitCode = 1;
+  return data;
+}
+
 export async function run(_argv, { positionals, options }) {
   const subcommand = positionals[1] ?? 'status';
   if (!PRODUCT_SUBCOMMANDS.includes(subcommand)) {
@@ -136,6 +183,7 @@ export async function run(_argv, { positionals, options }) {
   const unknown = Object.keys(options).filter((key) => !OPTIONS[subcommand].includes(key));
   if (unknown.length) fail(`Unsupported option(s) for product ${subcommand}: ${unknown.sort().map((key) => `--${key}`).join(', ')}.`);
   const json = optionBoolean(options, 'json');
+  if (subcommand === 'reviews') return productReviews({ json });
   const extensionPath = optionString(options, 'extension-path') ?? null;
   const dryRun = subcommand === 'align' && optionBoolean(options, 'dry-run');
 

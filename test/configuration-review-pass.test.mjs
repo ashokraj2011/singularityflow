@@ -10,11 +10,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { productMachineRecords } from '../src/commands/product.mjs';
+import { productMachineRecords, productReviews } from '../src/commands/product.mjs';
+import { firstRunPass } from '../src/first-run-pass.mjs';
 
 import {
-  CONFIGURATION_REVIEW_RUNNING_STALE_MS, openConfigurationReviews, recordedConfigurationReviews,
-  runConfigurationReviewWorker, startConfigurationReviews
+  CONFIGURATION_REVIEW_RETRY_MS, CONFIGURATION_REVIEW_RUNNING_STALE_MS, openConfigurationReviews,
+  recordedConfigurationReviews, runConfigurationReviewPass, runConfigurationReviewWorker, startConfigurationReviews
 } from '../src/configuration-review-pass.mjs';
 
 const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
@@ -157,4 +158,88 @@ test('product status shows the reviews this build opened and each repository\'s 
     ['failed', 'The release does not meet the required build.']
   ]);
   assert.equal(data.configurationReviews, null, 'a development checkout records no build of its own');
+});
+
+test('the foreground pass shares the per-build record: it runs once, never beside a live worker, and retries a failure', async (t) => {
+  const item = await machine(t);
+  let opens = 0;
+  const open = async () => {
+    opens += 1;
+    return { outcome: 'reviews-opened', reviews: [{ repository: 'app', remote: 'origin', proposalBranch: 'sflow/config-refresh/r1' }] };
+  };
+  const pass = (overrides = {}) => runConfigurationReviewPass({
+    runningBuild: BUILD, homeDirectory: item.home, environment: item.environment, open, ...overrides
+  });
+  const first = await pass();
+  assert.deepEqual([first.status, first.outcome, opens], ['ran', 'reviews-opened', 1]);
+  const again = await pass();
+  assert.deepEqual([again.status, again.outcome, again.reviews.length, opens], ['recorded', 'reviews-opened', 1, 1],
+    'a recorded pass is reported without reaching any repository');
+  assert.equal((await startConfigurationReviews({
+    runningBuild: BUILD, homeDirectory: item.home, environment: item.environment, launch: () => { throw new Error('not expected'); }
+  })).status, 'already', 'a terminal does not start a pass the window already ran');
+
+  const busy = await machine(t);
+  await startConfigurationReviews({ runningBuild: BUILD, homeDirectory: busy.home, environment: busy.environment, launch: () => ({ pid: 1 }) });
+  const beside = await runConfigurationReviewPass({ runningBuild: BUILD, homeDirectory: busy.home, environment: busy.environment, open });
+  assert.equal(beside.status, 'running', 'a live background worker is never joined by a second refresh');
+  assert.equal(opens, 1);
+
+  const flaky = await machine(t);
+  const failing = async () => { throw Object.assign(new Error('offline'), { code: 'REMOTE_UNKNOWN' }); };
+  const failed = await runConfigurationReviewPass({ runningBuild: BUILD, homeDirectory: flaky.home, environment: flaky.environment, open: failing });
+  assert.deepEqual([failed.status, failed.outcome], ['ran', 'failed']);
+  const soon = await runConfigurationReviewPass({ runningBuild: BUILD, homeDirectory: flaky.home, environment: flaky.environment, open });
+  assert.deepEqual([soon.status, soon.outcome], ['recorded', 'failed'], 'a failure stands for an hour');
+  const later = await runConfigurationReviewPass({
+    runningBuild: BUILD, homeDirectory: flaky.home, environment: flaky.environment, open,
+    now: Date.now() + CONFIGURATION_REVIEW_RETRY_MS + 60_000
+  });
+  assert.deepEqual([later.status, later.outcome], ['ran', 'reviews-opened'], 'and is then tried again');
+});
+
+test('product reviews reports the shared pass, and fails only for a pass that failed just now', async (t) => {
+  const item = await machine(t);
+  const exitCode = process.exitCode;
+  t.after(() => { process.exitCode = exitCode; });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    const ran = await productReviews({ json: false, runningBuild: BUILD, pass: async () => ({
+      status: 'ran', outcome: 'reviews-opened', reviews: [{ repository: 'app', proposalBranch: 'sflow/config-refresh/r1' }]
+    }) });
+    assert.deepEqual([ran.resultType, ran.status, ran.reviews.length], ['product-configuration-reviews', 'ran', 1]);
+    process.exitCode = undefined;
+    await productReviews({ json: false, runningBuild: BUILD, pass: async () => ({ status: 'recorded', outcome: 'failed', reviews: [], reason: 'offline' }) });
+    assert.equal(process.exitCode, undefined, 'an earlier recorded failure is only reported');
+    await productReviews({ json: false, runningBuild: BUILD, pass: async () => ({ status: 'ran', outcome: 'failed', reviews: [], reason: 'offline' }) });
+    assert.equal(process.exitCode, 1, 'a pass that failed just now fails the command');
+    process.exitCode = undefined;
+    const development = await productReviews({ json: false, runningBuild: null, pass: async () => { throw new Error('not expected'); } });
+    assert.equal(development.status, 'development');
+  } finally {
+    console.log = log;
+  }
+  const result = spawnSync(process.execPath, [cli, 'product', 'reviews', '--json'], {
+    cwd: item.home, encoding: 'utf8',
+    env: { ...process.env, HOME: item.home, SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).data.status, 'development', 'a development checkout proposes nothing of its own');
+});
+
+test('a foreground configuration refresh is its build\'s pass; no background refresh is started beside it', async (t) => {
+  const item = await machine(t);
+  const started = [];
+  const pass = (argv) => firstRunPass({
+    runningBuild: BUILD, argv, homeDirectory: item.home, environment: item.environment,
+    execute: () => { throw new Error('no subprocess is expected'); }, exists: () => false, write: () => {},
+    repairLocal: async () => [], startReviews: async (options) => { started.push(options.runningBuild); return { status: 'started' }; }
+  });
+  assert.equal((await pass(['workspace', 'refresh-configuration', '--confirm-plan', 'p', '--review-only', '--json'])).configurationReviews,
+    'foreground-refresh');
+  assert.equal((await pass(['--no-model', 'workspace', 'reinitialize'])).configurationReviews, 'foreground-refresh');
+  assert.deepEqual(started, []);
+  assert.equal((await pass(['next'])).configurationReviews, 'started');
+  assert.deepEqual(started, [BUILD]);
 });

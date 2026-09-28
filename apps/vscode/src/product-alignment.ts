@@ -209,15 +209,19 @@ export async function alignProductSurfaces(host: ProductAlignmentHost, {
 
 export const CONFIGURATION_REVIEW_KEY = 'singularityFlow.configurationReview.lastBuild';
 
-interface RefreshResult {
-  planId?: string;
-  results?: Array<{ status: string; repository: string; configurationChanged?: boolean; proposalBranch?: string }>;
+interface ReviewsResult {
+  status: 'ran' | 'recorded' | 'running' | 'development';
+  outcome: string | null;
+  reviews: Array<{ repository: string; proposalBranch: string }>;
+  reason?: string | null;
 }
 
 /**
  * Once per newly loaded build, open a review for each registered repository whose approved
- * configuration lags this build's packaged configuration. Nothing is applied: a review-only refresh
- * never pushes `sflow/config`, and a person merges each review.
+ * configuration lags this build's packaged configuration. Nothing is applied: a person merges each
+ * review. The pass is the CLI's own `product reviews`, shared with a terminal's background pass
+ * through one per-build record, so a window and a terminal never refresh the same configuration at
+ * once and a review a terminal already opened is reported, not opened again.
  *
  * A window waiting to reload onto a newer build proposes nothing: its CLI would propose the
  * configuration the machine just replaced, and the reloaded build proposes its own.
@@ -228,40 +232,25 @@ export async function openConfigurationReviews(host: ProductAlignmentHost, {
   if (loadedBuild === 'unstamped' || !packagedExtension(host.extensionPath)) return 'skipped-development';
   if (bundle?.reloadPending()) return 'skipped-reload-pending';
   if (host.remembered<string>(CONFIGURATION_REVIEW_KEY) === loadedBuild) return 'skipped-recent';
-  let lagging: string[];
+  let result: ReviewsResult | undefined;
   try {
-    const preview = await host.run<RefreshResult>(['workspace', 'refresh-configuration', '--dry-run', '--json']);
-    lagging = (preview.results ?? [])
-      .filter((entry) => entry.status === 'would-update' && entry.configurationChanged)
-      .map((entry) => entry.repository);
+    result = (await host.progress('Singularity Flow: opening configuration reviews for this build',
+      () => host.run<Envelope<ReviewsResult>>(['product', 'reviews', '--json']))).data;
   } catch (error) {
-    host.log(`Configuration review check was unavailable: ${failureText(error)}`);
-    return 'unavailable';
-  }
-  if (!lagging.length) {
-    await host.remember(CONFIGURATION_REVIEW_KEY, loadedBuild);
-    return 'current';
-  }
-  // Bind the plan to exactly the repositories being proposed.
-  const selection = lagging.flatMap((repository) => ['--repository', repository]);
-  try {
-    const bound = await host.run<RefreshResult>(['workspace', 'refresh-configuration', ...selection, '--dry-run', '--json']);
-    if (!bound.planId) return 'unavailable';
-    const opened = await host.progress('Singularity Flow: opening configuration reviews for this build', () =>
-      host.run<RefreshResult>([
-        'workspace', 'refresh-configuration', ...selection, '--confirm-plan', bound.planId!, '--review-only', '--json'
-      ]));
-    await host.remember(CONFIGURATION_REVIEW_KEY, loadedBuild);
-    const reviews = (opened.results ?? []).filter((entry) => entry.status === 'review-required' && entry.proposalBranch);
-    for (const entry of reviews) host.log(`Configuration review opened: ${entry.repository} → ${entry.proposalBranch}`);
-    if (reviews.length) {
-      void host.inform(`Singularity Flow opened ${reviews.length} configuration review(s) for this build: `
-        + `${reviews.map((entry) => `${entry.repository} → ${entry.proposalBranch}`).join('; ')}. `
-        + 'Nothing changes until each review is merged.');
-    }
-    return reviews.length ? 'reviews-opened' : 'current';
-  } catch (error) {
-    void host.warn(`Singularity Flow could not open configuration reviews for this build: ${failureText(error)} Run \`singularity-flow workspace refresh-configuration --dry-run\` to see them.`);
+    void host.warn(`Singularity Flow could not open configuration reviews for this build: ${failureText(error)} Run \`singularity-flow product reviews\` to retry.`);
     return 'failed';
   }
+  if (!result) return 'unavailable';
+  // A terminal's background pass still owns this build's reviews; a later window reports them.
+  if (result.status === 'running') return 'running';
+  // A failed pass is retried after an hour; the window that ran it has already warned.
+  if (result.outcome === 'failed' || result.outcome === 'unavailable') return 'failed';
+  await host.remember(CONFIGURATION_REVIEW_KEY, loadedBuild);
+  const reviews = (result.reviews ?? []).filter((entry) => entry.proposalBranch);
+  for (const entry of reviews) host.log(`Configuration review opened: ${entry.repository} → ${entry.proposalBranch}`);
+  if (!reviews.length) return 'current';
+  void host.inform(`Singularity Flow opened ${reviews.length} configuration review(s) for this build: `
+    + `${reviews.map((entry) => `${entry.repository} → ${entry.proposalBranch}`).join('; ')}. `
+    + 'Nothing changes until each review is merged.');
+  return 'reviews-opened';
 }

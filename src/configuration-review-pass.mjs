@@ -25,6 +25,18 @@ const WORKER = path.join(PACKAGE_ROOT, 'bin', 'configuration-review-worker.mjs')
 const RECORDED_BUILDS = 8;
 /** A worker still "running" after this long died; the next pass of the same build starts another. */
 export const CONFIGURATION_REVIEW_RUNNING_STALE_MS = 30 * 60 * 1000;
+/** A pass that failed is tried again after this long; any other outcome stands for the build. */
+export const CONFIGURATION_REVIEW_RETRY_MS = 60 * 60 * 1000;
+
+function liveRun(entry, now) {
+  return entry?.status === 'running' && now - Date.parse(entry.startedAt ?? '') < CONFIGURATION_REVIEW_RUNNING_STALE_MS;
+}
+
+function settled(entry, now) {
+  if (entry?.status !== 'complete') return false;
+  if (!['failed', 'unavailable'].includes(entry.outcome)) return true;
+  return now - Date.parse(entry.completedAt ?? '') < CONFIGURATION_REVIEW_RETRY_MS;
+}
 
 function recordFile(homeDirectory) {
   return path.join(homeDirectory, '.singularity-flow', 'installations', CONFIGURATION_REVIEWS_RECORD);
@@ -121,6 +133,31 @@ export async function runConfigurationReviewWorker({
   return result;
 }
 
+/**
+ * Run this build's pass in the foreground, sharing the one per-build record with the background
+ * worker: a pass already recorded is reported as it is, without reaching any repository, and a
+ * live worker's pass is never run a second time beside it. VS Code runs this through
+ * `singularity-flow product reviews`, so a window and a terminal never refresh the same
+ * configuration at once.
+ */
+export async function runConfigurationReviewPass({
+  runningBuild,
+  homeDirectory = os.homedir(),
+  environment = process.env,
+  open = openConfigurationReviews,
+  now = Date.now()
+} = {}) {
+  const prior = await recordedConfigurationReviews({ homeDirectory, runningBuild });
+  if (settled(prior, now)) return Object.freeze({ ...prior, status: 'recorded' });
+  if (liveRun(prior, now)) {
+    return Object.freeze({ status: 'running', startedAt: prior.startedAt ?? null, reviews: Object.freeze([]) });
+  }
+  await writeReviewEntry(homeDirectory, runningBuild, { status: 'running', startedAt: new Date(now).toISOString() });
+  await runConfigurationReviewWorker({ runningBuild, homeDirectory, environment, open });
+  const recorded = await recordedConfigurationReviews({ homeDirectory, runningBuild });
+  return Object.freeze({ ...(recorded ?? { outcome: 'failed', reviews: [], reason: 'The pass recorded no outcome.' }), status: 'ran' });
+}
+
 function launchWorker({ environment, homeDirectory }) {
   // The worker never starts another pass, alignment or update of its own.
   const child = spawn(process.execPath, [WORKER], {
@@ -166,9 +203,9 @@ export async function startConfigurationReviews({
       return Object.freeze({ status: 'no-workspaces' });
     }
     const prior = await recordedConfigurationReviews({ homeDirectory, runningBuild });
-    const stale = prior?.status === 'running'
-      && !(now - Date.parse(prior.startedAt ?? '') < CONFIGURATION_REVIEW_RUNNING_STALE_MS);
-    if (prior && !stale) return Object.freeze({ status: 'already', outcome: prior.outcome ?? null });
+    if (liveRun(prior, now) || settled(prior, now)) {
+      return Object.freeze({ status: 'already', outcome: prior.outcome ?? null });
+    }
     await writeReviewEntry(homeDirectory, runningBuild, { status: 'running', startedAt: new Date(now).toISOString() });
     const launched = launch({ environment, homeDirectory });
     return Object.freeze({ status: 'started', pid: launched?.pid ?? null });

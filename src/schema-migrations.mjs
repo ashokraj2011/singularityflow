@@ -3817,6 +3817,10 @@ const families = [
   }),
   family({ id: 'reinstall-plan', currentVersion: 1, paths: [/^\$temp\/singularity-flow-reinstall-plans\/.+\/reinstall-plan\.json$/] }),
   family({
+    id: 'product-alignment', currentVersion: 1,
+    paths: [/^\$local\/installations\/alignment-current\.json$/]
+  }),
+  family({
     id: 'distribution-install-transaction', currentVersion: 1,
     paths: [/^\$local\/installations\/distribution-install-pending\.json$/]
   }),

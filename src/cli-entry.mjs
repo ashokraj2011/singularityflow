@@ -14,6 +14,7 @@ import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
+import { productAlignmentDue } from './product-alignment-gate.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -36,7 +37,7 @@ const REPOSITORY_MUTATION_LEASE_EXCLUSIONS = new Set([
 export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'about', 'help', 'guide', 'show', 'quickstart', 'home',
   'init', 'precheck', 'bootstrap', 'onboard', 'authority', 'cache',
-  'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall',
+  'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall', 'product',
   'workspace', 'session', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local'
 ]);
 
@@ -536,9 +537,9 @@ export async function main(argv) {
 async function runMain(argv) {
   const modelMode = resolveModelMode(argv);
   const effectiveArgv = stripGlobalModelOptions(argv);
-  // Product reinstall is intentionally not a repository operation. Resolving a root would invoke
-  // Git before the command even reached its strict no-repository transaction boundary.
-  const localOnlyRequest = effectiveArgv[0] === 'reinstall'
+  // Product reinstall and product alignment are intentionally not repository operations. Resolving
+  // a root would invoke Git before the command even reached its strict no-repository boundary.
+  const localOnlyRequest = ['reinstall', 'product'].includes(effectiveArgv[0])
     || (effectiveArgv[0] === 'skill'
       && parseArgs(effectiveArgv).positionals[1] === 'inspect');
   let root = null;
@@ -674,6 +675,20 @@ async function runMain(argv) {
   // subcommands; classification is known only after the now-measured dispatch probes complete.
   timingInput.commandClass = operation.classification;
   timingInput.operationId = operation.id;
+  // A new build's first mutation brings every product surface on the machine to the installed
+  // build, once. Reads never do: they must stay free of side effects. The gate is two small file
+  // reads; the pass and its installer modules load only when this build still owes it.
+  const alignmentBuild = await productAlignmentDue({
+    command: definition.name, classification: operation.classification
+  });
+  if (alignmentBuild) {
+    const { alignBeforeFirstMutation } = await import('./product-alignment.mjs');
+    const aligned = await alignBeforeFirstMutation({ runningBuild: alignmentBuild, argv });
+    if (aligned.status === 'handed-off') {
+      process.exitCode = aligned.exitCode;
+      return null;
+    }
+  }
   const smartInitDryRun = definition.name === 'init'
     && optionBoolean(options, 'smart-detect') && optionBoolean(options, 'dry-run');
   const durableTimingStart = process.env.SINGULARITY_FLOW_DX_DURABLE_START === '1'

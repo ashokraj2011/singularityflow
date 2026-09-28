@@ -124,6 +124,9 @@ import {
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli/git-observations.ts';
+import {
+  alignProductSurfaces, codeLauncher, LoadedBundle, type ProductAlignmentHost
+} from './product-alignment.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -3712,6 +3715,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openDiagnostics', openDiagnostics));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', openDiagnostics));
+
+  // One build on every product surface. Checked after the first paint, repaired from the build this
+  // machine retains, and a reload offered once this window's own files have been replaced.
+  const loadedBundle = new LoadedBundle(path.join(context.extensionPath, 'dist', 'extension.cjs'));
+  const launcher = codeLauncher(vscode.env?.appRoot);
+  const productClient = new SingularityFlowClient({
+    location: surfaceLocation, repository: os.tmpdir(),
+    environment: { ...cliEnvironment, ...(launcher ? { SINGULARITY_FLOW_CODE_CLI: launcher } : {}) },
+    onOutput: (text) => output.append(text)
+  });
+  const productHost: ProductAlignmentHost = {
+    run: (args) => productClient.run(args),
+    extensionPath: context.extensionPath,
+    log: (line) => output.appendLine(line),
+    progress: (title, task) => vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification, title
+    }, task),
+    inform: (message, ...actions) => vscode.window.showInformationMessage(message, ...actions),
+    warn: (message, ...actions) => vscode.window.showWarningMessage(message, ...actions),
+    reload: () => vscode.commands.executeCommand('workbench.action.reloadWindow'),
+    remembered: (key) => context.globalState.get(key),
+    remember: (key, value) => context.globalState.update(key, value)
+  };
+  const onExtensionsChanged = vscode.extensions?.onDidChange;
+  if (onExtensionsChanged) {
+    context.subscriptions.push(onExtensionsChanged(() => { void loadedBundle.offerReload(productHost); }));
+  }
+  if (vscode.env?.appHost) {
+    void initialWorkspaceRefresh
+      .then(() => alignProductSurfaces(productHost, { loadedBuild, bundle: loadedBundle }))
+      .then((outcome) => output.appendLine(`Product surface check: ${outcome}`))
+      .catch((error) => output.appendLine(`Product surface check could not run: ${(error as Error).message}`));
+  }
 
   // Shared drafts are bound to a verified repository, never just the machine's last open folder.
   // Configuration Center passes its exact bound repository. A command-palette invocation uses

@@ -426,6 +426,9 @@ Every public operation is classified before its implementation module is importe
 | process.step | mutation | never | — | — |
 | process.step.model | mutation | required | — | copilot-cli |
 | process.stop | mutation | never | — | — |
+| product.align | mutation | never | — | — |
+| product.align.preview | read | never | — | — |
+| product.status | read | never | — | — |
 | program.approve | mutation | never | — | — |
 | program.approve.plan | read | never | — | — |
 | program.explain | read | never | — | — |

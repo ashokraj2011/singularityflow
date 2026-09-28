@@ -465,6 +465,7 @@
   "repository-configuration-recovery": [{ "schemaVersion": 1 }],
   "installation-current": [{ "schemaVersion": 2 }],
   "reinstall-plan": [{ "schemaVersion": 1 }],
+  "product-alignment": [{ "schemaVersion": 1 }],
   "distribution-install-transaction": [{ "schemaVersion": 1 }],
   "product-uninstall-transaction": [{ "schemaVersion": 1 }],
   "product-uninstall-receipt": [{ "schemaVersion": 1 }],

@@ -448,6 +448,9 @@ async function main() {
       // read release authority or artifact bytes from them after this bootstrap boundary.
       SINGULARITY_FLOW_DISTRIBUTION_ORIGIN_ARTIFACT_KEY: canonicalKey,
       SINGULARITY_FLOW_DISTRIBUTION_ORIGIN_RELEASE_DIR: canonicalRelease,
+      // npm exec puts the candidate's own executables first on PATH. The installer restores this one
+      // before probing the installed CLI, which would otherwise be the candidate itself.
+      SINGULARITY_FLOW_DISTRIBUTION_ORIGIN_PATH: process.env.PATH ?? '',
       SINGULARITY_FLOW_DISTRIBUTION_BOOTSTRAPPED: '1'
     };
     await mkdir(childEnvironment.NPM_CONFIG_CACHE, { mode: 0o700 });

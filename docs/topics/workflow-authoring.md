@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 30
+version: 31
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -486,6 +486,26 @@ usage lookup below distinguishes the approved configuration from one explicitly 
 Story revision; neither is a global consumer inventory.
 
 ### Artifact-only SKP package review
+
+The framework includes an inert **SKP team notes starter**. A fresh
+`singularity-flow init` installs it under
+`singularity/templates/starter-packs/skp-team-notes/` in that repository's
+approved configuration. For an existing workspace, preview Shell
+`singularity-flow workspace reinitialize <WORKSPACE> --dry-run` (Copilot:
+`/sf-workspace`), then apply only the returned exact plan with Shell
+`singularity-flow workspace reinitialize <WORKSPACE> --confirm-plan <PLAN-ID>`
+(Copilot: `/sf-workspace`). Reinitialization adds missing framework-owned
+starter files and preserves customized copies; it does not replace the active
+workflow, change a user-created workflow, or repin an existing Story.
+
+The installed `README.md` explains how to create a shared draft from
+`draft-input.json` in **Configuration Center → Shared workflow drafts**. Its
+`baseRevision` is intentionally unbound: select the target repository's exact
+approved configuration base in Preview and save that binding before submitting.
+This candidate requests `intake → skp-team-note → conformance`, with only an
+approved intake read and one Markdown findings output. It is not an active
+workflow or a qualified execution path. Shared draft submission, repository
+review/activation, and SKP host qualification remain separate gates.
 
 In the guide's **Team & skills** stage, explicitly choose **Request artifact-only local review
 classification** for a new skill. No classification is selected by default. The equivalent skill

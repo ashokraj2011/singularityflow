@@ -3333,6 +3333,9 @@ test('seeded workspace reinitialization restores an absent workflow in an existi
   assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
   assert.equal(preview.results[0].status, 'would-update');
   assert.ok(preview.results[0].changedFiles.includes('singularity/workflow.yml'));
+  const starterRelative = 'singularity/templates/starter-packs/skp-team-notes/README.md';
+  const starterBytes = await readFile(path.join(ROOT, 'templates/starter-packs/skp-team-notes/README.md'), 'utf8');
+  assert.ok(preview.results[0].changedFiles.includes(starterRelative));
   assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), damagedCommit,
     'seeded preview must remain read-only');
 
@@ -3347,6 +3350,9 @@ test('seeded workspace reinitialization restores an absent workflow in an existi
     '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
   ]).stdout).version, 2);
   assert.equal(run('git', [
+    '--git-dir', remote, 'show', `sflow/config:${starterRelative}`
+  ]).stdout, starterBytes);
+  assert.equal(run('git', [
     '--git-dir', remote, 'show', 'sflow/config:repository-policy.txt'
   ]).stdout, 'preserve repository configuration\n');
   assert.equal(git(remote, ['rev-parse', 'refs/heads/main']), mainBefore,
@@ -3354,6 +3360,9 @@ test('seeded workspace reinitialization restores an absent workflow in an existi
   assert.equal(YAML.parse(run('git', [
     '--git-dir', remote, 'show', 'state:singularity/workflow.yml'
   ]).stdout).version, 2, 'state projection must receive the restored approved workflow');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', `state:${starterRelative}`
+  ]).stdout, starterBytes, 'state projection receives the starter pack');
 });
 
 test('seeded workspace reinitialization preserves repository contracts through config and state publication', async (t) => {

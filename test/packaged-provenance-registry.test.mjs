@@ -47,6 +47,9 @@ async function currentPackagedAssets() {
   await walkAssets(
     path.join(PACKAGE_TEMPLATES, 'artifacts'), 'singularity/templates', assets
   );
+  await walkAssets(
+    path.join(PACKAGE_TEMPLATES, 'starter-packs'), 'singularity/templates/starter-packs', assets
+  );
   await walkAssets(path.join(PACKAGE_TEMPLATES, 'agents'), '.github/agents', assets);
   return new Map([...assets.entries()].sort(([left], [right]) => left.localeCompare(right)));
 }
@@ -62,7 +65,7 @@ async function repositoryFixture(prefix) {
 test('release registry contains every current packaged configuration asset at its exact digest', async () => {
   const assets = await currentPackagedAssets();
   assert.deepEqual(
-    Object.keys(CURRENT_PACKAGED_ASSET_SHA256).sort(), [...assets.keys()],
+    Object.keys(CURRENT_PACKAGED_ASSET_SHA256).sort(), [...assets.keys()].sort(),
     'adding, removing, or moving a packaged asset requires an explicit registry update'
   );
   for (const [relative, bytes] of assets) {
@@ -91,6 +94,43 @@ test('release registry contains every current packaged workflow node at its cano
   }
 });
 
+test('starter pack assets install, restore when missing, and preserve repository edits', async (t) => {
+  const starterAssets = new Map();
+  await walkAssets(
+    path.join(PACKAGE_TEMPLATES, 'starter-packs'),
+    'singularity/templates/starter-packs', starterAssets
+  );
+  assert.ok(starterAssets.size > 0, 'the packaged starter pack must contain files');
+
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-starter-pack-seeding-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, '.git'), { recursive: true });
+  const installed = await initializeDefinition(root);
+  assert.ok(installed.includes('singularity/templates/starter-packs'));
+  for (const [relative, bytes] of starterAssets) {
+    assert.deepEqual(await readFile(path.join(root, relative)), bytes, relative);
+  }
+  assert.deepEqual(await initializeDefinition(root), [], 'fresh initialization is idempotent');
+
+  await refreshPackagedConfiguration(root);
+  const [relative, packagedBytes] = starterAssets.entries().next().value;
+  const target = path.join(root, relative);
+  await rm(target);
+  const restored = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  assert.ok(restored.files.includes(relative), 'safe reinitialize restores a missing starter asset');
+  assert.deepEqual(await readFile(target), packagedBytes);
+
+  const repositoryBytes = Buffer.concat([packagedBytes, Buffer.from('\nRepository customization.\n')]);
+  await writeFile(target, repositoryBytes);
+  const preserved = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  assert.deepEqual(await readFile(target), repositoryBytes);
+  assert.ok(preserved.conflicts.some((entry) =>
+    entry.path === relative && entry.resolution === 'preserved-local'));
+  const repeated = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  assert.equal(repeated.changed, false, 'repeat reinitialization is idempotent');
+  assert.deepEqual(await readFile(target), repositoryBytes);
+});
+
 test('custom templatesRoot canonicalizes only explicitly rooted template assets', async () => {
   const prior = await readFile(path.join(
     ROOT, 'test/fixtures/packaged-assets/prior/common-implementation.md'
@@ -111,6 +151,16 @@ test('custom templatesRoot canonicalizes only explicitly rooted template assets'
     'company/config/prompts/copilot-planning.md',
     { templatesRoot: 'company/config/templates' }
   ), 'company/config/prompts/copilot-planning.md', 'fixed prompts remain exact-path scoped');
+  const starterPath = 'singularity/templates/starter-packs/skp-team-notes/README.md';
+  const starterDigest = packagedAssetSha256(await readFile(path.join(
+    ROOT, 'templates/starter-packs/skp-team-notes/README.md'
+  )));
+  assert.equal(packagedAssetRegistryPath(starterPath, {
+    templatesRoot: 'singularity/templates/starter-packs'
+  }), starterPath, 'a custom artifact root must not remap the fixed starter location');
+  assert.equal(isKnownPackagedAssetHash(starterPath, starterDigest, {
+    templatesRoot: 'singularity/templates/starter-packs'
+  }), true, 'the exact packaged starter remains upgradeable with a nested artifact root');
   assert.equal(isKnownPackagedAssetHash(
     'company/config/templates/common/implementation.md', packagedAssetSha256(
       Buffer.concat([prior, Buffer.from(' ')])

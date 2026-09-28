@@ -1064,6 +1064,9 @@ for (const absolute of allFiles) {
   if (relative.startsWith('templates/artifacts/')) {
     packagedAssetSources.set(relative,
       `singularity/templates/${relative.slice('templates/artifacts/'.length)}`);
+  } else if (relative.startsWith('templates/starter-packs/')) {
+    packagedAssetSources.set(relative,
+      `singularity/templates/starter-packs/${relative.slice('templates/starter-packs/'.length)}`);
   } else if (relative.startsWith('templates/agents/')) {
     packagedAssetSources.set(relative, `.github/agents/${relative.slice('templates/agents/'.length)}`);
   }

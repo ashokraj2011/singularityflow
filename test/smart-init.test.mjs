@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -57,6 +57,44 @@ async function repository(files, { stageExtra = false } = {}) {
   }
   return root;
 }
+
+async function starterPackAssets() {
+  const sourceRoot = path.join(packageRoot, 'templates', 'starter-packs');
+  const files = new Map();
+  const visit = async (directory, relative = '') => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const next = path.posix.join(relative, entry.name);
+      if (entry.isDirectory()) await visit(path.join(directory, entry.name), next);
+      else if (entry.isFile()) files.set(
+        `singularity/templates/starter-packs/${next}`,
+        await readFile(path.join(directory, entry.name))
+      );
+    }
+  };
+  await visit(sourceRoot);
+  return files;
+}
+
+test('smart initialization installs every packaged starter pack file', async () => {
+  const expected = await starterPackAssets();
+  assert.ok(expected.size > 0);
+  const root = await repository({
+    'package.json': '{"name":"starter-pack-fixture","packageManager":"npm@10","scripts":{"test":"node --test"}}\n'
+  });
+  const snapshot = await captureSmartInitSnapshot(root);
+  const rendered = await buildSmartInitProposal(snapshot, runSmartInitDetectors(snapshot));
+  for (const [relative, bytes] of expected) {
+    const planned = rendered.files.find((entry) => entry.path === relative);
+    assert.ok(planned, `${relative} is included in the exact smart init proposal`);
+    assert.deepEqual(planned.bytes, bytes);
+  }
+  await activateSmartInit(root, rendered, {
+    confirmation: rendered.proposal.proposalSha256
+  });
+  for (const [relative, bytes] of expected) {
+    assert.deepEqual(await readFile(path.join(root, relative)), bytes, relative);
+  }
+});
 
 test('smart init dry-run is deterministic, model-free, and effect-free', async () => {
   const root = await repository({

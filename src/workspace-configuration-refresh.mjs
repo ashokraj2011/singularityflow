@@ -988,6 +988,10 @@ async function packagedAssets(templatesRoot) {
     String(templatesRoot ?? 'singularity/templates').replaceAll('\\', '/'), output
   );
   await walkPackageDirectory(
+    path.join(PACKAGE_ROOT, 'templates', 'starter-packs'),
+    'singularity/templates/starter-packs', output
+  );
+  await walkPackageDirectory(
     path.join(PACKAGE_ROOT, 'templates', 'agents'), '.github/agents', output
   );
   return new Map([...output.entries()].sort(([left], [right]) => left.localeCompare(right)));

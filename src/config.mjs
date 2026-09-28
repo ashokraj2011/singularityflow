@@ -2017,7 +2017,11 @@ export async function initializeDefinition(root) {
   // Directory mappings above are skipped once the destination exists, so re-running init on a
   // repository created by an earlier version would never receive template files added since.
   // Merge in any missing ones without overwriting local edits.
-  for (const [source, destination] of [['artifacts', 'singularity/templates'], ['agents', '.github/agents']]) {
+  for (const [source, destination] of [
+    ['artifacts', 'singularity/templates'],
+    ['starter-packs', 'singularity/templates/starter-packs'],
+    ['agents', '.github/agents']
+  ]) {
     if (wrote.includes(destination)) continue;
     for (const file of await copyMissingFiles(
       path.join(PACKAGE_ROOT, 'templates', source), path.join(root, destination), [], '', root

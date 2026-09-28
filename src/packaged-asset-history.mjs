@@ -317,7 +317,9 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
   'singularity/templates/spec-driven/plan.md': 'e8af98405a723a55c572c705e34a5b2fc05a11b3efe632e169ba6becf6c1a04f',
   'singularity/templates/spec-driven/release.md': 'ce6e1d1995c68158f4209063b3cb954eceab8576e1c8db76bfaed27a805a8908',
-  'singularity/templates/spec-driven/spec.md': '27424a624b1dab57323fd7482ac62708bd42d11ba42e41c102f94e15182fe485'
+  'singularity/templates/spec-driven/spec.md': '27424a624b1dab57323fd7482ac62708bd42d11ba42e41c102f94e15182fe485',
+  'singularity/templates/starter-packs/skp-team-notes/README.md': '1880cb24e0dbc1ce84677b183dfd672ed7e85ae86e5735a1e8b9f1cb94817f4c',
+  'singularity/templates/starter-packs/skp-team-notes/draft-input.json': '14b4b8deafa8a5434edd7046e7203e4520792c5951350f9d7a7f5c4b904d7ced'
 });
 
 /** Every exact package revision accepted as framework provenance, keyed by repository path. */
@@ -354,6 +356,9 @@ export function packagedAssetRegistryPath(relativePath, {
   templatesRoot = 'singularity/templates'
 } = {}) {
   const relative = normalizedRepositoryPath(relativePath);
+  // Starter packs have a fixed repository location and identity. A configured artifact
+  // templatesRoot may itself sit inside that tree; it must not remap the starter's bytes.
+  if (relative.startsWith('singularity/templates/starter-packs/')) return relative;
   const configuredRoot = normalizedRepositoryPath(templatesRoot).replace(/\/+$/u, '');
   if (!configuredRoot || (relative !== configuredRoot
       && !relative.startsWith(`${configuredRoot}/`))) return relative;

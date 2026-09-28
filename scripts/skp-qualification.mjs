@@ -52,6 +52,7 @@ export const SKP_QUALIFICATION_TARGETS = freeze([
     'test/wca-authoring-text-contracts.test.mjs', 'test/wca-simulation.test.mjs',
     'test/skp-platform-owners.test.mjs', 'test/skp-host-readiness.test.mjs',
     'test/skp-docker-hash-probe.test.mjs',
+    'test/skp-docker-containment-probe.test.mjs', 'test/skp-docker-containment-cli.test.mjs',
     'test/vscode-workflow-shared-content.test.mjs'],
     meaning: 'Static contracts, byte/path negative cases, synthetic host and Windows/Linux owner policy, and structural shared-impact/lifecycle projections. No actual native host enforcement.' },
   { id: 'retained-local-owner-fixtures', evidenceClass: 'actual-local-git-and-filesystem-fixtures', files: [

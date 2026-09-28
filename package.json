@@ -84,6 +84,7 @@
     "test:platform:cmp-wel": "node scripts/run-cmp-wel-platform.mjs",
     "test:platform:gal": "node scripts/gal-matrix-cell.mjs",
     "qualification:skp": "node scripts/skp-qualification.mjs --plan",
+    "probe:skp-docker": "node scripts/skp-docker-containment.mjs",
     "test:platform:skp": "node scripts/skp-qualification.mjs --execute",
     "test:release:skp": "node scripts/skp-qualification.mjs --execute --require-release",
     "test:gal:acceptance": "node --test test/gal-acceptance-matrix.test.mjs test/gal-matrix-cell.test.mjs",

@@ -71,6 +71,12 @@ export function diagnoseSkillHostReadiness() {
         status: 'implemented-source-only',
         scope: 'Opt-in digest check of one inert staged byte packet using a pre-existing, digest-pinned local image.',
         limitation: 'No imported skill is executed. Docker CLI cleanup is not proof of effect absence, pre-effect enforcement, exact delivery, or native platform qualification.'
+      }, {
+        id: 'docker-containment-candidate',
+        source: 'src/skp-docker-containment-probe.mjs',
+        status: 'implemented-source-only',
+        scope: 'Opt-in fixed inert checks of a selected local Docker container profile, including denied access and observed container absence after cancellation.',
+        limitation: 'A passing local probe does not confine the Copilot host, authenticate exact skill delivery, prove all external effects absent, or qualify another OS.'
       }
     ],
     missingOwners: [{

@@ -59,6 +59,9 @@ test('readiness identifies concrete missing live owners and the limits of existi
   assert.match(dockerCandidate.scope, /inert staged byte packet/);
   assert.match(dockerCandidate.limitation, /No imported skill is executed/);
   assert.match(dockerCandidate.limitation, /not proof of effect absence/);
+  const containmentCandidate = report.sourceOwners.find((owner) => owner.id === 'docker-containment-candidate');
+  assert.match(containmentCandidate.scope, /fixed inert checks/);
+  assert.match(containmentCandidate.limitation, /does not confine the Copilot host/);
   assert.ok(report.sourceOwners.every((owner) => owner.status === 'implemented-source-only'));
   assert.equal(report.nextAction.kind, 'external-prerequisite');
   assert.equal(report.nextAction.executionAuthorized, false);

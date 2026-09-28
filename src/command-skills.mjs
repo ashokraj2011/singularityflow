@@ -34,6 +34,7 @@ const entries = {
   local: ['sf-local'],
   'fresh-install': ['sf-fresh-install'],
   reinstall: ['sf-reinstall'],
+  product: ['sf-product'],
   repositories: ['sf-repositories'],
   choices: ['sf-start', 'sf-approve'],
   start: ['sf-start'],

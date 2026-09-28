@@ -16161,6 +16161,7 @@ async function dispatch(command, positionals, options) {
     'local-reset': () => localResetCommand(options),
     'fresh-install': () => freshInstallCommand(options),
     reinstall: () => reinstallCommand(options),
+    product: async () => (await import('./commands/product.mjs')).run(argv, { positionals, options }),
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),

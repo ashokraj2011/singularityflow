@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "45ddadb3a288eabc2677bf7ce4d94abadb5c1ce3",
+  "sourceCommit": "97549536a5939447077cf70b8e3dae6fe7d4efd4",
   "topicCount": 68,
-  "contentSha256": "7e4600209348d80ddf0f6800448a60b73af13ff3397de349d54802c4ab38ae61",
+  "contentSha256": "347682ba489d1abfc26881a373d1b5c7414f9d338bfc9467fad586e2b2b18be5",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -264,9 +264,9 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 17,
-      "sha256": "ebbbc09cdccf8bacd6b5d6dbf1984f82b10cfdc8aebc5fe51935d6c0b36851c1",
-      "routingSha256": "9282900d02a0dc95200075b3b65d398903af09edd17350009d3f3379eee4b584",
+      "version": 19,
+      "sha256": "97e6a5b656a82af2053f0f61fbf87ec7b04b004d0cb631d2cc82508522f7012c",
+      "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
     {
@@ -376,8 +376,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 8,
-      "sha256": "467ec875f8ec1c03298115b4ea169c8e90ac69bc446772ad856001273674b7e4",
+      "version": 9,
+      "sha256": "b1450826c52fcdd8afab6bb1b2793b073ed90d67a6a07e1e6bc021d4f3e222e9",
       "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },

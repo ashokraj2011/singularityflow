@@ -257,6 +257,24 @@ restore. A post-removal failure therefore retains the verified candidate and pri
 roll-forward recovery command. Once the schema-v2 receipt exists, later admitted upgrades can use
 its exact prior artifacts for automatic compensation.
 
+### One build on every surface
+
+The terminal and Copilot run the CLI on PATH, while VS Code runs the CLI bundled in its extension.
+A partial install (`--cli-only`, `--vscode-only`, `--skip-copilot`) or an out-of-band
+`npm install --global` or VSIX can leave them on different builds. Every surface still reports the
+same version, and an older build then refuses records that a newer one wrote.
+
+- `singularity-flow product status` compares the build each surface runs with the build the
+  installation receipt recorded.
+- `singularity-flow product align` brings a lagging surface to that installed build from the bytes
+  the receipt retained, then verifies it. It never downgrades a newer surface, never replaces a
+  development checkout, and never runs while an install or its recovery owns the product surfaces.
+
+A new build runs one alignment pass before its first mutation command, and VS Code runs one after a
+window opens. If the CLI running the command was the one replaced, the command continues on the
+aligned build. A surface that needs a build this machine does not hold gets one exact install step
+instead. Set `SINGULARITY_FLOW_PRODUCT_ALIGNMENT=off` to switch the automatic pass off.
+
 ## Multi-repository initiatives
 
 Initiative orchestration is an opt-in layer above repository story workflows. `singularity/portfolio.yml` defines repositories, four- or seven-phase profiles, phase outputs, checklists, evidence assurance/freshness, authority groups, contracts, and gates. Repositories without this file retain existing behavior and make no initiative network calls.
@@ -3231,6 +3249,7 @@ singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"
 sf-local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
 singularity-flow reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 sf-reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
+singularity-flow product status|align [--dry-run] [--json]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow choices begin|answer|status ...
 singularity-flow clarification status [PHASE] [--json]

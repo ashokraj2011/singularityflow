@@ -1712,7 +1712,7 @@ const TIMING_COMMANDS = new Set([
   'fix', 'journal', 'why', 'approvals', 'receipt', 'impact', 'context', 'tokens', 'clarification',
   'architecture', 'local', 'cache', 'repositories', 'policy', 'evidence', 'env', 'skill', 'mcp',
   'secrets', 'constitution', 'auto', 'adhoc', 'land', 'push', 'next', 'resume', 'return', 'run',
-  'reinstall', 'gate', 'specify', 'plan', 'implement', 'verify'
+  'reinstall', 'product', 'gate', 'specify', 'plan', 'implement', 'verify'
 ]);
 const TIMING_SUBCOMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
   workflow: new Set(['list', 'proposals', 'proposal', 'proposal-status', 'author', 'create', 'publish', 'activate']),

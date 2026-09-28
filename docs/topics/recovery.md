@@ -20,7 +20,7 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 8
+version: 9
 ---
 Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
@@ -80,6 +80,13 @@ convergence-rework decision.
 The same rule covers local pending-marker cleanup after a successful push. The committed/pushed
 transition is reported as successful, the marker remains available for exact verification, and
 `sflow sync` (or `sflow initiative sync`) clears it without repeating the lifecycle mutation.
+
+A phase transition finishes a retained publication itself. When an earlier command committed but
+could not push, the next transition (`next`, `submit`, `approve`, `reject`, and the others) first
+retries that exact publication with the same exact-lease sync. If the push succeeds, the transition
+continues. If it fails, the transition refuses as before and names `sflow sync`. A publication
+interrupted before its branch ref advanced is never rolled back automatically; `sflow sync` remains
+the explicit path for it. Set `SINGULARITY_FLOW_TRANSITION_REPAIR=off` to switch this off.
 
 ## Troubleshooting
 

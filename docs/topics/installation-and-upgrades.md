@@ -18,11 +18,12 @@ commands:
   - workspace
   - fresh-install
   - reinstall
+  - product
 related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 17
+version: 19
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -194,9 +195,39 @@ surfaces, stamps provenance, and packages before installation; it skips only `np
 `test:cli` with `--cli-only`). The installer prints a warning so an untested artifact is not mistaken
 for a validated one. The flag is refused for `--factory-reset` and `--clean-reinstall`.
 
+## Keep every surface on one build
+
+The terminal and Copilot run the CLI on PATH, while VS Code runs the CLI bundled in its extension.
+A partial install (`--cli-only`, `--vscode-only`, `--skip-copilot`) or an out-of-band
+`npm install --global` or VSIX can leave them on different builds. They all report the same
+version, so nothing looks wrong until an older build refuses a record that a newer build wrote.
+
+- **Shell:** `sflow product status` compares the build each surface runs with the build the
+  installation receipt (`~/.singularity-flow/installations/current.json`) recorded. `sflow product
+  align` brings a lagging surface to that installed build from the bytes the receipt retained.
+- **VS Code:** after a window opens, the extension checks once per loaded build and at most daily. It
+  aligns in the background and offers a reload when its own files were replaced.
+
+Alignment follows the same rules on every surface:
+
+1. The target is the installed build, not whichever build is newest. A surface newer than the
+   installed build is never downgraded; it is reported with one full-install step.
+2. Only the retained, content-addressed artifacts are installed, and only when their bytes still
+   match the receipt. A development checkout is never replaced.
+3. It never runs while an install or its interrupted-install recovery owns the product surfaces.
+4. Each surface is verified before the next one starts. VS Code goes first, then the CLI, then the
+   Copilot plugin and `/sf-*` skills, which the aligned CLI reinstalls from its own package.
+
+A new build also runs one pass before its first mutation command. It aligns the surfaces and repairs
+machine-local state: a workspace registry entry that drifted from its manifest, and clone staging an
+interrupted clone left behind. If the CLI running that command was the one replaced, the command
+continues on the aligned build. A failed pass never fails the command:
+it prints the retry command, `singularity-flow product align`. Set
+`SINGULARITY_FLOW_PRODUCT_ALIGNMENT=off` to switch the automatic pass off.
+
 ## State and safety
 
-These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
+These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, `product align`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
 
 ## Troubleshooting
 

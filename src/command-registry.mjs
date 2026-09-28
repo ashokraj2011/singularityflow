@@ -1,11 +1,11 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck', 'skill']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise', 'env', 'skill']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise', 'env', 'skill', 'product']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'product']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -69,7 +69,9 @@ const LAZY_MODULES = Object.freeze({
   architecture: './commands/architecture.mjs',
   revision: './commands/revision.mjs',
   revise: './commands/revise.mjs',
-  skill: './commands/skill.mjs'
+  skill: './commands/skill.mjs',
+  // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
+  product: './commands/product.mjs'
 });
 
 function operation(id, modelPolicy = 'never', overrides = {}) {
@@ -104,7 +106,7 @@ function command([name, aliases = []]) {
 
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
-  ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
+  ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['product'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
   ['adhoc'], ['land'], ['local'],
   ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
@@ -198,6 +200,8 @@ export const SECRETS_SUBCOMMANDS = Object.freeze(['scan', 'protect']);
 export const ENV_READ_SUBCOMMANDS = Object.freeze(['status', 'audit']);
 export const ENV_MUTATION_SUBCOMMANDS = Object.freeze(['bind', 'unbind']);
 export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MUTATION_SUBCOMMANDS]);
+/** `status` only reads; `align` replaces installed product surfaces with the installed build. */
+export const PRODUCT_SUBCOMMANDS = Object.freeze(['status', 'align']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
@@ -428,6 +432,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   capability: CAPABILITY_SUBCOMMANDS,
   repositories: REPOSITORIES_SUBCOMMANDS,
   env: ENV_SUBCOMMANDS,
+  product: PRODUCT_SUBCOMMANDS,
   ...Object.fromEntries(Object.entries(SGOS_SUBCOMMANDS)
     .map(([name, actions]) => [name, Object.freeze([...actions.read, ...actions.mutation])])),
   wm: Object.freeze([...new Set([
@@ -477,6 +482,18 @@ function resolveEnvironmentOperation(definition, positionals) {
   }
   return never(`env.${subcommand}`, definition,
     ENV_READ_SUBCOMMANDS.includes(subcommand) ? 'read' : 'mutation');
+}
+
+/** A dry run only reports, so it is a read like `status`. */
+function resolveProductOperation(definition, positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  if (!PRODUCT_SUBCOMMANDS.includes(subcommand)) {
+    return unknownSubcommand('product', subcommand, PRODUCT_SUBCOMMANDS);
+  }
+  if (subcommand === 'align' && optionBoolean(options, 'dry-run')) {
+    return never('product.align.preview', definition, 'read');
+  }
+  return never(`product.${subcommand}`, definition, subcommand === 'status' ? 'read' : 'mutation');
 }
 
 function resolveTelemetryOperation(definition, positionals) {
@@ -1336,6 +1353,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'report' || definition.name === 'review') return resolveOptionalOutputOperation(definition, options);
   if (definition.name === 'secrets') return resolveSecretsOperation(definition, positionals);
   if (definition.name === 'env') return resolveEnvironmentOperation(definition, positionals);
+  if (definition.name === 'product') return resolveProductOperation(definition, positionals, options);
   if (definition.name === 'telemetry') return resolveTelemetryOperation(definition, positionals);
   if (definition.name === 'help-metrics') return resolveHelpMetricsOperation(definition, positionals);
   if (definition.name === 'doctor') return resolveDoctorOperation(definition, options);
@@ -1477,6 +1495,7 @@ export function operationCatalog() {
   const pushDefinition = commandDefinition('push');
   const secretsDefinition = commandDefinition('secrets');
   const envDefinition = commandDefinition('env');
+  const productDefinition = commandDefinition('product');
   const nextDefinition = commandDefinition('next');
   const returnDefinition = commandDefinition('return');
   const impactDefinition = commandDefinition('impact');
@@ -1573,6 +1592,9 @@ export function operationCatalog() {
     never('secrets.protect', secretsDefinition, 'mutation'),
     ...ENV_READ_SUBCOMMANDS.map((name) => never(`env.${name}`, envDefinition, 'read')),
     ...ENV_MUTATION_SUBCOMMANDS.map((name) => never(`env.${name}`, envDefinition, 'mutation')),
+    never('product.status', productDefinition, 'read'),
+    never('product.align.preview', productDefinition, 'read'),
+    never('product.align', productDefinition, 'mutation'),
     never('report.render', reportDefinition, 'read'),
     never('report.write', reportDefinition, 'mutation'),
     ...TELEMETRY_READ_SUBCOMMANDS.map((name) => never(`telemetry.${name}`, telemetryDefinition, 'read')),

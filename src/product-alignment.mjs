@@ -27,6 +27,7 @@ import { PRODUCT_ALIGNMENT_SWITCH } from './product-alignment-gate.mjs';
 import { inspectLocalProduct, REINSTALL_SURFACES } from './reinstall.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
+import { runWorkspaceHealer } from './workspace-healers.mjs';
 import {
   acquireActivationLease, inspectNpmTarballBuildSources, inspectVsixBuildSources,
   releaseActivationLease
@@ -293,7 +294,18 @@ export async function observeProductSurfaces({
   ({ execute, exists } = withCodeCommand(execute, exists, environment));
   const installations = installationsDirectory(homeDirectory);
   const receipt = await readInstallationReceipt(installations);
-  const record = receipt.status === 'present' ? receipt.record : null;
+  if (receipt.status !== 'present') {
+    // Nothing to compare the surfaces with, so no inventory and none of its subprocesses.
+    return Object.freeze({
+      receipt: Object.freeze({
+        status: receipt.status, path: receipt.path, ...(receipt.reason ? { reason: receipt.reason } : {})
+      }),
+      installed: Object.freeze({ cli: null, vscode: null }),
+      live: null,
+      installations
+    });
+  }
+  const record = receipt.record;
   const [tarball, vsix] = record
     ? await Promise.all([
       retainedArtifact('tarball', record.artifacts?.tarball ?? null, installations),
@@ -516,6 +528,11 @@ async function writeAlignmentReceipt(installations, runningBuild, entry) {
   return file;
 }
 
+/** Record one build's pass, merged with what the other recent builds recorded. */
+export async function recordBuildPass({ homeDirectory = os.homedir(), runningBuild, entry }) {
+  return writeAlignmentReceipt(installationsDirectory(homeDirectory), runningBuild, entry);
+}
+
 /** The alignment pass one build last recorded on this machine, or null. */
 export async function recordedAlignment({ homeDirectory = os.homedir(), runningBuild } = {}) {
   const file = path.join(installationsDirectory(homeDirectory), PRODUCT_ALIGNMENT_RECEIPT);
@@ -540,7 +557,8 @@ export async function applyProductAlignment({
   runningBuild = null,
   trigger = 'command',
   inspectProduct = inspectLocalProduct,
-  log = () => {}
+  log = () => {},
+  record = Boolean(runningBuild)
 } = {}) {
   ({ execute, exists } = withCodeCommand(execute, exists, environment));
   const installations = installationsDirectory(homeDirectory);
@@ -549,7 +567,7 @@ export async function applyProductAlignment({
   });
   let plan = planProductAlignment(await observe());
   if (!plan.actions.length) {
-    if (runningBuild && !['no-receipt', 'receipt-invalid'].includes(plan.verdict)) {
+    if (record && runningBuild && !['no-receipt', 'receipt-invalid'].includes(plan.verdict)) {
       await writeAlignmentReceipt(installations, runningBuild, {
         at: new Date().toISOString(), trigger, outcome: plan.verdict, steps: []
       }).catch(() => undefined);
@@ -612,15 +630,25 @@ export async function applyProductAlignment({
             continue;
           }
           log('Reinstalling the Copilot plugin and direct skills from the CLI on PATH.');
-          executeOrThrow(execute, 'singularity-flow', ['plugin', 'install'], {
-            env: childEnvironment(environment), timeoutMs: mutation
-          }, 'Copilot plugin install');
-          const verified = copilotPluginVerification(execute, environment);
-          if (!verified.verified) {
-            throw new SingularityFlowError(`Copilot still does not match the CLI: ${verified.reason}`, {
-              code: 'PRODUCT_ALIGNMENT_VERIFICATION_FAILED'
-            });
-          }
+          // The plugin and /sf-* skills are a projection of the installed package: the registered
+          // runtime-projection healer, whose postcondition is the CLI's own plugin verification.
+          const healed = await runWorkspaceHealer('runtime-projection-drift', async () => {
+            executeOrThrow(execute, 'singularity-flow', ['plugin', 'install'], {
+              env: childEnvironment(environment), timeoutMs: mutation
+            }, 'Copilot plugin install');
+            const verified = copilotPluginVerification(execute, environment);
+            if (!verified.verified) {
+              throw new SingularityFlowError(`Copilot still does not match the CLI: ${verified.reason}`, {
+                code: 'PRODUCT_ALIGNMENT_VERIFICATION_FAILED'
+              });
+            }
+            return {
+              effects: ['reconcile-runtime-projection'],
+              postconditions: [{ id: 'runtime-projection-matches-package', status: 'pass' }],
+              proof: { verifiedBy: 'singularity-flow plugin verify --json' }
+            };
+          });
+          step.receipt = healed.receipt;
         }
         step.outcome = 'aligned';
         steps.push(Object.freeze(step));
@@ -636,7 +664,7 @@ export async function applyProductAlignment({
     await releaseActivationLease({ journal, operationId: lease.operationId }).catch(() => undefined);
   }
   const status = failure ? 'failed' : 'aligned';
-  if (runningBuild) {
+  if (record && runningBuild) {
     await writeAlignmentReceipt(installations, runningBuild, {
       at: new Date().toISOString(), trigger, outcome: status,
       steps: steps.map((entry) => ({ ...entry }))
@@ -663,13 +691,14 @@ export async function alignBeforeFirstMutation({
   exists = commandExists,
   homeDirectory = os.homedir(),
   environment = process.env,
-  write = (line) => process.stderr.write(`${line}\n`)
+  write = (line) => process.stderr.write(`${line}\n`),
+  record = true
 } = {}) {
   let result;
   try {
     result = await applyProductAlignment({
       execute, exists, homeDirectory, environment, runningBuild, trigger: 'first-mutation',
-      log: (line) => write(`Singularity Flow: ${line}`)
+      log: (line) => write(`Singularity Flow: ${line}`), record
     });
   } catch (error) {
     // An install owning the surfaces is not recorded: the next mutation tries again after it.
@@ -679,11 +708,11 @@ export async function alignBeforeFirstMutation({
   if (result.status === 'failed') {
     const failed = result.steps.find((entry) => entry.outcome === 'failed');
     write(`Singularity Flow stopped aligning at the ${failed?.surface ?? 'product'} surface: ${failed?.reason ?? 'unknown failure'} Retry with: singularity-flow product align`);
-    return Object.freeze({ status: 'failed' });
+    return Object.freeze({ status: 'failed', result });
   }
   const replacedCli = result.steps.some((entry) => entry.surface === 'cli' && entry.outcome === 'aligned');
   const runningWasReplaced = result.plan.surfaces.find((entry) => entry.id === 'cli')?.live === runningBuild;
-  if (!replacedCli || !runningWasReplaced) return Object.freeze({ status: result.status });
+  if (!replacedCli || !runningWasReplaced) return Object.freeze({ status: result.status, result });
   write('Singularity Flow: continuing this command on the newly aligned build.');
   const handed = execute('singularity-flow', argv, {
     stdio: 'inherit', allowFailure: true, env: childEnvironment(environment)

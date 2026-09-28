@@ -14,7 +14,7 @@ import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
-import { productAlignmentDue } from './product-alignment-gate.mjs';
+import { firstRunPassDue } from './product-alignment-gate.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -676,14 +676,14 @@ async function runMain(argv) {
   timingInput.commandClass = operation.classification;
   timingInput.operationId = operation.id;
   // A new build's first mutation brings every product surface on the machine to the installed
-  // build, once. Reads never do: they must stay free of side effects. The gate is two small file
-  // reads; the pass and its installer modules load only when this build still owes it.
-  const alignmentBuild = await productAlignmentDue({
+  // build and repairs machine-local state, once. Reads never do: they must stay free of side
+  // effects. The gate is one small file read; the pass and its modules load only when due.
+  const passBuild = await firstRunPassDue({
     command: definition.name, classification: operation.classification
   });
-  if (alignmentBuild) {
-    const { alignBeforeFirstMutation } = await import('./product-alignment.mjs');
-    const aligned = await alignBeforeFirstMutation({ runningBuild: alignmentBuild, argv });
+  if (passBuild) {
+    const { firstRunPass } = await import('./first-run-pass.mjs');
+    const aligned = await firstRunPass({ runningBuild: passBuild, argv });
     if (aligned.status === 'handed-off') {
       process.exitCode = aligned.exitCode;
       return null;

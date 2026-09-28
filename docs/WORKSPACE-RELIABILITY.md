@@ -16,6 +16,26 @@ The default operation budgets are three preflight attempts, two materialization 
 initialization attempt. Expired leases and verified orphan staging roots have closed, bounded healers.
 Healers cannot call other healers, and no receipt may claim success without its postcondition.
 
+## Registered healers
+
+Every automatic repair runs through `runWorkspaceHealer` in `src/workspace-healers.mjs`, and leaves
+a receipt with passing postcondition proof.
+
+| Healer | Detects | Runs from |
+| --- | --- | --- |
+| `expired-bootstrap-lease` | a bootstrap lease older than its bound | the next bootstrap operation |
+| `remote-push-already-succeeded` | a transport intent whose exact commit already reached the remote | transport retry |
+| `stale-workspace-registry` | an active registry entry whose name, id or anchor no longer matches its own valid manifest | a new build's first-run pass |
+| `orphan-bootstrap-staging` | a `.sflow-clone-*` staging root an interrupted clone left inside a registered workspace | a new build's first-run pass |
+| `runtime-projection-drift` | a Copilot plugin or `/sf-*` skill set that no longer matches the CLI package | product alignment |
+| `missing-derived-index` | declared only: its one subject, the WMB query index, has no reader yet | — |
+
+The registry healer never rewrites an archived entry or an entry whose manifest is missing or
+invalid, and restores the previous registry if the rewritten one does not resolve. The staging
+healer removes a root only when its ownership record, canonical path and contents all match what the
+clone wrote, it is older than six hours, no fresh bootstrap lease holds it, and the workspace journal
+does not show that repository cloning.
+
 ## Existing clones
 
 Adoption is explicitly selected and previewed. The proof covers the canonical repository root,

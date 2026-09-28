@@ -31,6 +31,7 @@ import {
 } from './git-execution.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { runWorkspaceHealer } from './workspace-healers.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import {
   enqueueRepositoryOnboardingCleanup, repositoryOnboardingCleanupContention
@@ -3607,6 +3608,118 @@ async function retryTransientCloneFilesystem(action, beforeAttempt = null) {
   }
 }
 
+const CLONE_STAGING_PREFIX = '.sflow-clone-';
+const CLONE_STAGING_OWNER = '.sflow-bootstrap-owner.json';
+/** A clone still running after this long is not plausible; younger staging is never touched. */
+const ORPHAN_CLONE_STAGING_GRACE_MS = 6 * 60 * 60 * 1000;
+/** The bootstrap lease's own staleness bound (workspace-bootstrap.mjs LEASE_STALE_MS). */
+const BOOTSTRAP_LEASE_FRESH_MS = 5 * 60 * 1000;
+
+function insideDirectory(root, target) {
+  return target === root || target.startsWith(`${root}${path.sep}`);
+}
+
+async function recentlyRunningClone(workspace, repositoryId, now, graceMs) {
+  const journalFile = path.join(workspace.path, workspace.directories?.logs ?? 'logs', 'workspace-materialization.json');
+  let journal;
+  try { journal = JSON.parse(await readFile(journalFile, 'utf8')); } catch { return false; }
+  return (journal.operations ?? []).some((operation) => operation?.repository === repositoryId
+    && operation?.status === 'running'
+    && now - Date.parse(operation.startedAt ?? '') < graceMs);
+}
+
+/**
+ * Why one `.sflow-clone-*` directory is an orphan of an interrupted clone, or null when it may not
+ * be touched. Every check the clone applies to its own cleanup is applied here, plus proof that no
+ * clone is still running: the staging is older than the grace period, no fresh bootstrap lease
+ * holds it, and the workspace journal does not show that repository as recently running.
+ */
+async function orphanCloneStagingVerdict(candidate, { workspace, root, parent, now, graceMs, bootstrapRoot }) {
+  const info = await lstat(candidate).catch(() => null);
+  if (!info?.isDirectory() || info.isSymbolicLink()) return null;
+  if (await realpath(candidate).catch(() => null) !== candidate || path.dirname(candidate) !== parent) return null;
+  const entries = await readdir(candidate, { withFileTypes: true }).catch(() => null);
+  if (!entries?.some((entry) => entry.name === CLONE_STAGING_OWNER && entry.isFile())) return null;
+  if (entries.some((entry) => ![CLONE_STAGING_OWNER, 'repository'].includes(entry.name))) return null;
+  const repository = entries.find((entry) => entry.name === 'repository');
+  if (repository && (!repository.isDirectory() || repository.isSymbolicLink())) return null;
+  let owner;
+  try { owner = readRecord('workspace-bootstrap-owner', await readFile(path.join(candidate, CLONE_STAGING_OWNER))).record; }
+  catch { return null; }
+  if (owner.canonicalPath !== candidate || !insideDirectory(root, path.resolve(String(owner.targetPath ?? '')))) return null;
+  const createdAt = Date.parse(owner.createdAt ?? '');
+  if (!Number.isFinite(createdAt) || now - createdAt < graceMs) return null;
+  if (/^bst_/u.test(String(owner.bootstrapId ?? '')) && bootstrapRoot) {
+    const lease = await stat(path.join(bootstrapRoot, 'leases', `${owner.bootstrapId}.lock`)).catch(() => null);
+    if (lease && now - lease.mtimeMs < BOOTSTRAP_LEASE_FRESH_MS) return null;
+  }
+  if (await recentlyRunningClone(workspace, owner.repositoryId, now, graceMs)) return null;
+  return Object.freeze({
+    path: candidate, workspaceId: workspace.id, repositoryId: owner.repositoryId,
+    bootstrapId: owner.bootstrapId ?? null, nonce: owner.nonce, createdAt: owner.createdAt
+  });
+}
+
+/** Private clone staging an interrupted clone left inside a registered, active workspace. */
+export async function orphanCloneStagingRoots(registryFile, {
+  now = Date.now(), graceMs = ORPHAN_CLONE_STAGING_GRACE_MS, bootstrapRoot = null
+} = {}) {
+  const orphans = [];
+  for (const entry of await readWorkspaceRegistry(registryFile)) {
+    if (entry.archivedAt) continue;
+    let workspace;
+    try { workspace = await readWorkspace(entry.path); } catch { continue; }
+    const root = await realpath(workspace.path).catch(() => null);
+    if (!root) continue;
+    const parents = new Set();
+    for (const repository of Object.values(workspace.repositories ?? {})) {
+      if (repository.adoption) continue;
+      try { parents.add(path.dirname(path.resolve(workspaceRepositoryPath(workspace, repository)))); }
+      catch { /* An unresolvable repository path stages nothing. */ }
+    }
+    for (const requested of parents) {
+      const parent = await realpath(requested).catch(() => null);
+      if (!parent || !insideDirectory(root, parent)) continue;
+      for (const name of (await readdir(parent).catch(() => [])).filter((item) => item.startsWith(CLONE_STAGING_PREFIX))) {
+        const verdict = await orphanCloneStagingVerdict(path.join(parent, name), {
+          workspace, root, parent, now, graceMs, bootstrapRoot
+        });
+        if (verdict) orphans.push(verdict);
+      }
+    }
+  }
+  return Object.freeze(orphans);
+}
+
+/** Remove orphaned clone staging as the registered `orphan-bootstrap-staging` healer. */
+export async function healOrphanCloneStaging(registryFile, options = {}) {
+  return runWorkspaceHealer('orphan-bootstrap-staging', async () => {
+    const removed = [];
+    for (const orphan of await orphanCloneStagingRoots(registryFile, options)) {
+      // Judge again immediately before removal; an owner that reappeared keeps its bytes.
+      const current = (await orphanCloneStagingRoots(registryFile, options))
+        .find((entry) => entry.path === orphan.path && entry.nonce === orphan.nonce);
+      if (!current) continue;
+      await removeTemporaryTree(orphan.path);
+      removed.push(orphan);
+    }
+    const remaining = await Promise.all(removed.map((entry) => lstat(entry.path).then(() => entry.path, () => null)));
+    if (remaining.some(Boolean)) {
+      throw new SingularityFlowError(`Orphaned clone staging could not be removed: ${remaining.filter(Boolean).join(', ')}`, {
+        code: 'WORKSPACE_STAGING_HEAL_UNVERIFIED'
+      });
+    }
+    return {
+      removed: removed.map((entry) => ({ ...entry })),
+      receipt: {
+        effects: removed.length ? ['remove-verified-staging-directory'] : [],
+        postconditions: [{ id: 'staging-directory-absent', status: 'pass', removed: removed.length }],
+        proof: { paths: removed.map((entry) => entry.path) }
+      }
+    };
+  });
+}
+
 async function cloneIntoWorkspace(root, operation, {
   deferClaim = false, env = process.env
 } = {}) {
@@ -4654,6 +4767,24 @@ export async function readWorkspaceRegistry(file) {
   return [...unique.values()].sort((left, right) => right.openedAt.localeCompare(left.openedAt));
 }
 
+/**
+ * The registry fields that are a pure projection of a valid workspace manifest.
+ *
+ * The lead repository path is not among them: a caller's live status may resolve it differently,
+ * for example to an adopted clone outside the workspace.
+ */
+const PROJECTED_REGISTRY_FIELDS = Object.freeze(['id', 'name', 'anchorKey', 'anchorType', 'siteId']);
+
+function workspaceRegistryProjection(manifest) {
+  return {
+    id: manifest.id,
+    name: manifest.name,
+    anchorKey: manifest.anchor.key,
+    anchorType: manifest.anchor.issueTypeName,
+    siteId: manifest.anchor.siteId
+  };
+}
+
 export async function rememberWorkspace(file, workspace, status = null, { preserveArchived = false } = {}) {
   const resolvedPath = path.resolve(workspace.path);
   const canonicalPath = await realpath(resolvedPath).catch(() => resolvedPath);
@@ -4661,12 +4792,8 @@ export async function rememberWorkspace(file, workspace, status = null, { preser
     workspaceRoot: canonicalPath, preserveLegacyPaths: true
   });
   const entry = normalizeRegistryEntry({
-    id: normalized.id,
+    ...workspaceRegistryProjection(normalized),
     path: normalized.path,
-    name: normalized.name,
-    anchorKey: normalized.anchor.key,
-    anchorType: normalized.anchor.issueTypeName,
-    siteId: normalized.anchor.siteId,
     leadRepositoryPath: status?.leadRepositoryPath
       ?? workspaceRepositoryPath(normalized, normalized.repositories[normalized.leadRepository]),
     openedAt: nowIso(),
@@ -4687,6 +4814,70 @@ export async function rememberWorkspace(file, workspace, status = null, { preser
     await atomicJson(file, { schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION, workspaces });
     return workspaces;
   });
+}
+
+/**
+ * Active registry entries whose projected fields no longer match their own valid manifest.
+ *
+ * A manifest that is missing or invalid is not evidence of anything, so its entry is left alone:
+ * the directory may be on a volume that is not mounted right now. Archived entries are durable
+ * history and are never rewritten.
+ */
+export async function staleWorkspaceRegistryEntries(file) {
+  const stale = [];
+  for (const entry of await readWorkspaceRegistry(file)) {
+    if (entry.archivedAt) continue;
+    let manifest;
+    try { manifest = await readWorkspace(entry.path); } catch { continue; }
+    const expected = normalizeRegistryEntry({ ...workspaceRegistryProjection(manifest), path: entry.path });
+    const fields = PROJECTED_REGISTRY_FIELDS.filter((field) => entry[field] !== expected[field]);
+    if (fields.length) {
+      stale.push(Object.freeze({
+        path: entry.path,
+        fields: Object.freeze(fields),
+        expected: Object.freeze(Object.fromEntries(PROJECTED_REGISTRY_FIELDS.map((field) => [field, expected[field]])))
+      }));
+    }
+  }
+  return Object.freeze(stale);
+}
+
+/**
+ * Rewrite stale registry projections from their manifests, as `workspace use` would.
+ *
+ * Runs as the registered `stale-workspace-registry` healer under the registry lease. The previous
+ * registry bytes are restored if the rewritten registry does not resolve every healed workspace.
+ */
+export async function healStaleWorkspaceRegistry(file) {
+  return runWorkspaceHealer('stale-workspace-registry', () => withRegistryMutation(file, async () => {
+    const stale = await staleWorkspaceRegistryEntries(file);
+    if (!stale.length) {
+      return {
+        healed: [],
+        receipt: { postconditions: [{ id: 'registry-resolves-workspace', status: 'pass', healed: 0 }] }
+      };
+    }
+    const previous = await readFile(file);
+    const byPath = new Map(stale.map((entry) => [entry.path, entry.expected]));
+    const workspaces = (await readWorkspaceRegistry(file))
+      .map((entry) => (byPath.has(entry.path) ? { ...entry, ...byPath.get(entry.path) } : entry));
+    await atomicJson(file, { schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION, workspaces });
+    const remaining = await staleWorkspaceRegistryEntries(file).catch(() => null);
+    if (!remaining || remaining.some((entry) => byPath.has(entry.path))) {
+      await writeFile(file, previous, { mode: 0o600 });
+      throw new SingularityFlowError('The healed workspace registry did not resolve its workspaces; the previous registry was restored.', {
+        code: 'WORKSPACE_REGISTRY_HEAL_UNVERIFIED'
+      });
+    }
+    return {
+      healed: stale.map((entry) => ({ path: entry.path, fields: [...entry.fields] })),
+      receipt: {
+        effects: ['rewrite-registry-projection'],
+        postconditions: [{ id: 'registry-resolves-workspace', status: 'pass', healed: stale.length }],
+        proof: { paths: stale.map((entry) => entry.path) }
+      }
+    };
+  }));
 }
 
 export async function forgetWorkspace(file, workspacePath) {

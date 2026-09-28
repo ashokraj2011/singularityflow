@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 18
+version: 19
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -218,8 +218,10 @@ Alignment follows the same rules on every surface:
 4. Each surface is verified before the next one starts. VS Code goes first, then the CLI, then the
    Copilot plugin and `/sf-*` skills, which the aligned CLI reinstalls from its own package.
 
-A new build also runs one pass before its first mutation command. If the CLI running that command was
-the one replaced, the command continues on the aligned build. A failed pass never fails the command:
+A new build also runs one pass before its first mutation command. It aligns the surfaces and repairs
+machine-local state: a workspace registry entry that drifted from its manifest, and clone staging an
+interrupted clone left behind. If the CLI running that command was the one replaced, the command
+continues on the aligned build. A failed pass never fails the command:
 it prints the retry command, `singularity-flow product align`. Set
 `SINGULARITY_FLOW_PRODUCT_ALIGNMENT=off` to switch the automatic pass off.
 

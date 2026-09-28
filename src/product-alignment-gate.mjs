@@ -1,11 +1,12 @@
 /**
- * Whether this build still owes the machine its one product-alignment pass.
+ * Whether this build still owes the machine its one first-run pass: aligning the product surfaces
+ * and repairing machine-local state.
  *
  * Checked before every mutation command, so it must stay cheap: no Git, no subprocess, and none of
- * the installer modules. It answers from two small files and the running build's own stamp. The
+ * the installer modules. It answers from one small file and the running build's own stamp. The
  * pass itself, with its full validation, loads only when this returns a build.
  */
-import { readFile, lstat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
@@ -22,7 +23,7 @@ export function productAlignmentDisabled(environment = process.env) {
 }
 
 /** The running build line when a pass is due, or null. Never throws. */
-export async function productAlignmentDue({
+export async function firstRunPassDue({
   command,
   classification,
   homeDirectory = os.homedir(),
@@ -36,8 +37,6 @@ export async function productAlignmentDue({
     if (!info?.commit && !info?.sourceSha256) return null;
     const running = versionLine(info);
     const installations = path.join(homeDirectory, '.singularity-flow', 'installations');
-    const receipt = await lstat(path.join(installations, 'current.json')).catch(() => null);
-    if (!receipt?.isFile() || receipt.isSymbolicLink()) return null;
     try {
       const recorded = JSON.parse(await readFile(path.join(installations, 'alignment-current.json'), 'utf8'));
       if (recorded?.builds && Object.hasOwn(recorded.builds, running)) return null;

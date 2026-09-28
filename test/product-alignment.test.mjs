@@ -20,7 +20,7 @@ import {
   alignBeforeFirstMutation, applyProductAlignment, compareBuilds, observeProductSurfaces, parseBuildLine,
   parseStampedBuildInfo, planProductAlignment, recordedAlignment, stampedBuildLine
 } from '../src/product-alignment.mjs';
-import { productAlignmentDue } from '../src/product-alignment-gate.mjs';
+import { firstRunPassDue } from '../src/product-alignment-gate.mjs';
 import { VERSION } from '../src/version.mjs';
 import {
   acquireActivationLease, inspectNpmTarballBuildSources, inspectVsixBuildSources,
@@ -284,6 +284,10 @@ test('drifted surfaces are brought back to the installed build from its retained
   assert.equal(item.state.vscode, INSTALLED);
   assert.equal(item.state.copilotVerified, true);
   assert.equal((await observedPlan(item)).verdict, 'aligned');
+  const copilot = result.steps.find((entry) => entry.surface === 'copilot');
+  assert.equal(copilot.receipt.id, 'runtime-projection-drift', 'the Copilot projection is healed by its registered healer');
+  assert.deepEqual(copilot.receipt.postconditions.map((entry) => [entry.id, entry.status]),
+    [['runtime-projection-matches-package', 'pass']]);
   assert.equal(await lstat(path.join(item.installations, 'activation-current.json.lock')).catch(() => null), null,
     'the installer lease is released');
 });
@@ -381,9 +385,9 @@ test('the VS Code launcher a window passes is used when code is not on PATH', as
   assert.ok(!seen.includes('code'));
 });
 
-test('only a stamped build with an installed receipt and no recorded pass owes the machine a pass', async (t) => {
+test('only a stamped build with no recorded pass owes the machine a first-run pass', async (t) => {
   const item = await machine(t);
-  const due = (overrides = {}) => productAlignmentDue({
+  const due = (overrides = {}) => firstRunPassDue({
     command: 'next', classification: 'mutation', homeDirectory: item.home, environment: {}, info: INSTALLED,
     ...overrides
   });
@@ -393,7 +397,8 @@ test('only a stamped build with an installed receipt and no recorded pass owes t
   assert.equal(await due({ environment: { SINGULARITY_FLOW_PRODUCT_ALIGNMENT: 'off' } }), null);
   assert.equal(await due({ info: DEVELOPMENT }), null);
   const bare = await machine(t, { receipt: false });
-  assert.equal(await due({ homeDirectory: bare.home }), null);
+  assert.equal(await due({ homeDirectory: bare.home }), line(INSTALLED),
+    'machine-local repair is owed even where no installer recorded a build');
   await applyProductAlignment({ ...item.options, runningBuild: line(INSTALLED) });
   assert.equal(await due(), null, 'a recorded pass is not repeated by the same build');
   assert.equal(await due({ info: NEWER }), line(NEWER), 'a different build owes its own pass');
@@ -418,7 +423,7 @@ test('a first-mutation pass that aligns another surface lets the command continu
   const result = await alignBeforeFirstMutation({
     ...item.options, runningBuild: line(INSTALLED), argv: ['next'], write: () => {}
   });
-  assert.deepEqual(result, { status: 'aligned' });
+  assert.equal(result.status, 'aligned');
   assert.equal(item.state.handedOff, undefined);
   assert.equal(item.state.vscode, INSTALLED);
 });
@@ -427,9 +432,9 @@ test('a first-mutation pass never fails the command it precedes', async (t) => {
   const failing = await machine(t, { cli: OLDER });
   failing.state.npmInstallBuild = OLDER;
   const lines = [];
-  assert.deepEqual(await alignBeforeFirstMutation({
+  assert.equal((await alignBeforeFirstMutation({
     ...failing.options, runningBuild: line(INSTALLED), argv: ['next'], write: (entry) => lines.push(entry)
-  }), { status: 'failed' });
+  })).status, 'failed');
   assert.ok(lines.some((entry) => /Retry with: singularity-flow product align/u.test(entry)));
 
   const busy = await machine(t, { cli: OLDER });

@@ -14,6 +14,9 @@ const AVAILABILITY_CODES = new Set([
   'WORLD_MODEL_UNPUBLISHED',
   'WORLD_MODEL_WORKTREE_DIRTY',
   'WMB_GATEWAY_PUBLICATION_AUTHORITY_UNAVAILABLE',
+  // A model from an earlier build that this build cannot verify exactly is refused without
+  // accepting any of its bytes; a rebuild with this build replaces it.
+  'WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE',
   'WMB_MANIFEST_MISSING',
   'WMB_SOURCE_SNAPSHOT_STALE',
   'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',

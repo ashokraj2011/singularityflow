@@ -465,6 +465,68 @@ retained-owner, extraction-profile owner, candidate-snapshot, batched source-rea
 authority-refresh, runtime, materialization, cache, publication and command owner suites passed
 (20 files, 225/225).
 
+## Reviewed-registry admission acceptance
+
+**Review boundary:** working tree based on `main@45ddadb3a288eabc2677bf7ce4d94abadb5c1ce3`
+
+Before this change, every kernel edit stranded the World Models that earlier builds had published.
+Their recorded Extractor Registry no longer equalled the installed one, so reading them failed with
+`WMB_EXTRACTOR_CONFORMANCE_FAILED` and a rebuild over them failed the same way. Models published by
+`main@b9bcb152` could not be read by `main@45ddadb3`.
+
+The accepted transitions in this record are now data in `src/world-model-reviewed-registries.mjs`,
+each with its reviewed effect. That module sits outside the packaged kernel on purpose: it names the
+installed kernel identity, so it cannot be part of the bytes that identity hashes. Exactly five
+packaged kernel paths changed, and the kernel still has 110 files:
+
+- `store.mjs` reads a published registry through the chain. The installed registry is admitted as
+  before. A registry the chain connects to the installed one is admitted with that build's own
+  historical registry, fact-ledger and derivation-catalog validators. Its views are re-derived and
+  re-validated under that build's validator identity, which the chain reproduces from the kernel it
+  records. A model whose every transition since it was built is `mechanical` stays current;
+  any other reviewed effect leaves it stale. An unreviewed registry is refused with
+  `WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE` (`registry-unreviewed`). An admitted model that fails
+  exact reproduction is refused the same way (`not-reproducible`). Neither accepts any bytes.
+- `publish/manifest.mjs` takes the validation contract to verify against. Builds keep using the
+  current contract.
+- `service.mjs` lets an explicit build replace a model refused with that code, as it already
+  replaced legacy v3 output. It never reuses the refused model's views.
+- `ide/slice.mjs` and `commands.mjs` report that refusal as a rebuild (`world-model build`)
+  instead of a diagnosis.
+
+Admission applies only to builds that ran the current 21 validation checks. The earliest reviewed
+builds, before `sha256:83aaacb514ad8af54819d2aa16b7fd9f3d3b79ddc744c1ab6ae53333ebda0531`, ran 20
+checks, so their models are refused and rebuilt, never approximated. Every refusal is a
+World-Model availability failure: grounding continues without the model and offers the rebuild.
+Tampered bytes in a model of the installed build remain an integrity failure.
+
+The coverage extractor, Extractor Registry and View Registry source blobs remain
+`063af8c31e245f2e6280680edd7693ac135e3b86`, `95d2cfdecb6a4d399d6d36c42c900a9fb99287ba` and
+`c3187362f5cca055ff6fd667079ac99acd4d7666` at both boundaries. No extractor algorithm, declared Fact
+type, parser declaration, permission, View Contract, cache policy or publication authority changed.
+The transition is mechanical:
+
+| Identity | Previously accepted | Accepted at this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:b4aefa776a1b8813671d7f0df65d21af0e0e8aed2234bf536fd4af21146dbb53` | `sha256:3b812b54e3e741f4d38d303b59c9632fd29f7e3b7fb697bc52bb056074bee322` |
+| Coverage implementation | `sha256:0feeab49e967840b15bf5755b77b17e4c72020d10f2275ad095583367a8fd552` | `sha256:33c4259da0f0a60c9e7250096ba7fe78a32e7f5829a5e61eefeb6d615a19ab42` |
+| Coverage conformance receipt | `sha256:d3bcdbc15b07656b63b575b008f0678ecf5c243b2afdf47328db4aca070c8704` | `sha256:c8556e4c3b009199c5bc14b5a93552e41d0702c68cef1c3cd4e7707acd588cfe` |
+| Coverage manifest | `sha256:c6f23123e313932c4656f8af151ed818ff16d3776efeb259166d11b886869efc` | `sha256:a0dfa2d667315af2400a5fc8df2204a1a03d6ee6e8402a8296e55bde01a91b6f` |
+| Built-in Extractor Registry | `sha256:b7d5cfaa65ad4294da1c8ae565eae238ca5e83cadde2e43e543e9ba5f092c949` | `sha256:2ef1d57fa168ac0b7c0c41677f0af43c3ba77799bd02c02d3416aba1cee2278f` |
+
+Neither column was copied from a failing assertion. Executing the registry modules at `45ddadb3`
+reproduced every previously accepted identity, and executing them on the changed tree produced the
+accepted ones. The chain's other identities were reproduced from each boundary commit's own code, not
+from this record. Two models published by `main@b9bcb152` without any model call, one composed
+deterministically and one through the local fake ACP composer, are kept as fixtures in
+`test/fixtures/world-model-earlier-builds/`. The admission test reads both as current, rebuilds over
+them, and refuses a re-sealed unreviewed registry and a tampered earlier view.
+The registry, extractor-registry limits, source-digest, implementation-manifest, kernel-stamp,
+extractor execution, initial-extractor, extraction, view-projection, views, persisted-overview,
+retained-owner, extraction-profile owner, candidate-snapshot, batched source-read, authority-refresh,
+runtime, materialization, cache, publication, command, store-integrity and reviewed-registry
+admission suites passed (23 files, 257/257).
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.
@@ -479,6 +541,10 @@ authority-refresh, runtime, materialization, cache, publication and command owne
    owner suites. A product failure is never repaired by changing this lock.
 6. Update only the reviewed exact identities and add a new review record naming its exact commit
    boundary and validation evidence.
+7. Append the accepted transition to `REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS` in
+   `src/world-model-reviewed-registries.mjs` with its reviewed effect. Only a `mechanical` effect
+   keeps earlier models current. `test/world-model-reviewed-registries.test.mjs` fails until the
+   chain equals this record and ends at the installed identities.
 
 Any future executable WMB change remains fail-closed at this lock until another bounded authority
 review establishes whether the change is a semantic contract revision or a mechanical build-identity

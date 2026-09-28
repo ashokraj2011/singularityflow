@@ -635,7 +635,10 @@ export function loadWorldModelIdeSlice(root, {
       root: outputDir,
       generatedAt: null,
       rebuildReason: error?.message ?? String(error),
-      readiness: { status: 'invalid', ready: false, source: null, command: 'singularity-flow world-model doctor' },
+      // A model from an earlier build this build cannot verify needs a rebuild, not a diagnosis.
+      readiness: error?.code === 'WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE'
+        ? { status: 'stale', ready: false, source: 'state-branch', command: 'singularity-flow world-model build' }
+        : { status: 'invalid', ready: false, source: null, command: 'singularity-flow world-model doctor' },
       summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
       views: [],
       projections: [],

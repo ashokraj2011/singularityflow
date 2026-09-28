@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 27
+version: 28
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -135,6 +135,15 @@ Freshness compares the current approved scope, policy, view contracts/selection,
 registry, consumer profile, and output budget as well as source bytes. `wm regenerate --stale`
 therefore rebuilds the complete current configured view set instead of preserving views removed by
 new policy.
+
+Upgrading Singularity Flow does not strand a published model. Each reviewed change to the extractor
+registry is recorded with its effect. A model an earlier build published stays readable when the
+installed build has reviewed that build's registry. It also stays current when every change since
+then was mechanical, meaning facts and views are unchanged, so no rebuild and no model call is
+needed. Otherwise it is stale, as for any other identity change. A model this build cannot verify
+exactly, from an unreviewed or much older build, is refused before any of its bytes are used.
+Grounding continues without it, `wm doctor` reports `earlier-build` with a warning, and
+`sflow world-model build` replaces it.
 
 With `materialization.mode: on-demand`, `confirmation: automatic`, `depth: light`, and a
 deterministic v4 composer, lifecycle authoring may add a missing phase view to a valid same-source

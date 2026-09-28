@@ -569,6 +569,23 @@ function assertExpectedPreservationAuthority(expected, actual) {
   }
 }
 
+/**
+ * The warning an explicit v4 build records when it replaces an existing model it must not trust,
+ * or null when the read failure has to fail closed.
+ *
+ * A legacy v3 projection and a model from an earlier build whose registry this build has not
+ * reviewed are both legal to replace. Corrupt or partial v4 state is never silently overwritten.
+ */
+function replacedModelWarning(error) {
+  if (error?.code === 'WMB_MIGRATION_REQUIRED') {
+    return 'Legacy v3 output was not imported; this explicit WMB v4 rebuild replaces it without trusting legacy claims.';
+  }
+  if (error?.code === 'WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE') {
+    return 'The existing World Model was published by an earlier build this build cannot verify; this rebuild replaces it without reusing its views.';
+  }
+  return null;
+}
+
 function exactPreservationStore(root, review, outputDir) {
   try {
     return resolvePublishedWorldModelV4Authority(root, {
@@ -577,9 +594,9 @@ function exactPreservationStore(root, review, outputDir) {
       required: false
     });
   } catch (error) {
-    // An explicit registered-v4 build may replace a legacy projection, but it still remains bound
-    // to that legacy projection's immutable authority commit throughout execution.
-    if (error?.code === 'WMB_MIGRATION_REQUIRED') return null;
+    // An explicit registered-v4 build may replace a model it cannot trust, but it still remains
+    // bound to that model's immutable authority commit throughout execution.
+    if (replacedModelWarning(error)) return null;
     throw error;
   }
 }
@@ -632,7 +649,7 @@ export function resolveWorldModelV4BuildViews(root, {
           required: false
         });
   } catch (error) {
-    if (error?.code !== 'WMB_MIGRATION_REQUIRED') throw error;
+    if (!replacedModelWarning(error)) throw error;
   }
   return Object.freeze(currentRequestViews(views, existing));
 }
@@ -772,8 +789,8 @@ export async function buildAndPublishWorldModelV4(root, {
     } catch (error) {
       // An explicit v4 build is a legal replacement for legacy output. Corrupt/partial v4 state
       // still fails closed instead of being silently overwritten.
-      if (error?.code !== 'WMB_MIGRATION_REQUIRED') throw error;
-      preservationWarning = 'Legacy v3 output was not imported; this explicit WMB v4 rebuild replaces it without trusting legacy claims.';
+      preservationWarning = replacedModelWarning(error);
+      if (!preservationWarning) throw error;
     }
   }
   if (preserveIndependentViews) {
@@ -787,8 +804,8 @@ export async function buildAndPublishWorldModelV4(root, {
           required: false
         });
       } catch (error) {
-        if (error?.code !== 'WMB_MIGRATION_REQUIRED') throw error;
-        preservationWarning = 'Legacy v3 output was not imported; this explicit WMB v4 rebuild replaces it without trusting legacy claims.';
+        preservationWarning = replacedModelWarning(error);
+        if (!preservationWarning) throw error;
       }
     }
   }

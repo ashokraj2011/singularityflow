@@ -7,10 +7,14 @@ import {
   VIEW_ID_PATTERN, assertCanonicalOrder, assertExactKeys, assertInteger,
   assertPlainRecord, assertSha256, assertString
 } from '../contracts.mjs';
-import { validateDerivationCatalog } from '../extract/derivation-catalog.mjs';
+import {
+  validateDerivationCatalog, validateHistoricalDerivationCatalog
+} from '../extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from '../extract/evidence-catalog.mjs';
-import { validateFactLedger } from '../extract/fact-ledger.mjs';
-import { validateExtractorRegistry } from '../registry/extractors.mjs';
+import { validateFactLedger, validateHistoricalFactLedger } from '../extract/fact-ledger.mjs';
+import {
+  validateExtractorRegistry, validateHistoricalExtractorRegistry
+} from '../registry/extractors.mjs';
 import { validateViewRegistry } from '../registry/views.mjs';
 import {
   resolveProjectionContract, validateProjectionRegistry
@@ -76,7 +80,14 @@ function assertSelfHash(value, field, label) {
   return value;
 }
 
-function validationReceipt(value, view) {
+/** The validation contract this build's own validator satisfies. */
+export const CURRENT_WORLD_MODEL_VALIDATION_CONTRACT = Object.freeze({
+  checkIds: WMB_V4_VALIDATION_CHECK_IDS,
+  candidateSchemaSha256: WMB_V4_CANDIDATE_SCHEMA_SHA256,
+  validatorSha256: WMB_V4_VALIDATOR_SHA256
+});
+
+function validationReceipt(value, view, contract = CURRENT_WORLD_MODEL_VALIDATION_CONTRACT) {
   const receipt = readCurrent(VALIDATION_RECEIPT_FAMILY, value, `View '${view.viewId}' validation receipt`);
   if (receipt.kind !== 'world-model-view-validation-receipt' || receipt.status !== 'passed') {
     fail(`View '${view.viewId}' must bind a passed validation receipt.`, 'WMB_VIEW_VALIDATION_INVALID');
@@ -88,11 +99,11 @@ function validationReceipt(value, view) {
     fail(`View '${view.viewId}' validation receipt contains a non-passing check.`, 'WMB_VIEW_VALIDATION_INVALID');
   }
   const checkIds = receipt.checks.map((check) => check.id);
-  if (JSON.stringify(checkIds) !== JSON.stringify(WMB_V4_VALIDATION_CHECK_IDS)
-      || receipt.candidateSchemaSha256 !== WMB_V4_CANDIDATE_SCHEMA_SHA256
-      || receipt.validatorSha256 !== WMB_V4_VALIDATOR_SHA256) {
+  if (JSON.stringify(checkIds) !== JSON.stringify(contract.checkIds)
+      || receipt.candidateSchemaSha256 !== contract.candidateSchemaSha256
+      || receipt.validatorSha256 !== contract.validatorSha256) {
     fail(`View '${view.viewId}' validation receipt was not produced by the complete current validator.`,
-      'WMB_VIEW_VALIDATION_INVALID', { expectedChecks: WMB_V4_VALIDATION_CHECK_IDS, receivedChecks: checkIds });
+      'WMB_VIEW_VALIDATION_INVALID', { expectedChecks: contract.checkIds, receivedChecks: checkIds });
   }
   return assertSelfHash(receipt, 'receiptSha256', `View '${view.viewId}' validation receipt`);
 }
@@ -135,7 +146,7 @@ function exactHeaderBinding(markdown, field, digest, viewId) {
   }
 }
 
-function normalizeAvailableView(value, dependencies) {
+function normalizeAvailableView(value, dependencies, validationContract) {
   assertPlainRecord(value, 'World-model available view');
   const viewId = assertString(value.viewId, 'View id', { pattern: VIEW_ID_PATTERN });
   const viewVersion = assertInteger(value.viewVersion, `View '${viewId}' version`, { minimum: 1 });
@@ -151,7 +162,7 @@ function normalizeAvailableView(value, dependencies) {
   }
   exactHeaderBinding(markdown, 'source-manifest-sha256', dependencies.sourceManifestSha256, viewId);
   exactHeaderBinding(markdown, 'scope-sha256', dependencies.scopeManifestSha256, viewId);
-  const receipt = validationReceipt(value.validationReceipt, { viewId, viewVersion });
+  const receipt = validationReceipt(value.validationReceipt, { viewId, viewVersion }, validationContract);
   const candidate = compositionCandidate(value.candidate, { viewId, viewVersion }, receipt);
   if (receipt.scopeSha256 !== dependencies.scopeManifestSha256) {
     fail(`View '${viewId}' validation receipt binds a different scope.`, 'WMB_VIEW_DEPENDENCY_MISMATCH');
@@ -182,9 +193,9 @@ function normalizeUnavailableView(value) {
   });
 }
 
-function normalizeView(value, dependencies) {
+function normalizeView(value, dependencies, validationContract) {
   const status = value?.status ?? 'available';
-  if (status === 'available') return normalizeAvailableView(value, dependencies);
+  if (status === 'available') return normalizeAvailableView(value, dependencies, validationContract);
   if (status === 'unavailable') return normalizeUnavailableView(value);
   fail(`World-model view status '${status}' is not supported.`);
 }
@@ -264,22 +275,27 @@ function assertDependencyDigests(value) {
 
 /**
  * Validate the complete deterministic provenance graph and project its exact manifest digests.
+ *
+ * `historicalRegistry` validates a published model whose reviewed Extractor Registry predates this
+ * build against that registry. Building and publishing always use the installed registry.
  */
 export function deriveWorldModelManifestDependencies({
   sourceSnapshot, scopeManifest, policySnapshotSha256, viewRegistry, extractorRegistry,
-  evidenceCatalog, derivationCatalog, factLedger
+  evidenceCatalog, derivationCatalog, factLedger, historicalRegistry = false
 } = {}) {
   const source = validateSourceSnapshot(sourceSnapshot);
   const scope = validateScopeManifest(scopeManifest);
   const views = validateViewRegistry(viewRegistry);
-  const extractors = validateExtractorRegistry(extractorRegistry);
+  const extractors = (historicalRegistry
+    ? validateHistoricalExtractorRegistry : validateExtractorRegistry)(extractorRegistry);
   const evidence = validateEvidenceCatalog(evidenceCatalog, { sourceSnapshot: source, scopeManifest: scope });
-  const facts = validateFactLedger(factLedger, {
+  const facts = (historicalRegistry ? validateHistoricalFactLedger : validateFactLedger)(factLedger, {
     sourceSnapshot: source, scopeManifest: scope, extractorRegistry: extractors,
     evidenceCatalog: evidence,
     derivationIds: new Set((derivationCatalog?.derivations ?? []).map((item) => item.id))
   });
-  const derivations = validateDerivationCatalog(derivationCatalog, {
+  const derivations = (historicalRegistry
+    ? validateHistoricalDerivationCatalog : validateDerivationCatalog)(derivationCatalog, {
     evidenceCatalog: evidence, factLedger: facts, extractorRegistry: extractors
   });
   assertSha256(policySnapshotSha256, 'Policy snapshot SHA-256');
@@ -325,7 +341,8 @@ export function buildWorldModelManifest({
   subject, dependencies: dependencyValue, views: viewValues,
   allowUnavailableOptionalViews = false,
   projectionRegistry = null,
-  projections: projectionValues = []
+  projections: projectionValues = [],
+  validationContract = CURRENT_WORLD_MODEL_VALIDATION_CONTRACT
 } = {}) {
   assertPlainRecord(subject, 'World-model manifest subject');
   assertExactKeys(subject, { required: ['kind', 'id'], label: 'World-model manifest subject' });
@@ -333,7 +350,7 @@ export function buildWorldModelManifest({
   assertString(subject.id, 'World-model manifest subject id');
   const dependencies = assertDependencyDigests(dependencyValue);
   if (!Array.isArray(viewValues) || !viewValues.length) fail('World-model manifest requires at least one requested view.');
-  const views = viewValues.map((value) => normalizeView(value, dependencies))
+  const views = viewValues.map((value) => normalizeView(value, dependencies, validationContract))
     .sort((left, right) => compareText(
       `${left.viewId}@${left.viewVersion}`, `${right.viewId}@${right.viewVersion}`
     ));
@@ -554,12 +571,13 @@ export function readWorldModelV4Manifest(raw) {
 
 export function verifyWorldModelManifest(manifestValue, {
   dependencies, views, allowUnavailableOptionalViews = false,
-  projectionRegistry = null, projections = []
+  projectionRegistry = null, projections = [],
+  validationContract = CURRENT_WORLD_MODEL_VALIDATION_CONTRACT
 } = {}) {
   const manifest = readWorldModelV4Manifest(manifestValue);
   const rebuilt = buildWorldModelManifest({
     subject: manifest.subject, dependencies, views, allowUnavailableOptionalViews,
-    projectionRegistry, projections
+    projectionRegistry, projections, validationContract
   });
   if (canonicalJson(manifest) !== canonicalJson(rebuilt.manifest)) {
     fail('World-model manifest does not match the exact supplied view objects and dependency graph.',

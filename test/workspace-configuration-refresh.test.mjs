@@ -3989,3 +3989,37 @@ test('ordinary refresh conflict resolutions use each repository custom templates
     'a resolution approved for one repository custom root cannot cross into another repository'
   );
 });
+
+test('a review-only refresh proposes packaged configuration on a review branch and never pushes sflow/config', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-refresh-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'application');
+  const approved = () => run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim();
+  const before = approved();
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.results[0].status, 'would-update');
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, reviewOnly: true
+  });
+  const [result] = applied.results;
+  assert.equal(result.status, 'review-required');
+  assert.match(result.proposalBranch, /^sflow\/config-refresh\//u);
+  assert.equal(result.error, null, 'a review a person was always going to approve is not an error');
+  assert.equal(approved(), before, 'approved configuration changes only when a person merges the review');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', `refs/heads/${result.proposalBranch}`]).stdout.trim(),
+    result.candidateCommit);
+});
+
+test('a review-only refresh never creates a first configuration authority', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-bootstrap-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'application');
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.results[0].status, 'would-initialize');
+  await assert.rejects(refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, reviewOnly: true
+  }), { code: 'CONFIGURATION_REVIEW_AUTHORITY_MISSING' });
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/sflow/config'], { allowFailure: true }).status, 1,
+    'no authority was created');
+});

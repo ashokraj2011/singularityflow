@@ -1209,7 +1209,7 @@ singularity-flow workspace copilot [WORKSPACE] [--repository ID] [--story STORY]
 singularity-flow workspace status [DIRECTORY]
 singularity-flow workspace sync <DIRECTORY>
 singularity-flow workspace repair [DIRECTORY]
-singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
+singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run] [--review-only]
 singularity-flow workspace documents <DIRECTORY>
 singularity-flow workspace impact analyze <DIRECTORY> --description "<PROPOSED CHANGE>"
 singularity-flow workspace impact analyze <DIRECTORY> --description-file <FILE> [--repository ID] [--capability ID] [--document PATH] [--model MODEL] [--dry-run]

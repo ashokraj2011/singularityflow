@@ -125,7 +125,7 @@ import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli/git-observations.ts';
 import {
-  alignProductSurfaces, codeLauncher, LoadedBundle, type ProductAlignmentHost
+  alignProductSurfaces, codeLauncher, LoadedBundle, openConfigurationReviews, type ProductAlignmentHost
 } from './product-alignment.ts';
 
 let extensionLifetime = new AbortController();
@@ -3746,6 +3746,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void initialWorkspaceRefresh
       .then(() => alignProductSurfaces(productHost, { loadedBuild, bundle: loadedBundle }))
       .then((outcome) => output.appendLine(`Product surface check: ${outcome}`))
+      .then(() => openConfigurationReviews(productHost, { loadedBuild }))
+      .then((outcome) => output.appendLine(`Configuration review check: ${outcome}`))
       .catch((error) => output.appendLine(`Product surface check could not run: ${(error as Error).message}`));
   }
 

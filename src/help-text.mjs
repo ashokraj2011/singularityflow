@@ -979,7 +979,9 @@ Usage:
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
     [--resolve PATH=local|bundled|merge] [--accept-bundled-conflicts]
-    [--confirm-plan PLAN-ID] [--json]
+    [--confirm-plan PLAN-ID] [--review-only] [--json]
+    (--review-only proposes each change on a sflow/config-refresh/* review branch and never pushes
+     sflow/config itself)
   singularity-flow workspace reinitialize [WORKSPACE] [--repository ID]
     [--dry-run | --confirm-plan PLAN-ID] [--json]
     (safe, repeatable upgrade path: restores only missing or exact registered framework seeds and

@@ -5,7 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  alignProductSurfaces, codeLauncher, LoadedBundle, packagedExtension, PRODUCT_CHECK_KEY, productCheckDue
+  alignProductSurfaces, codeLauncher, CONFIGURATION_REVIEW_KEY, LoadedBundle, openConfigurationReviews,
+  packagedExtension, PRODUCT_CHECK_KEY, productCheckDue
 } from '../apps/vscode/src/product-alignment.ts';
 
 const BUILD = 'abc1234 2026-09-28T10:00Z';
@@ -147,3 +148,48 @@ test('an unavailable CLI leaves the check due for the next window', async (t) =>
   assert.equal(await alignProductSurfaces(item, { loadedBuild: BUILD, bundle: new LoadedBundle('/missing') }), 'unavailable');
   assert.equal(item.state.get(PRODUCT_CHECK_KEY), undefined);
 });
+
+function refreshHost(extensionPath, { preview, bound = { planId: 'plan-1' }, opened, fail = false }) {
+  const item = host(extensionPath, {});
+  item.run = async (args) => {
+    item.events.push(['run', args.join(' ')]);
+    if (fail) throw new Error('offline');
+    if (args.includes('--review-only')) return opened;
+    return args.includes('--repository') ? bound : preview;
+  };
+  return item;
+}
+
+test('a new build opens a configuration review for each lagging repository, once, and applies nothing', async (t) => {
+  const directory = await extension(t);
+  const item = refreshHost(directory, {
+    preview: { results: [
+      { status: 'would-update', repository: 'app', configurationChanged: true },
+      { status: 'would-update', repository: 'state-only', configurationChanged: false },
+      { status: 'current', repository: 'lib', configurationChanged: false }
+    ] },
+    opened: { results: [{ status: 'review-required', repository: 'app', proposalBranch: 'sflow/config-refresh/r1-aaaa-bbbb' }] }
+  });
+  assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'reviews-opened');
+  assert.deepEqual(item.events.filter(([kind]) => kind === 'run').map(([, args]) => args), [
+    'workspace refresh-configuration --dry-run --json',
+    'workspace refresh-configuration --repository app --dry-run --json',
+    'workspace refresh-configuration --repository app --confirm-plan plan-1 --review-only --json'
+  ], 'the plan is bound to exactly the lagging repository, and the apply is review-only');
+  assert.match(item.events.find(([kind]) => kind === 'inform')[1], /app → sflow\/config-refresh\/r1-aaaa-bbbb.*Nothing changes until each review is merged/u);
+  assert.equal(item.state.get(CONFIGURATION_REVIEW_KEY), BUILD);
+  assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'skipped-recent', 'once per build');
+});
+
+test('a build whose configuration is current opens nothing, and an unavailable check retries next window', async (t) => {
+  const directory = await extension(t);
+  const current = refreshHost(directory, { preview: { results: [{ status: 'current', repository: 'app' }] } });
+  assert.equal(await openConfigurationReviews(current, { loadedBuild: BUILD }), 'current');
+  assert.equal(current.events.filter(([kind]) => kind === 'run').length, 1);
+  const offline = refreshHost(directory, { fail: true });
+  assert.equal(await openConfigurationReviews(offline, { loadedBuild: BUILD }), 'unavailable');
+  assert.equal(offline.state.get(CONFIGURATION_REVIEW_KEY), undefined);
+  assert.equal(await openConfigurationReviews(refreshHost(await extension(t, { packaged: false }), { preview: {} }), { loadedBuild: BUILD }),
+    'skipped-development');
+});
+

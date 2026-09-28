@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 20
+version: 21
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -118,6 +118,12 @@ projection manifest lives under `configuration/`. Refresh removes stale managed 
 the older `configuration/files/**` layout, while preserving runtime state such as
 `singularity/world-model/**`. Existing Story configuration snapshots remain immutable; new Stories
 use the new authority revision.
+
+After a new build loads, VS Code runs this refresh as a review: for each registered repository whose
+approved configuration lags the build's packaged configuration, it opens a
+`sflow/config-refresh/*` review branch and names it. Nothing changes until someone merges the review.
+The shell form is `workspace refresh-configuration --confirm-plan <PLAN-ID> --review-only`. A review-only
+refresh never creates a first configuration authority.
 
 Use `workspace refresh-configuration --dry-run` to preview all repositories, or add a workspace
 reference and repeatable `--repository ID` filters for a bounded repair. Repository customizations

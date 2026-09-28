@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import YAML from 'yaml';
 
 import { captureSmartInitSnapshot } from '../src/initialization/source-snapshot.mjs';
 import { runSmartInitDetectors } from '../src/initialization/detectors.mjs';
@@ -11,6 +12,8 @@ import { buildSmartInitProposal } from '../src/initialization/proposal.mjs';
 import { activateSmartInit } from '../src/initialization/activation.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { gitCommonDir } from '../src/git.mjs';
+import { loadDefinition } from '../src/config.mjs';
+import { refreshPackagedConfiguration } from '../src/workspace-configuration-refresh.mjs';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const executable = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -94,6 +97,85 @@ test('smart initialization installs every packaged starter pack file', async () 
   for (const [relative, bytes] of expected) {
     assert.deepEqual(await readFile(path.join(root, relative)), bytes, relative);
   }
+});
+
+test('seeded reinitialization keeps the accepted smart catalog and repository workflow', async (t) => {
+  const root = await repository({
+    'package.json': '{"name":"smart-refresh","packageManager":"npm@10","scripts":{"test":"node --test"}}\n'
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const snapshot = await captureSmartInitSnapshot(root);
+  const rendered = await buildSmartInitProposal(snapshot, runSmartInitDetectors(snapshot));
+  await activateSmartInit(root, rendered, { confirmation: rendered.proposal.proposalSha256 });
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const original = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const bundled = YAML.parse(await readFile(path.join(packageRoot, 'templates/workflow.yml'), 'utf8'));
+  const deliberatelyOmitted = Object.keys(bundled.workTypes)
+    .filter((id) => !Object.hasOwn(original.workTypes, id));
+  assert.ok(deliberatelyOmitted.length > 0, 'the smart preset must omit bundled workflows');
+  const local = structuredClone(original);
+  local.workTypes['repository-review'] = {
+    ...structuredClone(local.workTypes['quick-fix']), label: 'Repository review'
+  };
+  local.workTypes.feature.label = 'Repository-maintained feature';
+  delete local.workTypes.chore;
+  delete local.workTypes['spec-driven-standard'];
+  await writeFile(workflowFile, YAML.stringify(local));
+  await loadDefinition(root);
+
+  const beforePreview = await readFile(workflowFile, 'utf8');
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true, dryRun: true });
+  assert.equal(await readFile(workflowFile, 'utf8'), beforePreview);
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.deepEqual(refreshed.workTypes, local.workTypes);
+  assert.deepEqual(refreshed.phases, local.phases);
+  assert.deepEqual(refreshed.artifactSets, local.artifactSets);
+  assert.deepEqual(refreshed.mcpServers, local.mcpServers);
+  assert.equal(await readFile(path.join(root, '.github/agents/product-designer.agent.md'), 'utf8')
+    .catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error)), null);
+  await loadDefinition(root);
+
+  delete refreshed.workTypes['reference-driven-build'];
+  await writeFile(workflowFile, YAML.stringify(refreshed));
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  assert.equal(YAML.parse(await readFile(workflowFile, 'utf8'))
+    .workTypes['reference-driven-build'], undefined);
+
+  const repeated = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  assert.equal(repeated.changed, false);
+});
+
+test('seeded reinitialization restores selected phase dependencies when its work type is customized', async (t) => {
+  const root = await repository({
+    'package.json': '{"name":"smart-refresh-dependency","packageManager":"npm@10","scripts":{"test":"node --test"}}\n'
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const snapshot = await captureSmartInitSnapshot(root);
+  const rendered = await buildSmartInitProposal(snapshot, runSmartInitDetectors(snapshot));
+  await activateSmartInit(root, rendered, { confirmation: rendered.proposal.proposalSha256 });
+
+  // Establish the package ownership receipt, then emulate a curated preset missing the catalog
+  // dependency required by one selected, still framework-owned phase. This is the same ownership
+  // shape produced when a later package revision adds that dependency. The work-type label is
+  // repository-owned and must remain untouched by safe reinitialization.
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const local = YAML.parse(await readFile(workflowFile, 'utf8'));
+  local.workTypes['spec-driven-standard'].label = 'Repository-maintained spec delivery';
+  delete local.artifactSets['spec-driven-planning'];
+  await writeFile(workflowFile, YAML.stringify(local));
+
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const bundled = YAML.parse(await readFile(path.join(packageRoot, 'templates/workflow.yml'), 'utf8'));
+  assert.equal(refreshed.workTypes['spec-driven-standard'].label,
+    'Repository-maintained spec delivery');
+  assert.equal(refreshed.phases.planning.artifactSet, 'spec-driven-planning');
+  assert.deepEqual(refreshed.artifactSets['spec-driven-planning'],
+    bundled.artifactSets['spec-driven-planning']);
+  await loadDefinition(root);
 });
 
 test('smart init dry-run is deterministic, model-free, and effect-free', async () => {

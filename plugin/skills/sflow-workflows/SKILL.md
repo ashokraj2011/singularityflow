@@ -16,14 +16,13 @@ Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
 Run `author` from opened root; only explicit `--repository-story-refs` may read other local roots.
 `list|read|history|show|preview|catalog|where-used|op-status` is read-only; relay coverage/gaps.
-`author where-used <SKILL-ID> --json`: approved configuration; explicit `--story <ID>` selects
-one accepted local Story. Preserve `--ref`, `--commit`, `--snapshot-revision`; no fetch.
-`--story-refs 'STORY=refs/heads/branch,...' --history-depth N`: explicit local first-parent windows.
-Never invent selectors; unavailable history refuses, not empty usage.
-`--repository-story-refs '/root#STORY=refs/heads/branch,...' --history-depth N` names at most
-four local roots and their Story/ref windows; no provider scan or fetch. Later pages require
-returned `--expected-source`. No repairs.
+`author where-used <SKILL-ID> --json` reads approved configuration; `--story <ID>` selects
+one accepted local Story. Preserve exact ref/commit/revision selectors; never fetch or infer.
+`--story-refs` selects local first-parent windows; `--repository-story-refs` selects up to
+four explicit local roots. No provider scan, invented selectors, or repairs. Later pages need
+the returned `--expected-source`; unavailable history never means empty usage.
 Create/Save: user direction, operation ID, observed head, matching `--expected-authority`.
+`--input @approved-starter/<ID>` reads the verified authority, not the app checkout.
 Inert JSON only; no rebase, replay or deleted-draft recreation. Lost acknowledgement:
 `author op-status <ID> --json`.
 Headless `author submit <WFD-ID> --revision N` or `author delete` only hands off:

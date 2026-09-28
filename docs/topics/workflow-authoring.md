@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 31
+version: 32
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -81,6 +81,11 @@ singularity-flow workflow author create WFD-DEMO001 --name "Review checklist" \
 Use `empty` only when list returned a null head; otherwise pass that exact Git object ID. A draft
 is inert collaboration data, not an approved workflow. An optional `--input FILE` is a bounded
 UTF-8 JSON envelope: `{"payload":{"id":"candidate","description":"Partial purpose"},"assets":[]}`.
+For a starter installed only in approved configuration, use
+`--input @approved-starter/<ID>` instead of a checkout-relative file path. It
+reads `singularity/templates/starter-packs/<ID>/draft-input.json` from a fresh,
+exact approved authority capture. A changed authority or missing starter refuses
+the write; nothing is copied into the application branch.
 Assets have literal `path` and `content` fields; logical paths never install files or grant tools.
 Credentials, unsafe paths and approved environment-local exclusions are refused before sharing.
 For destination-bound automation, add `--expected-authority <EXACT-REPOSITORY-FROM-LIST-OR-READ>`
@@ -502,10 +507,14 @@ The installed `README.md` explains how to create a shared draft from
 `draft-input.json` in **Configuration Center → Shared workflow drafts**. Its
 `baseRevision` is intentionally unbound: select the target repository's exact
 approved configuration base in Preview and save that binding before submitting.
-This candidate requests `intake → skp-team-note → conformance`, with only an
-approved intake read and one Markdown findings output. It is not an active
-workflow or a qualified execution path. Shared draft submission, repository
-review/activation, and SKP host qualification remain separate gates.
+This candidate requests `intake → skp-team-note → skp-team-review`: the note
+phase reads approved intake and the final phase produces a review record for
+human disposition, with up to three reviewer-directed returns to the note phase.
+The approved repository must have eligible reviewers for
+Intake and both new phases before submission can pass simulation; the starter
+does not add people or approvals. It is not an active workflow or a qualified
+execution path. Shared draft submission, repository review/activation, and SKP
+host qualification remain separate gates.
 
 In the guide's **Team & skills** stage, explicitly choose **Request artifact-only local review
 classification** for a new skill. No classification is selected by default. The equivalent skill

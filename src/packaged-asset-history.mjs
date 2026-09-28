@@ -54,6 +54,14 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/common/implementation.md': Object.freeze([
     '5d0478b18c8fd14221e14c68e6238b909bccd6802a70262c416005354716c62c'
   ]),
+  // First released SKP starter. Exact previous bytes can be upgraded without claiming any
+  // repository-customized starter file as framework-owned.
+  'singularity/templates/starter-packs/skp-team-notes/README.md': Object.freeze([
+    '1880cb24e0dbc1ce84677b183dfd672ed7e85ae86e5735a1e8b9f1cb94817f4c'
+  ]),
+  'singularity/templates/starter-packs/skp-team-notes/draft-input.json': Object.freeze([
+    '14b4b8deafa8a5434edd7046e7203e4520792c5951350f9d7a7f5c4b904d7ced'
+  ]),
   'singularity/prompts/copilot-planning.md': Object.freeze([
     'd4a47524fb1563faa4a07d63bec271a0c8e3361689fdf75e1d99ea78851af9b6'
   ]),
@@ -318,8 +326,8 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/plan.md': 'e8af98405a723a55c572c705e34a5b2fc05a11b3efe632e169ba6becf6c1a04f',
   'singularity/templates/spec-driven/release.md': 'ce6e1d1995c68158f4209063b3cb954eceab8576e1c8db76bfaed27a805a8908',
   'singularity/templates/spec-driven/spec.md': '27424a624b1dab57323fd7482ac62708bd42d11ba42e41c102f94e15182fe485',
-  'singularity/templates/starter-packs/skp-team-notes/README.md': '1880cb24e0dbc1ce84677b183dfd672ed7e85ae86e5735a1e8b9f1cb94817f4c',
-  'singularity/templates/starter-packs/skp-team-notes/draft-input.json': '14b4b8deafa8a5434edd7046e7203e4520792c5951350f9d7a7f5c4b904d7ced'
+  'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',
+  'singularity/templates/starter-packs/skp-team-notes/draft-input.json': '71b39ad32ea3d376bf3a9b45a3f3e6cedea81a1cd95948108635be4aca08c6c5'
 });
 
 /** Every exact package revision accepted as framework provenance, keyed by repository path. */
@@ -356,9 +364,10 @@ export function packagedAssetRegistryPath(relativePath, {
   templatesRoot = 'singularity/templates'
 } = {}) {
   const relative = normalizedRepositoryPath(relativePath);
-  // Starter packs have a fixed repository location and identity. A configured artifact
-  // templatesRoot may itself sit inside that tree; it must not remap the starter's bytes.
-  if (relative.startsWith('singularity/templates/starter-packs/')) return relative;
+  // Registered starter-pack files have a fixed repository location and identity. An artifact
+  // templatesRoot may sit in the same tree, so other paths there must still be remapped.
+  if (relative.startsWith('singularity/templates/starter-packs/')
+      && Object.hasOwn(CURRENT_PACKAGED_ASSET_SHA256, relative)) return relative;
   const configuredRoot = normalizedRepositoryPath(templatesRoot).replace(/\/+$/u, '');
   if (!configuredRoot || (relative !== configuredRoot
       && !relative.startsWith(`${configuredRoot}/`))) return relative;

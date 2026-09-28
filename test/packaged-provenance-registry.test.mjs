@@ -11,6 +11,7 @@ import {
   CURRENT_PACKAGED_ASSET_SHA256,
   isCurrentPackagedAssetHash,
   isKnownPackagedAssetHash,
+  isRetiredPackagedAssetHash,
   packagedAssetRegistryPath,
   packagedAssetSha256
 } from '../src/packaged-asset-history.mjs';
@@ -131,6 +132,19 @@ test('starter pack assets install, restore when missing, and preserve repository
   assert.deepEqual(await readFile(target), repositoryBytes);
 });
 
+test('the first released starter remains an exact upgradeable package revision', () => {
+  for (const [relative, digest] of [
+    ['singularity/templates/starter-packs/skp-team-notes/README.md',
+      '1880cb24e0dbc1ce84677b183dfd672ed7e85ae86e5735a1e8b9f1cb94817f4c'],
+    ['singularity/templates/starter-packs/skp-team-notes/draft-input.json',
+      '14b4b8deafa8a5434edd7046e7203e4520792c5951350f9d7a7f5c4b904d7ced']
+  ]) {
+    assert.equal(isRetiredPackagedAssetHash(relative, digest), true, relative);
+    assert.equal(isRetiredPackagedAssetHash(relative, '0'.repeat(64)), false,
+      'custom content must not acquire framework ownership');
+  }
+});
+
 test('custom templatesRoot canonicalizes only explicitly rooted template assets', async () => {
   const prior = await readFile(path.join(
     ROOT, 'test/fixtures/packaged-assets/prior/common-implementation.md'
@@ -161,11 +175,43 @@ test('custom templatesRoot canonicalizes only explicitly rooted template assets'
   assert.equal(isKnownPackagedAssetHash(starterPath, starterDigest, {
     templatesRoot: 'singularity/templates/starter-packs'
   }), true, 'the exact packaged starter remains upgradeable with a nested artifact root');
+  assert.equal(packagedAssetRegistryPath(
+    'singularity/templates/starter-packs/common/implementation.md',
+    { templatesRoot: 'singularity/templates/starter-packs' }
+  ), 'singularity/templates/common/implementation.md',
+  'other files below the starter-pack tree still use the configured artifact root');
   assert.equal(isKnownPackagedAssetHash(
     'company/config/templates/common/implementation.md', packagedAssetSha256(
       Buffer.concat([prior, Buffer.from(' ')])
     ), { templatesRoot: 'company/config/templates' }
   ), false, 'one changed byte must remain repository-owned under a custom root');
+});
+
+test('safe reinitialization upgrades a historical artifact under a nested starter-pack root', async (t) => {
+  const root = await repositoryFixture('sflow-provenance-nested-template-root-');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.templatesRoot = 'singularity/templates/starter-packs';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  await refreshPackagedConfiguration(root);
+
+  const relative = 'singularity/templates/starter-packs/common/implementation.md';
+  const target = path.join(root, relative);
+  const historical = await readFile(path.join(
+    ROOT, 'test/fixtures/packaged-assets/prior/common-implementation.md'
+  ));
+  assert.equal(isKnownPackagedAssetHash(relative, packagedAssetSha256(historical), {
+    templatesRoot: workflow.templatesRoot
+  }), true, 'historical artifact bytes retain package provenance below the nested root');
+  await writeFile(target, historical);
+
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  assert.deepEqual(await readFile(target), await readFile(path.join(
+    PACKAGE_TEMPLATES, 'artifacts/common/implementation.md'
+  )));
+  assert.ok(result.files.includes(relative));
+  assert.equal(result.conflicts.some((entry) => entry.path === relative), false);
 });
 
 test('safe reinitialization upgrades exact prior package assets and modern workflow nodes', async (t) => {

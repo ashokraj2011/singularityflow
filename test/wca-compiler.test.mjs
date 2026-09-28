@@ -1235,6 +1235,100 @@ test('a complete new skill package is lowered proposal-only with exact output ro
   assert.throws(() => workflowDraftPackageProposalFiles(p.result), (error) => error.code === 'WCA_PACKAGE_NOT_SUBMITTABLE');
 });
 
+test('packaged SKP notes starter previews a dedicated reviewed finish, with reviewer capacity checked before consent', async (t) => {
+  const starter = JSON.parse(await readFile(new URL('../templates/starter-packs/skp-team-notes/draft-input.json', import.meta.url), 'utf8'));
+  const reviewer = { name: 'Product reviewer', email: 'product@example.test' };
+  const configured = await fixture(t, (definition) => {
+    definition.approvalAuthorities['product-approvers'] = { label: 'Product approvers', members: [reviewer] };
+    definition.phases.intake.approval = { authorities: ['product-approvers'], minimum: 1 };
+  });
+  starter.payload.baseRevision = configured.commit;
+  const ready = await preview(configured, starter.payload);
+  assert.deepEqual(ready.result.findings.map((finding) => finding.code), ['WCA_SKP_CONFIRMATION_BINDING_PENDING']);
+  assert.equal(ready.result.readiness.authoring, 'review-required');
+  assert.equal(ready.result.skillFinalization.status, 'requires-exact-terminal-consent');
+  assert.deepEqual(ready.result.graph.map((node) => node.phaseId),
+    ['intake', 'skp-team-note', 'skp-team-review']);
+  assert.equal(ready.result.graph.at(-1).humanReview, true);
+  assert.deepEqual(ready.result.candidateDefinition.phases['skp-team-review'].inputs,
+    [{ phase: 'intake', optional: false }, { phase: 'skp-team-note', optional: false }]);
+  assert.equal(ready.result.candidateDefinition.workTypes['skp-team-notes'].phases.at(-1), 'skp-team-review');
+
+  const unconfigured = await fixture(t, (definition) => {
+    definition.approvalAuthorities['product-approvers'] = { label: 'Product approvers', members: [] };
+    definition.phases.intake.approval = { authorities: ['product-approvers'], minimum: 1 };
+  });
+  starter.payload.baseRevision = unconfigured.commit;
+  const blocked = await preview(unconfigured, starter.payload);
+  assert.ok(blocked.result.findings.some((finding) => finding.code === 'WCA_REVIEWER_CAPACITY_UNATTAINABLE'));
+  assert.equal(blocked.result.skillFinalization, undefined);
+  assert.equal(blocked.result.assets.length, 0);
+});
+
+test('code delivery cannot use the new reviewed non-code finish in place of Conformance', async (t) => {
+  const f = await fixture(t, (definition) => {
+    definition.phases['code-work'] = {
+      label: 'Code work',
+      artifact: { path: 'artifacts/code-work/summary.md', kind: 'implementation-summary', minimumBytes: 20 },
+      defaultTemplate: 'common/empty.md', inputs: ['intake'], approval: { mode: 'none' },
+      writeScope: 'source-and-artifact', generation: { task: 'code' }
+    };
+  });
+  f.request.definitions.phases.push({
+    id: 'team-review', label: 'Team review',
+    artifact: { path: 'artifacts/team-review/review.md', kind: 'custom:review', minimumBytes: 20, maximumBytes: 16384 },
+    inputs: ['code-work'], template: 'note-template', agent: 'note-writer',
+    taskBinding: 'analysisTask', approvalBinding: 'review', qualityBindings: [], writeScope: 'artifact-only'
+  });
+  f.request.definitions.workflows[0].phases = ['intake', 'code-work', 'team-review'];
+  const p = await preview(f);
+  assert.ok(p.result.findings.some((finding) => finding.code === 'WCA_GRAPH_INVALID'), JSON.stringify(p.result.findings));
+  assert.deepEqual(p.result.assets, []);
+});
+
+test('an ordinary source-writing verification phase cannot use the non-code reviewed finish', async (t) => {
+  const f = await fixture(t, (definition) => {
+    definition.phases.verification = {
+      label: 'Verification',
+      artifact: { path: 'artifacts/verification/report.md', kind: 'verification-report', minimumBytes: 20 },
+      defaultTemplate: 'common/empty.md', inputs: ['intake'], approval: { mode: 'none' },
+      writeScope: 'source-and-artifact', generation: { task: 'analyze' }
+    };
+  });
+  f.request.definitions.phases.push({
+    id: 'team-review', label: 'Team review',
+    artifact: { path: 'artifacts/team-review/review.md', kind: 'custom:review', minimumBytes: 20, maximumBytes: 16384 },
+    inputs: ['verification'], template: 'note-template', agent: 'note-writer',
+    taskBinding: 'analysisTask', approvalBinding: 'review', qualityBindings: [], writeScope: 'artifact-only'
+  });
+  f.request.definitions.workflows[0].phases = ['intake', 'verification', 'team-review'];
+  const p = await preview(f);
+  assert.ok(p.result.findings.some((finding) => finding.code === 'WCA_GRAPH_INVALID'), JSON.stringify(p.result.findings));
+  assert.deepEqual(p.result.assets, []);
+});
+
+test('an activated non-code reviewed finish remains editable through the workflow-only route', async (t) => {
+  const f = await fixture(t, (definition) => {
+    definition.phases['team-review'] = {
+      label: 'Team review',
+      artifact: { path: 'artifacts/team-review/review.md', kind: 'custom:review', minimumBytes: 20 },
+      defaultTemplate: 'common/empty.md', inputs: ['intake'],
+      approval: { authorities: ['reviewers'], minimum: 1 }, writeScope: 'artifact-only',
+      generation: { task: 'analyze' }
+    };
+    definition.workTypes.baseline.phases = ['intake', 'team-review'];
+  });
+  const request = { schema: WCA_REQUEST_SCHEMA, intent: 'edit', id: 'change-reviewed-flow',
+    label: 'Reviewed label change', baseRevision: f.commit, target: f.request.target,
+    definitions: { workflows: [{ id: 'baseline', label: 'Updated reviewed flow' }] },
+    changes: [{ kind: 'workflow', id: 'baseline', operation: 'edit',
+      expectedDefinitionSha256: workflowDefinitionSha256(f.definition.workTypes.baseline) }] };
+  const p = await preview(f, request);
+  assert.deepEqual(p.result.findings, []);
+  assert.equal(p.result.simulation.status, 'complete-for-profile');
+  assert.deepEqual(p.result.candidateDefinition.workTypes.baseline.phases, ['intake', 'team-review']);
+});
+
 test('proposal-only SKP lowering preserves confirmed policy but cannot create a runtime binding or accept proposed eligibility as approval', () => {
   const h = (c) => `sha256:${c.repeat(64)}`;
   const phase = { id: 'note', kind: 'skill', label: 'Note', skill: { id: 'note', packageSha256: h('a') }, contract: { task: 'analyze', consumes: [], produces: [{ id: 'primary', path: 'artifacts/note/note.md', kind: 'custom:note', mediaType: 'text/markdown', encoding: 'utf-8', minimumBytes: 20, maximumBytes: 4000, clauses: 'none', claimRole: 'findings' }], checks: [], writeScope: 'artifact-only', readScope: { inputs: false, sourcePaths: [] }, approval: { authorities: ['reviewers'], minimum: 1 } } };

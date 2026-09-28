@@ -242,6 +242,28 @@ test('actual shell clients share one draft identity, preserve partial content, a
   assert.equal(git(remote, 'rev-parse', 'refs/heads/sflow/config'), firstHead);
 });
 
+test('a draft can read an exact approved starter when the application checkout has no starter file', async (t) => {
+  const { second, remote } = await clients(t);
+  const starter = 'singularity/templates/starter-packs/skp-team-notes/draft-input.json';
+  const packaged = JSON.parse(await readFile(fileURLToPath(new URL(
+    '../templates/starter-packs/skp-team-notes/draft-input.json', import.meta.url
+  )), 'utf8'));
+  git(second, 'rm', '-q', '--', starter);
+  git(second, 'commit', '-qm', 'application branch omits approved starter');
+  git(second, 'push', '-q', 'origin', 'main');
+  await assert.rejects(stat(path.join(second, starter)), { code: 'ENOENT' });
+  assert.ok(git(remote, 'show', `sflow/config:${starter}`).includes('skp-team-notes'));
+
+  const listed = author(second, 'list');
+  const created = author(second, 'create', 'WFD-STARTER01', '--name', 'Approved starter',
+    '--input', '@approved-starter/skp-team-notes', '--operation-id', 'starter-from-authority',
+    '--expected-head', listed.data.head ?? 'empty');
+  assert.equal(created.status, 'shared-acknowledged');
+  assert.deepEqual(author(second, 'read', 'WFD-STARTER01').data.payload, packaged.payload);
+  await assert.rejects(stat(path.join(second, starter)), { code: 'ENOENT' },
+    'the starter must remain absent from the application checkout');
+});
+
 test('actual CLI refuses unknown authority flags before discovery and blocks secret sharing before a ref exists', async (t) => {
   const { base, first, remote } = await clients(t);
   for (const args of [['delete', ID, '--yes'], ['list', '--actor', 'human'], ['list', '--json=false']]) {

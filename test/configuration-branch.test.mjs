@@ -259,6 +259,60 @@ test('configuration authority is bootstrapped without changing application histo
   }
 });
 
+test('configuration bootstrap reports its published branch when disposable checkout cleanup is locked', async () => {
+  for (const code of ['EBUSY', 'EPERM']) {
+    const fixture = await repositoryFixture();
+    let scratch = null;
+    try {
+      const result = await ensureConfigurationBranch(fixture.remote, {
+        cleanupTemporaryTree: async (directory) => {
+          scratch = directory;
+          throw Object.assign(new Error('simulated checkout lock'), { code });
+        }
+      });
+      assert.equal(result.created, true);
+      assert.equal(result.branch, CONFIGURATION_BRANCH);
+      assert.equal(result.cleanup?.completed, false);
+      assert.equal(result.cleanup?.path, scratch);
+      assert.equal(result.cleanup?.code, code);
+      assert.match(result.warnings?.[0] ?? '', /disposable checkout could not be removed/u);
+      assert.equal(run('git', ['rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`], {
+        cwd: fixture.remote
+      }).stdout.trim(), result.commit, 'the exact published commit remains visible');
+    } finally {
+      if (scratch) await rm(scratch, { recursive: true, force: true });
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('configuration bootstrap preserves its typed failure when disposable checkout cleanup also fails', async () => {
+  const fixture = await repositoryFixture();
+  let scratch = null;
+  try {
+    await assert.rejects(() => ensureConfigurationBranch(fixture.remote, {
+      sourceCommit: '0'.repeat(40),
+      cleanupTemporaryTree: async (directory) => {
+        scratch = directory;
+        throw Object.assign(new Error('simulated checkout lock'), { code: 'EBUSY' });
+      }
+    }), (error) => {
+      assert.equal(error.code, 'CONFIGURATION_BOOTSTRAP_SOURCE_CHANGED');
+      assert.equal(error.details?.expectedCommit, '0'.repeat(40));
+      assert.equal(error.details?.cleanup?.completed, false);
+      assert.equal(error.details?.cleanup?.code, 'EBUSY');
+      assert.equal(error.details?.cleanup?.path, scratch);
+      return true;
+    });
+    assert.notEqual(run('git', [
+      'show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`
+    ], { cwd: fixture.remote, allowFailure: true }).status, 0);
+  } finally {
+    if (scratch) await rm(scratch, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('configuration publisher and transport use raw authority despite an ambient URL rewrite', async () => {
   const fixture = await repositoryFixture();
   try {

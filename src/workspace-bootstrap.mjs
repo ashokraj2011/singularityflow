@@ -17,7 +17,7 @@ import {
   validateWorkspaceCapabilityRegistration, workspaceRemoteCapabilities, workspaceRepositoryPath,
   workspaceStatus
 } from './workspace.mjs';
-import { gitWorkerCount, mapLimit, run, SingularityFlowError } from './util.mjs';
+import { gitWorkerCount, mapLimit, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
@@ -34,6 +34,8 @@ const TERMINAL = new Set(['ready', 'registered', 'abandoned']);
 const ACTIVE = new Set(WORKSPACE_BOOTSTRAP_STATUSES.filter((status) => !TERMINAL.has(status)));
 const MIN_DISK_BYTES = 1024 * 1024 * 1024;
 const LEASE_STALE_MS = 5 * 60 * 1000;
+const LEASE_UNLINK_RETRYABLE = new Set(['EACCES', 'EBUSY', 'EPERM']);
+const LEASE_UNLINK_ATTEMPTS = 6;
 const PREFLIGHT_RECEIPT_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_OPERATION_BUDGETS = Object.freeze({
   preflight: Object.freeze({ used: 0, maximum: 3 }),
@@ -235,22 +237,65 @@ export async function latestWorkspaceBootstrap(options = {}) {
   return (await listWorkspaceBootstraps({ ...options, includeTerminal: false }))[0] ?? null;
 }
 
-async function acquireLease(root, bootstrapId, { recoveredStale = false } = {}) {
+async function removeReleasedLeaseFile(file, removeFile, ownerInfo, ownerBytes) {
+  for (let attempt = 1; attempt <= LEASE_UNLINK_ATTEMPTS; attempt += 1) {
+    try {
+      const current = await lstat(file, { bigint: true }).catch((error) => {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (!current) return;
+      if (!current.isFile() || current.isSymbolicLink()
+          || current.dev !== ownerInfo.dev || current.ino !== ownerInfo.ino) {
+        throw new SingularityFlowError('Workspace bootstrap lease ownership changed before release.', {
+          code: 'BOOTSTRAP_LEASE_OWNERSHIP_LOST', details: { path: file }
+        });
+      }
+      const currentBytes = await readFile(file, 'utf8').catch((error) => {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (currentBytes === null) return;
+      if (currentBytes !== ownerBytes) {
+        throw new SingularityFlowError('Workspace bootstrap lease ownership changed before release.', {
+          code: 'BOOTSTRAP_LEASE_OWNERSHIP_LOST', details: { path: file }
+        });
+      }
+      await removeFile(file, { force: true });
+      return;
+    } catch (error) {
+      if (!LEASE_UNLINK_RETRYABLE.has(error?.code) || attempt === LEASE_UNLINK_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+    }
+  }
+}
+
+async function acquireLease(root, bootstrapId, {
+  recoveredStale = false, unlinkLeaseFile = rm
+} = {}) {
   await assertStateRoot(root);
   const file = leasePath(root, bootstrapId);
+  let handle = null;
   try {
-    const handle = await open(file, 'wx', 0o600);
-    await handle.writeFile(`${JSON.stringify({ pid: process.pid, acquiredAt: nowIso() })}\n`);
+    handle = await open(file, 'wx', 0o600);
+    const ownerBytes = `${JSON.stringify({ pid: process.pid, acquiredAt: nowIso(), nonce: randomUUID() })}\n`;
+    await handle.writeFile(ownerBytes);
+    const ownerInfo = await handle.stat({ bigint: true });
     return {
       recoveredStale,
-      release: async () => { await handle.close(); await rm(file, { force: true }); }
+      file,
+      release: async () => {
+        await handle.close();
+        await removeReleasedLeaseFile(file, unlinkLeaseFile, ownerInfo, ownerBytes);
+      }
     };
   } catch (error) {
+    if (handle) await handle.close().catch(() => {});
     if (error?.code !== 'EEXIST') throw error;
     const info = await stat(file).catch(() => null);
     if (info && Date.now() - info.mtimeMs > LEASE_STALE_MS) {
       await rm(file, { force: true });
-      return acquireLease(root, bootstrapId, { recoveredStale: true });
+      return acquireLease(root, bootstrapId, { recoveredStale: true, unlinkLeaseFile });
     }
     throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' is already being changed by another process.`, {
       code: 'BOOTSTRAP_LEASE_BUSY', details: { bootstrapId }
@@ -258,8 +303,11 @@ async function acquireLease(root, bootstrapId, { recoveredStale = false } = {}) 
   }
 }
 
-async function withLease(root, bootstrapId, operation) {
-  const lease = await acquireLease(root, bootstrapId);
+async function withLease(root, bootstrapId, operation, { unlinkLeaseFile = rm } = {}) {
+  const lease = await acquireLease(root, bootstrapId, { unlinkLeaseFile });
+  let outcome;
+  let primaryFailure;
+  let operationFailed = false;
   try {
     if (lease.recoveredStale) {
       const file = sessionPath(root, bootstrapId);
@@ -267,7 +315,11 @@ async function withLease(root, bootstrapId, operation) {
       const repairedAt = nowIso();
       await writeSession(root, {
         ...current,
-        status: 'waiting-user',
+        // A retained lease is machine-local cleanup state, not lifecycle authority. If the
+        // operation that owned it already persisted a terminal result, recovering the expired
+        // file must not reopen that completed bootstrap and send it back through preflight or
+        // materialization. Non-terminal records still return to the explicit recovery boundary.
+        status: TERMINAL.has(current.status) ? current.status : 'waiting-user',
         revision: Number(current.revision ?? 0) + 1,
         healers: [...(current.healers ?? []), healerReceipt('expired-bootstrap-lease', {
           appliedAt: repairedAt,
@@ -281,8 +333,39 @@ async function withLease(root, bootstrapId, operation) {
         }
       });
     }
-    return await operation({ recoveredStaleLease: lease.recoveredStale });
-  } finally { await lease.release(); }
+    outcome = await operation({ recoveredStaleLease: lease.recoveredStale });
+  } catch (error) {
+    operationFailed = true;
+    primaryFailure = error;
+  }
+  let releaseFailure = null;
+  try { await lease.release(); }
+  catch (error) { releaseFailure = error; }
+  if (releaseFailure) {
+    const cleanup = {
+      path: lease.file,
+      code: String(releaseFailure?.code ?? 'BOOTSTRAP_LEASE_CLEANUP_FAILED')
+    };
+    if (operationFailed && primaryFailure && typeof primaryFailure === 'object'
+        && Object.isExtensible(primaryFailure)) {
+      try {
+        primaryFailure.details = {
+          ...(primaryFailure.details && typeof primaryFailure.details === 'object'
+            ? primaryFailure.details : {}),
+          leaseCleanup: cleanup
+        };
+      } catch { /* Lease cleanup diagnostics cannot replace the original failure. */ }
+    } else if (!operationFailed && outcome && typeof outcome === 'object') {
+      const warning = `Workspace bootstrap operation completed, but its local lease file could not be removed: ${lease.file}.`;
+      outcome = withIntegrity({
+        ...outcome,
+        cleanupPendingLease: cleanup,
+        warnings: [...(outcome.warnings ?? []), warning]
+      });
+    }
+  }
+  if (operationFailed) throw primaryFailure;
+  return outcome;
 }
 
 function operationBudgets(session) {
@@ -1037,7 +1120,8 @@ async function remotePreflight(plan, {
 }
 
 export async function preflightWorkspaceBootstrap(bootstrapId, {
-  env = process.env, home = os.homedir(), runCommand = run
+  env = process.env, home = os.homedir(), runCommand = run,
+  unlinkLeaseFile = rm
 } = {}) {
   const root = workspaceBootstrapRoot(env, home);
   return withLease(root, bootstrapId, async () => {
@@ -1151,14 +1235,16 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
       nextAction,
       recoveryActions
     });
-  });
+  }, { unlinkLeaseFile });
 }
 
 export async function resumeWorkspaceBootstrap(bootstrapId, {
   confirmation,
   env = process.env,
   home = os.homedir(),
-  runCommand = run
+  runCommand = run,
+  cleanupCatalogStore = removeTemporaryTree,
+  unlinkLeaseFile = rm
 } = {}) {
   let session = await preflightWorkspaceBootstrap(bootstrapId, { env, home, runCommand });
   if (session.status === 'ready' || session.status === 'registered') return session;
@@ -1355,8 +1441,18 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
       const finalStatus = initialization?.error ? 'degraded'
         : checkoutDeferred ? 'registered'
           : status.healthy ? 'ready' : 'degraded';
+      let catalogCleanupPending = null;
       if (TERMINAL.has(finalStatus)) {
-        await rm(catalogStorePath(root, bootstrapId), { recursive: true, force: true });
+        const catalog = catalogStorePath(root, bootstrapId);
+        try { await cleanupCatalogStore(catalog); }
+        catch (error) {
+          // The workspace and any configuration/state publication have already completed.
+          // A local scanner retaining this private catalog must not turn them into a failed retry.
+          catalogCleanupPending = {
+            path: catalog,
+            code: String(error?.code ?? 'TEMPORARY_TREE_CLEANUP_FAILED')
+          };
+        }
       }
       const completedAt = nowIso();
       const attempts = session.attempts.map((entry) => entry.number === attempt.number
@@ -1375,6 +1471,12 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         steps: session.steps,
         createdPaths: [...new Set([...(session.createdPaths ?? []), materialized.workspace.path])],
         result: { ...session.result, status, initialization },
+        ...(catalogCleanupPending ? {
+          cleanupPending: catalogCleanupPending,
+          warnings: [
+            `Workspace bootstrap completed, but its disposable capability catalog could not be removed: ${catalogCleanupPending.path}.`
+          ]
+        } : {}),
         fault: initialization?.error ? {
           classification: 'initialization-failed', message: initialization.error, occurredAt: completedAt
         } : null,
@@ -1435,7 +1537,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         recoveryActions: [nextAction, bootstrapStatusAction(bootstrapId)]
       });
     }
-  });
+  }, { unlinkLeaseFile });
 }
 
 /**

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -467,6 +467,169 @@ process.exit(child.status == null ? 1 : child.status);
   );
   assert.equal(await stat(catalog).catch(() => null), null,
     'a ready bootstrap clears its private retained catalog objects');
+});
+
+test('a locked private capability catalog does not mask a ready bootstrap', async () => {
+  for (const code of ['EBUSY', 'EPERM']) {
+    const fixture = await remoteFixture('trunk');
+    try {
+      await ensureConfigurationBranch(fixture.remote, {
+        capability: {
+          capabilityId: 'declared-capability', capabilityName: 'Declared capability',
+          kind: 'delivery', repositoryId: 'application', jiraProject: null, teams: []
+        }
+      });
+      const env = environment(fixture.root);
+      const createInput = input(fixture.root, fixture.remote, 'trunk');
+      createInput.capabilities = ['declared-capability'];
+      createInput.repositories.application.capabilities = ['declared-capability'];
+      const prepared = await prepareWorkspaceBootstrap({
+        source: { kind: 'manifest', reference: fixture.remote }, createInput
+      }, { env });
+      assert.equal(prepared.preflight.ready, true);
+      const catalog = path.join(
+        workspaceBootstrapRoot(env), 'catalogs', `catalog-${prepared.bootstrapId}.git`
+      );
+      assert.equal((await stat(catalog)).isDirectory(), true,
+        'the retained catalog exists before materialization');
+
+      const resumed = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+        confirmation: prepared.plan.workspace.confirmation,
+        env,
+        cleanupCatalogStore: async (directory) => {
+          assert.equal(directory, catalog);
+          throw Object.assign(new Error('simulated catalog lock'), { code });
+        }
+      });
+      assert.equal(resumed.status, 'ready');
+      assert.equal(resumed.fault, null);
+      assert.deepEqual(resumed.cleanupPending, { path: catalog, code });
+      assert.match(resumed.warnings?.[0] ?? '', /disposable capability catalog could not be removed/u);
+      assert.equal((await readWorkspaceBootstrap(prepared.bootstrapId, { env })).status, 'ready',
+        'the durable bootstrap record preserves completion');
+      assert.equal((await stat(catalog)).isDirectory(), true,
+        'the locked catalog remains available for later inspection');
+      assert.equal((await stat(path.join(resumed.result.workspace.path, 'repos', 'application'))).isDirectory(), true);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('bootstrap lease release retries a transient Windows-style unlink lock', async () => {
+  const fixture = await remoteFixture('trunk');
+  try {
+    const env = environment(fixture.root);
+    const prepared = await prepareWorkspaceBootstrap({
+      source: { kind: 'remote', reference: fixture.remote },
+      createInput: input(fixture.root, fixture.remote, 'trunk'),
+      checkout: false
+    }, { env });
+    let attempts = 0;
+    const resumed = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+      confirmation: prepared.plan.workspace.confirmation,
+      env,
+      unlinkLeaseFile: async (file, options) => {
+        attempts += 1;
+        if (attempts < 3) throw Object.assign(new Error('simulated file lock'), { code: 'EBUSY' });
+        await rm(file, options);
+      }
+    });
+    assert.equal(resumed.status, 'registered');
+    assert.equal(attempts, 3);
+    assert.equal(resumed.cleanupPendingLease, undefined);
+    assert.equal(await stat(path.join(
+      workspaceBootstrapRoot(env), 'leases', `${prepared.bootstrapId}.lock`
+    )).catch(() => null), null);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap lease release preserves a replacement owner after an unlink retry', async () => {
+  const fixture = await remoteFixture('trunk');
+  try {
+    const env = environment(fixture.root);
+    const prepared = await prepareWorkspaceBootstrap({
+      source: { kind: 'remote', reference: fixture.remote },
+      createInput: input(fixture.root, fixture.remote, 'trunk'),
+      checkout: false
+    }, { env });
+    let attempts = 0;
+    const successor = '{"pid":999999,"nonce":"successor"}\n';
+    const resumed = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+      confirmation: prepared.plan.workspace.confirmation,
+      env,
+      unlinkLeaseFile: async (file) => {
+        attempts += 1;
+        await rm(file, { force: true });
+        await writeFile(file, successor);
+        throw Object.assign(new Error('simulated file lock'), { code: 'EBUSY' });
+      }
+    });
+    const lease = path.join(workspaceBootstrapRoot(env), 'leases', `${prepared.bootstrapId}.lock`);
+    assert.equal(resumed.status, 'registered');
+    assert.equal(attempts, 1, 'the retry does not unlink a successor lease');
+    assert.equal(resumed.cleanupPendingLease?.code, 'BOOTSTRAP_LEASE_OWNERSHIP_LOST');
+    assert.equal(await readFile(lease, 'utf8'), successor);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap lease release preserves completion and original errors after a persistent lock', async () => {
+  const fixture = await remoteFixture('trunk');
+  try {
+    const env = environment(fixture.root);
+    const prepared = await prepareWorkspaceBootstrap({
+      source: { kind: 'remote', reference: fixture.remote },
+      createInput: input(fixture.root, fixture.remote, 'trunk'),
+      checkout: false
+    }, { env });
+    let releaseAttempts = 0;
+    const resumed = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+      confirmation: prepared.plan.workspace.confirmation,
+      env,
+      unlinkLeaseFile: async () => {
+        releaseAttempts += 1;
+        throw Object.assign(new Error('simulated file lock'), { code: 'EPERM' });
+      }
+    });
+    const lease = path.join(workspaceBootstrapRoot(env), 'leases', `${prepared.bootstrapId}.lock`);
+    assert.equal(resumed.status, 'registered');
+    assert.equal(releaseAttempts, 6);
+    assert.deepEqual(resumed.cleanupPendingLease, { path: lease, code: 'EPERM' });
+    assert.match(resumed.warnings?.at(-1) ?? '', /local lease file could not be removed/u);
+    assert.equal((await readWorkspaceBootstrap(prepared.bootstrapId, { env })).status, 'registered',
+      'the durable completed session is not changed into a failed attempt');
+    assert.equal((await stat(lease)).isFile(), true);
+
+    const expired = new Date(Date.now() - (10 * 60 * 1000));
+    await utimes(lease, expired, expired);
+    const recovered = await preflightWorkspaceBootstrap(prepared.bootstrapId, { env });
+    assert.equal(recovered.status, 'registered',
+      'stale machine-local cleanup must not reopen a terminal bootstrap');
+    assert.equal((await readWorkspaceBootstrap(prepared.bootstrapId, { env })).status, 'registered');
+    assert.equal(await stat(lease).catch(() => null), null,
+      'stale retained lease is replaced and the recovery lease is released');
+
+    const missingId = `bst_${'f'.repeat(32)}`;
+    await assert.rejects(() => preflightWorkspaceBootstrap(missingId, {
+      env,
+      unlinkLeaseFile: async () => {
+        throw Object.assign(new Error('simulated file lock'), { code: 'EBUSY' });
+      }
+    }), (error) => {
+      assert.equal(error.code, 'BOOTSTRAP_NOT_FOUND');
+      assert.deepEqual(error.details?.leaseCleanup, {
+        path: path.join(workspaceBootstrapRoot(env), 'leases', `${missingId}.lock`),
+        code: 'EBUSY'
+      });
+      return true;
+    });
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
 });
 
 test('bootstrap probes and materialization cannot be redirected away from the exact reviewed URL', async () => {

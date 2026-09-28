@@ -1149,7 +1149,8 @@ async function publishPreparedConfigurationCandidate(remote, {
 export async function ensureConfigurationBranch(remote, {
   sourceBranch = null, capability = null, grounding = null,
   sourceCommit = null, publisherRoot = null, transport = {}, remoteSession = null, observedHead = null,
-  authorIdentity = null, preparedCandidate = null, env = process.env
+  authorIdentity = null, preparedCandidate = null, env = process.env,
+  cleanupTemporaryTree = removeTemporaryTree
 } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
@@ -1229,6 +1230,9 @@ export async function ensureConfigurationBranch(remote, {
     });
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-bootstrap-'));
+  let completedOutcome = null;
+  let primaryFailure = null;
+  let operationFailed = false;
   try {
     const clone = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
@@ -1315,20 +1319,50 @@ export async function ensureConfigurationBranch(remote, {
       }
       // Another bootstrap won the create race. It is success only when the winning authority
       // contains the exact capability this caller requested; branch existence alone proves nothing.
-      return await inspectApprovedConfiguration(url, capability, {
+      completedOutcome = await inspectApprovedConfiguration(url, capability, {
         exactBootstrap: true, env: gitEnv
       });
+      return completedOutcome;
     }
     // The caller may deliberately reuse one observation session across bootstrap and its
     // immediately-following reads.  Its pre-push observation necessarily says that this branch
     // is absent; do not let that stale negative result survive a successful publication.
     session.invalidate(url);
-    return {
+    completedOutcome = {
       branch: CONFIGURATION_BRANCH, commit, created: true, importedFrom: importBranch,
       transportIntent
     };
+    return completedOutcome;
+  } catch (error) {
+    operationFailed = true;
+    primaryFailure = error;
+    throw error;
   } finally {
-    await removeTemporaryTree(scratch);
+    try {
+      await cleanupTemporaryTree(scratch);
+    } catch (cleanupError) {
+      const cleanup = {
+        completed: false,
+        path: scratch,
+        code: String(cleanupError?.code ?? 'TEMPORARY_TREE_CLEANUP_FAILED')
+      };
+      if (completedOutcome) {
+        const warning = `Configuration authority operation completed, but its disposable checkout could not be removed: ${scratch}.`;
+        completedOutcome.cleanup = { ...cleanup, warning };
+        completedOutcome.warnings = [...(completedOutcome.warnings ?? []), warning];
+      } else if (primaryFailure && typeof primaryFailure === 'object'
+          && Object.isExtensible(primaryFailure)) {
+        try {
+          primaryFailure.details = {
+            ...(primaryFailure.details && typeof primaryFailure.details === 'object'
+              ? primaryFailure.details : {}),
+            cleanup
+          };
+        } catch { /* Cleanup diagnostics cannot replace the original operation failure. */ }
+      } else if (!operationFailed) {
+        throw cleanupError;
+      }
+    }
   }
 }
 

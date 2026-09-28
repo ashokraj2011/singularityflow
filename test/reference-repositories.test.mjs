@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import fsPromises from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -83,6 +85,29 @@ async function repositoryFixture({ worldModel = true } = {}) {
   git(target, ['add', 'README.md']);
   git(target, ['commit', '--quiet', '-m', 'target']);
   return { directory, source, target, remote };
+}
+
+async function withReferenceFilesystemFailures({ rename: interceptRename, rm: interceptRm }, action) {
+  const originalRename = fsPromises.rename;
+  const originalRm = fsPromises.rm;
+  fsPromises.rename = (...args) => interceptRename ? interceptRename(originalRename, ...args) : originalRename(...args);
+  fsPromises.rm = (...args) => interceptRm ? interceptRm(originalRm, ...args) : originalRm(...args);
+  syncBuiltinESMExports();
+  try {
+    return await action();
+  } finally {
+    fsPromises.rename = originalRename;
+    fsPromises.rm = originalRm;
+    syncBuiltinESMExports();
+  }
+}
+
+function referenceClaim(from, to, target) {
+  return to === target && path.basename(from).startsWith('.java-rule-engine-');
+}
+
+function simulatedFileLock(code, operation) {
+  return Object.assign(new Error(`${code}: simulated ${operation} lock`), { code });
 }
 
 test('reference repository intake requires paired explicit IDs, URLs, and branches', () => {
@@ -238,6 +263,156 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     assert.equal(blocked.repositories[0].status, 'invalid');
     await assert.rejects(materializeReferenceRepositories(fixture.target, durable),
       (error) => error.code === 'REFERENCE_REPOSITORY_TAMPERED');
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('reference materialization retries transient final rename EPERM and EBUSY', async () => {
+  for (const code of ['EPERM', 'EBUSY']) {
+    const fixture = await repositoryFixture({ worldModel: false });
+    try {
+      const requests = parseReferenceRepositoryOptions(
+        [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+      );
+      const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: `LOCK-${code}` });
+      const target = path.join(await realpath(fixture.target), pins[0].localPath);
+      let claims = 0;
+
+      const materialized = await withReferenceFilesystemFailures({
+        rename: (realRename, from, to) => {
+          if (referenceClaim(from, to, target) && ++claims === 1) {
+            return Promise.reject(simulatedFileLock(code, 'final rename'));
+          }
+          return realRename(from, to);
+        }
+      }, () => materializeReferenceRepositories(fixture.target, pins));
+
+      assert.ok(claims >= 2, `${code} final rename should be retried`);
+      assert.equal(materialized[0].materialization, 'created');
+      assert.equal(await readFile(path.join(target, 'RuleEngine.java'), 'utf8'),
+        'final class RuleEngine {}\n');
+      assert.deepEqual((await readdir(path.dirname(target)))
+        .filter((entry) => entry.startsWith('.java-rule-engine-')), []);
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test('reference clone cleanup EBUSY retains the final rename failure', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  try {
+    const requests = parseReferenceRepositoryOptions(
+      [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+    );
+    const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: 'LOCK-CLEANUP' });
+    const target = path.join(await realpath(fixture.target), pins[0].localPath);
+    let staging = null;
+    let blockedCleanups = 0;
+
+    await withReferenceFilesystemFailures({
+      rename: (realRename, from, to) => {
+        if (referenceClaim(from, to, target)) {
+          staging = from;
+          return Promise.reject(simulatedFileLock('EPERM', 'final rename'));
+        }
+        return realRename(from, to);
+      },
+      rm: (realRm, targetPath, options) => {
+        if (targetPath === staging) {
+          blockedCleanups += 1;
+          return Promise.reject(simulatedFileLock('EBUSY', 'staging cleanup'));
+        }
+        return realRm(targetPath, options);
+      }
+    }, async () => {
+      await assert.rejects(
+        () => materializeReferenceRepositories(fixture.target, pins),
+        (error) => {
+          assert.equal(error.code, 'EPERM');
+          assert.match(error.message, /simulated final rename lock/);
+          assert.match(error.message, /Private staging could not be removed/);
+          return true;
+        }
+      );
+    });
+
+    assert.ok(blockedCleanups > 0);
+    assert.equal(await stat(target).catch(() => null), null);
+    assert.ok((await stat(staging)).isDirectory());
+    const repaired = await materializeReferenceRepositories(fixture.target, pins);
+    assert.equal(repaired[0].materialization, 'created');
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('reference rename retry refuses a newly occupied empty target', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  try {
+    const requests = parseReferenceRepositoryOptions(
+      [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+    );
+    const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: 'LOCK-OCCUPIED' });
+    const target = path.join(await realpath(fixture.target), pins[0].localPath);
+    let claims = 0;
+    let occupied = null;
+
+    await withReferenceFilesystemFailures({
+      rename: async (realRename, from, to) => {
+        if (referenceClaim(from, to, target) && ++claims === 1) {
+          await mkdir(target);
+          occupied = await stat(target);
+          throw simulatedFileLock('EPERM', 'final rename');
+        }
+        return realRename(from, to);
+      }
+    }, async () => {
+      await assert.rejects(
+        () => materializeReferenceRepositories(fixture.target, pins),
+        (error) => error.code === 'REFERENCE_REPOSITORY_TARGET_EXISTS'
+          && /became occupied before materialization/.test(error.message)
+      );
+    });
+
+    assert.equal(claims, 1, 'an occupied target must prevent another rename attempt');
+    assert.equal((await stat(target)).ino, occupied.ino);
+    assert.deepEqual(await readdir(target), []);
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('reference rename retry refuses a replaced private checkout', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  try {
+    const requests = parseReferenceRepositoryOptions(
+      [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+    );
+    const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: 'LOCK-REPLACED' });
+    const target = path.join(await realpath(fixture.target), pins[0].localPath);
+    let claims = 0;
+
+    await withReferenceFilesystemFailures({
+      rename: async (realRename, from, to) => {
+        if (referenceClaim(from, to, target) && ++claims === 1) {
+          await realRename(from, `${from}-original`);
+          await mkdir(from);
+          throw simulatedFileLock('EPERM', 'final rename');
+        }
+        return realRename(from, to);
+      }
+    }, async () => {
+      await assert.rejects(
+        () => materializeReferenceRepositories(fixture.target, pins),
+        (error) => error.code === 'REFERENCE_REPOSITORY_STAGING_CHANGED'
+          && /private checkout changed before materialization/.test(error.message)
+      );
+    });
+
+    assert.equal(claims, 1);
+    assert.equal(await stat(target).catch(() => null), null);
   } finally {
     await rm(fixture.directory, { recursive: true, force: true });
   }

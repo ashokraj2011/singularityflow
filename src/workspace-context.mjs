@@ -8,6 +8,7 @@ import { buildRepositorySubjectIndex, resolveContext } from './repository-subjec
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { branch, gitCommonDir, gitDir, head, repoRoot } from './git.mjs';
 import { configuredRemoteIdentity, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import { workspaceRepositoryPathAliases } from './workspace-repository-paths.mjs';
 
 // Workspace creation/materialization owns the remote Git, clone-strategy, and enterprise transport
 // graph. Context-only commands must not load that graph merely to read a local manifest or registry.
@@ -289,6 +290,15 @@ export async function buildWorkspaceContext(registryFile, reference, {
     throw new SingularityFlowError(
       `Repository '${selectedRepositoryId}' is not part of workspace '${workspace.name}'.`,
       { code: 'ACTIVE_WORKSPACE_REPOSITORY_REMOVED' }
+    );
+  }
+  if (repository.pathAlias) {
+    throw new SingularityFlowError(
+      `${repository.error} Rename or move one checkout before selecting a Story.`,
+      {
+        code: 'ACTIVE_WORKSPACE_REPOSITORY_PATH_ALIAS',
+        details: repository.pathAlias
+      }
     );
   }
   const selectedStoryId = portableStoryId(storyId)
@@ -709,6 +719,18 @@ export async function workspaceMemberContextForRepository(
   // common directories, so selecting the Nth repository does not spawn Git twice for every earlier
   // member.
   const { workspaceRepositoryPath } = await workspaceModule();
+  const pathAliases = workspaceRepositoryPathAliases(workspace.repositories);
+  const refuseAlias = (member) => {
+    const alias = pathAliases.get(member.repositoryId);
+    if (!alias) return false;
+    if (strict) {
+      throw new SingularityFlowError(
+        `${alias.message} Rename or move one checkout before using it as a workspace member.`,
+        { code: 'ACTIVE_WORKSPACE_REPOSITORY_PATH_ALIAS', details: alias.details }
+      );
+    }
+    return true;
+  };
   const members = await Promise.all(Object.entries(workspace.repositories).map(
     async ([repositoryId, repository]) => ({
       repositoryId,
@@ -718,6 +740,7 @@ export async function workspaceMemberContextForRepository(
   ));
   const exact = members.find((member) => member.canonicalRepositoryPath === root);
   if (exact) {
+    if (refuseAlias(exact)) return null;
     if (!await verifiedWorkspaceMemberRepository(root, exact, { strict })) return null;
     return contextFor(exact.repositoryId, exact.canonicalRepositoryPath, exact.repository.capabilities);
   }
@@ -728,12 +751,16 @@ export async function workspaceMemberContextForRepository(
   for (const member of members) {
     try {
       if (await canonical(gitCommonDir(member.canonicalRepositoryPath)) === rootCommonDirectory) {
+        if (refuseAlias(member)) return null;
         if (!await verifiedWorkspaceMemberRepository(root, member, { strict })) return null;
         return contextFor(
           member.repositoryId, member.canonicalRepositoryPath, member.repository.capabilities
         );
       }
-    } catch { /* A missing or non-Git member cannot own this linked checkout. */ }
+    } catch (error) {
+      if (error?.code === 'ACTIVE_WORKSPACE_REPOSITORY_PATH_ALIAS') throw error;
+      /* A missing or non-Git member cannot own this linked checkout. */
+    }
   }
   return null;
 }

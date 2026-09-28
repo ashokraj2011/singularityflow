@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import fsPromises from 'node:fs/promises';
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -2724,6 +2726,39 @@ function workspaceInput(baseDirectory, repositories) {
   };
 }
 
+async function withCloneFilesystemFailures({
+  rename: interceptRename, rm: interceptRm, readFile: interceptReadFile
+}, action) {
+  const originalRename = fsPromises.rename;
+  const originalRm = fsPromises.rm;
+  const originalReadFile = fsPromises.readFile;
+  fsPromises.rename = (...args) => interceptRename ? interceptRename(originalRename, ...args) : originalRename(...args);
+  fsPromises.rm = (...args) => interceptRm ? interceptRm(originalRm, ...args) : originalRm(...args);
+  fsPromises.readFile = (...args) => interceptReadFile ? interceptReadFile(originalReadFile, ...args) : originalReadFile(...args);
+  syncBuiltinESMExports();
+  try {
+    return await action();
+  } finally {
+    fsPromises.rename = originalRename;
+    fsPromises.rm = originalRm;
+    fsPromises.readFile = originalReadFile;
+    syncBuiltinESMExports();
+  }
+}
+
+function cloneClaim(from, to, target) {
+  return to === target && path.basename(from) === 'repository'
+    && path.basename(path.dirname(from)).startsWith('.sflow-clone-');
+}
+
+function stagedClonePath(targetPath) {
+  return path.basename(path.dirname(targetPath)).startsWith('.sflow-clone-');
+}
+
+function fileLockError(code, operation) {
+  return Object.assign(new Error(`${code}: simulated file lock during ${operation}`), { code });
+}
+
 test('workspace anchors follow Jira hierarchy levels without hard-coded Initiative naming', () => {
   const anchor = normalizeWorkspaceAnchor({
     baseUrl: 'https://office.atlassian.net',
@@ -4399,6 +4434,246 @@ test('a failed clone leaves no partial repository and can resume when the remote
   const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.status.healthy, true);
+});
+
+test('workspace clone retries transient EPERM and EBUSY while claiming its target', async () => {
+  for (const code of ['EPERM', 'EBUSY']) {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-claim-retry-'));
+    const remote = await remoteRepository(root, 'platform');
+    const input = workspaceInput(path.join(root, 'workspaces'), {
+      platform: { url: remote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+    });
+    const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+    const target = path.join(created.workspace.path, 'repos', 'platform');
+    let claims = 0;
+
+    const repaired = await withCloneFilesystemFailures({
+      rename: (realRename, from, to) => {
+        if (cloneClaim(from, to, target) && ++claims === 1) {
+          return Promise.reject(fileLockError(code, 'rename'));
+        }
+        return realRename(from, to);
+      }
+    }, () => repairWorkspace(created.workspace.path, { statusLevel: 'readiness' }));
+
+    assert.ok(claims >= 2, `${code} claim should be retried`);
+    assert.equal(repaired.status.healthy, true);
+    assert.deepEqual(await readdir(path.join(created.workspace.path, 'repos')), ['platform']);
+  }
+});
+
+test('cleanup EBUSY preserves the clone claim failure and permits a later repair', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-claim-busy-'));
+  const remote = await remoteRepository(root, 'platform');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: remote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const target = path.join(created.workspace.path, 'repos', 'platform');
+  let blockedClaims = 0;
+  let blockedCleanups = 0;
+
+  await withCloneFilesystemFailures({
+    rename: (realRename, from, to) => {
+      if (cloneClaim(from, to, target)) {
+        blockedClaims += 1;
+        return Promise.reject(fileLockError('EPERM', 'rename'));
+      }
+      return realRename(from, to);
+    },
+    rm: (realRm, targetPath, options) => {
+      if (stagedClonePath(targetPath) && path.basename(targetPath) === 'repository') {
+        blockedCleanups += 1;
+        return Promise.reject(fileLockError('EBUSY', 'cleanup'));
+      }
+      return realRm(targetPath, options);
+    }
+  }, async () => {
+    await assert.rejects(
+      () => repairWorkspace(created.workspace.path, { statusLevel: 'readiness' }),
+      (error) => {
+        assert.match(error.message, /could not claim its workspace target/);
+        assert.match(error.message, /EPERM/);
+        return true;
+      }
+    );
+  });
+
+  assert.ok(blockedClaims > 0);
+  assert.ok(blockedCleanups > 0);
+  assert.equal(await stat(target).catch(() => null), null);
+  const journal = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
+  assert.equal(journal.operations[0].status, 'failed');
+  assert.match(journal.operations[0].error, /EPERM/);
+
+  const repaired = await repairWorkspace(created.workspace.path, { statusLevel: 'readiness' });
+  assert.equal(repaired.status.healthy, true);
+});
+
+test('transient staging cleanup EBUSY does not turn a completed clone into a failure', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-cleanup-busy-'));
+  const remote = await remoteRepository(root, 'platform');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: remote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  let cleanupAttempts = 0;
+
+  const repaired = await withCloneFilesystemFailures({
+    rm: (realRm, targetPath, options) => {
+      if (stagedClonePath(targetPath)
+          && path.basename(targetPath) === '.sflow-bootstrap-owner.json'
+          && ++cleanupAttempts === 1) {
+        return Promise.reject(fileLockError('EBUSY', 'cleanup'));
+      }
+      return realRm(targetPath, options);
+    }
+  }, () => repairWorkspace(created.workspace.path, { statusLevel: 'readiness' }));
+
+  assert.ok(cleanupAttempts >= 1);
+  assert.equal(repaired.status.healthy, true);
+  const journal = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
+  assert.equal(journal.operations[0].status, 'complete');
+  assert.equal(journal.operations[0].error, null);
+});
+
+test('persistent cleanup EBUSY retains staging without failing an already claimed clone', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-cleanup-retained-'));
+  const remote = await remoteRepository(root, 'platform');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: remote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  let blockedCleanups = 0;
+
+  const repaired = await withCloneFilesystemFailures({
+    rm: (realRm, targetPath, options) => {
+      if (stagedClonePath(targetPath) && path.basename(targetPath) === '.sflow-bootstrap-owner.json') {
+        blockedCleanups += 1;
+        return Promise.reject(fileLockError('EBUSY', 'cleanup'));
+      }
+      return realRm(targetPath, options);
+    }
+  }, () => repairWorkspace(created.workspace.path, { statusLevel: 'readiness' }));
+
+  assert.ok(blockedCleanups > 1, 'cleanup should retry a transient filesystem denial');
+  assert.equal(repaired.status.healthy, true);
+  const journal = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
+  assert.ok(journal.completedAt);
+  assert.equal(journal.operations[0].status, 'complete');
+  assert.equal(journal.operations[0].error, null);
+  assert.equal(journal.operations[0].cleanup.status, 'retained');
+  assert.equal(journal.operations[0].cleanup.recoverable, true);
+  assert.ok((await stat(journal.operations[0].cleanup.path)).isDirectory());
+});
+
+test('clone claim retry refuses a destination that appeared during the lock', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-claim-occupied-'));
+  const remote = await remoteRepository(root, 'platform');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: remote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const target = path.join(created.workspace.path, 'repos', 'platform');
+  const sentinel = path.join(target, 'existing-content.txt');
+  let claims = 0;
+
+  await withCloneFilesystemFailures({
+    rename: async (realRename, from, to) => {
+      if (cloneClaim(from, to, target) && ++claims === 1) {
+        await mkdir(target);
+        await writeFile(sentinel, 'preserve this content');
+        throw fileLockError('EPERM', 'rename');
+      }
+      return realRename(from, to);
+    }
+  }, async () => {
+    await assert.rejects(
+      () => repairWorkspace(created.workspace.path, { statusLevel: 'readiness' }),
+      /Clone target became occupied before materialization/
+    );
+  });
+
+  assert.equal(claims, 1, 'a new destination should prevent another rename attempt');
+  assert.equal(await readFile(sentinel, 'utf8'), 'preserve this content');
+  assert.equal(await stat(path.join(target, '.git')).catch(() => null), null);
+  const journal = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
+  assert.equal(journal.operations[0].status, 'failed');
+  assert.match(journal.operations[0].error, /Clone target became occupied before materialization/);
+});
+
+test('clone claim retry refuses a replaced private checkout', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-stage-replaced-'));
+  const remote = await remoteRepository(root, 'platform');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: remote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const target = path.join(created.workspace.path, 'repos', 'platform');
+  let claims = 0;
+
+  await withCloneFilesystemFailures({
+    rename: async (realRename, from, to) => {
+      if (cloneClaim(from, to, target) && ++claims === 1) {
+        await realRename(from, `${from}-original`);
+        await mkdir(from);
+        throw fileLockError('EPERM', 'rename');
+      }
+      return realRename(from, to);
+    }
+  }, async () => {
+    await assert.rejects(
+      () => repairWorkspace(created.workspace.path, { statusLevel: 'readiness' }),
+      /private clone changed before its workspace target could be claimed/
+    );
+  });
+
+  assert.equal(claims, 1);
+  assert.equal(await stat(target).catch(() => null), null);
+});
+
+test('clone claim leaves a replacement empty target untouched', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-empty-target-race-'));
+  const remote = await remoteRepository(root, 'platform');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: remote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const target = path.join(created.workspace.path, 'repos', 'platform');
+  const displaced = path.join(root, 'original-empty-target');
+  const manifest = path.join(created.workspace.path, 'workspace.json');
+  await mkdir(target);
+  const original = await stat(target);
+  let replacement = null;
+
+  await withCloneFilesystemFailures({
+    readFile: async (realReadFile, file, ...args) => {
+      if (file === manifest && !replacement) {
+        const parent = path.dirname(target);
+        const entries = await readdir(parent);
+        const staged = entries.find((entry) => entry.startsWith('.sflow-clone-'));
+        if (staged && await stat(path.join(parent, staged, 'repository', '.git')).catch(() => null)) {
+          await rename(target, displaced);
+          await mkdir(target);
+          replacement = await stat(target);
+        }
+      }
+      return realReadFile(file, ...args);
+    }
+  }, async () => {
+    await assert.rejects(
+      () => repairWorkspace(created.workspace.path, { statusLevel: 'readiness' }),
+      /Clone target changed after its empty directory was reviewed/
+    );
+  });
+
+  assert.ok(replacement, 'the target should be replaced after the clone stages');
+  assert.equal((await stat(displaced)).ino, original.ino);
+  assert.equal((await stat(target)).ino, replacement.ino);
+  assert.deepEqual(await readdir(target), [], 'the replacement empty directory must not be removed or claimed');
+  const journal = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
+  assert.equal(journal.operations[0].status, 'failed');
+  assert.match(journal.operations[0].error, /Clone target changed after its empty directory was reviewed/);
 });
 
 test('parallel workspace staging claims no repository when any required clone fails', async () => {

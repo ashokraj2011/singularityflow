@@ -7,9 +7,10 @@
  * requested branch and exact commit/tree; each laptop may reproduce the detached local checkout.
  */
 import { createHash } from 'node:crypto';
-import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, mkdtemp, readFile, rename, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { gitCommonDir } from './git.mjs';
 import { gitRemoteProbeTimeout, gitTimeouts, runRemoteGitAsync } from './git-execution.mjs';
@@ -45,6 +46,7 @@ const PROJECT_MARKERS = Object.freeze([
 const SOURCE_ROOT_NAMES = new Set([
   'src', 'app', 'apps', 'lib', 'libs', 'modules', 'packages', 'services', 'test', 'tests'
 ]);
+const TRANSIENT_REFERENCE_CLAIM_ERRORS = new Set(['EBUSY', 'EPERM', 'EACCES']);
 
 function fail(message, code = 'REFERENCE_REPOSITORY_INVALID', details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -361,10 +363,44 @@ async function materializeOne(root, reference, { env, runGit }) {
     }
     run('git', ['checkout', '--quiet', '--detach', reference.commit], { cwd: staging });
     const observed = assertObservation(reference, localObservation(staging, { inspectTreeSafety: false }));
-    await rename(staging, secured.absolute);
+    const stagedSource = await lstat(staging);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const source = await lstat(staging).catch((error) => {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (!source?.isDirectory() || source.isSymbolicLink()
+          || source.dev !== stagedSource.dev || source.ino !== stagedSource.ino
+          || source.birthtimeMs !== stagedSource.birthtimeMs) {
+        fail(`Reference repository '${reference.id}' private checkout changed before materialization.`,
+          'REFERENCE_REPOSITORY_STAGING_CHANGED');
+      }
+      const claim = await secureRepositoryPath(root, reference.localPath, {
+        label: `Reference repository '${reference.id}'`
+      });
+      if (claim.exists || claim.absolute !== secured.absolute) {
+        fail(`Reference repository path '${reference.localPath}' became occupied before materialization. `
+          + 'SFlow will not overwrite it.', 'REFERENCE_REPOSITORY_TARGET_EXISTS');
+      }
+      try {
+        await rename(staging, secured.absolute);
+        break;
+      } catch (error) {
+        if (!TRANSIENT_REFERENCE_CLAIM_ERRORS.has(error?.code) || attempt === 4) throw error;
+        await delay(50 * (2 ** attempt));
+      }
+    }
     return { ...reference, tree: observed.tree, materialization: 'created' };
   } catch (error) {
-    await rm(staging, { recursive: true, force: true }).catch(() => {});
+    try {
+      await removeTemporaryTree(staging);
+    } catch (cleanupError) {
+      if (error instanceof Error) {
+        try {
+          error.message += ` Private staging could not be removed (${cleanupError?.code ?? 'unknown error'}); inspect ${staging}.`;
+        } catch { /* A frozen primary failure still takes precedence over cleanup. */ }
+      }
+    }
     throw error;
   }
 }

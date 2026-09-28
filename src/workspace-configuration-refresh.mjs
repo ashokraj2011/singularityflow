@@ -3118,6 +3118,21 @@ async function publishCandidate(candidate) {
   }
 }
 
+async function cleanupRefreshCandidateTrees(candidates, cleanupTemporaryTree) {
+  const cleanupResults = await Promise.allSettled(candidates.map(async (candidate) =>
+    cleanupTemporaryTree(candidate.root)));
+  return cleanupResults.flatMap((cleanup, index) => cleanup.status === 'rejected' ? [{
+    repository: candidates[index].repository.id,
+    path: candidates[index].root,
+    code: String(cleanup.reason?.code ?? 'TEMPORARY_TREE_CLEANUP_FAILED')
+  }] : []);
+}
+
+function refreshCleanupWarnings(cleanupPending) {
+  return cleanupPending.map((entry) =>
+    `Temporary configuration refresh checkout for '${entry.repository}' could not be removed: ${entry.path}.`);
+}
+
 /**
  * Refresh every unique repository remote registered by machine-local workspaces.
  *
@@ -3134,7 +3149,8 @@ export async function refreshWorkspaceConfigurations({
   resolutions = {},
   restorePackagedSeeds = false,
   confirmPlan = null,
-  inspectCandidate = null
+  inspectCandidate = null,
+  cleanupTemporaryTree = removeTemporaryTree
 } = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace configuration refresh requires the workspace registry path.');
   const normalizedResolutions = normalizeRefreshResolutions(resolutions);
@@ -3427,7 +3443,10 @@ export async function refreshWorkspaceConfigurations({
   });
   const initializationFailures = initialized.filter((entry) => entry.error);
   if (initializationFailures.length) {
-    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+    // Another repository may already have published its first immutable configuration authority.
+    // Disposable-checkout cleanup must therefore be reported beside that durable partial progress,
+    // never thrown in place of it.
+    const cleanupPending = await cleanupRefreshCandidateTrees(candidates, cleanupTemporaryTree);
     const createdInitializations = initialized.filter((entry) =>
       !entry.error && entry.initialization?.created === true);
     return {
@@ -3441,6 +3460,10 @@ export async function refreshWorkspaceConfigurations({
       total: targets.length,
       updated: createdInitializations.length,
       failed: initializationFailures.length,
+      ...(cleanupPending.length ? {
+        cleanupPending,
+        warnings: refreshCleanupWarnings(cleanupPending)
+      } : {}),
       results: observations.map((item) => {
         const failed = initializationFailures.find((entry) => entry.observation === item);
         const created = createdInitializations.find((entry) => entry.observation === item);
@@ -3460,7 +3483,7 @@ export async function refreshWorkspaceConfigurations({
     ? initialized.filter((entry) => !entry.error && entry.initialization?.created === false)
     : [];
   if (concurrentInitializations.length) {
-    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+    const cleanupPending = await cleanupRefreshCandidateTrees(candidates, cleanupTemporaryTree);
     const createdInitializations = initialized.filter((entry) =>
       !entry.error && entry.initialization?.created === true);
     return {
@@ -3470,6 +3493,10 @@ export async function refreshWorkspaceConfigurations({
       total: targets.length,
       updated: createdInitializations.length,
       failed: concurrentInitializations.length,
+      ...(cleanupPending.length ? {
+        cleanupPending,
+        warnings: refreshCleanupWarnings(cleanupPending)
+      } : {}),
       results: observations.map((item) => {
         const moved = concurrentInitializations.find((entry) => entry.observation === item);
         const created = createdInitializations.find((entry) => entry.observation === item);
@@ -3571,6 +3598,8 @@ export async function refreshWorkspaceConfigurations({
   }
 
   let results = [];
+  let publicationFailure = null;
+  const cleanupPending = [];
   try {
     results = await mapLimit(candidates, workers, async (candidate) => {
       try { return await publishCandidate(candidate); }
@@ -3586,16 +3615,33 @@ export async function refreshWorkspaceConfigurations({
         };
       }
     });
+  } catch (error) {
+    publicationFailure = error;
+    throw error;
   } finally {
-    await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));
+    // Remote refs may already have moved. Cleanup is local and cannot replace the exact
+    // publication result (or a primary failure) when an indexer retains a checkout handle.
+    cleanupPending.push(...await cleanupRefreshCandidateTrees(candidates, cleanupTemporaryTree));
+    if (publicationFailure && typeof publicationFailure === 'object'
+        && Object.isExtensible(publicationFailure) && cleanupPending.length) {
+      try {
+        publicationFailure.details = {
+          ...(publicationFailure.details && typeof publicationFailure.details === 'object'
+            ? publicationFailure.details : {}),
+          cleanupPending
+        };
+      } catch { /* Cleanup diagnostics cannot replace the publication failure. */ }
+    }
   }
   const failed = results.filter((result) => ['failed', 'review-required'].includes(result.status));
+  const warnings = refreshCleanupWarnings(cleanupPending);
   return {
     status: failed.length ? 'partial' : 'complete',
     dryRun: false, planId,
     total: targets.length,
     updated: results.filter((result) => result.status === 'updated').length,
     failed: failed.length,
+    ...(cleanupPending.length ? { cleanupPending, warnings } : {}),
     results
   };
 }

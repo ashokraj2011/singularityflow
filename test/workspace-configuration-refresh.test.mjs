@@ -1801,6 +1801,67 @@ test('concurrent identical configuration refreshes join the winning commit witho
   ]).stdout.trim(), '');
 });
 
+test('configuration refresh reports published refs when disposable checkout cleanup is locked', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-published-cleanup-'));
+  let scratch = null;
+  t.after(async () => {
+    if (scratch) await rm(scratch, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  });
+  const { remote, registry } = await registeredRepositoryFixture(root, 'published-cleanup');
+  const before = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    cleanupTemporaryTree: async (directory) => {
+      scratch = directory;
+      throw Object.assign(new Error('simulated checkout lock'), { code: 'EBUSY' });
+    }
+  });
+
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(applied.results[0].status, 'updated');
+  assert.notEqual(git(remote, ['rev-parse', 'refs/heads/sflow/config']), before);
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), applied.results[0].configurationCommit);
+  assert.equal(JSON.parse(git(remote, ['show', `state:${STATE_CONFIGURATION_MANIFEST}`])).source.commit,
+    applied.results[0].configurationCommit, 'state projection also reached the remote');
+  assert.deepEqual(applied.cleanupPending, [{
+    repository: 'published-cleanup', path: scratch, code: 'EBUSY'
+  }]);
+  assert.match(applied.warnings?.[0] ?? '', /disposable checkout|temporary configuration refresh checkout/i);
+  assert.equal((await readdir(scratch)).includes('.git'), true, 'the locked checkout was retained');
+});
+
+test('configuration refresh preserves publication failure when disposable cleanup also fails', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-failed-cleanup-'));
+  let scratch = null;
+  t.after(async () => {
+    if (scratch) await rm(scratch, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  });
+  const { remote, registry } = await registeredRepositoryFixture(root, 'failed-cleanup');
+  const before = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    inspectCandidate: async (candidate) => {
+      await rename(path.join(candidate.root, '.git'), path.join(candidate.root, '.git-hidden'));
+    },
+    cleanupTemporaryTree: async (directory) => {
+      scratch = directory;
+      throw Object.assign(new Error('simulated checkout lock'), { code: 'EPERM' });
+    }
+  });
+
+  assert.equal(applied.status, 'partial', JSON.stringify(applied, null, 2));
+  assert.equal(applied.results[0].status, 'failed');
+  assert.ok(applied.results[0].error, 'the original Git publication failure remains visible');
+  assert.doesNotMatch(applied.results[0].error, /simulated checkout lock/u);
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/sflow/config']), before);
+  assert.deepEqual(applied.cleanupPending, [{
+    repository: 'failed-cleanup', path: scratch, code: 'EPERM'
+  }]);
+  assert.equal(applied.warnings?.length, 1);
+});
+
 test('a confirmed refresh plan binds the default conflict-resolution policy', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-policy-plan-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -2507,7 +2568,7 @@ test('first-authority candidate divergence after confirmation publishes no confi
   }
 });
 
-test('multi-repository initialization reports durable partial progress when one authority push fails', async (t) => {
+test('multi-repository initialization reports durable partial progress when push and cleanup fail', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-partial-initialize-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const first = await repositoryFixture(root, 'first');
@@ -2546,13 +2607,26 @@ test('multi-repository initialization reports durable partial progress when one 
   const rejectingHook = path.join(second.remote, 'hooks', 'pre-receive');
   await writeFile(rejectingHook, '#!/bin/sh\nexit 1\n');
   await chmod(rejectingHook, 0o700);
+  const retainedCheckouts = [];
   const applied = await refreshWorkspaceConfigurations({
-    registryFile: registry, confirmPlan: preview.planId
+    registryFile: registry,
+    confirmPlan: preview.planId,
+    cleanupTemporaryTree: async (directory) => {
+      retainedCheckouts.push(directory);
+      throw Object.assign(new Error('simulated locked partial-initialization checkout'), {
+        code: 'EBUSY'
+      });
+    }
   });
 
   assert.equal(applied.status, 'partial', JSON.stringify(applied, null, 2));
   assert.equal(applied.updated, 1);
   assert.equal(applied.failed, 1);
+  assert.equal(retainedCheckouts.length, 2);
+  assert.deepEqual(applied.cleanupPending, retainedCheckouts.map((directory, index) => ({
+    repository: index === 0 ? 'first' : 'second', path: directory, code: 'EBUSY'
+  })));
+  assert.equal(applied.warnings.length, 2);
   const created = applied.results.find((entry) => entry.repository === 'first');
   const failed = applied.results.find((entry) => entry.repository === 'second');
   assert.equal(created.status, 'initialization-created');

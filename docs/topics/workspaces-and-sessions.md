@@ -15,7 +15,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 8
+version: 9
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -107,6 +107,23 @@ the exact workspace directory; the last selected workspace is never repaired imp
 `workspace prepare --initialize` explicitly requests an immediate checkout and state
 initialization; `--no-clone --initialize` is contradictory and refused. Mapping a capability reads
 governed configuration, not application source.
+
+If Windows or macOS briefly locks a new checkout, repair retries the final staging-to-target
+move and rechecks ownership and target occupancy before every retry. A failed move preserves its original
+error even if private staging cleanup is also locked; a completed move stays completed and reports
+any retained staging path as a cleanup warning. Check `workspace status` before retrying a
+failed clone; its target should be reported as `missing` or `empty`. Do not manually move or delete a
+`.sflow-clone-*` directory, which may contain a partially cleaned private clone. A persistent
+lock requires inspection of the process or filesystem policy holding that exact path. Repair
+does not resume an abandoned staging directory and refuses a target observed as occupied.
+The occupancy check is not an atomic no-replace directory move on macOS/Linux; keep external
+processes from creating the same checkout path during the final claim.
+
+New or changed repository checkout paths must work on both Windows and macOS: reserved device
+names, noncanonical spellings, and paths that overlap another repository after case or Unicode
+folding are refused. Older workspace manifests remain readable; an ambiguous legacy path appears
+as `invalid-path` in workspace status and cannot be selected for Story work or materialized until
+the conflicting checkout layout is corrected.
 
 To attach an existing Story, first select the exact workspace/repository or pass the explicit
 selectors to both commands:

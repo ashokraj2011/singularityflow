@@ -13292,6 +13292,7 @@ function renderWorkspaceBootstrap(session) {
     }
   }
   if (session.fault) console.log(`Recovery: ${session.fault.message}`);
+  for (const warning of session.warnings ?? []) console.log(`Warning: ${warning}`);
   if (session.workspaceJournal?.path) console.log(`Journal: ${session.workspaceJournal.path}`);
   if (session.recoveryActions?.length) {
     console.log('Recovery paths:');
@@ -13608,6 +13609,7 @@ async function workspaceCommand(positionals, options) {
         if (item.proposalBranch) console.log(`    Review branch: ${item.proposalBranch}`);
         if (item.error) console.log(`    ${item.error}`);
       }
+      for (const warning of result.warnings ?? []) console.log(`  Warning: ${warning}`);
       if (!result.dryRun) {
         const stalePlan = result.results.some((item) => item.status === 'stale-plan');
         if (stalePlan) {

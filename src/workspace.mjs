@@ -4,6 +4,7 @@ import { existsSync, lstatSync, realpathSync, rmSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { withRegistryFileLease } from './file-lease.mjs';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
@@ -34,6 +35,10 @@ import { incrementCommandCounter } from './dx-command-timing.mjs';
 import {
   enqueueRepositoryOnboardingCleanup, repositoryOnboardingCleanupContention
 } from './repository-onboarding-cleanup.mjs';
+import {
+  assertProposedWorkspaceRepositoryPaths, assertWorkspaceRepositoryMaterializationPaths,
+  workspaceRepositoryPathAliases
+} from './workspace-repository-paths.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
@@ -228,7 +233,9 @@ export function workspaceRepositoryPath(workspace, repository) {
   return path.join(workspace.path, repository.path);
 }
 
-export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) {
+export function validateWorkspaceManifest(input, {
+  workspaceRoot = null, previousManifest = null, preserveLegacyPaths = false
+} = {}) {
   const manifest = object(structuredClone(input), 'Workspace manifest');
   if (manifest.version !== WORKSPACE_SCHEMA_VERSION) throw new SingularityFlowError(`Workspace manifest version must be ${WORKSPACE_SCHEMA_VERSION}.`);
   manifest.anchor = normalizeWorkspaceAnchor(manifest.anchor);
@@ -264,6 +271,9 @@ export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) 
     if (paths.has(normalized.path)) throw new SingularityFlowError(`Workspace repositories cannot share path '${normalized.path}'.`);
     paths.add(normalized.path);
     repositories[id] = normalized;
+  }
+  if (!preserveLegacyPaths) {
+    assertProposedWorkspaceRepositoryPaths(rawRepositories, { previous: previousManifest });
   }
   if (!repositories[manifest.leadRepository]) throw new SingularityFlowError(`Lead repository '${manifest.leadRepository}' is not in the workspace registry.`);
   for (const [id, repository] of Object.entries(repositories)) {
@@ -345,7 +355,9 @@ export async function readWorkspace(workspacePath) {
   let parsed;
   try { parsed = JSON.parse(await readFile(file, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`Unable to read ${file}: ${error.message}`); }
-  return validateWorkspaceManifest(parsed, { workspaceRoot: path.dirname(file) });
+  return validateWorkspaceManifest(parsed, {
+    workspaceRoot: path.dirname(file), preserveLegacyPaths: true
+  });
 }
 
 function stableValue(value) {
@@ -432,12 +444,13 @@ function capabilityValidationResult(claims, reused) {
   };
 }
 
-function validateRepositoryPlan(repositories, leadRepository) {
+function validateRepositoryPlan(repositories, leadRepository, { previous = null } = {}) {
   const normalized = {};
   for (const [id, repository] of Object.entries(object(repositories, 'Workspace repositories'))) {
     const safe = safeId(id, 'Workspace repository ID');
     normalized[safe] = normalizeRepository(safe, repository);
   }
+  assertProposedWorkspaceRepositoryPaths(repositories, { previous });
   const lead = safeId(leadRepository, 'Lead repository ID');
   if (!normalized[lead]) throw new SingularityFlowError(`Lead repository '${lead}' is not configured.`);
   for (const [id, repository] of Object.entries(normalized)) {
@@ -1360,7 +1373,8 @@ function workspaceUpdateManifest(current, { name, repositories, leadRepository, 
   // for having no repositories — so renaming a workspace, the safest edit there is, never worked.
   const { normalized, lead } = validateRepositoryPlan(
     repositories ?? current.repositories,
-    leadRepository ?? current.leadRepository
+    leadRepository ?? current.leadRepository,
+    { previous: current }
   );
   const workspaceName = String(name ?? current.name).trim();
   if (!workspaceName) throw new SingularityFlowError('Workspace name is required.');
@@ -1411,7 +1425,7 @@ function workspaceUpdateManifest(current, { name, repositories, leadRepository, 
     repositories: normalized,
     capabilities: capabilities ?? current.capabilities ?? [],
     updatedAt: nowIso()
-  }, { workspaceRoot: current.path });
+  }, { workspaceRoot: current.path, previousManifest: current });
 }
 
 export async function previewWorkspaceUpdate(workspacePath, options) {
@@ -2431,7 +2445,7 @@ export async function previewWorkspaceCapabilityChange(workspacePath, capability
     capabilities: after,
     repositories,
     updatedAt: nowIso()
-  }, { workspaceRoot: current.path });
+  }, { workspaceRoot: current.path, previousManifest: current });
   const changed = selectionChanged
     || workspaceCapabilityTargetSha256(manifest) !== workspaceCapabilityTargetSha256(current);
   const sourceManifestSha256 = workspaceCapabilityChangeSha256(current);
@@ -3577,6 +3591,22 @@ function cloneFailure(operation, result) {
     + `Git returned an unrecognized failure (exit ${result.status}). Run workspace doctor --network, correct Git access, then repair again.`;
 }
 
+// Git has exited by the time its staged checkout is claimed, but Windows scanners and sync
+// providers can briefly hold a directory handle. Retry only transient filesystem denials. Every
+// rename attempt must independently prove that the private source is still owned and the public
+// destination is absent; an occupied target is never overwritten to make a retry succeed.
+const TRANSIENT_CLONE_FILESYSTEM_ERRORS = new Set(['EBUSY', 'EPERM', 'EACCES']);
+async function retryTransientCloneFilesystem(action, beforeAttempt = null) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (beforeAttempt) await beforeAttempt();
+    try { return await action(); }
+    catch (error) {
+      if (!TRANSIENT_CLONE_FILESYSTEM_ERRORS.has(error?.code) || attempt === 4) throw error;
+      await delay(50 * (2 ** attempt));
+    }
+  }
+}
+
 async function cloneIntoWorkspace(root, operation, {
   deferClaim = false, env = process.env
 } = {}) {
@@ -3617,11 +3647,14 @@ async function cloneIntoWorkspace(root, operation, {
     const canonical = !info?.isSymbolicLink() && info?.isDirectory()
       ? await realpath(stagingRoot).catch(() => null) : null;
     const removable = canonical === canonicalStagingRoot && path.dirname(canonical ?? '') === canonicalParent;
-    if (removable) await rm(stagingRoot, { recursive: true, force: true });
+    let removed = false;
+    if (removable) {
+      removed = await removeTemporaryTree(stagingRoot).then(() => true, () => false);
+    }
     return {
       status: 1,
       error: `Repository '${operation.repository}' could not initialize its private clone staging area: ${error.message}.`
-        + (removable ? '' : ` Inspect retained staging path ${stagingRoot}.`)
+        + (removed ? '' : ` Inspect retained staging path ${stagingRoot}.`)
     };
   }
 
@@ -3646,15 +3679,16 @@ async function cloneIntoWorkspace(root, operation, {
     if (entries.some((entry) => !['.sflow-bootstrap-owner.json', 'repository'].includes(entry.name))) return false;
     const repositoryEntry = entries.find((entry) => entry.name === 'repository');
     if (repositoryEntry?.isSymbolicLink()) return false;
-    if (repositoryEntry) await rm(staging, { recursive: true, force: true });
-    await rm(ownershipFile, { force: true });
-    await rmdir(stagingRoot);
+    if (repositoryEntry) await removeTemporaryTree(staging);
+    await retryTransientCloneFilesystem(() => rm(ownershipFile, { force: true }));
+    await retryTransientCloneFilesystem(() => rmdir(stagingRoot));
     return true;
   };
 
   const cleanupFailure = async (message) => {
-    if (await cleanupStaging()) return message;
-    return `${message} The staging directory was retained for inspection because its ownership could not be proven: ${stagingRoot}`;
+    try { if (await cleanupStaging()) return message; }
+    catch { /* Never replace the clone or claim error with a disposable cleanup error. */ }
+    return `${message} The private staging directory could not be safely removed; inspect ${stagingRoot}.`;
   };
   try {
   const strategy = normalizeCloneStrategy(operation.clone, `Repository '${operation.repository}' clone strategy`);
@@ -3699,7 +3733,7 @@ async function cloneIntoWorkspace(root, operation, {
     if (stagedInfo?.isSymbolicLink()) {
       return `Repository '${operation.repository}' staging path became a symbolic link. Inspect ${stagingRoot}; nothing was published.`;
     }
-    await rm(staging, { recursive: true, force: true });
+    await removeTemporaryTree(staging);
     return null;
   };
   const cloneFullOnce = async () => {
@@ -3781,31 +3815,81 @@ async function cloneIntoWorkspace(root, operation, {
   // All checkout and possible lazy-fetch work is complete. Only now replace the invocation alias
   // with the exact reviewed URL so the durable workspace never depends on ephemeral Git config.
   restoreExactOrigin();
+  const stagedSource = await lstat(staging);
+  if (!stagedSource.isDirectory() || stagedSource.isSymbolicLink()) {
+    throw new SingularityFlowError(
+      `Repository '${operation.repository}' private clone is no longer an ordinary directory.`
+    );
+  }
+  const targetAbsentAndStageOwned = async () => {
+    if (!(await verifyOwnership())) {
+      throw new SingularityFlowError(
+        `Repository '${operation.repository}' staging ownership changed before its workspace target could be claimed.`
+      );
+    }
+    const source = await lstat(staging).catch((error) => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!source?.isDirectory() || source.isSymbolicLink()
+        || source.dev !== stagedSource.dev || source.ino !== stagedSource.ino
+        || source.birthtimeMs !== stagedSource.birthtimeMs) {
+      throw new SingularityFlowError(
+        `Repository '${operation.repository}' private clone changed before its workspace target could be claimed.`
+      );
+    }
+    const target = await lstat(operation.target).catch((error) => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (target) {
+      throw new SingularityFlowError(`Clone target became occupied before materialization: ${operation.target}`);
+    }
+  };
+  const removeReviewedEmptyTarget = async () => {
+    const current = await lstat(operation.target).catch((error) => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!current?.isDirectory() || current.isSymbolicLink()
+        || current.dev !== existing.dev || current.ino !== existing.ino
+        || current.birthtimeMs !== existing.birthtimeMs
+        || (await readdir(operation.target)).length !== 0) {
+      throw new SingularityFlowError(`Clone target changed after its empty directory was reviewed: ${operation.target}`);
+    }
+    await rmdir(operation.target);
+  };
   const claim = async () => {
     try {
       // A user may pre-create the repository folder while setting up a workspace. Claim it only
       // when it is still empty after the clone completes; rmdir fails if a concurrent process
       // added anything, so no user content is overwritten.
-      if (existing) await rmdir(operation.target);
+      if (existing) await retryTransientCloneFilesystem(removeReviewedEmptyTarget);
       // This rename is the complete repository mutation: the private clone has already finished
       // every checkout/configuration write, and cleanup below touches only its former staging
       // parent. Before the rename there is no target Git repository for factory reset to select;
       // afterward the checkout is complete and reset may safely win. Any later repository writer
       // (notably workspace state initialization) must acquire its own target-root mutation lease.
-      await rename(staging, operation.target);
-      const cleaned = await cleanupStaging();
-      return {
-        status: 0, error: null, clone: selected, fallbackUsed,
-        cleanup: cleaned
-          ? { status: 'removed', path: stagingRoot, recoverable: false }
-          : { status: 'retained', path: stagingRoot, recoverable: true }
-      };
+      await retryTransientCloneFilesystem(
+        () => rename(staging, operation.target), targetAbsentAndStageOwned
+      );
     } catch (error) {
       return {
         status: 1,
         error: await cleanupFailure(`Clone completed but could not claim its workspace target: ${error.message}`)
       };
     }
+    // The checkout is already at its final target. A locked disposable staging parent is a
+    // cleanup warning, not a failed clone that could invite another materialization attempt.
+    let cleaned = false;
+    try { cleaned = await cleanupStaging(); }
+    catch { /* The journal below retains the exact staging path for recovery. */ }
+    return {
+      status: 0, error: null, clone: selected, fallbackUsed,
+      cleanup: cleaned
+        ? { status: 'removed', path: stagingRoot, recoverable: false }
+        : { status: 'retained', path: stagingRoot, recoverable: true }
+    };
   };
   if (deferClaim) {
     return {
@@ -3813,7 +3897,7 @@ async function cloneIntoWorkspace(root, operation, {
       staging: { path: stagingRoot },
       claim,
       discard: async () => ({
-        removed: await cleanupStaging(), path: stagingRoot
+        removed: await cleanupStaging().catch(() => false), path: stagingRoot
       })
     };
   }
@@ -4367,12 +4451,27 @@ export async function workspaceStatus(workspacePath, {
     ? Object.values(workspace.repositories)
     : Object.hasOwn(workspace.repositories, repositoryId)
       ? [workspace.repositories[repositoryId]] : [];
+  // A saved manifest may predate portable path validation. Diagnose every registered member even
+  // for a selected-only read: two apparently ready aliases must not become one Story authority.
+  const pathAliases = workspaceRepositoryPathAliases(workspace.repositories);
   const repositories = await mapLimit(
     repositoryValues,
     gitWorkerCount(repositoryValues.length, { env }),
-    (repository) => repositoryStatus(workspace.path, repository, {
-      level, env, gitReadMode, onGitShadowComparison
-    })
+    (repository) => {
+      const alias = pathAliases.get(repository.id);
+      return alias
+        ? {
+            ...repository,
+            absolutePath: workspaceRepositoryPath(workspace, repository),
+            state: 'invalid-path',
+            error: alias.message,
+            pathAlias: alias.details,
+            dirty: null, branch: null, remote: null, head: null, worldModel: null
+          }
+        : repositoryStatus(workspace.path, repository, {
+            level, env, gitReadMode, onGitShadowComparison
+          });
+    }
   );
   const staged = level === 'full' ? await listWorkspaceDocuments(workspace.path) : [];
   const warnings = repositories
@@ -4382,6 +4481,12 @@ export async function workspaceStatus(workspacePath, {
       repository: repository.id,
       message: `${repository.metadata?.name ?? repository.id}: ${repository.worldModel.warning}`
     }));
+  warnings.push(...repositories.filter((repository) => repository.pathAlias).map((repository) => ({
+    code: 'repository-path-alias',
+    repository: repository.id,
+    conflictingRepository: repository.pathAlias.conflictingRepository,
+    message: `${repository.error} Rename or move one checkout before using it.`
+  })));
   return {
     workspace,
     level,
@@ -4552,7 +4657,9 @@ export async function readWorkspaceRegistry(file) {
 export async function rememberWorkspace(file, workspace, status = null, { preserveArchived = false } = {}) {
   const resolvedPath = path.resolve(workspace.path);
   const canonicalPath = await realpath(resolvedPath).catch(() => resolvedPath);
-  const normalized = validateWorkspaceManifest(workspace, { workspaceRoot: canonicalPath });
+  const normalized = validateWorkspaceManifest(workspace, {
+    workspaceRoot: canonicalPath, preserveLegacyPaths: true
+  });
   const entry = normalizeRegistryEntry({
     id: normalized.id,
     path: normalized.path,
@@ -4829,6 +4936,13 @@ export async function repairWorkspace(workspacePath, {
         .every((repository) => repository.state === 'ready')) {
     return { repaired: [], status };
   }
+  assertWorkspaceRepositoryMaterializationPaths(
+    status.workspace.repositories,
+    status.repositories.filter((repository) => repository.state !== 'ready'
+      && !repository.adoption
+      && (!selectedRepositoryIds || selectedRepositoryIds.has(repository.id)))
+      .map((repository) => repository.id)
+  );
   const journal = await readRepairJournal(status.workspace, status.repositories);
   const repaired = [];
   const pending = status.repositories.map((repository, index) => ({

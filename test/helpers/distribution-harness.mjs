@@ -1,5 +1,5 @@
 /** A fake machine for the distribution installers: npm, Copilot and VS Code as recorded calls. */
-import { appendFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -44,6 +44,11 @@ export function harness(version, {
       })}\n`);
       writeFileSync(path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
         `if (process.argv[2] === '--build') console.log(${JSON.stringify(build)});\n`);
+      // Like npm, link a bundled dependency's executable unless told not to.
+      if (!args.includes('--no-bin-links')) {
+        mkdirSync(path.join(packageRoot, 'node_modules', '.bin'), { recursive: true });
+        symlinkSync('../bundled-tool/cli.js', path.join(packageRoot, 'node_modules', '.bin', 'bundled-tool'));
+      }
       const skill = path.join(packageRoot, 'plugin', 'skills', 'sflow-help');
       mkdirSync(skill, { recursive: true });
       writeFileSync(path.join(skill, 'SKILL.md'), [

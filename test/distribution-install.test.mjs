@@ -137,6 +137,27 @@ test('distribution preview binds every installed CLI to its retained exact build
   assert.equal(firstGlobalMutation, -1, 'preview cannot mutate the global CLI');
 });
 
+test('an upgrade stages its packages without bin links, so bundled executables never break the rollback digest', async (t) => {
+  const item = await fixture(t);
+  await seedRetainedTarball(item);
+  const commands = harness(item.release.version, { initialInstalled: true });
+  const plan = await prepareDistributionInstall({
+    releaseDirectory: item.release.directory,
+    artifactKey: item.release.publicKeyPath,
+    cliOnly: true,
+    execute: commands.execute,
+    exists: commands.exists,
+    homeDirectory: item.home,
+    environment: { ...process.env, HOME: item.home },
+    tempRoot: item.temp
+  });
+  const staged = commands.calls.filter(([command, verb, scope]) => command === 'npm' && verb === 'install' && scope === '--prefix');
+  assert.equal(staged.length, 2, 'the candidate and the retained rollback package are both staged');
+  assert.ok(staged.every((call) => call.includes('--no-bin-links')));
+  assert.match(plan.distribution.rollback.packageSha256, /^sha256:[a-f0-9]{64}$/u,
+    'the retained package digests even though a bundled dependency declares an executable');
+});
+
 test('distribution preview refuses retained CLI bytes that do not reproduce the live build', async (t) => {
   const item = await fixture(t);
   await seedRetainedTarball(item);

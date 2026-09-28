@@ -596,9 +596,12 @@ async function stageDistributionPackage({
 }) {
   const prefix = path.join(directory, prefixName);
   await mkdir(prefix, { mode: 0o700 });
+  // No bin links: a staged package is inspected and digested, never put on PATH. npm would link each
+  // bundled dependency's executables into node_modules/.bin as symlinks, and the rollback digest
+  // refuses symlinks, so every upgrade over a retained release would stop at its preview.
   executeOrThrow(execute, 'npm', [
     'install', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', '--offline',
-    tarball, `--registry=${registry}`
+    '--no-bin-links', tarball, `--registry=${registry}`
   ], {
     env: { ...environment, NPM_CONFIG_REGISTRY: registry },
     timeoutMs: Number(environment.SINGULARITY_FLOW_PRODUCT_MUTATION_TIMEOUT_MS || 300_000)

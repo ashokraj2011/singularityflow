@@ -6,6 +6,8 @@ import path from 'node:path';
 import { stdin, stdout } from 'node:process';
 import { TextDecoder } from 'node:util';
 import { captureTerminalActionAuthorization } from '../action-authorization.mjs';
+import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { draftDeletePlan, openGitDraftStore } from '../wca-git-drafts.mjs';
@@ -34,6 +36,7 @@ const OPTIONS = {
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
 const OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u;
 const HEAD = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
+const APPROVED_STARTER = /^@approved-starter\/([a-z0-9]+(?:-[a-z0-9]+)*)$/u;
 const EFFECTS_NONE = Object.freeze({ stateChanged: false, filesChanged: false,
   publicationCreated: false, externalSystemsChanged: false });
 
@@ -217,6 +220,25 @@ export async function readWorkflowAuthorInput(file) {
   return input;
 }
 
+/** Read an exact starter from the freshly verified approved authority, not the app checkout. */
+export async function readApprovedWorkflowStarterInput(root, scope, selected) {
+  const match = APPROVED_STARTER.exec(selected);
+  if (!match || match[1].length > 64 || !isPortableRepositoryPathComponent(match[1])) {
+    fail('Select one portable approved starter ID.', 'WCA_INPUT_INVALID');
+  }
+  const relative = `singularity/templates/starter-packs/${match[1]}/draft-input.json`;
+  return withApprovedConfigurationRead(root, async (authority) => {
+    if (authority?.remote !== scope.remote
+        || authority?.commit !== scope.approvedConfiguration?.commit
+        || authority?.ref !== scope.approvedConfiguration?.ref) {
+      fail('Approved configuration changed after draft scope selection. List drafts again before retrying.',
+        'WCA_DRAFT_AUTHORITY_CHANGED');
+    }
+    return readWorkflowAuthorInput(path.join(configurationReadRoot(root), relative));
+  }, { preferAuthority: true, requireAuthorityRefresh: true, allowLocalHeads: false,
+    selectPaths: ['singularity/workflow.yml', relative] });
+}
+
 function scopeView(scope) {
   return { workspaceId: scope.workspaceId, remote: scope.remote,
     approvedConfiguration: scope.approvedConfiguration ?? { status: 'unavailable' } };
@@ -338,7 +360,10 @@ export async function run(root, positionals, options, { scope } = {}) {
       && options['expected-authority'] !== store.capability.repository) {
     fail('The approved draft repository changed. Reload the shared draft before making changes.', 'WCA_DRAFT_AUTHORITY_CHANGED');
   }
-  const input = options.input === undefined ? null : await readWorkflowAuthorInput(path.resolve(options.input));
+  const input = options.input === undefined ? null
+    : options.input.startsWith('@approved-starter/')
+      ? await readApprovedWorkflowStarterInput(root, scope, options.input)
+      : await readWorkflowAuthorInput(path.resolve(options.input));
   const target = positionals[3];
   let data;
   let status = 'read';

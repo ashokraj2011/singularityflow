@@ -9593,7 +9593,7 @@ user-invocable: false
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~797 body tokens</span>
+          <span class="pill">~785 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workflows</code></dd></div>
@@ -9623,14 +9623,13 @@ Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
 Run `author` from opened root; only explicit `--repository-story-refs` may read other local roots.
 `list|read|history|show|preview|catalog|where-used|op-status` is read-only; relay coverage/gaps.
-`author where-used &lt;SKILL-ID&gt; --json`: approved configuration; explicit `--story &lt;ID&gt;` selects
-one accepted local Story. Preserve `--ref`, `--commit`, `--snapshot-revision`; no fetch.
-`--story-refs &#39;STORY=refs/heads/branch,...&#39; --history-depth N`: explicit local first-parent windows.
-Never invent selectors; unavailable history refuses, not empty usage.
-`--repository-story-refs &#39;/root#STORY=refs/heads/branch,...&#39; --history-depth N` names at most
-four local roots and their Story/ref windows; no provider scan or fetch. Later pages require
-returned `--expected-source`. No repairs.
+`author where-used &lt;SKILL-ID&gt; --json` reads approved configuration; `--story &lt;ID&gt;` selects
+one accepted local Story. Preserve exact ref/commit/revision selectors; never fetch or infer.
+`--story-refs` selects local first-parent windows; `--repository-story-refs` selects up to
+four explicit local roots. No provider scan, invented selectors, or repairs. Later pages need
+the returned `--expected-source`; unavailable history never means empty usage.
 Create/Save: user direction, operation ID, observed head, matching `--expected-authority`.
+`--input @approved-starter/&lt;ID&gt;` reads the verified authority, not the app checkout.
 Inert JSON only; no rebase, replay or deleted-draft recreation. Lost acknowledgement:
 `author op-status &lt;ID&gt; --json`.
 Headless `author submit &lt;WFD-ID&gt; --revision N` or `author delete` only hands off:

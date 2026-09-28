@@ -19,6 +19,7 @@ import {
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { SMART_INITIALIZATION_ASSETS } from './initialization-assets.mjs';
 import { gitCommitIdentity } from './git.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
@@ -283,6 +284,19 @@ function plainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function usesSmartInitializationPreset(workflow) {
+  return workflow?.initialization?.preset?.id === 'sflow.outcome-standard'
+    && workflow.initialization.preset.version === 1;
+}
+
+function selectedSmartInitializationAsset(relative, templatesRoot) {
+  return SMART_INITIALIZATION_ASSETS.some(([source, destination]) => {
+    const target = source.startsWith('artifacts/')
+      ? `${templatesRoot}/${source.slice('artifacts/'.length)}` : destination;
+    return relative === target || relative.startsWith(`${target}/`);
+  });
+}
+
 /** Apply semantic changes without reserializing untouched repository-owned YAML nodes. */
 function patchWorkflowDocument(currentText, before, after) {
   const document = YAML.parseDocument(currentText);
@@ -336,12 +350,16 @@ function requiredPackagedWorkflowPaths(current, incoming) {
  * although a missing authority dependency still has to be restored for a seeded workflow to remain
  * valid.
  */
-function packagedWorkflowOwnership(current, incoming, baseline) {
+function packagedWorkflowOwnership(current, incoming, baseline, {
+  preserveSmartInitSelections = false
+} = {}) {
+  const selectedCurrentIds = (section) => Object.keys(current?.[section] ?? {})
+    .filter((id) => Object.hasOwn(incoming?.[section] ?? {}, id));
   const candidates = {
     workTypes: new Set(Object.keys(incoming.workTypes ?? {})),
-    phases: new Set(),
-    artifactSets: new Set(),
-    mcpServers: new Set()
+    phases: new Set(preserveSmartInitSelections ? selectedCurrentIds('phases') : []),
+    artifactSets: new Set(preserveSmartInitSelections ? selectedCurrentIds('artifactSets') : []),
+    mcpServers: new Set(preserveSmartInitSelections ? selectedCurrentIds('mcpServers') : [])
   };
   const requiredAuthorities = new Set();
 
@@ -359,11 +377,41 @@ function packagedWorkflowOwnership(current, incoming, baseline) {
     }
   };
 
-  for (const profile of Object.values(incoming.workTypes ?? {})) {
+  const collectPackagedPhaseDependencies = (phaseId) => {
+    const currentPhase = current.phases?.[phaseId];
+    if (preserveSmartInitSelections && currentPhase
+        && (baseline?.ownership?.workflow?.phases?.[phaseId] === PACKAGE_OWNERSHIP_REPOSITORY
+          || !(equal(currentPhase, incoming.phases?.[phaseId])
+            || isKnownPackagedWorkflowValue('phases', phaseId, currentPhase)))) return;
+    collectContractDependencies(incoming.phases?.[phaseId]);
+  };
+
+  if (preserveSmartInitSelections) {
+    // A repository may customize the selected work-type profile (for example, only its label)
+    // without taking ownership of the packaged phases it still selects. Discover dependencies
+    // from those exact framework-owned phase contracts independently of whole-profile equality;
+    // otherwise a package upgrade can install a phase update while omitting its new artifact set,
+    // approval authority, or required MCP server.
+    const selectedPhaseIds = new Set(Object.values(current.workTypes ?? {})
+      .flatMap((profile) => Array.isArray(profile?.phases) ? profile.phases : [])
+      .filter((phaseId) => typeof phaseId === 'string'
+        && Object.hasOwn(incoming.phases ?? {}, phaseId)));
+    for (const phaseId of selectedPhaseIds) collectPackagedPhaseDependencies(phaseId);
+  }
+
+  for (const [workTypeId, profile] of Object.entries(incoming.workTypes ?? {})) {
+    // Smart init deliberately installs a subset of the packaged workflow catalog. Only a workflow
+    // the repository actually selected may pull in its packaged phase and asset dependencies.
+    if (preserveSmartInitSelections && !Object.hasOwn(current.workTypes ?? {}, workTypeId)) continue;
+    const currentProfile = current.workTypes?.[workTypeId];
+    if (preserveSmartInitSelections
+        && (baseline?.ownership?.workflow?.workTypes?.[workTypeId] === PACKAGE_OWNERSHIP_REPOSITORY
+          || !(equal(currentProfile, profile)
+            || isKnownPackagedWorkflowValue('workTypes', workTypeId, currentProfile)))) continue;
     for (const phaseId of profile?.phases ?? []) {
       if (typeof phaseId !== 'string') continue;
       candidates.phases.add(phaseId);
-      collectContractDependencies(incoming.phases?.[phaseId]);
+      collectPackagedPhaseDependencies(phaseId);
       collectContractDependencies(profile?.phaseOverrides?.[phaseId]);
     }
   }
@@ -371,8 +419,20 @@ function packagedWorkflowOwnership(current, incoming, baseline) {
   // A packaged MCP contract may be selected indirectly by the phase allowlist rather than a
   // requiredServers entry. Keep it with the seed when any packaged phase can invoke it.
   for (const [serverId, server] of Object.entries(incoming.mcpServers ?? {})) {
+    if (preserveSmartInitSelections) continue;
     if ((server?.phases ?? []).some((phaseId) => candidates.phases.has(phaseId))) {
       candidates.mcpServers.add(serverId);
+    }
+  }
+
+  const selectedDependencies = Object.fromEntries(
+    ['phases', 'artifactSets', 'mcpServers'].map((section) => [section, new Set(candidates[section])])
+  );
+  if (preserveSmartInitSelections) {
+    // Keep omitted IDs in the ownership receipt so the ordinary three-way merge cannot insert
+    // them and a later package revision cannot silently expand the accepted smart preset.
+    for (const section of Object.keys(selectedDependencies)) {
+      for (const id of Object.keys(incoming[section] ?? {})) candidates[section].add(id);
     }
   }
 
@@ -391,7 +451,9 @@ function packagedWorkflowOwnership(current, incoming, baseline) {
       const inferredFramework = !currentPresent
         || equal(currentValue, incoming?.[section]?.[id])
         || isKnownPackagedWorkflowValue(section, id, currentValue);
-      const owner = recorded === PACKAGE_OWNERSHIP_REPOSITORY
+      const intentionallyAbsent = preserveSmartInitSelections && !currentPresent
+        && (section === 'workTypes' || !selectedDependencies[section]?.has(id));
+      const owner = recorded === PACKAGE_OWNERSHIP_REPOSITORY || intentionallyAbsent
         ? PACKAGE_OWNERSHIP_REPOSITORY
         : inferredFramework
           ? PACKAGE_OWNERSHIP_FRAMEWORK
@@ -425,7 +487,9 @@ function packagedWorkflowOwnership(current, incoming, baseline) {
   return { framework, repository, receipt, requiredAuthorities };
 }
 
-function applyPackagedWorkflowOwnership(value, current, incoming, ownership) {
+function applyPackagedWorkflowOwnership(value, current, incoming, ownership, {
+  preserveSmartInitSelections = false
+} = {}) {
   const exactRoots = new Set();
   const collisionRoots = new Set();
   const conflicts = [];
@@ -455,6 +519,13 @@ function applyPackagedWorkflowOwnership(value, current, incoming, ownership) {
           bundled: incomingPresent ? clone(incoming[section][id]) : undefined,
           resolution: currentPresent ? 'preserved-local' : 'preserved-local-deletion'
         });
+      }
+    }
+  }
+  if (preserveSmartInitSelections) {
+    for (const section of ['workTypes', 'phases', 'artifactSets', 'mcpServers']) {
+      if (!Object.hasOwn(current, section) && !Object.keys(value[section] ?? {}).length) {
+        delete value[section];
       }
     }
   }
@@ -1316,7 +1387,11 @@ export async function refreshPackagedConfiguration(root, {
     root, current, incoming, restorePackagedSeeds
   );
 
-  const requiredWorkflowPaths = requiredPackagedWorkflowPaths(mergeCurrent, incoming);
+  // The accepted smart preset is a curated package selection. Its omitted workflows and assets
+  // are intentional repository choices, including after the workflow is locally customized.
+  const preserveSmartInitSelections = restorePackagedSeeds && usesSmartInitializationPreset(current);
+  const requiredWorkflowPaths = preserveSmartInitSelections
+    ? new Set() : requiredPackagedWorkflowPaths(mergeCurrent, incoming);
   const merged = mergePackagedConfiguration(baseline?.workflow ?? {}, mergeCurrent, incoming, {
     acceptBundledConflicts,
     // A standard product workflow is always restored as packaged when it is absent. Repository
@@ -1332,10 +1407,12 @@ export async function refreshPackagedConfiguration(root, {
   // Ownership is proven against the bytes/data as found. A v1 field migration deliberately
   // changes that data shape, so hashing the migrated value would lose otherwise exact historical
   // package provenance and incorrectly preserve stale seeds as repository-owned.
-  const workflowOwnership = packagedWorkflowOwnership(current, incoming, baseline);
+  const workflowOwnership = packagedWorkflowOwnership(current, incoming, baseline, {
+    preserveSmartInitSelections
+  });
   const seededWorkflowResult = restorePackagedSeeds
     ? applyPackagedWorkflowOwnership(
-      merged.value, mergeCurrent, incoming, workflowOwnership
+      merged.value, mergeCurrent, incoming, workflowOwnership, { preserveSmartInitSelections }
     ) : { exactRoots: new Set(), collisionRoots: new Set(), conflicts: [] };
   // Required restoration is an invariant, not a choice the preview can switch back to local. Keep
   // ordinary repository customizations visible while avoiding a misleading dropdown for these
@@ -1402,6 +1479,11 @@ export async function refreshPackagedConfiguration(root, {
     const info = await lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
     if (info && (!info.isFile() || info.isSymbolicLink())) {
       throw new SingularityFlowError(`Packaged configuration asset must be a regular file: ${relative}`);
+    }
+    if (preserveSmartInitSelections && !info
+        && !selectedSmartInitializationAsset(relative, merged.value.templatesRoot ?? 'singularity/templates')) {
+      assetOwnership[relative] = PACKAGE_OWNERSHIP_REPOSITORY;
+      continue;
     }
     const currentBytes = info ? await readFile(target) : null;
     const currentHash = currentBytes ? sha256(currentBytes) : null;

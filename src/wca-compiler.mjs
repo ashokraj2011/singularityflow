@@ -10,7 +10,8 @@ import { loadDefinition, validateDefinition, resolveWorkType, assertPlannedClaim
 import { discoverAgents, parseAgentDependencies, validateAgentCatalog } from './agents.mjs';
 import { MODEL_TASKS, assertModelTask } from './model-tasks.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
-import { normalizeApprovalPolicy } from './approval-authority.mjs';
+import { approvalPolicyCapacity, normalizeApprovalPolicy } from './approval-authority.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { inspectSkillPackageContents, readSealedSkillPackage } from './skp-package.mjs';
 import { validateConfiguredSkillPhase, compileSkillPhaseProposal } from './skp-contract.mjs';
 import { normalizeTemplateCatalog, resolveTemplate } from './template-catalog.mjs';
@@ -69,6 +70,24 @@ function portable(value, label) {
   return value;
 }
 function optionalArray(value, label) { if (value !== undefined && !Array.isArray(value)) fail(`${label} must be an explicit array.`); return value ?? []; }
+function reviewedNonCodeFinish(order, symbols, candidate) {
+  const last = order.at(-1);
+  const phase = candidate.phases[last];
+  // Ordinary phases have a concrete template, artifact-only scope and a required human approval.
+  // Approved review phases remain usable when the workflow is later edited or forked.
+  if (!phase || phase.kind === 'skill'
+      || phase.writeScope !== 'artifact-only' || !phase.approval
+      || phase.approval === 'none' || ![undefined, 'required'].includes(phase.approval.mode)
+      || !phase.inputs?.some((input) => (typeof input === 'string' ? input : input.phase) === order.at(-2))) return false;
+  return order.every((phaseId) => {
+    const selected = symbols.phases.get(phaseId);
+    if (selected?.kind === 'skill') {
+      return selected.contract?.task !== 'code' && selected.contract?.writeScope === 'artifact-only';
+    }
+    const ordinary = candidate.phases[phaseId];
+    return ordinary?.writeScope === 'artifact-only' && !phaseRequiresCodeDelivery(ordinary);
+  });
+}
 function safeCopy(value) {
   let nodes = 0; const active = new Set();
   function visit(item, depth) {
@@ -917,7 +936,10 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     const selectedOrder = replacement?.definition.phases ?? value.phases;
     if (!Array.isArray(selectedOrder) || !selectedOrder.length || selectedOrder.length > WCA_COMPILER_LIMITS.phases) fail('Workflow phase order must be explicit and bounded.', 'WCA_GRAPH_INVALID');
     const order = selectedOrder.map((entry) => { const selected = resolve(entry, 'phase', 'Workflow phase'); return selected.id ?? (typeof entry === 'string' ? entry : entry.id); });
-    if (new Set(order).size !== order.length || !sharedObjectChanges && (order[0] !== 'intake' || order.at(-1) !== 'conformance')) fail('Workflow order must be unique and explicitly retain Intake and Conformance.', 'WCA_GRAPH_INVALID');
+    if (new Set(order).size !== order.length || !sharedObjectChanges && (order[0] !== 'intake'
+        || order.at(-1) !== 'conformance' && !reviewedNonCodeFinish(order, symbols, candidate))) {
+      fail('Workflow order must be unique and start with Intake; code workflows end with Conformance, while non-code workflows may end with a reviewed artifact-only phase that consumes the preceding output.', 'WCA_GRAPH_INVALID');
+    }
     candidate.workTypes[key] = replacement ? { ...structuredClone(replacement.definition), phases: order }
       : { label: value.label ?? request.label, description: value.description ?? '', phases: order, ...(value.plannedClaims !== undefined ? { plannedClaims: value.plannedClaims } : {}), ...(value.reworkLoops ? { reworkLoops: value.reworkLoops } : {}) };
     // Only the effective workType contract owns inputs, templates, artifact paths and approval.
@@ -933,6 +955,11 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
       const phase = effective?.get(phaseId) ?? (!selectedGroupPhase ? approvedEffective?.get(phaseId) : null)
         ?? candidate.phases[phaseId] ?? proposed?.phasePolicy;
       if (!phase) { add('WCA_PHASE_UNCOMPILED', `definitions.workflows.${key}.phases`, 'A selected phase could not be compiled.'); continue; }
+      if (skillProposals.length && phase.approval?.mode !== 'none'
+          && !approvalPolicyCapacity(candidate.approvalAuthorities, phase.approval).attainable) {
+        add('WCA_REVIEWER_CAPACITY_UNATTAINABLE', `definitions.workflows.${key}.phases.${phaseId}`,
+          'The approved configuration has too few eligible reviewers for this phase. Configure reviewers in the repository approval authority before SKP terminal consent.');
+      }
       if (phase.kind === 'skill') validateConfiguredSkillPhase(candidate.phases[phaseId], phaseId);
       if (!symbols.phases.has(phaseId)) {
         const selectedAgent = agents.find((agent) => agent.defaultFor.includes(phaseId));

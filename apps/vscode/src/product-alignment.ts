@@ -22,12 +22,21 @@ export interface ProductSurface {
   reason?: string;
 }
 
+export interface ProductRequirementCheck {
+  repository: string;
+  verdict: string;
+  checkedAt: string | null;
+  required?: string | null;
+  reason?: string | null;
+}
+
 export interface ProductSurfaceStatus {
   verdict: 'aligned' | 'repairable' | 'split' | 'no-receipt' | 'receipt-invalid';
   surfaces: ProductSurface[];
   actions: Array<{ surface: string; kind: string }>;
   split: { cli: string | null; vscode: string | null } | null;
   next: Array<{ command: string; reason: string }>;
+  requirements?: ProductRequirementCheck[];
 }
 
 export interface ProductAlignmentResult extends ProductSurfaceStatus {
@@ -54,6 +63,7 @@ export interface ProductAlignmentHost {
 
 export const PRODUCT_CHECK_KEY = 'singularityFlow.productAlignment.lastCheck';
 export const PRODUCT_SPLIT_KEY = 'singularityFlow.productAlignment.reportedSplit';
+export const PRODUCT_REQUIREMENT_WARNED_KEY = 'singularityFlow.productRequirement.warned';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RELOAD_MESSAGE = 'Singularity Flow was updated. Reload this window to run the installed build.';
 
@@ -118,6 +128,21 @@ export function productCheckDue(host: Pick<ProductAlignmentHost, 'remembered' | 
   return !last || last.build !== loadedBuild || !Number.isFinite(last.at) || now - Number(last.at) >= DAY_MS;
 }
 
+/**
+ * Say once, per repository and attempt, that a required build could not be installed. The terminal
+ * printed it too, but a window may be where the person looks.
+ */
+function warnFailedRequirements(host: ProductAlignmentHost, requirements: ProductRequirementCheck[]): void {
+  const warned = new Set(host.remembered<string[]>(PRODUCT_REQUIREMENT_WARNED_KEY) ?? []);
+  const fresh = requirements.filter((entry) => entry.verdict === 'failed' && !warned.has(`${entry.repository}|${entry.checkedAt}`));
+  if (!fresh.length) return;
+  for (const entry of fresh) warned.add(`${entry.repository}|${entry.checkedAt}`);
+  void host.remember(PRODUCT_REQUIREMENT_WARNED_KEY, [...warned].slice(-20));
+  const first = fresh[0]!;
+  void host.warn(`Singularity Flow could not install the build ${path.basename(first.repository)} requires${first.reason ? `: ${first.reason}` : '.'} `
+    + 'It keeps working on the current build. `singularity-flow product status` shows every repository\'s requirement.');
+}
+
 function failureText(error: unknown): string {
   return String((error as Error)?.message ?? error).split('\n')[0]!.slice(0, 300);
 }
@@ -144,6 +169,7 @@ export async function alignProductSurfaces(host: ProductAlignmentHost, {
   for (const surface of status.surfaces) {
     host.log(`Product surface ${surface.id}: ${surface.state}${surface.live ? ` · ${surface.live}` : ''}`);
   }
+  warnFailedRequirements(host, status.requirements ?? []);
   if (status.verdict === 'repairable') {
     let result: ProductAlignmentResult | undefined;
     try {

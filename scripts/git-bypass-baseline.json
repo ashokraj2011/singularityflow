@@ -567,6 +567,13 @@
       },
       "digest": "396dd97b1fd3e09d7622dde56fb753e361f74144ce834144e79b0d2c69d858fb"
     },
+    "src/configuration-review-pass.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "031abecbc768db8eb250e9c4a7089dee1bb2c1a4da0bc3de44029dceb6ed03e5"
+    },
     "src/context-history.mjs": {
       "counts": {
         "command-run": 2

@@ -25,3 +25,6 @@ This skill compares each with the build the installation receipt recorded.
    `next` step exactly. Never downgrade a surface, and never replace a development checkout.
 5. If a step failed, show its reason and the retry command `singularity-flow product align`. Never
    substitute `npm install`, `code --install-extension`, or a reinstall of your own.
+6. Report `configurationReviews` (the reviews this build opened for registered repositories) and
+   `requirements` (each repository's last required-build check on this machine) exactly as
+   returned. For a `failed` requirement, show its `reason`; never install a release yourself.

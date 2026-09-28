@@ -359,7 +359,7 @@ export async function enforceProductRequirement({
   try { found = await read(root); }
   catch (error) {
     write(`Singularity Flow could not read this repository's approved product requirement: ${error.message}`);
-    await record('unavailable', { code: error?.code ?? null });
+    await record('unavailable', { code: error?.code ?? null, reason: String(error?.message ?? error).slice(0, 500) });
     return Object.freeze({ status: 'unavailable' });
   }
   if (!found) {
@@ -392,10 +392,13 @@ export async function enforceProductRequirement({
     await install(requirement, { execute, exists, homeDirectory, environment, running: info });
   } catch (error) {
     write(`Singularity Flow could not install the required release (${error.message}). Install it with the release's own wrapper: ${requirement.release.source}. Continuing on this build.`);
-    await record('failed', { authorityCommit: found.authority.commit, code: error?.code ?? null });
+    await record('failed', {
+      authorityCommit: found.authority.commit, required: requirement.minimumBuild.builtAt,
+      code: error?.code ?? null, reason: String(error?.message ?? error).slice(0, 500)
+    });
     return Object.freeze({ status: 'failed' });
   }
-  await record('installed', { authorityCommit: found.authority.commit });
+  await record('installed', { authorityCommit: found.authority.commit, required: requirement.minimumBuild.builtAt });
   write('Singularity Flow: continuing this command on the required build.');
   return handOff();
 }

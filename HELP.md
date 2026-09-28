@@ -265,7 +265,8 @@ A partial install (`--cli-only`, `--vscode-only`, `--skip-copilot`) or an out-of
 same version, and an older build then refuses records that a newer one wrote.
 
 - `singularity-flow product status` compares the build each surface runs with the build the
-  installation receipt recorded.
+  installation receipt recorded. It also lists the configuration reviews this build opened and each
+  repository's last required-build check on this machine.
 - `singularity-flow product align` brings a lagging surface to that installed build from the bytes
   the receipt retained, then verifies it. It never downgrades a newer surface, never replaces a
   development checkout, and never runs while an install or its recovery owns the product surfaces.

@@ -40,6 +40,28 @@ export function productUpdateDisabled(environment = process.env) {
   return ['off', '0', 'false', 'no'].includes(String(environment?.[PRODUCT_UPDATE_SWITCH] ?? '').trim().toLowerCase());
 }
 
+/**
+ * The last requirement verdict this machine recorded per repository, newest first. Read-only and
+ * local: `singularity-flow product status` shows it without reaching any repository.
+ */
+export async function recordedRequirementChecks({ homeDirectory = os.homedir() } = {}) {
+  let repositories;
+  try { repositories = JSON.parse(await readFile(requirementChecksFile(homeDirectory), 'utf8'))?.repositories ?? {}; }
+  catch { return Object.freeze([]); }
+  return Object.freeze(Object.entries(repositories)
+    .filter(([, entry]) => entry && typeof entry === 'object' && typeof entry.verdict === 'string')
+    .map(([repository, entry]) => Object.freeze({
+      repository,
+      verdict: entry.verdict,
+      build: typeof entry.build === 'string' ? entry.build : null,
+      checkedAt: typeof entry.checkedAt === 'string' ? entry.checkedAt : null,
+      required: typeof entry.required === 'string' ? entry.required : null,
+      code: typeof entry.code === 'string' ? entry.code : null,
+      reason: typeof entry.reason === 'string' ? entry.reason : null
+    }))
+    .sort((left, right) => String(right.checkedAt ?? '').localeCompare(String(left.checkedAt ?? ''))));
+}
+
 /** The running build line when the requirement must be checked now, or null. Never throws. */
 export async function productRequirementDue({
   root,

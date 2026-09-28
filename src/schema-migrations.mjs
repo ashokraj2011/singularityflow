@@ -3829,6 +3829,10 @@ const families = [
     paths: [/^\$local\/installations\/requirement-checks\.json$/]
   }),
   family({
+    id: 'product-configuration-reviews', currentVersion: 1,
+    paths: [/^\$local\/installations\/configuration-reviews\.json$/]
+  }),
+  family({
     id: 'distribution-install-transaction', currentVersion: 1,
     paths: [/^\$local\/installations\/distribution-install-pending\.json$/]
   }),

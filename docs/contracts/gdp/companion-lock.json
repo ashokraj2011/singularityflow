@@ -4,8 +4,8 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "45ddadb3a288eabc2677bf7ce4d94abadb5c1ce3",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-28-SELF-REPAIR.md",
+    "reviewedAtCommit": "2edbae2f02a5c4a62168a105ed1f72af1ef6bde6",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-29-CONFIGURATION-REVIEWS.md",
     "companionIds": [
       "migration-registry"
     ]
@@ -99,7 +99,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:0e74b29aefcf954389cda1b993c0110d5201eff0a4a99499495546cccffc5987"
+      "sha256": "sha256:9a7053f60e73b4dfe6dfbc587880745fdf489ce376d9900bf80f65fa30fbbac3"
     },
     {
       "id": "smart-initialization-v1",

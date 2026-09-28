@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 25
+version: 26
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -127,6 +127,10 @@ refresh never creates a first configuration authority. A review is named by the 
 starts from and the exact configuration it proposes, so every teammate whose new build proposes the
 same change joins that one review instead of opening another. A window waiting to reload onto a
 newer build opens none; the reloaded build does.
+
+A terminal has no window to wait in, so a new build's first mutation starts the same review-only
+refresh as a background worker, once per build. `singularity-flow product status` lists the reviews
+it opened. Set `SINGULARITY_FLOW_CONFIGURATION_REVIEWS=off` to switch the background pass off.
 
 Use `workspace refresh-configuration --dry-run` to preview all repositories, or add a workspace
 reference and repeatable `--repository ID` filters for a bounded repair. Repository customizations
@@ -265,6 +269,8 @@ on every surface before the command runs, then continues the command on the new 
   at once. A development checkout never updates itself.
 - A failed download or install never fails the command: it says what to run and continues on the
   current build. Set `SINGULARITY_FLOW_PRODUCT_UPDATE=off` to switch the check off.
+- `singularity-flow product status` lists each repository's last check on this machine, including
+  why a required release could not be installed. VS Code warns once about each failed install.
 
 ## State and safety
 

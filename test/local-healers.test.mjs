@@ -163,12 +163,18 @@ test('a new build\'s first run repairs machine-local state once, and records it'
   };
   const lines = [];
   const spawned = [];
+  const reviews = [];
   const outcome = await firstRunPass({
     runningBuild: versionLine(STAMPED), argv: ['next'], homeDirectory: home, environment,
     execute: (...call) => { spawned.push(call); throw new Error('no subprocess is expected'); },
-    exists: () => false, write: (entry) => lines.push(entry)
+    exists: () => false, write: (entry) => lines.push(entry),
+    startReviews: async (options) => { reviews.push(options); return { status: 'started', pid: 1 }; }
   });
   assert.equal(outcome.status, 'no-receipt');
+  assert.deepEqual(reviews.map((entry) => entry.runningBuild), [versionLine(STAMPED)],
+    'the pass starts this build\'s background configuration reviews once');
+  assert.equal(outcome.configurationReviews, 'started');
+  assert.ok(lines.some((entry) => /packaged configuration against your registered repositories in the background/u.test(entry)));
   assert.deepEqual(outcome.healers.map((entry) => [entry.id, entry.outcome, entry.count]), [
     ['stale-workspace-registry', 'healed', 1], ['orphan-bootstrap-staging', 'healed', 1]
   ]);
@@ -191,7 +197,7 @@ test('a healer that cannot run is reported and never fails the command', async (
     runningBuild: versionLine(STAMPED), argv: ['next'], homeDirectory: home,
     environment: { SINGULARITY_FLOW_WORKSPACE_REGISTRY: item.registry, SINGULARITY_FLOW_BOOTSTRAP_STATE: item.bootstrapRoot },
     execute: () => { throw new Error('no subprocess is expected'); }, exists: () => false,
-    write: (entry) => lines.push(entry)
+    write: (entry) => lines.push(entry), startReviews: async () => ({ status: 'no-workspaces' })
   });
   assert.deepEqual(outcome.healers.map((entry) => [entry.id, entry.outcome, entry.code]), [
     ['stale-workspace-registry', 'failed', 'WORKSPACE_REGISTRY_INVALID'],

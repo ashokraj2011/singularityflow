@@ -109,6 +109,31 @@ test('a repairable machine is aligned in the background and the window offers a 
   assert.equal(item.state.get(PRODUCT_CHECK_KEY).build, BUILD);
 });
 
+test('a required build that could not be installed is warned once per attempt', async (t) => {
+  const directory = await extension(t);
+  let requirements = [
+    { repository: '/work/app', verdict: 'failed', checkedAt: '2026-09-28T10:00:00.000Z', reason: 'The release does not meet the required build.' },
+    { repository: '/work/lib', verdict: 'satisfied', checkedAt: '2026-09-28T10:00:00.000Z' }
+  ];
+  const item = host(directory, {
+    status: () => ({ verdict: 'aligned', surfaces: surfaces('aligned'), actions: [], split: null, next: [], requirements })
+  });
+  const bundle = new LoadedBundle(path.join(directory, 'dist', 'extension.cjs'));
+  const warnings = () => item.events.filter(([kind]) => kind === 'warn').map(([, message]) => message);
+  assert.equal(await alignProductSurfaces(item, { loadedBuild: BUILD, bundle }), 'aligned');
+  assert.equal(warnings().length, 1);
+  assert.match(warnings()[0], /could not install the build app requires: The release does not meet the required build\. It keeps working on the current build/u);
+
+  item.now = () => 1_000_000 + DAY;
+  await alignProductSurfaces(item, { loadedBuild: BUILD, bundle });
+  assert.equal(warnings().length, 1, 'the same attempt is not warned again at the next daily check');
+
+  requirements = [{ ...requirements[0], checkedAt: '2026-09-29T10:00:00.000Z' }];
+  item.now = () => 1_000_000 + 2 * DAY;
+  await alignProductSurfaces(item, { loadedBuild: BUILD, bundle });
+  assert.equal(warnings().length, 2, 'a later failed attempt is its own warning');
+});
+
 test('a failed alignment warns with the retry command and never reloads', async (t) => {
   const directory = await extension(t);
   const item = host(directory, {

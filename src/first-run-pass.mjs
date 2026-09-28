@@ -1,12 +1,14 @@
 /**
  * What a new build does before its first mutation command on this machine, once.
  *
- * It brings every product surface to the installed build and repairs machine-local state through
- * the registered healers. It never fails the command it precedes. The pass is recorded per build,
- * so it runs again only when another build runs. A pass that an install pre-empted is not
- * recorded, so the next mutation tries it again.
+ * It brings every product surface to the installed build, repairs machine-local state through the
+ * registered healers, and starts the background pass that opens a review for each registered
+ * repository whose approved configuration lags this build. It never fails the command it precedes.
+ * The pass is recorded per build, so it runs again only when another build runs. A pass that an
+ * install pre-empted is not recorded, so the next mutation tries it again.
  */
 import os from 'node:os';
+import { startConfigurationReviews } from './configuration-review-pass.mjs';
 import { repairLocalState } from './local-state-repair.mjs';
 import { alignBeforeFirstMutation, recordBuildPass } from './product-alignment.mjs';
 import { commandExists, run } from './util.mjs';
@@ -19,7 +21,8 @@ export async function firstRunPass({
   homeDirectory = os.homedir(),
   environment = process.env,
   write = (line) => process.stderr.write(`${line}\n`),
-  repairLocal = repairLocalState
+  repairLocal = repairLocalState,
+  startReviews = startConfigurationReviews
 } = {}) {
   const product = await alignBeforeFirstMutation({
     runningBuild, argv, execute, exists, homeDirectory, environment, write, record: false
@@ -31,6 +34,10 @@ export async function firstRunPass({
     if (healer.outcome === 'failed') write(`Singularity Flow could not repair machine-local state (${healer.id}): ${healer.reason}`);
   }
   if (product.status === 'skipped') return Object.freeze({ status: 'skipped', healers });
+  const reviews = await startReviews({ runningBuild, homeDirectory, environment });
+  if (reviews.status === 'started') {
+    write('Singularity Flow: checking this build\'s packaged configuration against your registered repositories in the background. `singularity-flow product status` shows any review it opens.');
+  }
   await recordBuildPass({
     homeDirectory, runningBuild,
     entry: {
@@ -38,8 +45,9 @@ export async function firstRunPass({
       trigger: 'first-mutation',
       outcome: product.status,
       steps: (product.result?.steps ?? []).map((step) => ({ ...step })),
-      healers: healers.map(({ receipt, ...rest }) => ({ ...rest, ...(receipt ? { receipt } : {}) }))
+      healers: healers.map(({ receipt, ...rest }) => ({ ...rest, ...(receipt ? { receipt } : {}) })),
+      configurationReviews: reviews.status
     }
   }).catch(() => undefined);
-  return Object.freeze({ status: product.status, healers });
+  return Object.freeze({ status: product.status, healers, configurationReviews: reviews.status });
 }

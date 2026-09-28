@@ -5,8 +5,11 @@
  * reads. `align` changes installed product surfaces, and only to the build the machine's
  * installation receipt names, from the bytes that receipt retained.
  */
+import os from 'node:os';
+
 import { BUILD_INFO, versionLine } from '../build-info.mjs';
 import { PRODUCT_SUBCOMMANDS } from '../command-registry.mjs';
+import { recordedConfigurationReviews } from '../configuration-review-pass.mjs';
 import {
   commandResult, effects, failed, noEffects, noop, succeeded
 } from '../narration/command-result.mjs';
@@ -14,6 +17,7 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import {
   applyProductAlignment, observeProductSurfaces, planProductAlignment, PRODUCT_SURFACE_STATES
 } from '../product-alignment.mjs';
+import { recordedRequirementChecks } from '../product-requirement-gate.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 const OPTIONS = Object.freeze({
@@ -27,6 +31,16 @@ const LABELS = Object.freeze({
   copilot: 'Copilot plugin and skills'
 });
 
+const REQUIREMENT_LABELS = Object.freeze({
+  satisfied: 'runs a build that meets its requirement',
+  installed: 'installed the build it requires',
+  'update-required': 'needs a newer build',
+  failed: 'could not install the build it requires',
+  unavailable: 'could not read its requirement',
+  development: 'development build, never updated',
+  unknown: 'build time unknown'
+});
+
 function fail(message, code = 'PRODUCT_COMMAND_INVALID') {
   throw new SingularityFlowError(message, { code });
 }
@@ -36,7 +50,32 @@ export function runningStampedBuild(info = BUILD_INFO) {
   return info?.commit || info?.sourceSha256 ? versionLine(info) : null;
 }
 
-function statusData(plan) {
+/**
+ * What this machine recorded about its repositories, read locally: the configuration reviews this
+ * build opened, and each repository's last product-requirement verdict.
+ */
+export async function productMachineRecords({
+  homeDirectory = os.homedir(), runningBuild = runningStampedBuild()
+} = {}) {
+  const running = runningBuild;
+  const [reviews, requirements] = await Promise.all([
+    running ? recordedConfigurationReviews({ homeDirectory, runningBuild: running }) : null,
+    recordedRequirementChecks({ homeDirectory })
+  ]);
+  return {
+    configurationReviews: reviews ? {
+      status: reviews.status ?? null,
+      outcome: reviews.outcome ?? null,
+      reviews: (reviews.reviews ?? []).map((entry) => ({ ...entry })),
+      startedAt: reviews.startedAt ?? null,
+      completedAt: reviews.completedAt ?? null,
+      reason: reviews.reason ?? null
+    } : null,
+    requirements: requirements.filter((entry) => entry.verdict !== 'none').map((entry) => ({ ...entry }))
+  };
+}
+
+function statusData(plan, records = { configurationReviews: null, requirements: [] }) {
   return {
     resultType: 'product-status',
     schemaVersion: 1, // schema-transient: public CLI result envelope
@@ -44,8 +83,32 @@ function statusData(plan) {
     surfaces: plan.surfaces.map((entry) => ({ ...entry })),
     actions: plan.actions.map((entry) => ({ ...entry })),
     split: plan.split ? { ...plan.split } : null,
-    next: plan.next.map((entry) => ({ ...entry }))
+    next: plan.next.map((entry) => ({ ...entry })),
+    configurationReviews: records.configurationReviews,
+    requirements: records.requirements
   };
+}
+
+function printRecords(records, log = console.log) {
+  const reviews = records.configurationReviews;
+  if (reviews?.status === 'running') {
+    log(`Configuration reviews: checking this build's packaged configuration in the background since ${reviews.startedAt}.`);
+  } else if (reviews?.outcome === 'reviews-opened') {
+    log('Configuration reviews opened for this build (nothing changes until each is merged):');
+    for (const entry of reviews.reviews) log(`- ${entry.repository} → ${entry.proposalBranch}`);
+  } else if (reviews?.outcome === 'current') {
+    log("Configuration reviews: every registered repository's approved configuration matches this build.");
+  } else if (reviews) {
+    log(`Configuration reviews could not be opened${reviews.reason ? `: ${reviews.reason}` : '.'} Preview them with: singularity-flow workspace refresh-configuration --dry-run`);
+  }
+  if (records.requirements.length) {
+    log('Repository requirements (last check on this machine):');
+    for (const entry of records.requirements) {
+      const label = REQUIREMENT_LABELS[entry.verdict] ?? entry.verdict;
+      const required = entry.required ? ` · requires a build from ${entry.required}` : '';
+      log(`- ${entry.repository}: ${label}${required} · checked ${entry.checkedAt ?? 'never'}${entry.reason ? ` — ${entry.reason}` : ''}`);
+    }
+  }
 }
 
 function printSurfaces(plan, log = console.log) {
@@ -78,8 +141,12 @@ export async function run(_argv, { positionals, options }) {
 
   if (subcommand === 'status' || dryRun) {
     const plan = planProductAlignment(await observeProductSurfaces({ extensionPath }));
-    const data = statusData(plan);
-    if (!json) printSurfaces(plan);
+    const records = await productMachineRecords();
+    const data = statusData(plan, records);
+    if (!json) {
+      printSurfaces(plan);
+      printRecords(records);
+    }
     emitCommandResult(commandResult({
       operation: { id: `product.${subcommand}`, classification: subcommand === 'status' ? 'read' : 'mutation' },
       outcome: verdictOutcome(plan),

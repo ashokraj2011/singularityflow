@@ -200,8 +200,13 @@ const productAlignmentSteps = (label) => [
  * src/upgrade-contract.mjs keeps this list and the version-sensitive codes identical.
  */
 const UPGRADE_KNOWN = Object.freeze({
-  SCHEMA_VERSION_FUTURE: () => productAlignmentSteps(
-    'A newer Singularity Flow build wrote this record. Check which build each surface runs.'),
+  SCHEMA_VERSION_FUTURE: () => [
+    ...productAlignmentSteps('A newer Singularity Flow build wrote this record. Check which build each surface runs.'),
+    // Alignment only reproduces builds this machine retains. A teammate's newer release is not one.
+    step('install-newer-release',
+      'When every surface already runs the installed build, a newer release wrote this record: install that release with its own install wrapper. A repository whose approved singularity/product.yml requires it installs it automatically.',
+      null, 'remediation')
+  ],
   DOCS_MANIFEST_MISMATCH: () => productAlignmentSteps(
     'The installed help catalog does not match its package. Check which build each surface runs.'),
   SCHEMA_VERSION_ARCHIVED: () => [

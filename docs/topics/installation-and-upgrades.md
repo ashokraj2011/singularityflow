@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 24
+version: 25
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -233,6 +233,11 @@ interrupted clone left behind. If the CLI running that command was the one repla
 continues on the aligned build. A failed pass never fails the command:
 it prints the retry command, `singularity-flow product align`. Set
 `SINGULARITY_FLOW_PRODUCT_ALIGNMENT=off` to switch the automatic pass off.
+
+Alignment reproduces only builds this machine retains. When a record was written by a teammate's
+newer release that was never installed here, every surface already runs the installed build, and the
+refusal says to install that release with its own install wrapper. A repository whose approved
+configuration requires the newer build installs it automatically; see "Keep a team on one build".
 
 ## Keep a team on one build
 

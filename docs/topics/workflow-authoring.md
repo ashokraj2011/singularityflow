@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 29
+version: 30
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -53,7 +53,12 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
   is storage, not a proposal or approval. Conflicts and uncertain acknowledgements retain the
   pending buffer; Reload requires explicit reconciliation/discard. Binary assets are read-only
   to avoid a lossy text round trip. Encrypted private recovery preserves acknowledged local
-  checkpoints separately from Git; native tab close does not guarantee a shared flush.
+  checkpoints separately from Git; native tab close does not guarantee a shared flush. Shared
+  workflow drafts uses Configuration Center's exact repository when opened from that screen.
+  When opened from the command palette, it uses the active Singularity Flow workspace repository
+  or this editor's repository. It asks for a repository only when none is known. An open draft
+  stays bound to its original repository and refuses further actions after the workspace or editor
+  repository selection changes; it never moves pending edits silently.
 
 After `singularity-flow onboard --bootstrap`, run `singularity-flow init` before authoring. Bootstrap pins the repository authority; init materializes `singularity/workflow.yml` and `singularity/portfolio.yml`. When initialization is needed, the bootstrap receipt now gives that exact next command.
 

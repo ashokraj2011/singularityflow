@@ -3713,22 +3713,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openDiagnostics', openDiagnostics));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', openDiagnostics));
 
-  // Shared drafts are bound to an explicitly opened/selected Git root, not the machine's last
-  // workspace. Register before lifecycle activation so an incomplete Story cannot hide authoring.
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openSharedWorkflowDrafts', async () => {
+  // Shared drafts are bound to a verified repository, never just the machine's last open folder.
+  // Configuration Center passes its exact bound repository. A command-palette invocation uses
+  // the active workspace, then this editor's repository. Ask only when none is known.
+  // Register before lifecycle activation so an incomplete Story cannot hide authoring.
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openSharedWorkflowDrafts', async (configuration?: { repositoryPath: string }) => {
     try {
-      const folders = vscode.workspace.workspaceFolders ?? [];
-      const folder = folders.length === 1 ? folders[0]
-        : folders.length > 1 ? await vscode.window.showWorkspaceFolderPick({
-          placeHolder: 'Choose the opened repository whose configuration authority owns these drafts'
-        }) : null;
-      const picked = folder ? folder.uri : (await vscode.window.showOpenDialog({
-        title: 'Choose the exact Git repository root for shared workflow drafts',
-        canSelectFiles: false, canSelectFolders: true, canSelectMany: false,
-        openLabel: 'Use this repository'
-      }))?.[0];
-      if (!picked) return;
-      const selectedRoot = await validateRepositoryDirectory(picked.fsPath);
+      const selectedWorkspace = configuration ? null : await activeWorkspaceRepository(context, output);
+      if (selectedWorkspace && !('repository' in selectedWorkspace)) {
+        throw new Error(selectedWorkspace.reason);
+      }
+      const selectedEditorRepository = activeRepositoryContext();
+      let selectedRoot: string;
+      if (configuration) {
+        if (!selectedEditorRepository || selectedEditorRepository.root !== configuration.repositoryPath) {
+          throw new Error('The Configuration Center repository changed. Reopen it before opening shared workflow drafts.');
+        }
+        selectedRoot = await validateRepositoryDirectory(configuration.repositoryPath);
+      } else if (selectedWorkspace) selectedRoot = selectedWorkspace.repository;
+      else if (selectedEditorRepository) selectedRoot = await validateRepositoryDirectory(selectedEditorRepository.root);
+      else {
+        const folders = vscode.workspace.workspaceFolders ?? [];
+        const folder = folders.length === 1 ? folders[0]
+          : folders.length > 1 ? await vscode.window.showWorkspaceFolderPick({
+            placeHolder: 'Choose the opened repository whose configuration authority owns these drafts'
+          }) : null;
+        const picked = folder ? folder.uri : (await vscode.window.showOpenDialog({
+          title: 'Choose the exact Git repository root for shared workflow drafts',
+          canSelectFiles: false, canSelectFolders: true, canSelectMany: false,
+          openLabel: 'Use this repository'
+        }))?.[0];
+        if (!picked) return;
+        selectedRoot = await validateRepositoryDirectory(picked.fsPath);
+      }
       const draftsClient = new SingularityFlowClient({
         location: surfaceLocation, repository: selectedRoot, environment: cliEnvironment,
         onOutput: (text) => output.append(text)
@@ -3736,9 +3753,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { showSharedWorkflowDrafts } = lazyPanels();
       await showSharedWorkflowDrafts(context, async (argv, requestedRoot) => {
         try {
-          if (path.resolve(requestedRoot) !== path.resolve(selectedRoot)
-              || await validateRepositoryDirectory(selectedRoot) !== selectedRoot) {
+          if (path.resolve(requestedRoot) !== path.resolve(selectedRoot)) {
             return { result: null, error: 'The shared-draft repository changed. Reopen the draft panel.' };
+          }
+          if (selectedWorkspace) {
+            const current = await activeWorkspaceRepository(context, output);
+            if (!current || !('repository' in current)
+                || current.workspaceId !== selectedWorkspace.workspaceId
+                || current.repositoryId !== selectedWorkspace.repositoryId
+                || current.repository !== selectedRoot) {
+              return { result: null, error: 'The selected workspace repository changed. Reopen Shared workflow drafts for the current repository; the previous draft was not moved.' };
+            }
+          } else {
+            const currentEditorRepository = activeRepositoryContext();
+            if (selectedEditorRepository && (!currentEditorRepository
+                || currentEditorRepository.root !== selectedEditorRepository.root
+                || currentEditorRepository.workspaceId !== selectedEditorRepository.workspaceId
+                || currentEditorRepository.repositoryId !== selectedEditorRepository.repositoryId)) {
+              return { result: null, error: 'The editor repository changed. Reopen Shared workflow drafts for the current repository; the previous draft was not moved.' };
+            }
+            if (await validateRepositoryDirectory(selectedRoot) !== selectedRoot) {
+              return { result: null, error: 'The shared-draft repository changed. Reopen the draft panel.' };
+            }
           }
           return { result: await draftsClient.run(argv), error: null };
         } catch (error) {
@@ -6408,7 +6444,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'add-capability') await vscode.commands.executeCommand('singularityFlow.addCapability');
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
-    else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand('singularityFlow.openSharedWorkflowDrafts');
+    else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand(
+      'singularityFlow.openSharedWorkflowDrafts', { repositoryPath: client.repository }
+    );
     else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
     else if (message.action === 'world-model') { await openConfigurationCenter('world-model'); return null; }
     else if (message.action === 'ast-intelligence') await vscode.commands.executeCommand('singularityFlow.configureAstIntelligence');

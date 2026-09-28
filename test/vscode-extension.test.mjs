@@ -7607,7 +7607,7 @@ test('configuration recovery stays inside VS Code for conflicting MCP host entri
     'the confirmation explains the bounded write scope');
 });
 
-test('shared workflow drafts are discoverable, lazy and bound to an explicitly selected root', async () => {
+test('shared workflow drafts use the verified active repository before asking for a root', async () => {
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
   assert.ok(manifest.contributes.commands.some((entry) =>
     entry.command === 'singularityFlow.openSharedWorkflowDrafts'));
@@ -7615,19 +7615,59 @@ test('shared workflow drafts are discoverable, lazy and bound to an explicitly s
   const start = extension.indexOf("registerCommand('singularityFlow.openSharedWorkflowDrafts'");
   assert.ok(start > 0);
   const handler = extension.slice(start, extension.indexOf('const resetClient', start));
+  const resolveActive = handler.indexOf('activeWorkspaceRepository(context, output)');
+  const resolveEditor = handler.indexOf('activeRepositoryContext()');
+  const askForFolder = handler.indexOf('showWorkspaceFolderPick');
+  const askForDirectory = handler.indexOf('showOpenDialog');
+  assert.ok(resolveActive >= 0 && resolveActive < resolveEditor && resolveEditor < askForFolder
+    && resolveEditor < askForDirectory,
+  'the verified workspace and editor selections must be read before either manual repository picker');
+  assert.match(handler, /if \(selectedWorkspace && !\('repository' in selectedWorkspace\)\) \{\s*throw new Error\(selectedWorkspace\.reason\);/,
+    'an unavailable selected workspace must show its repair reason rather than fall back silently');
+  assert.match(handler, /if \(configuration\) \{[\s\S]*selectedRoot = await validateRepositoryDirectory\(configuration\.repositoryPath\);[\s\S]*else if \(selectedWorkspace\) selectedRoot = selectedWorkspace\.repository;\s*else if \(selectedEditorRepository\) selectedRoot = await validateRepositoryDirectory\(selectedEditorRepository\.root\);\s*else \{[\s\S]*showWorkspaceFolderPick/,
+    'the manual picker belongs only to the no-selected-repository fallback');
+  assert.match(handler, /selectedEditorRepository\.root !== configuration\.repositoryPath/,
+    'Configuration Center must not open drafts from a repository other than its bound editor');
   assert.match(handler, /workspace\.workspaceFolders/);
   assert.match(handler, /showWorkspaceFolderPick/);
   assert.match(handler, /showOpenDialog/);
-  assert.match(handler, /selectedRoot = await validateRepositoryDirectory\(picked\.fsPath\)/);
+  assert.match(handler, /validateRepositoryDirectory\(picked\.fsPath/,
+    'manual selection still validates an exact Git repository root');
   assert.match(handler, /new SingularityFlowClient\([\s\S]*repository: selectedRoot/);
   assert.match(handler, /path\.resolve\(requestedRoot\) !== path\.resolve\(selectedRoot\)/);
   assert.match(handler, /validateRepositoryDirectory\(selectedRoot\)/);
-  assert.doesNotMatch(handler, /useRepository|workspace current|os\.homedir/);
+  assert.doesNotMatch(handler, /useRepository|os\.homedir/);
   assert.match(await readFile(source('lazy-panels-runtime.ts'), 'utf8'),
     /export \{ showSharedWorkflowDrafts \} from '\.\/views\/workflow-drafts\.ts'/);
   const page = await readFile(source('views/configuration-center-page.ts'), 'utf8');
   assert.match(page, /Shared workflow drafts[\s\S]*action: 'shared-workflow-drafts'/);
-  assert.match(extension, /message\.action === 'shared-workflow-drafts'[\s\S]*executeCommand\('singularityFlow\.openSharedWorkflowDrafts'\)/);
+  assert.match(extension, /message\.action === 'shared-workflow-drafts'[\s\S]*executeCommand\(\s*'singularityFlow\.openSharedWorkflowDrafts', \{ repositoryPath: client\.repository \}/,
+    'Configuration Center passes its exact repository to the drafts command');
+});
+
+test('active-workspace draft panels fence every CLI action against a changed repository selection', async () => {
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  const start = extension.indexOf("registerCommand('singularityFlow.openSharedWorkflowDrafts'");
+  assert.ok(start > 0);
+  const handler = extension.slice(start, extension.indexOf('const resetClient', start));
+  const runnerStart = handler.indexOf('showSharedWorkflowDrafts(context');
+  assert.ok(runnerStart >= 0);
+  const runner = handler.slice(runnerStart);
+  const reroute = runner.indexOf('activeWorkspaceRepository(context, output)');
+  const execute = runner.indexOf('draftsClient.run(argv)');
+  assert.ok(reroute >= 0 && reroute < execute,
+    'each draft operation must re-read the verified workspace selection before executing the CLI');
+  assert.match(runner, /current\.workspaceId !== selectedWorkspace\.workspaceId/,
+    'a different workspace with a checkout at the same path must not inherit the old draft panel');
+  assert.match(runner, /current\.repositoryId !== selectedWorkspace\.repositoryId/,
+    'a changed selected member repository must not inherit the old draft panel');
+  assert.match(runner, /current\.repository !== selectedRoot/,
+    'even a matching workspace identity must keep the same canonical repository path');
+  assert.match(runner, /currentEditorRepository\.root !== selectedEditorRepository\.root/,
+    'an editor-bound repository is also fenced after a workspace switch');
+  assert.match(runner, /currentEditorRepository\.repositoryId !== selectedEditorRepository\.repositoryId/,
+    'a new member repository at the same root cannot inherit the old draft panel');
+  assert.match(runner, /shared-draft repository changed/i);
 });
 
 test('Comprehension Center is a lazy leased read-only surface with explicit unknowns', async () => {

@@ -1313,10 +1313,10 @@
     },
     "src/world-model/source/snapshot.mjs": {
       "counts": {
-        "command-git": 20,
+        "command-git": 19,
         "command-run": 1
       },
-      "digest": "3aba748b9ceb0b37a714190263111f4706f13ac1e6785675cf85514fbbfae19a"
+      "digest": "c8f3620b0325c710672ca61b0fc47589fdeb7d720aacd4d7ccc6cde268536ac6"
     },
     "src/world-model/store.mjs": {
       "counts": {

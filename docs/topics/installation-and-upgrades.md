@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 27
+version: 28
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -126,9 +126,10 @@ The shell form is `singularity-flow product reviews`: the one pass per build, wh
 terminal share through one machine-local record, so it never runs twice or twice at once. Step by
 step, it is `workspace refresh-configuration --confirm-plan <PLAN-ID> --review-only`. A review-only
 refresh never creates a first configuration authority. A review is named by the approved commit it
-starts from and the exact configuration it proposes, so every teammate whose new build proposes the
-same change joins that one review instead of opening another. A window waiting to reload onto a
-newer build opens none; the reloaded build does.
+starts from and the exact configuration it proposes, so every teammate on the same build joins that
+one review instead of opening another. The proposal records its build in the package baseline, so a
+teammate on another build proposes a review of that build. A window waiting to reload onto a newer
+build opens none; the reloaded build does.
 
 A terminal has no window to wait in, so a new build's first mutation starts the same pass as a
 background worker. `singularity-flow product status` lists the reviews it opened. A pass that failed

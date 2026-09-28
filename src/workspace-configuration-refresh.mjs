@@ -3037,9 +3037,9 @@ function commitRefreshCandidate(root, refresh, env, subject) {
 
 /**
  * A review is named by what it proposes: the approved commit it starts from and the exact tree it
- * would make current. Never by the proposing machine's own commit or build: every teammate proposing
- * the same change shares one review, whichever build each runs. The commit message still names the
- * build that opened it.
+ * would make current, never the proposing machine's own commit. Every teammate on the same build
+ * proposes the same tree, and so shares one review. The tree records its build in the package
+ * baseline, so another build's proposal is a review of its own; teammate updates keep a team on one.
  */
 function reviewProposal(root, candidateCommit, sourceCommit, env) {
   const tree = refHead(root, `${candidateCommit}^{tree}`, { env });

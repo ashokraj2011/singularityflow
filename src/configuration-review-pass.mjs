@@ -4,8 +4,8 @@
  * VS Code opens them after a new build loads. A terminal has no window to wait in, so a new build's
  * first mutation starts this pass as a detached worker instead: it runs the same review-only refresh
  * over every registered repository, and records what it opened for `singularity-flow product status`.
- * Nothing is applied. A person merges each review, and every machine proposing the same change joins
- * the one review already open.
+ * Nothing is applied. A person merges each review, and every machine on the same build joins the one
+ * review already open.
  */
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';

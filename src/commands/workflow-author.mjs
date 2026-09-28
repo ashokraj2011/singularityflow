@@ -231,16 +231,20 @@ function showView(selected, scope, preview) {
     label: finding.message, status: terminalReview && finding.code === 'WCA_SKP_CONFIRMATION_BINDING_PENDING'
       ? 'requires-terminal-review' : 'unresolved' }));
   const payload = selected.payload;
-  for (const [fieldPath, label] of [['id', 'Package identity'], ['label', 'Package label'],
-    ['description', 'Purpose']]) {
+  for (const [fieldPath, label] of [['id', 'Package identity'], ['label', 'Package label']]) {
     if (typeof payload[fieldPath] !== 'string' || !payload[fieldPath].trim()) {
       missingDecisions.push({ fieldPath, label, requiredFor: 'submission', status: 'unresolved' });
     }
   }
-  if (!Array.isArray(payload.definitions?.workflows) || !payload.definitions.workflows.length) {
+  if (payload.intent === 'create' && (!Array.isArray(payload.definitions?.workflows)
+      || !payload.definitions.workflows.length)) {
     missingDecisions.push({ fieldPath: 'definitions.workflows', label: 'Workflow definitions and stage order',
       requiredFor: 'submission', status: 'unresolved' });
   }
+  const proposalReady = !selected.tombstone
+    && missingDecisions.every((decision) => decision.status === 'requires-terminal-review')
+    && (terminalReview || (preview.readiness.authoring === 'valid'
+      && preview.readiness.simulation === 'complete-for-profile'));
   const view = {
     kind: 'workflow-authoring-show-view',
     subject: { kind: 'draft', draftId: selected.record.draftId, revision: selected.record.revision,
@@ -260,9 +264,10 @@ function showView(selected, scope, preview) {
     durability: { status: 'shared-acknowledged', head: selected.head, revision: selected.record.revision },
     capabilities: { guide: 'vscode-six-stage', completePackageCompiler: 'deterministic-preview',
       submission: 'separate-terminal-review', automaticSaving: 'vscode-opt-in', nativeHostConfirmation: 'unavailable' },
-    primaryAction: terminalReview && missingDecisions.every((decision) => decision.status === 'requires-terminal-review') && !selected.tombstone
+    primaryAction: proposalReady
       ? { operationId: 'workflow.author.submit', draftId: selected.record.draftId,
-        reasonCode: 'exact-skill-package-terminal-review-required', effect: 'separate-terminal-review-only',
+        reasonCode: terminalReview ? 'exact-skill-package-terminal-review-required' : 'complete-package-terminal-review-required',
+        effect: 'separate-terminal-review-only',
         requiresCurrentRevision: true, ...nextRoute(['workflow', 'author', 'submit', selected.record.draftId, '--revision', String(selected.record.revision), '--json']) }
       : missingDecisions.length && !selected.tombstone ? { operationId: 'workflow.author.save',
       draftId: selected.record.draftId, reasonCode: 'draft-definition-incomplete',

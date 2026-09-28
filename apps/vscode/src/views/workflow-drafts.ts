@@ -104,6 +104,7 @@ class SharedWorkflowDraftsPanel {
       'autosave-on': handle, 'autosave-off': handle, stage: handle, 'back-drafts': handle, exit: handle,
       'guide-answer': handle, 'add-stage': handle, 'move-stage': handle, preview: handle, 'catalog-answer': handle,
       'submit-review': handle, 'copilot-submit-review': handle,
+      'usage-query': handle, 'usage-next': handle,
       'recovery-restore': handle, 'recovery-compare': handle, 'recovery-discard': handle, 'recovery-refresh': handle,
       'recovery-inspect-locks': handle, 'recovery-repair-lock': handle
     });

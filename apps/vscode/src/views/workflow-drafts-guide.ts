@@ -4,7 +4,8 @@ export const WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE = 'local-reviewed-artifact-pr
 const SHARED_OBJECT_PROFILES: Record<string, string> = {
   'wca-shared-phase-impact/v1': 'phase',
   'wca-shared-agent-text-impact/v1': 'agent',
-  'wca-shared-template-content-impact/v1': 'template'
+  'wca-shared-template-content-impact/v1': 'template',
+  'wca-shared-skill-contract-group-review/v1': 'skill-group'
 };
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -82,7 +83,8 @@ export function workflowDraftSharedObjectKind(payload: Record<string, unknown>):
   const profile = typeof first.profile === 'string' ? first.profile : '';
   const kind = Object.hasOwn(SHARED_OBJECT_PROFILES, profile) ? SHARED_OBJECT_PROFILES[profile]! : null;
   return kind && changes.every((value) => object(value) && value.profile === profile
-    && value.kind === kind && value.operation === 'edit') ? kind : 'unsupported';
+    && value.kind === (kind === 'skill-group' ? 'phase' : kind) && value.operation === 'edit')
+    && (kind !== 'skill-group' || changes.length >= 2 && changes.length <= 16) ? kind : 'unsupported';
 }
 
 /** Textareas normalize CRLF. Preserve a uniform captured source dialect, never guess mixed bytes. */

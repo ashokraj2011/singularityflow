@@ -319,6 +319,24 @@ test('headless author submit reports needs-human-input and caller flags cannot p
   assert.equal(remoteHeads(f), f.headsBefore); await assertApplicationsUnchanged(f);
 });
 
+test('Show routes a complete ordinary draft to exact terminal review without claiming activation', async (t) => {
+  const f = await fixture(t);
+  const shown = author(f.first, 'show', DRAFT_ID, '--revision', '1');
+  assert.equal(shown.status, 0, shown.stderr);
+  const view = JSON.parse(shown.stdout).data.view;
+  assert.equal(view.assessment.status, 'valid');
+  assert.equal(view.assessment.simulation, 'complete-for-profile');
+  assert.equal(view.assessment.definitionGapCount, 0);
+  assert.equal(view.primaryAction.operationId, 'workflow.author.submit');
+  assert.equal(view.primaryAction.reasonCode, 'complete-package-terminal-review-required');
+  assert.equal(view.primaryAction.effect, 'separate-terminal-review-only');
+  assert.match(view.primaryAction.command, /workflow.*author.*submit/u);
+  assert.match(view.primaryAction.copilotCommand, /^\/sf-workflows/u);
+  assert.equal(view.assessment.approval, 'not-granted');
+  assert.equal(view.assessment.activation, 'inactive');
+  await assertApplicationsUnchanged(f);
+});
+
 test('submission cancellation in an actual terminal publishes no proposal or application bytes', { skip: TERMINAL_FIXTURE_UNAVAILABLE }, async (t) => {
   const f = await fixture(t); const result = await terminalSubmission(f, { cancel: true });
   assert.equal(result.ok, true); assert.equal(result.cancelled, true);

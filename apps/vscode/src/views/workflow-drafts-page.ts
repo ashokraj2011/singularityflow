@@ -87,8 +87,10 @@ function sharedObjectChangeImpactHtml(preview: Record<string, unknown>): string 
   const consumers = Array.isArray(impact.consumers) ? impact.consumers : [];
   const workflows = Array.isArray(impact.affectedWorkflows) ? impact.affectedWorkflows : [];
   const list = (value: unknown): string => Array.isArray(value) ? value.map(String).join(', ') : 'not reported';
+  const grouped = change.profile === 'wca-shared-skill-contract-group-review/v1';
   return `<section aria-labelledby="draft-shared-impact"><h3 id="draft-shared-impact">Shared object change impact · ${escape(change.status)}</h3>
     <p>Profile: <code>${escape(change.profile)}</code>. Only the captured approved catalog was assessed. Existing Story pins: ${escape(impact.retainedStories)}. Other repositories: ${escape(impact.otherRepositories)}. Eligibility is not execution; approval, activation and native host permission are not granted.</p>
+    ${grouped ? `<p><strong>One grouped artifact-only review:</strong> ${escape(list(impact.selectedSkillPhaseIds))}. All selected contracts and declared dependents require one fresh, exact terminal review. This Preview does not authorize or run them; other-repository and retained-Story usage must be checked separately.</p>` : ''}
     <p>Replacements: first ${Math.min(replacements.length, 16)} of ${replacements.length}. Consumers: first ${Math.min(consumers.length, 64)} of ${consumers.length}. Workflows: first ${Math.min(workflows.length, 64)} of ${workflows.length}. The exact Preview JSON retains the full bounded impact and source identities.</p>
     <table><thead><tr><th>Changed object</th><th>Exact parent</th><th>Changed fields</th></tr></thead><tbody>${replacements.slice(0, 16).map((value) => {
       const item = row(value);
@@ -103,6 +105,36 @@ function sharedObjectChangeImpactHtml(preview: Record<string, unknown>): string 
         const phase = row(value); return `<div><code>${escape(phase.id)}</code> · ${escape(phase.status)} · override fields: ${escape(list(phase.overrideFields))} · template override: ${escape(phase.templateOverride === true ? 'yes' : phase.templateOverride === false ? 'no' : 'not reported')}</div>`;
       }).join('')}${phases.length > 32 ? `<p>First 32 of ${phases.length} phases; see exact JSON.</p>` : ''}</td></tr>`;
     }).join('')}</tbody></table><p>Excluded: ${escape(list(impact.excluded))}.</p></section>`;
+}
+
+function selectedUsageHtml(view: SharedWorkflowDraftView): string {
+  const usage = view.usage ?? { skillId: '', selectors: '', historyDepth: 1, report: null, error: null };
+  const report = usage.report;
+  const asRow = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+  const page = report ? asRow(report.page) : {};
+  const coverage = report ? asRow(report.coverage) : {};
+  const observations = report && Array.isArray(report.observations) ? report.observations : [];
+  const references = report && Array.isArray(report.references) ? report.references : [];
+  return `<section id="draft-selected-usage" aria-labelledby="draft-selected-usage-title"><h2 id="draft-selected-usage-title">Where is this skill used? · selected local Stories</h2>
+    <p>This is an explicit read of up to four local Git repositories, eight Story/ref windows and 32 first-parent revisions. It does not discover repositories, fetch branches, establish team membership or prove global use.</p>
+    <label for="usage-skill-id">Exact skill ID<input id="usage-skill-id" value="${escape(usage.skillId)}" maxlength="128" spellcheck="false"></label>
+    <label for="usage-selectors">One exact local repository, Story and ref per line<textarea id="usage-selectors" rows="4" spellcheck="false" placeholder="/absolute/repository#story-id=refs/heads/story-branch">${escape(usage.selectors)}</textarea></label>
+    <label for="usage-depth">First-parent history depth per selection (1–16)<input id="usage-depth" type="number" min="1" max="16" step="1" value="${escape(usage.historyDepth)}"></label>
+    <p id="usage-input-error" class="warning" role="alert" hidden></p>
+    <button type="button" class="secondary" data-draft-action="usage-query"${view.busy ? ' disabled' : ''}>Check selected Story usage · read-only</button>
+    ${usage.error ? `<p class="warning" role="alert">${escape(usage.error)} No partial or stale inventory is displayed.</p>` : ''}
+    ${report ? `<div role="status"><p>Verified selected windows only · ${escape(coverage.observedRevisions)} observed revisions, ${escape(coverage.matchingRevisions)} matching. Page ${escape(page.cursor)}–${escape(Number(page.cursor) + references.length)} of ${escape(page.total)} references. Source: <code>${escape(report.sourceSha256)}</code>.</p>
+      <p>Other repositories: ${escape(coverage.otherRepositories)}. Earlier commits: ${escape(coverage.earlierCommitsBeyondWindows)}. Provider identity/revocation: ${escape(coverage.providerPrincipalAndRevocation)}. Execution usage: ${escape(coverage.executionUsage)}.</p>
+      <table><thead><tr><th>Repository</th><th>Story</th><th>Commit</th><th>Observation</th></tr></thead><tbody>${observations.slice(0, 32).map((value) => {
+        const item = asRow(value); return `<tr><td>${escape(item.repositoryIndex)}</td><td><code>${escape(item.workId)}</code></td><td><code>${escape(item.commit)}</code></td><td>${escape(item.status)}</td></tr>`;
+      }).join('')}</tbody></table>
+      <table><thead><tr><th>Repository</th><th>Story</th><th>Phase</th><th>Package</th></tr></thead><tbody>${references.slice(0, 32).map((value) => {
+        const item = asRow(value); return `<tr><td>${escape(item.repositoryIndex)}</td><td><code>${escape(item.workId)}</code></td><td><code>${escape(item.phaseId)}</code></td><td><code>${escape(item.packageSha256)}</code></td></tr>`;
+      }).join('')}</tbody></table>
+      ${page.nextCursor !== null ? `<button type="button" class="secondary" data-draft-action="usage-next"${view.busy ? ' disabled' : ''}>Next page of this exact verified source</button>` : '<p>Last page of the selected result.</p>'}
+      <details><summary>Exact bounded usage report JSON</summary><pre><code>${escape(JSON.stringify(report, null, 2))}</code></pre></details></div>` : ''}
+  </section>`;
 }
 
 function guidedHtml(view: SharedWorkflowDraftView): string {
@@ -149,6 +181,7 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
           ? '<p class="warning">Mixed or bare-CR source line endings require escaped advanced JSON. No guided text edit is available; exact metadata bytes are not normalized.</p>'
           : `<p>Uniform captured source line endings are retained when the browser normalizes textarea input.</p>${answer('shared-agent-text', 'Complete Agent Markdown (exact metadata must remain unchanged)', agent.text, index)}`}</details>`).join('');
         else if (sharedKind === 'template') content += guide.templates.map((template, index) => `<details open><summary>${escape(template.id)} · existing shared template</summary><p>Preserve the path, kind and parent identities. Required headings and supported tokens are validated for every affected workflow.</p>${answer('template-content', 'Literal template content', template.content, index)}</details>`).join('');
+        else if (sharedKind === 'skill-group') content += `<p>Grouped artifact-only contract review selects two to sixteen existing skill phases. Exact parent hashes, full replacement contracts, retained packages and dependency closures are supplied in advanced JSON and checked by Preview; this guide cannot infer or edit them.</p><table><thead><tr><th>Selected phase</th><th>Exact parent</th></tr></thead><tbody>${(guide.payload.changes as Record<string, unknown>[]).slice(0, 16).map((change) => `<tr><td><code>${escape(change.id)}</code></td><td><code>${escape(change.expectedDefinitionSha256)}</code></td></tr>`).join('')}</tbody></table>`;
         else content += '<p>Complete phase replacements use advanced JSON. The guide does not infer nested artifact, input or review policy.</p>';
       }
       if (view.stage === 5) content += answer('rationale', 'Review explanation', guide.payload.rationale);
@@ -225,6 +258,7 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
     <section><h2>Last observed shared drafts</h2><div class="form-actions"><button type="button" class="secondary" data-draft-action="refresh"${disabled}>Refresh shared list</button>
       <button type="button" data-draft-action="create"${disabled}>Create empty shared draft</button></div>
       ${view.drafts.length ? `<table><thead><tr><th>Draft</th><th>Saved revision</th><th>Open</th></tr></thead><tbody>${view.drafts.map((draft) => `<tr><td>${escape(draft.displayName)}<br><code>${escape(draft.draftId)}</code></td><td>${escape(draft.revision)}</td><td><button type="button" class="secondary" data-draft-action="open" data-draft-id="${escape(draft.draftId)}"${disabled}>Open draft</button></td></tr>`).join('')}</tbody></table>` : view.authority ? '<p class="muted">No live shared drafts were observed in the last successful list. Refresh or explicitly create an empty draft.</p>' : '<p class="warning">The shared draft list has not loaded. This is not an empty catalog; Refresh to retry.</p>'}</section>
+    ${selectedUsageHtml(view)}
     ${editor ? `<section><h2>Draft editor · <code>${escape(editor.record.draftId)}</code></h2>
       <p id="draft-revision">Retained saved revision ${escape(editor.record.revision)} · lifecycle epoch ${escape(editor.record.lifecycleEpoch)}<br>
       <code>${escape(editor.record.revisionSha256)}</code><br>Compare-and-swap head: <code>${escape(editor.head)}</code><br>Retained draft authority: <code>${escape(editor.authority)}</code></p>
@@ -260,6 +294,8 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
       <button type="button" class="secondary" data-draft-action="copilot-review"${disabled}>Copy Copilot handoff</button></details></section>` : '<section><p>Open a shared draft to edit its partial package.</p></section>'}
     ${view.preview ? `<section id="draft-preview"><h2>Exact saved-package Preview · read-only</h2><p>Plan: <code>${escape(view.preview.planSha256)}</code>. Authoring: ${escape((view.preview.readiness as Record<string, unknown>)?.authoring)}. Host: ${escape((view.preview.readiness as Record<string, unknown>)?.host)}. Execution: ${escape((view.preview.readiness as Record<string, unknown>)?.execution)}.</p>
       <p>Static validity is not Ready to run. Human confirmation, membership, native host enforcement and activation remain separate; no operation was executed.</p>
+      <dl><dt>Configuration proposal</dt><dd>${escape((view.preview.readiness as Record<string, unknown>)?.publication ?? 'not reported')}</dd><dt>Activation</dt><dd>${escape((view.preview.readiness as Record<string, unknown>)?.activation ?? 'not reported')}</dd><dt>Actual host enforcement</dt><dd>${escape((view.preview.coverage as Record<string, unknown>)?.hostEnforcement ?? 'not reported')}</dd><dt>Behavior/evidence</dt><dd>${escape((view.preview.readiness as Record<string, unknown>)?.behavior ?? 'not reported')}</dd></dl>
+      ${view.preview.skillFinalization ? '<p class="warning">Skill contract review is a configuration proposal only. A Docker byte-hash probe, source-side capability labels and a static Preview are not a qualified execution host or exact host-delivery acknowledgement.</p>' : ''}
       ${workflowChangeImpactHtml(view.preview)}
       ${sharedObjectChangeImpactHtml(view.preview)}
       ${lifecycleSimulationHtml(view.preview)}
@@ -287,6 +323,10 @@ export const SHARED_WORKFLOW_DRAFTS_SCRIPT = `
   const draftsVscode = window.__sfVscode;
   const showEditorError = (message) => {
     const error = document.getElementById('draft-input-error');
+    if (error) { error.textContent = message; error.hidden = !message; }
+  };
+  const showUsageError = (message) => {
+    const error = document.getElementById('usage-input-error');
     if (error) { error.textContent = message; error.hidden = !message; }
   };
   const editorFields = () => {
@@ -317,6 +357,24 @@ export const SHARED_WORKFLOW_DRAFTS_SCRIPT = `
   document.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target.closest('[data-draft-action]') : null;
     if (!(target instanceof HTMLButtonElement) || target.disabled) return;
+    if (target.dataset.draftAction === 'usage-query') {
+      const skillId = document.getElementById('usage-skill-id')?.value;
+      const selectors = document.getElementById('usage-selectors')?.value;
+      const depth = Number(document.getElementById('usage-depth')?.value);
+      if (typeof skillId !== 'string' || typeof selectors !== 'string'
+          || new TextEncoder().encode(skillId).byteLength > 128
+          || new TextEncoder().encode(selectors).byteLength > 8192 || !Number.isSafeInteger(depth)) {
+        showUsageError('The selected lookup exceeds its bounded input size or history depth is invalid. Nothing was sent; shorten it before retrying.');
+        return;
+      }
+      showUsageError('');
+      draftsVscode.postMessage({ type: 'usage-query', usageSkillId: skillId,
+        usageSelectors: selectors, usageHistoryDepth: depth });
+      return;
+    }
+    if (target.dataset.draftAction === 'usage-next') {
+      draftsVscode.postMessage({ type: 'usage-next' }); return;
+    }
     const fields = editorFields();
     if (!fields) return;
     const extra = {};

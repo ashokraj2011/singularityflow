@@ -208,7 +208,9 @@ test('actual shell clients share one draft identity, preserve partial content, a
   assert.equal(shown.data.view.assessment.execution, 'not-started');
   assert.equal(shown.data.view.assessment.coverage.schema, 'invalid');
   assert.equal(shown.data.view.assessment.coverage.hostEnforcement, 'unavailable');
-  assert.ok(shown.data.view.missingDecisions.some((decision) => decision.fieldPath === 'description'));
+  assert.ok(shown.data.view.missingDecisions.length > 0);
+  assert.ok(!shown.data.view.missingDecisions.some((decision) => decision.fieldPath === 'description'),
+    'optional prose must not block an otherwise valid review');
   assert.equal(shown.data.view.graph.coverage, 'ordered-input-and-registered-rework-validation');
   assert.equal(shown.data.view.preview.readiness.execution, 'not-run');
   const deleted = author(second, 'delete', ID, '--operation-id', 'cli-delete-one');

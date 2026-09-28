@@ -7,6 +7,7 @@
  * closed even when caller-supplied evidence has a consistent shape.
  */
 import { SingularityFlowError } from './util.mjs';
+import { types } from 'node:util';
 
 export const SKP_HOST_DIMENSIONS = Object.freeze([
   'reads', 'writes', 'tools', 'network', 'credentials', 'controlPlane', 'cancellation'
@@ -14,6 +15,10 @@ export const SKP_HOST_DIMENSIONS = Object.freeze([
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const isSha256 = (value) => typeof value === 'string' && SHA256.test(value);
+const BINDING_KEYS = Object.freeze(['operationId', 'profileId', 'adapterId', 'adapterVersion']);
+const DELIVERY_KEYS = Object.freeze([
+  'packageSha256', 'projectedEntrySha256', 'resourceManifestSha256'
+]);
 const MECHANISMS = Object.freeze({
   reads: new Set(['os-sandbox', 'pre-effect-broker']),
   writes: new Set(['os-sandbox', 'pre-effect-broker']),
@@ -32,10 +37,30 @@ function validIdentity(value) {
   return nonempty(value) && !/[\r\n\0]/u.test(value) && value.length <= 256;
 }
 
+/**
+ * Caller-supplied reports are never trusted adapter evidence. Read only closed, ordinary data
+ * records so accessors, proxies and unreviewed extension fields cannot influence a preview.
+ * A future live adapter must use a new registered dialect instead of widening this one.
+ */
+function closedRecord(value, keys, exact = true) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || types.isProxy(value)) return null;
+  try {
+    if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (exact && (ownKeys.length !== keys.length
+        || ownKeys.some((key) => !keys.includes(key)))) return null;
+    const selected = ownKeys.filter((key) => keys.includes(key));
+    if (selected.some((key) => !Object.hasOwn(descriptors[key], 'value'))) return null;
+    return Object.fromEntries(selected.map((key) => [key, descriptors[key].value]));
+  } catch {
+    return null;
+  }
+}
+
 function validBinding(value) {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    && validIdentity(value.operationId) && validIdentity(value.profileId)
-    && validIdentity(value.adapterId) && validIdentity(value.adapterVersion);
+  const binding = closedRecord(value, BINDING_KEYS);
+  return binding && BINDING_KEYS.every((key) => validIdentity(binding[key]));
 }
 
 function unavailable(message, details) {
@@ -56,25 +81,38 @@ function unconfirmed(message, details) {
  * caller-supplied and this check cannot establish its origin. A string such as "prompt says no
  * network" cannot satisfy even the evidence-shape requirement.
  */
-export function assessSkillHostLaunchAdmission({ required, observed } = {}) {
-  const binding = required?.binding;
-  const adapter = observed?.binding;
+export function assessSkillHostLaunchAdmission(input) {
+  const inputRecord = closedRecord(input, ['required', 'observed'], false);
+  const required = inputRecord?.required;
+  const observed = inputRecord?.observed;
+  const requiredRecord = closedRecord(required, ['binding', 'dimensions']);
+  const observedRecord = closedRecord(observed, ['binding', 'dimensions']);
+  const binding = closedRecord(requiredRecord?.binding, BINDING_KEYS);
+  const adapter = closedRecord(observedRecord?.binding, BINDING_KEYS);
+  const policies = closedRecord(requiredRecord?.dimensions, SKP_HOST_DIMENSIONS);
+  const evidence = closedRecord(observedRecord?.dimensions, SKP_HOST_DIMENSIONS);
   const bindingMatches = validBinding(binding) && validBinding(adapter)
-    && SKP_HOST_DIMENSIONS.every((dimension) => isSha256(required?.dimensions?.[dimension]?.policySha256))
-    && Object.keys(required?.dimensions ?? {}).length === SKP_HOST_DIMENSIONS.length
-    && ['operationId', 'profileId', 'adapterId', 'adapterVersion']
+    && policies !== null && evidence !== null
+    && SKP_HOST_DIMENSIONS.every((dimension) => {
+      const policy = closedRecord(policies[dimension], ['policySha256']);
+      return policy && isSha256(policy.policySha256);
+    })
+    && BINDING_KEYS
       .every((field) => binding[field] === adapter[field]);
   const dimensions = Object.fromEntries(SKP_HOST_DIMENSIONS.map((dimension) => {
-    const policySha256 = required?.dimensions?.[dimension]?.policySha256 ?? null;
-    const evidence = observed?.dimensions?.[dimension];
-    const matches = bindingMatches && evidence?.status === 'enforced-before-effect'
-      && evidence.policySha256 === policySha256
-      && MECHANISMS[dimension].has(evidence.mechanism)
-      && validIdentity(evidence.evidenceId);
+    const policy = closedRecord(policies?.[dimension], ['policySha256']);
+    const policySha256 = isSha256(policy?.policySha256) ? policy.policySha256 : null;
+    const dimensionEvidence = closedRecord(evidence?.[dimension], [
+      'status', 'policySha256', 'mechanism', 'evidenceId'
+    ]);
+    const matches = bindingMatches && dimensionEvidence?.status === 'enforced-before-effect'
+      && dimensionEvidence.policySha256 === policySha256
+      && MECHANISMS[dimension].has(dimensionEvidence.mechanism)
+      && validIdentity(dimensionEvidence.evidenceId);
     return [dimension, Object.freeze({
       required: policySha256,
       matchingEvidence: matches ? Object.freeze({
-        mechanism: evidence.mechanism, evidenceId: evidence.evidenceId
+        mechanism: dimensionEvidence.mechanism, evidenceId: dimensionEvidence.evidenceId
       }) : null
     })];
   }));
@@ -105,29 +143,40 @@ export function assertSkillHostLaunchAdmission(input) {
  * caller data; prompt construction, process exit, model text and a clean diff prove no delivery.
  */
 export function assessSkillHostDelivery(admission, expected, acknowledgement) {
-  const binding = admission?.binding;
-  const digests = ['packageSha256', 'projectedEntrySha256', 'resourceManifestSha256'];
-  const expectedValid = expected && digests.every((key) => isSha256(expected[key]));
-  const matches = admission?.status === 'matching-shape' && admission?.launchAuthorized === false
-    && validBinding(binding) && expectedValid && acknowledgement?.status === 'acknowledged'
-    && acknowledgement?.channel === 'trusted-host-adapter'
-    && validIdentity(acknowledgement.receiptId)
-    && ['operationId', 'profileId', 'adapterId', 'adapterVersion']
-      .every((key) => acknowledgement[key] === binding[key])
-    && digests.every((key) => acknowledgement[key] === expected[key]);
+  const admissionRecord = closedRecord(admission, [
+    'schemaVersion', 'status', 'launchAuthorized', 'binding', 'bindingMatches',
+    'dimensions', 'unavailableDimensions'
+  ]);
+  const binding = closedRecord(admissionRecord?.binding, BINDING_KEYS);
+  const expectedRecord = closedRecord(expected, DELIVERY_KEYS);
+  const acknowledgementRecord = closedRecord(acknowledgement, [
+    ...BINDING_KEYS, ...DELIVERY_KEYS, 'status', 'channel', 'receiptId'
+  ]);
+  const expectedValid = expectedRecord && DELIVERY_KEYS.every((key) => isSha256(expectedRecord[key]));
+  const matches = admissionRecord?.status === 'matching-shape'
+    && admissionRecord.launchAuthorized === false
+    && validBinding(binding) && expectedValid && acknowledgementRecord?.status === 'acknowledged'
+    && acknowledgementRecord.channel === 'trusted-host-adapter'
+    && validIdentity(acknowledgementRecord.receiptId)
+    && BINDING_KEYS.every((key) => acknowledgementRecord[key] === binding[key])
+    && DELIVERY_KEYS.every((key) => acknowledgementRecord[key] === expectedRecord[key]);
   return Object.freeze({
     schemaVersion: 1,
     status: matches ? 'matching-shape' : 'unavailable',
     deliveryConfirmed: false,
     binding: validBinding(binding) ? Object.freeze({ ...binding }) : null,
     missingOrMismatched: !expectedValid ? Object.freeze(['expected-digests'])
-      : Object.freeze(digests.filter((key) => acknowledgement?.[key] !== expected[key]))
+      : Object.freeze(DELIVERY_KEYS.filter((key) => acknowledgementRecord?.[key] !== expectedRecord[key]))
   });
 }
 
 /** Refuse delivery attribution until a live adapter establishes an authenticated receipt. */
 export function assertSkillHostDelivery(admission, expected, acknowledgement) {
-  if (admission?.status !== 'matching-shape' || admission?.launchAuthorized !== false) {
+  const admissionRecord = closedRecord(admission, [
+    'schemaVersion', 'status', 'launchAuthorized', 'binding', 'bindingMatches',
+    'dimensions', 'unavailableDimensions'
+  ]);
+  if (admissionRecord?.status !== 'matching-shape' || admissionRecord.launchAuthorized !== false) {
     unavailable('Skill delivery has no matching launch evidence, and no qualified host adapter is connected.', {
       unavailableDimensions: [...SKP_HOST_DIMENSIONS], trustedAdapterAvailable: false
     });

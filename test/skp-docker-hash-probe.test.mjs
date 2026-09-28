@@ -88,6 +88,9 @@ test('Docker candidate uses one read-only inert byte mount and closed process po
   assert.equal(report.skillExecuted, false);
   assert.equal(report.deliveryAuthenticated, false);
   assert.equal(report.hostEnforcementProven, false);
+  assert.equal(report.recovery.cliCleanup, 'not-requested');
+  assert.equal(report.recovery.effectsKnownAbsent, false);
+  assert.equal(report.recovery.automaticRetryAuthorized, false);
 });
 
 test('Docker candidate refuses tags, arbitrary images, ambient options and oversized bytes', async (t) => {
@@ -119,6 +122,9 @@ test('Docker candidate refuses unavailable endpoint, failed run and mismatched o
   } });
   assert.equal(failed.status, 'unavailable');
   assert.equal(failed.code, 'SKP_DOCKER_PROBE_RUN_UNAVAILABLE');
+  assert.equal(failed.recovery.cliCleanup, 'unconfirmed');
+  assert.equal(failed.recovery.effectsKnownAbsent, false);
+  assert.equal(failed.recovery.automaticRetryAuthorized, false);
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[1].slice(-4, -1), ['container', 'rm', '--force']);
   const mismatch = await probeSkpPackageInDocker(input, { invoke: async () => ({
@@ -128,6 +134,21 @@ test('Docker candidate refuses unavailable endpoint, failed run and mismatched o
   assert.equal(mismatch.status, 'unavailable');
   assert.equal(mismatch.code, 'SKP_DOCKER_PROBE_HASH_MISMATCH');
   assert.equal(mismatch.observedStagedBytesSha256, null);
+});
+
+test('Docker candidate distinguishes CLI-reported cleanup from proven effect absence', async (t) => {
+  const input = await fixture(t);
+  let attempts = 0;
+  const report = await probeSkpPackageInDocker(input, { invoke: async () => {
+    attempts += 1;
+    return { status: attempts === 1 ? 'timeout' : 'ok',
+      stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+  } });
+  assert.equal(attempts, 2);
+  assert.equal(report.status, 'unavailable');
+  assert.equal(report.recovery.cliCleanup, 'cli-reported');
+  assert.equal(report.recovery.effectsKnownAbsent, false);
+  assert.equal(report.recovery.automaticRetryAuthorized, false);
 });
 
 test('Docker candidate refuses a staged file changed during the hash operation', async (t) => {

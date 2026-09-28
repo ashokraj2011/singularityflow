@@ -138,3 +138,53 @@ test('SKP never treats a matching caller receipt as authenticated delivery', () 
     { code: 'SKP_HOST_ENFORCEMENT_UNAVAILABLE' });
   assert.equal(delivery.receiptId, undefined);
 });
+
+test('SKP host previews never invoke caller accessors or proxy traps', () => {
+  const value = fixture();
+  let invoked = false;
+  const accessorRoot = Object.defineProperty({}, 'required', {
+    enumerable: true, get() { invoked = true; throw Error('accessor invoked'); }
+  });
+  assert.deepEqual(assessSkillHostLaunchAdmission(accessorRoot).unavailableDimensions,
+    SKP_HOST_DIMENSIONS);
+  assert.equal(invoked, false);
+
+  const proxy = new Proxy(value.observed.dimensions.network, {
+    get() { invoked = true; throw Error('proxy invoked'); },
+    ownKeys() { invoked = true; throw Error('proxy invoked'); }
+  });
+  value.observed.dimensions.network = proxy;
+  assert.deepEqual(assessSkillHostLaunchAdmission(value).unavailableDimensions, ['network']);
+  assert.equal(invoked, false);
+
+  const preview = assessSkillHostLaunchAdmission(fixture());
+  const expectedAccessor = Object.defineProperty({}, 'packageSha256', {
+    enumerable: true, get() { invoked = true; throw Error('accessor invoked'); }
+  });
+  assert.deepEqual(assessSkillHostDelivery(preview, expectedAccessor, null).missingOrMismatched,
+    ['expected-digests']);
+  assert.equal(invoked, false);
+});
+
+test('SKP host evidence dialect is closed and cannot be extended with claims', () => {
+  const extendedDimension = fixture();
+  extendedDimension.observed.dimensions.network.claimedTrusted = true;
+  assert.deepEqual(assessSkillHostLaunchAdmission(extendedDimension).unavailableDimensions,
+    ['network']);
+
+  const extendedSet = fixture();
+  extendedSet.observed.dimensions.ambientNetwork = {
+    status: 'enforced-before-effect', policySha256: hash('a'), mechanism: 'os-sandbox',
+    evidenceId: 'caller-claim'
+  };
+  assert.deepEqual(assessSkillHostLaunchAdmission(extendedSet).unavailableDimensions,
+    SKP_HOST_DIMENSIONS);
+
+  const delivery = fixture();
+  delivery.acknowledgement.claimedAuthenticated = true;
+  const preview = assessSkillHostLaunchAdmission(delivery);
+  assert.equal(assessSkillHostDelivery(preview, delivery.expected,
+    delivery.acknowledgement).status, 'unavailable');
+  assert.throws(() => assertSkillHostDelivery(preview, delivery.expected,
+    delivery.acknowledgement), { code: 'SKP_HOST_DELIVERY_UNCONFIRMED' });
+});

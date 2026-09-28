@@ -65,6 +65,12 @@ export function diagnoseSkillHostReadiness() {
         status: 'implemented-source-only',
         scope: 'Non-authorizing shape checks for operation/policy-bound launch evidence and exact-delivery digests.',
         limitation: 'No trusted live adapter is connected; launch and delivery assertions refuse even when caller-written evidence has a matching shape.'
+      }, {
+        id: 'docker-hash-candidate',
+        source: 'src/skp-docker-hash-probe.mjs',
+        status: 'implemented-source-only',
+        scope: 'Opt-in digest check of one inert staged byte packet using a pre-existing, digest-pinned local image.',
+        limitation: 'No imported skill is executed. Docker CLI cleanup is not proof of effect absence, pre-effect enforcement, exact delivery, or native platform qualification.'
       }
     ],
     missingOwners: [{

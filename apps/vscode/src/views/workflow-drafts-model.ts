@@ -30,6 +30,8 @@ export interface SharedWorkflowDraftView {
   busy: boolean; dirty: boolean; error: string | null; notice: string | null;
   show: Record<string, unknown> | null;
   preview: Record<string, unknown> | null;
+  usage: { skillId: string; selectors: string; historyDepth: number;
+    report: Record<string, unknown> | null; error: string | null };
   operationId: string | null;
   stage: number;
   autosave: boolean;
@@ -41,7 +43,7 @@ export interface SharedWorkflowDraftView {
 }
 interface AuthorResult {
   resultType: 'workflow-author'; status: string;
-  operation: { id: string; modelPolicy: string };
+  operation: { id: string; modelPolicy: string; classification?: string };
   capability?: { repository?: string };
   data: Record<string, unknown>;
 }
@@ -78,6 +80,37 @@ interface SaveSnapshot { draftId: string; authority: string; head: string; epoch
 interface PendingSave { key: string; operationId: string; snapshot: SaveSnapshot; uncertain: boolean }
 const saveKey = (snapshot: SaveSnapshot): string => JSON.stringify([snapshot.draftId, snapshot.authority,
   snapshot.head, snapshot.epoch, snapshot.name, snapshot.text]);
+const SKILL_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const STORY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+const STORY_REF = /^refs\/(?:heads|remotes)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
+function selectedUsageQuery(skillId: unknown, selectors: unknown, depth: unknown): {
+  skillId: string; selectors: string; historyDepth: number; roots: string[]
+} {
+  if (typeof skillId !== 'string' || skillId.length > 128 || !SKILL_ID.test(skillId)
+      || typeof selectors !== 'string' || Buffer.byteLength(selectors) > 8192
+      || !Number.isSafeInteger(depth) || Number(depth) < 1 || Number(depth) > 16) {
+    throw new Error('Select one portable skill ID, exact local Story refs and history depth 1–16.');
+  }
+  const entries = selectors.split(/\r?\n/u).filter(Boolean);
+  if (entries.length < 1 || entries.length > 8 || entries.length * Number(depth) > 32) {
+    throw new Error('Select 1–8 explicit Story/ref windows and at most 32 retained revisions. No repository scan is performed.');
+  }
+  const roots: string[] = [];
+  for (const entry of entries) {
+    const marker = entry.indexOf('#'); const equals = entry.indexOf('=', marker + 1);
+    const root = entry.slice(0, marker); const story = entry.slice(marker + 1, equals); const ref = entry.slice(equals + 1);
+    if (entry !== entry.trim() || marker < 1 || equals <= marker + 1 || entry.includes(',') || entry.includes('#', marker + 1)
+        || entry.includes('=', equals + 1) || !path.isAbsolute(root) || path.normalize(root) !== root
+        || root === path.parse(root).root || Buffer.byteLength(root) > 4096 || /[\u0000-\u001f\u007f]/u.test(root)
+        || !STORY_ID.test(story) || story.length > 64 || !STORY_REF.test(ref)
+        || /(?:\.\.|@\{|\/\/|\/$|\.lock(?:\/|$))/u.test(ref)) {
+      throw new Error('Use one exact ABSOLUTE-REPOSITORY#STORY=refs/heads/BRANCH per line. Wildcards, URLs and repository discovery are unavailable.');
+    }
+    if (!roots.includes(root)) roots.push(root);
+  }
+  if (roots.length > 4) throw new Error('Select at most four distinct local repositories.');
+  return { skillId, selectors: entries.join(','), historyDepth: Number(depth), roots };
+}
 interface PendingCreate { draftId: string; operationId: string; expectedHead: string; expectedAuthority: string }
 export interface WorkflowDraftScheduler {
   now: () => number;
@@ -179,6 +212,7 @@ export class SharedWorkflowDraftController {
     this.recoveryStore = recoveryStore;
     this.view = { repository: this.root, drafts: [], listHead: null, authority: null,
       editor: null, busy: false, dirty: false, error: null, notice: null, show: null, preview: null, operationId: null,
+      usage: { skillId: '', selectors: '', historyDepth: 1, report: null, error: null },
       stage: 1, autosave: false, durability: 'shared', recovery: { status: recoveryStore ? 'none' : 'unavailable',
         checkpoint: null, candidate: null, candidateAvailable: false, restoreAllowed: false } };
   }
@@ -783,6 +817,63 @@ export class SharedWorkflowDraftController {
     this.view.preview = preview;
     this.view.notice = 'Preview assessed this exact saved revision only. Findings and unsupported host contracts remain explicit; no approval, submission or execution readiness is inferred.';
   }
+  private async lookupUsage(raw: Record<string, unknown>, nextPage: boolean): Promise<void> {
+    const previous = this.view.usage;
+    if (!nextPage && typeof raw.usageSkillId === 'string' && Buffer.byteLength(raw.usageSkillId) <= 128
+        && typeof raw.usageSelectors === 'string' && Buffer.byteLength(raw.usageSelectors) <= 8192
+        && typeof raw.usageHistoryDepth === 'number' && Number.isSafeInteger(raw.usageHistoryDepth)) {
+      // A rejected selector remains visible for correction, but cannot retain an older result.
+      this.view.usage = { skillId: raw.usageSkillId, selectors: raw.usageSelectors,
+        historyDepth: raw.usageHistoryDepth, report: null, error: null };
+    }
+    let query: ReturnType<typeof selectedUsageQuery>;
+    try {
+      query = nextPage
+        ? selectedUsageQuery(previous.skillId, previous.selectors.replace(/,/gu, '\n'), previous.historyDepth)
+        : selectedUsageQuery(raw.usageSkillId, raw.usageSelectors, raw.usageHistoryDepth);
+      const prior = previous.report;
+      const priorPage = prior && object(prior.page) ? prior.page : null;
+      const cursor = nextPage ? priorPage?.nextCursor : 0;
+      const expectedSource = nextPage ? prior?.sourceSha256 : undefined;
+      if (nextPage && (!Number.isSafeInteger(cursor) || Number(cursor) < 1 || typeof expectedSource !== 'string' || !SHA.test(expectedSource))) {
+        throw new Error('No verified next page is available. Run an explicit first-page lookup again.');
+      }
+      this.view.usage = { skillId: query.skillId, selectors: query.selectors.replace(/,/gu, '\n'),
+        historyDepth: query.historyDepth, report: null, error: null };
+      const args = [query.skillId, '--repository-story-refs', query.selectors,
+        '--history-depth', String(query.historyDepth), '--limit', '32',
+        ...(nextPage ? ['--cursor', String(cursor), '--expected-source', String(expectedSource)] : [])];
+      const result = await this.call('where-used', args);
+      const usage = result.data.usage;
+      if (result.status !== 'read' || result.operation.classification !== 'read'
+          || !object(usage) || usage.format !== 'sflow-cross-repository-story-skill-inventory/v1'
+          || !object(usage.subject) || usage.subject.skillId !== query.skillId
+          || !object(usage.readScope) || usage.readScope.kind !== 'explicit-local-repository-story-ref-windows'
+          || usage.readScope.network !== 'not-contacted' || usage.permissionEffect !== 'none'
+          || typeof usage.sourceSha256 !== 'string' || !SHA.test(usage.sourceSha256)
+          || nextPage && usage.sourceSha256 !== expectedSource
+          || !object(usage.source) || !Array.isArray(usage.source.repositories)
+          || usage.source.repositories.length !== query.roots.length
+          || usage.source.repositories.some((item, index) => !object(item) || item.requestedRoot !== query.roots[index])
+          || !object(usage.coverage) || usage.coverage.otherRepositories !== 'not-searched'
+          || !object(usage.page) || usage.page.cursor !== cursor || usage.page.limit !== 32
+          || !Number.isSafeInteger(usage.page.total) || Number(usage.page.total) < 0 || Number(usage.page.total) > 2048
+          || !Array.isArray(usage.references) || usage.references.length > 32
+          || !Array.isArray(usage.observations) || usage.observations.length > 32
+          || usage.page.returned !== usage.references.length
+          || usage.page.nextCursor !== null && (!Number.isSafeInteger(usage.page.nextCursor)
+            || Number(usage.page.nextCursor) <= Number(usage.page.cursor)
+            || Number(usage.page.nextCursor) > Number(usage.page.total))
+          || Buffer.byteLength(JSON.stringify(usage)) > 512 * 1024) {
+        throw new Error('The read-only usage result did not match the exact selected local repositories, source or page. No inventory was displayed.');
+      }
+      this.view.usage.report = usage;
+      this.view.notice = 'Verified only the explicitly selected local Story/ref windows. No repository discovery, fetch, draft edit, approval or imported-skill execution occurred.';
+    } catch (error) {
+      this.view.usage.report = null;
+      this.view.usage.error = errorMessage(error);
+    }
+  }
   private async operationStatus(): Promise<void> {
     const operationId = this.view.operationId;
     const expectedAuthority = this.pendingCreate?.operationId === operationId
@@ -836,14 +927,14 @@ export class SharedWorkflowDraftController {
   async receive(raw: unknown): Promise<void> {
     if (this.disposed || !object(raw) || typeof raw.type !== 'string') return;
     if (this.view.busy && raw.type !== 'change') return;
-    const allowed = ['change', 'refresh', 'open', 'create', 'save', 'reload', 'show', 'operation-status', 'terminal-review', 'copilot-review',
+    const allowed = ['change', 'refresh', 'open', 'create', 'save', 'reload', 'show', 'operation-status', 'terminal-review', 'copilot-review', 'usage-query', 'usage-next',
       'autosave-on', 'autosave-off', 'stage', 'back-drafts', 'exit', 'guide-answer', 'add-stage', 'move-stage', 'preview', 'catalog-answer', 'submit-review', 'copilot-submit-review',
       'recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh', 'recovery-inspect-locks', 'recovery-repair-lock'];
     if (!allowed.includes(raw.type)) { this.view.error = 'This shared-draft action is not supported.'; this.changed(); return; }
-    if (Object.keys(raw).some((key) => !['type', 'binding', 'name', 'inputText', 'draftId', 'stage', 'field', 'value', 'index', 'direction', 'choiceKind', 'choiceId', 'lockKind'].includes(key))) {
+    if (Object.keys(raw).some((key) => !['type', 'binding', 'name', 'inputText', 'draftId', 'stage', 'field', 'value', 'index', 'direction', 'choiceKind', 'choiceId', 'lockKind', 'usageSkillId', 'usageSelectors', 'usageHistoryDepth'].includes(key))) {
       this.view.error = 'The shared-draft message contains unsupported fields.'; this.changed(); return;
     }
-    try { this.capture(raw); } catch (error) {
+    try { if (!['usage-query', 'usage-next'].includes(raw.type)) this.capture(raw); } catch (error) {
       this.view.error = errorMessage(error);
       if (this.view.editor && this.presentation.editorRejected) {
         this.presentation.editorRejected(this.view.editor.binding, this.view.error);
@@ -855,7 +946,8 @@ export class SharedWorkflowDraftController {
       'recovery-restore', 'recovery-compare', 'recovery-discard', 'recovery-refresh', 'recovery-inspect-locks', 'recovery-repair-lock'].includes(raw.type)
         && raw.binding !== this.view.editor?.binding) return;
     await this.leased(async () => {
-      if (raw.type === 'refresh') { await this.list(); this.view.notice = 'Shared list refreshed. The open editor and its retained head have not been rebased.'; }
+      if (raw.type === 'usage-query' || raw.type === 'usage-next') await this.lookupUsage(raw, raw.type === 'usage-next');
+      else if (raw.type === 'refresh') { await this.list(); this.view.notice = 'Shared list refreshed. The open editor and its retained head have not been rebased.'; }
       else if (raw.type === 'create') await this.create();
       else if (raw.type === 'save') await this.save();
       else if (raw.type === 'show') { const lease = this.editingLease(); await this.flush(); this.assertEditingLease(lease); await this.show(); }

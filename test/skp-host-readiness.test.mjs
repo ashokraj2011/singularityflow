@@ -55,6 +55,10 @@ test('readiness identifies concrete missing live owners and the limits of existi
   const admissionOwner = report.sourceOwners.find((owner) => owner.id === 'host-admission-validator');
   assert.match(admissionOwner.scope, /Non-authorizing shape checks/);
   assert.match(admissionOwner.limitation, /launch and delivery assertions refuse/);
+  const dockerCandidate = report.sourceOwners.find((owner) => owner.id === 'docker-hash-candidate');
+  assert.match(dockerCandidate.scope, /inert staged byte packet/);
+  assert.match(dockerCandidate.limitation, /No imported skill is executed/);
+  assert.match(dockerCandidate.limitation, /not proof of effect absence/);
   assert.ok(report.sourceOwners.every((owner) => owner.status === 'implemented-source-only'));
   assert.equal(report.nextAction.kind, 'external-prerequisite');
   assert.equal(report.nextAction.executionAuthorized, false);

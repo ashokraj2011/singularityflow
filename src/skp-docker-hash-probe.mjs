@@ -99,7 +99,8 @@ async function exactLocalEndpoints(executable, socket) {
   return { dockerPath, socketPath };
 }
 
-function candidateReport(status, code, image, stagedBytesSha256, observedStagedBytesSha256 = null) {
+function candidateReport(status, code, image, stagedBytesSha256,
+  observedStagedBytesSha256 = null, cliCleanup = 'not-requested') {
   return Object.freeze({
     schemaVersion: 1,
     resultType: 'sflow-skp-docker-hash-candidate',
@@ -109,6 +110,11 @@ function candidateReport(status, code, image, stagedBytesSha256, observedStagedB
     stagedBytesSha256,
     observedStagedBytesSha256,
     observationScope: 'one-local-docker-hash-probe',
+    recovery: Object.freeze({
+      cliCleanup,
+      effectsKnownAbsent: false,
+      automaticRetryAuthorized: false
+    }),
     qualified: false,
     launchAuthorized: false,
     skillExecuted: false,
@@ -257,9 +263,14 @@ export async function probeSkpPackageInDocker(input, { invoke = invokeDockerHash
     catch { outcome = { status: 'unavailable' }; }
     if (outcome?.status !== 'ok') {
       // The unique name is ours; a timed-out CLI may have left that container running.
-      try { await invoke(cleanupInvocation(invocation, containerName)); }
+      let cliCleanup = 'unconfirmed';
+      try {
+        const cleanup = await invoke(cleanupInvocation(invocation, containerName));
+        if (cleanup?.status === 'ok') cliCleanup = 'cli-reported';
+      }
       catch { /* Cleanup is not established and this report never authorizes execution. */ }
-      return candidateReport('unavailable', 'SKP_DOCKER_PROBE_RUN_UNAVAILABLE', options.image, expected);
+      return candidateReport('unavailable', 'SKP_DOCKER_PROBE_RUN_UNAVAILABLE', options.image,
+        expected, null, cliCleanup);
     }
     if (!Buffer.isBuffer(outcome.stdout) || !Buffer.isBuffer(outcome.stderr)
         || outcome.stdout.length > SKP_DOCKER_HASH_PROBE_LIMITS.outputBytes

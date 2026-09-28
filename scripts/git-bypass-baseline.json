@@ -864,10 +864,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 75,
+        "command-git": 76,
         "command-run": 2
       },
-      "digest": "069f289296c6b49311ba3a024b8b6e02cecdce3c483e2f1972149390fd6f00c1"
+      "digest": "48132dc48b6b0e0eef58f9071f436ec99ce834cbce52bbb8f1359d1ea9b4a77a"
     },
     "src/local-identity.mjs": {
       "counts": {

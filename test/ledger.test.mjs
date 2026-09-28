@@ -93,9 +93,10 @@ test('ledger status performs one direct-ref preflight and isolated fetch while n
   assert.equal(status.initialized, true);
   assert.equal(status.remoteView, 'refreshed');
   const counters = timer.finish().counters;
-  assert.equal(counters['git.remote.command.fetch'], 1);
+  // The tracking ref already names the observed tip, so the one observation is the whole refresh.
+  assert.equal(counters['git.remote.command.fetch'] ?? 0, 0);
   assert.equal(counters['git.remote.command.ls-remote'], 1);
-  assert.equal(counters['git.remote.total'], 2);
+  assert.equal(counters['git.remote.total'], 1);
 });
 
 test('ledger verification and repair batch multiple pin observations by authority', async () => {
@@ -119,9 +120,10 @@ test('ledger verification and repair batch multiple pin observations by authorit
     const result = await withCommandTiming(timer, action);
     assert.equal(result.valid, true);
     const counters = timer.finish().counters;
-    assert.equal(counters['git.remote.command.fetch'], 1);
+    // One state observation, whose unchanged tip needs no fetch, and one batched pin observation.
+    assert.equal(counters['git.remote.command.fetch'] ?? 0, 0);
     assert.equal(counters['git.remote.command.ls-remote'], 2);
-    assert.equal(counters['git.remote.total'], 3);
+    assert.equal(counters['git.remote.total'], 2);
   }
 });
 

@@ -10,8 +10,8 @@ import test from 'node:test';
 
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import {
-  appendLedgerIntent, createLedgerIntent, initializeLedger, ledgerShow, ledgerStatus,
-  persistLedgerIntent, verifyLedger
+  appendLedgerIntent, createLedgerIntent, findLedgerEvents, initializeLedger, ledgerShow,
+  ledgerStatus, persistLedgerIntent, verifyLedger
 } from '../src/ledger.mjs';
 import { run } from '../src/util.mjs';
 
@@ -20,8 +20,8 @@ const enabled = {
   signing: 'off', trustTier: 'T0', maxRetries: 3
 };
 
-function git(root, args) {
-  return run('git', args, { cwd: root });
+function git(root, args, options = {}) {
+  return run('git', args, { cwd: root, ...options });
 }
 
 async function repository(t) {
@@ -167,4 +167,50 @@ test('remote intent discovery reads shared trees once and keeps the per-ref answ
   assert.ok(!status.pending.some((entry) => entry.workId === 'quoted'), 'a quoted-path intent stays unadmitted');
   // 25 remote refs, 9 intents: a per-ref read cost ~3 processes per ref plus one per intent.
   assert.ok(spawns < 45, `ledger status spawned ${spawns} processes for 25 remote refs`);
+});
+
+test('a state refresh does not fetch again when the tracking ref already names the observed tip', async (t) => {
+  const { parent, remote, root } = await repository(t);
+  await initializeLedger(root, enabled);
+  await appendEntries(root, 1, 'WORK-REFRESH');
+  const reader = path.join(parent, 'refresh-reader');
+  run('git', ['clone', '-q', remote, reader]);
+  const remoteCommands = async () => {
+    const timer = commandTimer('ledger-refresh', { commandClass: 'read' });
+    const found = await withCommandTiming(timer, () => findLedgerEvents(reader, enabled, {
+      eventType: 'phase-approved', workId: 'WORK-REFRESH-0'
+    }));
+    const { counters } = timer.finish();
+    return {
+      found: found.entries.length,
+      fetches: counters['git.remote.command.fetch'] ?? 0,
+      advertisements: counters['git.remote.command.ls-remote'] ?? 0
+    };
+  };
+  const tip = () => git(reader, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim();
+
+  // The first read has no tracking ref yet; the second has the exact observed tip locally.
+  git(reader, ['update-ref', '-d', 'refs/remotes/origin/state']);
+  const first = await remoteCommands();
+  assert.deepEqual(first, { found: 1, fetches: 1, advertisements: 1 });
+  const second = await remoteCommands();
+  assert.deepEqual(second, { found: 1, fetches: 0, advertisements: 1 },
+    'every refresh still observes the remote, but an unchanged tip is not fetched again');
+
+  // A moved remote tip is fetched and tracked as before.
+  await appendEntries(root, 1, 'WORK-REFRESH-MOVED');
+  const moved = await remoteCommands();
+  assert.equal(moved.fetches, 1);
+  assert.equal(tip(), git(remote, ['rev-parse', 'refs/heads/state']).stdout.trim());
+
+  // A tracking ref naming a commit the object store lacks is not trusted as materialized.
+  const observed = tip();
+  git(reader, ['update-ref', '-d', 'refs/remotes/origin/state']);
+  git(reader, ['reflog', 'expire', '--expire=now', '--all']);
+  git(reader, ['gc', '--prune=now', '--quiet']);
+  assert.notEqual(git(reader, ['cat-file', '-e', `${observed}^{commit}`], { allowFailure: true }).status, 0);
+  await writeFile(path.join(reader, '.git', 'refs', 'remotes', 'origin', 'state'), `${observed}\n`);
+  const missing = await remoteCommands();
+  assert.equal(missing.fetches, 1, 'a missing object is fetched even when the tracking ref matches');
+  assert.equal(git(reader, ['cat-file', '-e', `${observed}^{commit}`], { allowFailure: true }).status, 0);
 });

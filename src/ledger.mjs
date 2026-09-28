@@ -527,7 +527,7 @@ function stateTrackingConcurrencyError(config, expectedCommit, observedCommit) {
  */
 /** Async initialization-only counterpart: onboarding must never block the extension event loop. */
 async function ensureRemoteBranchFetchedAsync(root, config, {
-  offline = false, env = process.env, transportRemote = undefined
+  offline = false, env = process.env, transportRemote = undefined, requireFetch = false
 } = {}) {
   if (!hasRemoteInEnvironment(root, config.remote, env)) return LEDGER_REMOTE_VIEW.NO_REMOTE;
   if (offline) return LEDGER_REMOTE_VIEW.NOT_CHECKED;
@@ -554,6 +554,16 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
   if (observed.status !== 'observed' || !observed.commit) {
     return observed.timedOut
       ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
+  }
+  // The fresh observation above is the authority. When the tracking ref already names that exact
+  // commit and the object is local, a fetch would transfer nothing and only negotiate again. After an
+  // uncertain publication the caller requires the fetch itself as its proof of the remote tip.
+  if (!requireFetch && before.status === 'direct' && before.commit === observed.commit && git(root, [
+    'cat-file', '-e', `${observed.commit}^{commit}`
+  ], {
+    allowFailure: true, env: { ...env, GIT_NO_LAZY_FETCH: '1' }, timeoutMs: 5_000
+  }).status === 0) {
+    return LEDGER_REMOTE_VIEW.REFRESHED;
   }
   // Fetch only into FETCH_HEAD. A configured refspec—or Git's ordinary destination handling—must
   // not dereference and mutate the tracking ref before its exact old-value lease is checked.
@@ -1690,7 +1700,7 @@ async function appendOnce(root, config, intent, publishedCommit, {
 } = {}) {
   const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
   const remoteView = await ensureRemoteBranchFetchedAsync(root, config, {
-    env, transportRemote
+    env, transportRemote, requireFetch: requireFreshRemoteAuthority
   });
   // A failed push can mean either "the remote refused it" or "the remote accepted it and the
   // response was lost".  The next attempt must distinguish those states from a successful remote

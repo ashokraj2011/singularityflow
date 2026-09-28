@@ -608,6 +608,9 @@ test('admin skill performs workspace reinitialization through an exact reviewed 
   const admin = await readFile(path.join(pluginRoot, 'skills', 'sflow-admin', 'SKILL.md'), 'utf8');
   const advise = await readFile(path.join(pluginRoot, 'skills', 'sflow-advise', 'SKILL.md'), 'utf8');
   assert.match(admin, /workspace reinitialize \[WORKSPACE-ID\]/);
+  assert.match(admin, /singularity-flow workspace migrate-schemas --json/);
+  assert.match(admin, /every active registered workspace repository/);
+  assert.match(admin, /stored records remain unchanged/);
   assert.match(admin, /--dry-run --json/);
   assert.match(admin, /--confirm-plan <EXACT-PLAN-ID> --json/);
   assert.match(admin, /Never infer the scope from the current directory/);

@@ -13490,7 +13490,8 @@ async function workspaceCommand(positionals, options) {
   // approved sflow/config turns repair into a misleading zero-target success.
   await discardUnsupportedWorkflowWorkspaces(registry, selectionFile, {
     preserveForRecovery: [
-      'list', 'current', 'prompt', 'use', 'switch', 'refresh-configuration', 'reinitialize'
+      'list', 'current', 'prompt', 'use', 'switch', 'refresh-configuration', 'reinitialize',
+      'migrate-schemas'
     ].includes(subcommand)
   });
   if (subcommand === 'prepare') {
@@ -13581,6 +13582,45 @@ async function workspaceCommand(positionals, options) {
       console.log('No remote repositories were checked. Add one or more --repository URLs when no pending bootstrap session names the remote.');
     }
     for (const session of result.sessions) console.log(`  ${session.bootstrapId}: ${session.status} · ${session.workspaceName ?? session.workspaceId}`);
+    return result;
+  }
+  if (subcommand === 'migrate-schemas') {
+    if (positionals.length > 2 || Object.keys(options).some((key) => key !== 'json')) {
+      throw new SingularityFlowError(
+        'workspace migrate-schemas scans all active registered workspaces and accepts only --json.',
+        { code: 'SCHEMA_UPGRADE_OPTIONS_INVALID' }
+      );
+    }
+    const { auditAllWorkspaceSchemas } = await import('./schema-upgrade-all.mjs');
+    const result = await auditAllWorkspaceSchemas({ registryFile: registry });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`Schema compatibility upgrade: ${result.status}`);
+      console.log(`  Scope: ${result.coverage.activeWorkspaces} active registered workspace(s), `
+        + `${result.coverage.uniqueCheckouts} unique local checkout(s).`);
+      console.log(`  Validated ${result.totals.validatedRecords}/${result.totals.registeredRecords} `
+        + `registered record(s); ${result.totals.migratedRecords} migrated to current shape in memory `
+        + `across ${result.totals.migrationSteps} step(s).`);
+      console.log('  Stored records, Git refs, approvals, and history were not changed.');
+      for (const repository of result.repositories) {
+        console.log(`  ${repository.path}: ${repository.status}`
+          + (repository.records == null ? ''
+            : ` · ${repository.records} record(s), ${repository.migratedRecords} read-time migration(s)`));
+        for (const finding of repository.findings ?? []) {
+          console.log(`    ${finding.code}: ${finding.path}`
+            + (finding.family ? ` (${finding.family}`
+              + (finding.storedVersion == null ? '' : ` v${finding.storedVersion}`) + ')' : ''));
+        }
+        if (repository.findingsOmitted) {
+          console.log(`    ${repository.findingsOmitted} additional finding(s) omitted; use --json for counts.`);
+        }
+      }
+      for (const blocker of result.blocked) {
+        console.log(`  ${blocker.code}: ${blocker.reason}`);
+      }
+      console.log(`  Excluded stores: ${result.policy.excludedStores.join(', ')}.`);
+    }
+    if (result.status !== 'complete') process.exitCode = 2;
     return result;
   }
   if (subcommand === 'refresh-configuration') {

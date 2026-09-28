@@ -983,6 +983,10 @@ Usage:
      --resolve bundled and --accept-bundled-conflicts are refused here—use the separately reviewed
      refresh-configuration flow for a deliberate ownership transfer; work-item artifacts,
      capability publication, immutable history, and delivery locators remain outside this action)
+  singularity-flow workspace migrate-schemas [--json]
+    (check every active registered workspace repository; apply registered schema migrations in
+     memory and report coverage and blockers; stored records are not rewritten; machine-local,
+     workspace-private, content-addressed, and unmapped records are outside this pass)
   singularity-flow workspace copilot [ID|NAME|JIRA|DIRECTORY]
     [--repository ID] [--story ID] [--mode interactive|plan] [--dry-run]
   singularity-flow workspace prompt [--json]

@@ -126,6 +126,7 @@ test('specialized workspace, choice, world-model, document and Story routes are 
     ['singularity-flow workspace bootstrap status bst_demo', 'sf-workspace-bootstrap'],
     ['singularity-flow workspace doctor --json', 'sf-workspace-bootstrap'],
     ['singularity-flow workspace reinitialize demo --dry-run --json', 'sf-admin'],
+    ['singularity-flow workspace migrate-schemas --json', 'sf-admin'],
     ['singularity-flow workspace list --json', 'sf-workspaces'],
     ['singularity-flow workspace list --table', 'sf-workspaces'],
     ['singularity-flow workspace use chosen --repository app --json', 'sf-workspace'],

@@ -720,6 +720,7 @@ Every public operation is classified before its implementation module is importe
 | workspace.impact.show | read | never | — | — |
 | workspace.inspect | read | never | — | — |
 | workspace.list | read | never | — | — |
+| workspace.migrate-schemas | read | never | — | — |
 | workspace.open | mutation | never | — | — |
 | workspace.prepare | mutation | never | — | — |
 | workspace.prompt | read | never | — | — |

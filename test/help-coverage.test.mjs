@@ -47,6 +47,14 @@ test('phase and Epic help expose the guarded forms used by Copilot skills', () =
   assert.match(epic, /singularity-flow epic jira apply --epic EPIC-KEY --plan SHA256 --confirm EPIC-KEY/);
 });
 
+test('workspace help describes the one-command read-only schema compatibility pass', () => {
+  const page = renderCommandHelp('workspace');
+  assert.match(page, /singularity-flow workspace migrate-schemas --json/);
+  assert.match(page, /schema migrations in memory/);
+  assert.match(page, /does not rewrite stored records/);
+  assert.match(page, /Machine-local state, workspace-private state, content-addressed objects, and unmapped records/);
+});
+
 test('canonical manuals require exact Epic confirmation for completion', async () => {
   for (const file of ['HELP.md', 'README.md']) {
     const source = await readFile(path.join(root, file), 'utf8');

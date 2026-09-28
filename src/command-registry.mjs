@@ -185,7 +185,8 @@ const WM_RECOVERY_ACTIONS = Object.freeze(['list', 'inspect', 'publish']);
  * pass of their own; calling them mutations is the wrong-but-safe direction in the meantime.
  */
 const WORKSPACE_READ_OPERATIONS = new Set([
-  'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents', 'doctor'
+  'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents', 'doctor',
+  'migrate-schemas'
 ]);
 const WM_READ_OPERATIONS = new Set([
   'show-prompt', 'prompt', 'context', 'budget', 'facts', 'check', 'availability', 'status',
@@ -201,7 +202,7 @@ const WORKSPACE_NEVER_OPERATIONS = new Set([
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
   'status', 'sync', 'repair', 'documents', 'forget', 'use',
-  'prepare', 'doctor'
+  'prepare', 'doctor', 'migrate-schemas'
 ]);
 // `workspace switch` is a live alias the handler accepts. Resolved to the operation it aliases
 // rather than classified separately, so the registry and the dispatcher cannot drift apart again.

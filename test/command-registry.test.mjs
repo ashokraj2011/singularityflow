@@ -62,6 +62,17 @@ test('approved skill where-used stays read-only and cannot invoke a model', () =
   assert.equal(operationCatalog().find((entry) => entry.id === operation.id)?.modelPolicy, 'never');
 });
 
+test('workspace migrate-schemas is a read-only model-free operation', () => {
+  const operation = resolveOperation({
+    requestedCommand: 'workspace', positionals: ['workspace', 'migrate-schemas'], options: { json: true }
+  });
+  assert.equal(operation.id, 'workspace.migrate-schemas');
+  assert.equal(operation.classification, 'read');
+  assert.equal(operation.modelPolicy, 'never');
+  assert.ok(RESOLVER_SUBCOMMANDS.workspace.includes('migrate-schemas'));
+  assert.equal(operationCatalog().find((entry) => entry.id === operation.id)?.classification, 'read');
+});
+
 test('mixed deterministic commands classify their actual operation rather than their top-level name', () => {
   const classify = (requestedCommand, positionals, options = {}) => resolveOperation({ requestedCommand, positionals, options }).classification;
   assert.equal(classify('report', ['report']), 'read');

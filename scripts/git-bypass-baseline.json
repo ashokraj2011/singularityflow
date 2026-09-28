@@ -867,7 +867,7 @@
         "command-git": 76,
         "command-run": 2
       },
-      "digest": "48132dc48b6b0e0eef58f9071f436ec99ce834cbce52bbb8f1359d1ea9b4a77a"
+      "digest": "25f2a67dd968acd0afb4085180080be44bc99bd577d2a6c04453c56cd22f7fb1"
     },
     "src/local-identity.mjs": {
       "counts": {
@@ -922,7 +922,7 @@
       "counts": {
         "command-run": 79
       },
-      "digest": "7d94a49b5e2a395bc72e799fcadadeb761555a6e4d0ee958a3fd738e4f627091"
+      "digest": "520097d5cbee44102d7c0d50cd8dca9630e53b1a24153facd901c33c2e9cc4ba"
     },
     "src/performance-doctor.mjs": {
       "counts": {

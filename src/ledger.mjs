@@ -1746,43 +1746,10 @@ async function appendOnce(root, config, intent, publishedCommit, {
     const publishedPin = await publishPinAsync(
       root, config, intent, publishedCommit, { env, transportRemote }
     );
-    const entry = entryFromIntent(intent, publishedCommit, idempotency.value);
-    entry.transport.pinRef = publishedPin;
-    entry.transport.pinTransport = config.pinTransport;
-    entry.transport.retentionDays = config.retentionDays;
-    entry.parentEntryHash = head.entryHash;
-    const location = entryPath(entry);
-    const nextHead = {
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      sequence: Number(head.sequence) + 1,
-      entryHash: location.hash,
-      previousHeadHash: sha256(canonicalJson(head)),
-      updatedAt: nowIso()
-    };
-    await writeCanonicalJson(path.join(worktree, location.path), entry);
-    await writeCanonicalJson(path.join(worktree, idempotencyPath(idempotency.hash)), {
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      eventId: intent.eventId,
-      idempotencyKey: idempotency.value,
-      idempotencyHash: idempotency.hash,
-      entryHash: location.hash,
-      entryPath: location.path,
-      sequence: nextHead.sequence
-    });
-    await writeCanonicalJson(path.join(worktree, eventPath(intent.eventId)), {
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      eventId: intent.eventId,
-      idempotencyHash: idempotency.hash,
-      entryHash: location.hash,
-      sequence: nextHead.sequence
-    });
-    await writeCanonicalJson(path.join(worktree, HEAD_PATH), nextHead);
-    git(worktree, ['add', location.path, idempotencyPath(idempotency.hash), eventPath(intent.eventId), HEAD_PATH], { env });
-    git(worktree, commitArgs(
-      config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`,
-      commitIdentity, commitSigning
-    ), { env: gitCommitIdentityEnvironment(env, commitIdentity) });
-    const ledgerCommit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+    const { entryHash, sequence, ledgerCommit } = await commitLedgerEntry(
+      worktree, config, intent, publishedCommit, idempotency, head, publishedPin,
+      { env, commitIdentity, commitSigning }
+    );
     if (hasRemoteInEnvironment(root, config.remote, env)) {
       const pushed = await pushLedgerAsync(
         worktree, config, expectedRemoteSha, { env, transportRemote }
@@ -1803,11 +1770,55 @@ async function appendOnce(root, config, intent, publishedCommit, {
     return {
       duplicate: false,
       eventId: intent.eventId,
-      entryHash: location.hash,
-      sequence: nextHead.sequence,
+      entryHash,
+      sequence,
       ledgerCommit
     };
   }, { env });
+}
+
+/** Write and commit one ledger entry on `head`, its idempotency and event records, and the new head. */
+async function commitLedgerEntry(worktree, config, intent, publishedCommit, idempotency, head, pin, {
+  env = process.env, commitIdentity, commitSigning
+} = {}) {
+  const entry = entryFromIntent(intent, publishedCommit, idempotency.value);
+  entry.transport.pinRef = pin;
+  entry.transport.pinTransport = config.pinTransport;
+  entry.transport.retentionDays = config.retentionDays;
+  entry.parentEntryHash = head.entryHash;
+  const location = entryPath(entry);
+  const nextHead = {
+    schemaVersion: LEDGER_SCHEMA_VERSION,
+    sequence: Number(head.sequence) + 1,
+    entryHash: location.hash,
+    previousHeadHash: sha256(canonicalJson(head)),
+    updatedAt: nowIso()
+  };
+  await writeCanonicalJson(path.join(worktree, location.path), entry);
+  await writeCanonicalJson(path.join(worktree, idempotencyPath(idempotency.hash)), {
+    schemaVersion: LEDGER_SCHEMA_VERSION,
+    eventId: intent.eventId,
+    idempotencyKey: idempotency.value,
+    idempotencyHash: idempotency.hash,
+    entryHash: location.hash,
+    entryPath: location.path,
+    sequence: nextHead.sequence
+  });
+  await writeCanonicalJson(path.join(worktree, eventPath(intent.eventId)), {
+    schemaVersion: LEDGER_SCHEMA_VERSION,
+    eventId: intent.eventId,
+    idempotencyHash: idempotency.hash,
+    entryHash: location.hash,
+    sequence: nextHead.sequence
+  });
+  await writeCanonicalJson(path.join(worktree, HEAD_PATH), nextHead);
+  git(worktree, ['add', location.path, idempotencyPath(idempotency.hash), eventPath(intent.eventId), HEAD_PATH], { env });
+  git(worktree, commitArgs(
+    config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`,
+    commitIdentity, commitSigning
+  ), { env: gitCommitIdentityEnvironment(env, commitIdentity) });
+  const ledgerCommit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+  return { entryHash: location.hash, sequence: nextHead.sequence, ledgerCommit };
 }
 
 export async function appendLedgerIntent(root, rawConfig, intent, publishedCommit, {
@@ -1834,6 +1845,52 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
     }
   }
   throw lastError;
+}
+
+/**
+ * Build, but do not publish, the commit that appendLedgerIntent would publish for this intent.
+ *
+ * The base is the current remote-tracking state ref, which is also the exact lease the caller must
+ * push under. Nothing is fetched or pushed here. Returns null when there is no remote or no tracked
+ * ledger head to build on, or when the event is already recorded; the caller then uses the ordinary
+ * appendLedgerIntent path, which owns initialization, retries and duplicate reconciliation.
+ */
+export async function prepareLedgerAppend(root, rawConfig, intent, publishedCommit, {
+  env = process.env, commitIdentity = null, commitSigning = null
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  if (!hasRemoteInEnvironment(root, config.remote, env)) return null;
+  const operation = frozenCommitOperation(root, config, { env, commitIdentity, commitSigning });
+  const tracked = remoteRef(config);
+  const expectedRemoteSha = optionalDirectStateRef(root, config, tracked, env);
+  if (!expectedRemoteSha || ledgerHead(root, config, { env }) !== tracked) return null;
+  const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
+  const pin = pinRef(config, intent);
+  return temporaryWorktree(root, tracked, async (worktree) => {
+    if (await eventAlreadyRecorded(worktree, idempotency.hash)) return null;
+    const head = await loadHead(worktree);
+    const { entryHash, sequence, ledgerCommit } = await commitLedgerEntry(
+      worktree, config, intent, publishedCommit, idempotency, head, pin, {
+        env, commitIdentity: operation.commitIdentity, commitSigning: operation.commitSigning
+      }
+    );
+    return Object.freeze({
+      branch: config.branch, eventId: intent.eventId, entryHash, sequence, ledgerCommit,
+      pinRef: pin, expectedRemoteSha
+    });
+  }, { env });
+}
+
+/**
+ * Align the local state refs with a state commit the caller just published under an exact lease,
+ * exactly as publishToStateBranch does after its own push.
+ */
+export function recordStatePublication(root, rawConfig, commit, expectedRemoteSha, {
+  env = process.env
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRemoteSha, env);
+  synchronizeLocalStateRefAfterRemotePush(root, config, commit, env);
 }
 
 /**
@@ -1865,7 +1922,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   replaceRoots = [], removePaths = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
   baseRef: suppliedBaseRef = null, refreshRemote = true, guardedRemoteRefs = {},
   env = process.env, transportRemote = undefined, exactBlobSha256 = {}, pathPreconditions = {},
-  commitIdentity = null, commitSigning = null
+  commitIdentity = null, commitSigning = null, deferPush = false
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const sourceGuards = normalizedGuardedRemoteRefs(root, guardedRemoteRefs, { env });
@@ -1917,9 +1974,17 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
   }
 
-  if (refreshRemote) await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
+  // A deferred build never contacts the remote: its caller already holds the base and the lease.
+  if (refreshRemote && !deferPush) {
+    await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
+  }
   let ref = ledgerHead(root, config, { env });
   let initializedCommit = null;
+  if (!ref && deferPush) {
+    throw new SingularityFlowError('A deferred state publication needs an existing state branch.', {
+      code: 'state_branch.publication_base_unavailable', details: { branch: config.branch }
+    });
+  }
   if (!ref) {
     const initialized = await initializeLedger(root, config, {
       env, repairPins: false, transportRemote, commitIdentity, commitSigning
@@ -2008,6 +2073,10 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     // Publishing the same bytes twice is a no-op rather than an empty commit: this runs on every
     // capability edit, and most edits change one file out of several.
     if (!git(worktree, ['diff', '--cached', '--name-only'], { env }).stdout.trim()) {
+      // A deferred build is published, and verified, by its caller's own leased transaction.
+      if (deferPush) {
+        return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
+      }
       if (hasRemoteInEnvironment(root, config.remote, env) && suppliedExpectedRemoteSha !== undefined) {
         const observed = await observeRemoteBranch(worktree, config, { env, transportRemote });
         if (observed.status !== 'observed') {
@@ -2062,6 +2131,12 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
           { code: 'state_branch.projection_bytes_changed', details: { path: file } }
         );
       }
+    }
+    if (deferPush) {
+      return {
+        branch: config.branch, commit, changed: true,
+        published: entries.map(([file]) => file), removed: removedFiles
+      };
     }
     if (hasRemoteInEnvironment(root, config.remote, env)) {
       const pushed = await pushLedgerAsync(

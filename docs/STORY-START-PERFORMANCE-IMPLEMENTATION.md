@@ -175,11 +175,24 @@ title. The catalog and its preview also list approved authority once instead of 
 | Change | Effect | Safeguard retained |
 |---|---|---|
 | Reference prefetch | A completed reference row fetches its pinned commit into a machine-local store; Start copies it instead of transferring it. With a receipt, a Start with a reference now fetches nothing. | Start resolves every pin itself; the store serves only that exact commit, Git verifies every object, and the origin still names the real repository. |
-| One listing for the catalog | Authority resolution and the base inventory share one all-heads listing of the checkout's own origin: 1 round trip instead of 2 (3 before this series). | Only the own origin, only while the repository plan names exactly that URL. |
-| One listing for the preview | The authority listing also carries the base, destination and state refs; the preview skips its fetch when the tracking refs already match: 2 round trips instead of 3. | A moved tip is fetched as before; a separate workspace authority keeps the ordinary path. |
+| One listing for the catalog | Authority resolution and the base inventory share one all-heads listing: 1 round trip instead of 2 (3 before this series). | Only the listing resolution makes first anyway (the workspace capability authority, else the own origin), and only while the repository plan names exactly that URL. |
+| One listing for the preview | The authority listing also carries the base, destination and state refs; the preview skips its fetch when the tracking refs already match: 2 round trips instead of 3. | A moved tip is fetched as before; another remote keeps the ordinary path. |
+| Receipts for a capability's only repository | The common `one capability, one repository` workspace now verifies in one wave too; capability preflight accepts the wave's dry run. | The proof is process-private; a copied or forged proof is ignored. Capabilities with several repositories keep the full path. |
+| Reference pins in the wave | Each reference branch is resolved alongside the other reads, and materialization copies the pinned commit from the prefetch store. | A branch that moved or vanished fails the wave, and the ordinary start refuses it with its own message. |
 | Start progress | The engine names each stage on stderr when asked (`SINGULARITY_FLOW_PROGRESS=stderr-v1`); VS Code shows it in the form and notification. | Fixed stage names only; stripped before stderr is shown or parsed; never inherited by child processes. |
 | New window first | A window's first repository read runs at interactive priority, and in a window opened for a just-started Story the product checks wait for the idle period. | Optional work only waits; explicit actions never do. |
 | Selection receipts in isolated starts | A Copilot selection receipt now drives an isolated start: read and checked in the launch checkout, handed over in process, consumed there. | The same session, HEAD and answer checks; the base is observed by start before any change. |
+
+Replay of the measured reference-driven start (local mirrors of the real repositories, so network time is absent), the whole intake as VS Code drives it:
+
+| Step | main | Now |
+|---|---|---|
+| Catalog | 3 listings | 1 |
+| Reference check | 1 listing | 1 listing and the prefetch transfer, while the person types |
+| Readiness preview | 2 listings, 1 fetch, 1 dry run | 1 listing, 1 fetch (skipped once the tracking refs are current), 1 dry run |
+| Start | 7 sequential round trips (2 fetches, 3 listings, 2 pushes) | 2 sequential round trips: one concurrent wave (listings and dry run), then the publication |
+
+The harness rewrites the repository's transport URL, so its authority and repository listings stay separate there; with an ordinary remote they are one listing. Network savings are projected from the measured per-operation cost, not measured on the real network.
 
 ## Deliberately remaining
 

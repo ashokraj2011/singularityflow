@@ -5,11 +5,12 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'phase']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
 ]);
+const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish']);
 const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
 
 const LAZY_MODULES = Object.freeze({
@@ -1313,6 +1314,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       ? never(`configuration.${positionals[1]}`, definition, 'read')
       : never('configuration.edit', definition, 'mutation');
   }
+  if (definition.name === 'phase') {
+    return PHASE_READ_SUBCOMMANDS.includes(positionals[1])
+      ? never(`phase.${positionals[1]}`, definition, 'read')
+      : never('phase', definition, 'mutation');
+  }
   // These handlers only discover Jira via GET or read the existing audit files. Logging a CLI
   // invocation is incidental diagnostics, not permission to treat the handler as a mutation.
   if (definition.name === 'jira') return positionals[1] === 'status'
@@ -1522,6 +1528,8 @@ export function operationCatalog() {
   sgos.push(never('learn.progress-import.plan', commandDefinition('learn'), 'read'));
   sgos.push(never('learn.reset.plan', commandDefinition('learn'), 'read'));
   const modelFreeMixed = [
+    never('phase', commandDefinition('phase'), 'mutation'),
+    ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
     never('revise.preview', reviseDefinition, 'read'),
     never('revise.apply', reviseDefinition, 'mutation'),
     ...REVISION_READ_SUBCOMMANDS.map((name) => never(`revision.${name}`, revisionDefinition, 'read')),

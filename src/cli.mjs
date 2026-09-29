@@ -101,6 +101,7 @@ import {
   phasePublicationContract, phaseUsesDeterministicGeneration
 } from './manual-authorship.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
+import { phasePrepublish } from './phase-prepublish.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { assertPlannedClaimsReady, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
@@ -6029,7 +6030,7 @@ async function phaseCommand(positionals, options) {
     else printPhaseReview(review, { showArtifact: optionBoolean(options, 'show-artifact') });
     return;
   }
-  if (subcommand === 'draft-check') {
+  if (subcommand === 'draft-check' || subcommand === 'prepublish') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
@@ -6040,13 +6041,14 @@ async function phaseCommand(positionals, options) {
       );
     }
     const session = await loadSession(root, { required: false });
-    const result = await phaseDraftCheck(root, config, workflow, phase, {
+    const check = subcommand === 'prepublish' ? phasePrepublish : phaseDraftCheck;
+    const result = await check(root, config, workflow, phase, {
       modelEnabled: operationContext()?.modelMode.enabled !== false,
       session
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`${phase.label} draft: ${result.status}.`);
-    console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
+    console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}.`);
+    if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
     if (result.status === 'correction-required') {
       console.log(`Correction: ${result.correction.guidance}`);
@@ -6054,6 +6056,7 @@ async function phaseCommand(positionals, options) {
         skill: result.correction.skill,
         label: 'Next'
       });
+      console.log(`Recover: ${result.commands.recover}`);
       console.log(`Recheck: ${result.commands.recheck}`);
     } else {
       console.log(`Publish: ${result.commands.publish}`);

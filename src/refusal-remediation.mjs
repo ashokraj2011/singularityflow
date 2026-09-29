@@ -84,7 +84,7 @@ function artifactAuthoringPhase(argv, error) {
   }
   if (argv[0] === 'converge') return 'convergence';
   if (argv[0] === 'phase' && [
-    'begin', 'rollover', 'draft-check', 'show', 'publish', 'approve', 'submit'
+    'begin', 'rollover', 'draft-check', 'prepublish', 'show', 'publish', 'approve', 'submit'
   ].includes(argv[1])) {
     return lowerKebab(argv[2]);
   }
@@ -345,14 +345,14 @@ const KNOWN = Object.freeze({
     if (!subject) return [];
     const command = subject.kind === 'initiative'
       ? `singularity-flow initiative phase draft-check ${subject.phase} --json`
-      : `singularity-flow phase draft-check ${subject.phase} --json`;
+      : `singularity-flow phase prepublish ${subject.phase} --json`;
     const correctionSkill = subject.kind === 'story' ? error?.details?.retry?.skill ?? null : null;
     return [
       step('inspect-authored-draft',
-        `Inspect every reviewable '${subject.phase}' draft artifact and its exact authoring findings without changing repository or lifecycle state.`,
+        `Inspect '${subject.phase}' authoring and known phase-scoped recovery blockers without changing repository or lifecycle state.`,
         command, 'diagnostic', correctionSkill),
       step('correct-authored-draft',
-        'Have the current author correct every reported finding in the draft, then rerun the same read-only draft check. Do not delete markers blindly, invent missing facts, invoke another model, publish, submit, or approve from recovery guidance.',
+        'Have the current author correct every reported finding in this phase, then rerun the same read-only prepublish check. Do not delete markers blindly, invent missing facts, invoke another model, publish, submit, or approve from recovery guidance.',
         null, 'remediation')
     ];
   },
@@ -441,7 +441,7 @@ export function refusalRemediationPlan(error, argv = []) {
     : code === 'CLARIFICATION_MODE_OFF'
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
     : authoringIncomplete
-      ? 'Retry the original command only after the author has corrected every finding and the same read-only draft check reports ready.'
+      ? 'Retry the original command only after the author has corrected every finding and the same read-only prepublish check reports ready.'
       : 'Retry the original command only after the blocking condition is resolved.';
   return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted

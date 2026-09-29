@@ -279,7 +279,7 @@ export function safeCommandGuidance(value) {
   const allowedSkills = new Set([canonicalSkill]);
   const phaseId = safe.argv[0] === 'prepare'
     ? safe.argv[1]
-    : safe.argv[0] === 'phase' && ['begin', 'publish', 'draft-check', 'show'].includes(safe.argv[1])
+    : safe.argv[0] === 'phase' && ['begin', 'publish', 'draft-check', 'prepublish', 'show'].includes(safe.argv[1])
       ? safe.argv[2]
       : null;
   // A repository may name a code-delivery phase freely. The engine-selected `/sf-code` assertion

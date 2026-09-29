@@ -414,6 +414,8 @@ test('VS Code classifies configuration publication as a mutation', () => {
     assert.equal(commandClass(['workflow', 'author', action]), 'mutation');
   }
   assert.equal(commandClass(['phase', 'show', 'planning', '--json']), 'read');
+  assert.equal(commandClass(['phase', 'draft-check', 'planning', '--json']), 'read');
+  assert.equal(commandClass(['phase', 'prepublish', 'planning', '--json']), 'read');
   assert.equal(commandClass(['phase', 'publish', 'planning']), 'mutation');
   assert.equal(commandClass(['converge', '--json']), 'read');
   assert.equal(commandClass(['explain', 'phase gates', '--json']), 'read');

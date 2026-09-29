@@ -179,6 +179,9 @@ function enabledBooleanOption(args: string[], name: string): boolean {
  */
 function cacheableRead(args: string[]): boolean {
   return !(args[0] === 'configuration' && args[1] === 'validate')
+    // Publication uses current authored bytes. A 250 ms cached preflight could approve a draft
+    // that changed after the previous check; the kernel will still recheck inside publication.
+    && !(args[0] === 'phase' && args[1] === 'prepublish')
     // Revocation can arrive from another process; the chat status command must see the store now.
     && !(args[0] === 'revision' && args[1] === 'attachments' && args[2] === 'status')
     // Candidate selection, interval progress, and recovery may change in another Copilot/CLI host.
@@ -261,7 +264,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return ['list', 'read', 'show', 'history', 'op-status', 'preview', 'catalog'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
   }
   if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
-  if (args[0] === 'phase') return (args[1] ?? '') === 'show' ? 'read' : 'mutation';
+  if (args[0] === 'phase') return ['show', 'draft-check', 'prepublish'].includes(args[1] ?? '')
+    ? 'read' : 'mutation';
   if (args[0] === 'converge' || args[0] === 'explain') return 'read';
   if (args[0] === 'spec') {
     const action = args[1] ?? 'trace';

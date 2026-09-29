@@ -23,12 +23,16 @@ import {
   ledgerStatus,
   materializeStateBranchPublicationAuthority,
   persistLedgerIntent,
+  publishBranchWithLedgerEntry,
   publishToStateBranch,
   reconcileLedger,
   repairLedgerPins,
   sha256,
-  verifyLedger
+  verifyLedger,
+  withLedgerRemoteView
 } from '../src/ledger.mjs';
+import { configuredRemoteAuthority } from '../src/git-remote-diagnostics.mjs';
+import { publicationPushOutcome } from '../src/git.mjs';
 
 function git(root, args) {
   return run('git', args, { cwd: root });
@@ -538,6 +542,204 @@ test('an atomic append never replaces a pin that names another commit', async ()
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', pinRef]).stdout.trim(), firstCommit, 'the existing pin is untouched');
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/state']).stdout.trim(), stateBefore,
     'no entry lands for an event whose pin could not be kept');
+});
+
+const originFetchUrl = (root) => configuredRemoteAuthority(root, 'origin', { direction: 'fetch' }).url;
+const originPushUrl = (root) => configuredRemoteAuthority(root, 'origin', { direction: 'push' }).url;
+const remoteRef = (remote, ref) => run('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', ref], {
+  allowFailure: true
+}).stdout.trim() || null;
+
+test('ledger reads inside one publication answer from the state observation it was given', async () => {
+  const { remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const tip = remoteRef(remote, 'refs/heads/state');
+  const timer = commandTimer('ledger-view', { commandClass: 'mutation' });
+  await withCommandTiming(timer, () => withLedgerRemoteView(
+    [{ remote: originFetchUrl(root), branch: 'state', commit: tip }],
+    async () => {
+      assert.equal((await ledgerStatus(root, enabled)).remoteView, 'refreshed');
+      await ledgerLog(root, enabled);
+    }
+  ));
+  const counters = timer.finish().counters;
+  assert.equal(counters['git.remote.command.ls-remote'] ?? 0, 0,
+    'the tracking ref already names the observed tip, so neither read asks the remote again');
+  assert.equal(counters['ledger.remote-view-reused'], 2);
+});
+
+test('a view the tracking ref does not match is observed afresh, once, for every later read', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  const timer = commandTimer('ledger-view-stale', { commandClass: 'mutation' });
+  await withCommandTiming(timer, () => withLedgerRemoteView(
+    [{ remote: originFetchUrl(root), branch: 'state', commit: 'f'.repeat(40) }],
+    async () => {
+      await ledgerStatus(root, enabled);
+      await ledgerStatus(root, enabled);
+    }
+  ));
+  const counters = timer.finish().counters;
+  assert.equal(counters['git.remote.command.ls-remote'], 1,
+    'a view that would need a fetch is refreshed instead, and the fresh answer serves the second read');
+  assert.equal(counters['ledger.remote-view-reused'], 1);
+});
+
+test('an append inside the scope forgets the view so a later read sees the new tip', async () => {
+  const { remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const tip = remoteRef(remote, 'refs/heads/state');
+  const publishedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const timer = commandTimer('ledger-view-append', { commandClass: 'mutation' });
+  await withCommandTiming(timer, () => withLedgerRemoteView(
+    [{ remote: originFetchUrl(root), branch: 'state', commit: tip }],
+    async () => {
+      await appendLedgerIntent(root, enabled, appendIntent('WORK-VIEW-APPEND'), publishedCommit);
+      const status = await ledgerStatus(root, enabled);
+      assert.equal(status.remoteView, 'refreshed');
+    }
+  ));
+  const counters = timer.finish().counters;
+  assert.equal(counters['ledger.remote-view-reused'] ?? 0, 0,
+    'the view taken before the append can no longer describe the remote');
+  assert.equal((await verifyLedger(root, enabled)).entries, 1);
+});
+
+/** A repository with an initialized ledger and one unpublished lifecycle commit on `story`. */
+async function lifecycleCommit(workId) {
+  const fixture = await repository();
+  await initializeLedger(fixture.root, enabled);
+  git(fixture.root, ['switch', '-q', '-c', workId.toLowerCase()]);
+  await writeFile(path.join(fixture.root, 'story.txt'), `${workId}\n`);
+  git(fixture.root, ['add', 'story.txt']);
+  git(fixture.root, ['commit', '-q', '-m', `[${workId}] start`]);
+  return {
+    ...fixture,
+    branch: workId.toLowerCase(),
+    commit: git(fixture.root, ['rev-parse', 'HEAD']).stdout.trim(),
+    intent: appendIntent(workId)
+  };
+}
+
+const combinedOptions = ({ root, branch, commit }, overrides = {}) => ({
+  commit, branch, expectedBranchSha: null,
+  pushRemote: originPushUrl(root), upstreamRemote: 'origin', ...overrides
+});
+
+test('a lifecycle branch, its ledger entry and the entry pin land together in one push', async () => {
+  const fixture = await lifecycleCommit('WORK-COMBINED');
+  const { remote, root, branch, commit, intent } = fixture;
+  const timer = commandTimer('combined-publication', { commandClass: 'mutation' });
+  const published = await withCommandTiming(timer, () =>
+    publishBranchWithLedgerEntry(root, enabled, intent, combinedOptions(fixture)));
+  const counters = timer.finish().counters;
+  assert.equal(published.landed, true);
+  assert.equal(counters['git.remote.command.push'], 1, 'branch, entry and pin move in one push');
+  assert.equal(counters['git.remote.total'], 1, 'a clean acknowledgement needs no observation');
+  assert.equal(remoteRef(remote, `refs/heads/${branch}`), commit);
+  assert.equal(remoteRef(remote, 'refs/heads/state'), published.ledger.ledgerCommit);
+  const pinRef = (await ledgerShow(root, enabled, intent.eventId)).entry.transport.pinRef;
+  assert.equal(remoteRef(remote, pinRef), commit);
+  assert.equal(git(root, ['rev-parse', `refs/remotes/origin/${branch}`]).stdout.trim(), commit,
+    'the branch tracking ref and upstream follow the landing, as after a branch push');
+  assert.equal(git(root, ['config', `branch.${branch}.remote`]).stdout.trim(), 'origin');
+  assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim(), published.ledger.ledgerCommit);
+  const verified = await verifyLedger(root, enabled);
+  assert.equal(verified.valid, true);
+  assert.equal(verified.entries, 1);
+});
+
+test('a combined push whose response is lost is verified by observation, not repeated', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const fixture = await lifecycleCommit('WORK-COMBINED-LOST');
+  const pushes = path.join(fixture.parent, 'pushes');
+  const { env } = await gitWrapper(fixture.parent, 'lost-combined-response', `${recordPush(pushes)}
+if (args[0] === 'push' && args.includes('--atomic')) {
+  const landed = forward();
+  if (landed.status !== 0) relay(landed);
+  process.stderr.write('fatal: connection closed after receive-pack accepted the update\\n');
+  process.exit(1);
+}`);
+  const published = await publishBranchWithLedgerEntry(fixture.root, enabled, fixture.intent,
+    combinedOptions(fixture, { env }));
+  assert.equal(published.landed, true);
+  assert.deepEqual((await readFile(pushes, 'utf8')).trim().split('\n'), ['atomic']);
+  assert.equal(remoteRef(fixture.remote, `refs/heads/${fixture.branch}`), fixture.commit);
+});
+
+test('a combined push that landed but cannot be verified is reported uncertain for recovery', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const fixture = await lifecycleCommit('WORK-COMBINED-RACE');
+  const other = path.join(fixture.parent, 'other');
+  run('git', ['clone', '--quiet', fixture.remote, other]);
+  git(other, ['config', 'user.name', 'Other Reviewer']);
+  git(other, ['config', 'user.email', 'other@example.com']);
+  const helper = path.join(fixture.parent, 'append-other.mjs');
+  const otherCommit = git(fixture.root, ['rev-parse', 'main']).stdout.trim();
+  await writeFile(helper, `
+import { appendLedgerIntent, createLedgerIntent } from ${JSON.stringify(new URL('../src/ledger.mjs', import.meta.url).href)};
+await appendLedgerIntent(${JSON.stringify(other)}, ${JSON.stringify(enabled)}, createLedgerIntent({
+  eventType: 'phase-approved', capabilityId: 'story-WORK-OTHER-RACE',
+  subject: { workId: 'WORK-OTHER-RACE', phase: 'planning', generation: 1 },
+  actor: { name: 'Other Reviewer', email: 'other@example.com' }
+}), ${JSON.stringify(otherCommit)});
+`);
+  const wrapperDirectory = path.join(fixture.parent, 'unverifiable-combined');
+  const { env } = await gitWrapper(fixture.parent, 'unverifiable-combined', `
+if (args[0] === 'push' && args.includes('--atomic') && args.some((arg) => arg.endsWith(':refs/heads/${fixture.branch}'))) {
+  const landed = forward();
+  if (landed.status !== 0) relay(landed);
+  // Another writer appends on top before this response arrives.
+  const raced = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(helper)}], {
+    cwd: ${JSON.stringify(other)}, encoding: 'utf8',
+    env: { ...process.env, PATH: process.env.PATH.split(${JSON.stringify(path.delimiter)})
+      .filter((entry) => entry !== ${JSON.stringify(wrapperDirectory)}).join(${JSON.stringify(path.delimiter)}) }
+  });
+  if (raced.status !== 0) { process.stderr.write(raced.stderr || raced.stdout); process.exit(raced.status || 1); }
+  process.stderr.write('fatal: connection closed after receive-pack accepted the update\\n');
+  process.exit(1);
+}`);
+  const published = await publishBranchWithLedgerEntry(fixture.root, enabled, fixture.intent,
+    combinedOptions(fixture, { env }));
+  assert.equal(published.uncertain, true);
+  assert.equal(publicationPushOutcome(published.result), 'transport-indeterminate',
+    'the caller treats it exactly like a branch push whose response was lost');
+  assert.equal(remoteRef(fixture.remote, `refs/heads/${fixture.branch}`), fixture.commit);
+});
+
+test('a stale state lease lands nothing and leaves the publication to the separate pushes', async () => {
+  const fixture = await lifecycleCommit('WORK-COMBINED-STALE');
+  const other = path.join(fixture.parent, 'other');
+  run('git', ['clone', '--quiet', fixture.remote, other]);
+  git(other, ['config', 'user.name', 'Other Reviewer']);
+  git(other, ['config', 'user.email', 'other@example.com']);
+  await appendLedgerIntent(other, enabled, appendIntent('WORK-OTHER-FIRST'),
+    git(fixture.root, ['rev-parse', 'main']).stdout.trim());
+  const stateBefore = remoteRef(fixture.remote, 'refs/heads/state');
+  assert.equal((await publishBranchWithLedgerEntry(fixture.root, enabled, fixture.intent,
+    combinedOptions(fixture)))?.refused, true);
+  assert.equal(remoteRef(fixture.remote, `refs/heads/${fixture.branch}`), null, 'nothing lands alone');
+  assert.equal(remoteRef(fixture.remote, 'refs/heads/state'), stateBefore);
+});
+
+test('a remote without atomic pushes, or a branch that already exists, lands nothing', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const fixture = await lifecycleCommit('WORK-COMBINED-REFUSED');
+  const { env } = await gitWrapper(fixture.parent, 'no-atomic', `
+if (args[0] === 'push' && args.includes('--atomic')) {
+  process.stderr.write('fatal: the receiving end does not support --atomic push\\n');
+  process.exit(128);
+}`);
+  assert.equal((await publishBranchWithLedgerEntry(fixture.root, enabled, fixture.intent,
+    combinedOptions(fixture, { env })))?.refused, true);
+  git(fixture.root, ['push', '-q', 'origin', `HEAD~1:refs/heads/${fixture.branch}`]);
+  const stateBefore = remoteRef(fixture.remote, 'refs/heads/state');
+  assert.equal((await publishBranchWithLedgerEntry(fixture.root, enabled, fixture.intent,
+    combinedOptions(fixture)))?.refused, true, 'a create-only lease refuses an existing branch, atomically');
+  assert.equal(remoteRef(fixture.remote, 'refs/heads/state'), stateBefore);
 });
 
 test('ledger bootstrap stays compatible with the supported pre-worktree-orphan Git floor', async () => {

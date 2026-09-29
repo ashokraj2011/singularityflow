@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -11,13 +12,14 @@ import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import {
   defaultBranchName, fetchRemote, gitCommitIdentityArgs,
   gitCommitIdentityEnvironment, gitCommitSigningArgs, gitCommonDir, gitDir, hasRemote,
-  refExists, resolveGitCommitIdentity, resolveGitCommitSigning, validateGitCommitIdentity,
-  validateGitCommitSigning
+  recordBranchPublication, refExists, resolveGitCommitIdentity, resolveGitCommitSigning,
+  validateGitCommitIdentity, validateGitCommitSigning
 } from './git.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { incrementCommandCounter } from './dx-timing-context.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference
@@ -525,6 +527,36 @@ function stateTrackingConcurrencyError(config, expectedCommit, observedCommit) {
  * to return nothing, which is why `ledgerStatus` could guard the call and still report its result
  * as though the remote had been consulted.
  */
+const ledgerRemoteViews = new AsyncLocalStorage();
+
+/**
+ * Share one fresh observation of the state tip across the ledger reads of one publication. `[perf]`
+ *
+ * A Story start's publication read the ledger twice (the workflow's break-glass leases, then its
+ * validation), and each read observed the state tip afresh seconds after the start had looked at it
+ * before its first shared mutation. Inside this scope a read may answer from an observation made in
+ * the same command, but only while the tracking ref already names that exact commit locally: a view
+ * that would need a fetch is refreshed instead, so a concurrent append is observed, never refused.
+ * Any ledger publication in the scope forgets its branch, and a read that must see the remote itself
+ * after an uncertain push never uses a view.
+ */
+export function withLedgerRemoteView(views, action) {
+  const seeded = new Map();
+  for (const view of views ?? []) {
+    const commit = String(view?.commit ?? '').toLowerCase();
+    if (view?.remote && view?.branch && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit)) {
+      seeded.set(`${view.remote}\0${view.branch}`, commit);
+    }
+  }
+  return ledgerRemoteViews.run(seeded, action);
+}
+
+function forgetLedgerRemoteView(config) {
+  const views = ledgerRemoteViews.getStore();
+  if (!views) return;
+  for (const key of views.keys()) if (key.endsWith(`\0${config.branch}`)) views.delete(key);
+}
+
 /** Async initialization-only counterpart: onboarding must never block the extension event loop. */
 async function ensureRemoteBranchFetchedAsync(root, config, {
   offline = false, env = process.env, transportRemote = undefined, requireFetch = false
@@ -542,7 +574,20 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
       }
     );
   }
-  const observed = await observeRemoteBranch(root, config, { env, transportRemote });
+  const views = requireFetch ? null : ledgerRemoteViews.getStore();
+  let observed = null;
+  if (views && before.status === 'direct') {
+    const transport = ledgerFetchTransport(root, config, { env, transportRemote });
+    const viewed = transport ? views.get(`${transport.remote}\0${config.branch}`) : null;
+    // A view stands in for the observation only when no fetch would follow it.
+    if (viewed && viewed === before.commit) {
+      observed = { status: 'observed', commit: viewed, timedOut: false, transport, viewed: true };
+    }
+  }
+  observed ??= await observeRemoteBranch(root, config, { env, transportRemote });
+  if (views && !observed.viewed && observed.status === 'observed' && observed.commit && observed.transport) {
+    views.set(`${observed.transport.remote}\0${config.branch}`, observed.commit.toLowerCase());
+  }
   if (observed.status === 'symbolic') {
     throw new SingularityFlowError(
       `The remote ${config.branch} authority is symbolic. State operations require one exact direct branch ref.`, {
@@ -563,7 +608,13 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
   ], {
     allowFailure: true, env: { ...env, GIT_NO_LAZY_FETCH: '1' }, timeoutMs: 5_000
   }).status === 0) {
+    if (observed.viewed) incrementCommandCounter('ledger.remote-view-reused');
     return LEDGER_REMOTE_VIEW.REFRESHED;
+  }
+  if (observed.viewed) {
+    // The tracked commit is not local after all. Never fetch against a view: observe afresh.
+    views.delete(`${observed.transport.remote}\0${config.branch}`);
+    return ensureRemoteBranchFetchedAsync(root, config, { offline, env, transportRemote, requireFetch });
   }
   // Fetch only into FETCH_HEAD. A configured refspec—or Git's ordinary destination handling—must
   // not dereference and mutate the tracking ref before its exact old-value lease is checked.
@@ -1054,6 +1105,7 @@ export async function initializeLedger(root, rawConfig = {}, {
   transportRemote = undefined, commitIdentity = null, commitSigning = null
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
+  forgetLedgerRemoteView(config);
   const refspecInstalled = installPinRefspec(root, config, { env });
   if (refreshRemote) await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
   const existing = ledgerHead(root, config, { env });
@@ -1922,13 +1974,17 @@ async function appendLedgerIntentAtomically(root, config, intent, publishedCommi
 }
 
 export async function appendLedgerIntent(root, rawConfig, intent, publishedCommit, {
-  env = process.env, transportRemote = undefined, commitIdentity = null, commitSigning = null
+  env = process.env, transportRemote = undefined, commitIdentity = null, commitSigning = null,
+  // False when the caller has just watched this remote refuse a multi-ref push: another atomic
+  // attempt would only be refused again before the sequential append.
+  atomic: attemptAtomic = true
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
+  forgetLedgerRemoteView(config);
   const operation = frozenCommitOperation(root, config, {
     env, commitIdentity, commitSigning
   });
-  const atomic = await appendLedgerIntentAtomically(root, config, intent, publishedCommit, {
+  const atomic = attemptAtomic === false ? null : await appendLedgerIntentAtomically(root, config, intent, publishedCommit, {
     env, transportRemote,
     commitIdentity: operation.commitIdentity,
     commitSigning: operation.commitSigning
@@ -1952,6 +2008,103 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
     }
   }
   throw lastError;
+}
+
+/**
+ * Publish a lifecycle commit, its ledger entry and the entry's pin in one atomic push. `[perf]`
+ *
+ * A lifecycle publication pushed its branch and then appended the ledger with a second push. The
+ * entry is now built on the state tracking ref that the publication's own ledger reads just proved
+ * current, and all three refs move together under exact leases: the branch's expected tip (absent
+ * for a new Story), the state tip the entry extends, and absent for the pin. Nothing lands alone.
+ *
+ * A clean per-ref acknowledgement is the evidence the separate pushes already relied on; an unclear
+ * outcome is settled by observing the refs. Returns null when this path does not apply and
+ * `refused` when the remote landed nothing; either way the caller publishes sequentially, and after
+ * a refusal it skips the ledger's own atomic attempt. Returns `uncertain` with a
+ * push result the caller treats exactly like a branch push whose response was lost, which pending-
+ * publication recovery already reconciles against the remote, the ledger's idempotency included.
+ */
+export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
+  commit, branch, expectedBranchSha = undefined, pushRemote, upstreamRemote, env = process.env
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  forgetLedgerRemoteView(config);
+  let observation;
+  let audit;
+  try {
+    // The state branch must travel over the same remote as the lifecycle branch to share its push.
+    if (config.remote !== upstreamRemote || !hasRemoteInEnvironment(root, config.remote, env)) return null;
+    observation = ledgerFetchTransport(root, config, { env });
+    if (!observation) return null;
+    audit = await prepareLedgerAppend(root, config, intent, commit, { env });
+  } catch {
+    // Nothing was published. The sequential path reports any real problem with its own recovery.
+    return null;
+  }
+  if (!audit) return null;
+  const branchRef = `refs/heads/${branch}`;
+  const stateRef = `refs/heads/${config.branch}`;
+  // [ref, new value, expected old value (undefined: unleased), porcelain flags that mean acquired]
+  const updates = [
+    [branchRef, commit, expectedBranchSha,
+      expectedBranchSha === null ? ['*'] : expectedBranchSha === undefined ? [' ', '*'] : [' ', '+']],
+    [stateRef, audit.ledgerCommit, audit.expectedRemoteSha, [' ', '+']],
+    ...(audit.pinRef ? [[audit.pinRef, commit, null, ['*']]] : [])
+  ];
+  const frozen = frozenRemoteTransport(pushRemote, { push: true, env });
+  const pushed = await runRemoteGitAsync([
+    'push', '--atomic', '--porcelain',
+    ...updates.filter(([, , expected]) => expected !== undefined)
+      .map(([ref, , expected]) => `--force-with-lease=${ref}:${expected ?? ''}`),
+    frozen.remote, ...updates.map(([ref, value]) => `${value}:${ref}`)
+  ], { cwd: root, operation: 'remote-push', env: frozen.env, allowFailure: true });
+  const flags = porcelainPushFlags(pushed.stdout);
+  let landed = pushed.status === 0
+    && updates.every(([ref, , , acquired]) => acquired.includes(flags.get(ref)));
+  if (!landed) {
+    if (/does not support (?:the )?--atomic/iu.test(String(pushed.stderr ?? ''))
+        || updates.every(([ref]) => flags.get(ref) === '!')) return { refused: true };
+    const after = await new GitRemoteSession({
+      env: observation.env,
+      runAsyncCommand: (args, options) => runRemoteGitAsync(args, { ...options, cwd: root })
+    }).observeAsync(observation.remote, {
+      refs: updates.map(([ref]) => ref), includeHead: false, refresh: true
+    });
+    const current = (ref) => after.refs.get(ref) ?? null;
+    landed = after.ok && updates.every(([ref, value]) => current(ref) === value);
+    if (!landed) {
+      // An atomic update that left the branch and the state tip where they were landed nothing.
+      if (after.ok && current(branchRef) === (expectedBranchSha ?? null)
+          && current(stateRef) === audit.expectedRemoteSha) return { refused: true };
+      return {
+        uncertain: true,
+        result: {
+          ...pushed,
+          status: pushed.status || 1,
+          failure: Object.freeze({
+            code: 'PUBLICATION_OUTCOME_UNVERIFIED',
+            classification: 'network-transient',
+            retryable: true,
+            advice: 'The combined branch and ledger publication could not be verified. Synchronize to reconcile it with the remote.'
+          })
+        }
+      };
+    }
+  }
+  recordBranchPublication(root, branch, commit, upstreamRemote);
+  try {
+    recordStatePublication(root, config, audit.ledgerCommit, audit.expectedRemoteSha, { env });
+  } catch {
+    // The landing is verified. Local tracking refs are a cache the next ledger read refreshes.
+  }
+  return {
+    landed: true,
+    ledger: {
+      duplicate: false, eventId: audit.eventId, entryHash: audit.entryHash,
+      sequence: audit.sequence, ledgerCommit: audit.ledgerCommit
+    }
+  };
 }
 
 /**
@@ -2032,6 +2185,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   commitIdentity = null, commitSigning = null, deferPush = false
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
+  forgetLedgerRemoteView(config);
   const sourceGuards = normalizedGuardedRemoteRefs(root, guardedRemoteRefs, { env });
   const safePath = (value) => {
     const original = String(value ?? '').trim();

@@ -2759,16 +2759,19 @@ export async function pushCommitToBranchAsync(root, remote, commitSha, branchNam
       };
     }
   }
-  if (result.status === 0) {
-    const trackingRef = `refs/remotes/${upstreamRemote}/${branchName}`;
-    if (git(['check-ref-format', trackingRef], { cwd: root, allowFailure: true }).status === 0) {
-      git(['update-ref', trackingRef, commit.stdout.trim()], { cwd: root });
-    }
-    if (refExists(root, `refs/heads/${branchName}`)) {
-      configureUpstream(root, branchName, upstreamRemote);
-    }
-  }
+  if (result.status === 0) recordBranchPublication(root, branchName, commit.stdout.trim(), upstreamRemote);
   return result;
+}
+
+/** Local bookkeeping after a push of `commit` to `branchName` landed: its tracking ref and upstream. */
+export function recordBranchPublication(root, branchName, commit, upstreamRemote) {
+  const trackingRef = `refs/remotes/${upstreamRemote}/${branchName}`;
+  if (git(['check-ref-format', trackingRef], { cwd: root, allowFailure: true }).status === 0) {
+    git(['update-ref', trackingRef, commit], { cwd: root });
+  }
+  if (refExists(root, `refs/heads/${branchName}`)) {
+    configureUpstream(root, branchName, upstreamRemote);
+  }
 }
 
 /**

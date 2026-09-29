@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  storyCheckoutNeedsWindowSwitch,
   storyStartHandoffFromResult, storyStartHandoffMatches,
   STORY_START_HANDOFF_MAX_AGE_MS, STORY_START_HANDOFF_KEY
 } from '../apps/vscode/src/story-start-handoff.ts';
@@ -81,4 +84,23 @@ test('SHA-256 publication and authority object identities remain exact', () => {
   const snapshot = confirmed(); snapshot.revision.head = 'a'.repeat(64);
   snapshot.workflow.resolution.configurationSource.commit = 'b'.repeat(64);
   assert.equal(storyStartHandoffMatches(hint, repository, snapshot, now), true);
+});
+
+test('the window opens a started Story unless one of its own folders already is that checkout', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-window-switch-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const launch = path.join(base, 'launch');
+  const story = path.join(base, 'story');
+  await mkdir(launch);
+  await mkdir(story);
+  const linked = path.join(base, 'linked-story');
+  await symlink(story, linked);
+  assert.equal(await storyCheckoutNeedsWindowSwitch(story, [launch]), true,
+    'a window showing the launch checkout opens the Story, whatever the extension currently follows');
+  assert.equal(await storyCheckoutNeedsWindowSwitch(story, []), true, 'an empty window opens it');
+  assert.equal(await storyCheckoutNeedsWindowSwitch(story, [launch, story]), false);
+  assert.equal(await storyCheckoutNeedsWindowSwitch(linked, [story]), false,
+    'a symbolic link to the same checkout is the same checkout');
+  assert.equal(await storyCheckoutNeedsWindowSwitch(path.join(base, 'gone'), [launch]), true,
+    'an unresolvable path is compared as written, never as a match');
 });

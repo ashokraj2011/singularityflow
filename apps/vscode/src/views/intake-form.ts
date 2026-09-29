@@ -162,6 +162,12 @@ export interface IntakeForm {
   workflowCatalogReason: string | null;
   /** Why Story workflows could not be loaded, when the repository could not provide them. */
   workflowReason: string | null;
+  /**
+   * Where the workflow and base-branch choices came from: still being read, the last known listing
+   * shown while a fresh one is read, or the fresh listing. Only a fresh exact-base readiness check
+   * ever enables Start, whichever it is.
+   */
+  catalogStatus: 'loading' | 'cached' | 'fresh';
   /** Whether a tracker is actually configured. Offering Jira when it is not is a dead end. */
   jiraConfigured: boolean;
   /** Why Jira is unavailable, when it is. */
@@ -190,6 +196,11 @@ export interface IntakeForm {
   /** Whether the readiness result points at repository configuration as the repair surface. */
   basePreflightRefreshRecommended: boolean;
   inFlight: InFlight[];
+  /**
+   * The last known configuration names no approval authority with a member. Only an Epic or an
+   * Initiative needs one to start, so it is a problem for those shapes and never blocks a Story.
+   */
+  approvalAuthorityMissing: boolean;
   busy: boolean;
   /** A user-requested Copilot description proposal is in flight. */
   enhancing: boolean;
@@ -223,12 +234,18 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], basePreflightRefreshRecommended: false,
-  workflowReason: null, workflowCatalogReason: null,
+  workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh',
   jiraConfigured: false, jiraReason: null,
-  githubConfigured: true, githubReason: null, inFlight: [], busy: false,
+  githubConfigured: true, githubReason: null, inFlight: [], approvalAuthorityMissing: false, busy: false,
   enhancing: false, enhanceProposal: null, enhanceError: null, error: null,
   recoveryCommand: null, recoveryRouteCommand: null
 };
+
+/** Why a Story has no workflow to offer: not read yet, or the repository's own reason. */
+function storyWorkflowProblem(form: IntakeForm): string {
+  return form.catalogStatus === 'loading' ? 'Reading the approved Story workflows…'
+    : form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.';
+}
 
 /** What each shape is, and — the part that matters — what it leads to. */
 export const SHAPES: { id: Shape; label: string; leads: string }[] = [
@@ -313,6 +330,10 @@ export function intakeProblems(form: IntakeForm): string[] {
   if (needsProfile(form.shape) && form.profiles.length && !form.profile) {
     problems.push('Choose the delivery profile, which decides the phases this runs.');
   }
+  if (needsProfile(form.shape) && form.approvalAuthorityMissing) {
+    problems.push('No approval authority has a member yet, so governed work cannot be started. '
+      + 'Add at least one person in People & approvals.');
+  }
   if (form.shape === 'story') {
     let references: ReferenceRepositoryEntry[] = [];
     try { references = referenceRepositoryEntries(form.referenceRepositories); } catch (error) {
@@ -328,7 +349,7 @@ export function intakeProblems(form: IntakeForm): string[] {
     if (form.storyWorkflows.length && !form.workType) {
       problems.push('Choose the Story workflow, which decides the phases this runs.');
     } else if (!form.storyWorkflows.length) {
-      problems.push(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.');
+      problems.push(storyWorkflowProblem(form));
     }
     if (form.workType === 'poc-workflow') {
       if (!form.targetUrl.trim()) problems.push('Enter the exact authorized HTTPS target URL for this POC.');
@@ -346,7 +367,8 @@ export function intakeProblems(form: IntakeForm): string[] {
       problems.push(form.baseBranchReason
         ?? (form.baseBranchChoices.length
           ? 'Choose the remote base branch from which the Story branch will be created.'
-          : 'No remote base branch is available for this Story.'));
+          : form.catalogStatus === 'loading' ? 'Reading the remote base branches…'
+            : 'No remote base branch is available for this Story.'));
     } else if (form.basePreflightChecking) {
       problems.push('Checking Story-start readiness for configuration, workflow agents, and publication access…');
     } else if (!form.basePreflightPassed) {
@@ -671,12 +693,18 @@ function baseBranchHtml(form: IntakeForm): string {
       <p class="blockers">${escape(form.baseBranchReason)}</p>
       <p class="question">Nothing will be created until the configured remote can be read.</p></section>`;
   }
+  if (!form.baseBranchChoices.length && form.catalogStatus === 'loading') {
+    return `<section><h2>${icon('workflow')}Base branch</h2>
+      <p class="meta" role="status">Reading the remote base branches…</p></section>`;
+  }
   const total = form.baseBranchChoices[0]?.total ?? 0;
   return `
   <section>
     <h2>${icon('workflow')}Base branch</h2>
     <p class="question">Choose explicitly. The new Story branch is cut from the latest remote commit
       and only the Story branch is published.</p>
+    ${form.catalogStatus === 'cached' ? `<p class="meta" role="status">These are the last known
+      branches and workflows. Checking the remote for changes…</p>` : ''}
     <div class="choices">
       ${form.baseBranchChoices.map((choice) => `
       <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}">
@@ -711,6 +739,11 @@ function workflowCatalogCoversBranchFailure(form: IntakeForm): boolean {
 
 function storyWorkflowHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
+  if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length
+      && form.catalogStatus === 'loading') {
+    return `<section><h2>${icon('workflow')}Story workflow</h2>
+      <p class="meta" role="status">${escape(storyWorkflowProblem(form))}</p></section>`;
+  }
   if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length) {
     return `<section><h2>${icon('workflow')}Story workflow</h2>
       <p class="blockers">${escape(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.')}</p>
@@ -927,7 +960,7 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
   const problems = intakeProblems(form);
   // Keep every mutation gate while rendering the workflow authority failure only once.
   const workflowProblem = form.shape === 'story' && !form.storyWorkflows.length
-    ? form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.'
+    ? storyWorkflowProblem(form)
     : null;
   const branchProblem = workflowCatalogCoversBranchFailure(form) ? form.baseBranchReason : null;
   const summaryProblems = workflowProblem
@@ -1057,4 +1090,49 @@ export const INTAKE_SCRIPT = `
     }
     if (field) vscode.postMessage({ type: 'draft', field, value: event.target.value });
   });
+  /**
+   * Results that arrive in the background (the catalog refresh, readiness, a reference check) redraw
+   * the page. Keep the focused field, its caret and the scroll position in the webview state and put
+   * them back after each redraw, so a result that lands while somebody types never takes the caret.
+   */
+  let intakeUnloading = false;
+  window.addEventListener('pagehide', () => { intakeUnloading = true; });
+  const intakeFocusKey = (el) => !el || !el.dataset ? null
+    : el.dataset.field ? 'field:' + el.dataset.field
+      : el.dataset.referenceField ? 'reference:' + el.dataset.referenceIndex + ':' + el.dataset.referenceField
+        : null;
+  const saveIntakeView = () => {
+    if (intakeUnloading || !vscode.setState) return;
+    const el = document.activeElement;
+    const key = intakeFocusKey(el);
+    const state = (vscode.getState && vscode.getState()) || {};
+    state.intakeView = {
+      key: key,
+      start: key && typeof el.selectionStart === 'number' ? el.selectionStart : null,
+      end: key && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
+      fieldScroll: key ? el.scrollTop : 0,
+      scroll: window.scrollY
+    };
+    vscode.setState(state);
+  };
+  ['focusin', 'keyup', 'mouseup', 'input', 'select'].forEach((name) => document.addEventListener(name, saveIntakeView));
+  document.addEventListener('focusout', () => setTimeout(saveIntakeView, 0));
+  window.addEventListener('scroll', saveIntakeView, { passive: true });
+  const restoreIntakeView = () => {
+    const saved = vscode.getState ? ((vscode.getState() || {}).intakeView || null) : null;
+    if (!saved) return;
+    if (typeof saved.scroll === 'number') window.scrollTo(0, saved.scroll);
+    if (!saved.key) return;
+    const parts = String(saved.key).split(':');
+    const selector = parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
+      : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
+    const el = document.querySelector(selector);
+    if (!el || typeof el.focus !== 'function' || el.disabled) return;
+    el.focus({ preventScroll: true });
+    if (saved.start !== null && typeof el.setSelectionRange === 'function') {
+      try { el.setSelectionRange(saved.start, saved.end === null ? saved.start : saved.end); } catch (error) { /* not a text control */ }
+    }
+    if (typeof saved.fieldScroll === 'number') el.scrollTop = saved.fieldScroll;
+  };
+  restoreIntakeView();
 `;

@@ -23,6 +23,14 @@ import { SingularityFlowClient } from '../cli/client.ts';
 import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
+import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
+import type { BackgroundHold } from '../background-governor.ts';
+
+/** A background result waits this long after the last keystroke before it redraws the page. */
+const INTAKE_TYPING_QUIET_MS = 300;
+/** Readiness is checked once somebody pauses typing the identifier this long, not only on blur. */
+const INTAKE_ID_PREFLIGHT_DEBOUNCE_MS = 400;
+const PORTABLE_WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** What was started, so the caller can take the reader straight to it. */
 export interface Started {
@@ -38,9 +46,17 @@ export interface IntakeTarget {
   workspace: string | null;
   repository: string;
   branch: string | null;
+  /** From the Store's last snapshot, possibly cached; `lifecycleChanged` keeps it current. */
   inFlight: InFlight[];
+  approvalAuthorityMissing?: boolean;
   defaults?: IntakeDefaults;
   journey?: StartWizardProgress | null;
+  /** The last complete catalog for this repository, painted while the fresh one is read. */
+  catalogCache?: IntakeCatalogCacheBinding | null;
+  /** Held while the form is on screen, so optional background work does not compete with it. */
+  holdBackgroundWork?: ((reason: string) => BackgroundHold) | null;
+  /** Held while a Story starts, so the window does not follow its selection write before it opens it. */
+  holdNavigation?: (() => { release(): void }) | null;
 }
 
 export interface IntakeDefaults {
@@ -82,6 +98,21 @@ interface EngineStoryWorkflowCatalog {
   workflowCatalogReason?: string | null;
   workflowReason?: string | null;
 }
+
+/** `workspace branches --json --intake`: everything the form offers, in one engine process. */
+interface CatalogListing {
+  choices?: BaseBranchChoice[];
+  remote?: string;
+  unreachable?: { repository: string }[];
+  intake?: EngineStoryWorkflowCatalog & {
+    profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
+    profileReason?: string | null;
+    approvalAuthorityMissing?: boolean;
+  };
+}
+
+/** The first listing, the fresh one replacing a cached paint, or a reload after a configuration change. */
+type CatalogMode = 'initial' | 'revalidate' | 'reload';
 
 /** Keep the launch catalog and exact-base preflight catalog on one validation path. */
 function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoice[] {
@@ -167,7 +198,7 @@ export class IntakePanel {
   private readonly onStarted: (started: Started) => Promise<void>;
   private readonly defaults: IntakeDefaults;
   private readonly journey: StartWizardProgress | null;
-  private readonly inFlight: InFlight[];
+  private inFlight: InFlight[];
   private readonly disposables: vscode.Disposable[] = [];
   private form: IntakeForm;
   private preflightVersion = 0;
@@ -177,6 +208,19 @@ export class IntakePanel {
   private catalogRevision = 0;
   private enhancementController: AbortController | null = null;
   private trackerChosen = false;
+  /** Any input at all. A background result never switches the tracker under somebody's typing. */
+  private formTouched = false;
+  private lastDraftAt = 0;
+  private renderTimer: ReturnType<typeof setTimeout> | null = null;
+  private idPreflightTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The exact readiness command in flight or last completed, so blur does not repeat it. */
+  private preflightKey: string | null = null;
+  private readonly catalogCache: IntakeCatalogCacheBinding | null;
+  private readonly holdBackgroundWork: ((reason: string) => BackgroundHold) | null;
+  private readonly holdNavigation: (() => { release(): void }) | null;
+  private backgroundHold: BackgroundHold | null = null;
+  /** The base whose readiness answer replaced the workflow choices with that base's own. */
+  private exactCatalogBase: string | null = null;
   private disposed = false;
 
   private constructor(
@@ -193,12 +237,19 @@ export class IntakePanel {
     this.defaults = target.defaults ?? {};
     this.journey = target.journey ?? null;
     this.inFlight = target.inFlight;
+    this.catalogCache = target.catalogCache ?? null;
+    this.holdBackgroundWork = target.holdBackgroundWork ?? null;
+    this.holdNavigation = target.holdNavigation ?? null;
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
       targetRepository: target.repository,
       targetBranch: target.branch,
-      ...(this.defaults.shape ? { shape: this.defaults.shape } : {}),
+      // Starting a Story is the common case, so the form opens on it unless the caller asked for
+      // another shape.
+      shape: this.defaults.shape ?? 'story',
+      approvalAuthorityMissing: target.approvalAuthorityMissing === true,
+      inFlight: target.inFlight,
       ...(this.defaults.source ? {
         tracker: this.defaults.source === 'github-issue' ? 'github'
           : this.defaults.source === 'jira' ? 'jira' : 'none'
@@ -206,6 +257,8 @@ export class IntakePanel {
       ...(this.defaults.summary ? { title: this.defaults.summary } : {}),
       ...(this.defaults.workType ? { workType: this.defaults.workType } : {})
     };
+    // Paint the last known choices now; `load` revalidates them against the remote.
+    this.form = { ...this.form, ...(this.cachedCatalogChanges() ?? { catalogStatus: 'loading' }) };
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -214,8 +267,21 @@ export class IntakePanel {
       return this.router.route(raw);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.onDidChangeViewState((event) => this.holdWhileVisible(event.webviewPanel.visible),
+      null, this.disposables);
+    this.holdWhileVisible(this.panel.visible);
     this.render();
     void this.load();
+  }
+
+  /** Optional background work waits while this form is on screen, and resumes once it is not. */
+  private holdWhileVisible(visible: boolean): void {
+    if (visible && !this.disposed) {
+      this.backgroundHold ??= this.holdBackgroundWork?.('intake') ?? null;
+      return;
+    }
+    this.backgroundHold?.release();
+    this.backgroundHold = null;
   }
 
   static show(
@@ -250,6 +316,18 @@ export class IntakePanel {
     return IntakePanel.current;
   }
 
+  /**
+   * The Store refreshed its lifecycle slice. The form opens on the last known in-flight work instead
+   * of waiting for a fresh snapshot, so this is how it learns about work started since.
+   */
+  static lifecycleChanged(inFlight: InFlight[]): void {
+    const current = IntakePanel.current;
+    if (!current || current.disposed) return;
+    if (JSON.stringify(current.inFlight) === JSON.stringify(inFlight)) return;
+    current.inFlight = inFlight;
+    current.update({ inFlight }, { background: true });
+  }
+
   /** Refresh an already-open Intake form after approved configuration changes elsewhere. */
   static async configurationChanged(repository: string | null = null): Promise<boolean> {
     const current = IntakePanel.current;
@@ -269,7 +347,11 @@ export class IntakePanel {
     );
   }
 
-  private update(changes: Partial<IntakeForm>): void {
+  /**
+   * Merge and redraw. A change the person just made redraws at once; a background result waits until
+   * typing pauses, so a redraw never lands in the middle of a word.
+   */
+  private update(changes: Partial<IntakeForm>, { background = false }: { background?: boolean } = {}): void {
     if (this.disposed) return;
     this.form = {
       ...this.form,
@@ -277,12 +359,46 @@ export class IntakePanel {
         ? { recoveryCommand: null, recoveryRouteCommand: null } : {}),
       ...changes
     };
+    if (background) this.scheduleRender();
+    else this.renderNow();
+  }
+
+  private renderNow(): void {
+    if (this.renderTimer) clearTimeout(this.renderTimer);
+    this.renderTimer = null;
     this.render();
+  }
+
+  private scheduleRender(): void {
+    const quiet = Date.now() - this.lastDraftAt;
+    if (quiet >= INTAKE_TYPING_QUIET_MS) return this.renderNow();
+    if (this.renderTimer) return;
+    this.renderTimer = setTimeout(() => {
+      this.renderTimer = null;
+      if (!this.disposed) this.scheduleRender();
+    }, INTAKE_TYPING_QUIET_MS - quiet);
   }
 
   private cancelBasePreflight(): void {
     this.preflightController?.abort();
     this.preflightController = null;
+    this.preflightKey = null;
+    if (this.idPreflightTimer) clearTimeout(this.idPreflightTimer);
+    this.idPreflightTimer = null;
+  }
+
+  /** Check readiness once the identifier has stopped changing, instead of waiting for blur. */
+  private scheduleIdentifierPreflight(): void {
+    if (this.idPreflightTimer) clearTimeout(this.idPreflightTimer);
+    this.idPreflightTimer = setTimeout(() => {
+      this.idPreflightTimer = null;
+      if (this.disposed || this.form.shape !== 'story') return;
+      const command = storyPreflightCommand(this.form);
+      if (!command || !PORTABLE_WORK_ID.test(intakeIdentifier(this.form))) return;
+      if (JSON.stringify(command) === this.preflightKey) return;
+      this.preflightVersion += 1;
+      void this.preflightBaseBranch();
+    }, INTAKE_ID_PREFLIGHT_DEBOUNCE_MS);
   }
 
   /** Cancel an advisory rewrite whenever any input it was based on changes. */
@@ -309,76 +425,41 @@ export class IntakePanel {
    * The Store already owns the fresh lifecycle projection used for `inFlight`. Profiles, installed
    * Story workflows and remote base branches share this aggregate process; Jira is an optional
    * network integration and is probed only after the local form can render.
+   *
+   * A form painted from the cached catalog revalidates here, keeping what the person chose since
+   * wherever it is still offered.
    */
   private async load({ preserveSelections = false }: { preserveSelections?: boolean } = {}): Promise<void> {
     const revision = ++this.catalogRevision;
+    const mode: CatalogMode = preserveSelections ? 'reload'
+      : this.form.catalogStatus === 'cached' ? 'revalidate' : 'initial';
     try {
-      const listed = await this.client.run<{
-        choices?: BaseBranchChoice[];
-        remote?: string;
-        unreachable?: { repository: string }[];
-        intake?: EngineStoryWorkflowCatalog & {
-          profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
-          profileReason?: string | null;
-        };
-      }>(['workspace', 'branches', '--json', '--intake']);
+      const listed = await this.client.run<CatalogListing>(['workspace', 'branches', '--json', '--intake']);
       if (revision !== this.catalogRevision || this.disposed) return;
-      const profiles: ProfileChoice[] = (listed.intake?.profiles ?? []).filter((entry) => entry.id).map((entry) => ({
-        id: entry.id!,
-        label: entry.label ?? entry.id!,
-        description: entry.description ?? '',
-        phases: entry.phases ?? []
-      }));
-      const workflows = storyWorkflowCatalog(listed.intake);
-      const priorProfile = preserveSelections ? this.form.profile : null;
-      const priorWorkType = (preserveSelections ? this.form.workType : this.defaults.workType) ?? null;
-      const priorBaseBranch = preserveSelections ? this.form.baseBranch : null;
-      const baseBranchChoices = (listed.choices ?? []).filter((choice) => choice.everywhere);
-      const baseBranch = baseBranchChoices.some((choice) => choice.branch === priorBaseBranch)
-        ? priorBaseBranch : null;
-      const retainedWorkType = storyWorkflowSelectionForReload(
-        priorWorkType, workflows.installed, preserveSelections && Boolean(baseBranch)
-      );
-      const unreachable = listed.unreachable ?? [];
       if (listed.intake?.profileReason) {
         this.output.appendLine(`No delivery profiles could be read: ${listed.intake.profileReason}`);
       }
-      this.update({
-        profiles,
-        // Defaulted so the form is not blocked on a choice with one sensible answer, but still
-        // shown, because it decides the phases for the life of the work.
-        profile: profiles.find((entry) => entry.id === priorProfile)?.id
-          ?? profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
-        storyWorkflows: workflows.installed,
-        availableStoryWorkflows: workflows.available,
-        workflowCatalogReason: listed.intake?.workflowCatalogReason ?? null,
-        // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
-        // click; multiple custom workflows remain an explicit, visible choice in the form.
-        workType: retainedWorkType
-          ?? workflows.installed.find((entry) => entry.id === 'feature')?.id
-          ?? workflows.installed[0]?.id ?? null,
-        workflowReason: listed.intake?.workflowReason
-          ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null,
-        baseBranchChoices,
-        // A Story base is an explicit, permanent choice. Even one available branch must be selected.
-        baseBranch,
-        baseRemote: listed.remote ?? null,
-        // Named, because a branch missing from the list because a remote was unreachable looks
-        // exactly like a branch that does not exist.
-        baseBranchReason: unreachable.length
-          ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}. Remote access is required before starting a Story.`
-          : null,
-        ...emptyStoryPreflight(),
-        githubConfigured: true,
-        githubReason: null,
-        inFlight: this.inFlight
-      });
-      if (preserveSelections && baseBranch) await this.preflightBaseBranch();
+      const { changes, readinessReset, workflowsReplaced } = this.catalogChanges(listed, mode);
+      if (readinessReset && mode === 'revalidate') {
+        this.cancelBasePreflight();
+        this.preflightVersion += 1;
+      }
+      if (workflowsReplaced) this.exactCatalogBase = null;
+      this.update(changes, { background: true });
+      // Only a complete listing is worth painting next time; a degraded one keeps the last good entry.
+      if (!(listed.unreachable ?? []).length && !listed.intake?.workflowReason) {
+        try { this.catalogCache?.write(listed); } catch { /* an acceleration only */ }
+      }
+      if (mode !== 'initial' && readinessReset && this.form.baseBranch) await this.preflightBaseBranch();
     } catch (error) {
       if (revision !== this.catalogRevision || this.disposed) return;
       const reason = (error as Error).message;
       this.output.appendLine(`Intake catalog could not be read: ${reason}`);
-      this.update(preserveSelections ? {
+      if (mode === 'revalidate') {
+        this.cancelBasePreflight();
+        this.preflightVersion += 1;
+      }
+      this.update(mode !== 'initial' ? {
         // A failed refresh must not erase a valid draft or its last known choices. Mark the
         // authority stale and require another successful preflight before Start can be enabled.
         workflowReason: `Could not refresh Story workflows: ${reason}`,
@@ -389,6 +470,7 @@ export class IntakePanel {
         workflowCatalogReason: null,
         workflowReason: `Could not load Story workflows: ${reason}`,
         baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason,
+        catalogStatus: 'fresh',
         ...emptyStoryPreflight(),
         inFlight: this.inFlight
       });
@@ -396,6 +478,101 @@ export class IntakePanel {
     // Jira is an optional external integration. Do not make its cold process or network probe part
     // of the form's critical path; its result updates only the tracker controls when it arrives.
     if (!preserveSelections) void this.loadTracker();
+  }
+
+  /**
+   * How one catalog listing changes the form.
+   *
+   * `cached` and `initial` start from the defaults. `reload` keeps the person's choices while they
+   * are still offered and always re-checks readiness, because it follows a configuration change.
+   * `revalidate` replaces a cached paint: it keeps the person's choices the same way, and leaves a
+   * readiness check alone while its base and workflow are still offered, since that check read the
+   * exact base and is at least as fresh as this listing. The exact-base workflows it returned stay
+   * too. No mode ever selects a base the person did not choose.
+   */
+  private catalogChanges(listed: CatalogListing, mode: CatalogMode | 'cached'): {
+    changes: Partial<IntakeForm>; readinessReset: boolean; workflowsReplaced: boolean;
+  } {
+    const keepChoices = mode === 'reload' || mode === 'revalidate';
+    const profiles: ProfileChoice[] = (listed.intake?.profiles ?? []).filter((entry) => entry.id).map((entry) => ({
+      id: entry.id!,
+      label: entry.label ?? entry.id!,
+      description: entry.description ?? '',
+      phases: entry.phases ?? []
+    }));
+    const workflows = storyWorkflowCatalog(listed.intake);
+    const priorProfile = keepChoices ? this.form.profile : null;
+    const priorWorkType = (keepChoices ? this.form.workType : this.defaults.workType) ?? null;
+    const priorBaseBranch = keepChoices ? this.form.baseBranch : null;
+    const baseBranchChoices = (listed.choices ?? []).filter((choice) => choice.everywhere);
+    const baseBranch = baseBranchChoices.some((choice) => choice.branch === priorBaseBranch)
+      ? priorBaseBranch : null;
+    const keepExactWorkflows = mode === 'revalidate' && baseBranch !== null
+      && this.exactCatalogBase === baseBranch;
+    const retainedWorkType = mode === 'revalidate'
+      ? storyWorkflowSelection(priorWorkType, workflows.installed)
+      : storyWorkflowSelectionForReload(
+        priorWorkType, workflows.installed, mode === 'reload' && Boolean(baseBranch)
+      );
+    const workType = keepExactWorkflows ? this.form.workType
+      : retainedWorkType
+        // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
+        // click; multiple custom workflows remain an explicit, visible choice in the form.
+        ?? workflows.installed.find((entry) => entry.id === 'feature')?.id
+        ?? workflows.installed[0]?.id ?? null;
+    const readinessReset = !(mode === 'revalidate' && baseBranch !== null && workType === this.form.workType);
+    const unreachable = listed.unreachable ?? [];
+    return {
+      readinessReset,
+      workflowsReplaced: !keepExactWorkflows,
+      changes: {
+        profiles,
+        // Defaulted so the form is not blocked on a choice with one sensible answer, but still
+        // shown, because it decides the phases for the life of the work.
+        profile: profiles.find((entry) => entry.id === priorProfile)?.id
+          ?? profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
+        ...(keepExactWorkflows ? {} : {
+          storyWorkflows: workflows.installed,
+          availableStoryWorkflows: workflows.available,
+          workflowCatalogReason: listed.intake?.workflowCatalogReason ?? null,
+          workType,
+          workflowReason: listed.intake?.workflowReason
+            ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null
+        }),
+        baseBranchChoices,
+        // A Story base is an explicit, permanent choice. Even one available branch must be selected.
+        baseBranch,
+        baseRemote: listed.remote ?? null,
+        // Named, because a branch missing from the list because a remote was unreachable looks
+        // exactly like a branch that does not exist.
+        baseBranchReason: unreachable.length
+          ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}. Remote access is required before starting a Story.`
+          : null,
+        ...(readinessReset ? emptyStoryPreflight() : {}),
+        githubConfigured: true,
+        githubReason: null,
+        inFlight: this.inFlight,
+        approvalAuthorityMissing: typeof listed.intake?.approvalAuthorityMissing === 'boolean'
+          ? listed.intake.approvalAuthorityMissing : this.form.approvalAuthorityMissing,
+        catalogStatus: mode === 'cached' ? 'cached' : 'fresh'
+      }
+    };
+  }
+
+  /** The last complete listing for this repository and CLI build, if it still parses. */
+  private cachedCatalogChanges(): Partial<IntakeForm> | null {
+    try {
+      const cached = this.catalogCache?.read();
+      if (!cached) return null;
+      const listed = cached.listed as CatalogListing;
+      if ((listed.choices !== undefined && !Array.isArray(listed.choices))
+          || (listed.intake !== undefined && (typeof listed.intake !== 'object' || listed.intake === null))) {
+        return null;
+      }
+      return this.catalogChanges(listed, 'cached').changes;
+    } catch {
+      return null;
+    }
   }
 
   private async reloadCatalog(): Promise<void> {
@@ -421,7 +598,7 @@ export class IntakePanel {
   private async loadTracker(): Promise<void> {
     const tracker = await this.tracker();
     let selection = this.form.tracker;
-    if (!this.trackerChosen) {
+    if (!this.trackerChosen && !this.formTouched) {
       selection = this.defaults.source === 'github-issue' ? 'github'
         : this.defaults.source === 'manual' ? 'none'
           : tracker.configured ? 'jira' : 'none';
@@ -431,7 +608,7 @@ export class IntakePanel {
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
       tracker: selection
-    });
+    }, { background: true });
   }
 
   private async tracker(): Promise<{ configured: boolean; reason: string | null }> {
@@ -476,6 +653,7 @@ export class IntakePanel {
       const value = stringField(message, 'value');
       const tracker = value === 'jira' ? 'jira' : value === 'github' ? 'github' : 'none';
       this.trackerChosen = true;
+      this.formTouched = true;
       this.invalidateEnhancement();
       this.preflightVersion += 1;
       this.update({
@@ -553,10 +731,22 @@ export class IntakePanel {
       const field = this.writableField(message);
       const value = typeof message.value === 'string' ? message.value : null;
       if (field && value !== null) {
+        this.formTouched = true;
+        this.lastDraftAt = Date.now();
         if (['title', 'description', 'acceptanceCriteria'].includes(field)) {
           this.invalidateEnhancement();
         }
         (this.form as unknown as Record<string, string>)[field] = value;
+        if (field === 'id' || field === 'key') {
+          // The identifier moved on, so an answer for the old one must never enable Start.
+          if (this.preflightKey !== null
+              && this.preflightKey !== JSON.stringify(storyPreflightCommand(this.form))) {
+            this.cancelBasePreflight();
+            this.preflightVersion += 1;
+            this.update(emptyStoryPreflight(), { background: true });
+          }
+          this.scheduleIdentifierPreflight();
+        }
       }
     },
     field: (message) => {
@@ -565,7 +755,11 @@ export class IntakePanel {
       if (field && value !== null) {
         const invalidatesEnhancement = ['title', 'description', 'acceptanceCriteria'].includes(field);
         if (invalidatesEnhancement) this.invalidateEnhancement();
-        const invalidatesPreflight = field === 'id' || field === 'key';
+        this.formTouched = true;
+        // Blur after a pause re-reports the value readiness is already checking or has checked.
+        const alreadyChecked = (field === 'id' || field === 'key') && this.preflightKey !== null
+          && this.preflightKey === JSON.stringify(storyPreflightCommand({ ...this.form, [field]: value }));
+        const invalidatesPreflight = (field === 'id' || field === 'key') && !alreadyChecked;
         if (invalidatesPreflight) this.preflightVersion += 1;
         this.update({
           [field]: value,
@@ -796,10 +990,12 @@ export class IntakePanel {
     this.cancelBasePreflight();
     const command = storyPreflightCommand(this.form);
     if (!command) return;
+    const base = this.form.baseBranch;
     const version = ++this.preflightVersion;
     const controller = new AbortController();
     this.preflightController = controller;
-    this.update({ ...emptyStoryPreflight(), basePreflightChecking: true });
+    this.preflightKey = JSON.stringify(command);
+    this.update({ ...emptyStoryPreflight(), basePreflightChecking: true }, { background: true });
     try {
       const result = await this.client.run<{
         preflight?: { passed?: boolean; readiness?: StoryStartReadinessResult };
@@ -807,6 +1003,7 @@ export class IntakePanel {
       }>(command, controller.signal);
       if (version !== this.preflightVersion) return;
       const readiness = result.preflight?.readiness;
+      if (Array.isArray(result.intake?.storyWorkflows)) this.exactCatalogBase = base;
       // The selected remote base, not the launch checkout, owns a legacy workflow catalog. Replace
       // the choices with the exact-base response before interpreting readiness. If the previous
       // choice does not exist there, clear it and require a visible user selection.
@@ -840,7 +1037,7 @@ export class IntakePanel {
               : 'The engine did not return Story-start readiness. Reload or update Singularity Flow before retrying.'),
           basePreflightWarnings: warnings,
           basePreflightRefreshRecommended: refreshRecommended
-        });
+        }, { background: true });
         return;
       }
       this.update({
@@ -853,14 +1050,15 @@ export class IntakePanel {
         basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null,
         basePreflightWarnings: warnings,
         basePreflightRefreshRecommended: refreshRecommended
-      });
+      }, { background: true });
     } catch (error) {
       if (version !== this.preflightVersion) return;
+      this.preflightKey = null;
       this.update({
         basePreflightPassed: false, basePreflightChecking: false,
         basePreflightReason: (error as Error).message,
         basePreflightWarnings: [], basePreflightRefreshRecommended: false
-      });
+      }, { background: true });
     } finally {
       if (this.preflightController === controller) this.preflightController = null;
     }
@@ -878,6 +1076,7 @@ export class IntakePanel {
     this.update({ busy: true, error: null, recoveryCommand: null, recoveryRouteCommand: null });
 
     const args = intakeCommand(this.form);
+    const navigation = this.form.shape === 'story' ? this.holdNavigation?.() ?? null : null;
     this.output.appendLine(`\n$ ${terminalCommand(
       this.client.repository,
       redactCliArgsForDisplay(args),
@@ -921,12 +1120,17 @@ export class IntakePanel {
         recoveryRouteCommand: failure instanceof CliTimeoutError
           ? `singularity-flow ${args.slice(0, 2).join(' ')}` : null
       });
+    } finally {
+      navigation?.release();
     }
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.holdWhileVisible(false);
+    if (this.renderTimer) clearTimeout(this.renderTimer);
+    this.renderTimer = null;
     this.invalidateEnhancement();
     this.cancelBasePreflight();
     if (IntakePanel.current === this) IntakePanel.current = null;

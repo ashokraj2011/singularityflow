@@ -10729,6 +10729,21 @@ async function stdinText() {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+/**
+ * What intake needs from the portfolio: the profiles, and whether an Epic or an Initiative could
+ * start at all. The engine refuses one while no approval authority has a member; saying so here lets
+ * the form show it before anyone fills it in, without loading configuration just to check.
+ */
+function intakePortfolioChoices(portfolio) {
+  const authorities = Object.values(portfolio?.approvalAuthorities ?? {});
+  return {
+    profiles: initiativeProfileChoices(portfolio),
+    profileReason: null,
+    approvalAuthorityMissing: authorities.length > 0
+      && !authorities.some((authority) => (authority?.members ?? []).length)
+  };
+}
+
 function initiativeProfileChoices(portfolio) {
   return Object.entries(portfolio.initiativeProfiles).map(([id, profile]) => ({
     id,
@@ -13807,7 +13822,7 @@ async function workspaceCommand(positionals, options) {
     // checkout could offer a newly approved profile that its immediately following start rejects.
     const localIntakeProfiles = intakeRequested
       ? await loadPortfolio(root)
-        .then((portfolio) => ({ profiles: initiativeProfileChoices(portfolio), profileReason: null }))
+        .then((portfolio) => intakePortfolioChoices(portfolio))
         .catch((error) => ({
           profiles: [], profileReason: error instanceof Error ? error.message : String(error)
         }))
@@ -13828,7 +13843,7 @@ async function workspaceCommand(positionals, options) {
       // resolves to the same checkout and preserves its validation error.
       const intakeProfiles = intakeRequested && localIntakeProfiles.profiles.length === 0
         ? await loadPortfolio(root)
-          .then((portfolio) => ({ profiles: initiativeProfileChoices(portfolio), profileReason: null }))
+          .then((portfolio) => intakePortfolioChoices(portfolio))
           .catch(() => localIntakeProfiles)
         : localIntakeProfiles;
       let packagedCatalog = intakeRequested

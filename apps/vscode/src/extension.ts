@@ -23,6 +23,8 @@ import {
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
+import { IntakeCatalogCache } from './intake-catalog-cache.ts';
+import { BackgroundWorkGovernor } from './background-governor.ts';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
@@ -39,7 +41,7 @@ import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type Workspace
 import { discoverWorkspaceStoryRows, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
 import { sameStoryAttachPath, selectedCatalogStory, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
 import {
-  storyStartHandoffFromResult, storyStartHandoffMatches,
+  storyCheckoutNeedsWindowSwitch, storyStartHandoffFromResult, storyStartHandoffMatches,
   STORY_START_HANDOFF_KEY, STORY_START_DISCOVERY_IDLE_MS
 } from './story-start-handoff.ts';
 import type { StoriesMessage } from './views/stories.ts';
@@ -297,6 +299,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   extensionLifetime.abort();
   extensionLifetime = new AbortController();
   const activationSignal = extensionLifetime.signal;
+  // Optional work (Story discovery, product checks) waits while the intake form is on screen.
+  const backgroundWork = new BackgroundWorkGovernor();
   // Module state can survive a deactivate/reactivate cycle in the same extension host. Until this
   // activation validates a workspace or folder, no command may inherit the previous routing choice.
   setActiveRepositoryContext(null);
@@ -3744,9 +3748,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(onExtensionsChanged(() => { void loadedBundle.offerReload(productHost); }));
   }
   if (vscode.env?.appHost) {
+    // Both checks are optional, so neither competes with somebody filling in the intake form.
     void initialWorkspaceRefresh
+      .then(() => backgroundWork.waitUntilIdle({ signal: activationSignal }))
       .then(() => alignProductSurfaces(productHost, { loadedBuild, bundle: loadedBundle }))
       .then((outcome) => output.appendLine(`Product surface check: ${outcome}`))
+      .then(() => backgroundWork.waitUntilIdle({ signal: activationSignal }))
       .then(() => openConfigurationReviews(productHost, { loadedBuild, bundle: loadedBundle }))
       .then((outcome) => output.appendLine(`Configuration review check: ${outcome}`))
       .catch((error) => output.appendLine(`Product surface check could not run: ${(error as Error).message}`));
@@ -4439,6 +4446,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Start Work paints the last complete intake catalog at once and revalidates it. `[perf]`
+  const intakeCatalogCache = context.globalStorageUri?.fsPath
+    ? new IntakeCatalogCache(context.globalStorageUri.fsPath, client.location.cli) : null;
+  // The watched repository's verified Git common directory, which its Story worktrees share. Only
+  // used while it still describes the current repository.
+  let intakeCatalogScope: { repository: string; commonDirectory: string } | null = null;
+  const intakeCatalogKey = (): string => intakeCatalogScope?.repository === repository
+    ? intakeCatalogScope.commonDirectory : repository;
+
   const store = new WorkspaceStore(client, snapshotCache);
   if (hostBenchmarkEnabled) {
     persistHostBenchmarkCache = async () => {
@@ -4453,6 +4469,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return item?.id ? { id: item.id, kind: item.workType ?? null } : null;
   };
   context.subscriptions.push(store);
+  // An open intake form started on the Store's last snapshot; keep its in-flight list current. The
+  // panels bundle is never loaded just to listen: no bundle means no open form.
+  context.subscriptions.push(store.onDidChange((state) => {
+    const panels = lazyPanelsRuntime;
+    if (panels && state.snapshot) panels.IntakePanel.lifecycleChanged(panels.intakeInFlight(state.snapshot));
+  }));
   // Registered before the tree-model listeners, so the benchmark labels the render they queue
   // with the exact projection that caused it. This is inert outside the explicit host benchmark.
   context.subscriptions.push(store.onDidChange((state, change) => {
@@ -4599,6 +4621,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let watchedGitCommonDirectory: string | null = null;
   const watchGovernedRepository = (target: string, gitCommonDirectory: string | null): void => {
     watchedGitCommonDirectory = gitCommonDirectory;
+    intakeCatalogScope = gitCommonDirectory ? { repository: target, commonDirectory: gitCommonDirectory } : null;
     repositoryWatcher?.dispose();
     autoPrivateWatcher?.dispose();
     if (repositoryRefreshTimer) {
@@ -4713,11 +4736,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     postStartDiscoveryTimer = null;
   };
   context.subscriptions.push({ dispose: cancelPostStartDiscoveryTimer });
+  let deferredDiscovery: AbortController | null = null;
+  const cancelDeferredDiscovery = (): void => {
+    deferredDiscovery?.abort();
+    deferredDiscovery = null;
+  };
+  context.subscriptions.push({ dispose: cancelDeferredDiscovery });
   const refreshRemoteStories = ({ afterCurrent = false, refreshSnapshot = true }: {
     afterCurrent?: boolean; refreshSnapshot?: boolean;
   } = {}): Promise<void> => {
     // Explicit Refresh/attachment/map actions never wait for the advisory post-start idle hint.
     cancelPostStartDiscoveryTimer();
+    cancelDeferredDiscovery();
     const scope = repositoryEpoch.capture();
     return storyRefreshGate.run(scope.epoch, async (): Promise<void> => {
       let issue: string | null = null;
@@ -4852,6 +4882,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`Story discovery needs attention: ${(error as Error).message}`);
       }
     }); };
+    // Discovery is optional: while the intake form is on screen it waits, for at most two minutes.
+    // A forced read never waits, and an explicit refresh cancels the wait.
+    const discoverWhenIdle = (): void => {
+      if (forceReadiness || !backgroundWork.held) return discover();
+      cancelDeferredDiscovery();
+      const controller = new AbortController();
+      deferredDiscovery = controller;
+      output.appendLine('Story discovery waits until Start Work is closed.');
+      void backgroundWork.waitUntilIdle({ signal: controller.signal }).then(() => {
+        if (controller.signal.aborted || deferredDiscovery !== controller) return;
+        deferredDiscovery = null;
+        if (activationSignal.aborted || !repositoryEpoch.isCurrent(scope)) return;
+        discover();
+      });
+    };
     const handoff = context.globalState.get<unknown>(STORY_START_HANDOFF_KEY);
     if (!forceReadiness && storyStartHandoffMatches(handoff, scope.repository, state.snapshot)) {
       // Confirmed core/lifecycle bytes remain the only source for actions. This one-use hint just
@@ -4866,13 +4911,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (postStartDiscoveryTimer !== timer) return;
         postStartDiscoveryTimer = null;
         if (activationSignal.aborted || !repositoryEpoch.isCurrent(scope)) return;
-        discover();
+        discoverWhenIdle();
       }, STORY_START_DISCOVERY_IDLE_MS);
       postStartDiscoveryTimer = timer;
       postStartDiscoveryTimer.unref?.();
       return;
     }
-    discover();
+    discoverWhenIdle();
   };
   context.subscriptions.push(store.onDidChange((state, change) => {
     if (change.kind !== 'snapshot' || state.stale || state.error || !state.snapshot) return;
@@ -5120,7 +5165,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // `undefined` deliberately preserves the existing CLI check on every request.
   let activeSelectionRevision = await machineSelectionRevision(activeSelectionFile);
   let selectionReconciliation: Promise<boolean> | null = null;
+  // A Story start moves the machine-wide selection to its new checkout before it returns. Following
+  // that here would rebind this window before the start decides to open the checkout, so a change
+  // seen while a start is in flight waits, and is reconciled once the start has finished.
+  let navigationHolds = 0;
+  let navigationDeferred = false;
+  const holdNavigation = (): { release(): void } => {
+    navigationHolds += 1;
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        navigationHolds -= 1;
+        if (navigationHolds || !navigationDeferred) return;
+        navigationDeferred = false;
+        void reconcileActiveWorkspaceSelection();
+      }
+    };
+  };
   const reconcileActiveWorkspaceSelection = async (): Promise<boolean> => {
+    if (navigationHolds) {
+      if (!navigationDeferred) {
+        output.appendLine('The active selection changed during a Story start; it is followed once the start finishes.');
+      }
+      navigationDeferred = true;
+      return false;
+    }
     if (selectionReconciliation) return selectionReconciliation;
     const reconciliation = (async (): Promise<boolean> => {
       const observedSelectionRevision = await machineSelectionRevision(activeSelectionFile);
@@ -5520,15 +5591,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     guidedStart?: boolean;
     workspaceName?: string | null;
   } = {}): Promise<void> => {
-    // Refresh before asking anything. `start` refuses a dirty tree, and discovering that only after
-    // somebody completes the intake form wastes their answers and makes a correct guard look like a
-    // dead button. The target is stated here because a selected workspace may point this window at
-    // a lead repository other than the folder visible in the title bar.
-    // Loading a new slice already performs a fresh snapshot. Calling refresh unconditionally after
-    // it made the first Start Work click pay for the same repository scan twice; only an already
-    // loaded configuration needs the explicit freshness read below.
-    const refreshedForConfiguration = await store.ensureSlices(['configuration']);
-    if (!refreshedForConfiguration) await store.refresh();
+    // An Initiative or an Epic starts in this checkout, so asked for directly it refreshes before
+    // asking anything: `start` refuses a dirty tree, and discovering that only after somebody
+    // completes the form wastes their answers. A Story runs in its own worktree and its form reads
+    // its own catalog and readiness, so the form opens at once on the Store's last snapshot; the
+    // refresh runs behind it and updates the in-flight list when it lands. Waiting here used to cost
+    // one or two full snapshots, including a network clone of approved configuration, before any
+    // form appeared.
+    const checkoutShape = Boolean(defaults.shape && defaults.shape !== 'story');
+    if (checkoutShape) {
+      // Loading a new slice already performs a fresh snapshot; only an already loaded
+      // configuration needs the explicit freshness read.
+      const refreshedForConfiguration = await store.ensureSlices(['configuration']);
+      if (!refreshedForConfiguration) await store.refresh();
+    } else if (!store.current.snapshot || store.current.stale) {
+      void store.refresh().catch(() => undefined);
+    }
     const repositoryState = store.current.snapshot?.repository;
     const changedPaths = repositoryState?.changes ?? [];
     // Stories run in dedicated worktrees, so a dirty checkout from another Story is not a blocker.
@@ -5599,12 +5677,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    // Checked before anything is asked. The engine refuses to start governed work when no approval
-    // authority has a member, and discovering that after a filled-in form — with a message naming a
-    // YAML key — is a poor greeting for someone who has just initialized a repository.
+    // Checked before anything is asked. The engine refuses to start an Epic or an Initiative when no
+    // approval authority has a member, and discovering that after a filled-in form — with a message
+    // naming a YAML key — is a poor greeting for someone who has just initialized a repository. From
+    // the generic entry the form shows the same thing as a problem once one of those shapes is chosen.
     const authorities = store.current.snapshot?.portfolio?.approvalAuthorities ?? {};
     const named = Object.entries(authorities).filter(([, authority]) => (authority?.members ?? []).length);
-    if (Object.keys(authorities).length && !named.length) {
+    const approvalAuthorityMissing = Object.keys(authorities).length > 0 && !named.length;
+    if (checkoutShape && approvalAuthorityMissing) {
       const open = await vscode.window.showWarningMessage(
         'No approval authority has a member yet, so governed work cannot be started.',
         { modal: true, detail: 'Add at least one person in People & approvals. Every governed approval is checked against the configured Git or GitHub identity.' },
@@ -5620,7 +5700,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     IntakePanel.show(context, client, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       if (started.shape === 'story' && started.repositoryPath
-          && path.resolve(started.repositoryPath) !== path.resolve(repository)) {
+          && await storyCheckoutNeedsWindowSwitch(started.repositoryPath,
+            (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath))) {
         const handoff = storyStartHandoffFromResult(started);
         if (handoff) {
           try { await context.globalState.update(STORY_START_HANDOFF_KEY, handoff); }
@@ -5648,10 +5729,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspace: workspaceLabel,
       repository: repositoryState?.root ?? repository,
       branch: repositoryState?.branch ?? null,
-      // Start Work already refreshed the Store's core lifecycle slice. Re-project those exact bytes
-      // instead of spawning a second full `snapshot --json` process inside the panel.
+      // Re-project the Store's lifecycle slice rather than spawning a second full `snapshot --json`
+      // inside the panel. For a Story it may be the last snapshot; `lifecycleChanged` follows it.
       inFlight: intakeInFlight(store.current.snapshot),
+      approvalAuthorityMissing,
       defaults,
+      catalogCache: intakeCatalogCache?.bind(intakeCatalogKey()) ?? null,
+      holdBackgroundWork: (reason) => backgroundWork.hold(reason),
+      holdNavigation,
       journey: defaults.guidedStart ? {
         step: 'work',
         capabilityId: context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null)?.capabilityId ?? null,

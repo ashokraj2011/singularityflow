@@ -19,7 +19,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'no
 import { mkdtemp, mkdir, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
@@ -436,6 +436,15 @@ function stubVscode() {
 }
 
 /** Load the shipped bundle with `vscode` swapped for the stub. */
+/**
+ * Remove a test's temporary repository. The extension host a test activated is still alive when
+ * it ends, and its CLI processes (a tracker probe, a background refresh) can still be writing logs
+ * beneath the repository's Git directory, so a single recursive removal can fail with ENOTEMPTY.
+ */
+function removeFixture(directory) {
+  return rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
 function loadExtension(api) {
   activeVscodeApi = api;
   // Each call represents a fresh extension host. Explicit lazy CommonJS entries are sibling
@@ -2725,6 +2734,9 @@ test('an Epic can be started and its first source pinned entirely from the edito
   const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
   assert.ok(intakePanel, 'a start-work panel was created');
   assert.match(intakePanel.webview.html, /default-src 'none'/);
+  // The form opens on a Story, the common case; an Epic is one click away.
+  assert.match(intakePanel.webview.html, /data-shape="story"[^>]*checked/);
+  await intakePanel.post({ type: 'shape', value: 'epic' });
   // All three shapes are offered, and this repository has no Jira, which is said rather than hidden.
   const loaded = await until(() =>
     (intakePanel.webview.html.includes('data-choose-profile') || intakePanel.webview.html.includes('epic-intake')
@@ -2891,11 +2903,276 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   );
 });
 
+test('Story readiness is checked once typing the identifier pauses, and the blur that follows does not repeat it', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-typing-'));
+  t.after(() => removeFixture(base));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intake, 'Start Work opens Story intake');
+  assert.match(intake.webview.html, /data-shape="story"[^>]*checked/, 'the form opens on Story');
+  await until(() => intake.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the Story workflow catalog to load' });
+  await intake.post({ type: 'baseBranch', value: 'main' });
+  await intake.post({ type: 'tracker', value: 'none' });
+  const branchReads = () => registered.output.filter((line) => String(line).includes('[Singularity Flow timing]')
+    && String(line).includes('"command":"workspace"') && String(line).includes('"subcommand":"branches"')).length;
+
+  // Keystrokes only; the identifier field never loses focus.
+  for (const value of ['S', 'ST', 'STORY-T', 'STORY-TYPED']) {
+    await intake.post({ type: 'draft', field: 'id', value });
+  }
+  await until(() => /Story-start readiness confirmed for[\s\S]*?create <code>STORY-TYPED<\/code>/
+    .test(intake.webview.html) ? true : null, { what: 'readiness once typing paused, without a blur' });
+  const afterPause = branchReads();
+  assert.ok(afterPause > 0, 'catalog and readiness reads are timed');
+  await intake.post({ type: 'field', field: 'id', value: 'STORY-TYPED' });
+  assert.match(intake.webview.html, /Story-start readiness confirmed for[\s\S]*?create <code>STORY-TYPED<\/code>/,
+    'the blur keeps the answer for the value it re-reports');
+  assert.equal(branchReads(), afterPause, 'the blur does not start a second readiness check');
+
+  // Typing on drops the old answer before the next pause: Start never lights up for the old identifier.
+  await intake.post({ type: 'draft', field: 'id', value: 'STORY-TYPED-2' });
+  await until(() => !/Story-start readiness confirmed for[\s\S]*?create <code>STORY-TYPED<\/code>/
+    .test(intake.webview.html) ? true : null, { what: 'the answer for the old identifier to be withdrawn' });
+  assert.doesNotMatch(intake.webview.html, /readiness confirmed for[\s\S]*?create <code>STORY-TYPED-2<\/code>/,
+    'the new identifier is not reported ready before its own check');
+  await until(() => /Story-start readiness confirmed for[\s\S]*?create <code>STORY-TYPED-2<\/code>/
+    .test(intake.webview.html) ? true : null, { what: 'readiness for the new identifier after the next pause' });
+  assert.deepEqual(registered.errors, []);
+});
+
+test('a second Start Work paints the cached catalog at once, then revalidates without losing choices', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-cache-'));
+  t.after(() => removeFixture(base));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  const storage = path.join(base, 'global-storage');
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate({ ...context(), globalStorageUri: { fsPath: storage } });
+  const branchReads = () => registered.output.filter((line) => String(line).includes('[Singularity Flow timing]')
+    && String(line).includes('"command":"workspace"') && String(line).includes('"subcommand":"branches"')).length;
+
+  await registered.commands.get('singularityFlow.startWork')();
+  const first = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.match(first.webview.html, /Reading the approved Story workflows…/,
+    'with nothing cached the form says it is reading instead of reporting a missing workflow');
+  await until(() => first.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the fresh catalog on the first open' });
+  const cacheDirectory = path.join(storage, 'intake-catalog-cache-v1');
+  await until(() => existsSync(cacheDirectory)
+    && readdirSync(cacheDirectory).some((name) => name.endsWith('.json')) ? true : null,
+  { what: 'the complete catalog to be cached' });
+  first.dispose();
+  // Past the client's 250 ms read coalescing, so the second open really has to revalidate.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  const readsBefore = branchReads();
+  await registered.commands.get('singularityFlow.startWork')();
+  const second = registered.panels.filter((entry) => entry.id === 'singularityFlow.intake').at(-1);
+  assert.notEqual(second, first, 'a new form opened');
+  assert.match(second.webview.html, /data-work-type="feature"/, 'workflows paint from the cache at once');
+  assert.match(second.webview.html, /data-base-branch="main"/, 'base branches paint from the cache at once');
+  assert.match(second.webview.html, /last known\s+branches and workflows/, 'the cached paint is labelled');
+  assert.doesNotMatch(second.webview.html, /data-base-branch="main" checked/, 'no base is preselected');
+
+  // Choose while the fresh catalog may still be on its way; revalidation must keep both choices.
+  await second.post({ type: 'tracker', value: 'none' });
+  await second.post({ type: 'field', field: 'id', value: 'STORY-CACHED' });
+  await second.post({ type: 'baseBranch', value: 'main' });
+  await until(() => !/last known/.test(second.webview.html)
+    && /Story-start readiness confirmed for[\s\S]*?create <code>STORY-CACHED<\/code>/.test(second.webview.html)
+    ? true : null, { what: 'revalidation and readiness on the chosen base' });
+  assert.match(second.webview.html, /data-base-branch="main" checked/, 'the chosen base survived revalidation');
+  assert.equal(branchReads() - readsBefore, 2,
+    'one revalidating catalog read and one readiness check; revalidation never repeats the check');
+  assert.deepEqual(registered.errors, []);
+});
+
+test('a started Story opens in the window even when its selection write is followed first', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-window-race-'));
+  t.after(() => removeFixture(base));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  // A selected workspace, so the Story start moves the machine-wide selection to its new checkout.
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const previous = {
+    registry: process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY,
+    selection: process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE
+  };
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previous.registry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previous.registry;
+    if (previous.selection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previous.selection;
+  });
+  const cli = (args, options = {}) => {
+    const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args],
+      { encoding: 'utf8', env: process.env, ...options });
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const created = JSON.parse(cli(['workspace', 'create', '--local', '--json', '--id', 'race-home',
+    '--base', path.join(base, 'workspaces'), '--lead', 'lead', '--repository', `lead=${remote}`,
+    '--default-branch', 'lead=main', '--confirm', 'race-home', '--clone']));
+  cli(['workspace', 'use', 'race-home', '--json']);
+  const lead = await realpath(path.join(created.workspace.path, created.workspace.repositories.lead.path));
+
+  // The real start runs to completion, then its reply waits until the test has made the extension
+  // see the selection it wrote: the order that used to leave the window on the launch checkout.
+  const gate = path.join(base, 'start-may-reply');
+  const finished = path.join(base, 'start-finished');
+  const gatedCli = path.join(base, 'gated-cli.mjs');
+  const realCli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+  await writeFile(gatedCli, `
+    import { spawnSync } from 'node:child_process';
+    import { existsSync, writeFileSync } from 'node:fs';
+    if (process.argv[2] === 'start') {
+      const child = spawnSync(process.execPath, [${JSON.stringify(realCli)}, ...process.argv.slice(2)], {
+        cwd: process.cwd(), env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: 64 * 1024 * 1024
+      });
+      writeFileSync(${JSON.stringify(finished)}, '');
+      while (!existsSync(${JSON.stringify(gate)})) await new Promise((resolve) => setTimeout(resolve, 20));
+      process.stdout.write(child.stdout);
+      process.stderr.write(child.stderr);
+      process.exitCode = child.status ?? 1;
+    } else {
+      await import(${JSON.stringify(pathToFileURL(realCli).href)});
+    }
+  `);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: lead } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? gatedCli : '', update: async () => {} });
+  await loadExtension(api).activate(context());
+  const selectionWatcher = registered.watchers.find((watcher) =>
+    path.resolve(watcher.pattern.base.fsPath) === path.dirname(selectionFile)
+      && watcher.pattern.pattern === path.basename(selectionFile));
+  assert.ok(selectionWatcher, 'the extension watches the machine-wide selection');
+
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intake, 'Start Work opens Story intake');
+  await until(() => intake.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the Story workflow catalog to load' });
+  await intake.post({ type: 'tracker', value: 'none' });
+  await intake.post({ type: 'field', field: 'id', value: 'STORY-RACE' });
+  await intake.post({ type: 'baseBranch', value: 'main' });
+  await intake.post({ type: 'field', field: 'title', value: 'Window race' });
+  await intake.post({ type: 'field', field: 'description', value: 'Open the new Story checkout' });
+  await intake.post({ type: 'field', field: 'acceptanceCriteria', value: 'The window shows the Story' });
+  await until(() => /Story-start readiness confirmed for[\s\S]*?create <code>STORY-RACE<\/code>/
+    .test(intake.webview.html) ? true : null, { what: 'Story readiness before Start' });
+  const starting = intake.post({ type: 'start' });
+
+  await until(() => existsSync(finished) ? true : null, { attempts: 800, what: 'the governed start to finish' });
+  assert.match(await readFile(selectionFile, 'utf8'), /STORY-RACE/, 'the start moved the machine-wide selection');
+  selectionWatcher.change.fire({ fsPath: selectionFile });
+  await until(() => registered.output.some((line) => String(line).includes('The active selection changed during a Story start')
+    || String(line).includes('Active selection changed outside VS Code')) ? true : null,
+  { what: 'the extension to see the selection written by the start' });
+  // Whatever following the selection does, it has had time to rebind before the reply arrives.
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  await writeFile(gate, '');
+  await starting;
+
+  const openFolder = await until(() => registered.executedCommands.find(
+    (entry) => entry.id === 'vscode.openFolder') ?? null, { what: 'the Story checkout to open in the window' });
+  const storyRoot = openFolder.args[0].fsPath;
+  assert.notEqual(await realpath(storyRoot), lead, 'the new isolated checkout, not the launch checkout');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: storyRoot }).stdout.trim(), 'STORY-RACE');
+  assert.equal(openFolder.args[1], false, 'the Story checkout replaces the launch folder in this window');
+  assert.deepEqual(registered.errors, []);
+});
+
 test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {
   if (!requireBundle(t)) return;
   const reviewer = { name: 'QA Reviewer', email: 'qa.reviewer@example.com' };
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-poc-release-candidate-'));
-  t.after(() => rm(base, { recursive: true, force: true }));
+  t.after(() => removeFixture(base));
   const root = path.join(base, 'application');
   await mkdir(root);
   run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
@@ -3242,11 +3519,25 @@ test('starting work before any approver is named says so first, and offers the f
   await extension.activate(context());
 
   registered.selfApprovalAnswer = undefined; // the person dismissed the modal
-  await registered.commands.get('singularityFlow.startWork')();
-
+  // Asked for directly, an Epic checks the precondition before anything is asked.
+  await registered.commands.get('singularityFlow.startWork')({ shape: 'epic' });
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked before the precondition was checked');
   assert.ok(registered.warnings.some((message) => /No approval authority has a member/.test(message)));
+  assert.equal(registered.panels.filter((entry) => entry.id === 'singularityFlow.intake').length, 0,
+    'the Epic form was not opened over a precondition that would refuse it');
   assert.deepEqual(registered.errors, [], 'a missing precondition is not an error dialog');
+
+  // A Story needs no approver to start, so the generic entry opens the form at once. The same
+  // precondition is shown in the form as soon as a shape that needs it is chosen.
+  registered.warnings.length = 0;
+  await registered.commands.get('singularityFlow.startWork')();
+  const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intakePanel, 'the Story form opened without waiting on the Epic-only precondition');
+  assert.ok(!registered.warnings.some((message) => /No approval authority has a member/.test(message)));
+  await until(() => (intakePanel.webview.html.includes('data-work-type') ? true : null));
+  await intakePanel.post({ type: 'shape', value: 'epic' });
+  assert.match(await until(() => (/No approval authority has a member/.test(intakePanel.webview.html)
+    ? intakePanel.webview.html : null)), /People &amp; approvals/);
 });
 
 test('People & approvals adds the current Git identity to every configured group and publishes it', async (t) => {
@@ -5554,7 +5845,7 @@ test('the Copilot handoff switches this window to the governed repository before
 test('clicking an ahead local Story opens its checkout and resumes Copilot there', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-story-click-'));
-  t.after(() => rm(base, { recursive: true, force: true }));
+  t.after(() => removeFixture(base));
   const root = path.join(base, 'application');
   await mkdir(root);
   run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
@@ -5647,7 +5938,7 @@ test('clicking an ahead local Story opens its checkout and resumes Copilot there
 test('Inbox opens another Story while the selected workspace points at a managed Story worktree', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-worktree-catalog-'));
-  t.after(() => rm(base, { recursive: true, force: true }));
+  t.after(() => removeFixture(base));
   const registryFile = path.join(base, 'registry.json');
   const selectionFile = path.join(base, 'active-workspace.json');
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
@@ -5759,7 +6050,7 @@ test('Inbox opens another Story while the selected workspace points at a managed
 test('clicking a remote Story without a local checkout attaches it and opens Copilot', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-remote-story-click-'));
-  t.after(() => rm(base, { recursive: true, force: true }));
+  t.after(() => removeFixture(base));
   const root = path.join(base, 'application');
   await mkdir(root);
   run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
@@ -6109,6 +6400,47 @@ test('post-start handoff with a mismatched configuration pin retains ordinary St
     'Post-start Story inventory deferred until idle')), false);
   assert.ok(values.get('singularityFlow.storyStartHandoff.v1'),
     'an unproven hint does not become a consumed successful handoff');
+  assert.deepEqual(registered.errors, []);
+});
+
+test('Story discovery waits while Start Work is on screen and runs once it closes', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await publishedStoryHandoffFixture(t);
+  const gateDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-discovery-gate-'));
+  t.after(() => removeFixture(gateDirectory));
+  // The first repository snapshot waits until the form is open, so the order below is fixed: the
+  // confirmed snapshot that starts discovery lands while somebody is looking at Start Work.
+  const gate = path.join(gateDirectory, 'snapshot-may-run');
+  const gatedCli = path.join(gateDirectory, 'gated-cli.mjs');
+  await writeFile(gatedCli, `
+    import { existsSync } from 'node:fs';
+    if (process.argv.includes('snapshot')) {
+      while (!existsSync(${JSON.stringify(gate)})) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'bin', 'singularity-flow.mjs')).href)});
+  `);
+  const values = new Map([['singularityFlow.firstRunHealth.v1', { status: 'healthy' }]]);
+  const hostContext = context(values);
+  fixture.setContext(hostContext);
+  const { api, registered } = stubVscode();
+  // A real window returns from activation before its first confirmed read.
+  api.env = { ...api.env, appHost: 'desktop' };
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.root } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? gatedCli : '', update: async () => {} });
+  await loadExtension(api).activate(hostContext);
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intake, 'Start Work opened before the first snapshot confirmed');
+  await writeFile(gate, '');
+
+  await until(() => registered.output.some((line) => String(line).includes(
+    'Story discovery waits until Start Work is closed.')) ? true : null, { attempts: 400,
+    what: 'automatic discovery to wait for the open form' });
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(storyInventoryInvocations(registered), 0, 'no remote Story scan while the form is on screen');
+  intake.dispose();
+  await until(() => storyInventoryInvocations(registered) === 1 ? true : null, { attempts: 400,
+    what: 'discovery once Start Work closed' });
   assert.deepEqual(registered.errors, []);
 });
 

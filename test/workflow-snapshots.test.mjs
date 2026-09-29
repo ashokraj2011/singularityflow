@@ -15,7 +15,7 @@ import {
 import { selectAgent } from '../src/session.mjs';
 import { run } from '../src/util.mjs';
 import {
-  captureWorkflowSnapshot, verifyWorkflowSnapshot, workflowSnapshotDrift
+  captureWorkflowSnapshot, storyHistoryCommits, verifyWorkflowSnapshot, workflowSnapshotDrift
 } from '../src/workflow-snapshots.mjs';
 
 function digest(value) {
@@ -983,5 +983,49 @@ test('accepted snapshot verification rejects symbolic-link object bindings', asy
     );
   } finally {
     await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test('a Story history read that Git could not complete is refused, never read as "never added"', async () => {
+  // These reads decide authority. An empty answer means a record was never added or a Story is
+  // not yet accepted, so only a read that succeeded may be empty. A failed read used to return
+  // the same empty answer and was reported as a missing creation commit that existed.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-history-'));
+  try {
+    const git = (...args) => run('git', args, { cwd: root });
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.name', 'History');
+    git('config', 'user.email', 'history@example.invalid');
+    await mkdir(path.join(root, 'singularity/work-items/S-1'), { recursive: true });
+    await writeFile(path.join(root, 'singularity/work-items/S-1/workflow.json'), '{}\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'create S-1');
+    const created = git('rev-parse', 'HEAD').stdout.trim();
+    await writeFile(path.join(root, 'README.md'), 'later\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'later');
+
+    const added = ['--format=%H', '--diff-filter=A', '--reverse', '--', 'singularity/work-items/S-1/workflow.json'];
+    assert.deepEqual(storyHistoryCommits(root, added, "Story 'S-1' creation record"), [created]);
+    assert.deepEqual(storyHistoryCommits(root, ['--format=%H', '--', 'never/added.json'], 'Absent record'), [],
+      'a successful read of a path never added is empty');
+
+    // Outside a repository, or before its first commit, nothing was ever added: that absence is real.
+    const plain = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-history-plain-'));
+    try {
+      assert.deepEqual(storyHistoryCommits(plain, added, 'Plain directory'), []);
+      run('git', ['init', '-q', '-b', 'main'], { cwd: plain });
+      assert.deepEqual(storyHistoryCommits(plain, added, 'Unborn branch'), []);
+    } finally {
+      await rm(plain, { recursive: true, force: true });
+    }
+
+    // Remove the creation commit's object: Git can still name HEAD but cannot walk the history.
+    await rm(path.join(root, '.git/objects', created.slice(0, 2), created.slice(2)), { force: true });
+    assert.throws(() => storyHistoryCommits(root, added, "Story 'S-1' creation record"), (error) =>
+      error.code === 'WFA_DEPENDENCY_UNAVAILABLE'
+      && /^Story 'S-1' creation record could not be read from Git history: \S/.test(error.message));
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

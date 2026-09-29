@@ -65,6 +65,25 @@ function fail(message, code = 'WFA_SNAPSHOT_INVALID', details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
 }
 
+/**
+ * The commits a read-only `git log` over Story history names, or a refusal when Git itself failed.
+ *
+ * These reads decide authority: no commit means "never added" or "not yet accepted". A failed Git
+ * read used to return the same empty answer, so it could report an accepted Story as an unaccepted
+ * draft, or a creation commit that exists as missing. Outside a repository, or before its first
+ * commit, nothing was ever added and the absence is real; any other failure is a read that did not
+ * happen, and says so.
+ */
+export function storyHistoryCommits(root, logArguments, label) {
+  const result = run('git', ['log', ...logArguments], { cwd: root, allowFailure: true });
+  if (result.status === 0) return result.stdout.trim().split(/\r?\n/).filter(Boolean);
+  const head = run('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd: root, allowFailure: true });
+  if (!result.error && !result.signal && !head.error && !head.signal && head.status !== 0) return [];
+  const reason = String(result.stderr ?? '').trim().split(/\r?\n/)[0]
+    || result.error?.message || `git log exited with ${result.status ?? result.signal}`;
+  fail(`${label} could not be read from Git history: ${reason.slice(0, 240)}`, 'WFA_DEPENDENCY_UNAVAILABLE');
+}
+
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -1099,10 +1118,10 @@ export function hasRetainedWorkflowSnapshotDraft(root, config, workflow) {
   const retained = workflow && RETAINED_CREATION_DRAFTS.get(workflow);
   if (!retained || canonicalJson(retained) !== canonicalJson(workflow.workflowSnapshot)) return false;
   const workflowRelative = storyRelative(config, workflow.workItem.id, 'workflow.json');
-  const accepted = run('git', [
-    'log', '--format=%H', '--diff-filter=A', '--max-count=1', '--', workflowRelative
-  ], { cwd: root, allowFailure: true }).stdout.trim();
-  return !accepted;
+  const accepted = storyHistoryCommits(root, [
+    '--format=%H', '--diff-filter=A', '--max-count=1', '--', workflowRelative
+  ], `Story '${workflow.workItem.id}' creation record`);
+  return !accepted.length;
 }
 
 async function readRetainedDraftSkillPackages(root, config, workflow) {
@@ -1419,9 +1438,9 @@ function initialSnapshotAuthority(root, config, workId) {
   if (repository.status === 0) {
     ensureCompleteStoryCreationHistory(root, `Story '${workId}' immutable creation record`);
   }
-  const history = run('git', [
-    'log', '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative
-  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  const history = storyHistoryCommits(root, [
+    '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative
+  ], `Story '${workId}' creation record`);
   if (!history.length) {
     fail(
       `Story '${workId}' execution closure has not reached an immutable creation commit.`,
@@ -1443,12 +1462,12 @@ function initialSnapshotAuthority(root, config, workId) {
 function firstAddedCommit(root, relative, label) {
   // Read-only Git history queries: each constructed Story-local amendment path must be added
   // exactly once and never modified or deleted, even if later restored to identical bytes.
-  const history = run('git', [
-    'log', '--full-history', '--format=%H', '--diff-filter=A', '--', relative
-  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);
-  const touches = run('git', [
-    'log', '--full-history', '--format=%H', '--', relative
-  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  const history = storyHistoryCommits(root, [
+    '--full-history', '--format=%H', '--diff-filter=A', '--', relative
+  ], label);
+  const touches = storyHistoryCommits(root, [
+    '--full-history', '--format=%H', '--', relative
+  ], label);
   if (history.length > 1 || touches.length > 1
       || (touches.length === 1 && touches[0] !== history[0])) {
     fail(`${label} changed after its immutable first-add commit.`, 'WFA_AMENDMENT_INVALID');

@@ -399,6 +399,19 @@ test('warm cache refuses changed authority even when the same invocation session
   const fresh = await read(f); assert.equal(fresh.snapshot.observedCommit, updated);
 });
 
+test('a Story start read reuses the authority it just observed, while every other read observes again', cacheProfile, async (t) => {
+  const f = await fixture(t); await read(f);
+  const session = new GitRemoteSession({ cwd: f.source, env: f.env });
+  f.authority = await resolveRemoteStoryConfigurationAuthority(f.remote, { session });
+  const reused = await read(f, { session, reuseAuthorityObservation: true });
+  assert.equal(reused.counters['configuration.object-cache-hit'], 1);
+  assert.equal(reused.counters['git.remote.command.ls-remote'] ?? 0, 0,
+    'the command already holds current authority and re-checks it before its first shared mutation');
+  const observed = await read(f, { session });
+  assert.equal(observed.counters['git.remote.command.ls-remote'], 1,
+    'without the opt-in a warm read still observes exact current authority');
+});
+
 test('unreachable authority and removed authority never become a warm cache success', cacheProfile, async (t) => {
   const f = await fixture(t); await read(f);
   git(f.base, '--git-dir', f.remote, 'update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`);

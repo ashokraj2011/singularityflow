@@ -215,20 +215,24 @@ export async function resolveReferenceRepositoryPins(requests, {
       fail(`Reference repository '${request.id}' has no advertised branch '${request.requestedBranch}'.`,
         'REFERENCE_REPOSITORY_BRANCH_NOT_FOUND', { id: request.id, branch: request.requestedBranch });
     }
-    const repository = sanitizeRemote(request.repository);
-    return {
-      schemaVersion: currentSchemaVersion(REFERENCE_REPOSITORY_FAMILY),
-      id: request.id,
-      repository,
-      repositorySha256: `sha256:${remoteFingerprint(repository)}`,
-      requestedBranch: request.requestedBranch,
-      commit: match[1].toLowerCase(),
-      tree: null,
-      required: request.required !== false,
-      localPath: referenceLocalPath(request.id, localNamespace),
-      pinnedAt: nowIso()
-    };
+    return referencePin(request, match[1], localNamespace);
   });
+}
+
+function referencePin(request, commit, localNamespace) {
+  const repository = sanitizeRemote(request.repository);
+  return {
+    schemaVersion: currentSchemaVersion(REFERENCE_REPOSITORY_FAMILY),
+    id: request.id,
+    repository,
+    repositorySha256: `sha256:${remoteFingerprint(repository)}`,
+    requestedBranch: request.requestedBranch,
+    commit: commit ? commit.toLowerCase() : null,
+    tree: null,
+    required: request.required !== false,
+    localPath: referenceLocalPath(request.id, localNamespace),
+    pinnedAt: nowIso()
+  };
 }
 
 async function ensureLocallyExcluded(root) {
@@ -335,10 +339,12 @@ function assertObservation(reference, observed) {
   return observed;
 }
 
-async function materializeOne(root, reference, { env, runGit }) {
+async function materializeOne(root, reference, { env, runGit, resolveBranch = null }) {
   const secured = await secureRepositoryPath(root, reference.localPath, {
     label: `Reference repository '${reference.id}'`
   });
+  // An existing checkout can only be verified against a known commit, so resolve it first.
+  if (resolveBranch && secured.exists) reference = await resolveBranch();
   if (secured.exists) {
     if (!secured.entry?.isDirectory()) fail(`Reference repository path '${reference.localPath}' is not a directory.`,
       'REFERENCE_REPOSITORY_PATH_UNSAFE');
@@ -352,17 +358,37 @@ async function materializeOne(root, reference, { env, runGit }) {
   try {
     run('git', ['init', '--quiet'], { cwd: staging });
     run('git', ['remote', 'add', 'origin', reference.repository], { cwd: staging });
-    await runGit(['fetch', '--depth=1', '--no-tags', 'origin', reference.commit], {
-      cwd: staging, env, operation: 'remote-configuration',
-      timeoutMs: gitTimeouts(env).configuration, allowFailure: false
-    });
-    const treeSafety = referenceTreeSafety(staging, reference.commit);
+    // A deferred pin is resolved by the fetch that transfers it: FETCH_HEAD is exactly that commit.
+    // Anything unexpected falls back to the separate resolution, which also classifies a missing
+    // branch or unreachable remote.
+    let revision = reference.commit;
+    if (resolveBranch && !reference.commit) {
+      const fetched = await runGit([
+        'fetch', '--depth=1', '--no-tags', 'origin', `refs/heads/${reference.requestedBranch}`
+      ], {
+        cwd: staging, env, operation: 'remote-configuration',
+        timeoutMs: gitTimeouts(env).configuration, allowFailure: true
+      });
+      if (fetched.status === 0) revision = 'FETCH_HEAD';
+      else reference = await resolveBranch();
+    }
+    if (revision !== 'FETCH_HEAD') {
+      revision = reference.commit;
+      await runGit(['fetch', '--depth=1', '--no-tags', 'origin', revision], {
+        cwd: staging, env, operation: 'remote-configuration',
+        timeoutMs: gitTimeouts(env).configuration, allowFailure: false
+      });
+    }
+    const treeSafety = referenceTreeSafety(staging, revision);
     if (!treeSafety.ok) {
       fail(`Reference repository '${reference.id}' cannot be materialized safely because ${treeSafety.reason}.`,
         'REFERENCE_REPOSITORY_TREE_UNSAFE', { id: reference.id });
     }
-    run('git', ['checkout', '--quiet', '--detach', reference.commit], { cwd: staging });
-    const observed = assertObservation(reference, localObservation(staging, { inspectTreeSafety: false }));
+    run('git', ['checkout', '--quiet', '--detach', revision], { cwd: staging });
+    const local = localObservation(staging, { inspectTreeSafety: false });
+    // A branch fetched to resolve it is pinned to the commit it transferred, then verified as any pin.
+    if (revision === 'FETCH_HEAD') reference = { ...reference, commit: local.commit };
+    const observed = assertObservation(reference, local);
     const stagedSource = await lstat(staging);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const source = await lstat(staging).catch((error) => {
@@ -405,12 +431,8 @@ async function materializeOne(root, reference, { env, runGit }) {
   }
 }
 
-/** Materialize pinned sources beneath the selected Story checkout, never in home or a temp cache. */
-export async function materializeReferenceRepositories(root, references, {
-  env = process.env, runGit = runRemoteGitAsync, workers = 2
-} = {}) {
-  const normalized = normalizePinnedReferences(references);
-  if (!normalized.length) return [];
+/** Exclude the local reference root and refuse one that holds tracked application files. */
+async function prepareReferenceRoot(root) {
   await ensureLocallyExcluded(root);
   const tracked = run('git', ['ls-files', '--', REFERENCE_REPOSITORY_LOCAL_ROOT], {
     cwd: root, allowFailure: true
@@ -420,8 +442,42 @@ export async function materializeReferenceRepositories(root, references, {
       + 'Remove those files from the application repository before attaching read-only references.',
     'REFERENCE_REPOSITORY_PATH_TRACKED');
   }
+}
+
+/** Materialize pinned sources beneath the selected Story checkout, never in home or a temp cache. */
+export async function materializeReferenceRepositories(root, references, {
+  env = process.env, runGit = runRemoteGitAsync, workers = 2
+} = {}) {
+  const normalized = normalizePinnedReferences(references);
+  if (!normalized.length) return [];
+  await prepareReferenceRoot(root);
   return mapLimit(normalized, Math.max(1, Math.min(workers, 2)), (reference) =>
     materializeOne(root, reference, { env, runGit }));
+}
+
+/**
+ * Resolve each requested branch through the fetch that materializes it. `[perf]`
+ *
+ * Story start resolves pins early only so that an inaccessible reference refuses before automatic
+ * enrollment can publish a membership commit. When enrollment cannot publish, a separate resolution
+ * is one more remote round trip per reference for no protection: the depth-1 fetch of the branch
+ * pins exactly the commit it transfers.
+ */
+export async function materializeReferenceRepositoriesFromBranches(root, requests, {
+  env = process.env, runGit = runRemoteGitAsync, workers = 2, localNamespace = null
+} = {}) {
+  if (!requests?.length) return [];
+  if (requests.length > MAXIMUM_REFERENCES) {
+    fail(`A Story may declare at most ${MAXIMUM_REFERENCES} reference repositories.`, 'REFERENCE_REPOSITORY_LIMIT');
+  }
+  await prepareReferenceRoot(root);
+  return mapLimit(requests, Math.max(1, Math.min(workers, 2)), async (request) => {
+    const provisional = referencePin(request, null, localNamespace);
+    const resolveBranch = async () => (await resolveReferenceRepositoryPins([request], {
+      env, runGit, localNamespace
+    }))[0];
+    return materializeOne(root, provisional, { env, runGit, resolveBranch });
+  });
 }
 
 export function referenceRepositoryManifestRelative(config, workId) {

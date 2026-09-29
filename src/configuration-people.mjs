@@ -182,6 +182,24 @@ function snapshotEnrollmentResult(snapshot, actor, member, {
 }
 
 /**
+ * Whether Story start's automatic enrollment could publish a membership commit for this identity.
+ *
+ * Answered from the verified snapshot alone, exactly as enrollment's own no-op path decides it. Story
+ * start uses it to skip work whose only purpose is to refuse before such a commit exists.
+ */
+export function automaticEnrollmentMayPublish(root, configurationSnapshot) {
+  const actor = identity(root);
+  try {
+    return snapshotEnrollmentResult(configurationSnapshot, actor, normalizedMember(actor), {
+      target: '*', solo: false, allowSelfApproval: null, autoEnrollNewIdentities: null, automatic: true
+    }) === null;
+  } catch {
+    // Enrollment itself reports an unusable identity. Until then, assume it could publish.
+    return true;
+  }
+}
+
+/**
  * Add the caller's current Git identity to approved authority groups and publish one exact commit.
  *
  * The approved branch is cloned into scratch. The caller's index, worktree, HEAD and Story snapshot
@@ -191,7 +209,7 @@ function snapshotEnrollmentResult(snapshot, actor, member, {
 export async function publishCurrentIdentityToConfiguration(root, {
   target = '*', solo = false, allowSelfApproval = null,
   autoEnrollNewIdentities = null, automatic = false, transport = {},
-  configurationSnapshot = null, expectedSourceCommit = null
+  configurationSnapshot = null, expectedSourceCommit = null, session = null
 } = {}) {
   for (const [name, value] of Object.entries({ allowSelfApproval, autoEnrollNewIdentities })) {
     if (value != null && typeof value !== 'boolean') {
@@ -220,7 +238,9 @@ export async function publishCurrentIdentityToConfiguration(root, {
   if (snapshotResult && expectedSourceCommit == null) return snapshotResult;
   // Resolution already makes a fresh exact-ref observation. Keep its per-invocation session so
   // the no-op comparison can use that same authority result instead of another network round trip.
-  const remoteSession = new GitRemoteSession({ cwd: root });
+  // Story start passes the session that made its own fresh pre-enrollment observation of this
+  // authority, so resolution and comparison both answer from that one look.
+  const remoteSession = session ?? new GitRemoteSession({ cwd: root });
   const remoteUrl = await resolveConfigurationRemote(root, 'origin', { session: remoteSession });
   if (!remoteUrl) {
     throw new SingularityFlowError(

@@ -141,7 +141,7 @@ import { generateDesignInventory } from './design-inventory.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.mjs';
 import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
-import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
+import { automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, redactCommandArgv, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
@@ -155,7 +155,7 @@ import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } 
 import { readRecord } from './schema-migrations.mjs';
 import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
 import {
-  materializeReferenceRepositories, parseReferenceRepositoryOptions,
+  materializeReferenceRepositories, materializeReferenceRepositoriesFromBranches, parseReferenceRepositoryOptions,
   resolveReferenceRepositoryPins
 } from './reference-repositories.mjs';
 import {
@@ -222,8 +222,8 @@ import {
 } from './local-identity.mjs';
 import { adoptWorkspaceConfiguration, archiveWorkspace, changeWorkspaceCapability, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import {
-  captureConfigurationState, CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, materializeConfigurationSnapshot,
-  loadStoryConfigurationSnapshot, readConfigurationSource, resolveNewStoryConfigurationAuthority,
+  captureConfigurationState, CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, configurationBranchHead,
+  materializeConfigurationSnapshot, loadStoryConfigurationSnapshot, readConfigurationSource, resolveNewStoryConfigurationAuthority,
   resolveStoryConfigurationAuthority,
   withStoryConfigurationSnapshotRead
 } from './configuration-branch.mjs';
@@ -255,7 +255,8 @@ import { withApprovedConfigurationRead } from './approved-configuration-reader.m
 import {
   configurationReadAuthority, configurationReadSnapshot
 } from './configuration-read-scope.mjs';
-import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
+import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger, withLedgerRemoteView } from './ledger.mjs';
+import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
@@ -1825,8 +1826,12 @@ export async function startCommand(positionals, options) {
     // session may share exact immutable reads, but a seed recheck after human intake stays fresh.
     const exactBases = fromBranch.length === 1 && !fromBranch[0].includes('=')
       ? [`refs/heads/${fromBranch[0]}`] : explicitBase ? [`refs/heads/${explicitBase}`] : [];
+    // The state tip rides along when it lives on this remote: capability preflight's launch-fetch
+    // reuse proof needs exactly this observation, and making it here saves that probe.
+    const stateAuthority = worldModelStateAuthority(config ?? {});
+    const stateRefs = stateAuthority.remote === remoteName ? [`refs/heads/${stateAuthority.branch}`] : [];
     const authority = applicationRemote ? await storyRemoteSession.observeAsync(applicationRemote, {
-      includeHead: true, refs: [advertisedStoryRef, ...exactBases], refresh
+      includeHead: true, refs: [advertisedStoryRef, ...exactBases, ...stateRefs], refresh
     }) : null;
     let defaultBranch = authority?.defaultBranch ?? null;
     if (applicationRemote && !defaultBranch && authority?.ok) {
@@ -1963,7 +1968,9 @@ export async function startCommand(positionals, options) {
     ?? (configurationAuthority
       ? await measureCommandSpan('start.configuration', () =>
         loadStoryConfigurationSnapshot(configurationAuthority, {
-          session: storyRemoteSession, useObjectCache: true
+          // The authority was just observed through this session. The live tip is checked again
+          // before the first shared mutation, so the read need not observe it a second time.
+          session: storyRemoteSession, useObjectCache: true, reuseAuthorityObservation: true
         }))
       : null);
   config = approvedConfigurationSnapshot?.definition
@@ -2449,10 +2456,18 @@ export async function startCommand(positionals, options) {
   // Reference syntax was already validated when options were parsed. Resolve each read-only branch
   // to its exact advertised commit before enrollment as well: an inaccessible or missing reference
   // is an intake refusal, not authority to add a person to sflow/config.
-  const referencePins = referenceRequests.length
-    ? await measureCommandSpan('start.reference-pins', () =>
-      resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id }))
-    : await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id });
+  // Resolution exists this early only so an inaccessible reference refuses before enrollment can
+  // publish a membership commit. When enrollment cannot publish, the fetch that materializes each
+  // reference resolves its branch as well (null here), one round trip instead of two.
+  const enrollmentMayPublish = configurationAuthority?.branch === CONFIGURATION_BRANCH
+    && config.approvalSecurity?.autoEnrollNewIdentities !== false
+    && automaticEnrollmentMayPublish(root, approvedConfigurationSnapshot);
+  const referencePins = !referenceRequests.length
+    ? await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id })
+    : enrollmentMayPublish
+      ? await measureCommandSpan('start.reference-pins', () =>
+        resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id }))
+      : null;
   // Complete the read-only capability and Git publication proof before automatic enrollment. A
   // contributor must never leave a shared membership commit behind only to discover that the base,
   // destination ref, or office Git policy prevents this Story from starting.
@@ -2462,7 +2477,10 @@ export async function startCommand(positionals, options) {
         remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
         configurationSnapshot: approvedConfigurationSnapshot,
         capabilityEvidence: legacyCapabilityEvidence,
-        launchFetchProof: options[ISOLATED_STORY_BASE_FETCH_HANDOFF] ?? null
+        launchFetchProof: options[ISOLATED_STORY_BASE_FETCH_HANDOFF] ?? null,
+        // Destination discovery observed this remote after the launch fetch, a moment ago.
+        launchFetchObservation: destination.authority?.ok === true
+          ? { url: destination.transportRemote, observation: destination.authority } : null
       }))
     : null;
   const originalBranch = branch(root);
@@ -2689,13 +2707,13 @@ export async function startCommand(positionals, options) {
   }));
   supportingDocuments = documentCapture.inputs;
   const referenceMode = resolvedWorkType.referenceRepositoryPolicy?.mode ?? 'optional';
-  if (referenceMode === 'off' && referencePins.length) {
+  if (referenceMode === 'off' && referenceRequests.length) {
     throw new SingularityFlowError(
       `Work type '${workType}' does not allow reference repositories.`,
       { code: 'REFERENCE_REPOSITORIES_NOT_ALLOWED' }
     );
   }
-  if (referenceMode === 'required' && !referencePins.length) {
+  if (referenceMode === 'required' && !referenceRequests.length) {
     throw new SingularityFlowError(
       `Work type '${workType}' requires at least one read-only reference repository at intake. `
       + 'Pass paired --reference-repository ID=URL and --reference-branch ID=BRANCH options.',
@@ -2706,6 +2724,53 @@ export async function startCommand(positionals, options) {
   // before automatic enrollment so a concurrent Epic rematerialization cannot leave a membership
   // commit behind for a Story whose accepted seed is no longer current.
   await assertMaterializedSeedUnchanged({ observeRemote: true });
+  // One fresh look at approved configuration before the first shared mutation. It proves the
+  // authority did not move after Story choices were frozen — whether or not enrollment runs — and
+  // the same observation answers enrollment's own resolution and no-op comparison below. When the
+  // ledger's state branch lives on the same remote it rides along, and publication's ledger reads
+  // answer from it instead of observing the state tip twice more.
+  const publicationStateViews = [];
+  if (configurationAuthority?.branch === CONFIGURATION_BRANCH) {
+    const selectedCommit = approvedConfigurationSnapshot?.sourceCommit ?? configurationAuthority.commit;
+    const configurationRef = `refs/heads/${CONFIGURATION_BRANCH}`;
+    const ledgerConfig = normalizeLedgerConfig(config.ledger ?? {});
+    // Same repository is decided by raw configured identity, as the authority was; the view is
+    // keyed by the ledger's transport URL, which an ambient insteadOf rule may spell differently.
+    let ledgerIdentity = null;
+    try {
+      ledgerIdentity = ledgerConfig.enabled
+        ? configuredRemoteIdentity(root, ledgerConfig.remote, { direction: 'fetch' }) : null;
+    } catch { ledgerIdentity = null; }
+    const ledgerRemote = ledgerIdentity?.url === configurationAuthority.remote && !ledgerIdentity.ambiguous
+      ? configuredRemoteAuthority(root, ledgerConfig.remote, { direction: 'fetch' }).url : null;
+    const stateRef = `refs/heads/${ledgerConfig.branch}`;
+    const alongside = ledgerRemote ? [stateRef] : [];
+    const observed = await measureCommandSpan('start.authority-check', () =>
+      storyRemoteSession.observeAsync(configurationAuthority.remote, {
+        refs: [configurationRef, ...alongside], includeHead: false, refresh: true
+      }));
+    const current = await configurationBranchHead(configurationAuthority.remote, { observation: observed });
+    if (!current.reachable) {
+      throw new SingularityFlowError(
+        `Cannot re-read approved configuration before starting Story '${id}': ${current.error} Nothing was changed.`,
+        { code: observed.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
+    }
+    if (alongside.length && observed.refs.get(stateRef)) {
+      publicationStateViews.push({
+        remote: ledgerRemote, branch: ledgerConfig.branch, commit: observed.refs.get(stateRef)
+      });
+    }
+    if (current.sha !== selectedCommit) {
+      throw new SingularityFlowError(
+        'Approved configuration changed after Story choices were frozen. Refresh Story intake and retry; nothing was changed.',
+        {
+          code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+          details: { selectedCommit, currentCommit: current.sha }
+        }
+      );
+    }
+  }
   // Enrollment is a separate shared-configuration mutation. It is allowed only after every Story
   // input and Git destination has passed the read-only readiness gate above. The exact-parent check
   // proves the enrollment commit advances the snapshot we inspected rather than a concurrent edit.
@@ -2714,7 +2779,8 @@ export async function startCommand(positionals, options) {
     const enrollment = await measureCommandSpan('start.enrollment', () =>
       publishCurrentIdentityToConfiguration(root, {
       target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot,
-      expectedSourceCommit: approvedConfigurationSnapshot?.sourceCommit ?? null
+      expectedSourceCommit: approvedConfigurationSnapshot?.sourceCommit ?? null,
+      session: storyRemoteSession
     }));
     automaticEnrollment = enrollment;
     if (enrollment.changed && !enrollment.pushed) {
@@ -2908,9 +2974,12 @@ export async function startCommand(positionals, options) {
   assertStoryStartReady(startReadiness);
   await validateDeterministicStartPolicy(config, approvedConfigurationSnapshot, documentCapture.evidence);
   // A reference repository is a full checkout of its pinned tree: often the largest transfer in a start.
-  const referenceRepositories = referencePins.length
-    ? await measureCommandSpan('start.references', () => materializeReferenceRepositories(root, referencePins))
-    : await materializeReferenceRepositories(root, referencePins);
+  const referenceRepositories = referencePins === null
+    ? await measureCommandSpan('start.references', () =>
+      materializeReferenceRepositoriesFromBranches(root, referenceRequests, { localNamespace: id }))
+    : referencePins.length
+      ? await measureCommandSpan('start.references', () => materializeReferenceRepositories(root, referencePins))
+      : await materializeReferenceRepositories(root, referencePins);
   const selectedAgent = await activatePhaseAgent(
     root, config, id, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
   );
@@ -2943,7 +3012,7 @@ export async function startCommand(positionals, options) {
   let publication;
   let initialDocuments = [];
   try {
-    await measureCommandSpan('start.publication', () => runDraftTransaction(root, {
+    await measureCommandSpan('start.publication', () => withLedgerRemoteView(publicationStateViews, () => runDraftTransaction(root, {
       subject: { kind: 'story', id, branch: canonicalBranch },
       allowedPaths: [workDirRelative(config, id)],
       operation: 'story-start',
@@ -3012,7 +3081,7 @@ export async function startCommand(positionals, options) {
         );
         return { workflow, publication };
       }
-    }));
+    })));
   } catch (error) {
     if (workflow) {
       await retainCapabilityPublicationRecovery(root, id, {

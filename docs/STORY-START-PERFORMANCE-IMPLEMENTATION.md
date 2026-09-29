@@ -82,8 +82,44 @@ Copilot: /sf-session
 Skills are guided entry points, not byte-for-byte aliases. They must use the returned repository,
 selection and legal next action. VS Code's Inbox **Refresh Stories** bypasses the idle delay.
 
+## 2026-09-29: a measured reference-driven start
+
+A real reference-driven Story start, launched from VS Code inside an existing Story worktree against
+a private GitHub repository, took 31.7 seconds. Its durable timing record and a replay against local
+mirrors of the same repositories attributed the time:
+
+- 16 network round trips (the 17th remote command is a local clone from the configuration object
+  cache). Seven were in publication, which took 14.9 seconds.
+- 2.35 seconds of root dispatch: the product-requirement check read approved configuration again
+  (probe, clone, validation) because its verdict was keyed by the asking worktree.
+- About 7.4 seconds outside every span, mostly the reference repository: an 11 MiB depth-1 pack of
+  about 3,000 objects.
+- Four `gh api user` calls. The account cache lived at `<root>/.git/...`, which is a pointer file in
+  a linked worktree, so it was never written there.
+
+| Change | Delivered | Safeguard retained |
+|---|---|---|
+| Shared Git directory | The GitHub-account, epic-source and agent caches resolve the common Git directory from the filesystem (pointer file, then `commondir`). | Read paths still never spawn Git. A main checkout's paths are unchanged. |
+| One requirement verdict per repository | Verdicts are keyed by the main checkout that owns the shared Git directory, so every Story worktree shares one daily check. | A main checkout's key is unchanged. The requirement is still read before any mutation when due. |
+| Atomic ledger tail | Every lifecycle publication appends its ledger entry and pin in one atomic push after one lease observation. The sequential tail used four round trips. | Exact leases: the observed state tip, and create-only for the pin. A clean per-ref acknowledgement or a verifying observation is required. Anything else runs the sequential append, which starts from a fresh state observation when the push may have landed. The first observation is bounded at 10 seconds. |
+| Timing | `start.reference-pins`, `start.references` and `dispatch.*` spans. Dispatch passes now count their Git work. | Recorded only when the step runs. Names are fixed vocabulary. |
+
+Replay of the same start from a Story worktree (local mirrors, so network time is absent): 17 remote
+commands became 15, `gh api user` calls went from 4 to 1, root dispatch went from about 590 ms to
+50 ms, and wall time went from about 10.1 to 7.9 seconds. At the measured 1.2 to 3.2 seconds per
+authenticated GitHub operation, the projected saving on the original network is about 7 seconds. That
+projection has not been measured on the real network.
+
+Every freshness probe in the ledger above is unchanged: the configuration cache's authority read,
+destination discovery, enrollment's live-authority comparison, the publication-permission dry run,
+and the ledger reads inside publication.
+
 ## Deliberately remaining
 
+- The reference repository transfer. It can overlap only enrollment, because the reference policy
+  is known only after work-type resolution. That is the enrollment-mutation overlap below.
+- Two ledger reads inside publication (building the workflow and validating it) each observe the
+  state tip afresh.
 - S2's speculative remote fetch and enrollment-mutation overlap; S6's unverified-manifest branch
   probes. A future approved-identity prelude is needed before such reads can safely overlap.
 - Full S3 union observations, exact changed-ref fetching, and persistent cross-command

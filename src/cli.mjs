@@ -1661,6 +1661,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   const intake = { status: intakeReceiptId ? 'rejected' : 'absent', reason: null, reused: [] };
   let intakeAdmission = null;
   let intakeProof = null;
+  const intakeReferences = intakeReceiptId ? parseReferenceRepositoryOptions(
+    optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
+  ) : [];
   if (intakeReceiptId) {
     if (!requestedBase || optionString(options, 'ref', id) !== id) intake.reason = 'inputs';
     else if (durableLocalStory) intake.reason = 'story-exists';
@@ -1670,16 +1673,15 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
         inputs: {
           workId: id, workType: optionString(options, 'work-type'), baseBranch: requestedBase,
           remote: requestedRemote, capabilityId: optionString(options, 'capability') ?? null,
-          references: parseReferenceRepositoryOptions(
-            optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
-          ).map((request) => ({ id: request.id, url: request.repository, branch: request.requestedBranch }))
+          references: intakeReferences
+            .map((request) => ({ id: request.id, url: request.repository, branch: request.requestedBranch }))
         },
         workId: id, remote: requestedRemote, baseBranch: requestedBase
       });
       if (admission.status !== 'admitted') intake.reason = admission.reason;
       else {
         const wave = await measureCommandSpan('start.intake-verification', () =>
-          verifyStoryIntakeWave(sourceRoot, admission, { workId: id }));
+          verifyStoryIntakeWave(sourceRoot, admission, { workId: id, references: intakeReferences }));
         if (wave.ok) {
           intakeAdmission = admission;
           intakeProof = wave.proof;
@@ -2550,12 +2552,19 @@ export async function startCommand(positionals, options) {
   const enrollmentMayPublish = configurationAuthority?.branch === CONFIGURATION_BRANCH
     && config.approvalSecurity?.autoEnrollNewIdentities !== false
     && automaticEnrollmentMayPublish(root, approvedConfigurationSnapshot);
-  const referencePins = !referenceRequests.length
+  // The intake wave resolved exactly these reference branches a moment ago, before any mutation.
+  const intakePins = intakeFresh() && referenceRequests.length > 0
+    && intakeProof.referencePins.length === referenceRequests.length
+    && referenceRequests.every((request) => intakeProof.referencePins.some((pin) =>
+      pin.id === request.id && pin.requestedBranch === request.requestedBranch))
+    ? intakeProof.referencePins.map((pin) => ({ ...pin })) : null;
+  if (intakePins) intakeStatus.reused.push('reference-pins');
+  const referencePins = intakePins ?? (!referenceRequests.length
     ? await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id })
     : enrollmentMayPublish
       ? await measureCommandSpan('start.reference-pins', () =>
         resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id }))
-      : null;
+      : null);
   // Complete the read-only capability and Git publication proof before automatic enrollment. A
   // contributor must never leave a shared membership commit behind only to discover that the base,
   // destination ref, or office Git policy prevents this Story from starting.
@@ -2568,9 +2577,14 @@ export async function startCommand(positionals, options) {
         launchFetchProof: options[ISOLATED_STORY_BASE_FETCH_HANDOFF] ?? null,
         // Destination discovery observed this remote after the launch fetch, a moment ago.
         launchFetchObservation: destination.authority?.ok === true
-          ? { url: destination.transportRemote, observation: destination.authority } : null
+          ? { url: destination.transportRemote, observation: destination.authority } : null,
+        intakeProof: intakeFresh() ? intakeProof : null
       }))
     : null;
+  if (capabilityPreflight?.some((entry) => entry.dryRunVerified)) intakeStatus.reused.push('dry-run');
+  if (destinationFromIntake && capabilityPreflight?.some((entry) => entry.fetchReused)) {
+    intakeStatus.reused.push('base-probe');
+  }
   const originalBranch = branch(root);
   // Fetch and prove the exact source and destination before the first checkout or session change.
   // Listing branches establishes read access; this dry-run additionally establishes that the
@@ -2674,7 +2688,7 @@ export async function startCommand(positionals, options) {
     ? materializedSeedCommit
     : baseCommitAtStart;
   // The intake wave dry-ran this exact destination from this exact base a moment ago.
-  const dryRunFromIntake = Boolean(intakeProof?.dryRun) && intakeFresh() && !materializedSeed
+  const dryRunFromIntake = !capabilityPreflight && Boolean(intakeProof?.dryRun) && intakeFresh() && !materializedSeed
     && intakeProof.dryRun.pushUrl === publicationAuthority?.url
     && intakeProof.dryRun.pushFingerprint === publicationAuthority?.fingerprint
     && intakeProof.dryRun.destinationRef === advertisedStoryRef
@@ -10872,12 +10886,13 @@ async function intakeExistingWork(root, workId, catalog) {
  * Seal what a passing Story readiness preview proved, when the caller asks for it. `[perf]`
  *
  * Only a request Story start can later verify in one wave gets a receipt: approved shared
- * configuration, one repository, an explicit workflow, and a POSIX machine-local store. Any other
+ * configuration, one repository (on its own or as a capability's only member) sharing the launch
+ * checkout's Git directory, an explicit workflow, and a POSIX machine-local store. Any other
  * preview still passes; it just says why no receipt was issued. The receipt is a machine-local
  * bearer token for this repository: callers keep it private and never display it.
  */
 async function intakeReceiptForPreflight(root, {
-  passed, storyId, workType, selected, repositories, snapshot, definition, references
+  passed, storyId, workType, capabilityOption, repositories, snapshot, definition, references
 }) {
   const declined = (reason) => ({ issued: false, reason });
   if (storyIntakeReceiptsDisabled()) return declined('disabled');
@@ -10885,7 +10900,7 @@ async function intakeReceiptForPreflight(root, {
   if (process.platform === 'win32') return declined('platform');
   if (!workType) return declined('work-type');
   if (snapshot?.authority?.branch !== CONFIGURATION_BRANCH) return declined('configuration');
-  if (selected.scope === 'capability' || repositories.length !== 1) return declined('capability');
+  if (repositories.length !== 1) return declined('capability');
   const [entry] = repositories;
   if (gitCommonDir(entry.root) !== gitCommonDir(root)) return declined('repository');
   const fetch = configuredRemoteAuthority(root, entry.remote, { direction: 'fetch' });
@@ -10894,7 +10909,9 @@ async function intakeReceiptForPreflight(root, {
   const minted = await mintStoryIntakeReceipt(root, {
     inputs: {
       workId: storyId, workType, baseBranch: entry.baseBranch, remote: entry.remote,
-      capabilityId: selected.capability ?? null,
+      // The option as given, which start's launch sees too; a capability the workspace implies
+      // is re-derived by the start itself, and its repository is bound by the checks below.
+      capabilityId: capabilityOption,
       references: references.map((request) => ({
         id: request.id, url: request.repository, branch: request.requestedBranch
       }))
@@ -14011,18 +14028,18 @@ async function workspaceCommand(positionals, options) {
           profiles: [], profileReason: error instanceof Error ? error.message : String(error)
         }))
       : null;
-    // [perf] A readiness preview in a one-repository checkout: authority resolution lists this
-    // checkout's own origin first anyway, so that same listing also carries the chosen base, the
-    // Story destination and the state tip. Resolution answers from it, and the preview skips its
-    // fetch when the tracking refs already name those tips. Nothing is listed that resolution would
-    // not list; a separate workspace authority keeps the ordinary path.
+    // [perf] Authority resolution lists its first candidate (the workspace's capability authority,
+    // otherwise this checkout's own origin) anyway. For a readiness preview that same listing also
+    // carries the chosen base, the Story destination and the state tip; resolution answers from it,
+    // and the preview skips its fetch when that is the repository's own remote and the tracking refs
+    // already name those tips. Nothing is listed that resolution would not list.
     const intakeSession = new GitRemoteSession({ cwd: root });
     const unionStory = optionString(options, 'preflight-story');
     const unionBases = optionStrings(options, 'from-branch');
     let originTips = null;
     if (unionStory && unionBases.length === 1 && !unionBases[0].includes('=')) {
-      const { ownOriginStoryAuthorityCandidate } = await import('./configuration-branch.mjs');
-      const originUrl = await ownOriginStoryAuthorityCandidate(root);
+      const { firstStoryAuthorityCandidate } = await import('./configuration-branch.mjs');
+      const originUrl = await firstStoryAuthorityCandidate(root);
       const observation = originUrl ? await intakeSession.observeAsync(originUrl, {
         includeHead: false,
         refs: [
@@ -14032,12 +14049,12 @@ async function workspaceCommand(positionals, options) {
       }).catch(() => null) : null;
       if (observation?.ok) originTips = { url: originUrl, observation };
     }
-    // [perf] The intake catalog lists every head of the checkout's own origin anyway; making that
-    // listing first lets authority resolution answer from it too: one listing instead of two.
+    // [perf] When authority resolution's first candidate is also the repository the catalog lists,
+    // one listing of every head serves both: resolution answers from it, and so does the inventory.
     let originHeads = null;
     if (intakeRequested && !unionStory) {
-      const { ownOriginStoryAuthorityCandidate } = await import('./configuration-branch.mjs');
-      const originUrl = await ownOriginStoryAuthorityCandidate(root);
+      const { firstStoryAuthorityCandidate } = await import('./configuration-branch.mjs');
+      const originUrl = await firstStoryAuthorityCandidate(root);
       const observation = originUrl ? await intakeSession.observeAsync(originUrl, {
         includeHead: false, includeAllHeads: true
       }).catch(() => null) : null;
@@ -14294,7 +14311,8 @@ async function workspaceCommand(positionals, options) {
           readiness,
           ...(optionBoolean(options, 'mint-intake-receipt') ? {
             intakeReceipt: await intakeReceiptForPreflight(root, {
-              passed: readiness.ready === true, storyId, workType: preflightWorkType, selected,
+              passed: readiness.ready === true, storyId, workType: preflightWorkType,
+              capabilityOption: optionString(options, 'capability') ?? null,
               repositories, snapshot: approvedConfigurationSnapshot, definition,
               references: receiptReferences
             })

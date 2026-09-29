@@ -45,6 +45,7 @@ import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
+import { STORY_INTAKE_AUTHORITY_REUSE_MS, isStoryIntakeProof } from './story-intake-verification.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
@@ -216,6 +217,15 @@ function observedTipsCurrent(candidate, remote, baseBranch, storyBranch, tips) {
   const stateRef = `refs/heads/${state.stateBranch}`;
   return observed.patterns.includes(stateRef)
     && (observed.refs.get(stateRef) ?? null) === refHead(candidate.root, `refs/remotes/${remote}/${state.stateBranch}`);
+}
+
+function intakeDryRunCovers(proof, candidate) {
+  return isStoryIntakeProof(proof) && Boolean(proof.dryRun)
+    && Date.now() - proof.observedAt < STORY_INTAKE_AUTHORITY_REUSE_MS
+    && proof.dryRun.pushUrl === candidate.transportRemote
+    && proof.dryRun.pushFingerprint === candidate.remoteFingerprint
+    && proof.dryRun.destinationRef === candidate.destinationRef
+    && proof.dryRun.baseCommit === candidate.baseCommit;
 }
 
 function assertCheckoutRemoteIdentity(root, repository, remote, { publishRequired }) {
@@ -692,6 +702,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   launchFetchProof = null,
   launchFetchObservation = null,
   observedTips = null,
+  intakeProof = null,
   workers = DEFAULT_REMOTE_WORKERS,
   runGit = runRemoteGitAsync
 } = {}) {
@@ -877,6 +888,11 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // fan-out as fetch, while retaining input-order results so the first refusal remains deterministic.
   const checked = await mapLimit(candidatesToProbe, workers, async (candidate) => {
     if (!candidate.publishRequired) return { candidate, dryRun: null };
+    // The intake wave dry-ran exactly this destination from exactly this base a moment ago.
+    if (intakeDryRunCovers(intakeProof, candidate)) {
+      incrementCommandCounter('git.story-dry-run-verified');
+      return { candidate: { ...candidate, dryRunVerified: true }, dryRun: null };
+    }
     const transport = frozenRemoteTransport(candidate.transportRemote, { push: true });
     const dryRun = await runGit([
       'push', '--dry-run', '--porcelain', transport.remote,

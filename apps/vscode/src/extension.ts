@@ -108,9 +108,11 @@ import {
 } from './views/home-acknowledgement.ts';
 import {
   activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens,
-  latestWorkspaceBootstrap, resetGatewaySession, setActiveRepositoryContext,
+  latestWorkspaceBootstrap, resetGatewaySession, setActiveRepositoryContext as setGatewayRepositoryContext,
   type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-runtime-client.ts';
+import { menuResource, repositoryRelativePath } from './explain-target.ts';
+import type { ExplorerFocusRequest } from './views/change-explorer.ts';
 import { registerSflowChat } from './sflow-chat.ts';
 import { helpRuntime } from './help-runtime-client.ts';
 import { readRecord, recordHelpMetric } from './support-runtime-client.ts';
@@ -291,6 +293,20 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
     { id: 'machine-state', status: writable ? 'healthy' : 'blocked', detail: 'machine-local SFlow state location is writable' },
     { id: 'repository', status: 'healthy', detail: repositoryKind }
   ];
+}
+
+/**
+ * The context key the repository menus are gated on: the editor and Explorer "Singularity Flow"
+ * submenus, the editor title, Source Control and the Navigator title show their explain actions
+ * only while a governed repository is selected. Every change of repository goes through the
+ * function below, so the key cannot disagree with the routing it describes.
+ */
+export const REPOSITORY_ACTIVE_CONTEXT = 'singularityFlow.repositoryActive';
+
+function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {
+  setGatewayRepositoryContext(next);
+  Promise.resolve(vscode.commands.executeCommand('setContext', REPOSITORY_ACTIVE_CONTEXT, next !== null))
+    .catch(() => undefined);
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -623,15 +639,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { headline: 'Nothing to ask for' });
     }
   }));
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.previewSelectedImpact', async (uri?: vscode.Uri) => {
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.previewSelectedImpact', async (argument?: unknown) => {
     const active = activeRepositoryContext();
-    const selected = uri ?? vscode.window.activeTextEditor?.document.uri;
+    const selected = menuResource(argument) ?? vscode.window.activeTextEditor?.document.uri;
     if (!active || !selected || selected.scheme !== 'file') {
       showRefusal('Open a file inside the active governed repository, then try again.', { headline: 'No code selected' });
       return;
     }
-    const relative = path.relative(active.root, selected.fsPath).split(path.sep).join('/');
-    if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) {
+    // The same containment the explain menus use, so a file opened through a symbolic link (on
+    // macOS, /tmp is /private/tmp) is not refused as outside the repository.
+    const relative = await repositoryRelativePath(active.root, selected.fsPath);
+    if (!relative) {
       showRefusal('The selected file is outside the active governed repository.', { headline: 'Selection is out of scope' });
       return;
     }
@@ -880,6 +898,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
+    'singularityFlow.openCodeExplanation', 'singularityFlow.explainFileChanges', 'singularityFlow.explainChangeAtCursor',
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
@@ -6746,6 +6765,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (refreshHome) await vscode.commands.executeCommand('singularityFlow.myWork');
   };
 
+  /**
+   * The file an explain menu was opened on (and, from the editor, the cursor line) as a Change
+   * Explorer focus request, or a refusal in the same words "What If I Change This?" uses.
+   */
+  const explainFocusRequest = async (argument: unknown, atCursor: boolean): Promise<ExplorerFocusRequest | null> => {
+    const active = activeRepositoryContext();
+    const editor = vscode.window.activeTextEditor;
+    const selected = atCursor ? editor?.document.uri ?? null : menuResource(argument) ?? editor?.document.uri ?? null;
+    if (!active || !selected || selected.scheme !== 'file') {
+      showRefusal('Open a file inside the active governed repository, then try again.', { headline: 'No code selected' });
+      return null;
+    }
+    const relative = await repositoryRelativePath(active.root, selected.fsPath);
+    if (!relative) {
+      showRefusal('The selected file is outside the active governed repository.', { headline: 'Selection is out of scope' });
+      return null;
+    }
+    const document = vscode.workspace.textDocuments?.find((entry) => entry.uri.fsPath === selected.fsPath);
+    return {
+      path: relative,
+      line: atCursor && editor ? editor.selection.active.line + 1 : null,
+      unsaved: Boolean(document?.isDirty ?? (atCursor && editor?.document.isDirty))
+    };
+  };
+  const showChangeExplorerFocused = async (argument: unknown, atCursor: boolean): Promise<unknown> => {
+    await reconcileActiveWorkspaceSelection();
+    const focus = await explainFocusRequest(argument, atCursor);
+    if (!focus) return undefined;
+    const { ComprehensionCenterPanel } = lazyPanels();
+    return ComprehensionCenterPanel.show(context, store, client, { tab: 'explorer', focus });
+  };
+
   const registered: Record<string, (...args: never[]) => unknown> = {
     'singularityFlow.openCapabilities':
       async () => {
@@ -6920,6 +6971,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { ComprehensionCenterPanel } = lazyPanels();
       return ComprehensionCenterPanel.show(context, store, client, { tab: 'explorer' });
     },
+    'singularityFlow.openCodeExplanation': async () => {
+      await reconcileActiveWorkspaceSelection();
+      const { ComprehensionCenterPanel } = lazyPanels();
+      return ComprehensionCenterPanel.show(context, store, client, { tab: 'explanation' });
+    },
+    // The explain menus: the editor, Explorer and Source Control pass the file; the editor's
+    // "Explain This Change" also passes the cursor line.
+    'singularityFlow.explainFileChanges': ((argument?: unknown) => showChangeExplorerFocused(argument, false)) as never,
+    'singularityFlow.explainChangeAtCursor': () => showChangeExplorerFocused(undefined, true),
     'singularityFlow.createSgosWorkflow': async () => {
       await reconcileActiveWorkspaceSelection();
       const { showSgosWorkflowCreator } = lazyPanels();

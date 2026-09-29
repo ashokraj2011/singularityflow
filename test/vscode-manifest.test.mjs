@@ -222,6 +222,24 @@ test('every menu entry keys on a context value the tree actually produces', () =
   assert.deepEqual(unreachable, [], 'these actions can never appear on any tree row');
 });
 
+test('every context key a menu is gated on is one the extension sets', () => {
+  // Five views were once gated on `singularityFlow.legacyNavigation`, a key set nowhere, so none of
+  // them ever rendered. A menu entry gated on such a key is the same promise nothing keeps: an
+  // action that can never appear. View ids (`view == singularityFlow.…`) are checked above.
+  const gated = Object.values(manifest.contributes.menus).flat()
+    .flatMap((entry) => [...(entry.when ?? '').matchAll(/(?<!view == )\bsingularityFlow\.\w+/g)].map((match) => match[0]));
+  const keys = [...new Set(gated)];
+  assert.ok(keys.length > 0, 'the repository menus are gated on at least one Singularity Flow key');
+  const setsContext = /executeCommand\(\s*'setContext'/.test(source);
+  const unset = keys.filter((key) => !setsContext || !source.includes(`'${key}'`));
+  assert.deepEqual(unset, [], 'these menu entries can never appear');
+  const submenus = new Set((manifest.contributes.submenus ?? []).map((entry) => entry.id));
+  const placed = Object.values(manifest.contributes.menus).flat().map((entry) => entry.submenu).filter(Boolean);
+  assert.deepEqual(placed.filter((id) => !submenus.has(id)), [], 'a placed submenu must be declared');
+  assert.deepEqual([...submenus].filter((id) => !manifest.contributes.menus[id]?.length), [],
+    'a declared submenu must have items, or it opens empty');
+});
+
 test('every command the source runs is one the manifest contributes', () => {
   // executeCommand on an id nothing contributes fails at the moment somebody clicks, and the
   // failure names the id rather than what was being attempted.

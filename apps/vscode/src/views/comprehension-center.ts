@@ -13,8 +13,9 @@ import { navigateTo } from './navigate.ts';
 import { commandData } from './surface-adapters.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import {
-  acceptExplorerRequest, changeExplorerBody, EXPLORER_SCRIPT, explorerSummary, resolveExplorerUnit,
-  type ExplorerAudience, type ExplorerRenderInput, type Xpl2Explanation
+  acceptExplorerRequest, changeExplorerBody, EXPLORER_SCRIPT, explorerSummary, resolveExplorerFocus,
+  resolveExplorerUnit, type ExplorerAudience, type ExplorerFocus, type ExplorerFocusRequest,
+  type ExplorerRenderInput, type Xpl2Explanation
 } from './change-explorer.ts';
 import { changeExplorerDiffHost } from './change-explorer-diff.ts';
 import { containedWorkingPath } from './change-explorer-source.ts';
@@ -274,6 +275,10 @@ export class ComprehensionCenterPanel {
   /** The explorer render on screen and the highest request number accepted from it. */
   private explorerSession: string | null = null;
   private explorerRequest = 0;
+  /** A menu's file or line, held until a computed view exists to resolve it against. */
+  private focusRequest: ExplorerFocusRequest | null = null;
+  /** The resolved request, sent with every render of the explanation set it was resolved against. */
+  private focus: (ExplorerFocus & { id: string; set: string }) | null = null;
   private subscription: { dispose(): void } | null = null;
   private lease: SliceLease | null = null;
   private leaseAcquisition: Promise<void> | null = null;
@@ -292,17 +297,20 @@ export class ComprehensionCenterPanel {
     store: WorkspaceStore,
     client: SingularityFlowClient,
     extension: vscode.ExtensionContext,
-    tab: Tab = 'explanation'
+    tab: Tab = 'explanation',
+    focus: ExplorerFocusRequest | null = null
   ) {
     this.panel = panel;
     this.store = store;
     this.client = client;
     this.extension = extension;
-    this.tab = tab;
+    this.tab = focus ? 'explorer' : tab;
+    this.focusRequest = focus;
     const router = registerMessageRouter('singularityFlow.comprehensionCenter', {
       tab: (message) => {
         const tab = enumField(message, 'tab', TABS);
-        if (tab) { this.tab = tab; this.render(); }
+        // Choosing another view abandons a focus request still waiting for its snapshot.
+        if (tab) { this.tab = tab; this.focusRequest = null; this.render(); }
       },
       // Change Explorer actions are closed names; each carries the explanation-set digest and,
       // where relevant, one exact unit digest that is resolved against the pinned view [XPL2-AC-048].
@@ -457,15 +465,25 @@ export class ComprehensionCenterPanel {
     });
   }
 
+  /**
+   * Open the Center, optionally on one view or focused on one file or line. A focused open is an
+   * explicit request about the file as it is now, so it moves to the newest slice the Store holds,
+   * as Refresh does; without one, a newer slice still only raises "Snapshot changed".
+   */
   static show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
     client: SingularityFlowClient,
-    { tab = null }: { tab?: Tab | null } = {}
+    { tab = null, focus = null }: { tab?: Tab | null; focus?: ExplorerFocusRequest | null } = {}
   ): ComprehensionCenterPanel {
     if (ComprehensionCenterPanel.current) {
       const current = ComprehensionCenterPanel.current;
-      if (tab && current.tab !== tab) { current.tab = tab; current.render(); }
+      if (focus) {
+        current.tab = 'explorer';
+        current.focusRequest = focus;
+        current.updatePinned(store.current.snapshot?.comprehension ?? null, { replace: true });
+        current.render();
+      } else if (tab && current.tab !== tab) { current.tab = tab; current.render(); }
       current.panel.reveal(vscode.ViewColumn.Active);
       current.renewLease();
       return current;
@@ -476,7 +494,7 @@ export class ComprehensionCenterPanel {
       'singularityFlow.comprehensionCenter', 'Comprehension Center', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
     );
-    const current = new ComprehensionCenterPanel(panel, store, client, context, tab ?? 'explanation');
+    const current = new ComprehensionCenterPanel(panel, store, client, context, tab ?? 'explanation', focus);
     ComprehensionCenterPanel.current = current;
     void current.ensureLease();
     return current;
@@ -653,15 +671,25 @@ export class ComprehensionCenterPanel {
     if (!this.pinned) this.updatePinned(this.store.current.snapshot?.comprehension ?? null);
     const slice = this.pinned;
     if (!slice) return null;
+    const view = (slice.explanationView as Xpl2Explanation | null | undefined) ?? null;
+    // A waiting menu request is resolved against the first computed view on screen. It then rides
+    // on every render of that explanation set under one id, which the page applies once; another
+    // snapshot drops it, since it was resolved against this one.
+    if (this.focusRequest && view) {
+      this.focus = { ...resolveExplorerFocus(view, this.focusRequest), id: nonce(), set: view.explanationSetSha256 };
+      this.focusRequest = null;
+    }
+    const focus = this.focus && view && this.focus.set === view.explanationSetSha256 ? this.focus : null;
     return {
-      view: (slice.explanationView as Xpl2Explanation | null | undefined) ?? null,
+      view,
       unavailableReason: slice.explanationViewUnavailableReason ?? null,
       patch: slice.diff.status === 'available' ? slice.diff.patch : null,
       patchFiles: slice.diff.fileProjectionStatus === 'available' ? slice.diff.files : [],
       timeline: slice.replay?.events ?? null,
       audience: this.audience,
       newerSnapshot: this.newerSnapshot,
-      token
+      token,
+      focus
     };
   }
 

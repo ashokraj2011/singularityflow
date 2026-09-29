@@ -35,7 +35,7 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 | Capture | `src/comprehension/ide-slice.mjs` (adds `explanationView`; `explanationInputs` only on request) |
 | CLI | `singularity-flow explain --subject …`, operation `explain.subject` in `src/command-registry.mjs` |
 | Copilot | `/sf-explain` (`plugin/skills/sflow-explain`), conversational, relays the same command |
-| VS Code | Comprehension Center **Change Explorer** tab and the `singularityFlow.openChangeExplorer` command (`apps/vscode/src/views/change-explorer*.ts`) |
+| VS Code | Comprehension Center **Change Explorer** tab, the `singularityFlow.openChangeExplorer` command, and the focused `explainChangeAtCursor` / `explainFileChanges` menu commands (`apps/vscode/src/views/change-explorer*.ts`) |
 
 ## 2. Compatibility
 
@@ -136,8 +136,17 @@ an owner reported one), reason not recorded, worth inspecting, visibility limit.
   in total); the rest are labelled clusters that stay in the page, the inventory and the table.
   At most eighty edges are drawn at once, the selection's first, with a note when more exist.
 - **Pinning.** The view is pinned to the slice it was built from. A newer snapshot only raises
-  *Snapshot changed*; the reader moves by refreshing. Hidden panels release the pin, the lease and
-  in-flight exact reads (`retainContextWhenHidden: false`).
+  *Snapshot changed*; the reader moves by refreshing, or by asking about a file from a menu, which
+  is an explicit question about the file as it is now. Hidden panels release the pin, the lease
+  and in-flight exact reads (`retainContextWhenHidden: false`).
+- **Menus.** A *Singularity Flow* submenu on the editor and Explorer context menus, the editor
+  title, Source Control (title and changed files) and the Navigator title and Work section, all
+  shown only while a governed repository is selected (`singularityFlow.repositoryActive`).
+  *Explain This Change* resolves the cursor line on the after side by the rule of
+  `--subject line` (a text unit covers a line inside its after range, an opaque unit covers its
+  file) and selects that unit once; *Explain Changes in This File* selects the file. A line or
+  file outside the change set selects nothing more specific and says so in a note about the
+  request, never about the change.
 - **Messages.** Four closed actions (`explorer-open-diff`, `explorer-open-file`, `explorer-copy`,
   `explorer-audience`). Each carries the explanation-set digest, the exact unit digest, the page's
   render session and an increasing request number; the host resolves them against the pinned view

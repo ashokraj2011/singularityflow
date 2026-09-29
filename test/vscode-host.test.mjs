@@ -1872,6 +1872,42 @@ async function activated(options = {}) {
   return { root, api, registered, extension };
 }
 
+test('the explain menus open the Change Explorer on a file, and on the change at the cursor', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, api, registered } = await activated();
+  assert.ok(registered.executedCommands.some((entry) => entry.id === 'setContext'
+    && entry.args[0] === 'singularityFlow.repositoryActive' && entry.args[1] === true),
+  'the repository menus appear once a governed repository is selected');
+  const readme = path.join(root, 'README.md');
+  await writeFile(readme, `${await readFile(readme, 'utf8')}\nExplain menu marker.\n`);
+  const markerLine = (await readFile(readme, 'utf8')).split('\n').indexOf('Explain menu marker.') + 1;
+
+  // Explorer, editor title or Source Control: the file's Uri. Opens the explorer on that file.
+  await registered.commands.get('singularityFlow.explainFileChanges')(api.Uri.file(readme));
+  const panel = await until(() => registered.panels.find((entry) =>
+    entry.id === 'singularityFlow.comprehensionCenter'));
+  const fileNode = await until(() => /data-focus-node="(file:[^"]+)"/.exec(panel.webview.html)?.[1] ?? null,
+    { what: 'the Change Explorer to open focused on README.md' });
+  assert.match(panel.webview.html, /Understand the change, follow the evidence\./);
+
+  // The editor: the cursor line selects the change unit that covers it; unsaved edits are named.
+  api.window.activeTextEditor = {
+    document: { uri: api.Uri.file(readme), isDirty: true },
+    selection: { active: { line: markerLine - 1, character: 0 } }
+  };
+  await registered.commands.get('singularityFlow.explainChangeAtCursor')();
+  await until(() => panel.webview.html.includes(`data-focus-node="${fileNode}" data-focus-unit="H-`)
+    && panel.webview.html.includes('The editor has unsaved edits') ? true : null,
+  { what: 'the explorer to select the change at the cursor' });
+
+  // A file outside the governed repository is refused in words, and nothing is focused on it.
+  const before = registered.panels.length;
+  await registered.commands.get('singularityFlow.explainFileChanges')(api.Uri.file(path.join(os.tmpdir(), 'elsewhere.ts')));
+  const refusal = registered.panels.slice(before).find((entry) => entry.id === 'singularityFlow.result')
+    ?? registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  assert.match(refusal.webview.html, /outside the active governed repository/);
+});
+
 test('the built extension leases, evicts, and reacquires exact comprehension data', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();

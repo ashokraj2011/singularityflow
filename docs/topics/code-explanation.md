@@ -24,7 +24,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 4
+version: 5
 ---
 ## Purpose and prerequisites
 
@@ -41,10 +41,23 @@ the computed layer remains explicit about every unavailable join.
   `--clause`, or `--since` selector.
 - **Copilot:** `/sf-explain-code` resolves the governed repository boundary and relays the same
   computed result. Model narration is separate and optional.
-- **VS Code:** open the code-explanation action exposed by Singularity Flow; the extension renders
-  the engine result and does not manufacture missing impact or proof. **Change Explorer** (a tab of
-  the Comprehension Center, also its own command) draws the same subject view as a map of intent,
-  changed code and recorded results, with an inventory, an inspector and an exact native diff.
+- **VS Code:** the extension renders the engine result and does not manufacture missing impact or
+  proof. **Change Explorer** (a tab of the Comprehension Center, also its own command) draws the
+  same subject view as a map of intent, changed code and recorded results, with an inventory, an
+  inspector and an exact native diff. **Code Explanation** is the per-hunk list of why each change
+  is there. Open them from any of these, in a governed repository:
+  - right-click in a file → **Singularity Flow** → **Explain This Change** (the change at the
+    cursor), **Explain Changes in This File**, **Change Explorer**, **Code Explanation**;
+  - right-click a file in the Explorer → **Singularity Flow** → **Explain Changes in This File**;
+  - the editor title's **Explain Changes in This File** button;
+  - Source Control: the **Change Explorer** button, or right-click a changed file;
+  - the Singularity Flow sidebar: **Work → Explain changes**, or the title bar's Change Explorer
+    button and its **…** menu;
+  - the Command Palette: **Singularity Flow: Explain This Change**, **Explain Changes in This
+    File**, **Change Explorer** or **Code Explanation**.
+
+  A line outside every changed hunk, or a file with no change in the snapshot, opens the Change
+  Explorer with a note saying so. Unsaved edits are not part of the snapshot.
 - **Subjects:** `singularity-flow explain --subject change|clause|test|line|gap|generation --json`
   asks one exact question over the same capture. `/sf-explain` relays it in Copilot.
 
@@ -125,6 +138,8 @@ security, privacy, and the deferred authority prerequisites.
 - If a subject view says `bounded-delivery`, narrow the question with `--subject line` or
   `--subject clause`, or raise `--max-bytes`; the counts already cover the whole change.
 - If the Change Explorer says the snapshot changed, refresh it; it never mixes two captures.
+- If right-click menus have no **Singularity Flow** entry, no governed repository is selected in
+  this window yet. Open the Singularity Flow sidebar or choose a workspace, and the menus appear.
 
 ## Related topics
 

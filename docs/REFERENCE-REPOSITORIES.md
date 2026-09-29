@@ -45,6 +45,15 @@ The Work ID namespace matters when one checkout moves between Stories: two Stori
 reference ID at different commits without overwriting or invalidating one another. Existing Stories
 that used the earlier `.singularity-flow/reference-repositories/<id>` layout remain compatible.
 
+New managed Story worktrees use a compact, deterministic directory name beneath the workspace's
+`.singularity-flow/story-worktrees` directory. This leaves more Windows path budget for reference
+repositories and their Git object files. Already registered worktrees keep their original location.
+Temporary reference clones use a short name directly beneath the Git-excluded
+`.singularity-flow/reference-repositories` directory in the same Story checkout, then are moved
+atomically to the unchanged pinned path. If the workspace location itself is too deep for that
+machine, SFlow reports a path-too-long error; create or select a workspace closer to the drive root
+and retry rather than editing the pinned Story reference.
+
 The branch is provenance, not a moving dependency. If it advances tomorrow, this Story continues to
 read the SHA it pinned today. Start a new Story to intentionally consume the newer revision.
 

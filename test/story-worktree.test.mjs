@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
-  prepareStoryWorktree, rollbackFailedStoryWorktree, rollbackStoryWorktree, samePlatformPath
+  prepareStoryWorktree, rollbackFailedStoryWorktree, rollbackStoryWorktree, samePlatformPath,
+  storyWorktreePath
 } from '../src/story-worktree.mjs';
+import { gitCommonDir } from '../src/git.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { preflightFetchedStoryCapability } from '../src/commands/story.mjs';
@@ -68,6 +70,22 @@ async function repository(t, {
 
 function git(root, args) {
   return run('git', args, root).stdout.trim();
+}
+
+async function withMachineWorkspace(selection, registry, operation) {
+  const keys = {
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry
+  };
+  const previous = Object.fromEntries(Object.keys(keys).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, keys);
+  try { return await operation(); }
+  finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 async function attachLocalFosAuthority(root) {
@@ -166,6 +184,197 @@ test('Story worktree path identity follows Windows drive and casing rules', () =
     samePlatformPath('C:\\Work\\Repo\\one', 'C:\\Work\\Repo\\two', 'win32'),
     false
   );
+});
+
+test('new Story worktree paths have a stable compact component even for long Story IDs', async (t) => {
+  const { root } = await repository(t, {
+    repositoryRelative: 'repos/ap164882-personalization-rule-analytics'
+  });
+  const id = 'pyspark-migration-with-a-long-portable-story-identifier';
+  const first = await storyWorktreePath(root, id);
+  const second = await storyWorktreePath(root, id);
+  const parent = path.join(path.dirname(root), '.singularity-flow', 'story-worktrees');
+  const legacy = path.join(parent,
+    createHash('sha256').update(gitCommonDir(root)).digest('hex').slice(0, 12), id);
+
+  assert.equal(first, second);
+  assert.equal(path.dirname(first), parent);
+  assert.match(path.basename(first), /^\.w-[0-9a-f]{24}$/);
+  assert.ok(first.length < legacy.length - 20,
+    'the fixed-length worktree location must leave room for Story-local reference checkouts');
+
+  const prepared = await prepareStoryWorktree(root, id, { base: 'main' });
+  assert.equal(await realpath(prepared.repositoryPath), await realpath(first));
+  assert.equal(prepared.created, true);
+  const resumed = await prepareStoryWorktree(root, id, { base: 'main' });
+  assert.equal(await realpath(resumed.repositoryPath), await realpath(first));
+  assert.equal(resumed.resumed, true);
+  const aliasResumed = await prepareStoryWorktree(await realpath(root), id, { base: 'main' });
+  assert.equal(await realpath(aliasResumed.repositoryPath), await realpath(first));
+  assert.equal(aliasResumed.stagingBranch, prepared.stagingBranch);
+  assert.equal(rollbackStoryWorktree(prepared).removed, true);
+});
+
+test('a registered legacy Story worktree is resumed without creating a compact duplicate', async (t) => {
+  const { root } = await repository(t);
+  const id = 'LEGACY-STORY-1';
+  const repositoryKey = createHash('sha256').update(gitCommonDir(root)).digest('hex').slice(0, 12);
+  const legacy = path.join(path.dirname(root), '.singularity-flow', 'story-worktrees',
+    repositoryKey, id);
+  const compact = await storyWorktreePath(root, id);
+  await mkdir(path.dirname(legacy), { recursive: true });
+  run('git', ['worktree', 'add', '-q', '-b', id, '--', legacy, 'main'], root);
+
+  const before = git(root, ['worktree', 'list', '--porcelain']);
+  const prepared = await prepareStoryWorktree(root, id, { base: 'main' });
+  assert.equal(await realpath(prepared.repositoryPath), await realpath(legacy));
+  assert.equal(prepared.created, false);
+  assert.equal(prepared.resumed, true);
+  assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
+  const aliasPrepared = await prepareStoryWorktree(await realpath(root), id, { base: 'main' });
+  assert.equal(await realpath(aliasPrepared.repositoryPath), await realpath(legacy));
+  assert.equal(aliasPrepared.resumed, true);
+  await assert.rejects(access(compact), { code: 'ENOENT' });
+  assert.equal(rollbackStoryWorktree(prepared).removed, true);
+
+  const oldStagingBranch = `sflow-start-${createHash('sha256')
+    .update(`${gitCommonDir(root)}\0${id}`).digest('hex').slice(0, 16)}`;
+  const canonicalRoot = await realpath(root);
+  const canonicalStagingBranch = `sflow-start-${createHash('sha256')
+    .update(`${gitCommonDir(canonicalRoot)}\0${id}`).digest('hex').slice(0, 16)}`;
+  run('git', ['worktree', 'add', '-q', '-b', oldStagingBranch, '--', legacy, 'main'], root);
+  if (oldStagingBranch === canonicalStagingBranch) {
+    const oldStagingPrepared = await prepareStoryWorktree(canonicalRoot, id, { base: 'main' });
+    assert.equal(await realpath(oldStagingPrepared.repositoryPath), await realpath(legacy));
+    assert.equal(oldStagingPrepared.stagingBranch, oldStagingBranch);
+    assert.equal(rollbackStoryWorktree(oldStagingPrepared).removed, true);
+  } else {
+    const beforeRefusal = git(root, ['worktree', 'list', '--porcelain']);
+    await assert.rejects(() => prepareStoryWorktree(canonicalRoot, id, { base: 'main' }),
+      (error) => error.code === 'STORY_WORKTREE_RECOVERY_REQUIRED');
+    assert.equal(git(root, ['worktree', 'list', '--porcelain']), beforeRefusal,
+      'an unprovable old alias must be retained for explicit recovery');
+    assert.equal(rollbackStoryWorktree({
+      sourceRepository: root, repositoryPath: legacy, workId: id,
+      stagingBranch: oldStagingBranch
+    }).removed, true);
+  }
+
+  const wrongStagingBranch = canonicalStagingBranch === 'sflow-start-ffffffffffffffff'
+    ? 'sflow-start-eeeeeeeeeeeeeeee' : 'sflow-start-ffffffffffffffff';
+  run('git', ['worktree', 'add', '-q', '-b', wrongStagingBranch, '--', legacy, 'main'], root);
+  await assert.rejects(() => prepareStoryWorktree(canonicalRoot, id, { base: 'main' }),
+    (error) => error.code === 'STORY_WORKTREE_RECOVERY_REQUIRED',
+    'a different staging branch at the legacy path is not proof of Story ownership');
+  assert.equal(rollbackStoryWorktree({
+    sourceRepository: root, repositoryPath: legacy, workId: id,
+    stagingBranch: wrongStagingBranch
+  }).removed, true);
+
+  run('git', ['worktree', 'add', '-q', '-b', canonicalStagingBranch, '--', legacy, 'main'], root);
+  const provenStaging = await prepareStoryWorktree(canonicalRoot, id, { base: 'main' });
+  assert.equal(await realpath(provenStaging.repositoryPath), await realpath(legacy));
+  assert.equal(provenStaging.stagingBranch, canonicalStagingBranch);
+  assert.equal(rollbackStoryWorktree(provenStaging).removed, true);
+});
+
+test('workspace-member legacy checkouts survive upgrades and replacement clones get distinct compact paths', async (t) => {
+  const { base, root } = await repository(t, { repositoryRelative: 'repos/member' });
+  const id = 'PYSPARK-MIGRATION';
+  const remote = path.join(base, 'remote.git');
+  const workspace = {
+    version: 1,
+    id: 'local--legacy-member',
+    name: 'Legacy Member',
+    anchor: {
+      provider: 'workspace', siteId: 'local', key: 'legacy-member', title: 'Legacy Member'
+    },
+    leadRepository: 'member',
+    capabilityAuthority: { url: remote },
+    repositories: {
+      member: {
+        id: 'member', url: remote, defaultBranch: 'main', required: true,
+        path: 'repos/member', capabilities: [],
+        clone: { mode: 'full', sparseCone: [], fallback: 'refuse' }
+      }
+    },
+    capabilities: [],
+    directories: {
+      repositories: 'repos', documents: 'documents', logs: 'logs', jiraCache: 'cache/jira'
+    },
+    createdAt: '2026-08-31T00:00:00.000Z',
+    updatedAt: '2026-08-31T00:00:00.000Z'
+  };
+  const selection = path.join(base, 'active-workspace.json');
+  const registry = path.join(base, 'workspaces.json');
+  await writeFile(path.join(base, 'workspace.json'), `${JSON.stringify(workspace)}\n`);
+  await writeFile(selection, `${JSON.stringify({
+    schemaVersion: 1, workspaceId: workspace.id, workspaceName: workspace.name,
+    workspacePath: base, anchorKey: workspace.anchor.key, repositoryId: 'member',
+    repositoryPath: root, canonicalRepositoryPath: root, checkoutPath: root,
+    repositoryState: 'ready', branch: 'main', capabilities: [], repositoryCapabilities: [],
+    storyId: null, selectedAt: '2026-08-31T00:00:00.000Z'
+  })}\n`);
+  await writeFile(registry, `${JSON.stringify({
+    schemaVersion: 1,
+    workspaces: [{
+      id: workspace.id, path: base, name: workspace.name, anchorKey: workspace.anchor.key,
+      anchorType: 'Workspace', siteId: 'local', leadRepositoryPath: root,
+      openedAt: '2026-08-31T00:00:00.000Z', archivedAt: null
+    }]
+  })}\n`);
+  const legacy = path.join(base, '.singularity-flow', 'story-worktrees', id, 'repos', 'member');
+  await mkdir(path.dirname(legacy), { recursive: true });
+  run('git', ['worktree', 'add', '-q', '-b', id, '--', legacy, 'main'], root);
+
+  await withMachineWorkspace(selection, registry, async () => {
+    const compact = await storyWorktreePath(root, id);
+    assert.match(path.basename(compact), /^\.w-[0-9a-f]{24}$/);
+    const before = git(root, ['worktree', 'list', '--porcelain']);
+    const prepared = await prepareStoryWorktree(root, id, { base: 'main' });
+    assert.equal(await realpath(prepared.repositoryPath), await realpath(legacy));
+    assert.equal(prepared.created, false);
+    assert.equal(prepared.resumed, true);
+    assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
+    await assert.rejects(access(compact), { code: 'ENOENT' });
+    assert.equal(rollbackStoryWorktree(prepared).removed, true);
+
+    const replacement = path.join(base, 'repos', 'replacement-member');
+    run('git', ['clone', '-q', remote, replacement], base);
+    const replacementWorkspace = structuredClone(workspace);
+    replacementWorkspace.repositories.member.path = 'repos/replacement-member';
+    await writeFile(path.join(base, 'workspace.json'), `${JSON.stringify(replacementWorkspace)}\n`);
+    await writeFile(selection, `${JSON.stringify({
+      schemaVersion: 1, workspaceId: workspace.id, workspaceName: workspace.name,
+      workspacePath: base, anchorKey: workspace.anchor.key, repositoryId: 'member',
+      repositoryPath: replacement, canonicalRepositoryPath: replacement, checkoutPath: replacement,
+      repositoryState: 'ready', branch: 'main', capabilities: [], repositoryCapabilities: [],
+      storyId: null, selectedAt: '2026-08-31T00:00:00.000Z'
+    })}\n`);
+    const replacementCompact = await storyWorktreePath(replacement, id);
+    assert.notEqual(replacementCompact, compact,
+      'a different clone with the same workspace repository ID and Story ID must not claim the old path');
+  });
+});
+
+test('an unrelated inaccessible registered worktree does not block a new Story', {
+  skip: process.platform === 'win32' || process.getuid?.() === 0
+}, async (t) => {
+  const { base, root } = await repository(t);
+  const hiddenParent = path.join(base, 'inaccessible-unrelated');
+  const hidden = path.join(hiddenParent, 'unrelated-worktree');
+  await mkdir(path.dirname(await storyWorktreePath(root, 'NEW-STORY')), { recursive: true });
+  await mkdir(hiddenParent);
+  run('git', ['worktree', 'add', '-q', '-b', 'sflow-start-ffffffffffffffff', '--', hidden, 'main'], root);
+  await chmod(hiddenParent, 0o000);
+  let prepared;
+  try {
+    prepared = await prepareStoryWorktree(root, 'NEW-STORY', { base: 'main' });
+    assert.equal(prepared.created, true);
+  } finally {
+    await chmod(hiddenParent, 0o700);
+    if (prepared) assert.equal(rollbackStoryWorktree(prepared).removed, true);
+  }
 });
 
 test('failed Story recovery leaves the worktree before attempting removal', () => {

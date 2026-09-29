@@ -826,10 +826,10 @@ test('non-selected members, linked worktrees, and SGOS use the external workspac
         assert.equal(catalog.capability, 'member-capability');
         assert.equal(catalog.repositoryId, 'member');
 
-        assert.equal(
-          await storyWorktreePath(repositoryRoot, 'MEMBER-STORY'),
-          path.join(base, '.singularity-flow/story-worktrees/MEMBER-STORY/repos/member')
-        );
+        const managedStoryPath = await storyWorktreePath(repositoryRoot, 'MEMBER-STORY');
+        assert.equal(path.dirname(managedStoryPath),
+          path.join(base, '.singularity-flow/story-worktrees'));
+        assert.match(path.basename(managedStoryPath), /^\.w-[0-9a-f]{24}$/);
 
         const workId = repositoryRoot === linked ? 'MEMBER-LINKED-LOCATOR' : 'MEMBER-LOCATOR';
         const written = await writeReturnLocator(repositoryRoot, {

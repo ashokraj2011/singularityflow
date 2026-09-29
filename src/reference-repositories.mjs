@@ -32,6 +32,10 @@ const IDENTIFIER = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const LOCAL_NAMESPACE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const EXCLUDE_PATTERN = `/${REFERENCE_REPOSITORY_LOCAL_ROOT}/`;
+// Keep temporary clones directly under the excluded root. The durable per-Story path can be near
+// the Windows directory-creation limit; adding the Story ID and reference ID to a mkdtemp prefix
+// used to make an otherwise valid checkout impossible to create.
+const REFERENCE_STAGING_PREFIX = '.r-';
 const MAXIMUM_REUSABLE_WORLD_MODEL_FILES = 512;
 const MAXIMUM_REUSABLE_WORLD_MODEL_FILE_BYTES = 4 * 1024 * 1024;
 const MAXIMUM_REUSABLE_WORLD_MODEL_BYTES = 32 * 1024 * 1024;
@@ -340,22 +344,26 @@ function assertObservation(reference, observed) {
 }
 
 async function materializeOne(root, reference, { env, runGit, resolveBranch = null }) {
-  const secured = await secureRepositoryPath(root, reference.localPath, {
-    label: `Reference repository '${reference.id}'`
-  });
-  // An existing checkout can only be verified against a known commit, so resolve it first.
-  if (resolveBranch && secured.exists) reference = await resolveBranch();
-  if (secured.exists) {
-    if (!secured.entry?.isDirectory()) fail(`Reference repository path '${reference.localPath}' is not a directory.`,
-      'REFERENCE_REPOSITORY_PATH_UNSAFE');
-    const observed = assertObservation(reference, localObservation(secured.absolute));
-    return { ...reference, tree: reference.tree ?? observed.tree, materialization: 'reused' };
-  }
-  const parent = await ensureSecureRepositoryDirectory(root, path.dirname(reference.localPath), {
-    label: 'Reference repository local root'
-  });
-  const staging = await mkdtemp(path.join(parent.absolute, `.${reference.id}-`));
+  let staging = null;
   try {
+    const secured = await secureRepositoryPath(root, reference.localPath, {
+      label: `Reference repository '${reference.id}'`
+    });
+    // A reused checkout can only be verified against a known commit, so resolve it first.
+    if (resolveBranch && secured.exists) reference = await resolveBranch();
+    if (secured.exists) {
+      if (!secured.entry?.isDirectory()) fail(`Reference repository path '${reference.localPath}' is not a directory.`,
+        'REFERENCE_REPOSITORY_PATH_UNSAFE');
+      const observed = assertObservation(reference, localObservation(secured.absolute));
+      return { ...reference, tree: reference.tree ?? observed.tree, materialization: 'reused' };
+    }
+    await ensureSecureRepositoryDirectory(root, path.dirname(reference.localPath), {
+      label: 'Reference repository local root'
+    });
+    const stagingRoot = await ensureSecureRepositoryDirectory(root, REFERENCE_REPOSITORY_LOCAL_ROOT, {
+      label: 'Reference repository private staging root'
+    });
+    staging = await mkdtemp(path.join(stagingRoot.absolute, REFERENCE_STAGING_PREFIX));
     run('git', ['init', '--quiet'], { cwd: staging });
     run('git', ['remote', 'add', 'origin', reference.repository], { cwd: staging });
     // A deferred pin is resolved by the fetch that transfers it: FETCH_HEAD is exactly that commit.
@@ -418,14 +426,22 @@ async function materializeOne(root, reference, { env, runGit, resolveBranch = nu
     }
     return { ...reference, tree: observed.tree, materialization: 'created' };
   } catch (error) {
-    try {
-      await removeTemporaryTree(staging);
-    } catch (cleanupError) {
-      if (error instanceof Error) {
-        try {
-          error.message += ` Private staging could not be removed (${cleanupError?.code ?? 'unknown error'}); inspect ${staging}.`;
-        } catch { /* A frozen primary failure still takes precedence over cleanup. */ }
+    let cleanupWarning = '';
+    if (staging) {
+      try {
+        await removeTemporaryTree(staging);
+      } catch (cleanupError) {
+        cleanupWarning = `Private staging could not be removed (${cleanupError?.code ?? 'unknown error'}); inspect ${staging}.`;
+        if (error instanceof Error) {
+          try {
+            error.message += ` ${cleanupWarning}`;
+          } catch { /* A frozen primary failure still takes precedence over cleanup. */ }
+        }
       }
+    }
+    if (error?.code === 'ENAMETOOLONG') {
+      fail(`Reference repository '${reference.id}' could not be materialized because the Story checkout path is too long for this machine. Choose a shorter workspace location and retry Story start, or rematerialize this reference from a shorter checkout.${cleanupWarning ? ` ${cleanupWarning}` : ''}`,
+        'REFERENCE_REPOSITORY_PATH_TOO_LONG', { id: reference.id, localPath: reference.localPath });
     }
     throw error;
   }

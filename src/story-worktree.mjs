@@ -54,11 +54,37 @@ export function samePlatformPath(left, right, platform = process.platform) {
   return normalize(left) === normalize(right);
 }
 
+async function sameRegisteredPath(left, right) {
+  if (samePlatformPath(left, right)) return true;
+  const canonicalRight = await realpath(right).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!canonicalRight) return false;
+  // Git may retain an unrelated worktree whose directory is inaccessible or already gone. Its
+  // failed realpath cannot prove a match, so skip it; a matching occupied target still fails closed
+  // at safeNewPath rather than being adopted through an unverifiable alias.
+  const canonicalLeft = await realpath(left).catch(() => null);
+  return canonicalLeft != null && samePlatformPath(canonicalLeft, canonicalRight);
+}
+
 function pathContains(parent, candidate, platform = process.platform) {
   const api = platform === 'win32' ? path.win32 : path;
   const relative = api.relative(api.resolve(String(parent)), api.resolve(String(candidate)));
   return relative === ''
     || (relative !== '..' && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative));
+}
+
+function legacyStoryPath(parent, candidate, id, repositoryId = null) {
+  if (!pathContains(parent, candidate)) return false;
+  const parts = path.relative(parent, candidate).split(path.sep);
+  const equal = (left, right) => process.platform === 'win32'
+    ? left.toLocaleLowerCase('en-US') === right.toLocaleLowerCase('en-US')
+    : left === right;
+  return repositoryId
+    ? parts.length === 3 && equal(parts[0], id) && equal(parts[1], 'repos')
+      && equal(parts[2], repositoryId)
+    : parts.length === 2 && /^[0-9a-f]{12}$/i.test(parts[0]) && equal(parts[1], id);
 }
 
 function worktreeInventory(root) {
@@ -106,17 +132,37 @@ async function safeNewPath(root, candidate) {
   return absolute;
 }
 
-/** Resolve a deterministic machine-local path without writing into the source repository. */
-export async function storyWorktreePath(root, workId) {
-  const id = portableId(workId);
+/**
+ * Keep new worktrees shallow enough for their own governed and reference-repository trees on
+ * Windows. The digest is scoped to the owning repository and Story, not to mutable display names.
+ * Legacy paths remain recognized by prepareStoryWorktree so an upgrade never abandons a
+ * registered checkout or creates a second checkout for the same branch.
+ */
+async function storyWorktreeLocations(root, id) {
+  const common = gitCommonDir(root);
+  const canonicalCommon = await realpath(common);
   const context = await workspaceMemberContextForRepository(
     root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
   );
   if (context?.workspacePath && context?.repositoryId) {
-    return path.join(context.workspacePath, '.singularity-flow', 'story-worktrees', id, 'repos', context.repositoryId);
+    const parent = path.join(context.workspacePath, '.singularity-flow', 'story-worktrees');
+    return {
+      compact: path.join(parent, `.w-${digest(`${canonicalCommon}\0${context.repositoryId}\0${id}`).slice(0, 24)}`),
+      legacy: path.join(parent, id, 'repos', context.repositoryId),
+      legacyRepositoryId: context.repositoryId
+    };
   }
-  const repositoryKey = digest(gitCommonDir(root)).slice(0, 12);
-  return path.join(path.dirname(path.resolve(root)), '.singularity-flow', 'story-worktrees', repositoryKey, id);
+  const parent = path.join(path.dirname(path.resolve(root)), '.singularity-flow', 'story-worktrees');
+  return {
+    compact: path.join(parent, `.w-${digest(`${canonicalCommon}\0${id}`).slice(0, 24)}`),
+    legacy: path.join(parent, digest(common).slice(0, 12), id),
+    legacyRepositoryId: null
+  };
+}
+
+/** Resolve a deterministic machine-local path without writing into the source repository. */
+export async function storyWorktreePath(root, workId) {
+  return (await storyWorktreeLocations(root, portableId(workId))).compact;
 }
 
 /**
@@ -125,24 +171,76 @@ export async function storyWorktreePath(root, workId) {
  */
 export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {}) {
   const id = portableId(workId);
-  const target = path.resolve(await storyWorktreePath(root, id));
-  const stagingBranch = `sflow-start-${digest(`${gitCommonDir(root)}\0${id}`).slice(0, 16)}`;
-  const registered = worktreeInventory(root).find((entry) => samePlatformPath(entry.path, target));
+  const locations = await storyWorktreeLocations(root, id);
+  const target = path.resolve(locations.compact);
+  const legacy = path.resolve(locations.legacy);
+  const common = gitCommonDir(root);
+  const canonicalCommon = await realpath(common);
+  const stagingBranch = `sflow-start-${digest(`${canonicalCommon}\0${id}`).slice(0, 16)}`;
+  const legacyStagingBranch = `sflow-start-${digest(`${common}\0${id}`).slice(0, 16)}`;
+  const stagingBranches = [...new Set([stagingBranch, legacyStagingBranch])];
+  const olderStagingName = /^sflow-start-[0-9a-f]{16}$/;
+  const inventory = worktreeInventory(root);
+  let registered = null;
+  let registeredWasLegacy = false;
+  for (const entry of inventory) {
+    const atCompact = await sameRegisteredPath(entry.path, target);
+    const atLegacy = !atCompact && await sameRegisteredPath(entry.path, legacy);
+    if (atCompact || atLegacy) {
+      registered = entry;
+      registeredWasLegacy = atLegacy;
+      break;
+    }
+  }
+  if (!registered) {
+    // A legacy checkout may have been registered through a different spelling of the same parent
+    // (for example /var and /private/var on macOS). Reuse only a worktree registered for this
+    // Story within the same managed namespace; never adopt an arbitrary user worktree.
+    const managedParent = await realpath(path.dirname(target)).catch((error) => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (managedParent) {
+      for (const entry of inventory) {
+        if (entry.branch !== id && !olderStagingName.test(entry.branch ?? '')) continue;
+        // An unrelated registered checkout can be stale or inaccessible. That is not evidence
+        // that it owns this Story's legacy path; the target itself is still checked below.
+        const existing = await realpath(entry.path).catch(() => null);
+        if (existing && legacyStoryPath(
+          managedParent, existing, id, locations.legacyRepositoryId
+        )) {
+          registered = entry;
+          registeredWasLegacy = true;
+          break;
+        }
+      }
+    }
+  }
   if (registered) {
-    if (![id, stagingBranch].includes(registered.branch)) {
+    let provenOlderStage = false;
+    if (registeredWasLegacy && olderStagingName.test(registered.branch ?? '')) {
+      try {
+        const registeredCommon = gitCommonDir(registered.path);
+        provenOlderStage = samePlatformPath(await realpath(registeredCommon), canonicalCommon)
+          && registered.branch === `sflow-start-${digest(`${registeredCommon}\0${id}`).slice(0, 16)}`;
+      } catch { /* An unverifiable old staging branch is never adopted. */ }
+    }
+    if (![id, ...stagingBranches].includes(registered.branch) && !provenOlderStage) {
       throw new SingularityFlowError(
-        `Managed path ${target} is registered for branch '${registered.branch ?? 'detached HEAD'}', not Story '${id}'.`,
+        `Managed path ${registered.path} is registered for branch '${registered.branch ?? 'detached HEAD'}', not Story '${id}'.`,
         { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }
       );
     }
     return {
-      schemaVersion: 1, workId: id, sourceRepository: path.resolve(root), repositoryPath: target,
-      stagingBranch, created: false, resumed: true, preparedAt: nowIso()
+      schemaVersion: 1, workId: id, sourceRepository: path.resolve(root), repositoryPath: registered.path,
+      stagingBranch: stagingBranches.includes(registered.branch) || provenOlderStage
+        ? registered.branch : stagingBranch,
+      created: false, resumed: true, preparedAt: nowIso()
     };
   }
-  const stagingExists = run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${stagingBranch}`], {
-    cwd: root, allowFailure: true
-  }).status === 0;
+  const stagingExists = stagingBranches.some((candidate) => run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${candidate}`
+  ], { cwd: root, allowFailure: true }).status === 0);
   if (stagingExists) {
     throw new SingularityFlowError(
       `Story '${id}' has an incomplete launch branch but no registered worktree. Run 'git worktree repair', then retry.`,

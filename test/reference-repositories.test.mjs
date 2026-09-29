@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +13,8 @@ import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import {
-  materializeReferenceRepositories, materializeReferenceRepositoriesFromBranches, parseReferenceRepositoryOptions,
+  materializeReferenceRepositories, materializeReferenceRepositoriesFromBranches,
+  parseReferenceRepositoryOptions, REFERENCE_REPOSITORY_LOCAL_ROOT,
   readReferenceRepositoryManifest, referenceRepositoryContextMarkdown,
   referenceRepositoryGroundingContext, resolveReferenceRepositoryPins,
   storyReferenceRepositories, verifyReferenceRepositories, writeReferenceRepositoryManifest
@@ -88,23 +89,47 @@ async function repositoryFixture({ worldModel = true } = {}) {
   return { directory, source, target, remote };
 }
 
-async function withReferenceFilesystemFailures({ rename: interceptRename, rm: interceptRm }, action) {
+async function withReferenceFilesystemFailures({
+  mkdtemp: interceptMkdtemp, rename: interceptRename, rm: interceptRm
+}, action) {
+  const originalMkdtemp = fsPromises.mkdtemp;
   const originalRename = fsPromises.rename;
   const originalRm = fsPromises.rm;
+  fsPromises.mkdtemp = (...args) => interceptMkdtemp
+    ? interceptMkdtemp(originalMkdtemp, ...args) : originalMkdtemp(...args);
   fsPromises.rename = (...args) => interceptRename ? interceptRename(originalRename, ...args) : originalRename(...args);
   fsPromises.rm = (...args) => interceptRm ? interceptRm(originalRm, ...args) : originalRm(...args);
   syncBuiltinESMExports();
   try {
     return await action();
   } finally {
+    fsPromises.mkdtemp = originalMkdtemp;
     fsPromises.rename = originalRename;
     fsPromises.rm = originalRm;
     syncBuiltinESMExports();
   }
 }
 
+function targetWithFinalReferencePathLength(fixture, namespace, referenceId, length) {
+  const current = path.join(fixture.directory, 'target', REFERENCE_REPOSITORY_LOCAL_ROOT,
+    namespace, referenceId);
+  const extra = length - current.length;
+  assert.ok(extra > 0, 'the temporary fixture must have room for nested workspace components');
+  const count = Math.ceil(extra / 61);
+  const componentCharacters = extra - count;
+  const base = Math.floor(componentCharacters / count);
+  const remainder = componentCharacters % count;
+  const components = Array.from({ length: count }, (_, index) =>
+    'w'.repeat(base + (index < remainder ? 1 : 0)));
+  assert.ok(components.every((component) => component.length > 0 && component.length <= 60));
+  const target = path.join(fixture.directory, ...components, 'target');
+  assert.equal(path.join(target, REFERENCE_REPOSITORY_LOCAL_ROOT, namespace, referenceId).length,
+    length);
+  return target;
+}
+
 function referenceClaim(from, to, target) {
-  return to === target && path.basename(from).startsWith('.java-rule-engine-');
+  return to === target && path.basename(from).startsWith('.r-');
 }
 
 function simulatedFileLock(code, operation) {
@@ -340,11 +365,133 @@ test('reference materialization retries transient final rename EPERM and EBUSY',
       assert.equal(materialized[0].materialization, 'created');
       assert.equal(await readFile(path.join(target, 'RuleEngine.java'), 'utf8'),
         'final class RuleEngine {}\n');
-      assert.deepEqual((await readdir(path.dirname(target)))
-        .filter((entry) => entry.startsWith('.java-rule-engine-')), []);
+      assert.deepEqual((await readdir(path.join(fixture.target, REFERENCE_REPOSITORY_LOCAL_ROOT)))
+        .filter((entry) => entry.startsWith('.r-')), []);
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });
     }
+  }
+});
+
+test('deep Story worktrees stage references within a conservative Windows directory-length budget', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  const namespace = 'pyspark-migration';
+  const referenceId = 'java-rule-engine';
+  try {
+    const nestedTarget = targetWithFinalReferencePathLength(fixture, namespace, referenceId, 243);
+    await mkdir(path.dirname(nestedTarget), { recursive: true });
+    await rename(fixture.target, nestedTarget);
+    fixture.target = nestedTarget;
+    const requests = parseReferenceRepositoryOptions(
+      [`${referenceId}=${fixture.remote}`], [`${referenceId}=main`]
+    );
+    const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: namespace });
+    const finalTarget = path.join(fixture.target, pins[0].localPath);
+    assert.equal(finalTarget.length, 243);
+    const staging = [];
+    const materialized = await withReferenceFilesystemFailures({
+      mkdtemp: async (realMkdtemp, prefix, ...args) => {
+        // Legacy Windows directory creation fails before the nominal 260-character MAX_PATH.
+        // The old stage beside finalTarget would add ".<id>-XXXXXX" and reach 251 characters.
+        if (prefix.length + 6 > 248) {
+          throw Object.assign(new Error('ENAMETOOLONG: simulated Windows mkdir boundary'), {
+            code: 'ENAMETOOLONG'
+          });
+        }
+        const directory = await realMkdtemp(prefix, ...args);
+        staging.push(directory);
+        return directory;
+      }
+    }, () => materializeReferenceRepositories(fixture.target, pins));
+    assert.equal(materialized[0].materialization, 'created');
+    assert.equal(materialized[0].localPath, pins[0].localPath,
+      'the durable pinned reference path must not change to accommodate short staging');
+    assert.ok(staging.length >= 1);
+    const excludedReferenceRoot = path.join(await realpath(fixture.target),
+      REFERENCE_REPOSITORY_LOCAL_ROOT);
+    assert.ok(staging.every((directory) => directory.startsWith(`${excludedReferenceRoot}${path.sep}`)),
+      'staging must remain inside the same-volume, Git-excluded reference root');
+    assert.ok(staging.every((directory) => directory.length <= 248));
+    assert.equal(await readFile(path.join(finalTarget, 'RuleEngine.java'), 'utf8'),
+      'final class RuleEngine {}\n');
+    for (const directory of staging) assert.equal(await stat(directory).catch(() => null), null);
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('native ENAMETOOLONG on even a short reference stage gives an actionable typed refusal', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  try {
+    const requests = parseReferenceRepositoryOptions(
+      [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+    );
+    const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: 'SPARK-LONG' });
+    const finalTarget = path.join(fixture.target, pins[0].localPath);
+    let attemptedPrefix = null;
+    await withReferenceFilesystemFailures({
+      mkdtemp: async (_realMkdtemp, prefix) => {
+        attemptedPrefix = prefix;
+        throw Object.assign(new Error('ENAMETOOLONG: native mkdir refused this volume'), {
+          code: 'ENAMETOOLONG'
+        });
+      }
+    }, async () => {
+      await assert.rejects(() => materializeReferenceRepositories(fixture.target, pins), (error) => {
+        assert.equal(error.code, 'REFERENCE_REPOSITORY_PATH_TOO_LONG');
+        assert.match(error.message, /reference repository|path|workspace/i);
+        return true;
+      });
+    });
+    assert.ok(attemptedPrefix?.startsWith(path.join(await realpath(fixture.target),
+      REFERENCE_REPOSITORY_LOCAL_ROOT) + path.sep));
+    assert.equal(await stat(finalTarget).catch(() => null), null);
+    assert.deepEqual((await readdir(path.join(fixture.target, REFERENCE_REPOSITORY_LOCAL_ROOT)))
+      .filter((entry) => entry.startsWith('.r-')), []);
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('path-too-long refusal retains a cleanup warning and the exact orphan stage path', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  try {
+    const requests = parseReferenceRepositoryOptions(
+      [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+    );
+    const pins = await resolveReferenceRepositoryPins(requests, { localNamespace: 'SPARK-ORPHAN' });
+    const finalTarget = path.join(await realpath(fixture.target), pins[0].localPath);
+    let staging = null;
+    let cleanupAttempts = 0;
+    await withReferenceFilesystemFailures({
+      rename: (realRename, from, to) => {
+        if (referenceClaim(from, to, finalTarget)) {
+          staging = from;
+          return Promise.reject(simulatedFileLock('ENAMETOOLONG', 'final rename'));
+        }
+        return realRename(from, to);
+      },
+      rm: (realRm, targetPath, options) => {
+        if (targetPath === staging) {
+          cleanupAttempts += 1;
+          return Promise.reject(simulatedFileLock('EBUSY', 'staging cleanup'));
+        }
+        return realRm(targetPath, options);
+      }
+    }, async () => {
+      await assert.rejects(() => materializeReferenceRepositories(fixture.target, pins), (error) => {
+        assert.equal(error.code, 'REFERENCE_REPOSITORY_PATH_TOO_LONG');
+        assert.match(error.message, /Private staging could not be removed \(EBUSY\)/);
+        assert.ok(staging && error.message.includes(staging),
+          'the user must be able to identify the exact retained private checkout');
+        return true;
+      });
+    });
+    assert.ok(cleanupAttempts > 0);
+    assert.equal(await stat(finalTarget).catch(() => null), null);
+    assert.ok((await stat(staging)).isDirectory(), 'the orphan is retained for inspected recovery');
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
   }
 });
 

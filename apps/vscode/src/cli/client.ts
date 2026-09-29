@@ -710,8 +710,10 @@ export class SingularityFlowClient {
 
   /** A coherent, bounded read model. Heavy domains are added only when their surface opens. */
   async snapshot(signal?: AbortSignal, slices: readonly SnapshotSlice[] = CORE_SNAPSHOT_SLICES,
-    ifRevision: string | null = null): Promise<RepositorySnapshot> {
-    const envelope = await this.invoke<SnapshotEnvelope>(snapshotArgs(slices, ifRevision), SNAPSHOT_TIMEOUT_MS, signal);
+    ifRevision: string | null = null, priority?: ReadPriority): Promise<RepositorySnapshot> {
+    const args = snapshotArgs(slices, ifRevision);
+    const envelope = await this.invoke<SnapshotEnvelope>(args, SNAPSHOT_TIMEOUT_MS, signal, true, null,
+      priority ?? defaultReadPriority(args));
     return flattenSnapshot(envelope);
   }
 

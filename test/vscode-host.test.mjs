@@ -3235,6 +3235,21 @@ test('a Story started from the form confirms its readiness check in one pass, an
   assert.deepEqual(registered.errors, []);
 });
 
+test('a window reads its repository first, ahead of discovery and product checks', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  await loadExtension(api).activate(context());
+  const timings = registered.output.filter((line) => String(line).includes('[Singularity Flow timing]'))
+    .map((line) => JSON.parse(String(line).slice(String(line).indexOf('{'))));
+  const firstSnapshot = timings.find((entry) => entry.command === 'snapshot');
+  assert.ok(firstSnapshot, 'activation read the repository');
+  assert.equal(firstSnapshot.priority, 'interactive');
+  assert.ok(timings.filter((entry) => entry.command === 'session').every((entry) => entry.priority === 'background'),
+    'Story discovery waits behind it');
+});
+
 test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {
   if (!requireBundle(t)) return;
   const reviewer = { name: 'QA Reviewer', email: 'qa.reviewer@example.com' };

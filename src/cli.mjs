@@ -14001,6 +14001,27 @@ async function workspaceCommand(positionals, options) {
           profiles: [], profileReason: error instanceof Error ? error.message : String(error)
         }))
       : null;
+    // [perf] A readiness preview in a one-repository checkout: authority resolution lists this
+    // checkout's own origin first anyway, so that same listing also carries the chosen base, the
+    // Story destination and the state tip. Resolution answers from it, and the preview skips its
+    // fetch when the tracking refs already name those tips. Nothing is listed that resolution would
+    // not list; a separate workspace authority keeps the ordinary path.
+    const intakeSession = new GitRemoteSession({ cwd: root });
+    const unionStory = optionString(options, 'preflight-story');
+    const unionBases = optionStrings(options, 'from-branch');
+    let originTips = null;
+    if (unionStory && unionBases.length === 1 && !unionBases[0].includes('=')) {
+      const { ownOriginStoryAuthorityCandidate } = await import('./configuration-branch.mjs');
+      const originUrl = await ownOriginStoryAuthorityCandidate(root);
+      const observation = originUrl ? await intakeSession.observeAsync(originUrl, {
+        includeHead: false,
+        refs: [
+          `refs/heads/${CONFIGURATION_BRANCH}`, 'refs/heads/state',
+          `refs/heads/${unionBases[0]}`, `refs/heads/${unionStory}`
+        ]
+      }).catch(() => null) : null;
+      if (observation?.ok) originTips = { url: originUrl, observation };
+    }
     return withApprovedConfigurationRead(root, async () => {
       let definition = await loadConfig(root);
       const approvedConfigurationSnapshot = configurationReadSnapshot(root);
@@ -14168,7 +14189,8 @@ async function workspaceCommand(positionals, options) {
             lifecycleRoot: root,
             capabilityId: selected.capability,
             configurationSnapshot: approvedConfigurationSnapshot,
-            capabilityEvidence: legacyCapabilityEvidence
+            capabilityEvidence: legacyCapabilityEvidence,
+            observedTips: originTips
           }
         );
         if (legacyBaseConfigurationCommit) {
@@ -14295,7 +14317,10 @@ async function workspaceCommand(positionals, options) {
       // The catalog and its readiness preview are advisory: Story start observes authority again and
       // recomputes readiness before it mutates anything. One authority listing therefore serves both
       // the selection and the cached read of that exact revision.
-    }, { preferAuthority: true, useObjectCache: true, reuseAuthorityObservation: true });
+    }, {
+      preferAuthority: true, useObjectCache: true, reuseAuthorityObservation: true,
+      authoritySession: intakeSession
+    });
   }
   if (subcommand === 'prune') {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(compatibility, null, 2));

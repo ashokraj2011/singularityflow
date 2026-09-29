@@ -247,3 +247,30 @@ test('a reference fetched during intake is copied at start, which then transfers
   assert.equal(counter(started.stderr, 'git.remote.command.fetch'), 0,
     'neither the base nor the reference is transferred again');
 });
+
+test('a readiness preview lists its own origin once and fetches only when a tip moved', posix, async (t) => {
+  const { base, root } = await repository(t);
+  const previewArgs = [
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-UNION', '--from-branch', 'main',
+    '--work-type', 'feature', '--selected-base-only', '--timings'
+  ];
+  flow(root, previewArgs);
+  const warm = flow(root, previewArgs);
+  assert.equal(JSON.parse(warm.stdout).preflight.passed, true);
+  assert.equal(counter(warm.stderr, 'git.remote.command.ls-remote'), 1,
+    'authority, base, destination and state come from one listing');
+  assert.equal(counter(warm.stderr, 'git.story-preflight-fetch-verified'), 1);
+  assert.equal(counter(warm.stderr, 'git.remote.command.fetch'), 0, 'the tracking refs were already current');
+
+  const other = path.join(base, 'other');
+  git(base, 'clone', '-q', path.join(base, 'origin.git'), other);
+  git(other, 'config', 'user.name', 'Story Publisher');
+  git(other, 'config', 'user.email', EMAIL);
+  await writeFile(path.join(other, 'moved.txt'), 'moved\n');
+  git(other, 'add', 'moved.txt');
+  git(other, 'commit', '-q', '-m', 'Move the base');
+  git(other, 'push', '-q', 'origin', 'main');
+  const moved = flow(root, previewArgs);
+  assert.equal(counter(moved.stderr, 'git.remote.command.fetch'), 1, 'a moved tip is fetched');
+  assert.equal(JSON.parse(moved.stdout).preflight.repositories[0].baseCommit, git(other, 'rev-parse', 'HEAD'));
+});

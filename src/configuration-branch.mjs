@@ -1664,6 +1664,19 @@ function configuredStoryRemote(root, remoteName) {
   return { configured: true, url: identity.url };
 }
 
+/**
+ * The remote Story authority resolution lists first, when that is this checkout's own origin.
+ * `[perf]` Null whenever an active workspace names a separate authority, so a caller can only ever
+ * widen the listing resolution makes anyway, never probe a remote resolution would not.
+ */
+export async function ownOriginStoryAuthorityCandidate(root) {
+  let workspace;
+  try { workspace = await activeWorkspaceForRepository(root); } catch { return null; }
+  if (workspace?.capabilityAuthority?.url) return null;
+  const own = configuredStoryRemote(root, 'origin');
+  return own.url || null;
+}
+
 /** Find a Story-readable authority in this repository or its active workspace lead. */
 export async function resolveStoryConfigurationAuthority(root, remoteName = 'origin', {
   session = new GitRemoteSession({ cwd: root }),

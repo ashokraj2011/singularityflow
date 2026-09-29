@@ -35,7 +35,8 @@ import {
   compareBuilds, parseBuildLine, parseStampedBuildInfo, stampedBuildLine
 } from './product-alignment.mjs';
 import { PRODUCT_ALIGNMENT_SWITCH } from './product-alignment-gate.mjs';
-import { PRODUCT_UPDATE_SWITCH, requirementChecksFile } from './product-requirement-gate.mjs';
+import { priorRequirementCheck, PRODUCT_UPDATE_SWITCH, requirementChecksFile } from './product-requirement-gate.mjs';
+import { withRegistryFileLease } from './file-lease.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
 
@@ -123,21 +124,74 @@ export async function readApprovedProductRequirement(root, { read = withApproved
   }, { preferAuthority: true, allowLocalHeads: false });
 }
 
-async function fetchReleaseFile(fetchImpl, base, name, limit, directory) {
+/**
+ * How long a release download may take. It runs before the command it precedes, so a stalled or
+ * endless server must fail it, never hang it: a file that sends nothing for `idleMs`, or is not
+ * complete within its total budget, is abandoned.
+ */
+export const RELEASE_DOWNLOAD_LIMITS = Object.freeze({
+  idleMs: 30_000, smallTotalMs: 60_000, artifactTotalMs: 20 * 60_000
+});
+
+async function fetchReleaseFile(fetchImpl, base, name, limit, directory, {
+  artifact = false, limits = RELEASE_DOWNLOAD_LIMITS
+} = {}) {
   const url = new URL(name, base);
-  const response = await fetchImpl(url, { redirect: 'follow' });
-  if (new URL(response.url || url.href).protocol !== 'https:') {
-    throw new SingularityFlowError(`The release file ${name} was redirected away from https.`, { code: 'PRODUCT_RELEASE_UNAVAILABLE' });
+  const unavailable = (message) => new SingularityFlowError(message, { code: 'PRODUCT_RELEASE_UNAVAILABLE' });
+  const tooLarge = () => unavailable(`The release file ${name} has an unsupported size.`);
+  const controller = new AbortController();
+  const late = () => unavailable(`The release file ${name} did not arrive in time.`);
+  const total = setTimeout(() => controller.abort(), artifact ? limits.artifactTotalMs : limits.smallTotalMs);
+  let idle;
+  const arm = () => { clearTimeout(idle); idle = setTimeout(() => controller.abort(), limits.idleMs); };
+  try {
+    arm();
+    let response;
+    try { response = await fetchImpl(url, { redirect: 'follow', signal: controller.signal }); }
+    catch (error) {
+      throw controller.signal.aborted ? late()
+        : unavailable(`The release file ${name} could not be downloaded (${error?.message ?? error}).`);
+    }
+    if (new URL(response.url || url.href).protocol !== 'https:') {
+      throw unavailable(`The release file ${name} was redirected away from https.`);
+    }
+    if (!response.ok) {
+      throw unavailable(`The release file ${name} could not be downloaded (HTTP ${response.status}).`);
+    }
+    // Refuse an oversized file before reading it, and never hold more than the limit in memory.
+    const declared = Number(response.headers?.get?.('content-length'));
+    if (Number.isFinite(declared) && declared > limit) throw tooLarge();
+    let bytes;
+    if (response.body && typeof response.body[Symbol.asyncIterator] === 'function') {
+      const chunks = [];
+      let received = 0;
+      try {
+        for await (const chunk of response.body) {
+          arm();
+          received += chunk.length;
+          if (received > limit) {
+            controller.abort();
+            throw tooLarge();
+          }
+          chunks.push(Buffer.from(chunk));
+        }
+      } catch (error) {
+        if (error instanceof SingularityFlowError) throw error;
+        throw controller.signal.aborted ? late()
+          : unavailable(`The release file ${name} was interrupted (${error?.message ?? error}).`);
+      }
+      bytes = Buffer.concat(chunks, received);
+    } else {
+      // A fetch without a readable stream, such as a test double, is held to the same limits after reading.
+      bytes = Buffer.from(await response.arrayBuffer());
+    }
+    if (bytes.length < 1 || bytes.length > limit) throw tooLarge();
+    await writeFile(path.join(directory, name), bytes, { mode: 0o600 });
+    return bytes;
+  } finally {
+    clearTimeout(idle);
+    clearTimeout(total);
   }
-  if (!response.ok) {
-    throw new SingularityFlowError(`The release file ${name} could not be downloaded (HTTP ${response.status}).`, { code: 'PRODUCT_RELEASE_UNAVAILABLE' });
-  }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length < 1 || bytes.length > limit) {
-    throw new SingularityFlowError(`The release file ${name} has an unsupported size.`, { code: 'PRODUCT_RELEASE_UNAVAILABLE' });
-  }
-  await writeFile(path.join(directory, name), bytes, { mode: 0o600 });
-  return bytes;
 }
 
 /**
@@ -145,7 +199,9 @@ async function fetchReleaseFile(fetchImpl, base, name, limit, directory) {
  * source is copied, file by file as its RELEASE.json names them, into a private directory. Nothing
  * here is trusted yet: the distribution installer verifies every byte against the pinned key.
  */
-export async function materializeRelease(source, { fetchImpl = globalThis.fetch, tempRoot = os.tmpdir() } = {}) {
+export async function materializeRelease(source, {
+  fetchImpl = globalThis.fetch, tempRoot = os.tmpdir(), limits = RELEASE_DOWNLOAD_LIMITS
+} = {}) {
   if (path.isAbsolute(source)) {
     const info = await lstat(source).catch(() => null);
     if (!info?.isDirectory() || info.isSymbolicLink()) {
@@ -159,7 +215,7 @@ export async function materializeRelease(source, { fetchImpl = globalThis.fetch,
   const base = new URL(source.endsWith('/') ? source : `${source}/`);
   const directory = await mkdtemp(path.join(tempRoot, 'sflow-release-'));
   try {
-    const release = JSON.parse((await fetchReleaseFile(fetchImpl, base, 'RELEASE.json', SMALL_BYTES, directory)).toString('utf8'));
+    const release = JSON.parse((await fetchReleaseFile(fetchImpl, base, 'RELEASE.json', SMALL_BYTES, directory, { limits })).toString('utf8'));
     const named = [
       ...(release.artefacts ?? []), ...(release.operatorScripts ?? []), ...(release.operatorDocumentation ?? [])
     ];
@@ -167,10 +223,11 @@ export async function materializeRelease(source, { fetchImpl = globalThis.fetch,
       throw new SingularityFlowError('The release RELEASE.json names an unsupported file.', { code: 'PRODUCT_RELEASE_UNAVAILABLE' });
     }
     for (const name of ['SHA256SUMS', 'ARTIFACT-RECEIPT.json']) {
-      await fetchReleaseFile(fetchImpl, base, name, SMALL_BYTES, directory);
+      await fetchReleaseFile(fetchImpl, base, name, SMALL_BYTES, directory, { limits });
     }
     for (const name of new Set(named)) {
-      await fetchReleaseFile(fetchImpl, base, name, /\.(tgz|vsix)$/u.test(name) ? ARTIFACT_BYTES : SMALL_BYTES, directory);
+      const artifact = /\.(tgz|vsix)$/u.test(name);
+      await fetchReleaseFile(fetchImpl, base, name, artifact ? ARTIFACT_BYTES : SMALL_BYTES, directory, { artifact, limits });
     }
     return Object.freeze({ directory, temporary: directory });
   } catch (error) {
@@ -316,20 +373,23 @@ export async function installRequiredRelease(requirement, {
   }
 }
 
+/** Merge one repository's verdict into the record. Writers are serialized, so no verdict is lost. */
 async function recordRequirementVerdict(homeDirectory, root, entry) {
   const file = requirementChecksFile(homeDirectory);
   const key = await realpath(root).catch(() => path.resolve(root));
-  let repositories = {};
-  try { repositories = JSON.parse(await readFile(file, 'utf8'))?.repositories ?? {}; } catch { repositories = {}; }
-  repositories[key] = entry;
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify({
-    schemaVersion: currentSchemaVersion('product-requirement-checks'), repositories
-  }, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-  try { await rename(temporary, file); }
-  finally { await rm(temporary, { force: true }); }
-  await chmod(file, 0o600);
+  await withRegistryFileLease(file, async () => {
+    let repositories = {};
+    try { repositories = JSON.parse(await readFile(file, 'utf8'))?.repositories ?? {}; } catch { repositories = {}; }
+    repositories[key] = entry;
+    const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify({
+      schemaVersion: currentSchemaVersion('product-requirement-checks'), repositories
+    }, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    try { await rename(temporary, file); }
+    finally { await rm(temporary, { force: true }); }
+    await chmod(file, 0o600);
+  });
 }
 
 /**
@@ -352,14 +412,21 @@ export async function enforceProductRequirement({
   info = BUILD_INFO,
   now = () => new Date().toISOString()
 } = {}) {
+  const prior = await priorRequirementCheck({ homeDirectory, root });
   const record = (verdict, extra = {}) => recordRequirementVerdict(homeDirectory, root, {
-    build: runningBuild, checkedAt: now(), verdict, ...extra
+    build: runningBuild, checkedAt: now(), verdict, requirement: verdict !== 'none', ...extra
   }).catch(() => undefined);
   let found;
   try { found = await read(root); }
   catch (error) {
-    write(`Singularity Flow could not read this repository's approved product requirement: ${error.message}`);
-    await record('unavailable', { code: error?.code ?? null, reason: String(error?.message ?? error).slice(0, 500) });
+    // Most repositories carry no requirement, and one whose approved configuration cannot be read
+    // here fails loudly in the commands that need it. Say so only where a requirement is known.
+    const known = prior?.requirement === true
+      || Boolean((await lstat(path.join(root, PRODUCT_REQUIREMENT_FILE)).catch(() => null))?.isFile());
+    if (known) write(`Singularity Flow could not read this repository's approved product requirement: ${error.message}`);
+    await record('unavailable', {
+      requirement: known, code: error?.code ?? null, reason: String(error?.message ?? error).slice(0, 500)
+    });
     return Object.freeze({ status: 'unavailable' });
   }
   if (!found) {

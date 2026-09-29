@@ -68,6 +68,7 @@ export async function productMachineRecords({
       status: reviews.status ?? null,
       outcome: reviews.outcome ?? null,
       reviews: (reviews.reviews ?? []).map((entry) => ({ ...entry })),
+      unfinished: (reviews.unfinished ?? []).map((entry) => ({ ...entry })),
       startedAt: reviews.startedAt ?? null,
       completedAt: reviews.completedAt ?? null,
       reason: reviews.reason ?? null
@@ -98,9 +99,15 @@ function printRecords(records, log = console.log) {
     log('Configuration reviews opened for this build (nothing changes until each is merged):');
     for (const entry of reviews.reviews) log(`- ${entry.repository} → ${entry.proposalBranch}`);
   } else if (reviews?.outcome === 'current') {
-    log("Configuration reviews: every registered repository's approved configuration matches this build.");
+    log(reviews.unfinished?.length
+      ? "Configuration reviews: every registered repository this build could check matches its configuration."
+      : "Configuration reviews: every registered repository's approved configuration matches this build.");
   } else if (reviews) {
-    log(`Configuration reviews could not be opened${reviews.reason ? `: ${reviews.reason}` : '.'} Preview them with: singularity-flow workspace refresh-configuration --dry-run`);
+    log(`Configuration reviews could not be opened${reviews.reason && !reviews.unfinished?.length ? `: ${reviews.reason}` : '.'} Preview them with: singularity-flow workspace refresh-configuration --dry-run`);
+  }
+  if (reviews?.unfinished?.length) {
+    log('Not yet checked or proposed, tried again after an hour:');
+    for (const entry of reviews.unfinished) log(`- ${entry.repository}: ${entry.reason}`);
   }
   if (records.requirements.length) {
     log('Repository requirements (last check on this machine):');
@@ -145,6 +152,7 @@ export async function productReviews({
     status: result.status,
     outcome: result.outcome ?? null,
     reviews: (result.reviews ?? []).map((entry) => ({ ...entry })),
+    unfinished: (result.unfinished ?? []).map((entry) => ({ ...entry })),
     startedAt: result.startedAt ?? null,
     completedAt: result.completedAt ?? null,
     reason: result.reason ?? null
@@ -154,11 +162,15 @@ export async function productReviews({
     else printRecords({ configurationReviews: data, requirements: [] });
   }
   const count = data.reviews.length;
-  const failure = ['failed', 'unavailable'].includes(data.outcome);
+  // A pass that ran but left no outcome (its record could not be written) failed; it never "opened 0".
+  // One that could not check its repositories yet is no failure: it is tried again after an hour.
+  const failure = data.outcome === 'failed' || (data.status === 'ran' && !data.outcome);
   const outcome = data.status === 'development' ? noop('product.reviews-development')
     : data.status === 'running' ? noop('product.reviews-running')
-      : data.outcome === 'current' ? noop('product.reviews-current')
-        : failure ? failed('product.reviews-failed', { reason: data.reason ?? data.outcome })
+      : data.outcome === 'unavailable' ? noop('product.reviews-unavailable', { count: data.unfinished.length })
+      : data.outcome === 'current'
+        ? (data.unfinished.length ? noop('product.reviews-incomplete', { count: data.unfinished.length }) : noop('product.reviews-current'))
+        : failure ? failed('product.reviews-failed', { reason: data.reason ?? data.outcome ?? 'the pass recorded no outcome' })
           : data.status === 'ran' ? succeeded('product.reviews-opened', { count })
             : noop('product.reviews-recorded', { count });
   emitCommandResult(commandResult({

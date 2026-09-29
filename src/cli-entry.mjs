@@ -14,7 +14,7 @@ import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
-import { firstRunPassDue } from './product-alignment-gate.mjs';
+import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
 import { productRequirementDue } from './product-requirement-gate.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
@@ -701,6 +701,17 @@ async function runMain(argv) {
     if (aligned.status === 'handed-off') {
       process.exitCode = aligned.exitCode;
       return null;
+    }
+  } else {
+    // The first-run pass starts a build's first configuration-review pass. A terminal has no other
+    // trigger, so a pass that failed, left repositories unchecked or lost its worker is retried here,
+    // at most hourly. One small file read; the pass and its modules load only when one is due.
+    const retryBuild = await configurationReviewRetryDue({
+      command: definition.name, subcommand, classification: operation.classification
+    });
+    if (retryBuild) {
+      const { startConfigurationReviews } = await import('./configuration-review-pass.mjs');
+      await startConfigurationReviews({ runningBuild: retryBuild });
     }
   }
   const smartInitDryRun = definition.name === 'init'

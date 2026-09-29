@@ -213,6 +213,7 @@ interface ReviewsResult {
   status: 'ran' | 'recorded' | 'running' | 'development';
   outcome: string | null;
   reviews: Array<{ repository: string; proposalBranch: string }>;
+  unfinished?: Array<{ repository: string; reason: string }>;
   reason?: string | null;
 }
 
@@ -244,13 +245,23 @@ export async function openConfigurationReviews(host: ProductAlignmentHost, {
   // A terminal's background pass still owns this build's reviews; a later window reports them.
   if (result.status === 'running') return 'running';
   // A failed pass is retried after an hour; the window that ran it has already warned.
-  if (result.outcome === 'failed' || result.outcome === 'unavailable') return 'failed';
-  await host.remember(CONFIGURATION_REVIEW_KEY, loadedBuild);
+  if (result.outcome === 'failed') return 'failed';
+  const unfinished = result.unfinished ?? [];
+  if (unfinished.length) {
+    host.log(`Configuration reviews not yet checked, tried again after an hour: ${unfinished
+      .map((entry) => `${entry.repository} (${entry.reason})`).join('; ')}`);
+  }
+  if (result.outcome === 'unavailable') return 'unavailable';
+  // A pass that left repositories unchecked is not done for this build: a later window runs it again.
+  if (!unfinished.length) await host.remember(CONFIGURATION_REVIEW_KEY, loadedBuild);
   const reviews = (result.reviews ?? []).filter((entry) => entry.proposalBranch);
   for (const entry of reviews) host.log(`Configuration review opened: ${entry.repository} → ${entry.proposalBranch}`);
-  if (!reviews.length) return 'current';
-  void host.inform(`Singularity Flow opened ${reviews.length} configuration review(s) for this build: `
-    + `${reviews.map((entry) => `${entry.repository} → ${entry.proposalBranch}`).join('; ')}. `
-    + 'Nothing changes until each review is merged.');
+  if (!reviews.length) return unfinished.length ? 'incomplete' : 'current';
+  // Announce reviews once: from the window whose pass opened them, or from a finished pass.
+  if (result.status === 'ran' || !unfinished.length) {
+    void host.inform(`Singularity Flow opened ${reviews.length} configuration review(s) for this build: `
+      + `${reviews.map((entry) => `${entry.repository} → ${entry.proposalBranch}`).join('; ')}. `
+      + 'Nothing changes until each review is merged.');
+  }
   return 'reviews-opened';
 }

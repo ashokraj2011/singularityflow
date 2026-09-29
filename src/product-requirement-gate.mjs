@@ -62,6 +62,16 @@ export async function recordedRequirementChecks({ homeDirectory = os.homedir() }
     .sort((left, right) => String(right.checkedAt ?? '').localeCompare(String(left.checkedAt ?? ''))));
 }
 
+/** The last requirement verdict this machine recorded for one repository, or null. Never throws. */
+export async function priorRequirementCheck({ homeDirectory = os.homedir(), root } = {}) {
+  try {
+    const key = await realpath(root).catch(() => path.resolve(root));
+    return JSON.parse(await readFile(requirementChecksFile(homeDirectory), 'utf8'))?.repositories?.[key] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** The running build line when the requirement must be checked now, or null. Never throws. */
 export async function productRequirementDue({
   root,
@@ -77,10 +87,7 @@ export async function productRequirementDue({
     if (productUpdateDisabled(environment)) return null;
     if (!info?.commit && !info?.sourceSha256) return null;
     const running = versionLine(info);
-    const key = await realpath(root).catch(() => path.resolve(root));
-    let entry = null;
-    try { entry = JSON.parse(await readFile(requirementChecksFile(homeDirectory), 'utf8'))?.repositories?.[key] ?? null; }
-    catch { entry = null; }
+    const entry = await priorRequirementCheck({ homeDirectory, root });
     if (entry?.build !== running) return running;
     const requirement = await lstat(path.join(root, 'singularity', 'product.yml')).catch(() => null);
     const file = Boolean(requirement?.isFile());

@@ -222,6 +222,14 @@ export const MESSAGES = Object.freeze({
     headline: () => "This build's configuration reviews are being opened in the background; `singularity-flow product status` shows them.",
     preserves: true
   },
+  'product.reviews-incomplete': {
+    headline: (s) => `The repositories this build could check match its configuration; ${slot(s.count)} could not be checked and are tried again after an hour.`,
+    preserves: true
+  },
+  'product.reviews-unavailable': {
+    headline: (s) => `Configuration reviews could not check ${slot(s.count)} registered repository(ies) yet; they are tried again after an hour.`,
+    preserves: true
+  },
   'product.reviews-development': {
     headline: () => 'A development checkout proposes no configuration reviews of its own.',
     preserves: true

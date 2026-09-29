@@ -18,7 +18,7 @@ import { versionLine } from '../src/build-info.mjs';
 import { runningStampedBuild } from '../src/commands/product.mjs';
 import {
   alignBeforeFirstMutation, applyProductAlignment, compareBuilds, observeProductSurfaces, parseBuildLine,
-  parseStampedBuildInfo, planProductAlignment, recordedAlignment, stampedBuildLine
+  parseStampedBuildInfo, planProductAlignment, recordBuildPass, recordedAlignment, stampedBuildLine
 } from '../src/product-alignment.mjs';
 import { firstRunPassDue } from '../src/product-alignment-gate.mjs';
 import { VERSION } from '../src/version.mjs';
@@ -461,3 +461,19 @@ test('a development host\'s extension checkout is never replaced by the installe
   assert.ok(!plan.actions.some((entry) => entry.surface === 'vscode'));
 });
 
+
+test('concurrent first-run passes of different builds each keep their receipt entry', async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-alignment-receipt-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const builds = Array.from({ length: 6 }, (_, index) => versionLine({
+    commit: String(index).repeat(40), sourceSha256: null, branch: null, dirty: false,
+    builtAt: `2026-09-2${index}T00:00:00.000Z`
+  }));
+  await Promise.all(builds.map((runningBuild) => recordBuildPass({
+    homeDirectory: home, runningBuild, entry: { at: new Date().toISOString(), trigger: 'first-mutation', outcome: 'aligned', steps: [] }
+  })));
+  for (const runningBuild of builds) {
+    assert.equal((await recordedAlignment({ homeDirectory: home, runningBuild }))?.outcome, 'aligned',
+      `${runningBuild} kept its entry beside the concurrent writers`);
+  }
+});

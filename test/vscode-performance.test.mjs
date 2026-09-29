@@ -80,7 +80,8 @@ test('VS Code CLI diagnostics use the versioned privacy-safe timing envelope', a
 test('activation defers auxiliary CLI reads until the initial snapshot is confirmed', async () => {
   const source = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
   const completion = source.indexOf('const completeInitialRepositoryRead');
-  const refresh = source.indexOf('await store.refresh()', completion);
+  // The first read is the one somebody is waiting on, so it goes ahead of discovery and checks.
+  const refresh = source.indexOf("await store.refresh({ priority: 'interactive' })", completion);
   const confirmed = source.indexOf('initialRefreshCompleted = true', refresh);
   const auxiliary = source.indexOf('startAuxiliaryReadsAfterConfirmedSnapshot()', confirmed);
   const prime = source.indexOf('store.primeFromCache()', auxiliary);

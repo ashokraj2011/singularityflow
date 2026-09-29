@@ -26,7 +26,10 @@ test('remote Git cannot bypass the bounded non-interactive execution boundary', 
     'workspace-impact.mjs:clone',
     // The refresh cache copies from its already-validated local disposable checkout; it never
     // addresses a transport authority and apply re-observes the exact remote SHAs independently.
-    'workspace-configuration-refresh.mjs:clone'
+    'workspace-configuration-refresh.mjs:clone',
+    // Copies one exact commit from the machine-local reference prefetch store: the source is always
+    // `<store>/<entry>/repository`, a verified local bare repository. Its network fetches use runGit.
+    'reference-repositories.mjs:fetch'
   ]);
   const violations = [];
   const direct = /run\('git',\s*\[\s*['"](ls-remote|fetch|push|pull|clone)['"]/g;

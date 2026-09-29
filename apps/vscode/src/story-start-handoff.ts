@@ -1,4 +1,5 @@
 /** Advisory scheduling only: a start result is never a synthetic governed snapshot. */
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { sameStoryAttachPath } from './story-attach.ts';
@@ -69,4 +70,24 @@ export function storyStartHandoffMatches(
     && snapshot.workflow.workItem.branch === hint.branch
     && snapshot.selectedWorkId === hint.storyId
     && pin === hint.configurationCommit;
+}
+
+/**
+ * Whether a started Story's checkout is somewhere this window does not already show.
+ *
+ * Decided on the window's own folders, never on the extension's current repository. The CLI moves
+ * the machine-wide selection to the new checkout before `start` returns, and following that write
+ * used to rebind the repository first, so the window never opened the Story. Folders are compared
+ * by real path, so a symbolic link to the same checkout is still the same checkout.
+ */
+export async function storyCheckoutNeedsWindowSwitch(
+  storyCheckout: string, windowFolders: readonly string[]
+): Promise<boolean> {
+  const canonical = async (value: string): Promise<string> =>
+    realpath(value).catch(() => path.resolve(value));
+  const target = await canonical(storyCheckout);
+  for (const folder of windowFolders) {
+    if (sameStoryAttachPath(await canonical(folder), target)) return false;
+  }
+  return true;
 }

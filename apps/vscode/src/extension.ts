@@ -41,7 +41,7 @@ import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type Workspace
 import { discoverWorkspaceStoryRows, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
 import { sameStoryAttachPath, selectedCatalogStory, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
 import {
-  storyStartHandoffFromResult, storyStartHandoffMatches,
+  storyCheckoutNeedsWindowSwitch, storyStartHandoffFromResult, storyStartHandoffMatches,
   STORY_START_HANDOFF_KEY, STORY_START_DISCOVERY_IDLE_MS
 } from './story-start-handoff.ts';
 import type { StoriesMessage } from './views/stories.ts';
@@ -5165,7 +5165,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // `undefined` deliberately preserves the existing CLI check on every request.
   let activeSelectionRevision = await machineSelectionRevision(activeSelectionFile);
   let selectionReconciliation: Promise<boolean> | null = null;
+  // A Story start moves the machine-wide selection to its new checkout before it returns. Following
+  // that here would rebind this window before the start decides to open the checkout, so a change
+  // seen while a start is in flight waits, and is reconciled once the start has finished.
+  let navigationHolds = 0;
+  let navigationDeferred = false;
+  const holdNavigation = (): { release(): void } => {
+    navigationHolds += 1;
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        navigationHolds -= 1;
+        if (navigationHolds || !navigationDeferred) return;
+        navigationDeferred = false;
+        void reconcileActiveWorkspaceSelection();
+      }
+    };
+  };
   const reconcileActiveWorkspaceSelection = async (): Promise<boolean> => {
+    if (navigationHolds) {
+      if (!navigationDeferred) {
+        output.appendLine('The active selection changed during a Story start; it is followed once the start finishes.');
+      }
+      navigationDeferred = true;
+      return false;
+    }
     if (selectionReconciliation) return selectionReconciliation;
     const reconciliation = (async (): Promise<boolean> => {
       const observedSelectionRevision = await machineSelectionRevision(activeSelectionFile);
@@ -5674,7 +5700,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     IntakePanel.show(context, client, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       if (started.shape === 'story' && started.repositoryPath
-          && path.resolve(started.repositoryPath) !== path.resolve(repository)) {
+          && await storyCheckoutNeedsWindowSwitch(started.repositoryPath,
+            (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath))) {
         const handoff = storyStartHandoffFromResult(started);
         if (handoff) {
           try { await context.globalState.update(STORY_START_HANDOFF_KEY, handoff); }
@@ -5709,6 +5736,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       defaults,
       catalogCache: intakeCatalogCache?.bind(intakeCatalogKey()) ?? null,
       holdBackgroundWork: (reason) => backgroundWork.hold(reason),
+      holdNavigation,
       journey: defaults.guidedStart ? {
         step: 'work',
         capabilityId: context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null)?.capabilityId ?? null,

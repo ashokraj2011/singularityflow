@@ -55,6 +55,8 @@ export interface IntakeTarget {
   catalogCache?: IntakeCatalogCacheBinding | null;
   /** Held while the form is on screen, so optional background work does not compete with it. */
   holdBackgroundWork?: ((reason: string) => BackgroundHold) | null;
+  /** Held while a Story starts, so the window does not follow its selection write before it opens it. */
+  holdNavigation?: (() => { release(): void }) | null;
 }
 
 export interface IntakeDefaults {
@@ -215,6 +217,7 @@ export class IntakePanel {
   private preflightKey: string | null = null;
   private readonly catalogCache: IntakeCatalogCacheBinding | null;
   private readonly holdBackgroundWork: ((reason: string) => BackgroundHold) | null;
+  private readonly holdNavigation: (() => { release(): void }) | null;
   private backgroundHold: BackgroundHold | null = null;
   /** The base whose readiness answer replaced the workflow choices with that base's own. */
   private exactCatalogBase: string | null = null;
@@ -236,6 +239,7 @@ export class IntakePanel {
     this.inFlight = target.inFlight;
     this.catalogCache = target.catalogCache ?? null;
     this.holdBackgroundWork = target.holdBackgroundWork ?? null;
+    this.holdNavigation = target.holdNavigation ?? null;
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
@@ -460,7 +464,6 @@ export class IntakePanel {
         // authority stale and require another successful preflight before Start can be enabled.
         workflowReason: `Could not refresh Story workflows: ${reason}`,
         baseBranchReason: reason,
-        catalogStatus: 'fresh',
         ...emptyStoryPreflight()
       } : {
         profiles: [], profile: null, storyWorkflows: [], availableStoryWorkflows: [], workType: null,
@@ -1073,6 +1076,7 @@ export class IntakePanel {
     this.update({ busy: true, error: null, recoveryCommand: null, recoveryRouteCommand: null });
 
     const args = intakeCommand(this.form);
+    const navigation = this.form.shape === 'story' ? this.holdNavigation?.() ?? null : null;
     this.output.appendLine(`\n$ ${terminalCommand(
       this.client.repository,
       redactCliArgsForDisplay(args),
@@ -1116,6 +1120,8 @@ export class IntakePanel {
         recoveryRouteCommand: failure instanceof CliTimeoutError
           ? `singularity-flow ${args.slice(0, 2).join(' ')}` : null
       });
+    } finally {
+      navigation?.release();
     }
   }
 

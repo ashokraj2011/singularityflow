@@ -64,6 +64,7 @@ import {
   publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
+import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import {
   ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog
@@ -1597,6 +1598,9 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
   const derived = deriveObservedClaimMap(planned, deliveryReceipt, {
     clauseIds,
     policy,
+    requireSourceBindings: phase.sourceBoundary !== 'test-automation'
+      && workflow.resolution?.plannedClaims?.mode === 'required'
+      && workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce',
     generationCommit: phase.generationCommit
   });
   const relative = claimMapRelativePath(config, workflow, phase, 'observed');
@@ -2284,6 +2288,10 @@ async function validatePhase(root, config, workflow, phase, { placeholders = tru
   const errors = content
     ? await validatePhaseAuthoredReviewContentPreflight(root, config, workflow, phase, { placeholders })
     : [];
+  if (content && !errors.length) {
+    errors.push(...(await inspectPhaseQualifiedConformance(root, config, workflow, phase))
+      .map((finding) => finding.message));
+  }
   const required = requiredRepoPath(config, workflow, phase);
   if (!errors.some((error) => error.startsWith('Required artifact missing:')) && !artifactFor(phase, required)) {
     errors.push(`Required artifact is not registered to ${phase.id}: ${required}`);
@@ -2310,6 +2318,19 @@ async function validatePhase(root, config, workflow, phase, { placeholders = tru
     }
   }
   return errors;
+}
+
+async function assertQualifiedConformanceReady(root, config, workflow, phase, action) {
+  const findings = await inspectPhaseQualifiedConformance(root, config, workflow, phase);
+  if (!findings.length) return;
+  throw new SingularityFlowError(
+    `Phase '${phase.id}' cannot ${action} while its conformance comparison is incomplete:\n- `
+      + findings.map((finding) => finding.message).join('\n- '),
+    {
+      code: 'CONFORMANCE_REPORT_INCOMPLETE',
+      details: { subjectKind: 'story', workId: workflow.workItem.id, phase: phase.id, findings }
+    }
+  );
 }
 
 function normalizeUsage(raw, session, generation = null) {
@@ -2646,6 +2667,9 @@ async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
     minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
     requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
     minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
+    sourceBindingPolicy: workflow.resolution?.plannedClaims?.mode === 'required'
+      && source.sourceBoundary !== 'test-automation'
+      ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
     evidenceCommit: packet.evidenceCommit,
     pathContext: applicationPathContext(config, workflow)
   });
@@ -2737,6 +2761,7 @@ export async function publishGeneration(root, config, workflow, {
       }
     );
   }
+  await assertQualifiedConformanceReady(root, config, workflow, phase, 'publish a generation');
   // A code-generation phase must deliver code and acceptance-mapped tests. This is deliberately
   // before prompt/input preparation and telemetry capture: an artifact-only attempt is a refused
   // preflight, not a half-started generation that has to be repaired in durable state.
@@ -3002,7 +3027,11 @@ export async function publishGeneration(root, config, workflow, {
         bound: deliveryPreflight.acceptanceCriteria.tagged,
         missing: deliveryPreflight.acceptanceCriteria.missing,
         ambiguous: deliveryPreflight.acceptanceCriteria.ambiguous,
-        bindings: deliveryPreflight.acceptanceCriteria.bindings
+        bindings: deliveryPreflight.acceptanceCriteria.bindings,
+        ...(deliveryPreflight.sourceBindings.mode === 'enforce' ? {
+          sourceRequired: deliveryPreflight.sourceBindings.required,
+          sourceBindings: deliveryPreflight.sourceBindings.bindings
+        } : {})
       },
       testExecutions: [],
       ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
@@ -3754,6 +3783,7 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId });
   assertSkillPhaseHostReady(workflow, phase, 'submit');
+  await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   const session = actor
     ? { actor, agent: agent ?? null }
@@ -4326,6 +4356,7 @@ export async function approvePhase(root, config, workflow, {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   assertSkillPhaseHostReady(workflow, phase, 'approve');
+  await assertQualifiedConformanceReady(root, config, workflow, phase, 'be approved');
   await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   if (phase.id === 'convergence') {
     await assertConvergencePublicationReady(root, config, workflow, phase);
@@ -4628,6 +4659,9 @@ export async function approvePhase(root, config, workflow, {
         minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
         requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
         minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
+        sourceBindingPolicy: workflow.resolution?.plannedClaims?.mode === 'required'
+          && phase.sourceBoundary !== 'test-automation'
+          ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
         evidenceCommit: submittedReview.evidenceCommit,
         pathContext: applicationPathContext(config, workflow)
       });

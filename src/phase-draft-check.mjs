@@ -3,7 +3,9 @@ import {
   effectivePhasePublicationProducer, phasePublicationCommand
 } from './manual-authorship.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
+import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import {
   artifactFindingMessage, inspectPhaseAuthoredReviewContent, phaseAuthoredReviewArtifacts
@@ -86,6 +88,41 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     }
   } else {
     findings = await inspectPhaseAuthoredReviewContent(root, config, workflow, phase);
+  }
+
+  if (!findings.length && artifact?.exists) {
+    const comparison = await inspectPhaseQualifiedConformance(root, config, workflow, phase);
+    findings.push(...comparison.map((finding) => ({
+      code: finding.code, category: 'traceability', path: finding.path,
+      line: finding.line, value: finding.clauseId, message: finding.message,
+      fingerprint: artifact.fingerprint
+    })));
+  }
+
+  // Surface the exact missing source witness while the code generation is still editable. The
+  // preflight is read-only; other code-delivery failures remain owned by the recovery projection.
+  if (!findings.length && phaseRequiresCodeDelivery(phase)
+      && phase.generationIntent?.status === 'open'
+      && workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce') {
+    try {
+      await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+    } catch (error) {
+      if (error.code === 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE') {
+        findings.push({
+          code: 'code.delivery.source-binding-too-large', category: 'traceability',
+          path: error.details?.path ?? null, line: null, value: null,
+          message: error.message, fingerprint: null
+        });
+      }
+      for (const missing of error.details?.sourceBindingsMissing ?? []) {
+        findings.push({
+          code: 'code.delivery.source-clause-tag-missing', category: 'traceability',
+          path: missing.expectedPaths?.[0] ?? null, line: null, value: missing.clauseId,
+          message: `Planned clause ${missing.clauseId} needs @clause:${missing.clauseId} in an exact planned product source path: ${missing.expectedPaths.join(', ')}.`,
+          fingerprint: null
+        });
+      }
+    }
   }
 
   const repairClass = convergenceReview?.class ?? correctionClass(producer);

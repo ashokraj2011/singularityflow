@@ -14,6 +14,7 @@ test('end-to-end-under-budget', async () => {
     assert.equal(result.workId, 'TOY-001');
     assert.equal(result.interactionCount, 1);
     assert.equal(result.typedCommandCount, 1);
+    assert.match(await readFile(path.join(result.repository, 'tests/greeting.test.mjs'), 'utf8'), /@ac:TOY-001:AC-001/);
     assert.match(result.finalStateSha256, /^[0-9a-f]{64}$/);
     assert.equal(result.steps.length, 8);
     assert.ok(result.steps.every((step) => step.output.length <= 4_050));

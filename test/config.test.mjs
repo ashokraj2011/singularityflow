@@ -366,6 +366,24 @@ test('every shipped workflow profile resolves an explicit safe code-delivery con
   );
 });
 
+test('a newly authored or imported workflow defaults to source-clause enforcement', async () => {
+  const template = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const omittedField = structuredClone(template);
+  delete omittedField.codeDelivery.traceability.sourceBindings;
+  validateDefinition(omittedField);
+  assert.equal(omittedField.codeDelivery.traceability.sourceBindings, 'enforce');
+
+  const omittedPolicy = structuredClone(template);
+  delete omittedPolicy.codeDelivery;
+  validateDefinition(omittedPolicy);
+  assert.equal(omittedPolicy.codeDelivery.traceability.sourceBindings, 'enforce');
+
+  const explicitOptOut = structuredClone(template);
+  explicitOptOut.codeDelivery.traceability.sourceBindings = 'off';
+  validateDefinition(explicitOptOut);
+  assert.equal(explicitOptOut.codeDelivery.traceability.sourceBindings, 'off');
+});
+
 test('reference repository policy is explicit, validated, and pinned by each work type', async () => {
   const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
   validateDefinition(definition);

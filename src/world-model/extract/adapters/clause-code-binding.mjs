@@ -7,11 +7,11 @@ import {
 import { scanClauseBindings } from './closed-structure.mjs';
 
 export const CLAUSE_CODE_BINDING_ID = 'clause-code-binding';
-export const CLAUSE_CODE_BINDING_VERSION = '1.0.0';
+export const CLAUSE_CODE_BINDING_VERSION = '1.1.0';
 export const CLAUSE_CODE_BINDING_IMPLEMENTATION_SHA256 = implementationSha256(
   CLAUSE_CODE_BINDING_ID,
   CLAUSE_CODE_BINDING_VERSION,
-  'explicit-source-comment-clause-tags-only-v1'
+  'explicit-source-comment-governed-and-legacy-clause-tags-v2'
 );
 
 export function extractClauseCodeBindings(context) {

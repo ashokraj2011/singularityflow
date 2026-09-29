@@ -17,6 +17,7 @@ import {
   validateAutoCandidateVerification
 } from './auto/auto-candidate.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
+import { exactFileAtObject } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -24,7 +25,10 @@ import {
   verifyExactTestcaseIdentityObservation, welResultAdapter
 } from './wel-adapters.mjs';
 import { validateWelTestLifecycle } from './wel-test-lifecycle.mjs';
-import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
+import {
+  loadActiveSpecRecords, predecessorSpecClauses, readBoundSpecificationClaimMap
+} from './specifications.mjs';
+import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
 import {
   applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry,
@@ -32,6 +36,10 @@ import {
 } from './work-intervals.mjs';
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+
+// Keep source-comment preflight below the exact local-object replay reader's 16 MiB ceiling.
+// Otherwise a generation could publish successfully and only fail at submission or approval.
+const MAX_BOUND_SOURCE_BYTES = 16 * 1024 * 1024;
 
 function pathInside(candidate, root) {
   const value = posix(candidate ?? '');
@@ -127,7 +135,7 @@ export async function acceptanceIds(root, config, workflow, phase) {
 }
 
 export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
-  requireNamespaceQualifiedIds = false
+  requireNamespaceQualifiedIds = false, requireCommentTags = false
 } = {}) {
   const exact = new Set();
   const bare = new Set();
@@ -139,8 +147,12 @@ export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
     });
     if (!secured.exists) continue;
     const text = await readFile(secured.absolute, 'utf8');
-    for (const match of text.matchAll(/@ac:\s*((?:[A-Z0-9][A-Z0-9._-]{0,63}:)?AC-\d+)/gi)) {
-      const value = match[1].toUpperCase();
+    const values = requireCommentTags
+      ? scanSourceClauseTags(text, { legacy: true })
+        .filter((item) => item.tag === 'ac').map((item) => item.clauseId)
+      : [...text.matchAll(/@ac:\s*((?:[A-Z0-9][A-Z0-9._-]{0,63}:)?AC-\d+)/gi)]
+        .map((match) => match[1].toUpperCase());
+    for (const value of values) {
       const target = value.includes(':') ? exact : bare;
       const sources = value.includes(':') ? exactSources : bareSources;
       target.add(value);
@@ -210,6 +222,89 @@ export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
     ids: [...new Set([...exact, ...inferred])].sort(), inferred: inferred.sort(), ambiguous,
     bindings: bindings.sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource))
   };
+}
+
+/**
+ * Bind each source-bound planned clause to an explicit comment in one of its exact planned
+ * product-source paths. The reviewed plan pointer, rather than an arbitrary claims file in the
+ * directory, is authority. Test-only and reviewed not-applicable rows have no source-tag duty.
+ */
+export async function plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
+  deletedSourcePaths = []
+} = {}) {
+  if (workflow.resolution?.codeDelivery?.traceability?.sourceBindings !== 'enforce'
+      || phase.sourceBoundary === 'test-automation'
+      || workflow.resolution?.plannedClaims?.mode !== 'required') {
+    return { mode: 'off', required: [], bindings: [], missing: [] };
+  }
+  const ownerId = workflow.resolution.plannedClaims.owners?.[phase.id];
+  const owner = workflow.phases?.[ownerId];
+  if (!owner) {
+    throw new SingularityFlowError(
+      `Code phase '${phase.id}' has no reviewed planning owner for source clause bindings.`,
+      { code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED' }
+    );
+  }
+  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const active = await loadActiveSpecRecords(itemDirectory, workflow);
+  const clauseIds = predecessorSpecClauses(active, workflow, phase.id).map((clause) => clause.id);
+  const plan = await readBoundSpecificationClaimMap(root, itemDirectory, workflow, owner, 'planned', {
+    clauseIds, policy: workflow.resolution?.spec ?? config.spec ?? {}
+  });
+  const available = new Set(sourcePaths);
+  const required = Object.entries(plan.claims ?? {})
+    .filter(([, claim]) => (claim.expectedPaths ?? []).length > 0
+      && claim.testDisposition !== 'not-applicable')
+    .map(([rawClauseId, claim]) => {
+      const clauseId = normalizeQualifiedClauseId(rawClauseId);
+      if (!clauseId) {
+        throw new SingularityFlowError(`Planned source clause '${rawClauseId}' is not a qualified governed ID.`, {
+          code: 'CODE_DELIVERY_SOURCE_CLAUSE_ID_INVALID'
+        });
+      }
+      return { clauseId, expectedPaths: [...claim.expectedPaths].sort() };
+    })
+    .sort((left, right) => left.clauseId.localeCompare(right.clauseId));
+  const candidates = [...new Set(required.flatMap((entry) => entry.expectedPaths))]
+    .filter((candidate) => available.has(candidate) && !isAllowedTestAutomationPath(candidate))
+    .sort();
+  const tagsByPath = new Map();
+  for (const relative of candidates) {
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'Planned product source'
+    });
+    if (!secured.exists || !secured.entry?.isFile()) continue;
+    if (secured.entry.size >= MAX_BOUND_SOURCE_BYTES) {
+      throw new SingularityFlowError(
+        `Planned source '${relative}' is too large for exact clause-comment replay (maximum below 16 MiB). Split the source or use a reviewed test-only/not-applicable plan disposition before publication.`,
+        { code: 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', details: { path: relative } }
+      );
+    }
+    const sourceBytes = await readFile(secured.absolute);
+    if (sourceBytes.length >= MAX_BOUND_SOURCE_BYTES) {
+      throw new SingularityFlowError(
+        `Planned source '${relative}' grew beyond the exact clause-comment replay limit before publication.`,
+        { code: 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', details: { path: relative } }
+      );
+    }
+    tagsByPath.set(relative, scanSourceClauseTags(sourceBytes.toString('utf8'))
+      .filter((tag) => tag.tag === 'clause' && normalizeQualifiedClauseId(tag.clauseId)));
+  }
+  const bindings = required.flatMap(({ clauseId, expectedPaths }) => expectedPaths.flatMap((sourcePath) =>
+    (tagsByPath.get(sourcePath) ?? [])
+      .filter((tag) => tag.clauseId === clauseId)
+      .map(({ line, tag }) => ({ clauseId, sourcePath, line, tag }))));
+  const deleted = new Set(deletedSourcePaths);
+  for (const { clauseId, expectedPaths } of required) {
+    for (const sourcePath of expectedPaths) {
+      if (deleted.has(sourcePath) && available.has(sourcePath) && !tagsByPath.has(sourcePath)) {
+        bindings.push({ clauseId, sourcePath, line: null, tag: 'deletion' });
+      }
+    }
+  }
+  const missing = required.filter(({ clauseId }) =>
+    !bindings.some((binding) => binding.clauseId === clauseId));
+  return { mode: 'enforce', required, bindings, missing };
 }
 
 async function pathEvidence(root, paths, { changeSet = null } = {}) {
@@ -431,7 +526,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
 
   const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
   const tags = await taggedAcceptanceIds(root, testPaths, requiredAcIds, {
-    requireNamespaceQualifiedIds: workflow.resolution?.codeDelivery?.traceability?.requireNamespaceQualifiedIds === true
+    requireNamespaceQualifiedIds: workflow.resolution?.codeDelivery?.traceability?.requireNamespaceQualifiedIds === true,
+    requireCommentTags: workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce'
   });
   if (tags.ambiguous.length) {
     const namespaceRequired = tags.ambiguous.some((item) => item.reason === 'namespace-required');
@@ -447,11 +543,21 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   if (missingAcIds.length) {
     errors.push(`changed tests do not contain required traceability tags: ${missingAcIds.map((id) => `@ac:${id}`).join(', ')}`);
   }
+  const sourceBindings = await plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
+    deletedSourcePaths
+  });
+  if (sourceBindings.missing.length) {
+    errors.push(`planned product source does not contain required clause comments: ${sourceBindings.missing
+      .map(({ clauseId, expectedPaths }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}`).join('; ')}`);
+  }
   if (errors.length) {
     throw new SingularityFlowError(
       `Phase ${phase.id} has no publishable code delivery:\n- ${errors.join('\n- ')}\n`
       + 'Implement the approved behavior, add acceptance-mapped tests, and publish again.',
-      { code: 'CODE_DELIVERY_EVIDENCE_REQUIRED' }
+      {
+        code: 'CODE_DELIVERY_EVIDENCE_REQUIRED',
+        details: { sourceBindingsMissing: sourceBindings.missing }
+      }
     );
   }
 
@@ -481,7 +587,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     acceptanceCriteria: {
       required: requiredAcIds, tagged: taggedAcIds, missing: [], ambiguous: [],
       inferred: tags.inferred, bindings: tags.bindings
-    }
+    },
+    sourceBindings
   };
 }
 
@@ -657,6 +764,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   minimumPassed = 1,
   requireAffectedModuleCoverage = true,
   minimumModelAssurance = 'unavailable',
+  sourceBindingPolicy = 'off',
   evidenceCommit = null,
   pathContext = null
 } = {}) {
@@ -746,6 +854,59 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   for (const clauseId of traceability.required ?? []) {
     if (!bound.has(clauseId) || !bindings.some((binding) => binding.clauseId === clauseId)) {
       fail(`acceptance clause ${clauseId} has no module test-source binding`);
+    }
+  }
+  if (sourceBindingPolicy === 'enforce') {
+    const required = traceability.sourceRequired;
+    const sourceBindings = traceability.sourceBindings;
+    if (!Array.isArray(required) || !Array.isArray(sourceBindings)) {
+      fail('planned source-clause bindings are absent from the code-delivery receipt');
+    } else {
+      const delivered = new Set(receipt.changeSet?.sourcePaths ?? []);
+      for (const item of required) {
+        if (!normalizeQualifiedClauseId(item?.clauseId)
+            || !Array.isArray(item.expectedPaths) || !item.expectedPaths.length
+            || item.expectedPaths.some((candidate) => !safeEvidencePath(candidate))) {
+          fail('planned source-clause requirement is invalid');
+          continue;
+        }
+        const witnesses = sourceBindings.filter((binding) => binding?.clauseId === item.clauseId
+          && item.expectedPaths.includes(binding.sourcePath));
+        if (!witnesses.length) fail(`planned clause ${item.clauseId} has no exact source-comment binding`);
+      }
+      for (const binding of sourceBindings) {
+        const sourcePath = binding?.sourcePath;
+        const clauseId = binding?.clauseId;
+        const requirement = required.find((item) => item.clauseId === clauseId);
+        if (!requirement || !normalizeQualifiedClauseId(clauseId)
+            || !safeEvidencePath(sourcePath) || !delivered.has(sourcePath)
+            || !requirement.expectedPaths.includes(sourcePath)
+            || !['clause', 'deletion'].includes(binding.tag)
+            || (binding.tag === 'clause' && (!Number.isInteger(binding.line) || binding.line < 1))
+            || (binding.tag === 'deletion' && (binding.line !== null
+              || !(receipt.changeSet?.deletedSourcePaths ?? []).includes(sourcePath)))) {
+          fail(`source-clause binding for ${clauseId ?? 'unknown'} is outside the reviewed delivery`);
+          continue;
+        }
+        let historical;
+        try {
+          historical = generationCommit
+            ? exactFileAtObject(root, generationCommit, sourcePath, { maximumBytes: MAX_BOUND_SOURCE_BYTES })
+            : null;
+        } catch (error) {
+          fail(`source-clause binding ${clauseId} at ${sourcePath} could not be read: ${error.message}`);
+          continue;
+        }
+        if (binding.tag === 'deletion') {
+          if (historical) {
+            fail(`planned deletion ${sourcePath} for ${clauseId} still exists in the generation commit`);
+          }
+        } else if (!historical
+            || !scanSourceClauseTags(historical.toString('utf8')).some((tag) =>
+              tag.clauseId === clauseId && tag.line === binding.line && tag.tag === 'clause')) {
+          fail(`source-clause binding ${clauseId} at ${sourcePath}:${binding.line} does not replay from the generation commit`);
+        }
+      }
     }
   }
 

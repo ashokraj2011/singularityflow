@@ -185,6 +185,12 @@ export const WMB_V4_KERNEL_SOURCE_SHA256 = implementationSourceSha256({
       path: path.join(PACKAGE_ROOT, 'src', 'repository-facts.mjs')
     },
     {
+      // Clause extraction shares the publication parser; pin that executable grammar with
+      // each World-Model extractor identity so later parser changes cannot reuse old facts.
+      label: 'src/traceability-ids.mjs',
+      path: path.join(PACKAGE_ROOT, 'src', 'traceability-ids.mjs')
+    },
+    {
       label: 'schemas/world-model-composition-candidate.schema.json',
       path: path.join(PACKAGE_ROOT, 'schemas', 'world-model-composition-candidate.schema.json')
     }

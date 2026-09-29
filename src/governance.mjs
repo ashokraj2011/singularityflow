@@ -26,6 +26,7 @@ import {
 } from './specifications.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
+import { inspectQualifiedConformanceReport } from './conformance-readiness.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -43,6 +44,10 @@ function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root 
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
 function traceabilitySources(workflow) {
   return workflow.phaseOrder.map((phaseId) => workflow.phases[phaseId]).filter((phase) => ['requirements', 'implementation-spec'].includes(phase?.requiredArtifact?.kind));
+}
+
+function qualifiedConformanceErrors(report, clauseIds) {
+  return inspectQualifiedConformanceReport(report, clauseIds).map((finding) => finding.message);
 }
 
 export { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
@@ -263,6 +268,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
               minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
               requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
               minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
+              sourceBindingPolicy: workflow.resolution?.plannedClaims?.mode === 'required'
+                && phase.sourceBoundary !== 'test-automation'
+                ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
               pathContext: applicationPathContext(config, workflow)
             });
             errors.push(...replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`));
@@ -406,7 +414,20 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
       ];
       if (coverage.severity === 'error') errors.push(...messages);
-      else if (coverage.severity === 'warning') warnings.push(...messages);
+      else if (coverage.severity === 'warning') {
+        // Record-mode coverage remains advisory during Code, but a new qualified terminal
+        // conformance report cannot claim `matched` where observed clause evidence is absent.
+        const terminalClauseContract = terminal && specPolicy.conformanceRows === 'qualified'
+          && records.indexes.some((index) => (index.clauses ?? []).length > 0);
+        if (terminalClauseContract) {
+          errors.push(
+            ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
+            ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
+            ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
+          );
+          warnings.push(...coverage.unclaimedChangedPaths.map((file) => `changed path is not claimed by a clause: ${file}`));
+        } else warnings.push(...messages);
+      }
       if (coverage.complete) passes.push(`clause coverage: ${coverage.totals.observed}/${coverage.totals.clauses} clauses, ${coverage.totals.changedPaths} changed paths`);
     }
     if (specPolicy.acceptance !== 'off') {
@@ -455,11 +476,23 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   if (workflow.phases.conformance?.generation > 0) {
     const phase = workflow.phases.conformance; const reportPath = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path); const report = await readFile(reportPath, 'utf8');
     const expected = new Set();
-    for (const source of traceabilitySources(workflow)) {
-      const text = await readFile(path.join(workDir(root, config, workflow.workItem.id), source.requiredArtifact.path), 'utf8').catch(() => '');
-      ids(text, /\b(?:AC|SPEC)-\d+\b/g).forEach((id) => expected.add(id));
+    // The stronger row contract is pinned into new Stories. Historical Story snapshots retain
+    // their original substring check; a framework upgrade must not retroactively reject a report
+    // that was authored and approved under the older contract.
+    const qualifiedRows = terminal && specPolicy.conformanceRows === 'qualified'
+      ? (await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow))
+        .indexes.flatMap((index) => index.clauses ?? []).map((clause) => clause.id)
+      : [];
+    if (qualifiedRows.length) {
+      qualifiedRows.forEach((id) => expected.add(id));
+      errors.push(...qualifiedConformanceErrors(report, qualifiedRows));
+    } else {
+      for (const source of traceabilitySources(workflow)) {
+        const text = await readFile(path.join(workDir(root, config, workflow.workItem.id), source.requiredArtifact.path), 'utf8').catch(() => '');
+        ids(text, /\b(?:AC|SPEC)-\d+\b/g).forEach((id) => expected.add(id));
+      }
+      for (const id of expected) if (!report.includes(id)) errors.push(`conformance report has no row for ${id}`);
     }
-    for (const id of expected) if (!report.includes(id)) errors.push(`conformance report has no row for ${id}`);
     for (const [phaseId, prior] of Object.entries(workflow.phases)) {
       for (const approval of prior.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) {
         const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name;
@@ -467,12 +500,32 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
     }
     if (!/\b(matched|partial|missing|deviated|unplanned)\b/.test(report)) errors.push('conformance report has no recognized verdict');
-    const blockingVerdicts = blockingConformanceVerdicts(report);
-    for (const finding of blockingVerdicts) {
-      errors.push(`conformance ${finding.clauseId} remains ${finding.verdict}`);
+    if (!qualifiedRows.length) {
+      for (const finding of blockingConformanceVerdicts(report)) {
+        errors.push(`conformance ${finding.clauseId} remains ${finding.verdict}`);
+      }
     }
     if (phase.conformanceTree !== await sourceTreeHash(root, config, workflow)) errors.push('conformance report is stale: source/test tree changed after comparison');
     else passes.push(`conformance freshness: ${expected.size} traced identifiers`);
+  }
+
+  // Some workflows name their final conformance report `release`. Apply the same new, pinned
+  // clause-row contract there without inventing a historical release freshness record.
+  if (terminal && specPolicy.conformanceRows === 'qualified') {
+    const reportPhases = workflow.phaseOrder.map((id) => workflow.phases[id]).filter((phase) =>
+      phase?.id !== 'conformance' && phase?.requiredArtifact?.kind === 'conformance-report'
+      && phase.generation > 0);
+    if (reportPhases.length) {
+      const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+      const clauseIds = [...new Set(records.indexes.flatMap((index) =>
+        (index.clauses ?? []).map((clause) => clause.id)))];
+      if (clauseIds.length) {
+        for (const phase of reportPhases) {
+          const report = await readFile(path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path), 'utf8');
+          errors.push(...qualifiedConformanceErrors(report, clauseIds).map((message) => `${phase.id}: ${message}`));
+        }
+      }
+    }
   }
 
   if (config.git?.publish === 'required' && terminal) {

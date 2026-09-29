@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 32
+version: 33
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -886,6 +886,30 @@ workflow cannot silently reach implementation with no clause source or planning 
 short code workflow must declare `plannedClaims.mode: opt-out` with a concrete reviewable reason;
 non-code workflows are reported as not applicable. New Stories pin the resolved contract, while
 historical Stories without that field keep their original policy.
+
+Newly authored/imported workflow definitions normalize
+`codeDelivery.traceability.sourceBindings` to `enforce` and
+`spec.conformanceRows` to `qualified`; new starter configurations pin both
+explicitly.
+The former checks each approved,
+source-bound planned clause in an exact planned product-source path via an
+adjacent comment such as `// @clause:ORDER:REQ-001` (`REQ`, `BEH`, `IFC`, `AC`,
+or `CON`); acceptance tests use `// @ac:ORDER:AC-001` in executable test files.
+A planned product-source deletion is recorded by its verified Git change-set
+object as a deletion witness, not a fictitious comment in a removed file. Bare
+`REQ-001` or `AC-001` labels cannot identify a Story across repositories.
+The terminal conformance/release gate requires one exact qualified row per
+authoritative clause, with a real verdict rather than a combined display label.
+Tags establish traceable locations, not behavioral correctness; test execution
+and human review remain separate. Reviewed test-only, non-code, or
+planned-claims opt-outs do not acquire a product-source tag obligation.
+
+These settings are pinned when a Story starts. Existing published or active
+Stories retain their prior `sourceBindings: off` / `conformanceRows: legacy`
+behavior when those fields were absent; a framework update does not rewrite
+their policy or approvals. To migrate a repository, review and merge its
+configuration change, then start a **new** Story against that approved
+configuration. Do not hand-edit a protected workflow path in an active Story.
 
 Existing organization-authored workflows from an older installation remain readable and appear as
 `migration-required`; they cannot start a new Story until reviewed. Migrate one without hand-editing

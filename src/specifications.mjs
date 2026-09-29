@@ -13,8 +13,9 @@ import {
 } from './application-paths.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
+import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN } from './traceability-ids.mjs';
 
-const CLAUSE_TYPES = new Set(['REQ', 'BEH', 'IFC', 'AC', 'CON']);
+const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
 export const SPECIFICATION_DEFINITION_KINDS = Object.freeze(['requirements', 'implementation-spec']);
 const SPECIFICATION_DEFINITION_KIND_SET = new Set(SPECIFICATION_DEFINITION_KINDS);
@@ -23,7 +24,7 @@ const SPECIFICATION_DEFINITION_KIND_SET = new Set(SPECIFICATION_DEFINITION_KINDS
 // keeps starter templates valid for IDs such as `work-1` without creating two
 // different clauses for `Work-1:AC-001` and `WORK-1:AC-001`.
 const NAMESPACE = '[A-Za-z0-9][A-Za-z0-9._-]{0,63}';
-const ANCHOR = new RegExp(`\\[(${NAMESPACE}):(REQ|BEH|IFC|AC|CON)-(\\d{3})\\]`, 'gi');
+const ANCHOR = new RegExp(`\\[(${NAMESPACE}):(${GOVERNED_CLAUSE_TYPE_PATTERN})-(\\d{3})\\]`, 'gi');
 const DEFAULT_LIMITS = Object.freeze({
   maxClausesPerArtifact: 2000,
   maxDependenciesPerClause: 100,
@@ -94,7 +95,7 @@ export function normalizeSpecPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError('spec must be an object.');
   }
-  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'testCommands', 'excludes', 'limits', 'compositionCache']);
+  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'testCommands', 'excludes', 'limits', 'compositionCache']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`spec contains unknown field '${key}'.`);
   const mode = value.mode ?? 'off';
   if (!['off', 'record', 'enforce'].includes(mode)) throw new SingularityFlowError('spec.mode must be off, record, or enforce.');
@@ -107,6 +108,14 @@ export function normalizeSpecPolicy(value = {}) {
   const acceptance = value.acceptance ?? 'off';
   if (!['off', 'presence', 'test-first', 'verify'].includes(acceptance)) {
     throw new SingularityFlowError('spec.acceptance must be off, presence, test-first, or verify.');
+  }
+  // A pinned legacy Story keeps its historical report interpretation. New starter Stories require
+  // one explicit qualified conformance row per authoritative clause at the terminal gate.
+  // Newly resolved workflows use exact per-clause reports. Historical Story resolutions are
+  // checked through their pinned raw field, so an absent field there remains legacy behavior.
+  const conformanceRows = value.conformanceRows ?? 'qualified';
+  if (!['legacy', 'qualified'].includes(conformanceRows)) {
+    throw new SingularityFlowError('spec.conformanceRows must be legacy or qualified.');
   }
   const testCommands = value.testCommands ?? {};
   if (!testCommands || typeof testCommands !== 'object' || Array.isArray(testCommands)) {
@@ -136,7 +145,7 @@ export function normalizeSpecPolicy(value = {}) {
   }
   const compositionCache = value.compositionCache ?? 'local';
   if (!['off', 'local'].includes(compositionCache)) throw new SingularityFlowError('spec.compositionCache must be off or local.');
-  return { mode, namespace, coverage, acceptance, testCommands, excludes, limits, compositionCache };
+  return { mode, namespace, coverage, acceptance, conformanceRows, testCommands, excludes, limits, compositionCache };
 }
 
 function lineNumber(text, offset) {
@@ -544,7 +553,7 @@ function evidencePaths(delivery, names, label, limits) {
  * or a test by name similarity. Completely unevidenced clauses remain absent.
  */
 export function deriveObservedClaimMap(plannedMap, delivery = {}, {
-  clauseIds = [], policy = {}, generationCommit = null
+  clauseIds = [], policy = {}, generationCommit = null, requireSourceBindings = false
 } = {}) {
   const normalizedPolicy = normalizeSpecPolicy(policy);
   const rawPlanned = plannedMap?.claims ?? plannedMap ?? {};
@@ -568,15 +577,31 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
     ids.add(id);
     bindings.set(testSource, ids);
   }
+  const sourceBindings = new Map();
+  if (requireSourceBindings) {
+    for (const binding of delivery?.traceability?.sourceBindings ?? []) {
+      const id = String(binding?.clauseId ?? '').toUpperCase();
+      if (!knownIds.includes(id) || typeof binding?.sourcePath !== 'string') continue;
+      const sourcePath = exactStructuredPath(binding.sourcePath, `${id}.traceability.sourcePath`);
+      if (!changedPaths.has(sourcePath)) continue;
+      const ids = sourceBindings.get(sourcePath) ?? new Set();
+      ids.add(id);
+      sourceBindings.set(sourcePath, ids);
+    }
+  }
   const commits = generationCommit == null ? [] : [generationCommit];
   const claims = {};
   for (const id of knownIds) {
     const plan = planned.claims[id];
     if (!plan || plan.testDisposition === 'not-applicable') continue;
-    const observedPaths = plan.expectedPaths.filter((candidate) => changedPaths.has(candidate));
+    const observedPaths = plan.expectedPaths.filter((candidate) =>
+      changedPaths.has(candidate) && (!requireSourceBindings || sourceBindings.get(candidate)?.has(id)));
     const testResults = plan.tests.filter((candidate) => {
       if (!testPaths.has(candidate)) return false;
       const boundIds = bindings.get(candidate);
+      if (requireSourceBindings && /:AC-\d{3}$/.test(id)) return boundIds?.has(id) ?? false;
+      // Non-AC planned tests carry module/path assurance; @ac annotations identify only ACs.
+      if (requireSourceBindings) return true;
       return !boundIds?.size || boundIds.has(id);
     });
     if (!observedPaths.length && !testResults.length) continue;
@@ -1051,7 +1076,12 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     }
     if (root) {
       for (const candidate of claim.observedPaths ?? []) {
-        if (!existsSync(path.join(root, candidate))) invalidEvidence.push(`${id} references missing source evidence ${candidate}`);
+        // An exact, governed source deletion is still observable code evidence. Its path appears
+        // in the committed change set but no longer exists in the worktree; receipt replay owns
+        // proving that deletion. Absence without a changed-path witness remains invalid.
+        if (!existsSync(path.join(root, candidate)) && !activePaths.includes(candidate)) {
+          invalidEvidence.push(`${id} references missing source evidence ${candidate}`);
+        }
       }
       for (const candidate of claim.testResults ?? []) {
         if (!existsSync(path.join(root, candidate))) invalidEvidence.push(`${id} references missing test evidence ${candidate}`);

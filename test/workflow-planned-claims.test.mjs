@@ -75,6 +75,8 @@ test('every bundled Story workflow declares a complete current planned-claim con
 
   for (const [id, expected] of Object.entries(SHIPPED_STORY_CONTRACTS)) {
     const resolved = resolveWorkType(definition, id);
+    assert.equal(resolved.codeDelivery.traceability.sourceBindings, 'enforce',
+      `${id} did not pin the new source-binding contract`);
     const policy = resolved.plannedClaims;
     assert.notEqual(policy.mode, 'legacy-opt-out', `${id} still depends on the compatibility shim`);
     assert.equal(policy.mode, expected.mode, `${id} has the wrong planned-claim mode`);

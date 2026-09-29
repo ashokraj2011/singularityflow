@@ -24,7 +24,10 @@ export const DEFAULT_CODE_DELIVERY_POLICY = Object.freeze({
   }),
   traceability: Object.freeze({
     source: 'pinned-spec-index', requireNamespaceQualifiedIds: true,
-    bareIdCompatibility: 'unique-only'
+    bareIdCompatibility: 'unique-only',
+    // New definitions, including imported/BYO workflows that omit this field, enforce source
+    // bindings. Existing Story resolutions are read directly and an absent pinned field stays off.
+    sourceBindings: 'enforce'
   }),
   publication: Object.freeze({ idempotency: 'generation-intent' }),
   display: Object.freeze({ source: 'reference-preview', previewBytes: 4096, fullDocumentMaximumBytes: 65536 }),
@@ -170,7 +173,8 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
     traceability: {
       source: enumValue(traceability.source, ['pinned-spec-index'], 'codeDelivery.traceability.source'),
       requireNamespaceQualifiedIds: booleanValue(traceability.requireNamespaceQualifiedIds, 'codeDelivery.traceability.requireNamespaceQualifiedIds'),
-      bareIdCompatibility: enumValue(traceability.bareIdCompatibility, ['unique-only'], 'codeDelivery.traceability.bareIdCompatibility')
+      bareIdCompatibility: enumValue(traceability.bareIdCompatibility, ['unique-only'], 'codeDelivery.traceability.bareIdCompatibility'),
+      sourceBindings: enumValue(traceability.sourceBindings, ['off', 'enforce'], 'codeDelivery.traceability.sourceBindings')
     },
     publication: {
       idempotency: enumValue(publication.idempotency, ['generation-intent'], 'codeDelivery.publication.idempotency')

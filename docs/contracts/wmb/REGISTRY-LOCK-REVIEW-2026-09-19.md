@@ -527,6 +527,47 @@ retained-owner, extraction-profile owner, candidate-snapshot, batched source-rea
 runtime, materialization, cache, publication, command, store-integrity and reviewed-registry
 admission suites passed (23 files, 257/257).
 
+## Qualified clause-binding grammar acceptance
+
+**Review boundary:** working tree based on `main@903f181d6fb1f31c33b19302196bf4c5c72d8eef`.
+
+This bounded change aligns the optional clause-code-binding World-Model extractor with the
+governed clause vocabulary used by code publication. The reviewed executable paths are
+`src/world-model/extract/adapters/closed-structure.mjs`,
+`src/world-model/extract/adapters/clause-code-binding.mjs`,
+`src/world-model/registry/extractor-conformance.mjs`,
+`src/world-model/registry/extractors.mjs`, and `src/world-model/source-digest.mjs`.
+The extractor now recognizes explicit `REQ`, `BEH`, `IFC`, `AC`, and `CON` source-comment
+witnesses using the shared parser in `src/traceability-ids.mjs`. Previously observed bare
+and `NFR` tags remain informational for earlier source; the code-publication contract
+accepts only namespace-qualified governed IDs. Non-comment string decoys remain excluded.
+
+The new shared parser is included in `WMB_V4_KERNEL_SOURCE_SHA256` because it is executable
+extraction grammar outside `src/world-model/`. Without that inclusion a later parser edit
+could change extracted facts while reusing the same model/cache identity. The
+`clause-code-binding` extractor and conformance parser are versioned `1.1.0` and have a
+reviewed fixture covering the newly admitted clause types. The required-fact-coverage
+algorithm, declared fact types, permissions, View Contracts, cache policy, and publication
+authority did not change. Its identity moves because it binds the entire kernel source.
+The transition is `source-admission`, **not** `mechanical`: a repository containing
+`BEH`/`IFC` tags can yield new clause-binding facts, so earlier models must be refreshed
+before being treated as current.
+
+| Identity | Previously accepted | Current reviewed tree |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:3b812b54e3e741f4d38d303b59c9632fd29f7e3b7fb697bc52bb056074bee322` | `sha256:9eef2d9ef8aba21f15c993c2f1b47d6870b0cacdae9f41d2f8eefd25c755206e` |
+| Coverage implementation | `sha256:33c4259da0f0a60c9e7250096ba7fe78a32e7f5829a5e61eefeb6d615a19ab42` | `sha256:671dd4a11fbe91459f12b683f04653f79a9451c8d4e0440eb2d1a502eab87a77` |
+| Coverage conformance receipt | `sha256:c8556e4c3b009199c5bc14b5a93552e41d0702c68cef1c3cd4e7707acd588cfe` | `sha256:ebf5ee6b3036e46640969d6a6097fbddfc4f5264687322f5aa87e3144ce2d745` |
+| Coverage manifest | `sha256:a0dfa2d667315af2400a5fc8df2204a1a03d6ee6e8402a8296e55bde01a91b6f` | `sha256:e7c7a9dcc0e2a5a54c2629b5b35629d6e3d51ccb88117afb62730b1d563d2c8f` |
+| Built-in Extractor Registry | `sha256:2ef1d57fa168ac0b7c0c41677f0af43c3ba77799bd02c02d3416aba1cee2278f` | `sha256:48ddfe38046673188341f2682d813a9ec5c301524f3df3ebefacac83e44c56a3` |
+
+The current-tree values above were calculated by executing the registry and source-digest
+modules after reviewing the source changes, not copied from a failing assertion. The
+previous values are the last recorded acceptance. Validation includes the extractor
+conformance, World-Model registry, source-digest, polyglot extraction, and historical
+registry-chain suites. This records the implementation review boundary; it does not
+represent an external approval or rewrite an already-published model.
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

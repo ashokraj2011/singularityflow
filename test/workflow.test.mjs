@@ -46,7 +46,28 @@ async function completeArtifact(root, workflow, phaseId) {
   let text = await readFile(file, 'utf8');
   text = text.replace(/TODO:[^\n]*/g, 'matched evidence for AC-001 and SPEC-001 with exact file references and complete operational detail.');
   text = text.replace(/\bTODO\b/g, 'matched evidence');
-  if (phaseId === 'conformance') text += '\nSelf approvals: intake, requirements, design, implementation-spec, implementation, verification by singularity.flow.test@example.com.\n';
+  if (phaseId === 'conformance') {
+    if (workflow.resolution?.spec?.conformanceRows === 'qualified') {
+      // The fixture's sample row is an authoring choice, not a completed comparison. A real
+      // author replaces it before adding exact rows; retain that behavior in lifecycle tests.
+      text = text.split('\n').filter((line) =>
+        !/^\|.*matched\/partial\/missing\/deviated\/unplanned.*\|\s*$/u.test(line)).join('\n');
+      const clauseIds = new Set();
+      for (const source of Object.values(workflow.phases)) {
+        if (!source.specIndex?.path) continue;
+        const index = JSON.parse(await readFile(path.join(root, source.specIndex.path), 'utf8'));
+        for (const clause of index.clauses ?? []) clauseIds.add(clause.id);
+      }
+      if (clauseIds.size) {
+        text += '\n## Exact qualified clause comparison\n\n'
+          + '| Clause ID | Requirement | Code evidence | Test evidence | Verdict |\n'
+          + '|---|---|---|---|---|\n'
+          + [...clauseIds].map((id) => `| \`${id}\` | approved | src/feature.mjs | tests/feature.test.mjs | matched |`).join('\n')
+          + '\n';
+      }
+    }
+    text += '\nSelf approvals: intake, requirements, design, implementation-spec, implementation, verification by singularity.flow.test@example.com.\n';
+  }
   await writeFile(file, text); return file;
 }
 
@@ -815,11 +836,48 @@ test('feature profile publishes generations, records tokens, approvals, and conf
     }
     if (phaseId === 'implementation') {
       await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
-      await writeFile(path.join(root, 'src/feature.mjs'), 'export const feature = true; // SPEC-001\n'); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:FEATURE-101:AC-001 SPEC-001\n');
+      await writeFile(path.join(root, 'src/feature.mjs'), [
+        '// @clause:FEATURE-101:AC-001',
+        '// @clause:FEATURE-101:CON-001',
+        '// @clause:FEATURE-101:CON-002',
+        '// @clause:FEATURE-101:IFC-001',
+        '// @clause:FEATURE-101:REQ-001',
+        'export const feature = true; // SPEC-001', ''
+      ].join('\n')); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:FEATURE-101:AC-001 SPEC-001\n');
     }
     const usagePath = path.join(root, '.git/usage.json'); await writeFile(usagePath, JSON.stringify({ provider: 'test', model: 'test-model', inputTokens: 10, outputTokens: 5, totalTokens: 15 }));
+    if (phaseId === 'conformance') {
+      const complete = await readFile(completedArtifact, 'utf8');
+      const incomplete = complete.replace(/^\| `FEATURE-101:REQ-001` \| approved \|.*\n/m, '');
+      assert.notEqual(incomplete, complete, 'fixture must contain the exact qualified row');
+      await writeFile(completedArtifact, incomplete);
+      const draft = flow(root, ['phase', 'draft-check', phaseId, '--json'], { selection: selection('feature', agents[phaseId]) });
+      assert.match(draft.stdout, /conformance\.clause-row-missing/);
+      const blocked = flow(root, ['phase', 'publish', phaseId, '--authored', 'governed-agent', '--channel', 'copilot-host', '--usage-json', usagePath], {
+        allowFailure: true, selection: selection('feature', agents[phaseId])
+      });
+      assert.notEqual(blocked.status, 0);
+      assert.match(`${blocked.stdout}\n${blocked.stderr}`, /cannot publish a generation while its conformance comparison is incomplete/);
+      await writeFile(completedArtifact, complete);
+    }
     flow(root, ['phase', 'publish', phaseId, '--authored', 'governed-agent', '--channel', 'copilot-host', '--usage-json', usagePath], { selection: selection('feature', agents[phaseId]) });
+    if (phaseId === 'conformance') {
+      const published = await readFile(completedArtifact, 'utf8');
+      await writeFile(completedArtifact, published.replace(/^\| `FEATURE-101:REQ-001` \| approved \|.*\n/m, ''));
+      const blocked = flow(root, ['submit'], { allowFailure: true, selection: selection('feature', agents[phaseId]) });
+      assert.notEqual(blocked.status, 0);
+      assert.match(`${blocked.stdout}\n${blocked.stderr}`, /cannot submit for approval while its conformance comparison is incomplete/);
+      await writeFile(completedArtifact, published);
+    }
     flow(root, ['submit'], { selection: selection('feature', agents[phaseId]) });
+    if (phaseId === 'conformance') {
+      const submitted = await readFile(completedArtifact, 'utf8');
+      await writeFile(completedArtifact, submitted.replace(/^\| `FEATURE-101:REQ-001` \| approved \|.*\n/m, ''));
+      const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, selection: selection('feature', agents[phaseId]) });
+      assert.notEqual(blocked.status, 0);
+      assert.match(`${blocked.stdout}\n${blocked.stderr}`, /cannot be approved while its conformance comparison is incomplete/);
+      await writeFile(completedArtifact, submitted);
+    }
     flow(root, ['approve', '--yes'], { selection: selection('feature', agents[phaseId]) });
   }
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.status, 'complete'); assert.equal(workflow.usage.totalTokens, 105);
@@ -843,6 +901,12 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   assert.match(flow(root, ['report', workId]).stdout, /wall-clock elapsed time/);
   const htmlReport = path.join(root, '.git', 'workflow-report.html'); flow(root, ['report', workId, '--format', 'html', '--out', htmlReport]); assert.match(await readFile(htmlReport, 'utf8'), /<svg/);
   assert.equal(flow(root, ['gate', '--terminal']).status, 0);
+  const conformancePath = path.join(root, 'singularity/work-items', workId, workflow.phases.conformance.requiredArtifact.path);
+  const conformanceText = await readFile(conformancePath, 'utf8');
+  await writeFile(conformancePath, conformanceText.replace(/^\| `FEATURE-101:REQ-001` \| approved \|.*\n/m, ''));
+  const missingRow = flow(root, ['gate', '--terminal'], { allowFailure: true });
+  assert.notEqual(missingRow.status, 0);
+  assert.match(`${missingRow.stdout}\n${missingRow.stderr}`, /conformance report has no row for FEATURE-101:REQ-001/);
 });
 
 test('figma-mobile completes the governed design-to-visual-conformance lifecycle', async () => {
@@ -886,7 +950,11 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
     }
     if (phaseId === 'implementation') {
       await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
-      await writeFile(path.join(root, 'src/mobile.mjs'), 'export const mobile = true; // SPEC-001\n');
+      await writeFile(path.join(root, 'src/mobile.mjs'), [
+        '// @clause:MOBILE-101:AC-001',
+        '// @clause:MOBILE-101:IFC-001',
+        'export const mobile = true; // SPEC-001', ''
+      ].join('\n'));
       await writeFile(path.join(root, 'tests/mobile.test.mjs'), '// @ac:MOBILE-101:AC-001 SPEC-001\n');
     }
     if (phaseId === 'visual-verification') {

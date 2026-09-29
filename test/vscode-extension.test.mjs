@@ -5790,6 +5790,9 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     '--acceptance-criteria', 'Retries once\nGives up after that'
   ]);
   assert.match(intakeHtml(form), /data-field="acceptanceCriteria"/);
+  assert.match(intakeHtml(form), /executable tests later use qualified tags.*@ac:WORK-ID:AC-001/s);
+  assert.match(intakeHtml(form), /planned product source uses.*@clause:WORK-ID:REQ-001/s);
+  assert.match(intakeHtml(form), /test-only or opt-out work may not require source tags/);
   // A Story takes its phases from its workflow, so there is no Initiative profile to choose.
   assert.equal(needsProfile('story'), false);
   assert.doesNotMatch(intakeHtml(form), /Delivery profile/);

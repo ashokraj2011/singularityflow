@@ -3168,6 +3168,63 @@ test('a started Story opens in the window even when its selection write is follo
   assert.deepEqual(registered.errors, []);
 });
 
+test('a Story started from the form confirms its readiness check in one pass, and never shows the receipt', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-intake-receipt-'));
+  t.after(() => removeFixture(base));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  for (const authority of Object.values(workflow.approvalAuthorities ?? {})) {
+    authority.members = [{ name: 'Initiative Owner', email: EMAIL }];
+  }
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+  // Approved shared configuration: the case in which a readiness check can issue a receipt.
+  run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  await loadExtension(api).activate(context());
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  await until(() => intake.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the Story workflow catalog to load' });
+  await intake.post({ type: 'tracker', value: 'none' });
+  await intake.post({ type: 'field', field: 'title', value: 'Receipt start' });
+  await intake.post({ type: 'field', field: 'description', value: 'Start without repeating readiness' });
+  await intake.post({ type: 'field', field: 'acceptanceCriteria', value: 'The start verifies in one pass' });
+  await intake.post({ type: 'field', field: 'id', value: 'STORY-RECEIPT' });
+  await intake.post({ type: 'baseBranch', value: 'main' });
+  await until(() => /Story-start readiness confirmed for[\s\S]*?create <code>STORY-RECEIPT<\/code>/
+    .test(intake.webview.html) ? true : null, { what: 'readiness, which issues the receipt' });
+  await intake.post({ type: 'start' });
+
+  const openFolder = await until(() => registered.executedCommands.find(
+    (entry) => entry.id === 'vscode.openFolder') ?? null, { what: 'the Story checkout to open' });
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: openFolder.args[0].fsPath }).stdout.trim(), 'STORY-RECEIPT');
+  const output = registered.output.join('');
+  assert.match(output, /Story start confirmed the readiness check in one pass \(reused: [^)]*launch-fetch/);
+  assert.match(output, /--intake-receipt'? '?\[redacted\]/, 'the shown command keeps the option, not the token');
+  assert.doesNotMatch(output, /sir_[0-9a-f]{32}/, 'the receipt itself is never shown');
+  assert.deepEqual(registered.errors, []);
+});
+
 test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {
   if (!requireBundle(t)) return;
   const reviewer = { name: 'QA Reviewer', email: 'qa.reviewer@example.com' };

@@ -32,7 +32,8 @@ const {
   validatedRepositoryGitCommonDirectory, localGit, remoteGit,
   nonInteractiveGitEnvironment, resolveWindowsGitExecutable, resolvePosixGitExecutable,
   UninitializedRepositoryError,
-  RepositoryAuthorityUnavailableError, formatCliArgsForDisplay, DISPLAY_BOOLEAN_OPTIONS
+  RepositoryAuthorityUnavailableError, formatCliArgsForDisplay, DISPLAY_BOOLEAN_OPTIONS,
+  withoutIntakeReceipt, cliInvocationTimeoutError
 } =
   await import(source('cli/runner.ts'));
 const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
@@ -755,6 +756,24 @@ test('a timed-out invocation suppresses recovery for signed URLs and selection r
       return true;
     });
   }
+});
+
+test('an intake receipt is never shown or replayed, and the mint flag is not mistaken for one', () => {
+  const receipt = 'sir_0123456789abcdef0123456789abcdef';
+  const start = ['start', 'STORY-1', '--json', '--intake-receipt', receipt, '--from-branch', 'main'];
+  assert.doesNotMatch(formatCliArgsForDisplay(start), /sir_0123/);
+  assert.doesNotMatch(formatCliArgsForDisplay(['start', 'STORY-1', `--intake-receipt=${receipt}`]), /sir_0123/);
+  const preflight = ['workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-1',
+    '--from-branch', 'main', '--mint-intake-receipt', '--work-type', 'feature'];
+  assert.equal(formatCliArgsForDisplay(preflight), preflight.join(' '),
+    'the boolean mint flag is shown as is and does not hide the option after it');
+  assert.deepEqual(withoutIntakeReceipt(start), ['start', 'STORY-1', '--json', '--from-branch', 'main']);
+  const timedOut = cliInvocationTimeoutError({
+    executable: process.execPath, cli: '/opt/sflow/bin/singularity-flow.mjs', repository: '/work/service', args: start
+  }, 1_000);
+  assert.ok(timedOut.terminalCommand, 'a timed-out start keeps its recovery command');
+  assert.doesNotMatch(timedOut.terminalCommand, /intake-receipt|sir_0123/,
+    'the replay takes the full path rather than carrying a single-use bearer token');
 });
 
 test('terminal timeout recovery is safely quoted for POSIX and PowerShell', () => {
@@ -5779,8 +5798,20 @@ test('a Story is the one shape that asks how it will be judged done', () => {
   assert.match(intakeHtml(form), /reproduction/);
   assert.deepEqual(storyPreflightCommand(form), [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
-    '--from-branch', 'main', '--selected-base-only', '--work-type', 'feature'
+    '--from-branch', 'main', '--selected-base-only', '--work-type', 'feature', '--mint-intake-receipt'
   ]);
+  // The receipt binds the exact request, so complete reference rows ride along; incomplete ones do not.
+  assert.deepEqual(storyPreflightCommand({
+    ...form,
+    referenceRepositories: [
+      { id: 'docs', repository: 'https://example.test/docs.git', branch: 'main', status: 'idle' }
+    ]
+  }).slice(-4), [
+    '--reference-repository', 'docs=https://example.test/docs.git', '--reference-branch', 'docs=main'
+  ]);
+  assert.ok(!storyPreflightCommand({
+    ...form, referenceRepositories: [{ id: 'docs', repository: '', branch: '', status: 'idle' }]
+  }).includes('--reference-repository'));
 });
 
 test('Story preflight drops a launch-checkout workflow absent from the exact selected base', async () => {

@@ -1,0 +1,225 @@
+/**
+ * Story start with an intake receipt: verify what the readiness preview saw, in one wave. `[perf]`
+ *
+ * The receipt authorizes nothing. These tests hold the two sides of that: with a receipt a start
+ * makes one concurrent observation and dry run and then its push, and whatever the wave cannot
+ * confirm (a moved base or configuration, an edited, foreign or reused receipt, another request, the
+ * kill switch) runs the ordinary start, which still succeeds. A Story started either way is the same.
+ */
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+
+const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
+const posix = { skip: process.platform === 'win32' ? 'Story intake receipts are POSIX-only.' : false };
+const EMAIL = 'story.publisher@example.com';
+
+function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
+  const result = spawnSync(command, args, {
+    cwd, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Story Publisher', ...env }
+  });
+  if (!allowFailure && result.status !== 0) {
+    throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  }
+  return result;
+}
+const git = (root, ...args) => run('git', args, root).stdout.trim();
+const flow = (root, args, options) => run(process.execPath, [bin, ...args], root, options);
+
+async function repository(t) {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-start-'));
+  t.after(() => rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  const remote = path.join(base, 'origin.git');
+  const root = path.join(base, 'checkout');
+  await mkdir(root);
+  git(base, 'init', '-q', '--bare', '--initial-branch=main', remote);
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'config', 'user.name', 'Story Publisher');
+  git(root, 'config', 'user.email', EMAIL);
+  git(root, 'remote', 'add', 'origin', remote);
+  await writeFile(path.join(root, 'README.md'), '# Intake receipts\n');
+  flow(root, ['init']);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  for (const authority of Object.values(workflow.approvalAuthorities ?? {})) {
+    authority.members = [{ name: 'Story Publisher', email: EMAIL }];
+  }
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  git(root, 'add', '.');
+  git(root, 'commit', '-q', '-m', 'Initialize governed repository');
+  git(root, 'push', '-q', '-u', 'origin', 'main');
+  git(root, 'push', '-q', 'origin', 'main:refs/heads/sflow/config');
+  // The first Story a machine starts also enrolls its identity; keep that out of every comparison.
+  start(root, 'WARM-UP');
+  return { base, root, remote };
+}
+
+function preflight(root, id, extra = []) {
+  const listed = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', id, '--from-branch', 'main',
+    '--work-type', 'feature', '--selected-base-only', '--mint-intake-receipt', ...extra
+  ]).stdout);
+  assert.equal(listed.preflight.passed, true, JSON.stringify(listed.preflight.readiness));
+  return listed.preflight.intakeReceipt;
+}
+
+function start(root, id, extra = [], options = {}) {
+  return flow(root, [
+    'start', id, '--json', '--isolated-worktree', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', `Receipt ${id}`, '--description', 'Start from a verified intake preview.', '--timings', ...extra
+  ], options);
+}
+
+const data = (result) => {
+  const parsed = JSON.parse(result.stdout);
+  return parsed.data ?? parsed;
+};
+const counter = (stderr, name) =>
+  Number(new RegExp(`(?:^|\\s)${name.replaceAll('.', '\\.')}=(\\d+)(?:\\s|$)`).exec(stderr)?.[1] ?? 0);
+
+test('a passing preview\'s receipt lets start verify every input in one wave, once', posix, async (t) => {
+  const { root } = await repository(t);
+  const receipt = preflight(root, 'STORY-FAST');
+  assert.equal(receipt.issued, true);
+  assert.match(receipt.id, /^sir_[0-9a-f]{32}$/);
+
+  const started = start(root, 'STORY-FAST', ['--intake-receipt', receipt.id]);
+  const result = data(started);
+  assert.equal(result.intakeReceipt.status, 'verified', JSON.stringify(result.intakeReceipt));
+  assert.deepEqual([...result.intakeReceipt.reused].sort(),
+    ['authority-check', 'base-probe', 'destination', 'dry-run', 'launch-fetch']);
+  assert.equal(counter(started.stderr, 'git.remote.command.fetch'), 0, 'the base the preview fetched is used');
+  assert.equal(counter(started.stderr, 'git.remote.command.ls-remote'), 1,
+    'configuration, base, destination and state are observed together once');
+  assert.equal(counter(started.stderr, 'git.remote.command.push'), 2, 'one fresh dry run, then the publication');
+  assert.match(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-FAST'), /refs\/heads\/STORY-FAST$/);
+
+  const reused = data(start(root, 'STORY-AGAIN', ['--intake-receipt', receipt.id]));
+  assert.deepEqual([reused.intakeReceipt.status, reused.intakeReceipt.reason], ['rejected', 'missing'],
+    'a receipt serves one start only');
+});
+
+test('a Story started with a receipt is the Story started without one', posix, async (t) => {
+  const { root } = await repository(t);
+  start(root, 'STORY-PLAIN');
+  const receipt = preflight(root, 'STORY-RECEIPT');
+  assert.equal(data(start(root, 'STORY-RECEIPT', ['--intake-receipt', receipt.id])).intakeReceipt.status, 'verified');
+  git(root, 'fetch', '-q', 'origin');
+  // Content-addressed blobs that embed the Story's own ID or title are named by their digest, so only
+  // their number is compared; every other path must match exactly.
+  const files = (id) => git(root, 'ls-tree', '-r', '--name-only', `origin/${id}`)
+    .split('\n').map((name) => name.replaceAll(id, '<ID>')
+      .replace(/\/blobs\/sha256\/[0-9a-f]{64}$/u, '/blobs/sha256/<digest>')).sort();
+  assert.deepEqual(files('STORY-RECEIPT'), files('STORY-PLAIN'));
+  assert.equal(git(root, 'rev-parse', 'origin/STORY-RECEIPT^'), git(root, 'rev-parse', 'origin/main'));
+  assert.equal(git(root, 'rev-parse', 'origin/STORY-PLAIN^'), git(root, 'rev-parse', 'origin/main'));
+  const state = (id) => {
+    const listed = git(root, 'ls-tree', '-r', '--name-only', `origin/${id}`)
+      .split('\n').find((name) => name.endsWith(`${id}/workflow.json`) || name.endsWith(`${id}/state.json`));
+    assert.ok(listed, `${id} has lifecycle state`);
+    const parsed = JSON.parse(git(root, 'show', `origin/${id}:${listed}`));
+    return {
+      workType: parsed.workItem?.workType, baseBranch: parsed.workItem?.baseBranch,
+      baseCommit: parsed.workItem?.baseCommit, phase: parsed.currentPhase ?? parsed.workItem?.currentPhase
+    };
+  };
+  assert.deepEqual(state('STORY-RECEIPT'), state('STORY-PLAIN'));
+});
+
+test('whatever the wave cannot confirm runs the ordinary start, which still succeeds', posix, async (t) => {
+  const { base, root } = await repository(t);
+  const receiptsDirectory = path.join(root, '.git', 'singularity-flow', 'intake-receipts');
+  const outcome = (result) => [result.intakeReceipt.status, result.intakeReceipt.reason];
+
+  const baseMoved = preflight(root, 'STORY-BASE');
+  const other = path.join(base, 'other');
+  git(base, 'clone', '-q', path.join(base, 'origin.git'), other);
+  git(other, 'config', 'user.name', 'Story Publisher');
+  git(other, 'config', 'user.email', EMAIL);
+  await writeFile(path.join(other, 'moved.txt'), 'the base moved\n');
+  git(other, 'add', 'moved.txt');
+  git(other, 'commit', '-q', '-m', 'Move the base');
+  git(other, 'push', '-q', 'origin', 'main');
+  const moved = data(start(root, 'STORY-BASE', ['--intake-receipt', baseMoved.id]));
+  assert.deepEqual(outcome(moved), ['fallback', 'base-moved']);
+  assert.equal(git(root, 'rev-parse', 'refs/remotes/origin/STORY-BASE^'), git(other, 'rev-parse', 'HEAD'),
+    'the ordinary start cut the Story from the new base');
+
+  const configurationMoved = preflight(root, 'STORY-CONFIG');
+  git(other, 'fetch', '-q', 'origin');
+  git(other, 'switch', '-q', '-c', 'config-edit', 'origin/sflow/config');
+  await writeFile(path.join(other, 'CONFIGURATION-NOTE.md'), 'approved elsewhere\n');
+  git(other, 'add', 'CONFIGURATION-NOTE.md');
+  git(other, 'commit', '-q', '-m', 'Advance approved configuration');
+  git(other, 'push', '-q', 'origin', 'HEAD:refs/heads/sflow/config');
+  assert.deepEqual(outcome(data(start(root, 'STORY-CONFIG', ['--intake-receipt', configurationMoved.id]))),
+    ['fallback', 'configuration-moved']);
+
+  const edited = preflight(root, 'STORY-EDIT');
+  const file = path.join(receiptsDirectory, `${edited.id}.json`);
+  const record = JSON.parse(await readFile(file, 'utf8'));
+  record.repositories[0].destinationRef = 'refs/heads/STORY-ELSEWHERE';
+  await writeFile(file, JSON.stringify(record));
+  assert.deepEqual(outcome(data(start(root, 'STORY-EDIT', ['--intake-receipt', edited.id]))),
+    ['rejected', 'integrity']);
+
+  const otherRequest = preflight(root, 'STORY-TYPE');
+  const bugfix = flow(root, [
+    'start', 'STORY-TYPE', '--json', '--isolated-worktree', '--from-branch', 'main', '--work-type', 'bugfix',
+    '--title', 'Another workflow', '--description', 'A different request.', '--intake-receipt', otherRequest.id
+  ]);
+  assert.deepEqual(outcome(data(bugfix)), ['rejected', 'inputs']);
+
+  const switchedOff = preflight(root, 'STORY-OFF');
+  assert.deepEqual(outcome(data(start(root, 'STORY-OFF', ['--intake-receipt', switchedOff.id], {
+    env: { SINGULARITY_FLOW_STORY_INTAKE_RECEIPTS: 'off' }
+  }))), ['rejected', 'disabled']);
+  const off = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-NONE', '--from-branch', 'main',
+    '--work-type', 'feature', '--selected-base-only', '--mint-intake-receipt'
+  ], { env: { SINGULARITY_FLOW_STORY_INTAKE_RECEIPTS: 'off' } }).stdout);
+  assert.deepEqual(off.preflight.intakeReceipt, { issued: false, reason: 'disabled' });
+
+  assert.deepEqual((await readdir(receiptsDirectory)).filter((name) => !/^sir_[0-9a-f]{32}\.json$/.test(name)), [],
+    'no claimed receipt is left behind');
+});
+
+test('a state tip that moved on is brought up to date by fetching that ref alone', posix, async (t) => {
+  const { base, root } = await repository(t);
+  const stateRef = 'refs/remotes/origin/state';
+  git(root, 'push', '-q', 'origin', 'main:refs/heads/state');
+  const receipt = preflight(root, 'STORY-STATE');
+  const seen = git(root, 'rev-parse', stateRef);
+  // Another machine publishes to the state branch after the preview; this tracking ref is behind.
+  const other = path.join(base, 'other');
+  git(base, 'clone', '-q', path.join(base, 'origin.git'), other);
+  git(other, 'config', 'user.name', 'Story Publisher');
+  git(other, 'config', 'user.email', EMAIL);
+  git(other, 'switch', '-q', '-c', 'state-edit', 'origin/state');
+  git(other, 'commit', '-q', '--allow-empty', '-m', 'State published elsewhere');
+  git(other, 'push', '-q', 'origin', 'HEAD:refs/heads/state');
+  const moved = git(other, 'rev-parse', 'HEAD');
+  assert.equal(git(root, 'rev-parse', stateRef), seen);
+  const started = start(root, 'STORY-STATE', ['--intake-receipt', receipt.id]);
+  assert.equal(data(started).intakeReceipt.status, 'verified', JSON.stringify(data(started).intakeReceipt));
+  assert.equal(counter(started.stderr, 'story.intake-receipt-state-fetch'), 1);
+  assert.equal(counter(started.stderr, 'git.remote.command.fetch'), 1, 'one ref, not the whole remote');
+  assert.equal(git(root, 'rev-parse', stateRef), moved);
+});
+
+test('a receipt is issued only for a request start can verify, and says why not otherwise', posix, async (t) => {
+  const { root } = await repository(t);
+  const listed = (extra) => JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-WHY', '--from-branch', 'main',
+    '--selected-base-only', ...extra
+  ]).stdout).preflight;
+  assert.equal(listed(['--work-type', 'feature']).intakeReceipt, undefined, 'none unless asked for');
+  assert.deepEqual(listed(['--mint-intake-receipt']).intakeReceipt, { issued: false, reason: 'work-type' });
+});

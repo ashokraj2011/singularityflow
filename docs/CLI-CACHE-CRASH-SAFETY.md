@@ -82,6 +82,18 @@ Counters contain fixed reason names only, never paths, URLs, credentials or repo
 - `configuration.object-cache-allocation-timeout`
 - `capability-authority.cache-bypassed.disabled`, `.busy` and `.local-failure`
 
+## Story intake receipts
+
+A passing Story readiness preview may seal what it observed into
+`<git-common-dir>/singularity-flow/intake-receipts/sir_<32 hex>.json`, so the start it precedes can
+verify instead of rediscover. They follow the recovery records' storage rules: real directories
+below the canonical Git common directory, exclusive creation, owner-only permissions and the
+repository's machine-local integrity key. A start claims a receipt by renaming it, so a crash leaves
+at most one claimed file, which is never used again and is pruned with expired receipts once they
+are twice the fifteen-minute lifetime old. A missing, unreadable, edited, expired, foreign or
+claimed receipt is only a reason to take the ordinary start. The VS Code extension never shares a
+minting preview between callers and never puts a receipt in a displayed or replayed command.
+
 ## Verification boundary
 
 Regression fixtures cover write/read isolation, repository-switch cancellation, classifier parity,

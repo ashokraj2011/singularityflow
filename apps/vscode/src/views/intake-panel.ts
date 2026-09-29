@@ -31,6 +31,8 @@ const INTAKE_TYPING_QUIET_MS = 300;
 /** Readiness is checked once somebody pauses typing the identifier this long, not only on blur. */
 const INTAKE_ID_PREFLIGHT_DEBOUNCE_MS = 400;
 const PORTABLE_WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** Start passes an intake receipt only while this much of its life remains. */
+const INTAKE_RECEIPT_MINIMUM_REMAINING_MS = 60_000;
 
 /** What was started, so the caller can take the reader straight to it. */
 export interface Started {
@@ -215,6 +217,11 @@ export class IntakePanel {
   private idPreflightTimer: ReturnType<typeof setTimeout> | null = null;
   /** The exact readiness command in flight or last completed, so blur does not repeat it. */
   private preflightKey: string | null = null;
+  /**
+   * The intake receipt from the last passing readiness check, for exactly that request. Private to
+   * this panel: never rendered, logged unredacted, or put in a recovery command.
+   */
+  private intakeReceipt: { id: string; expiresAt: number; key: string } | null = null;
   private readonly catalogCache: IntakeCatalogCacheBinding | null;
   private readonly holdBackgroundWork: ((reason: string) => BackgroundHold) | null;
   private readonly holdNavigation: (() => { release(): void }) | null;
@@ -383,11 +390,12 @@ export class IntakePanel {
     this.preflightController?.abort();
     this.preflightController = null;
     this.preflightKey = null;
+    this.intakeReceipt = null;
     if (this.idPreflightTimer) clearTimeout(this.idPreflightTimer);
     this.idPreflightTimer = null;
   }
 
-  /** Check readiness once the identifier has stopped changing, instead of waiting for blur. */
+  /** Check readiness once the request has stopped changing, instead of waiting for blur. */
   private scheduleIdentifierPreflight(): void {
     if (this.idPreflightTimer) clearTimeout(this.idPreflightTimer);
     this.idPreflightTimer = setTimeout(() => {
@@ -709,6 +717,7 @@ export class IntakePanel {
         referenceRepositories: this.form.referenceRepositories.filter((_, row) => row !== index),
         error: null
       });
+      this.scheduleIdentifierPreflight();
     },
     referenceDraft: (message) => this.updateReferenceDraft(message, false),
     referenceField: (message) => this.updateReferenceDraft(message, true),
@@ -932,6 +941,8 @@ export class IntakePanel {
       [referenceField]: value,
       status: 'idle', commit: null, message: null
     }, render);
+    // A completed row changes the request an intake receipt must bind.
+    this.scheduleIdentifierPreflight();
   }
 
   /** Read-only provisional check. Story start resolves the branch again before creating state. */
@@ -998,7 +1009,10 @@ export class IntakePanel {
     this.update({ ...emptyStoryPreflight(), basePreflightChecking: true }, { background: true });
     try {
       const result = await this.client.run<{
-        preflight?: { passed?: boolean; readiness?: StoryStartReadinessResult };
+        preflight?: {
+          passed?: boolean; readiness?: StoryStartReadinessResult;
+          intakeReceipt?: { issued?: boolean; id?: string; expiresAt?: string; reason?: string };
+        };
         intake?: EngineStoryWorkflowCatalog;
       }>(command, controller.signal);
       if (version !== this.preflightVersion) return;
@@ -1051,6 +1065,10 @@ export class IntakePanel {
         basePreflightWarnings: warnings,
         basePreflightRefreshRecommended: refreshRecommended
       }, { background: true });
+      const receipt = result.preflight?.intakeReceipt;
+      const expiresAt = receipt?.issued ? Date.parse(receipt.expiresAt ?? '') : Number.NaN;
+      this.intakeReceipt = receipt?.issued && typeof receipt.id === 'string' && Number.isFinite(expiresAt)
+        ? { id: receipt.id, expiresAt, key: JSON.stringify(command) } : null;
     } catch (error) {
       if (version !== this.preflightVersion) return;
       this.preflightKey = null;
@@ -1075,7 +1093,17 @@ export class IntakePanel {
     }
     this.update({ busy: true, error: null, recoveryCommand: null, recoveryRouteCommand: null });
 
-    const args = intakeCommand(this.form);
+    // A receipt for exactly this request, with time left, lets Start verify instead of rediscover.
+    // It is single-use either way, so the panel forgets it now.
+    const receipt = this.intakeReceipt;
+    this.intakeReceipt = null;
+    const currentPreflight = storyPreflightCommand(this.form);
+    const args = [
+      ...intakeCommand(this.form),
+      ...(receipt && currentPreflight && JSON.stringify(currentPreflight) === receipt.key
+        && receipt.expiresAt - Date.now() >= INTAKE_RECEIPT_MINIMUM_REMAINING_MS
+        ? ['--intake-receipt', receipt.id] : [])
+    ];
     const navigation = this.form.shape === 'story' ? this.holdNavigation?.() ?? null : null;
     this.output.appendLine(`\n$ ${terminalCommand(
       this.client.repository,
@@ -1094,11 +1122,18 @@ export class IntakePanel {
         repositoryPath?: string;
         publication?: Started['publication'];
         configuration?: Started['configuration'];
+        intakeReceipt?: { status?: string; reason?: string | null; reused?: string[] };
       };
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
         () => this.client.run<StartPayload & { data?: StartPayload }>(args));
       const payload = result.data ?? result;
+      const verified = payload.intakeReceipt;
+      if (verified?.status) {
+        this.output.appendLine(verified.status === 'verified'
+          ? `Story start confirmed the readiness check in one pass (reused: ${(verified.reused ?? []).join(', ') || 'nothing'}).`
+          : `Story start ran its full checks: the intake receipt was ${verified.status}${verified.reason ? ` (${verified.reason})` : ''}.`);
+      }
       // The identifier a local Epic minted is only knowable from what came back — and `epic start
       // --local --json` reports it as `initiativeId`, which was not among the names read here, so
       // the fallback produced the empty string and the new Epic was never selected.

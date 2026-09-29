@@ -29,6 +29,10 @@ import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from '.
 import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
 import { samePlatformPath } from './story-worktree.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { mintStoryIntakeReceipt, storyIntakeReceiptsDisabled } from './story-intake-receipt.mjs';
+import {
+  STORY_INTAKE_AUTHORITY_REUSE_MS, admitStoryIntakeReceipt, isStoryIntakeProof, verifyStoryIntakeWave
+} from './story-intake-verification.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { settleStoryStartReadWave } from './story-start-read-wave.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
@@ -288,7 +292,7 @@ import { InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadSto
 
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import { TimingCollector, writeHumanTimings } from './dx-timings.mjs';
-import { measureCommandSpan } from './dx-timing-context.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { assertActionPlanFresh, createActionPlan, loadActionPlan, readActionResult, recordActionResult, selectPlannedAction } from './action-plans.mjs';
 import { consumeActionAuthorization, issueActionAuthorization } from './action-authorization.mjs';
 import { refreshBranch } from './branch-refresh.mjs';
@@ -1517,6 +1521,9 @@ const ISOLATED_STORY_CONFIGURATION_HANDOFF = Symbol('isolated-story-configuratio
 // This is an operation-local optimization, never persisted or accepted from CLI flags. A later
 // remote observation must still prove the selected base and Story destination before reusing it.
 const ISOLATED_STORY_BASE_FETCH_HANDOFF = Symbol('isolated-story-base-fetch-handoff');
+// What became of a presented intake receipt, and the wave's process-private proof when it passed.
+// Never accepted from flags: only the isolated launch below creates it.
+const ISOLATED_STORY_INTAKE_HANDOFF = Symbol('isolated-story-intake-handoff');
 
 async function sealIsolatedStoryConfiguration(sourceRoot, workId) {
   const authority = await fosStoryConfigurationAuthority(sourceRoot);
@@ -1644,6 +1651,44 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   const requestedRemote = optionString(options, 'remote')
     ?? launchDefinition?.git?.remote
     ?? 'origin';
+  // A receipt from a passing readiness preview lets this start confirm every input the preview saw
+  // in one concurrent wave instead of fetching and observing them again one by one. Whatever the
+  // wave cannot confirm, the ordinary path below does exactly as before.
+  const intakeReceiptId = optionString(options, 'intake-receipt');
+  const intake = { status: intakeReceiptId ? 'rejected' : 'absent', reason: null, reused: [] };
+  let intakeAdmission = null;
+  let intakeProof = null;
+  if (intakeReceiptId) {
+    if (!requestedBase || optionString(options, 'ref', id) !== id) intake.reason = 'inputs';
+    else if (durableLocalStory) intake.reason = 'story-exists';
+    else if (sealedConfiguration) intake.reason = 'configuration';
+    else {
+      const admission = await admitStoryIntakeReceipt(sourceRoot, intakeReceiptId, {
+        inputs: {
+          workId: id, workType: optionString(options, 'work-type'), baseBranch: requestedBase,
+          remote: requestedRemote, capabilityId: optionString(options, 'capability') ?? null,
+          references: parseReferenceRepositoryOptions(
+            optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
+          ).map((request) => ({ id: request.id, url: request.repository, branch: request.requestedBranch }))
+        },
+        workId: id, remote: requestedRemote, baseBranch: requestedBase
+      });
+      if (admission.status !== 'admitted') intake.reason = admission.reason;
+      else {
+        const wave = await measureCommandSpan('start.intake-verification', () =>
+          verifyStoryIntakeWave(sourceRoot, admission, { workId: id }));
+        if (wave.ok) {
+          intakeAdmission = admission;
+          intakeProof = wave.proof;
+          intake.status = 'verified';
+        } else {
+          await admission.release();
+          intake.status = 'fallback';
+          intake.reason = wave.reason;
+        }
+      }
+    }
+  }
   let requestedBaseRef = null;
   let requestedBaseFetchAuthority = null;
   if (requestedBase && !durableLocalStory) {
@@ -1657,9 +1702,17 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       );
     }
     // Readiness, dependency hydration, and Story creation must all observe the same freshly
-    // fetched base commit. Never prefer an old local tracking branch at this boundary.
-    await measureCommandSpan('start.fetch', () =>
-      fetchRemote(sourceRoot, requestedRemote, { transportRemote: fetchAuthority.url }));
+    // fetched base commit. Never prefer an old local tracking branch at this boundary, unless the
+    // intake wave has just confirmed that this exact tracking ref is still the remote's tip.
+    if (intakeProof && fetchAuthority.url === intakeProof.fetch.url
+        && fetchAuthority.fingerprint === intakeProof.fetch.fingerprint
+        && refHead(sourceRoot, `refs/remotes/${requestedRemote}/${requestedBase}`) === intakeProof.baseCommit) {
+      incrementCommandCounter('git.story-launch-fetch-verified');
+      intake.reused.push('launch-fetch');
+    } else {
+      await measureCommandSpan('start.fetch', () =>
+        fetchRemote(sourceRoot, requestedRemote, { transportRemote: fetchAuthority.url }));
+    }
     requestedBaseFetchAuthority = fetchAuthority;
     requestedBaseRef = `refs/remotes/${requestedRemote}/${requestedBase}`;
     if (!refExists(sourceRoot, requestedBaseRef)) {
@@ -1722,9 +1775,14 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     if (configurationHandoff) {
       childOptions[ISOLATED_STORY_CONFIGURATION_HANDOFF] = configurationHandoff;
     }
+    if (intakeReceiptId) {
+      childOptions[ISOLATED_STORY_INTAKE_HANDOFF] = Object.freeze({ proof: intakeProof, status: intake });
+    }
     process.chdir(prepared.repositoryPath);
     result = await startCommand(positionals, childOptions);
     completeStoryWorktree(prepared);
+    // The Story exists now, so this receipt can never be used again.
+    await intakeAdmission?.consume().catch(() => {});
     try {
       await activateWorkspaceStoryContext(
         activeWorkspaceFile(), workspaceRegistryFile(), prepared.repositoryPath,
@@ -1736,6 +1794,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       console.warn(`Warning: Story '${id}' started, but its active-checkout selection was not updated: ${error.message}`);
     }
   } catch (error) {
+    // Whether or not the failed start left a durable commit behind, the next attempt verifies from
+    // scratch: a receipt is never reused after a start that got this far.
+    await intakeAdmission?.consume().catch(() => {});
     rollbackFailedStoryWorktree(prepared, error, previousDirectory);
   }
   process.chdir(previousDirectory);
@@ -1818,7 +1879,16 @@ export async function startCommand(positionals, options) {
   const fromBranch = optionStrings(options, 'from-branch');
   const canonicalBranch = optionString(options, 'ref', id);
   const advertisedStoryRef = `refs/heads/${canonicalBranch}`;
-  const storyRemoteSession = new GitRemoteSession({ cwd: root });
+  // An intake receipt verified by the isolated launch hands over the session holding its wave: the
+  // stages below then answer from observations made a moment ago instead of repeating them.
+  const intakeHandoff = options[ISOLATED_STORY_INTAKE_HANDOFF] ?? null;
+  const intakeProof = isStoryIntakeProof(intakeHandoff?.proof) ? intakeHandoff.proof : null;
+  const intakeStatus = intakeHandoff?.status
+    ?? (optionString(options, 'intake-receipt')
+      ? { status: 'rejected', reason: 'not-isolated', reused: [] } : null);
+  const intakeFresh = () => Boolean(intakeProof)
+    && Date.now() - intakeProof.observedAt < STORY_INTAKE_AUTHORITY_REUSE_MS;
+  const storyRemoteSession = intakeProof?.session ?? new GitRemoteSession({ cwd: root });
   const observeStoryDestination = async (remoteName, { refresh = true } = {}) => {
     const fetchAuthority = configuredRemoteAuthority(root, remoteName, { direction: 'fetch' });
     const applicationRemote = fetchAuthority.url;
@@ -1997,9 +2067,13 @@ export async function startCommand(positionals, options) {
   // Both are explicitly requested, bounded reads and are independent after approved configuration
   // selected the application remote. No speculative fetch or enrollment mutation is started here.
   const destination = await settleStoryStartReadWave(
-    () => measureCommandSpan('start.destination', () => observeStoryDestination(remote)),
+    () => measureCommandSpan('start.destination', () =>
+      observeStoryDestination(remote, { refresh: !intakeFresh() })),
     externalSource
   );
+  const destinationFromIntake = Boolean(intakeProof)
+    && destination.authority === intakeProof.application.observation;
+  if (destinationFromIntake) intakeStatus.reused.push('destination');
   const reuseIsolatedBaseFetch = async (selectedBase) => {
     const receipt = options[ISOLATED_STORY_BASE_FETCH_HANDOFF];
     if (!managedStoryWorktree || !receipt || receipt.remote !== remote
@@ -2023,7 +2097,11 @@ export async function startCommand(positionals, options) {
     // exact-ref probe replaces the duplicate all-heads fetch only when neither governed input
     // moved. Failed probes, retargets, and races all use the normal fetch and its checks below.
     let current;
-    try {
+    if (destinationFromIntake && intakeFresh()) {
+      // The intake wave observed exactly these refs on this remote moments ago.
+      current = destination.authority;
+      intakeStatus.reused.push('base-probe');
+    } else try {
       current = await new GitRemoteSession({ cwd: root }).observeAsync(fetchAuthority.url, {
         includeHead: false, refs: [selectedBaseRef, advertisedStoryRef], refresh: true,
         // This probe is only an optimization. Do not add a full network timeout ahead of the
@@ -2585,7 +2663,14 @@ export async function startCommand(positionals, options) {
   const recoveryBaseCommit = materializedSeed
     ? materializedSeedCommit
     : baseCommitAtStart;
-  if (publishRequired && !capabilityPreflight) {
+  // The intake wave dry-ran this exact destination from this exact base a moment ago.
+  const dryRunFromIntake = Boolean(intakeProof?.dryRun) && intakeFresh() && !materializedSeed
+    && intakeProof.dryRun.pushUrl === publicationAuthority?.url
+    && intakeProof.dryRun.pushFingerprint === publicationAuthority?.fingerprint
+    && intakeProof.dryRun.destinationRef === advertisedStoryRef
+    && intakeProof.dryRun.baseCommit === baseCommitAtStart;
+  if (dryRunFromIntake) intakeStatus.reused.push('dry-run');
+  if (publishRequired && !capabilityPreflight && !dryRunFromIntake) {
     const dryRun = await preflightPushBranch(
       root, remote, materializedSeed ? materializedSeedCommit : remoteBaseRef, canonicalBranch,
       { transportRemote: publicationAuthority.url }
@@ -2745,10 +2830,14 @@ export async function startCommand(positionals, options) {
       ? configuredRemoteAuthority(root, ledgerConfig.remote, { direction: 'fetch' }).url : null;
     const stateRef = `refs/heads/${ledgerConfig.branch}`;
     const alongside = ledgerRemote ? [stateRef] : [];
+    // The intake wave's authority observation is that fresh look while it is recent enough.
+    const authorityFromIntake = intakeFresh() && intakeProof.authority.remote === configurationAuthority.remote
+      && intakeProof.authority.commit === configurationAuthority.commit;
     const observed = await measureCommandSpan('start.authority-check', () =>
       storyRemoteSession.observeAsync(configurationAuthority.remote, {
-        refs: [configurationRef, ...alongside], includeHead: false, refresh: true
+        refs: [configurationRef, ...alongside], includeHead: false, refresh: !authorityFromIntake
       }));
+    if (authorityFromIntake) intakeStatus.reused.push('authority-check');
     const current = await configurationBranchHead(configurationAuthority.remote, { observation: observed });
     if (!current.reachable) {
       throw new SingularityFlowError(
@@ -3208,6 +3297,11 @@ export async function startCommand(positionals, options) {
           isolated: true,
           repositoryPath: root,
           launchRepository: optionString(options, 'story-launch-repository') ?? null
+        }
+      } : {}),
+      ...(intakeStatus ? {
+        intakeReceipt: {
+          status: intakeStatus.status, reason: intakeStatus.reason, reused: [...intakeStatus.reused]
         }
       } : {})
     },
@@ -10764,6 +10858,56 @@ async function intakeExistingWork(root, workId, catalog) {
   return { workId, status, localBranch: local !== null, publishedBy, unreadRepositories: [...unread].sort() };
 }
 
+/**
+ * Seal what a passing Story readiness preview proved, when the caller asks for it. `[perf]`
+ *
+ * Only a request Story start can later verify in one wave gets a receipt: approved shared
+ * configuration, one repository, an explicit workflow, and a POSIX machine-local store. Any other
+ * preview still passes; it just says why no receipt was issued. The receipt is a machine-local
+ * bearer token for this repository: callers keep it private and never display it.
+ */
+async function intakeReceiptForPreflight(root, {
+  passed, storyId, workType, selected, repositories, snapshot, definition, references
+}) {
+  const declined = (reason) => ({ issued: false, reason });
+  if (storyIntakeReceiptsDisabled()) return declined('disabled');
+  if (!passed) return declined('not-ready');
+  if (process.platform === 'win32') return declined('platform');
+  if (!workType) return declined('work-type');
+  if (snapshot?.authority?.branch !== CONFIGURATION_BRANCH) return declined('configuration');
+  if (selected.scope === 'capability' || repositories.length !== 1) return declined('capability');
+  const [entry] = repositories;
+  if (gitCommonDir(entry.root) !== gitCommonDir(root)) return declined('repository');
+  const fetch = configuredRemoteAuthority(root, entry.remote, { direction: 'fetch' });
+  if (!fetch.url) return declined('repository');
+  const stateAuthority = worldModelStateAuthority(definition ?? {});
+  const minted = await mintStoryIntakeReceipt(root, {
+    inputs: {
+      workId: storyId, workType, baseBranch: entry.baseBranch, remote: entry.remote,
+      capabilityId: selected.capability ?? null,
+      references: references.map((request) => ({
+        id: request.id, url: request.repository, branch: request.requestedBranch
+      }))
+    },
+    authority: {
+      remote: snapshot.authority.remote, branch: snapshot.authority.branch,
+      commit: snapshot.authority.commit, sourceCommit: snapshot.sourceCommit ?? null
+    },
+    repositories: [{
+      id: entry.repository, remote: entry.remote, baseBranch: entry.baseBranch,
+      baseCommit: entry.baseCommit, destinationRef: entry.destinationRef,
+      fetch: { url: fetch.url, fingerprint: fetch.fingerprint },
+      push: entry.publishRequired
+        ? { url: entry.transportRemote, fingerprint: entry.remoteFingerprint } : null,
+      state: stateAuthority.remote === entry.remote ? {
+        branch: stateAuthority.branch,
+        commit: refHead(root, `refs/remotes/${entry.remote}/${stateAuthority.branch}`)
+      } : null
+    }]
+  });
+  return { issued: true, id: minted.id, expiresAt: minted.expiresAt };
+}
+
 function intakePortfolioChoices(portfolio) {
   const authorities = Object.values(portfolio?.approvalAuthorities ?? {});
   return {
@@ -14086,6 +14230,10 @@ async function workspaceCommand(positionals, options) {
           publicationRequired: publishRequired,
           surface: 'vscode-preflight'
         });
+        const receiptReferences = optionBoolean(options, 'mint-intake-receipt')
+          ? parseReferenceRepositoryOptions(
+            optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
+          ) : [];
         preflight = {
           passed: readiness.ready,
           storyBranch: storyId,
@@ -14099,7 +14247,14 @@ async function workspaceCommand(positionals, options) {
             destinationRef: entry.destinationRef,
             publishRequired: entry.publishRequired
           })),
-          readiness
+          readiness,
+          ...(optionBoolean(options, 'mint-intake-receipt') ? {
+            intakeReceipt: await intakeReceiptForPreflight(root, {
+              passed: readiness.ready === true, storyId, workType: preflightWorkType, selected,
+              repositories, snapshot: approvedConfigurationSnapshot, definition,
+              references: receiptReferences
+            })
+          } : {})
         };
       }
       const result = {

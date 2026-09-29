@@ -3190,6 +3190,12 @@ const families = [
     paths: [/^\$git\/publication-journal\/[^/]+\.json$/]
   }),
   family({ id: 'story-start-journal', currentVersion: 1, paths: [/^\$git\/story-start\/[^/]+\.json$/] }),
+  // Machine-local and short-lived: a sealed record of what a passing Story readiness preview saw,
+  // presented back by Story start so it can verify instead of rediscover. It authorizes nothing.
+  family({
+    id: 'story-intake-receipt', currentVersion: 1,
+    paths: [/^\$git\/intake-receipts\/sir_[0-9a-f]{32}(?:\.claim-[0-9a-z-]+)?\.json$/]
+  }),
   family({ id: 'telemetry-cursor', currentVersion: 1, paths: [/^\$git\/telemetry-cursors\.json$/] }),
   family({ id: 'telemetry-preference', currentVersion: 1 }),
   family({ id: 'telemetry-launch', currentVersion: 1, paths: [/^\$git\/telemetry\/launches\/tel_[^/]+\.json$/] }),

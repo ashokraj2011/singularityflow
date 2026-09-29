@@ -144,6 +144,32 @@ destination discovery is refused at the authority check with nothing published, 
 half the probes. Network savings are projected from the measured per-operation cost, not measured
 on the original network.
 
+## 2026-09-29, third round: start verifies what intake saw
+
+Intake already proves everything a start needs: a passing readiness preview has listed approved
+configuration, fetched the base, observed the Story destination and the state tip, and dry-run
+publication, usually seconds before Start. Without that knowledge a start discovers its inputs one
+at a time, because each answer names the next question. A preview can now seal what it proved into
+a machine-local intake receipt, and a start that presents it runs one concurrent wave instead:
+
+| Round trips | Without a receipt | With a receipt |
+|---|---|---|
+| Configuration, destination, base probe, pre-mutation check | 4 listings, one after another | 1 listing (2 when configuration lives on another remote) |
+| Base fetch | 1 | 0 while the tip is unchanged; a moved state tip costs one fetch of that ref |
+| Publication dry run | 1, after the listings | 1, alongside the listing |
+| Publication | 1 | 1 |
+
+Measured on local fixtures: 7 network operations in 7 sequential round trips became 3 operations in
+2 (the wave, then the push). The Story created is the same either way apart from its own ID and
+title. The catalog and its preview also list approved authority once instead of twice.
+
+| Safeguard | How |
+|---|---|
+| The receipt authorizes nothing | Every governed input is observed again, the dry run is fresh, readiness is recomputed, and the wave's authority observation stands in for the pre-mutation check for at most 30 seconds. |
+| Anything unusual takes the ordinary path | Expired, edited, foreign, reused, another build, checkout or request, a moved base or configuration, an existing destination or a refused dry run; `data.intakeReceipt` reports the reason. |
+| Reuse is private | The proof exists only inside one start process; it is never accepted from a flag or a file. |
+| Kill switch | `SINGULARITY_FLOW_STORY_INTAKE_RECEIPTS=off`. |
+
 ## Deliberately remaining
 
 - The publication-permission dry run (one round trip). Dropping it would turn a revoked permission
@@ -152,8 +178,8 @@ on the original network.
   its commit and tree at start and the blobs on first use would change the intake contract.
 - S2's speculative remote fetch and enrollment-mutation overlap; S6's unverified-manifest branch
   probes. A future approved-identity prelude is needed before such reads can safely overlap.
-- Authority and destination as one union observation, exact changed-ref fetching, and persistent
-  cross-command preflight-to-Start receipts. Current reuse is private to one invocation.
+- Receipts for capability Stories (several repositories) and on Windows; those starts still take
+  the full path. Union observations outside a receipt, and exact changed-ref fetching generally.
 - A shared G10 configuration/state object service, Windows cache qualification, and transform-aware
   projection reuse. This restricted configuration cache does not complete G10.
 - Fully local-only activation discovery, independently proven snapshot slices and persistent

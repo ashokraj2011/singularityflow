@@ -451,10 +451,20 @@ export function intakeCommand(form: IntakeForm): string[] {
 export function storyPreflightCommand(form: IntakeForm): string[] | null {
   const identifier = intakeIdentifier(form);
   if (form.shape !== 'story' || !identifier || !form.baseBranch) return null;
+  // A passing check with a workflow also asks for an intake receipt, which binds this exact request
+  // (references included) so Start can verify it in one wave. Incomplete reference rows are left
+  // out; Start refuses those anyway.
+  let references: string[] = [];
+  try {
+    references = referenceRepositoryEntries(form.referenceRepositories)
+      .flatMap((entry) => ['--reference-repository', `${entry.id}=${entry.repository}`,
+        '--reference-branch', `${entry.id}=${entry.branch}`]);
+  } catch { references = []; }
   return [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier,
     '--from-branch', form.baseBranch, '--selected-base-only',
-    ...(form.workType ? ['--work-type', form.workType] : [])
+    ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
+    ...references
   ];
 }
 

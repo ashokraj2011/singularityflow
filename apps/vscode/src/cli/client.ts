@@ -260,7 +260,10 @@ function cacheableRead(args: string[]): boolean {
     && !(args[0] === 'workflow' && args[1] === 'proposal-status')
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
-    && args[0] !== 'factory-reset';
+    && args[0] !== 'factory-reset'
+    // A readiness check that mints an intake receipt answers with a single-use bearer token. Sharing
+    // one answer between two callers would hand both of them the same receipt.
+    && !(args[0] === 'workspace' && args[1] === 'branches' && args.includes('--mint-intake-receipt'));
 }
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {

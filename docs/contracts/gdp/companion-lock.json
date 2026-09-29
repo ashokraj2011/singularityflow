@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "b2b12cdef49ae68b3859c4d1e71373328370a0eb",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-29-STORY-INTAKE-RECEIPT.md",
+    "reviewedAtCommit": "c241767ba7358ba67f1cf2e6c62d862d5df5c6a7",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-29-GIT-READ-FAILURES.md",
     "companionIds": [
-      "migration-registry"
+      "candidate-custody"
     ]
   },
   "companions": [
@@ -84,7 +84,7 @@
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:b60dca7ed3449076852a9bc56f104997cc09849ceac8c86c568282b5350342c0"
+      "sha256": "sha256:564bdc9ec2cd0fb11c8ff73b2c9649d5e845f2eaf0259c3dd1e3eb28f694eb7c"
     },
     {
       "id": "publication-unit-of-work",

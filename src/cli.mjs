@@ -22,7 +22,7 @@ import {
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { SingularityFlowError, commandExists, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, commandExists, exists, gitHeadIsUnborn, gitReadOutput, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, isAncestor, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, removeCleanAttachStagingWorktree, repoRoot, validBranch } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from './session-story-discovery.mjs';
@@ -470,10 +470,19 @@ async function approvedInitializationAuthority(root) {
   return { state: 'absent', authority: null, status: null };
 }
 
+/**
+ * Git's answer to a read a command decision rests on, or a refusal when Git could not give one.
+ *
+ * An empty answer here means "unborn", "no parent", "no remotes" or "never published", so only a
+ * read that succeeded, or Git's own documented negative answer, may produce one.
+ */
+function gitAnswer(root, args, label, options) {
+  return gitReadOutput(run('git', args, { cwd: root, allowFailure: true }), label, options);
+}
+
 function configurationBranchInitializationRelation(root, authorityProbe) {
-  const localCommit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
-    cwd: root, allowFailure: true
-  }).stdout.trim() || null;
+  const localCommit = gitAnswer(root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
+    `Local ${CONFIGURATION_BRANCH} commit`, { absentStatus: 1 })?.trim() || null;
   if (authorityProbe.state === 'absent') {
     return {
       state: 'authoring-first-bootstrap', writable: true,
@@ -2905,9 +2914,8 @@ export async function startCommand(positionals, options) {
       );
     }
     if (enrollment.changed) {
-      const enrollmentParent = run('git', ['rev-parse', `${enrollment.commit}^`], {
-        cwd: root, allowFailure: true
-      }).stdout.trim();
+      const enrollmentParent = gitAnswer(root, ['rev-parse', '--verify', '--quiet', `${enrollment.commit}^`],
+        'Automatic enrollment parent', { absentStatus: 1 })?.trim() ?? '';
       if (!approvedConfigurationSnapshot?.sourceCommit
           || enrollmentParent !== approvedConfigurationSnapshot.sourceCommit) {
         throw new SingularityFlowError(
@@ -9506,7 +9514,7 @@ async function hookCommand(positionals) {
  * two materially different situations.
  */
 function sessionRepositoryRemotes(root) {
-  const names = run('git', ['remote'], { cwd: root, allowFailure: true }).stdout
+  const names = gitAnswer(root, ['remote'], 'Session repository remotes')
     .split(/\r?\n/).map((name) => name.trim()).filter(Boolean);
   return [...new Set(['origin', ...names].filter((name) => names.includes(name)))];
 }
@@ -16332,9 +16340,9 @@ async function expandGenerationReference(handle, options) {
     throw new SingularityFlowError('Generation reference is not bound to a published source artifact.', { code: 'handle.expansion_invalid' });
   }
   const subject = `[${reference.workId}][phase:${reference.phaseId}][generated:${reference.generation}]`;
-  const commit = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], {
-    cwd: root, allowFailure: true
-  }).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t'))
+  const commit = (gitAnswer(root, ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject],
+    'Generation source commit', { absentWhen: () => gitHeadIsUnborn(root) }) ?? '')
+    .split(/\r?\n/).filter(Boolean).map((line) => line.split('\t'))
     .find(([, message]) => message.startsWith(subject))?.[0] ?? null;
   let bytes;
   if (commit) {

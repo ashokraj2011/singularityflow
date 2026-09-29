@@ -13,6 +13,7 @@ const EXACT_CODES = Object.freeze({
   CAPABILITY_ACTIVATION_AUDIT_PENDING: 'capability-management',
   CAPABILITY_PROJECTION_AUTHORITY_MOVED: 'capability-management',
   WFA_DEPENDENCY_UNAVAILABLE: 'repository-state-and-snapshots',
+  GIT_READ_UNAVAILABLE: 'repository-state-and-snapshots',
   WFA_RUNTIME_INCOMPATIBLE: 'repository-state-and-snapshots',
   WMC_INTENT_REPORT_MISMATCH: 'calm-architecture',
   WMC_INTENT_ALREADY_EXISTS: 'calm-architecture',

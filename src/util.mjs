@@ -13,7 +13,7 @@ import {
   resolveWindowsSystemTool
 } from './platform-process.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
-import { processResultSucceeded } from './process-result.mjs';
+import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { assertLocalReadDeadline, localReadDeadlineRemainingMs, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 
 export class SingularityFlowError extends Error {
@@ -763,6 +763,66 @@ export function run(command, args = [], {
     throw new SingularityFlowError(`${command} ${args.join(' ')} failed: ${detail}`);
   }
   return { status, stdout, stderr, error: result.error, signal: result.signal ?? null, timedOut, blocked: false };
+}
+
+/** Git's own first line of complaint about a result that did not succeed, for a refusal message. */
+function gitFailureReason(result) {
+  const stderr = String(result?.stderr ?? '').trim().split(/\r?\n/u)[0];
+  const reason = stderr || result?.error?.message
+    || (result?.timedOut ? 'git did not answer in time'
+      : result?.blocked ? 'the read was not attempted'
+        : result?.signal ? `git was stopped by ${result.signal}`
+          : `git exited with ${result?.status ?? 'no status'}`);
+  return reason.slice(0, 240);
+}
+
+/**
+ * The output of a Git read whose answer decides something, or a refusal naming why there is none.
+ *
+ * `run(..., { allowFailure: true })` hands back empty output for every failure, so a corrupt object,
+ * a spawn failure or a signal read exactly like an honest empty answer: no commits, no branch, a
+ * clean tree, a record never added. Only a read that succeeded may be empty.
+ *
+ * `absentStatus` is the exit status that is the command's own documented "nothing here" answer —
+ * 1 from `rev-parse --verify --quiet`, `config --get`, `symbolic-ref --quiet` or
+ * `merge-base --is-ancestor`, 2 from `remote get-url` — and `absentWhen` recognizes any other
+ * genuinely empty state, such as an unborn HEAD. Both answer null, and only for a command that ran
+ * to completion. Every other failure refuses with Git's own first line of error.
+ */
+export function gitReadOutput(result, label, {
+  absentStatus = null, absentWhen = null, code = 'GIT_READ_UNAVAILABLE'
+} = {}) {
+  if (processResultSucceeded(result)) return result.stdout;
+  if (processResultCompleted(result)
+      && ((absentStatus !== null && result.status === absentStatus) || absentWhen?.(result))) return null;
+  throw new SingularityFlowError(`${label} could not be read from Git: ${gitFailureReason(result)}`, { code });
+}
+
+/**
+ * Whether `cwd` is a repository whose HEAD names no commit yet.
+ *
+ * Before the first commit a history read fails although nothing is wrong: nothing was ever added.
+ * Git answers this probe with a clean exit 1 only then. A directory outside any repository, or one
+ * Git cannot read (a bad configuration line, say), fails it differently, so a caller can keep that
+ * one genuinely empty state and still refuse every read that did not happen.
+ */
+export function gitHeadIsUnborn(cwd, { env = process.env } = {}) {
+  const head = run('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd, env, allowFailure: true });
+  return head.status === 1 && processResultCompleted(head)
+    && !String(head.stdout ?? '').trim() && !String(head.stderr ?? '').trim();
+}
+
+/**
+ * Whether `cwd` is outside every Git repository, by Git's own "not a git repository".
+ *
+ * Git exits 128 alike for that and for a repository it cannot read, such as one with a bad
+ * configuration line, so the probe runs in the C locale, where the message is never translated,
+ * and nothing but that message counts as outside.
+ */
+export function gitOutsideRepository(cwd, { env = process.env } = {}) {
+  const probe = run('git', ['rev-parse', '--git-dir'], { cwd, env: { ...env, LC_ALL: 'C' }, allowFailure: true });
+  return probe.status === 128 && processResultCompleted(probe)
+    && /\bnot a git repository\b/u.test(String(probe.stderr ?? ''));
 }
 
 /**

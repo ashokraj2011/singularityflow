@@ -37,7 +37,7 @@ import {
 import { executeGitQuery } from './git-query.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
-import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
+import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
 
@@ -890,20 +890,18 @@ export async function proposeConfigurationChange(root, {
       ], {
         cwd: scratch, operation: 'remote-configuration', env: authorityTransport.env
       });
+      // A proposal Git could not read is not one "with different content or ancestry".
+      const proposalObject = (revision, label) => gitReadOutput(run('git', [
+        'rev-parse', '--verify', '--quiet', revision
+      ], { cwd: scratch, env: authorityTransport.env, allowFailure: true }), label, { absentStatus: 1 })?.trim() ?? '';
       const fetchedCommit = fetched.status === 0
-        ? run('git', ['rev-parse', '--verify', `${localProposalRef}^{commit}`], {
-          cwd: scratch, env: authorityTransport.env, allowFailure: true
-        }).stdout.trim()
+        ? proposalObject(`${localProposalRef}^{commit}`, `Existing proposal '${reviewBranch}' commit`)
         : null;
       const existingTree = fetchedCommit === existingCommit
-        ? run('git', ['rev-parse', '--verify', `${localProposalRef}^{tree}`], {
-          cwd: scratch, env: authorityTransport.env, allowFailure: true
-        }).stdout.trim()
+        ? proposalObject(`${localProposalRef}^{tree}`, `Existing proposal '${reviewBranch}' tree`)
         : null;
       const existingParent = fetchedCommit === existingCommit
-        ? run('git', ['rev-parse', '--verify', `${localProposalRef}^`], {
-          cwd: scratch, env: authorityTransport.env, allowFailure: true
-        }).stdout.trim()
+        ? proposalObject(`${localProposalRef}^`, `Existing proposal '${reviewBranch}' parent`)
         : null;
       const proposedTree = run('git', ['write-tree'], {
         cwd: scratch, env: authorityTransport.env

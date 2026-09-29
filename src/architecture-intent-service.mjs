@@ -9,7 +9,9 @@ import {
 } from './generation-publication-store.mjs';
 import { canonicalJson as recordCanonicalJson, recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import {
+  gitHeadIsUnborn, gitReadOutput, run, secureRepositoryPath, SingularityFlowError
+} from './util.mjs';
 import { canonicalJson, sha256 } from './world-model/canonicalize.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import {
@@ -33,6 +35,19 @@ function fail(message, code, details = null) {
 function gitText(root, args) {
   const result = run('git', args, { cwd: root, allowFailure: true });
   return result.status === 0 ? result.stdout : null;
+}
+
+/**
+ * The commits an approval history query names, or a refusal when Git could not answer.
+ *
+ * An approval is reconstructed only from commits these reads return, so a failed read used to
+ * report an approved intent as unauthenticated. Only before the first commit is the history empty.
+ */
+function approvalHistory(root, args, label) {
+  const output = gitReadOutput(run('git', args, { cwd: root, allowFailure: true }), label, {
+    absentWhen: () => gitHeadIsUnborn(root)
+  });
+  return (output ?? '').split(/\r?\n/u).filter(Boolean);
 }
 
 function availableArchitectureProjection(store) {
@@ -124,9 +139,9 @@ function approvalDecisionPath(relativeIntentPath, phaseId, decision) {
 }
 
 function immutableStoryCreation(root, workflow, workflowPath, approvalCommit) {
-  const additions = run('git', [
+  const additions = approvalHistory(root, [
     'log', '--format=%H', '--diff-filter=A', '--reverse', approvalCommit, '--', workflowPath
-  ], { cwd: root, allowFailure: true }).stdout.split(/\r?\n/).filter(Boolean);
+  ], `Story '${workflow.workItem?.id}' creation record`);
   if (additions.length !== 1 || !ancestor(root, additions[0], approvalCommit)) return null;
   const stored = jsonAtCommit(root, additions[0], workflowPath);
   if (!stored || stored.workItem?.id !== workflow.workItem?.id) return null;
@@ -162,9 +177,9 @@ async function verifyArchitectureApproval(root, definition, workflow, intent, re
         : !sameIntentBinding(decision.architectureIntent ?? null, binding))
       || typeof decision.reviewPacketSha256 !== 'string'
       || typeof decision.authorityGroup !== 'string') return null;
-  const candidates = run('git', [
+  const candidates = approvalHistory(root, [
     'log', '--format=%H', 'HEAD', '--', paths.decisionPath
-  ], { cwd: root, allowFailure: true }).stdout.split(/\r?\n/).filter(Boolean);
+  ], `Architecture intent approval '${paths.decisionPath}'`);
   const valid = [];
   for (const commit of candidates) {
     const storedDecision = jsonAtCommit(root, commit, paths.decisionPath);
@@ -217,7 +232,8 @@ async function verifyArchitectureApproval(root, definition, workflow, intent, re
         historicalWorkflow,
         decision.reviewPacketSha256
       );
-    } catch {
+    } catch (error) {
+      if (error?.code === 'GIT_READ_UNAVAILABLE') throw error;
       continue;
     }
     const packetIntent = packet.submissionEvidence?.architectureIntent ?? null;
@@ -417,10 +433,18 @@ export async function architectureIntentApprovalStatus(
     }
     if ((publicationBinding || legacyPublication) && publicationCommit && relativeIntentPath) {
       for (const candidate of candidates) {
-        const verified = await verifyArchitectureApproval(
-          root, definition, workflow, intent, relativeIntentPath, publicationBinding,
-          candidate, publicationCommit, { legacyPublication }
-        );
+        let verified;
+        try {
+          verified = await verifyArchitectureApproval(
+            root, definition, workflow, intent, relativeIntentPath, publicationBinding,
+            candidate, publicationCommit, { legacyPublication }
+          );
+        } catch (error) {
+          // A history read that failed proves nothing either way; say so instead of "unauthenticated".
+          if (error?.code !== 'GIT_READ_UNAVAILABLE') throw error;
+          errors.push(`architecture intent approval cannot be proven: ${error.message}`);
+          continue;
+        }
         if (!verified) {
           errors.push('architecture intent approval is not authenticated by its lifecycle commit, review packet, and pinned authority');
           continue;

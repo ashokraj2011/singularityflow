@@ -6,7 +6,9 @@ import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { exactEnvironmentDeclarationAtRef, exactTreePathsAtObject, head } from './git.mjs';
 import { authoredReferencePreview, resolveReference } from './harness-imports.mjs';
-import { exists, mapLimit, posix, run, secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
+import {
+  exists, gitHeadIsUnborn, gitReadOutput, mapLimit, posix, run, secureRepositoryPath, SingularityFlowError, snapshot
+} from './util.mjs';
 import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
 import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -1309,8 +1311,14 @@ export async function worldModelRebuildReason(root, config) {
   }
 }
 
+/**
+ * The last commit that touched the world model, null when none has, or a refusal when Git failed.
+ *
+ * Null means "not committed", which withholds grounding; a failed read used to answer the same.
+ */
 export function worldModelCommit(root, outputDir) {
-  return run('git', ['log', '-1', '--format=%H', '--', outputDir], { cwd: root, allowFailure: true }).stdout.trim() || null;
+  return gitReadOutput(run('git', ['log', '-1', '--format=%H', '--', outputDir], { cwd: root, allowFailure: true }),
+    `World model '${outputDir}' commit`, { absentWhen: () => gitHeadIsUnborn(root) })?.trim() || null;
 }
 
 export function groundingRecordRelative(definition, workflow, phase, generation = phase.generation + 1) {

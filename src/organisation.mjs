@@ -23,8 +23,8 @@ import { lstat, mkdtemp, readFile, readdir, unlink, writeFile, mkdir } from 'nod
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import {
-  isGitRefName, mapLimit, removeTemporaryTree, secureRepositoryPath, SingularityFlowError,
-  run, readJson, writeAtomic, YAML_OUTPUT
+  gitHeadIsUnborn, gitReadOutput, isGitRefName, mapLimit, removeTemporaryTree, secureRepositoryPath,
+  SingularityFlowError, run, readJson, writeAtomic, YAML_OUTPUT
 } from './util.mjs';
 import {
   CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
@@ -354,6 +354,19 @@ function validateCapabilityMapRequest(input) {
   }
 }
 
+/**
+ * Git's answer to a read a capability decision rests on, or a refusal when Git could not give one.
+ *
+ * Empty output here is read as "no author configured", "not in history", "no base", "no such
+ * remote" or "no tracked metadata", and each of those changes what is proposed, activated or
+ * published. Only a successful read, or Git's documented negative answer, may produce it.
+ */
+function organisationGitRead(root, env, args, label, { absentStatus = null, absentWhen = null } = {}) {
+  return gitReadOutput(run('git', args, { cwd: root, env, allowFailure: true }), label, {
+    absentStatus, absentWhen
+  }) ?? '';
+}
+
 /** Read ordinary author configuration from the initiating checkout, not an isolated child clone. */
 async function captureCapabilityProposalAuthor(initiatingRoot = process.cwd(), sourceEnv = process.env) {
   const env = withoutGitProcessOverrides(sourceEnv);
@@ -364,12 +377,10 @@ async function captureCapabilityProposalAuthor(initiatingRoot = process.cwd(), s
   // authority: require the name Git itself resolves from repository/global configuration. Tests
   // retain their explicit, process-scoped identity fixture rather than depending on developer config.
   if (env.NODE_ENV === 'test' && env.SINGULARITY_FLOW_TEST_IDENTITY) return identity;
-  const name = run('git', ['config', '--get', 'user.name'], {
-    cwd: root, env, allowFailure: true
-  }).stdout.trim();
-  const email = run('git', ['config', '--get', 'user.email'], {
-    cwd: root, env, allowFailure: true
-  }).stdout.trim();
+  const name = organisationGitRead(root, env, ['config', '--get', 'user.name'],
+    'Git user.name', { absentStatus: 1 }).trim();
+  const email = organisationGitRead(root, env, ['config', '--get', 'user.email'],
+    'Git user.email', { absentStatus: 1 }).trim();
   return { ...identity, name, email };
 }
 
@@ -737,11 +748,11 @@ const CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT = 100_000;
 function proposalContentAppearsInAuthorityHistory(root, base, proposal, target = 'HEAD', {
   env = process.env
 } = {}) {
-  const rows = run('git', [
+  const rows = organisationGitRead(root, env, [
     'rev-list', '--first-parent',
     `--max-count=${CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT + 1}`,
     target
-  ], { cwd: root, env, allowFailure: true }).stdout.split(/\r?\n/)
+  ], `Configuration authority history at '${target}'`).split(/\r?\n/)
     .map((entry) => entry.trim()).filter(Boolean);
   for (const candidate of rows.slice(0, CAPABILITY_ACTIVATION_RECOVERY_HISTORY_LIMIT)) {
     if (candidate === base) return false;
@@ -892,16 +903,15 @@ function proposalBaseCommit(root, proposalBranch, ref, { env = process.env } = {
   const rebaseLineage = proposalBranch.match(
     /^sflow\/config-change\/capability\/rebase-map-[a-z0-9-]+-([0-9a-f]{8})-([0-9a-f]{8})$/
   );
-  const revision = run('git', ['rev-list', '--parents', '-n', '1', ref], {
-    cwd: root, env, allowFailure: true
-  }).stdout.trim().split(/\s+/);
+  const revision = organisationGitRead(root, env, ['rev-list', '--parents', '-n', '1', ref],
+    `Capability proposal '${proposalBranch}' parents`).trim().split(/\s+/);
   const history = prefix
-    ? run('git', ['rev-list', '--first-parent', ref], { cwd: root, env, allowFailure: true })
-        .stdout.split('\n').map((entry) => entry.trim()).filter((entry) => entry.startsWith(prefix))
+    ? organisationGitRead(root, env, ['rev-list', '--first-parent', ref], `Capability proposal '${proposalBranch}' history`)
+        .split('\n').map((entry) => entry.trim()).filter((entry) => entry.startsWith(prefix))
     : [];
   const supersession = !rebaseLineage && revision.length === 3
-    ? run('git', ['show', '-s', '--format=%B', ref], { cwd: root, env, allowFailure: true })
-        .stdout.match(/^Supersedes: (sflow\/config-change\/capability\/map-([a-z0-9-]+)-[0-9a-f]{8})@([0-9a-f]{40,64})$/m)
+    ? organisationGitRead(root, env, ['show', '-s', '--format=%B', ref], `Capability proposal '${proposalBranch}' message`)
+        .match(/^Supersedes: (sflow\/config-change\/capability\/map-([a-z0-9-]+)-[0-9a-f]{8})@([0-9a-f]{40,64})$/m)
     : null;
   const currentMapId = proposalBranch.match(
     /^sflow\/config-change\/capability\/map-([a-z0-9-]+)-[0-9a-f]{8}$/
@@ -1028,17 +1038,11 @@ function gitRefHasRepairableMcpAgentMismatch(root, ref, error, {
 
 function proposalConfigurationError(root, ref, { env = process.env, blobs = null } = {}) {
   try {
-    const capabilityBytes = blobs
-      ? proposalBlob(blobs, ref, CAPABILITIES_PATH)
-      : run('git', ['show', `${ref}:${CAPABILITIES_PATH}`], {
-          cwd: root, env, allowFailure: true
-        }).stdout || null;
+    // The exact batch reader tells a missing file from one Git could not read.
+    const read = blobs ?? configurationBlobsAtRefs(root, [ref], [CAPABILITIES_PATH, PORTFOLIO_PATH], { env });
+    const capabilityBytes = proposalBlob(read, ref, CAPABILITIES_PATH);
     if (capabilityBytes == null) return `missing ${CAPABILITIES_PATH}`;
-    const portfolioBytes = blobs
-      ? proposalBlob(blobs, ref, PORTFOLIO_PATH)
-      : run('git', ['show', `${ref}:${PORTFOLIO_PATH}`], {
-          cwd: root, env, allowFailure: true
-        }).stdout || null;
+    const portfolioBytes = proposalBlob(read, ref, PORTFOLIO_PATH);
     validateCapabilities(
       YAML.parse(capabilityBytes),
       portfolioBytes == null ? null : YAML.parse(portfolioBytes)
@@ -1052,18 +1056,13 @@ function proposalConfigurationError(root, ref, { env = process.env, blobs = null
 function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNames, {
   env = process.env, blobs = null
 } = {}) {
-  const proposedBytes = blobs
-    ? proposalBlob(blobs, proposalRef, CAPABILITIES_PATH)
-    : run('git', ['show', `${proposalRef}:${CAPABILITIES_PATH}`], {
-        cwd: root, env, allowFailure: true
-      }).stdout || null;
+  // A capability map Git could not read used to skip this guard entirely, or read as no managed
+  // base and allow a downgrade. The exact batch reader tells a missing file from a failed read.
+  const read = blobs ?? configurationBlobsAtRefs(root, [proposalRef, baseRef], undefined, { env });
+  const proposedBytes = proposalBlob(read, proposalRef, CAPABILITIES_PATH);
   if (proposedBytes == null) return;
   const definition = validateCapabilities(YAML.parse(proposedBytes));
-  const baseBytes = blobs
-    ? proposalBlob(blobs, baseRef, CAPABILITIES_PATH)
-    : run('git', ['show', `${baseRef}:${CAPABILITIES_PATH}`], {
-        cwd: root, env, allowFailure: true
-      }).stdout || null;
+  const baseBytes = proposalBlob(read, baseRef, CAPABILITIES_PATH);
   const baseDefinition = baseBytes == null
     ? null : validateCapabilities(YAML.parse(baseBytes));
   const managedBefore = baseDefinition?.version === 2
@@ -1084,11 +1083,10 @@ function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNa
       { code: 'PCD_MANAGED_EDIT_REQUIRED' }
     );
   }
-  const loaded = run('git', ['show', `${proposalRef}:${receipts[0]}`], {
-    cwd: root, env, allowFailure: true
-  });
+  const loaded = proposalBlob(configurationBlobsAtRefs(root, [proposalRef], [receipts[0]], { env }),
+    proposalRef, receipts[0]) ?? '';
   let receipt;
-  try { receipt = JSON.parse(loaded.stdout); }
+  try { receipt = JSON.parse(loaded); }
   catch {
     throw new SingularityFlowError('Managed capability mutation receipt is not valid JSON.', {
       code: 'PCD_MUTATION_RECEIPT_INVALID'
@@ -1136,14 +1134,9 @@ function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNa
       code: 'PCD_MANAGED_ADOPTION_INVALID'
     });
   } else {
-    const origin = run('git', ['config', '--get', 'remote.origin.url'], {
-      cwd: root, env, allowFailure: true
-    }).stdout.trim();
-    const workflowBytes = blobs
-      ? proposalBlob(blobs, baseRef, WORKFLOW_PATH)
-      : run('git', ['show', `${baseRef}:${WORKFLOW_PATH}`], {
-          cwd: root, env, allowFailure: true
-        }).stdout || null;
+    const origin = organisationGitRead(root, env, ['config', '--get', 'remote.origin.url'],
+      'The origin remote', { absentStatus: 1 }).trim();
+    const workflowBytes = proposalBlob(read, baseRef, WORKFLOW_PATH);
     if (!origin || workflowBytes == null) {
       throw new SingularityFlowError('First managed capability proposal cannot prove its implicit approved base.', {
         code: 'PCD_MATERIALIZATION_NOT_EQUIVALENT'
@@ -3487,9 +3480,8 @@ async function classifyMatchingCapabilityProposals(root, remote, proposals, {
   const blocking = [];
   for (const proposal of proposals) {
     const ref = `refs/remotes/origin/${proposal.branch}`;
-    const fetchedCommit = run('git', ['rev-parse', '--verify', ref], {
-      cwd: root, env, allowFailure: true
-    }).stdout.trim();
+    const fetchedCommit = organisationGitRead(root, env, ['rev-parse', '--verify', '--quiet', ref],
+      `Capability proposal '${proposal.branch}'`, { absentStatus: 1 }).trim();
     if (fetchedCommit !== proposal.commit) {
       blocking.push({
         ...proposal,
@@ -4515,17 +4507,18 @@ function capabilityMapStateProjection(root, mirror, {
   const trackedAssets = stateBase
     ? [...configurationTreeEntries(root, stateBase, null, { env }).keys()]
     : [];
-  const trackedMetadata = stateBase ? run('git', [
+  // Metadata Git could not list used to be retained as if none were tracked, and an unreadable
+  // manifest silently dropped its product; the listing also says whether the manifest exists.
+  const trackedMetadata = stateBase ? organisationGitRead(root, env, [
     'ls-tree', '-r', '-z', '--name-only', stateBase, '--', 'configuration'
-  ], { cwd: root, env, allowFailure: true }).stdout.split('\0').filter(Boolean) : [];
-  const previousManifest = stateBase
-    ? run('git', ['show', `${stateBase}:${STATE_CONFIGURATION_MANIFEST}`], {
-        cwd: root, env, allowFailure: true
-      })
-    : { status: 1, stdout: '' };
-  if (previousManifest.status === 0) {
+  ], `State configuration metadata at '${stateBase}'`).split('\0').filter(Boolean) : [];
+  const previousManifest = trackedMetadata.includes(STATE_CONFIGURATION_MANIFEST)
+    ? organisationGitRead(root, env, ['show', `${stateBase}:${STATE_CONFIGURATION_MANIFEST}`],
+      `State configuration manifest at '${stateBase}'`)
+    : null;
+  if (previousManifest != null) {
     try {
-      const previousProduct = JSON.parse(previousManifest.stdout)?.product;
+      const previousProduct = JSON.parse(previousManifest)?.product;
       if (previousProduct) manifest.product = previousProduct;
     } catch { /* A malformed prior mirror is replaced by the validated complete mirror below. */ }
   }
@@ -4575,9 +4568,8 @@ export async function publishCapabilityMap(root, {
     // the fetch failed (including an absent first state branch), retain the ordinary refresh/bootstrap
     // path rather than trusting a stale local remote-tracking ref.
     const observedStateSha = stateFetch.status === 0
-      ? run('git', ['rev-parse', '--verify', `${remoteRef}^{commit}`], {
-          cwd: root, env, allowFailure: true
-        }).stdout.trim()
+      ? organisationGitRead(root, env, ['rev-parse', '--verify', '--quiet', `${remoteRef}^{commit}`],
+        `Fetched ${remoteRef}`, { absentStatus: 1 }).trim()
       : '';
     const observedState = /^[0-9a-f]{40,64}$/.test(observedStateSha);
     const { configurationFiles, removePaths } = capabilityMapStateProjection(root, mirror, {
@@ -8162,10 +8154,8 @@ async function initializeWorkspaceStateUnderLease(root, {
   // that repository needs a definition naming the branch.
   // A checkout with no commit on the current branch cannot carry a governed branch, and the raw
   // git error for it names an ambiguous argument, which describes git and not the situation.
-  const current = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-    cwd: root, env: gitEnv, allowFailure: true
-  })
-    .stdout.trim();
+  const current = organisationGitRead(root, gitEnv, ['rev-parse', '--abbrev-ref', 'HEAD'],
+    'The checked-out branch', { absentWhen: () => gitHeadIsUnborn(root, { env: gitEnv }) }).trim();
   if (!current || current === 'HEAD') {
     throw new SingularityFlowError(
       `${root} has no branch checked out, so there is nothing to base the ${branch} branch on. `
@@ -8180,9 +8170,8 @@ async function initializeWorkspaceStateUnderLease(root, {
   let governancePublished = true;
   let publicationError = null;
   let publicationIntent = null;
-  const url = run('git', ['remote', 'get-url', 'origin'], {
-    cwd: root, env: gitEnv, allowFailure: true
-  }).stdout.trim();
+  const url = organisationGitRead(root, gitEnv, ['remote', 'get-url', 'origin'],
+    'The origin remote', { absentStatus: 2 }).trim();
   const repositoryId = repositoryIdFromUrl(url || path.basename(root));
   const exactTransport = url
     ? frozenRemoteTransport(assertCredentialFreeRemote(url), { push: true, env: gitEnv })
@@ -8209,9 +8198,9 @@ async function initializeWorkspaceStateUnderLease(root, {
     resumeGovernancePublication = !(await observeBranch(current));
   }
   if (needsGovernanceProposal) {
-    const trackedHead = run('git', [
+    const trackedHead = organisationGitRead(root, gitEnv, [
       'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'
-    ], { cwd: root, env: gitEnv, allowFailure: true }).stdout.trim();
+    ], 'The origin default branch', { absentStatus: 1 }).trim();
     const applicationBranch = trackedHead.startsWith('origin/')
       ? trackedHead.slice('origin/'.length)
       : (trackedHead || 'main');

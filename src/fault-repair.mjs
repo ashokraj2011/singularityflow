@@ -15,7 +15,7 @@ import { gitCommonDir, head, identity } from './git.mjs';
 import { canonicalJson } from './specifications.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import {
-  exists, nowIso, readJson, run, SingularityFlowError, snapshot, writeAtomic, writeJson
+  exists, gitReadOutput, nowIso, readJson, run, SingularityFlowError, snapshot, writeAtomic, writeJson
 } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
@@ -1300,8 +1300,15 @@ function assertLease(root, state) {
   state.lease = { ...state.lease, expiresAt: new Date(Date.now() + state.policy.leaseMinutes * 60_000).toISOString() };
 }
 
+/**
+ * The commit `value` names, null when it names none, or a refusal when Git could not answer.
+ *
+ * These compare a repair's baseline with HEAD. Two failed reads used to both answer null, and null
+ * equals null, so a baseline check Git never performed passed.
+ */
 function commitObjectId(root, value) {
-  return run('git', ['rev-parse', '--verify', `${value}^{commit}`], { cwd: root, allowFailure: true }).stdout.trim() || null;
+  return gitReadOutput(run('git', ['rev-parse', '--verify', '--quiet', `${value}^{commit}`], { cwd: root, allowFailure: true }),
+    `Repair revision '${value}'`, { absentStatus: 1 })?.trim() || null;
 }
 
 async function verifiedRepairEvents(root, repairId) {
@@ -1690,7 +1697,8 @@ export async function attemptRepair(root, repairId, { patchFile } = {}) {
     }
     validatePatchScope(touched, plan);
     if (!state.workspace?.path || !await exists(state.workspace.path)) throw new SingularityFlowError(`Repair '${id}' isolated worktree is unavailable.`, { code: 'REPAIR_WORKTREE_UNAVAILABLE' });
-    if (commitObjectId(state.workspace.path, 'HEAD') !== commitObjectId(root, state.baseline)) {
+    const baseline = commitObjectId(root, state.baseline);
+    if (!baseline || commitObjectId(state.workspace.path, 'HEAD') !== baseline) {
       throw new SingularityFlowError(`Repair '${id}' baseline changed before patch application.`, { code: 'REPAIR_BASELINE_CHANGED' });
     }
     const existingSnapshot = await repairWorktreeSnapshot(state.workspace.path, state.baseline);

@@ -57,7 +57,7 @@ import { renderPlatformCommand } from './safe-command-guidance.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import {
-  isGitRefName, removeTemporaryTree, run, SingularityFlowError, writeAtomic
+  gitHeadIsUnborn, gitReadOutput, isGitRefName, removeTemporaryTree, run, SingularityFlowError, writeAtomic
 } from './util.mjs';
 
 export const REPOSITORY_ONBOARDING_PLAN_KIND = 'repository-onboarding-plan/v1';
@@ -849,9 +849,13 @@ async function cloneFilteredSnapshot(remote, branch, expectedCommit, filter, {
   } catch (error) {
     return cleanupAfterFailure(scratch, error, queueRoot);
   }
-  const commit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
-    cwd: scratch, env: localEnv, allowFailure: true
-  }).stdout.trim();
+  let commit;
+  try {
+    commit = onboardingGitRead(scratch, localEnv, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
+      `Repository setup branch '${branch}' commit`, { absentStatus: 1 }).trim();
+  } catch (error) {
+    return cleanupAfterFailure(scratch, error, queueRoot);
+  }
   if (commit !== expectedCommit) {
     return cleanupAfterFailure(scratch, new SingularityFlowError(
       `Repository setup branch '${branch}' changed while it was being inspected. Refresh and retry; nothing was changed.`, {
@@ -861,6 +865,17 @@ async function cloneFilteredSnapshot(remote, branch, expectedCommit, filter, {
     ), queueRoot);
   }
   return { scratch, commit, env: localEnv };
+}
+
+/**
+ * Git's answer to a read an onboarding decision rests on, or a refusal when Git could not give one.
+ *
+ * Empty output here was read as "the branch changed while it was inspected", as a configuration
+ * payload with nothing tracked, or as a commit with no date, which changes the commit identity a
+ * candidate is built with. Only a successful read, or Git's documented negative answer, may be empty.
+ */
+function onboardingGitRead(cwd, env, args, label, { absentStatus = null, absentWhen = null } = {}) {
+  return gitReadOutput(run('git', args, { cwd, env, allowFailure: true }), label, { absentStatus, absentWhen }) ?? '';
 }
 
 async function removeSnapshotBeforeAdmissionRetry(directory, queueRoot) {
@@ -2070,9 +2085,9 @@ async function copyConfigurationFiles(source, destination, { env = process.env }
 }
 
 function commitTimestamp(root, ref = 'HEAD', env = process.env) {
-  const value = run('git', ['show', '-s', '--format=%cI', ref], {
-    cwd: root, env, allowFailure: true
-  }).stdout.trim();
+  const value = onboardingGitRead(root, env, ['show', '-s', '--format=%cI', ref], `Commit date of '${ref}'`, {
+    absentWhen: () => ref === 'HEAD' && gitHeadIsUnborn(root, { env })
+  }).trim();
   return Number.isFinite(Date.parse(value)) ? value : '2000-01-01T00:00:00Z';
 }
 
@@ -2445,9 +2460,8 @@ async function configurationCandidatePaths(root, env = process.env) {
   try { files = await configurationAssetPaths(root, policy); }
   catch { /* Tracked path inspection below includes non-regular and otherwise unreadable assets. */ }
   const roots = [...new Set(['singularity', ...policy.roots, ...policy.files])];
-  const tracked = run('git', ['ls-files', '-z', '--', ...roots], {
-    cwd: root, env, allowFailure: true
-  }).stdout.split('\0').filter(Boolean)
+  const tracked = onboardingGitRead(root, env, ['ls-files', '-z', '--', ...roots], 'Tracked configuration paths')
+    .split('\0').filter(Boolean)
     .filter((relative) => isConfigurationAsset(relative, policy));
   return [...new Set([...files, ...tracked])]
     .filter((relative) => relative !== CONFIGURATION_RECOVERY_RECEIPT).sort();
@@ -2538,9 +2552,8 @@ async function configurationHashes(root, env = process.env) {
     if (info?.isFile() && !info.isSymbolicLink()) {
       hashes.set(relative, sha256(await readFile(file)));
     } else if (info) {
-      const identity = run('git', ['ls-files', '--stage', '-z', '--', relative], {
-        cwd: root, env, allowFailure: true
-      }).stdout;
+      const identity = onboardingGitRead(root, env, ['ls-files', '--stage', '-z', '--', relative],
+        `Index entry for '${relative}'`);
       hashes.set(relative, sha256(Buffer.from(`non-regular:${identity}`, 'utf8')));
     }
   }

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublicationBranch } from './state-stores.mjs';
-import { exists, posix, snapshot, run } from './util.mjs';
+import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
 import { matchApprovalAuthority, remainingRequiredAuthorities } from './approval-authority.mjs';
@@ -188,10 +188,21 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           }
         } catch (error) {
           publicationInvalid = true;
-          errors.push(`${phaseId} generation ${generation} publication record is invalid: ${error.message}`);
+          errors.push(error?.code === 'GIT_READ_UNAVAILABLE' ? error.message
+            : `${phaseId} generation ${generation} publication record is invalid: ${error.message}`);
         }
       } else {
-        found = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], { cwd: root, allowFailure: true }).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t')).find(([, message]) => message.startsWith(subject));
+        try {
+          // A history Git could not read is not a generation without its required commit.
+          found = (gitReadOutput(run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], {
+            cwd: root, allowFailure: true
+          }), `${phaseId} generation ${generation} commit`, { absentWhen: () => gitHeadIsUnborn(root) }) ?? '')
+            .split(/\r?\n/).filter(Boolean).map((line) => line.split('\t')).find(([, message]) => message.startsWith(subject));
+        } catch (error) {
+          if (error?.code !== 'GIT_READ_UNAVAILABLE') throw error;
+          publicationInvalid = true;
+          errors.push(error.message);
+        }
       }
       if (!found) {
         if (!publicationInvalid) errors.push(`${phaseId} generation ${generation} has no required Git commit`);

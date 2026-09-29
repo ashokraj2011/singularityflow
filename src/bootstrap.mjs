@@ -26,7 +26,7 @@ import path from 'node:path';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { portableIdentifier, SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
+import { gitReadOutput, portableIdentifier, SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
 
 import { CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';
 import { initializeLedger } from './ledger.mjs';
@@ -346,9 +346,10 @@ export async function bootstrapRepository(url, {
     // later commands address the checkout by its ordinary `origin` name.
     run('git', ['remote', 'set-url', 'origin', remote], { cwd: root, env: transport.env });
   }
-  const retainedOrigin = run('git', ['config', '--local', '--get', 'remote.origin.url'], {
+  // An unset origin fails the check below; a configuration Git could not read is refused as such.
+  const retainedOrigin = gitReadOutput(run('git', ['config', '--local', '--get', 'remote.origin.url'], {
     cwd: root, env: gitEnv, allowFailure: true
-  }).stdout.trim();
+  }), 'The bootstrap target origin', { absentStatus: 1 })?.trim() ?? '';
   if (retainedOrigin !== remote) {
     throw new SingularityFlowError(
       `The bootstrap target does not retain the exact reviewed origin '${sanitizeRemote(remote)}'. Nothing was changed.`

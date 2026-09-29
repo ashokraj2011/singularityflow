@@ -32,7 +32,8 @@ import {
   redactDiagnosticText, remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import {
-  gitWorkerCount, isGitRefName, mapLimit, removeTemporaryTree, SingularityFlowError, run, writeAtomic
+  gitReadOutput, gitWorkerCount, isGitRefName, mapLimit, removeTemporaryTree, SingularityFlowError, run,
+  writeAtomic
 } from './util.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { VERSION } from './version.mjs';
@@ -2544,6 +2545,19 @@ function stateTree(root, ref, policy, { env = process.env } = {}) {
   return output;
 }
 
+/**
+ * The commit a successful fetch left in FETCH_HEAD, or a refusal when Git could not read it.
+ *
+ * Refresh compares this commit with the authority it observed. An unreadable FETCH_HEAD used to be
+ * reported as an authority that changed, or as a different concurrent configuration, which sent
+ * the refresh down the path that publishes a review branch.
+ */
+function fetchedHeadCommit(root, env, label, options = {}) {
+  return gitReadOutput(run('git', ['rev-parse', '--verify', '--quiet', 'FETCH_HEAD^{commit}'], {
+    cwd: root, env, allowFailure: true, ...options
+  }), label, { absentStatus: 1 })?.trim() ?? '';
+}
+
 async function fetchStateRefAsync(root, config, { env = process.env } = {}) {
   const remoteRef = `refs/remotes/${config.remote}/${config.branch}`;
   const before = observeExactRefreshRef(root, remoteRef, { env });
@@ -2566,9 +2580,9 @@ async function fetchStateRefAsync(root, config, { env = process.env } = {}) {
     'fetch', '--no-tags', '--refmap=', transport.remote, `refs/heads/${config.branch}`
   ], { cwd: root, operation: 'remote-configuration', env: transport.env });
   if (fetched.status !== 0) return null;
-  const fetchedCommit = run('git', ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], {
-    cwd: root, env, allowFailure: true, maxBuffer: 1024, timeoutMs: 5_000
-  }).stdout.trim();
+  const fetchedCommit = fetchedHeadCommit(root, env, `Fetched ${config.branch} commit`, {
+    maxBuffer: 1024, timeoutMs: 5_000
+  });
   if (!EXACT_GIT_OID.test(fetchedCommit) || fetchedCommit !== expectedSourceCommit) {
     throw new SingularityFlowError(
       'Configuration refresh state authority changed after its exact direct-ref observation.', {
@@ -3007,9 +3021,7 @@ async function identicalConcurrentConfiguration(root, candidateCommit, { env = p
     `refs/heads/${CONFIGURATION_BRANCH}`
   ], { cwd: root, operation: 'remote-configuration', env });
   if (fetched.status !== 0) return null;
-  const approvedCommit = run('git', ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], {
-    cwd: root, env, allowFailure: true
-  }).stdout.trim();
+  const approvedCommit = fetchedHeadCommit(root, env, `Fetched ${CONFIGURATION_BRANCH} commit`);
   if (!EXACT_GIT_OID.test(approvedCommit)) return null;
   const candidateTree = run('git', ['rev-parse', `${candidateCommit}^{tree}`], { cwd: root, env }).stdout.trim();
   const approvedTree = run('git', ['rev-parse', `${approvedCommit}^{tree}`], { cwd: root, env }).stdout.trim();

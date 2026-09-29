@@ -4,7 +4,7 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/
 import os from 'node:os';
 import path from 'node:path';
 import {
-  SingularityFlowError, ensureDir, exists, nowIso, readJson, run, writeAtomic, writeJson
+  SingularityFlowError, ensureDir, exists, gitReadOutput, nowIso, readJson, run, writeAtomic, writeJson
 } from './util.mjs';
 import { readRefTree as readRefTreeShared } from './git-ref-tree.mjs';
 import { scopedRead } from './read-scope.mjs';
@@ -50,6 +50,17 @@ function git(root, args, {
   return run('git', args, {
     cwd: root, allowFailure, stdio, env, encoding, input, maxBuffer, timeoutMs
   });
+}
+
+/**
+ * Git's answer to a ledger read, or a refusal when Git could not give one.
+ *
+ * Empty output here means no intents to reconcile, no pins to archive or no refspec installed yet;
+ * a failed read used to mean the same, and an unreadable FETCH_HEAD was reported as a concurrent
+ * publication. Only Git's documented negative answer (`absentStatus`) may be empty besides success.
+ */
+function ledgerGitRead(root, args, label, { absentStatus = null, ...options } = {}) {
+  return gitReadOutput(git(root, args, { ...options, allowFailure: true }), label, { absentStatus }) ?? '';
 }
 
 function canonicalValue(value) {
@@ -629,9 +640,8 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
     return fetched.timedOut
       ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
   }
-  const fetchedCommit = git(root, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], {
-    allowFailure: true, env, maxBuffer: 1024, timeoutMs: 5_000
-  }).stdout.trim();
+  const fetchedCommit = ledgerGitRead(root, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'],
+    `Fetched ${config.branch} commit`, { env, maxBuffer: 1024, timeoutMs: 5_000 }).trim();
   if (fetchedCommit !== observed.commit) {
     throw stateTrackingConcurrencyError(config, observed.commit, fetchedCommit || null);
   }
@@ -659,8 +669,9 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
 function installPinRefspec(root, config, { env = process.env } = {}) {
   if (config.pinTransport !== 'refs' || !hasRemoteInEnvironment(root, config.remote, env)) return false;
   const refspec = '+refs/singularity/pins/*:refs/singularity/pins/*';
-  const configured = git(root, ['config', '--get-all', `remote.${config.remote}.fetch`], { allowFailure: true, env })
-    .stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  const configured = ledgerGitRead(root, ['config', '--get-all', `remote.${config.remote}.fetch`],
+    `Git remote '${config.remote}' fetch refspecs`, { absentStatus: 1, env })
+    .split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
   if (configured.includes(refspec)) return false;
   git(root, ['config', '--add', `remote.${config.remote}.fetch`, refspec], { env });
   return true;
@@ -1243,8 +1254,8 @@ export async function archiveLedger(root, rawConfig, output, { sign = false } = 
   const pinPattern = config.pinTransport === 'refs'
     ? 'refs/singularity/pins/'
     : `refs/remotes/${config.remote}/singularity/pins/`;
-  const pins = git(root, ['for-each-ref', '--format=%(refname)', pinPattern], { allowFailure: true })
-    .stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  const pins = ledgerGitRead(root, ['for-each-ref', '--format=%(refname)', pinPattern], 'Ledger pin refs')
+    .split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
   const bundled = git(root, ['bundle', 'create', target, ref, ...pins], { allowFailure: true });
   if (bundled.status !== 0) throw new SingularityFlowError(`Unable to create ledger archive: ${(bundled.stderr || bundled.stdout).trim()}`);
   const verified = git(root, ['bundle', 'verify', target], { allowFailure: true });
@@ -2519,11 +2530,11 @@ async function remoteLedgerIntents(root, config, { offline = false } = {}) {
     // all-heads fetch as Story discovery; a failed fetch must not silently reconcile stale refs.
     await fetchRemote(root, config.remote);
   }
-  const refs = git(root, [
+  const refs = ledgerGitRead(root, [
     'for-each-ref',
     '--format=%(refname:short)',
     `refs/remotes/${config.remote}`
-  ], { allowFailure: true }).stdout.trim().split('\n').filter(Boolean)
+  ], `Git remote '${config.remote}' branches`).trim().split('\n').filter(Boolean)
     .filter((ref) => ref !== `${config.remote}/HEAD` && ref !== `${config.remote}/${config.branch}`);
   const listed = batchedRefIntentFiles(root, refs);
   const bodies = presentObjects(root, [...listed.values()].filter(Boolean).flat().map((file) => file.oid), 'blob');
@@ -2566,13 +2577,13 @@ function showRefFile(root, ref, file) {
 
 /** The original per-ref read, kept for any ref the batched walk cannot prove exactly. */
 function perRefLedgerIntents(root, ref) {
-  const files = git(root, [
+  const files = ledgerGitRead(root, [
     'ls-tree',
     '-r',
     '--name-only',
     ref,
     'singularity'
-  ], { allowFailure: true }).stdout.trim().split('\n').filter(
+  ], `Ledger intents on '${ref}'`).trim().split('\n').filter(
     (file) => file.includes(`/${LEDGER_INTENT_DIRECTORY}/`) && file.endsWith('.json')
   );
   const published = publishingCommits(root, ref);

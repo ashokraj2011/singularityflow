@@ -46,7 +46,8 @@ import {
 } from './workspace-context.mjs';
 import { workspaceRepositoryPath } from './workspace.mjs';
 import {
-  posix, run, secureRepositoryPath, SingularityFlowError, snapshot, writeBytes, writeJson
+  gitHeadIsUnborn, gitReadOutput, posix, run, secureRepositoryPath, SingularityFlowError, snapshot,
+  writeBytes, writeJson
 } from './util.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
@@ -238,6 +239,18 @@ function implicitRepositoryId(source, remoteUrl) {
   return normalized || 'repository';
 }
 
+/**
+ * Git's answer to a history read that binds capability identity or provenance, or a refusal.
+ *
+ * An unborn repository has no history and keeps its documented fallback; a failed read used to
+ * take that same fallback and silently change the identity or the recorded commit.
+ */
+function capabilityHistoryRead(root, args, label) {
+  return gitReadOutput(run('git', args, { cwd: root, allowFailure: true }), label, {
+    absentWhen: () => gitHeadIsUnborn(root)
+  }) ?? '';
+}
+
 async function implicitLifecycleCapability(root, source, {
   pinnedConfiguration = null, configurationRoot = root
 } = {}) {
@@ -249,9 +262,8 @@ async function implicitLifecycleCapability(root, source, {
   // falsely invalidate an otherwise byte-identical World Model. Root commits remain clone/path/user
   // independent and stable throughout ordinary history. An unborn repository still falls back to
   // the approved workflow bytes.
-  const repositoryRoots = run('git', ['rev-list', '--max-parents=0', 'HEAD'], {
-    cwd: root, allowFailure: true
-  }).stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean).sort().join('\n');
+  const repositoryRoots = capabilityHistoryRead(root, ['rev-list', '--max-parents=0', 'HEAD'],
+    'Repository root commits').split(/\r?\n/).map((value) => value.trim()).filter(Boolean).sort().join('\n');
   const workflowBytes = await readFile(path.join(configurationRoot, WORKFLOW_PATH));
   const repositoryIdentitySha256 = remote.fingerprint
     ? `sha256:${remote.fingerprint}`
@@ -1124,7 +1136,7 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
     const commit = format === 'registered-v4'
       ? resolved.resolved.store.sourceSnapshot.revision.commit
       : manifest.repository_commit ?? manifest.repository?.commit
-        ?? run('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, allowFailure: true }).stdout.trim();
+        ?? capabilityHistoryRead(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}'], 'Repository HEAD').trim();
     const selected = [];
     const selections = format === 'registered-v4'
       ? resolved.resolved.selected.map((entry) => ({

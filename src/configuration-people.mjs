@@ -14,7 +14,7 @@ import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { identity } from './git.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
-import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
+import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
@@ -105,18 +105,29 @@ function mergeMember(members, actor, scope) {
   return { members: rows, changed: true };
 }
 
+/**
+ * A configured remote's URL, '' when Git says there is no such remote, or a refusal otherwise.
+ *
+ * An empty URL decides that no existing remote names the approved authority and that a new one is
+ * added, so a URL Git failed to read must not look like a remote that does not exist.
+ */
+function configuredRemoteUrl(root, name) {
+  return gitReadOutput(run('git', ['remote', 'get-url', name], { cwd: root, allowFailure: true }),
+    `Git remote '${name}'`, { absentStatus: 2 })?.trim() ?? '';
+}
+
 function configurationRemoteName(root, remoteUrl) {
   const remoteIdentity = assertCredentialFreeRemote(remoteUrl);
   const names = run('git', ['remote'], { cwd: root }).stdout.trim().split('\n').filter(Boolean);
   const matching = names.find((name) => {
-    const url = run('git', ['remote', 'get-url', name], { cwd: root, allowFailure: true }).stdout.trim();
+    const url = configuredRemoteUrl(root, name);
     if (!url) return false;
     try { return assertCredentialFreeRemote(url) === remoteIdentity; }
     catch { return false; }
   });
   if (matching) return matching;
   const name = 'sflow-configuration';
-  const existing = run('git', ['remote', 'get-url', name], { cwd: root, allowFailure: true }).stdout.trim();
+  const existing = configuredRemoteUrl(root, name);
   let existingIdentity = null;
   try { existingIdentity = existing ? assertCredentialFreeRemote(existing) : null; }
   catch { /* an unsafe existing remote never matches approved authority */ }

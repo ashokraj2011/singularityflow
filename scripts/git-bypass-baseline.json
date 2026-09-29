@@ -368,21 +368,21 @@
     },
     "src/approved-configuration-reader.mjs": {
       "counts": {
-        "command-run": 11
+        "command-run": 9
       },
-      "digest": "b0836bada9ddef95c59020bf045195c97e9cff20d52072c7431931a782566048"
+      "digest": "c91012ae9530f34461ef034bdac3299fe1a40f8de029291bbd1ce6733f02e087"
     },
     "src/architecture-intent-service.mjs": {
       "counts": {
-        "command-run": 7
+        "command-run": 6
       },
-      "digest": "91805d09888b42c0bf2a150cb030f48c3e46097df772720428f1a4c847b1aa56"
+      "digest": "d3a892cd1cd940d95bf67f3a254aa2f2511120e8ae3f8ce2720171748dd92767"
     },
     "src/ast-intelligence.mjs": {
       "counts": {
-        "command-run": 9
+        "command-run": 8
       },
-      "digest": "0b23fe456cebce2687c3a204849938070650dc72bf78247768de789c36f5b532"
+      "digest": "1392de9922d90ef1b64ca8b8a8c7afc505862b395a43985047dc56b0457eb907"
     },
     "src/ast-lifecycle.mjs": {
       "counts": {
@@ -405,12 +405,12 @@
     },
     "src/auto/auto-candidate.mjs": {
       "counts": {
-        "command-git": 29,
+        "command-git": 22,
         "command-run": 1,
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "23ea79043c58aba1d158f674cfedf9d399aa3d5b5641fcd41d34587c7297bcc4"
+      "digest": "14fc9ad3a82c5482ac269dd75171bda627d331650d58758a82e8faa7eea5dc0d"
     },
     "src/auto/auto-checkpoint.mjs": {
       "counts": {
@@ -420,9 +420,9 @@
     },
     "src/auto/auto-continuation.mjs": {
       "counts": {
-        "command-run": 6
+        "command-run": 5
       },
-      "digest": "d60c7eb4d447967ee703987b9d02acf9f014d63423264c50a95e8952e0ed9c1e"
+      "digest": "1a4ccdd0df711577109fabf559b3f64bb61795611f46181a281a8f8e85ab9a81"
     },
     "src/auto/auto-executor.mjs": {
       "counts": {
@@ -477,9 +477,9 @@
     },
     "src/capability-context.mjs": {
       "counts": {
-        "command-run": 5
+        "command-run": 4
       },
-      "digest": "8075844575f3ff76c9a540582045226f6d63e5d85849f675afd699e2e33b4f86"
+      "digest": "5fafec59fcc018ff7311b4a81e1d3e81ef69501ac8a28df57a660c1ef5471aba"
     },
     "src/capability-start.mjs": {
       "counts": {
@@ -489,22 +489,22 @@
     },
     "src/change-flight-plan.mjs": {
       "counts": {
-        "command-run": 32
+        "command-run": 25
       },
-      "digest": "3d367681ff6de18d22bdfbc732031374748826e21b33ec904961ccccb8f69d62"
+      "digest": "10b84b38483b97c6d399aaad2b61b89bf4177eea74b67117b2801620728a1642"
     },
     "src/cli-entry.mjs": {
       "counts": {
-        "command-run": 6
+        "command-run": 1
       },
-      "digest": "bd48c4d5ca08f4d6eb3f633c145f4ce18d7ec9ac2f129f82483b084d954a1cd4"
+      "digest": "99b130cb399c156259384709603b6cb8c9d5bc32c2a1ab7b4b7aab18c5abde0c"
     },
     "src/cli.mjs": {
       "counts": {
-        "command-run": 30,
+        "command-run": 27,
         "command-runCommand": 1
       },
-      "digest": "47a9d3f368539121ef01ed181b2fe4719f6edf2d2ec540d39881138e382c2df6"
+      "digest": "f6dbfe88b5fe46960010517413e6751f23fb94a8968dd5851e8ebe076b47e9d5"
     },
     "src/clipboard.mjs": {
       "counts": {
@@ -551,21 +551,21 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 27
+        "command-run": 22
       },
-      "digest": "59c8b5fb984c99dae58af7c741a3082b44b0866905849171307f6010c340f224"
+      "digest": "52ded824c91821b4c795db3777392b55e80c828453aad248b61a39e53a9018fe"
     },
     "src/configuration-people.mjs": {
       "counts": {
-        "command-run": 10
+        "command-run": 9
       },
-      "digest": "6f126662baf738e45662933e87f3fe6c2144b4127846bfeeb7a62a77dc6faa5b"
+      "digest": "7f9df2a82d55b5efa50754df22a07390919b9700c9ccde4e6cb27f141116f7d1"
     },
     "src/configuration-proposal.mjs": {
       "counts": {
-        "command-run": 17
+        "command-run": 15
       },
-      "digest": "396dd97b1fd3e09d7622dde56fb753e361f74144ce834144e79b0d2c69d858fb"
+      "digest": "62c3d5771b268e365114ddf4c2d0bf3969a5ee76e163ba3dd088d0db21353f70"
     },
     "src/configuration-review-pass.mjs": {
       "counts": {
@@ -652,7 +652,7 @@
       "counts": {
         "command-run": 24
       },
-      "digest": "0c9920e8fa5e68d55369bc4e10fdbeebae96b26889239f30ddc6f5ad07f1118d"
+      "digest": "9667cacff13fa582f4858d355e98c61f43a184fcf821dbe15f03ef79a5326fde"
     },
     "src/first-run-guide.mjs": {
       "counts": {
@@ -721,9 +721,9 @@
     },
     "src/generation-publication-store.mjs": {
       "counts": {
-        "command-run": 11
+        "command-run": 10
       },
-      "digest": "7e1de94d4b207a35775f8acddf7fadd54342460e8fc50c17a09e981678a007c0"
+      "digest": "35efdf631e983b7b6d2aa76ca50f25ac341f7456dbeb1da00686ba319c4f88ec"
     },
     "src/git-access.mjs": {
       "counts": {
@@ -795,7 +795,7 @@
       "counts": {
         "command-run": 12
       },
-      "digest": "715d5cd73d967714913e6558aa50b531c5efc5223605dc3d7d1563f37d4fb52f"
+      "digest": "d7471fae96c340adc2f9841ea9b18348013073f7f31a319681a4a7c4c6a6454b"
     },
     "src/governed-goals.mjs": {
       "counts": {
@@ -852,9 +852,9 @@
     },
     "src/initiative-repositories.mjs": {
       "counts": {
-        "command-run": 21
+        "command-run": 19
       },
-      "digest": "acc9f296a68d3f80d8e950acbf12074eb01ef5860f2a920cbf6c2b53e37ece97"
+      "digest": "80a2582d6410f29f43fcb1203ce76c5da303fcc5a2ea739d64bb43afb283abce"
     },
     "src/jira-initiative.mjs": {
       "counts": {
@@ -871,10 +871,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 76,
+        "command-git": 72,
         "command-run": 2
       },
-      "digest": "25f2a67dd968acd0afb4085180080be44bc99bd577d2a6c04453c56cd22f7fb1"
+      "digest": "b7589ec74ba57bf3f1c9212feff0d8648506fc42783580c8d895d1a992604219"
     },
     "src/local-identity.mjs": {
       "counts": {
@@ -927,9 +927,9 @@
     },
     "src/organisation.mjs": {
       "counts": {
-        "command-run": 79
+        "command-run": 60
       },
-      "digest": "520097d5cbee44102d7c0d50cd8dca9630e53b1a24153facd901c33c2e9cc4ba"
+      "digest": "b2f64d0503c32463f90eccf5f4a58a0857a8b0fcba5eec4facf28af5a8865bd8"
     },
     "src/performance-doctor.mjs": {
       "counts": {
@@ -1020,9 +1020,9 @@
     },
     "src/repository-onboarding.mjs": {
       "counts": {
-        "command-run": 31
+        "command-run": 28
       },
-      "digest": "ed179816a05142acd4a710e77439f75b17ca4003b46c8f75b5ffc69fe85f68e6"
+      "digest": "34b5dd33a1120e34eeac03bc4782dd00ad313f2a12643eda1737b4cfdf68714b"
     },
     "src/repository-subject-index.mjs": {
       "counts": {
@@ -1094,9 +1094,9 @@
     },
     "src/sgos/authority-git-transport.mjs": {
       "counts": {
-        "command-run": 5
+        "command-run": 3
       },
-      "digest": "d0df0f097d4126a1f4e29d3e760cf578ec7705acc7703a301e688f69e9d1fa20"
+      "digest": "d9f7cfa4f4bc7818babcb020f327b4c8f18ca0d548c60a75296925b4ad8e6edf"
     },
     "src/sgos/authority-transport.mjs": {
       "counts": {
@@ -1140,9 +1140,9 @@
     },
     "src/sgos/platform/authority.mjs": {
       "counts": {
-        "command-run": 6
+        "command-run": 3
       },
-      "digest": "f575bc3bc9fc420d26c1a931766ec58b8319650e03f04c2dd8e5880d446779e7"
+      "digest": "cde5cc53d8ef0d80fdbffeee6dbe57ca92f2c4a2283a303531bc79331b21ce7c"
     },
     "src/sgos/story-authority.mjs": {
       "counts": {
@@ -1177,9 +1177,9 @@
     },
     "src/state.mjs": {
       "counts": {
-        "command-run": 29
+        "command-run": 27
       },
-      "digest": "43345ce36af0369707171887e11e693ed5185eac60954ed979fce2aae7bdf36a"
+      "digest": "3071d813bbfb6a1facfec2106f7fd20fb9a8a85bf63ec0c7f34ce6847288b6e9"
     },
     "src/story-intake-verification.mjs": {
       "counts": {
@@ -1191,7 +1191,7 @@
       "counts": {
         "command-run": 10
       },
-      "digest": "e3e42e5152b23248dec9342cd0d81e911cc0c4aab3aca3561cf848bec44f0e73"
+      "digest": "766e7b1f77c05eec85eb3f0aff667bb93d352728fddfac13d76335984c977a07"
     },
     "src/story-stack.mjs": {
       "counts": {
@@ -1203,13 +1203,13 @@
       "counts": {
         "command-run": 8
       },
-      "digest": "cf41e707b5046f4a2db4bce073fc7e2e1261efb882c9473aa8f6796b0ec11603"
+      "digest": "770ee9e81c6340489925bca80df018b783b44f56a3c1a5e167bd9e8ca8fd874a"
     },
     "src/story-start.mjs": {
       "counts": {
         "command-run": 1
       },
-      "digest": "3b7a15a03e9a9e62c559f37413c60e5bc87d6ad37987e2cc78d8afc4574423a6"
+      "digest": "4828665fa9f0fc4c2b72e9d0074eab245bdb55f7f883cb8fcc641824131f78f2"
     },
     "src/story-worktree.mjs": {
       "counts": {
@@ -1261,9 +1261,9 @@
     },
     "src/workflow-snapshots.mjs": {
       "counts": {
-        "command-run": 16
+        "command-run": 15
       },
-      "digest": "967b56c96ad7e0fd4f60035f08b86a378d7ff99b69216568b519582613a3535a"
+      "digest": "2a22df77e304a9586747d12453a96917f43bbe98f5618b722b0fa350ff6b9d84"
     },
     "src/workspace-bootstrap.mjs": {
       "counts": {
@@ -1273,9 +1273,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 37
+        "command-run": 36
       },
-      "digest": "e6352509a23c61a88ba9462a056994014744962b5ec370292d20fad14038de46"
+      "digest": "8db56dbad6d3be882e9df15337500d93ea0dc706593d9bf82c2d7d093889d9b5"
     },
     "src/workspace-impact.mjs": {
       "counts": {
@@ -1286,10 +1286,10 @@
     "src/workspace.mjs": {
       "counts": {
         "command-git-literal": 1,
-        "command-run": 36,
+        "command-run": 27,
         "process-import": 1
       },
-      "digest": "f093220a8731522ec15aaa95c5cd4ed9383267b4e8e85f043207346b6a59ba35"
+      "digest": "cb667c983ed0433a42f9022964f7282cd5a7650cc3a731c081a62142cf2580d9"
     },
     "src/worktree-fingerprint.mjs": {
       "counts": {

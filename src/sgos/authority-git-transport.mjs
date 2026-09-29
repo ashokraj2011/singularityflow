@@ -15,7 +15,7 @@ import {
 } from '../git-remote-diagnostics.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';
 import { safePrivateSidecarDirectory } from '../private-sidecar.mjs';
-import { run, SingularityFlowError } from '../util.mjs';
+import { gitReadOutput, run, SingularityFlowError } from '../util.mjs';
 import {
   authorityTransportEntryValidator, parseAuthorityTransport,
   SGOS_AUTHORITY_TRANSPORT_MAXIMUM_BYTES
@@ -146,6 +146,16 @@ async function assertSameObservation(root, target, expectedCommit) {
   return current;
 }
 
+/**
+ * Git's answer to a read of the isolated state reader, or a refusal when Git could not give one.
+ *
+ * An unreadable commit used to be reported as state that moved during the read, an unreadable
+ * size as a file over the transport limit, and an unreadable optional projection as an absent one.
+ */
+function isolatedStateRead(temporary, args, label, { absentStatus = null } = {}) {
+  return gitReadOutput(run('git', args, { cwd: temporary, allowFailure: true }), label, { absentStatus })?.trim() ?? '';
+}
+
 async function isolatedRemoteFile(root, target, stateCommit, relative, { optional = false } = {}) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-authority-state-read-'));
   try {
@@ -169,9 +179,8 @@ async function isolatedRemoteFile(root, target, stateCommit, relative, { optiona
           remote: target.remote, branch: target.branch
         });
     }
-    const fetchedCommit = run('git', ['rev-parse', '--verify', `${READ_REF}^{commit}`], {
-      cwd: temporary, allowFailure: true
-    }).stdout.trim();
+    const fetchedCommit = isolatedStateRead(temporary, ['rev-parse', '--verify', '--quiet', `${READ_REF}^{commit}`],
+      'The fetched Authority Store state commit', { absentStatus: 1 });
     if (fetchedCommit !== stateCommit) {
       fail('Git-trusted Authority Store state changed while its projection was read.',
         'SGOS_AUTHORITY_GIT_PLAN_STALE', {
@@ -179,21 +188,20 @@ async function isolatedRemoteFile(root, target, stateCommit, relative, { optiona
         });
     }
     const object = `${stateCommit}:${relative}`;
-    const type = run('git', ['cat-file', '-t', object], {
-      cwd: temporary, allowFailure: true
-    });
-    if (type.status !== 0) {
+    // `cat-file -t` fails the same way for a missing path and a failed read; Git's clean exit 1
+    // from `rev-parse --verify --quiet` is the only "absent".
+    if (!isolatedStateRead(temporary, ['rev-parse', '--verify', '--quiet', object],
+      `Authority Store projection '${relative}'`, { absentStatus: 1 })) {
       if (optional) return null;
       fail(`Git-trusted Authority Store projection '${relative}' is absent from the state branch.`,
         'SGOS_AUTHORITY_GIT_PROJECTION_MISSING', { stateCommit, path: relative });
     }
-    if (type.stdout.trim() !== 'blob') {
+    const type = isolatedStateRead(temporary, ['cat-file', '-t', object], `Authority Store projection '${relative}' type`);
+    if (type !== 'blob') {
       fail(`Git-trusted Authority Store projection '${relative}' is not a file.`,
         'SGOS_AUTHORITY_GIT_PROJECTION_INVALID', { stateCommit, path: relative });
     }
-    const sizeText = run('git', ['cat-file', '-s', object], {
-      cwd: temporary, allowFailure: true
-    }).stdout.trim();
+    const sizeText = isolatedStateRead(temporary, ['cat-file', '-s', object], `Authority Store projection '${relative}' size`);
     const size = Number(sizeText);
     if (!Number.isSafeInteger(size) || size <= 0
         || size > SGOS_AUTHORITY_TRANSPORT_MAXIMUM_BYTES) {

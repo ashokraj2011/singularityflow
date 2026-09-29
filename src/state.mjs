@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  SingularityFlowError, ensureSecureRepositoryDirectory, exists, invariant, nowIso, posix, readJson,
-  repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeBytes, writeJson, writeText
+  SingularityFlowError, ensureSecureRepositoryDirectory, exists, gitHeadIsUnborn, gitReadOutput, invariant,
+  nowIso, posix, readJson, repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate,
+  writeBytes, writeJson, writeText
 } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import {
@@ -502,12 +503,27 @@ function resolutionPolicySha256(resolution) {
   return `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}`;
 }
 
+/**
+ * The commits a read-only Story history query names, or a refusal when Git could not answer.
+ *
+ * These reads decide authority: no commit means a Story was never accepted, or that nothing was
+ * committed after its review evidence. A failed read used to give the same empty answer, so an
+ * accepted Story read as an unaccepted draft and a history Git could not walk passed the
+ * intervening-commit gate. Only before the first commit is an empty history real.
+ */
+function storyHistoryCommits(root, args, label) {
+  const output = gitReadOutput(run('git', args, { cwd: root, allowFailure: true }), label, {
+    absentWhen: () => gitHeadIsUnborn(root)
+  });
+  return (output ?? '').trim().split(/\r?\n/u).filter(Boolean);
+}
+
 function initialWorkflowRecord(root, config, workId) {
   const relative = workDirRelative(config, workId);
   const workflowRelative = `${relative}/workflow.json`;
-  const history = run('git', [
+  const history = storyHistoryCommits(root, [
     'log', '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative
-  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  ], `Story '${workId}' creation record`);
   if (!history.length) return null;
   const stored = run('git', ['show', `${history[0]}:${workflowRelative}`], {
     cwd: root, allowFailure: true
@@ -4409,15 +4425,15 @@ export async function approvePhase(root, config, workflow, {
   // checkpoint immediately after submission so a human can resume the flight after approval;
   // it is observational evidence, not a new generation. All other commits require resubmission.
   const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
-  const interveningCommits = run('git', [
+  const interveningCommits = storyHistoryCommits(root, [
     'rev-list', '--first-parent', reviewRange
-  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/u).filter(Boolean);
+  ], `Phase '${phase.id}' history since its review evidence`);
   const approvalSummary = posix(path.relative(
     root, approvalPath(root, config, workflow.workItem.id, phase.id)
   ));
-  const priorApprovalCommits = run('git', [
+  const priorApprovalCommits = storyHistoryCommits(root, [
     'log', '--first-parent', '--format=%H', reviewRange, '--', approvalSummary
-  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/u).filter(Boolean);
+  ], `Phase '${phase.id}' prior approvals`);
   const allowedReviewCommits = new Set(priorApprovalCommits);
   if (workflow.auto && interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {
     const { readGovernedAutoCheckpoint } = await import('./auto/auto-checkpoint.mjs');

@@ -6,7 +6,7 @@ import {
   branch, checkout, fetchRemote, fileAtRef, hasRemote, head, refExists, refHead, remoteBranches
 } from './git.mjs';
 import {
-  ensureDir, exists, nowIso, posix, run, SingularityFlowError, writeJson
+  ensureDir, exists, gitHeadIsUnborn, gitReadOutput, nowIso, posix, run, SingularityFlowError, writeJson
 } from './util.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
@@ -150,11 +150,12 @@ export async function currentLocalEpicReservation(root, portfolio, {
     throw new SingularityFlowError(`Local Epic reservation ${relative} does not match branch '${id}'.`);
   }
   if (fetch && hasRemote(root, remote)) await fetchRemote(root, remote);
-  const reservationCommit = run(
+  // Only a history Git could read may say the reservation "has not been committed".
+  const reservationCommit = (gitReadOutput(run(
     'git',
     ['log', '-1', '--format=%H', '--', relative],
     { cwd: root, allowFailure: true }
-  ).stdout.trim();
+  ), `Local Epic reservation ${relative}`, { absentWhen: () => gitHeadIsUnborn(root) }) ?? '').trim();
   if (!reservationCommit) {
     throw new SingularityFlowError(`Local Epic reservation ${relative} has not been committed.`);
   }

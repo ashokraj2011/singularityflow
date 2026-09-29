@@ -19,7 +19,8 @@ import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import {
-  SingularityFlowError, posix, readJson, run, secureRepositoryPath, writeBytes, writeJson
+  SingularityFlowError, gitHeadIsUnborn, gitOutsideRepository, posix, readJson, run, secureRepositoryPath,
+  writeBytes, writeJson
 } from './util.mjs';
 
 const SNAPSHOT_FAMILY = 'workflow-snapshot';
@@ -77,8 +78,9 @@ function fail(message, code = 'WFA_SNAPSHOT_INVALID', details = undefined) {
 export function storyHistoryCommits(root, logArguments, label) {
   const result = run('git', ['log', ...logArguments], { cwd: root, allowFailure: true });
   if (result.status === 0) return result.stdout.trim().split(/\r?\n/).filter(Boolean);
-  const head = run('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd: root, allowFailure: true });
-  if (!result.error && !result.signal && !head.error && !head.signal && head.status !== 0) return [];
+  // Git exits 128 alike outside a repository and in one it cannot read (a bad configuration line),
+  // so a failed HEAD probe is not enough: each genuinely empty state is recognized by Git's own answer.
+  if (!result.error && !result.signal && (gitHeadIsUnborn(root) || gitOutsideRepository(root))) return [];
   const reason = String(result.stderr ?? '').trim().split(/\r?\n/)[0]
     || result.error?.message || `git log exited with ${result.status ?? result.signal}`;
   fail(`${label} could not be read from Git history: ${reason.slice(0, 240)}`, 'WFA_DEPENDENCY_UNAVAILABLE');

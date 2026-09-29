@@ -1821,6 +1821,106 @@ async function commitLedgerEntry(worktree, config, intent, publishedCommit, idem
   return { entryHash: location.hash, sequence: nextHead.sequence, ledgerCommit };
 }
 
+/** The atomic append's lease check; its slowest measured office answer was about 3 s. */
+const ATOMIC_LEDGER_OBSERVATION_TIMEOUT_MS = 10_000;
+
+/** `git push --porcelain` flags by remote ref: ' ' fast-forward, '+' forced, '*' new, '=' current, '!' rejected. */
+function porcelainPushFlags(stdout) {
+  const flags = new Map();
+  for (const line of String(stdout ?? '').split(/\r?\n/u)) {
+    const match = /^([ +\-*!=])\t[^\t]*:([^\t]+)\t/u.exec(line);
+    if (match) flags.set(match[2], match[1]);
+  }
+  return flags;
+}
+
+/**
+ * Publish one ledger entry and its pin in a single atomic push. `[perf]`
+ *
+ * The sequential append spends four remote round trips after every lifecycle publication: it
+ * re-observes the state tip, lists the pin, pushes the pin, then pushes the entry. This builds the
+ * same entry on the tracking ref the publication's own ledger read just refreshed, checks every lease
+ * in one fresh observation that refuses symbolic refs, and moves the entry and its pin together under
+ * exact leases: the observed state tip, and create-only for the pin. Nothing lands alone.
+ *
+ * A clean per-ref acknowledgement is the same evidence the sequential push relies on. A push whose
+ * outcome is unclear, such as a lost response, is settled by observing both refs again. Anything
+ * short of a verified landing publishes nothing here: it returns `uncertain` when the push may have
+ * landed, and the caller runs the sequential append, which is idempotent against an unverified
+ * landing and must then begin from a fresh observation of the state authority.
+ */
+async function appendLedgerIntentAtomically(root, config, intent, publishedCommit, {
+  env, transportRemote, commitIdentity, commitSigning
+}) {
+  let observation;
+  let audit;
+  try {
+    if (!hasRemoteInEnvironment(root, config.remote, env)) return null;
+    observation = ledgerFetchTransport(root, config, { env, transportRemote });
+    if (!observation) return null;
+    // Null when there is no tracked head to build on or the event is already recorded: the
+    // sequential path owns initialization and duplicate reconciliation.
+    audit = await prepareLedgerAppend(root, config, intent, publishedCommit, {
+      env, commitIdentity, commitSigning
+    });
+  } catch {
+    // Nothing was published. The sequential path reports any real problem with its own recovery.
+    return null;
+  }
+  if (!audit) return null;
+  const stateRef = `refs/heads/${config.branch}`;
+  const named = [stateRef, ...(audit.pinRef ? [audit.pinRef] : [])];
+  const session = new GitRemoteSession({
+    env: observation.env,
+    runAsyncCommand: (args, options) => runRemoteGitAsync(args, { ...options, cwd: root })
+  });
+  const observe = (timeoutMs = null) => session.observeAsync(observation.remote, {
+    refs: named, includeHead: false, refresh: true, timeoutMs
+  });
+  // This observation only decides whether the one-push path can run. Like the launch-fetch reuse
+  // probe, it must not put a full network timeout in front of the ordinary append when a proxy
+  // cannot answer; the sequential path keeps its own bounds and classifies the failure.
+  const before = await observe(ATOMIC_LEDGER_OBSERVATION_TIMEOUT_MS);
+  if (!before.ok || (before.refs.get(stateRef) ?? null) !== audit.expectedRemoteSha) return null;
+  const updates = [[stateRef, audit.ledgerCommit, audit.expectedRemoteSha]];
+  if (audit.pinRef) {
+    const pinned = before.refs.get(audit.pinRef) ?? null;
+    // A pin naming another commit is a real conflict; the sequential path reports it.
+    if (pinned !== null && pinned !== publishedCommit) return null;
+    if (pinned === null) updates.push([audit.pinRef, publishedCommit, null]);
+  }
+  const frozen = transportRemote === undefined
+    ? null
+    : frozenRemoteTransport(transportRemote, { push: true, env });
+  const pushed = await runRemoteGitAsync([
+    'push', '--atomic', '--porcelain',
+    ...updates.map(([ref, , expected]) => `--force-with-lease=${ref}:${expected ?? ''}`),
+    frozen?.remote ?? config.remote, ...updates.map(([ref, commit]) => `${commit}:${ref}`)
+  ], { cwd: root, operation: 'remote-push', env: frozen?.env ?? env, allowFailure: true });
+  const flags = porcelainPushFlags(pushed.stdout);
+  let landed = pushed.status === 0
+    && updates.every(([ref]) => [' ', '+', '*', '='].includes(flags.get(ref)));
+  if (!landed) {
+    // A server without atomic pushes, or a lease that no longer holds, refuses every ref.
+    if (/does not support (?:the )?--atomic/iu.test(String(pushed.stderr ?? ''))
+        || updates.every(([ref]) => flags.get(ref) === '!')) return null;
+    const after = await observe();
+    landed = after.ok && updates.every(([ref, commit]) => after.refs.get(ref) === commit);
+    if (!landed) return { uncertain: true };
+  }
+  try {
+    recordStatePublication(root, config, audit.ledgerCommit, audit.expectedRemoteSha, { env });
+  } catch {
+    // The landing is verified. Local tracking refs are a cache the next ledger read refreshes.
+  }
+  return {
+    published: {
+      duplicate: false, eventId: audit.eventId, entryHash: audit.entryHash,
+      sequence: audit.sequence, ledgerCommit: audit.ledgerCommit
+    }
+  };
+}
+
 export async function appendLedgerIntent(root, rawConfig, intent, publishedCommit, {
   env = process.env, transportRemote = undefined, commitIdentity = null, commitSigning = null
 } = {}) {
@@ -1828,6 +1928,12 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
   const operation = frozenCommitOperation(root, config, {
     env, commitIdentity, commitSigning
   });
+  const atomic = await appendLedgerIntentAtomically(root, config, intent, publishedCommit, {
+    env, transportRemote,
+    commitIdentity: operation.commitIdentity,
+    commitSigning: operation.commitSigning
+  });
+  if (atomic?.published) return atomic.published;
   let lastError;
   for (let attempt = 1; attempt <= config.maxRetries; attempt += 1) {
     try {
@@ -1835,9 +1941,10 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
         env, transportRemote,
         commitIdentity: operation.commitIdentity,
         commitSigning: operation.commitSigning,
-        // Every failure emitted after a remote ledger push is deliberately marked uncertain. A
-        // later attempt may proceed only after it has refreshed the exact state authority.
-        requireFreshRemoteAuthority: attempt > 1
+        // Every failure emitted after a remote ledger push is deliberately marked uncertain, and so
+        // is an atomic push that could not be verified either way. A later attempt may proceed only
+        // after it has refreshed the exact state authority.
+        requireFreshRemoteAuthority: attempt > 1 || atomic?.uncertain === true
       });
     } catch (error) {
       lastError = error;

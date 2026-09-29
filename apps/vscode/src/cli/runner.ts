@@ -19,6 +19,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { executeGalAsyncRead } from '../../../../src/gal-async-read.mjs';
 import { recordHostCliProcessCompleted, recordHostCliProcessStarted } from '../host-performance.ts';
 import { commandGuidance } from '../copilot-command.ts';
+import { ProgressLineSplitter } from './progress.ts';
 
 /** Lifecycle snapshots include branch cataloguing and deterministic governance checks. */
 export const CLI_TIMEOUT_MS = 120_000;
@@ -1755,6 +1756,11 @@ export interface InvokeOptions {
   /** Time this read already waited in the shared pool before its process could spawn. */
   queuedMs?: number;
   priority?: 'interactive' | 'normal' | 'background';
+  /**
+   * Stage progress. When present the engine is asked for `stderr-v1` progress lines, which are
+   * stripped from stderr as they arrive and reported here; see `cli/progress.ts`.
+   */
+  onProgress?: (step: string) => void;
 }
 
 /**
@@ -1794,8 +1800,10 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
   const {
     executable, cli, repository, args, input = null, json = true,
     env = process.env, timeoutMs = CLI_TIMEOUT_MS, spawnImpl = spawn, onOutput, onTiming,
-    commandClass = 'unknown', signal, queuedMs = 0, priority
+    commandClass = 'unknown', signal, queuedMs = 0, priority, onProgress
   } = options;
+  const progress = onProgress ? new ProgressLineSplitter(onProgress) : null;
+  const childEnv = progress ? { ...env, SINGULARITY_FLOW_PROGRESS: 'stderr-v1' } : env;
 
   const startedAt = process.hrtime.bigint();
   const startedAtWall = new Date().toISOString();
@@ -1898,7 +1906,8 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         terminate(new Error('The Singularity Flow CLI returned too much data to display.'), 'error');
         return;
       }
-      const text = (stream === 'stdout' ? stdoutDecoder : stderrDecoder).write(chunk);
+      const decoded = (stream === 'stdout' ? stdoutDecoder : stderrDecoder).write(chunk);
+      const text = stream === 'stderr' && progress ? progress.push(decoded) : decoded;
       if (text) target.push(text);
     };
     function onStdout(chunk: Buffer) { collect(stdoutChunks, chunk, 'stdout'); }
@@ -1914,7 +1923,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     try {
       child = spawnImpl(executable, [cli, ...args], {
         cwd: repository,
-        env,
+        env: childEnv,
         detached: process.platform !== 'win32',
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
@@ -1946,7 +1955,8 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       // cancellation. Reporting here could beat a still-running Windows taskkill process.
       if (pendingFailure) return;
       const stdoutTail = stdoutDecoder.end();
-      const stderrTail = stderrDecoder.end();
+      const stderrDecoded = stderrDecoder.end();
+      const stderrTail = progress ? progress.push(stderrDecoded) + progress.end() : stderrDecoded;
       if (stdoutTail) stdoutChunks.push(stdoutTail);
       if (stderrTail) stderrChunks.push(stderrTail);
       const stdout = stdoutChunks.join('');

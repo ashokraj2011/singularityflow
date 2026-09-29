@@ -311,3 +311,28 @@ test('selection receipt storage failures never disclose the bearer token', async
     return true;
   });
 });
+
+test('a selection receipt made in the launch checkout drives an isolated Story start', async () => {
+  const root = await repository();
+  const begun = JSON.parse(flow(root, ['choices', 'begin', 'start', 'CHOICE-301', '--json']).stdout);
+  flow(root, ['choices', 'answer', begun.token, 'base-branch', 'main', '--json']);
+  flow(root, ['choices', 'answer', begun.token, 'intake-source', 'manual', '--json']);
+  flow(root, ['choices', 'answer', begun.token, 'workflow-template', 'bugfix', '--json']);
+  // Unrelated work in the launch checkout sends the Story to its own worktree.
+  await writeFile(path.join(root, 'unfinished.txt'), 'not part of the Story\n');
+  const started = JSON.parse(flow(root, [
+    'start', 'CHOICE-301', '--json', '--title', 'Isolated receipt start', '--selection-receipt', begun.token
+  ]).stdout);
+  const result = started.data ?? started;
+  const storyRoot = result.worktree?.repositoryPath;
+  assert.ok(storyRoot, 'the Story started in its own checkout');
+  assert.equal(run('git', ['branch', '--show-current'], storyRoot).stdout.trim(), 'CHOICE-301');
+  const workflow = JSON.parse(await readFile(
+    path.join(storyRoot, 'singularity', 'work-items', 'CHOICE-301', 'workflow.json'), 'utf8'
+  ));
+  assert.equal(workflow.workItem.workType, 'bugfix', 'the recorded choices were used');
+  assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main', 'the launch checkout stayed put');
+  assert.equal(await readFile(path.join(root, 'unfinished.txt'), 'utf8'), 'not part of the Story\n');
+  assert.equal(flow(root, ['choices', 'status', begun.token, '--json'], { allowFailure: true }).status, 1,
+    'the receipt was consumed where it was recorded');
+});

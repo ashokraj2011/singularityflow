@@ -94,6 +94,16 @@ are twice the fifteen-minute lifetime old. A missing, unreadable, edited, expire
 claimed receipt is only a reason to take the ordinary start. The VS Code extension never shares a
 minting preview between callers and never puts a receipt in a displayed or replayed command.
 
+## Reference prefetch store
+
+`<git-common-dir>/singularity-flow/reference-prefetch/v1/<key>/` holds one bare repository per
+reference repository and exact commit, fetched while a Story is still being described. A fill works
+in a private `.fill-*` directory, writes its plain-text completion marker last and renames the
+directory into place, so a crash leaves only an abandoned fill, removed after thirty minutes. At
+most eight entries and 512 MiB are kept, least recently used first out. Start uses an entry only
+for the exact commit it has just resolved, fetches it locally so Git verifies every object, and
+falls back to the network for anything missing, incomplete or different.
+
 ## Verification boundary
 
 Regression fixtures cover write/read isolation, repository-switch cancellation, classifier parity,

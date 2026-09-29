@@ -516,6 +516,8 @@ export interface ClientOptions {
 /** Per-call options. Priority only orders reads in the shared pool; writes never queue. */
 export interface RunOptions {
   priority?: ReadPriority;
+  /** Story start stages as the engine reports them; see `cli/progress.ts`. Writes only. */
+  onProgress?: (step: string) => void;
 }
 
 /**
@@ -614,7 +616,8 @@ export class SingularityFlowClient {
   }
 
   private invoke<T>(args: string[], timeoutMs: number | null, signal?: AbortSignal, json = true,
-    input: string | null = null, priority: ReadPriority = defaultReadPriority(args)): Promise<T> {
+    input: string | null = null, priority: ReadPriority = defaultReadPriority(args),
+    onProgress?: (step: string) => void): Promise<T> {
     // Capture before entering the process-wide queue: repository changes and caller argv edits
     // must never change which command a previously requested read eventually launches.
     args = [...args];
@@ -665,7 +668,7 @@ export class SingularityFlowClient {
       signal
     };
     // Writes keep the original runner deadline/rollback contract and never wait in the read pool.
-    if (classification !== 'read') return invokeCli<T>(invocation);
+    if (classification !== 'read') return invokeCli<T>({ ...invocation, ...(onProgress ? { onProgress } : {}) });
     let job = cacheKey ? this.readInFlight.get(cacheKey) : undefined;
     const fresh = !job;
     if (job && !job.started) job.ticket?.raise(priority);
@@ -707,8 +710,10 @@ export class SingularityFlowClient {
 
   /** A coherent, bounded read model. Heavy domains are added only when their surface opens. */
   async snapshot(signal?: AbortSignal, slices: readonly SnapshotSlice[] = CORE_SNAPSHOT_SLICES,
-    ifRevision: string | null = null): Promise<RepositorySnapshot> {
-    const envelope = await this.invoke<SnapshotEnvelope>(snapshotArgs(slices, ifRevision), SNAPSHOT_TIMEOUT_MS, signal);
+    ifRevision: string | null = null, priority?: ReadPriority): Promise<RepositorySnapshot> {
+    const args = snapshotArgs(slices, ifRevision);
+    const envelope = await this.invoke<SnapshotEnvelope>(args, SNAPSHOT_TIMEOUT_MS, signal, true, null,
+      priority ?? defaultReadPriority(args));
     return flattenSnapshot(envelope);
   }
 
@@ -742,7 +747,7 @@ export class SingularityFlowClient {
   /** Everything else, for the governed actions the tree offers. */
   run<T = unknown>(args: string[], signal?: AbortSignal, options: RunOptions = {}): Promise<T> {
     return this.invoke<T>(args, this.timeoutFor(args, signal !== undefined), signal, true, null,
-      options.priority ?? defaultReadPriority(args));
+      options.priority ?? defaultReadPriority(args), options.onProgress);
   }
 
   /** JSON CLI result with private stdin payload; input is never appended to child argv. */

@@ -1665,14 +1665,14 @@ function configuredStoryRemote(root, remoteName) {
 }
 
 /**
- * The remote Story authority resolution lists first, when that is this checkout's own origin.
- * `[perf]` Null whenever an active workspace names a separate authority, so a caller can only ever
- * widen the listing resolution makes anyway, never probe a remote resolution would not.
+ * The remote Story authority resolution lists first: the active workspace's capability authority
+ * when it names one, otherwise this checkout's own origin. `[perf]` A caller may only widen that
+ * listing, which resolution makes anyway, never probe a remote resolution would not.
  */
-export async function ownOriginStoryAuthorityCandidate(root) {
+export async function firstStoryAuthorityCandidate(root) {
   let workspace;
   try { workspace = await activeWorkspaceForRepository(root); } catch { return null; }
-  if (workspace?.capabilityAuthority?.url) return null;
+  if (workspace?.capabilityAuthority?.url) return workspace.capabilityAuthority.url;
   const own = configuredStoryRemote(root, 'origin');
   return own.url || null;
 }

@@ -21,6 +21,7 @@ import {
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
 import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
+import { startProgressLabel } from '../cli/progress.ts';
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
@@ -207,7 +208,6 @@ export class IntakePanel {
   private form: IntakeForm;
   private preflightVersion = 0;
   private preflightController: AbortController | null = null;
-  private referenceCheckRevision = 0;
   private enhancementRevision = 0;
   private catalogRevision = 0;
   private enhancementController: AbortController | null = null;
@@ -715,7 +715,6 @@ export class IntakePanel {
     referenceRemove: (message) => {
       const index = this.referenceIndex(message);
       if (index === null) return;
-      this.referenceCheckRevision += 1;
       this.update({
         referenceRepositories: this.form.referenceRepositories.filter((_, row) => row !== index),
         error: null
@@ -956,7 +955,6 @@ export class IntakePanel {
     if (index === null || value === null || !referenceField) return;
     const current = this.form.referenceRepositories[index];
     if (!current) return;
-    this.referenceCheckRevision += 1;
     this.replaceReference(index, {
       ...current,
       [referenceField]: value,
@@ -985,7 +983,11 @@ export class IntakePanel {
       });
       return;
     }
-    const revision = ++this.referenceCheckRevision;
+    // A result belongs to the row only while that row still names the same reference. A global
+    // revision used to drop it whenever any other row was edited, leaving this one checking forever.
+    const unchanged = (current: ReferenceRepositoryDraft | undefined): current is ReferenceRepositoryDraft =>
+      Boolean(current) && current!.id === reference.id && current!.repository === reference.repository
+        && current!.branch === reference.branch;
     this.replaceReference(index, { ...draft, status: 'checking', commit: null, message: null }, true, background);
     try {
       const result = await this.client.run<{
@@ -996,19 +998,16 @@ export class IntakePanel {
         '--reference-branch', `${reference.id}=${reference.branch}`,
         '--prefetch', '--json'
       ]);
-      if (revision !== this.referenceCheckRevision) return;
       const current = this.form.referenceRepositories[index];
-      if (!current || current.id !== reference.id || current.repository !== reference.repository
-          || current.branch !== reference.branch) return;
+      if (!unchanged(current)) return;
       const resolved = result.repositories?.find((entry) => entry.id === reference.id);
       if (!resolved?.commit) throw new Error('The read-only check returned no pinned commit.');
       this.replaceReference(index, {
         ...current, status: 'ready', commit: resolved.commit, message: null
       }, true, background);
     } catch (error) {
-      if (revision !== this.referenceCheckRevision) return;
       const current = this.form.referenceRepositories[index];
-      if (!current) return;
+      if (!unchanged(current)) return;
       this.replaceReference(index, {
         ...current, status: 'error', commit: null, message: (error as Error).message
       }, true, background);
@@ -1113,7 +1112,7 @@ export class IntakePanel {
       });
       return;
     }
-    this.update({ busy: true, error: null, recoveryCommand: null, recoveryRouteCommand: null });
+    this.update({ busy: true, startStep: null, error: null, recoveryCommand: null, recoveryRouteCommand: null });
 
     // A receipt for exactly this request, with time left, lets Start verify instead of rediscover.
     // It is single-use either way, so the panel forgets it now.
@@ -1146,9 +1145,17 @@ export class IntakePanel {
         configuration?: Started['configuration'];
         intakeReceipt?: { status?: string; reason?: string | null; reused?: string[] };
       };
+      // The engine reports each stage it enters; show it where the person is looking.
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
-        () => this.client.run<StartPayload & { data?: StartPayload }>(args));
+        (progress) => this.client.run<StartPayload & { data?: StartPayload }>(args, undefined, {
+          onProgress: (step) => {
+            const label = startProgressLabel(step);
+            if (!label || label === this.form.startStep) return;
+            progress.report({ message: label });
+            this.update({ startStep: label }, { background: true });
+          }
+        }));
       const payload = result.data ?? result;
       const verified = payload.intakeReceipt;
       if (verified?.status) {

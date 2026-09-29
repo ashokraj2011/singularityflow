@@ -3200,6 +3200,13 @@ test('a Story started from the form confirms its readiness check in one pass, an
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const reports = [];
+  const plainProgress = api.window.withProgress;
+  api.window.withProgress = async (options, task) => /^Starting /.test(options.title ?? '')
+    ? task({ report: (value) => reports.push(value.message) }, {
+      isCancellationRequested: false, onCancellationRequested() { return { dispose() {} }; }
+    })
+    : plainProgress(options, task);
   await loadExtension(api).activate(context());
   await registered.commands.get('singularityFlow.startWork')();
   const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
@@ -3222,7 +3229,77 @@ test('a Story started from the form confirms its readiness check in one pass, an
   assert.match(output, /Story start confirmed the readiness check in one pass \(reused: [^)]*launch-fetch/);
   assert.match(output, /--intake-receipt'? '?\[redacted\]/, 'the shown command keeps the option, not the token');
   assert.doesNotMatch(output, /sir_[0-9a-f]{32}/, 'the receipt itself is never shown');
+  assert.ok(reports.includes('Confirming the readiness check') && reports.includes('Publishing the Story'),
+    `the notification follows the start's stages: ${reports.join(' → ')}`);
+  assert.doesNotMatch(output, /@@sflow-progress/, 'progress lines never reach the Output channel');
   assert.deepEqual(registered.errors, []);
+});
+
+test('a window reads its repository first, ahead of discovery and product checks', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  await loadExtension(api).activate(context());
+  const timings = registered.output.filter((line) => String(line).includes('[Singularity Flow timing]'))
+    .map((line) => JSON.parse(String(line).slice(String(line).indexOf('{'))));
+  const firstSnapshot = timings.find((entry) => entry.command === 'snapshot');
+  assert.ok(firstSnapshot, 'activation read the repository');
+  assert.equal(firstSnapshot.priority, 'interactive');
+  assert.ok(timings.filter((entry) => entry.command === 'session').every((entry) => entry.priority === 'background'),
+    'Story discovery waits behind it');
+});
+
+test('a completed reference row is checked and fetched on its own, whatever happens in other rows', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-reference-'));
+  t.after(() => removeFixture(base));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'], { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const source = path.join(base, 'rules');
+  await mkdir(source);
+  run('git', ['init', '-q', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Reference Author'], { cwd: source });
+  run('git', ['config', 'user.email', 'reference@example.test'], { cwd: source });
+  await writeFile(path.join(source, 'Rules.java'), 'final class Rules {}\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'reference'], { cwd: source });
+  const referenceRemote = path.join(base, 'rules.git');
+  run('git', ['clone', '-q', '--bare', source, referenceRemote], { cwd: base });
+  const commit = run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim();
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  await loadExtension(api).activate(context());
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  await until(() => intake.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the Story workflow catalog to load' });
+  await intake.post({ type: 'referenceAdd' });
+  await intake.post({ type: 'referenceAdd' });
+  for (const [field, value] of [['id', 'rules'], ['repository', referenceRemote], ['branch', 'main']]) {
+    await intake.post({ type: 'referenceField', index: 0, field, value });
+  }
+  // Keep typing in the other row while the first one's check is under way.
+  await until(() => /Checking repository and branch/.test(intake.webview.html) ? true : null,
+    { what: 'the completed row to be checked without pressing Check' });
+  for (const value of ['d', 'do', 'docs']) {
+    await intake.post({ type: 'referenceDraft', index: 1, field: 'id', value });
+  }
+  await until(() => intake.webview.html.includes(`Verified at <code>${commit.slice(0, 12)}</code>`) ? true : null,
+    { what: 'the first row to be verified even though the second row changed meanwhile' });
+  const store = path.join(root, '.git', 'singularity-flow', 'reference-prefetch', 'v1');
+  assert.equal(readdirSync(store).filter((name) => /^[0-9a-f]{40}$/.test(name)).length, 1,
+    'its pinned commit was fetched ahead of Start');
 });
 
 test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {

@@ -45,6 +45,7 @@ import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
+import { STORY_INTAKE_AUTHORITY_REUSE_MS, isStoryIntakeProof } from './story-intake-verification.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
@@ -218,6 +219,15 @@ function observedTipsCurrent(candidate, remote, baseBranch, storyBranch, tips) {
     && (observed.refs.get(stateRef) ?? null) === refHead(candidate.root, `refs/remotes/${remote}/${state.stateBranch}`);
 }
 
+function intakeDryRunCovers(proof, candidate) {
+  return isStoryIntakeProof(proof) && Boolean(proof.dryRun)
+    && Date.now() - proof.observedAt < STORY_INTAKE_AUTHORITY_REUSE_MS
+    && proof.dryRun.pushUrl === candidate.transportRemote
+    && proof.dryRun.pushFingerprint === candidate.remoteFingerprint
+    && proof.dryRun.destinationRef === candidate.destinationRef
+    && proof.dryRun.baseCommit === candidate.baseCommit;
+}
+
 function assertCheckoutRemoteIdentity(root, repository, remote, { publishRequired }) {
   const expected = String(repository.url ?? '').trim();
   let fetchIdentity;
@@ -350,10 +360,17 @@ export function assertApprovedCapabilityRepositoryPlan(
  */
 /** Bounded asynchronous inventory used by interactive/desktop planning across a capability. */
 export async function publishedBranchesAsync(repositories, {
-  timeoutMs = 20000, workers = DEFAULT_REMOTE_WORKERS, runGit = runRemoteGitAsync
+  timeoutMs = 20000, workers = DEFAULT_REMOTE_WORKERS, runGit = runRemoteGitAsync, observed = null
 } = {}) {
   const observations = await mapLimit(repositories, workers, async (repository) => {
     incrementCommandCounter('git.remote-inventory');
+    // This command listed every head of this exact repository moments ago, for authority
+    // resolution. `[perf]` The same answer serves the inventory.
+    if (observed?.observation?.ok === true && observed.url === repository.url
+        && observed.observation.patterns?.includes('refs/heads/*')) {
+      incrementCommandCounter('git.remote-inventory-shared');
+      return { repository, result: null, branches: observed.observation.branches };
+    }
     const transport = frozenRemoteTransport(repository.url);
     const result = await runGit(['ls-remote', '--heads', '--', transport.remote], {
       operation: 'remote-probe', timeoutMs, env: transport.env
@@ -362,8 +379,10 @@ export async function publishedBranchesAsync(repositories, {
   });
   const published = {};
   const unreachable = [];
-  for (const { repository, result } of observations) {
-    if (result.status !== 0) {
+  for (const { repository, result, branches } of observations) {
+    if (branches) {
+      published[repository.id] = [...branches];
+    } else if (result.status !== 0) {
       published[repository.id] = [];
       unreachable.push({
         repository: repository.id,
@@ -477,7 +496,9 @@ export async function storyBaseCatalog(root, options = {}) {
       choices: []
     };
   }
-  const { published, unreachable } = await publishedBranchesAsync(plan.repositories);
+  const { published, unreachable } = await publishedBranchesAsync(plan.repositories, {
+    observed: options.observedHeads ?? null
+  });
   return { ...plan, published, unreachable, choices: branchChoices(published) };
 }
 
@@ -681,6 +702,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   launchFetchProof = null,
   launchFetchObservation = null,
   observedTips = null,
+  intakeProof = null,
   workers = DEFAULT_REMOTE_WORKERS,
   runGit = runRemoteGitAsync
 } = {}) {
@@ -866,6 +888,11 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // fan-out as fetch, while retaining input-order results so the first refusal remains deterministic.
   const checked = await mapLimit(candidatesToProbe, workers, async (candidate) => {
     if (!candidate.publishRequired) return { candidate, dryRun: null };
+    // The intake wave dry-ran exactly this destination from exactly this base a moment ago.
+    if (intakeDryRunCovers(intakeProof, candidate)) {
+      incrementCommandCounter('git.story-dry-run-verified');
+      return { candidate: { ...candidate, dryRunVerified: true }, dryRun: null };
+    }
     const transport = frozenRemoteTransport(candidate.transportRemote, { push: true });
     const dryRun = await runGit([
       'push', '--dry-run', '--porcelain', transport.remote,

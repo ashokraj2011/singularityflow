@@ -12,7 +12,7 @@
  * unless the selected repository changes, and an older answer is never published over the newer
  * request.
  */
-import { CORE_SNAPSHOT_SLICES, isCliReadSuperseded, type SingularityFlowClient } from './cli/client.ts';
+import { CORE_SNAPSHOT_SLICES, isCliReadSuperseded, type ReadPriority, type SingularityFlowClient } from './cli/client.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './cli/snapshot.ts';
 
 export interface WorkspaceStateChange {
@@ -192,6 +192,8 @@ export class WorkspaceStore {
   private readonly leaseDisposers = new Set<() => void>();
   private leaseSequence = 0;
   private disposed = false;
+
+  private nextRefreshPriority: ReadPriority | undefined = undefined;
 
   constructor(client: SingularityFlowClient, cache: SnapshotCache | null = null) {
     this.client = client;
@@ -441,10 +443,13 @@ export class WorkspaceStore {
       // else breaks out immediately and goes to the recovery path below.
       for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
         try {
+          const priority = this.nextRefreshPriority;
+          this.nextRefreshPriority = undefined;
           snapshot = await this.client.snapshot(
             controller.signal,
             [...this.loadedSlices],
-            this.forceFullSnapshot ? null : (this.state.snapshot?.revision?.subjectRevision ?? null)
+            this.forceFullSnapshot ? null : (this.state.snapshot?.revision?.subjectRevision ?? null),
+            priority
           );
           break;
         } catch (error) {
@@ -529,8 +534,13 @@ export class WorkspaceStore {
   }
 
   /** Refresh, coalescing any refresh already running. Never rejects: the error becomes state. */
-  async refresh(): Promise<void> {
+  /**
+   * Refresh from the engine. `priority` applies to the next snapshot read only: a new window's first
+   * read is the one somebody is waiting on, ahead of discovery and product checks.
+   */
+  async refresh({ priority }: { priority?: ReadPriority } = {}): Promise<void> {
     if (this.disposed) return;
+    if (priority) this.nextRefreshPriority = priority;
     this.refreshGeneration += 1;
     if (!this.inFlight) {
       const controller = new AbortController();

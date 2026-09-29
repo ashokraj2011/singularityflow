@@ -817,3 +817,49 @@ test('approved multi-repository Story plans retain exact repository identity acr
     else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
   }
 });
+
+test('capability preflight trusts only a real intake wave proof for its dry run', async () => {
+  const { configuredRemoteAuthority } = await import('../src/git-remote-diagnostics.mjs');
+  const { mintStoryIntakeReceipt } = await import('../src/story-intake-receipt.mjs');
+  const { admitStoryIntakeReceipt, verifyStoryIntakeWave } = await import('../src/story-intake-verification.mjs');
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-proof-'));
+  const repository1 = await repository(base, 'app', ['main']);
+  const work = path.join(base, repository1.path);
+  git(work, 'push', '--quiet', 'origin', 'main:refs/heads/sflow/config');
+  const baseCommit = git(work, 'rev-parse', 'refs/remotes/origin/main').stdout.trim();
+  const fetch = configuredRemoteAuthority(work, 'origin', { direction: 'fetch' });
+  const push = configuredRemoteAuthority(work, 'origin', { direction: 'push' });
+  const inputs = { workId: 'S-PROOF', workType: 'feature', baseBranch: 'main', remote: 'origin', capabilityId: null, references: [] };
+  const minted = await mintStoryIntakeReceipt(work, {
+    inputs,
+    authority: { remote: repository1.url, branch: 'sflow/config', commit: baseCommit, sourceCommit: null },
+    repositories: [{
+      id: 'app', remote: 'origin', baseBranch: 'main', baseCommit, destinationRef: 'refs/heads/S-PROOF',
+      fetch: { url: fetch.url, fingerprint: fetch.fingerprint },
+      push: { url: push.url, fingerprint: push.fingerprint }, state: null
+    }]
+  });
+  const admission = await admitStoryIntakeReceipt(work, minted.id, {
+    inputs, workId: 'S-PROOF', remote: 'origin', baseBranch: 'main'
+  });
+  assert.equal(admission.status, 'admitted', admission.reason);
+  const wave = await verifyStoryIntakeWave(work, admission, { workId: 'S-PROOF' });
+  assert.equal(wave.ok, true, wave.reason);
+
+  const resolution = resolveCapabilityBase({
+    repositories: { app: ['main'] }, selection: parseBaseSelection(['main'])
+  });
+  let pushes = 0;
+  const runGit = async (args) => {
+    if (args[0] === 'push') pushes += 1;
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const plan = { repositories: [repository1], resolution };
+  const trusted = await preflightStoryRepositories(base, plan, 'S-PROOF', { runGit, intakeProof: wave.proof });
+  assert.equal(pushes, 0, 'the wave dry-ran exactly this destination from exactly this base');
+  assert.equal(trusted[0].dryRunVerified, true);
+  await preflightStoryRepositories(base, plan, 'S-PROOF', { runGit, intakeProof: { ...wave.proof } });
+  assert.equal(pushes, 1, 'a copied or forged proof is never trusted');
+  await admission.consume();
+  await rm(base, { recursive: true, force: true });
+});

@@ -10,7 +10,8 @@
  *   request's; the base it names must already be the fetched tracking ref, fully present, in a
  *   complete (not shallow) repository; and the Story name must still be free;
  * - then one concurrent wave: approved authority and the application remote are each observed once
- *   (once in total when they are the same URL), and publication permission is dry-run afresh.
+ *   (once in total when they are the same URL), publication permission is dry-run afresh, and each
+ *   reference repository's branch is resolved to the commit the start will pin.
  *
  * Every mismatch returns a reason and start takes its full path. A moved state tip is the one
  * difference repaired here, with a fetch of that ref alone. Readiness is always recomputed by start.
@@ -24,6 +25,7 @@ import { configuredRemoteAuthority, frozenRemoteTransport } from './git-remote-d
 import { gitCommonDir, refExists, refHead } from './git.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
 import { processResultSucceeded } from './process-result.mjs';
+import { resolveReferenceRepositoryPins } from './reference-repositories.mjs';
 import { claimStoryIntakeReceipt } from './story-intake-receipt.mjs';
 import { run } from './util.mjs';
 
@@ -91,7 +93,8 @@ export async function admitStoryIntakeReceipt(root, id, { inputs, workId, remote
  * start stages reuse, or the reason to take the full path. The admission's claim is not settled here.
  */
 export async function verifyStoryIntakeWave(root, admission, {
-  workId, session = new GitRemoteSession({ cwd: root }), runGit = runRemoteGitAsync, now = () => Date.now()
+  workId, references = [], session = new GitRemoteSession({ cwd: root }), runGit = runRemoteGitAsync,
+  now = () => Date.now()
 }) {
   const { receipt, repository } = admission;
   const storyRef = `refs/heads/${workId}`;
@@ -113,15 +116,20 @@ export async function verifyStoryIntakeWave(root, admission, {
   let application;
   let authority;
   let pushed;
+  let referencePins;
   try {
-    [application, authority, pushed] = await Promise.all([
+    [application, authority, pushed, referencePins] = await Promise.all([
       session.observeAsync(repository.fetch.url, {
         includeHead: true, refs: shared ? [...authorityRefs, ...applicationRefs] : applicationRefs, refresh: true
       }),
       shared ? null : session.observeAsync(receipt.authority.remote, {
         includeHead: false, refs: authorityRefs, refresh: true
       }),
-      dryRun
+      dryRun,
+      // A branch that is gone or unreachable fails the wave; the ordinary start then refuses it
+      // with its own exact message.
+      references.length
+        ? resolveReferenceRepositoryPins(references, { localNamespace: workId }).catch(() => null) : []
     ]);
   } catch {
     return { ok: false, reason: 'unreachable' };
@@ -135,6 +143,7 @@ export async function verifyStoryIntakeWave(root, admission, {
   if (application.refs.get(baseRef) !== repository.baseCommit) return { ok: false, reason: 'base-moved' };
   if (application.refs.has(storyRef)) return { ok: false, reason: 'story-exists' };
   if (pushed && !processResultSucceeded(pushed)) return { ok: false, reason: 'publication-refused' };
+  if (referencePins === null) return { ok: false, reason: 'reference' };
 
   // The state ledger moves whenever anything is published. Bring just that ref up to date.
   let stateCommit = null;
@@ -165,6 +174,7 @@ export async function verifyStoryIntakeWave(root, admission, {
     stateBranch: repository.state?.branch ?? null,
     stateCommit,
     fetch: Object.freeze({ ...repository.fetch }),
+    referencePins: Object.freeze(referencePins.map((pin) => Object.freeze({ ...pin }))),
     application: Object.freeze({ url: repository.fetch.url, observation: application }),
     authority: Object.freeze({ remote: receipt.authority.remote, commit: receipt.authority.commit }),
     dryRun: repository.push ? Object.freeze({

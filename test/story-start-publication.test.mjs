@@ -790,8 +790,9 @@ test('the intake catalog says whether its workflows depend on the chosen base, a
   const warm = flow(root, ['workspace', 'branches', '--json', '--intake', '--timings']);
   assert.equal(JSON.parse(warm.stdout).intake.workflowCatalogScope, 'approved-configuration');
   assert.match(warm.stderr, /configuration\.object-cache-hit=1(?:\s|$)/);
-  assert.match(warm.stderr, /git\.remote\.command\.ls-remote=2(?:\s|$)/,
-    'one authority listing selects and admits the cached configuration; the other lists the heads');
+  assert.match(warm.stderr, /git\.remote\.command\.ls-remote=1(?:\s|$)/,
+    'one listing of every head selects approved configuration, admits its cached copy and is the inventory');
+  assert.match(warm.stderr, /git\.remote-inventory-shared=1(?:\s|$)/);
 });
 
 test('workspace branch choices use approved configuration when application main has no workflow file', async () => {

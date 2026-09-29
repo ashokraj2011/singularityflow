@@ -3748,8 +3748,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(onExtensionsChanged(() => { void loadedBundle.offerReload(productHost); }));
   }
   if (vscode.env?.appHost) {
-    // Both checks are optional, so neither competes with somebody filling in the intake form.
+    // Both checks are optional, so neither competes with somebody filling in the intake form, nor
+    // with the first reads of a window just opened for a new Story: that window waits until idle.
+    const openedForNewStory = Boolean(context.globalState.get<unknown>(STORY_START_HANDOFF_KEY));
+    const newStoryIdle = (): Promise<void> => new Promise((resolve) => {
+      if (!openedForNewStory || activationSignal.aborted) return resolve();
+      const timer = setTimeout(resolve, STORY_START_DISCOVERY_IDLE_MS);
+      timer.unref?.();
+      activationSignal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+    });
     void initialWorkspaceRefresh
+      .then(newStoryIdle)
       .then(() => backgroundWork.waitUntilIdle({ signal: activationSignal }))
       .then(() => alignProductSurfaces(productHost, { loadedBuild, bundle: loadedBundle }))
       .then((outcome) => output.appendLine(`Product surface check: ${outcome}`))
@@ -7668,7 +7677,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // snapshot paints immediately; the refresh below replaces it a second later. Without this the
   // sidebar is empty for the whole of that second, on every single open.
   const completeInitialRepositoryRead = async (): Promise<void> => {
-    await store.refresh();
+    // Somebody is waiting on this read, in a new window above all: ahead of discovery and checks.
+    await store.refresh({ priority: 'interactive' });
     if (activationSignal.aborted) return;
     if (store.current.snapshot && !store.current.error && !store.current.stale) {
       markHostPerformance('confirmedSnapshotPublished');

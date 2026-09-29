@@ -128,7 +128,8 @@ export async function verifyStoryIntakeWave(root, admission, {
       dryRun,
       // A branch that is gone or unreachable fails the wave; the ordinary start then refuses it
       // with its own exact message.
-      references.length ? resolveReferenceRepositoryPins(references, { localNamespace: workId }) : []
+      references.length
+        ? resolveReferenceRepositoryPins(references, { localNamespace: workId }).catch(() => null) : []
     ]);
   } catch {
     return { ok: false, reason: 'unreachable' };
@@ -142,6 +143,7 @@ export async function verifyStoryIntakeWave(root, admission, {
   if (application.refs.get(baseRef) !== repository.baseCommit) return { ok: false, reason: 'base-moved' };
   if (application.refs.has(storyRef)) return { ok: false, reason: 'story-exists' };
   if (pushed && !processResultSucceeded(pushed)) return { ok: false, reason: 'publication-refused' };
+  if (referencePins === null) return { ok: false, reason: 'reference' };
 
   // The state ledger moves whenever anything is published. Bring just that ref up to date.
   let stateCommit = null;

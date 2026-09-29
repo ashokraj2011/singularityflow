@@ -274,3 +274,24 @@ test('a readiness preview lists its own origin once and fetches only when a tip 
   assert.equal(counter(moved.stderr, 'git.remote.command.fetch'), 1, 'a moved tip is fetched');
   assert.equal(JSON.parse(moved.stdout).preflight.repositories[0].baseCommit, git(other, 'rev-parse', 'HEAD'));
 });
+
+test('a reference branch that disappeared after the preview sends start down its ordinary path', posix, async (t) => {
+  const { base, root } = await repository(t);
+  const source = path.join(base, 'reference-source');
+  const referenceRemote = path.join(base, 'reference.git');
+  await mkdir(source);
+  git(source, 'init', '-q', '-b', 'main');
+  git(source, 'config', 'user.name', 'Reference Author');
+  git(source, 'config', 'user.email', 'reference@example.test');
+  await writeFile(path.join(source, 'Rules.java'), 'final class Rules {}\n');
+  git(source, 'add', '.');
+  git(source, 'commit', '-q', '-m', 'reference');
+  git(base, 'clone', '-q', '--bare', source, referenceRemote);
+  git(referenceRemote, 'branch', 'release', 'main');
+  const references = ['--reference-repository', `rules=${referenceRemote}`, '--reference-branch', 'rules=release'];
+  const receipt = preflight(root, 'STORY-GONE-REF', references);
+  git(referenceRemote, 'branch', '-D', 'release');
+  const refused = start(root, 'STORY-GONE-REF', [...references, '--intake-receipt', receipt.id], { allowFailure: true });
+  assert.notEqual(refused.status, 0, 'the ordinary start refuses a missing reference branch');
+  assert.match(`${refused.stdout}${refused.stderr}`, /REFERENCE_REPOSITORY_BRANCH_NOT_FOUND|no advertised branch 'release'/);
+});

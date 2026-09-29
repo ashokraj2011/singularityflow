@@ -11,6 +11,7 @@ import { SingularityFlowError, invariant, run, writeAtomic, removeTemporaryTree 
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
+import { repositoryGitPath } from './git-directory.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteAuthority,
@@ -215,7 +216,9 @@ export const GITHUB_LOOKUP = Object.freeze({
 });
 
 function githubAccountCacheFile(root) {
-  return path.join(root, '.git', 'singularity-flow', 'github-account.json');
+  // The account belongs to the repository, not to one of its checkouts: every Story worktree shares
+  // the main checkout's answer, and a worktree no longer has one it can never write.
+  return repositoryGitPath(root, 'singularity-flow', 'github-account.json');
 }
 
 /**

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { repositoryGitPath } from './git-directory.mjs';
 import { identity } from './git.mjs';
 import { downloadJiraAttachment, uploadJiraAttachment } from './jira.mjs';
 import { loadInitiative, saveInitiative as saveInitiativeDraft, secureInitiativePath } from './initiative-state.mjs';
@@ -670,7 +671,7 @@ export async function verifyEpicSources(root, initiativeId, { runtime = {}, mate
       let actualSha256 = null;
       let cachePath = null;
       if (materialize) {
-        const cacheRoot = path.join(root, '.git', 'singularity-flow', 'epic-sources', initiativeId, record.sha256);
+        const cacheRoot = repositoryGitPath(root, 'singularity-flow', 'epic-sources', initiativeId, record.sha256);
         await mkdir(cacheRoot, { recursive: true });
         cachePath = path.join(cacheRoot, record.filename);
         const temporary = `${cachePath}.download-${process.pid}-${randomUUID()}`;

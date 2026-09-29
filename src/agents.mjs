@@ -7,6 +7,7 @@ import { BlockList, isIP } from 'node:net';
 import YAML from 'yaml';
 import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
@@ -522,7 +523,7 @@ async function saveLock(root, lock) {
 }
 
 function cachePath(root, agentId, entry) {
-  return path.join(root, '.git/singularity-flow/agents', agentId, `${entry.type}-${entry.id}-${entry.sha256}.md`);
+  return repositoryGitPath(root, 'singularity-flow', 'agents', agentId, `${entry.type}-${entry.id}-${entry.sha256}.md`);
 }
 
 export async function resolveAgentLock(root, agent, { fetchImpl = globalThis.fetch } = {}) {

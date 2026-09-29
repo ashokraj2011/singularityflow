@@ -22,9 +22,9 @@ export function shown(value) {
 
 export function renderExplorer(view, {
   patch = null, patchFiles = [], timeline = null, audience = 'reviewer', newerSnapshot = false,
-  token = 'fixture-nonce', unavailableReason = null
+  token = 'fixture-nonce', unavailableReason = null, focus = null
 } = {}) {
-  return changeExplorerBody({ view, unavailableReason, patch, patchFiles, timeline, audience, newerSnapshot, token });
+  return changeExplorerBody({ view, unavailableReason, patch, patchFiles, timeline, audience, newerSnapshot, token, focus });
 }
 
 /** The map block: columns, clusters and the edge list, without the rail or inspector. */

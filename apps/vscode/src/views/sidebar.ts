@@ -78,10 +78,15 @@ const SECTION_META: Record<SidebarSection, {
     label: 'Work', icon: 'workflow', actions: [
       { id: 'refresh', label: 'Refresh work', icon: 'refresh' }
     ],
+    // Explaining the current changes is part of the work, so it sits beside starting it rather
+    // than under Help, where nobody looked for it.
     links: [
-      { id: 'work-start', label: 'Start new work', icon: 'start' }
+      { id: 'work-start', label: 'Start new work', icon: 'start' },
+      { id: 'change-explorer', label: 'Explain changes', icon: 'code' }
     ],
     more: [
+      { id: 'code-explanation', label: 'Code explanation', icon: 'code' },
+      { id: 'comprehension-center', label: 'Comprehension Center', icon: 'code' },
       { id: 'goals', label: 'Goals', icon: 'impact' },
       { id: 'impact-form', label: 'Change Flight Plan', icon: 'compare' },
       { id: 'command-center', label: 'Command Center', icon: 'workflow' }
@@ -110,8 +115,6 @@ const SECTION_META: Record<SidebarSection, {
     ],
     more: [
       { id: 'journal', label: 'Local Journal', icon: 'book' },
-      { id: 'comprehension-center', label: 'Comprehension Center', icon: 'code' },
-      { id: 'change-explorer', label: 'Change Explorer', icon: 'code' },
       { id: 'activity-log', label: 'Activity log', icon: 'commit' },
       { id: 'prompt-audit', label: 'Prompt audit', icon: 'prompt' },
       { id: 'local-reset', label: 'Local Data & Reset', icon: 'remove' }
@@ -179,7 +182,8 @@ const ACTION_COMMANDS: Record<string, string> = {
   'flow-impact': 'singularityFlow.openFlowImpact',
   'command-center': 'singularityFlow.openCommandCenter',
   'comprehension-center': 'singularityFlow.openComprehensionCenter',
-  'change-explorer': 'singularityFlow.openChangeExplorer'
+  'change-explorer': 'singularityFlow.openChangeExplorer',
+  'code-explanation': 'singularityFlow.openCodeExplanation'
 };
 
 interface FavoriteMenu {
@@ -200,6 +204,8 @@ interface FavoriteMenu {
 export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
   { id: 'command-center', label: 'Command Center', description: 'governed execution processes and requests', icon: 'workflow', command: ACTION_COMMANDS['command-center']! },
+  { id: 'change-explorer', label: 'Explain changes', description: 'the current changes, why they were made, and what they touch', icon: 'code', command: ACTION_COMMANDS['change-explorer']! },
+  { id: 'code-explanation', label: 'Code explanation', description: 'why each changed hunk is there', icon: 'code', command: ACTION_COMMANDS['code-explanation']! },
   { id: 'comprehension-center', label: 'Comprehension Center', description: 'exact change regions, causes, unknowns, and replay', icon: 'code', command: ACTION_COMMANDS['comprehension-center']! },
   { id: 'work-start', label: 'Start intake', description: 'begin governed work', icon: 'start', command: ACTION_COMMANDS['work-start']! },
   { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },

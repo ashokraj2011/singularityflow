@@ -560,6 +560,52 @@ function unitPreviewHtml(view: Xpl2Explanation, unit: Xpl2Unit, patch: string | 
   </section>`;
 }
 
+/**
+ * What an editor, Explorer or Source Control menu asked the Change Explorer to show: one
+ * repository-relative file and, from the editor, the cursor line on the after (working) side.
+ */
+export interface ExplorerFocusRequest {
+  path: string;
+  line: number | null;
+  unsaved: boolean;
+}
+
+/** The selection a focus request resolves to in one exact view, and what the reader is told. */
+export interface ExplorerFocus {
+  node: string | null;
+  unit: string | null;
+  notice: string | null;
+}
+
+/**
+ * Resolve a menu request against the pinned view, by the same rule as `explain --subject line`
+ * on the after side: a text unit covers a line inside its after range, and an opaque unit stands
+ * for its whole file [XPL2 4.1]. The notice describes the request ("that line is not a changed
+ * line"), never the change; every fact on the page still comes from the computed view.
+ */
+export function resolveExplorerFocus(view: Xpl2Explanation, request: ExplorerFocusRequest): ExplorerFocus {
+  const unsaved = request.unsaved ? ' The editor has unsaved edits; this snapshot reflects the saved file.' : '';
+  // A deleted file can still be chosen from Source Control, so a file request also matches the
+  // before path. A line is always a line of the working file, which a deleted file no longer has.
+  const units = view.inventory.units.filter((unit) => unit.pathAfter === request.path
+    || (request.line === null && unit.pathBefore === request.path));
+  if (!units.length) {
+    return { node: null, unit: null, notice: `${request.path} has no changes in this snapshot. Showing every change.${unsaved}` };
+  }
+  const first = units.find((unit) => unit.hunk) ?? units[0]!;
+  const quiet = unsaved ? unsaved.trim() : null;
+  if (request.line === null) return { node: first.fileId, unit: first.unitId, notice: quiet };
+  const line = request.line;
+  const covering = units.find((unit) => unit.hunk && unit.hunk.after.lines > 0
+    && line >= unit.hunk.after.start && line <= unit.hunk.after.start + unit.hunk.after.lines - 1)
+    ?? units.find((unit) => !unit.hunk);
+  if (covering) return { node: covering.fileId, unit: covering.unitId, notice: quiet };
+  return {
+    node: first.fileId, unit: first.unitId,
+    notice: `Line ${line} is not a changed line of ${request.path} in this snapshot. Showing this file's changes.${unsaved}`
+  };
+}
+
 export interface ExplorerRenderInput {
   view: Xpl2Explanation | null;
   unavailableReason: string | null;
@@ -569,6 +615,12 @@ export interface ExplorerRenderInput {
   audience: ExplorerAudience;
   newerSnapshot: boolean;
   token: string;
+  /**
+   * A resolved menu request. The host sends it with every render of the same explanation set, and
+   * the page applies each `id` once: a render replaced before its script ran cannot lose it, and a
+   * later render cannot undo a selection the reader made since.
+   */
+  focus?: (ExplorerFocus & { id: string }) | null;
 }
 
 /** Complete Change Explorer body; the host renders it inside the Comprehension Center page. */
@@ -577,6 +629,7 @@ export function changeExplorerBody(input: ExplorerRenderInput): string {
   if (!view) {
     return `<section class="xpl-empty-state"><h2>Change Explorer</h2><p>The computed change view is unavailable in this snapshot${input.unavailableReason ? ` (<code>${escape(input.unavailableReason)}</code>)` : ''}. The Regions and Diff tabs still show every changed file; nothing is blocked.</p><p><button class="secondary" type="button" data-message="refresh">Refresh exact snapshot</button></p></section>`;
   }
+  const focus = input.focus ?? null;
   const counts = view.inventory.counts;
   const truth = TRUTH_LABELS[view.snapshot.truth] ?? view.snapshot.truth;
   const wel = view.availability.wel === 'partial' ? 'WEL observe (not read here)' : view.availability.wel === 'disabled' ? 'WEL off' : 'WEL not evaluated';
@@ -585,7 +638,7 @@ export function changeExplorerBody(input: ExplorerRenderInput): string {
     unitId: unit.unitId, nodeId: unit.nodeId, fileId: unit.fileId, digest: unit.explanationUnitSha256
   })));
   return `<style nonce="${escape(input.token)}">${EXPLORER_STYLE}</style>
-  <div class="xpl" id="xpl-root" data-set="${escape(view.explanationSetSha256)}" data-session="${escape(input.token)}" data-units="${escape(unitsJson)}" data-first-unit="${escape(firstUnit?.unitId ?? '')}">
+  <div class="xpl" id="xpl-root" data-set="${escape(view.explanationSetSha256)}" data-session="${escape(input.token)}" data-units="${escape(unitsJson)}" data-first-unit="${escape(firstUnit?.unitId ?? '')}"${focus ? ` data-focus-id="${escape(focus.id)}" data-focus-node="${escape(focus.node ?? '')}" data-focus-unit="${escape(focus.unit ?? '')}"` : ''}>
     ${input.newerSnapshot ? '<div class="xpl-banner" role="status"><strong>Snapshot changed.</strong> The repository moved since this view was built. You are still looking at the earlier snapshot. <button type="button" class="secondary" data-message="refresh">Refresh to the new snapshot</button></div>' : ''}
     <header class="xpl-header">
       <div>
@@ -609,6 +662,7 @@ export function changeExplorerBody(input: ExplorerRenderInput): string {
       <div><strong>${counts.clauses}</strong><span>clauses in scope</span></div>
       <p>Region associations and recorded results are not hunk-level proof.</p>
     </section>
+    ${focus?.notice ? `<div class="xpl-notice" id="xpl-focus-notice" role="status">${escape(focus.notice)}</div>` : ''}
     <div class="xpl-layout">
       ${inventoryRail(view, input.audience)}
       <main class="xpl-center">
@@ -655,6 +709,7 @@ export const EXPLORER_STYLE = `
   .xpl { display:flex; flex-direction:column; gap:14px; }
   .xpl code { font-family: var(--vscode-editor-font-family, monospace); }
   .xpl-banner { border:1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-focusBorder)); background: var(--vscode-inputValidation-warningBackground, transparent); padding:8px 12px; border-radius:6px; }
+  .xpl-notice { border:1px solid var(--vscode-inputValidation-infoBorder, var(--vscode-focusBorder)); background: var(--vscode-inputValidation-infoBackground, transparent); padding:8px 12px; border-radius:6px; }
   .xpl-header { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:flex-start; }
   .xpl-kicker { text-transform:uppercase; letter-spacing:.08em; font-size:11px; color: var(--vscode-textLink-foreground); margin:0; }
   .xpl-header h1 { margin:4px 0; font-size:22px; }
@@ -765,6 +820,20 @@ export const EXPLORER_SCRIPT = `
     const state = Object.assign({ selected: '', unit: root.dataset.firstUnit || '', view: 'map' }, (vscode.getState && vscode.getState()) || {});
     if (state.set !== set) { state.selected = ''; state.unit = root.dataset.firstUnit || ''; }
     state.set = set;
+    // A menu asked for one file or change. Every render of this snapshot repeats the request, and
+    // the page applies each one once, over the remembered selection; an empty node clears the
+    // selection to show every change. Once applied, its note is not shown again.
+    const focusId = root.dataset.focusId || '';
+    const applied = Boolean(focusId && state.focusId !== focusId);
+    if (applied) {
+      state.focusId = focusId;
+      state.selected = root.dataset.focusNode || '';
+      if (root.dataset.focusUnit) state.unit = root.dataset.focusUnit;
+      state.view = 'map';
+    } else if (focusId) {
+      const note = document.getElementById('xpl-focus-notice');
+      if (note) note.hidden = true;
+    }
     let request = 0;
     const save = () => { if (vscode.setState) vscode.setState(state); };
     const nodeElements = () => Array.from(document.querySelectorAll('.xpl-map .xpl-node'));
@@ -850,7 +919,7 @@ export const EXPLORER_SCRIPT = `
       for (const pane of document.querySelectorAll('[data-unit-pane]')) pane.hidden = pane.dataset.unitPane !== unitId;
       save();
     };
-    const select = (nodeId, { focus = false } = {}) => {
+    const select = (nodeId, { focus = false, scroll = true } = {}) => {
       state.selected = nodeId || '';
       const ids = nodeId ? related(nodeId) : null;
       for (const element of document.querySelectorAll('[data-node]')) {
@@ -871,7 +940,10 @@ export const EXPLORER_SCRIPT = `
       save();
       if (focus) {
         const target = document.querySelector('.xpl-map [data-node="' + CSS.escape(nodeId) + '"]') || document.querySelector('[data-node="' + CSS.escape(nodeId) + '"]');
-        if (target) target.focus();
+        // A selected member of a folded cluster is unfolded, so focus lands on something visible.
+        const cluster = target && target.closest('details:not([open])');
+        if (cluster) { cluster.open = true; drawEdges(); }
+        if (target) target.focus({ preventScroll: !scroll });
       }
     };
     // Every message names this exact render (session), a fresh request number and the digests it
@@ -972,7 +1044,13 @@ export const EXPLORER_SCRIPT = `
     if (typeof ResizeObserver === 'function' && map) new ResizeObserver(() => drawEdges()).observe(map);
     setView(state.view || 'map');
     showUnit(state.unit || root.dataset.firstUnit);
-    select(state.selected || '', { focus: Boolean(state.selected) });
+    select(state.selected || '', { focus: Boolean(state.selected), scroll: !applied });
+    // A request just applied brings its note, the inventory and the map into view together,
+    // rather than scrolling to the map node and leaving the note above the fold.
+    if (applied) {
+      const anchor = document.getElementById('xpl-focus-notice') || document.querySelector('.xpl-layout');
+      if (anchor) anchor.scrollIntoView({ block: 'start' });
+    }
   }
 `;
 

@@ -560,7 +560,8 @@
       },
       {
         "command": "singularityFlow.previewSelectedImpact",
-        "title": "SFlow: What if I change this?",
+        "category": "Singularity Flow",
+        "title": "What If I Change This?",
         "icon": "$(search-fuzzy)"
       },
       {
@@ -678,12 +679,31 @@
       },
       {
         "command": "singularityFlow.openChangeExplorer",
-        "title": "Singularity Flow: Change Explorer",
+        "category": "Singularity Flow",
+        "title": "Change Explorer",
         "icon": "$(git-compare)"
       },
       {
+        "command": "singularityFlow.openCodeExplanation",
+        "category": "Singularity Flow",
+        "title": "Code Explanation",
+        "icon": "$(book)"
+      },
+      {
+        "command": "singularityFlow.explainFileChanges",
+        "category": "Singularity Flow",
+        "title": "Explain Changes in This File",
+        "icon": "$(inspect)"
+      },
+      {
+        "command": "singularityFlow.explainChangeAtCursor",
+        "category": "Singularity Flow",
+        "title": "Explain This Change"
+      },
+      {
         "command": "singularityFlow.openComprehensionCenter",
-        "title": "Singularity Flow: Comprehension Center",
+        "category": "Singularity Flow",
+        "title": "Comprehension Center",
         "icon": "$(references)"
       },
       {
@@ -742,15 +762,110 @@
         "title": "Singularity Flow: Open Chat Help Topic"
       }
     ],
+    "submenus": [
+      {
+        "id": "singularityFlow.editorMenu",
+        "label": "Singularity Flow"
+      },
+      {
+        "id": "singularityFlow.explorerMenu",
+        "label": "Singularity Flow"
+      }
+    ],
     "menus": {
       "editor/context": [
         {
-          "command": "singularityFlow.previewSelectedImpact",
-          "when": "resourceScheme == file",
+          "submenu": "singularityFlow.editorMenu",
+          "when": "singularityFlow.repositoryActive && resourceScheme == file",
           "group": "navigation@20"
         }
       ],
+      "singularityFlow.editorMenu": [
+        {
+          "command": "singularityFlow.explainChangeAtCursor",
+          "group": "1_explain@1"
+        },
+        {
+          "command": "singularityFlow.explainFileChanges",
+          "group": "1_explain@2"
+        },
+        {
+          "command": "singularityFlow.openChangeExplorer",
+          "group": "2_views@1"
+        },
+        {
+          "command": "singularityFlow.openCodeExplanation",
+          "group": "2_views@2"
+        },
+        {
+          "command": "singularityFlow.previewSelectedImpact",
+          "group": "3_impact@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "singularityFlow.explorerMenu",
+          "when": "singularityFlow.repositoryActive && resourceScheme == file && !explorerResourceIsFolder",
+          "group": "4_singularityFlow@1"
+        }
+      ],
+      "singularityFlow.explorerMenu": [
+        {
+          "command": "singularityFlow.explainFileChanges",
+          "group": "1_explain@1"
+        },
+        {
+          "command": "singularityFlow.previewSelectedImpact",
+          "group": "3_impact@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "singularityFlow.explainFileChanges",
+          "when": "singularityFlow.repositoryActive && resourceScheme == file",
+          "group": "navigation@90"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "singularityFlow.openChangeExplorer",
+          "when": "singularityFlow.repositoryActive && scmProvider == git",
+          "group": "navigation@90"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "singularityFlow.explainFileChanges",
+          "when": "singularityFlow.repositoryActive && scmProvider == git",
+          "group": "navigation@90"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "singularityFlow.openChangeExplorer",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
+          "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.openCodeExplanation",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
+          "group": "1_explain@1"
+        },
+        {
+          "command": "singularityFlow.openComprehensionCenter",
+          "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",
+          "group": "1_explain@2"
+        }
+      ],
       "commandPalette": [
+        {
+          "command": "singularityFlow.explainChangeAtCursor",
+          "when": "singularityFlow.repositoryActive && resourceScheme == file"
+        },
+        {
+          "command": "singularityFlow.explainFileChanges",
+          "when": "singularityFlow.repositoryActive && resourceScheme == file"
+        },
         {
           "command": "singularityFlow.explainTopic",
           "when": "false"

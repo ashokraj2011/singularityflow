@@ -199,7 +199,10 @@ or otherwise change lifecycle state.
 - **VS Code:** the Comprehension Center exposes the computed explanation through its leased,
   read-only comprehension snapshot. Its narrative button only prefills
   `/sf-explain-code --narrate` in Copilot with partial-query mode; it never submits or invokes the
-  model until the user reviews and sends the request.
+  model until the user reviews and sends the request. A **Singularity Flow** submenu on the editor
+  and Explorer context menus, the editor title, Source Control and the sidebar's Work section open
+  it; **Explain This Change** focuses the Change Explorer on the change at the cursor by the same
+  rule as `explain --subject line`.
 
 The three surfaces consume the engine result. UI state, skill prose, and webview state are never
 authority.

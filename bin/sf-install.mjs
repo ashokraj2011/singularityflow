@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from 'node:path';
 
+import { restoreDistributionOriginPath } from '../src/distribution-origin-path.mjs';
 import {
   applyLocalReinstall, distributionInstallPlanText, recoverPendingDistributionInstall,
   resolveDistributionInstallPlan
@@ -53,6 +54,7 @@ function parse(argv) {
 }
 
 async function main() {
+  restoreDistributionOriginPath();
   const options = parse(process.argv.slice(2));
   if (options.help) {
     console.log(usage());

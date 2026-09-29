@@ -120,7 +120,8 @@ test('distribution bootstrap executes npm only from a private verified snapshot'
     '  environmentRelease: process.env.SINGULARITY_FLOW_DISTRIBUTION_RELEASE_DIR,',
     '  environmentKey: process.env.SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY,',
     '  originRelease: process.env.SINGULARITY_FLOW_DISTRIBUTION_ORIGIN_RELEASE_DIR,',
-    '  originKey: process.env.SINGULARITY_FLOW_DISTRIBUTION_ORIGIN_ARTIFACT_KEY',
+    '  originKey: process.env.SINGULARITY_FLOW_DISTRIBUTION_ORIGIN_ARTIFACT_KEY,',
+    '  originPath: process.env.SINGULARITY_FLOW_DISTRIBUTION_ORIGIN_PATH',
     '}));',
     ''
   ].join('\n'));
@@ -158,6 +159,8 @@ test('distribution bootstrap executes npm only from a private verified snapshot'
   assert.equal(invocation.environmentRelease, invocation.releasePath);
   assert.equal(invocation.environmentKey, invocation.keyPath);
   assert.equal(invocation.originRelease, await realpath(release.directory));
+  assert.equal(invocation.originPath, `${tools}${path.delimiter}${process.env.PATH ?? ''}`,
+    'the installer receives the PATH it was launched with, before npm exec puts the candidate first');
   assert.equal(invocation.originKey, await realpath(release.publicKeyPath));
   assert.deepEqual(Buffer.from(invocation.releaseBytes, 'base64'), expectedRelease);
   assert.deepEqual(Buffer.from(invocation.keyBytes, 'base64'), expectedKey);

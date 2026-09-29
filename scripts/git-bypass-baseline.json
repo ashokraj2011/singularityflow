@@ -567,6 +567,13 @@
       },
       "digest": "396dd97b1fd3e09d7622dde56fb753e361f74144ce834144e79b0d2c69d858fb"
     },
+    "src/configuration-review-pass.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "031abecbc768db8eb250e9c4a7089dee1bb2c1a4da0bc3de44029dceb6ed03e5"
+    },
     "src/context-history.mjs": {
       "counts": {
         "command-run": 2
@@ -1256,7 +1263,7 @@
       "counts": {
         "command-run": 37
       },
-      "digest": "61614c402201123d6aa55da48f158b947722d3de8717906c942e19f057fb65f1"
+      "digest": "e6352509a23c61a88ba9462a056994014744962b5ec370292d20fad14038de46"
     },
     "src/workspace-impact.mjs": {
       "counts": {

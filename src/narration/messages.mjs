@@ -174,6 +174,62 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Installed the pre-commit secret check at ${slot(s.hook)}.`,
     preserves: true
   },
+  /**
+   * Product surfaces. The headline is the machine's verdict; the builds themselves are printed per
+   * surface, because a build line is long and a headline is read at a glance.
+   */
+  'product.aligned': {
+    headline: () => 'Every Singularity Flow surface on this machine runs the installed build.',
+    preserves: true
+  },
+  'product.repairable': {
+    headline: (s) => `${slot(s.count)} surface(s) run a different build than the installed one; \`singularity-flow product align\` brings them to it from the build retained on this machine.`,
+    preserves: true
+  },
+  'product.split': {
+    headline: () => 'VS Code and the terminal are on different installed builds. A full install puts one build on every surface.',
+    preserves: true
+  },
+  'product.no-receipt': {
+    headline: () => 'No installer has recorded a build on this machine, so there is nothing to align.',
+    preserves: true
+  },
+  'product.receipt-invalid': {
+    headline: () => 'The installation receipt could not be read, so no surface was compared. Run `singularity-flow doctor`.',
+    preserves: true
+  },
+  'product.align-completed': {
+    headline: (s) => `Aligned ${slot(s.count)} surface(s) to the installed build.`,
+    preserves: false
+  },
+  'product.align-failed': {
+    headline: (s) => `Alignment stopped at the ${slot(s.surface)} surface: ${slot(s.reason)}`,
+    preserves: false
+  },
+  'product.reviews-opened': {
+    headline: (s) => `Opened ${slot(s.count)} configuration review(s) for this build. Nothing changes until each is merged.`,
+    preserves: false
+  },
+  'product.reviews-recorded': {
+    headline: (s) => `This build already proposed its configuration: ${slot(s.count)} review(s).`,
+    preserves: true
+  },
+  'product.reviews-current': {
+    headline: () => "Every registered repository's approved configuration matches this build.",
+    preserves: true
+  },
+  'product.reviews-running': {
+    headline: () => "This build's configuration reviews are being opened in the background; `singularity-flow product status` shows them.",
+    preserves: true
+  },
+  'product.reviews-development': {
+    headline: () => 'A development checkout proposes no configuration reviews of its own.',
+    preserves: true
+  },
+  'product.reviews-failed': {
+    headline: (s) => `Configuration reviews could not be opened: ${slot(s.reason)}`,
+    preserves: true
+  },
   'fastpath.milestone': {
     headline: (s) => `${slot(s.verb)} reached ${slot(s.milestone)}.`,
     preserves: true

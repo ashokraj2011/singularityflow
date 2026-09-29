@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { stampBuildInfo } from '../../src/build-info-stamp.mjs';
 import {
   DISTRIBUTION_OPERATOR_DOCUMENTATION, DISTRIBUTION_OPERATOR_SCRIPTS
 } from '../../src/distribution-bundle.mjs';
@@ -29,12 +30,24 @@ function tarHeader(name, size) {
   return header;
 }
 
-function npmTarball(manifest) {
-  const body = Buffer.from(`${JSON.stringify(manifest)}\n`);
-  const padding = Buffer.alloc((512 - (body.length % 512)) % 512);
-  return gzipSync(Buffer.concat([
-    tarHeader('package/package.json', body.length), body, padding, Buffer.alloc(1024)
-  ]));
+function npmTarball(manifest, files = {}) {
+  const parts = [];
+  for (const [name, body] of [
+    ['package/package.json', Buffer.from(`${JSON.stringify(manifest)}\n`)],
+    ...Object.entries(files).map(([entry, contents]) => [entry, Buffer.from(contents)])
+  ]) {
+    parts.push(tarHeader(name, body.length), body, Buffer.alloc((512 - (body.length % 512)) % 512));
+  }
+  return gzipSync(Buffer.concat([...parts, Buffer.alloc(1024)]));
+}
+
+/** The version and build-information sources a stamped package carries, for one build. */
+async function stampedSources(version, buildInfo) {
+  const source = await readFile(path.join(root, 'src', 'build-info.mjs'), 'utf8');
+  return {
+    'package/src/version.mjs': `export const VERSION = '${version}';\n`,
+    'package/src/build-info.mjs': stampBuildInfo(source, buildInfo)
+  };
 }
 
 function storedZip(name, body) {
@@ -69,6 +82,8 @@ export function fileSha256(bytes) {
 export async function distributionFixture({
   version = '9.8.7',
   vsixVersion = version,
+  // The build the release's npm tarball is stamped with; null ships an unstamped package.
+  buildInfo = null,
   directoryPrefix = 'sflow-distribution-',
   keyDirectoryPrefix = 'sflow-distribution-key-'
 } = {}) {
@@ -76,7 +91,8 @@ export async function distributionFixture({
   const keyDirectory = await mkdtemp(path.join(os.tmpdir(), keyDirectoryPrefix));
   const tarballName = `singularity-flow-${version}.tgz`;
   const vsixName = `singularity-flow-vscode-${version}.vsix`;
-  const tarballBytes = npmTarball({ name: 'singularity-flow', version });
+  const tarballBytes = npmTarball({ name: 'singularity-flow', version },
+    buildInfo ? await stampedSources(version, buildInfo) : {});
   const vsixBytes = storedZip('extension/package.json', Buffer.from(JSON.stringify({
     publisher: 'singularityflow', name: 'singularity-flow-vscode', version: vsixVersion
   })));

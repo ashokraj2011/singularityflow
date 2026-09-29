@@ -90,7 +90,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
-  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
+  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'review-only', 'set', 'sign', 'solo',
   'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief'
 ]);
@@ -1712,7 +1712,7 @@ const TIMING_COMMANDS = new Set([
   'fix', 'journal', 'why', 'approvals', 'receipt', 'impact', 'context', 'tokens', 'clarification',
   'architecture', 'local', 'cache', 'repositories', 'policy', 'evidence', 'env', 'skill', 'mcp',
   'secrets', 'constitution', 'auto', 'adhoc', 'land', 'push', 'next', 'resume', 'return', 'run',
-  'reinstall', 'gate', 'specify', 'plan', 'implement', 'verify'
+  'reinstall', 'product', 'gate', 'specify', 'plan', 'implement', 'verify'
 ]);
 const TIMING_SUBCOMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
   workflow: new Set(['list', 'proposals', 'proposal', 'proposal-status', 'author', 'create', 'publish', 'activate']),

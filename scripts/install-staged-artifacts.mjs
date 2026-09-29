@@ -231,6 +231,32 @@ export async function inspectVsix(file) {
   return inspectVsixInput(await regularBytes(file, 'VSIX'));
 }
 
+/**
+ * An artifact's identity plus the version and stamped build-information sources it carries.
+ *
+ * Product alignment reads which build a retained artifact holds from the archive itself, so a
+ * receipt can never name one build while its bytes are another.
+ */
+export async function inspectNpmTarballBuildSources(file) {
+  const input = await regularBytes(file, 'npm tarball');
+  const inspected = inspectNpmTarballInput(input);
+  const archive = gunzipSync(input.bytes, { maxOutputLength: MAX_ARCHIVE_BYTES });
+  return Object.freeze({
+    ...inspected,
+    versionSource: tarEntry(archive, 'package/src/version.mjs').toString('utf8'),
+    buildInfoSource: tarEntry(archive, 'package/src/build-info.mjs').toString('utf8')
+  });
+}
+
+export async function inspectVsixBuildSources(file) {
+  const input = await regularBytes(file, 'VSIX');
+  return Object.freeze({
+    ...inspectVsixInput(input),
+    versionSource: zipEntry(input.bytes, 'extension/cli/src/version.mjs').toString('utf8'),
+    buildInfoSource: zipEntry(input.bytes, 'extension/cli/src/build-info.mjs').toString('utf8')
+  });
+}
+
 async function managedDirectory(directory, label, { create = false } = {}) {
   const absolute = path.resolve(directory);
   let info = await lstat(absolute).catch((error) => {

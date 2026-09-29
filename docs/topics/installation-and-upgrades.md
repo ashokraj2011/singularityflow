@@ -18,11 +18,12 @@ commands:
   - workspace
   - fresh-install
   - reinstall
+  - product
 related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 17
+version: 28
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -118,6 +119,23 @@ the older `configuration/files/**` layout, while preserving runtime state such a
 `singularity/world-model/**`. Existing Story configuration snapshots remain immutable; new Stories
 use the new authority revision.
 
+After a new build loads, VS Code runs this refresh as a review: for each registered repository whose
+approved configuration lags the build's packaged configuration, it opens a
+`sflow/config-refresh/*` review branch and names it. Nothing changes until someone merges the review.
+The shell form is `singularity-flow product reviews`: the one pass per build, which a window and a
+terminal share through one machine-local record, so it never runs twice or twice at once. Step by
+step, it is `workspace refresh-configuration --confirm-plan <PLAN-ID> --review-only`. A review-only
+refresh never creates a first configuration authority. A review is named by the approved commit it
+starts from and the exact configuration it proposes, so every teammate on the same build joins that
+one review instead of opening another. The proposal records its build in the package baseline, so a
+teammate on another build proposes a review of that build. A window waiting to reload onto a newer
+build opens none; the reloaded build does.
+
+A terminal has no window to wait in, so a new build's first mutation starts the same pass as a
+background worker. `singularity-flow product status` lists the reviews it opened. A pass that failed
+is tried again after an hour. A first mutation that is itself a configuration refresh starts no
+worker beside it. Set `SINGULARITY_FLOW_CONFIGURATION_REVIEWS=off` to switch the background pass off.
+
 Use `workspace refresh-configuration --dry-run` to preview all repositories, or add a workspace
 reference and repeatable `--repository ID` filters for a bounded repair. Repository customizations
 changed in parallel with the package are retained and reported. Use repeatable
@@ -194,9 +212,73 @@ surfaces, stamps provenance, and packages before installation; it skips only `np
 `test:cli` with `--cli-only`). The installer prints a warning so an untested artifact is not mistaken
 for a validated one. The flag is refused for `--factory-reset` and `--clean-reinstall`.
 
+## Keep every surface on one build
+
+The terminal and Copilot run the CLI on PATH, while VS Code runs the CLI bundled in its extension.
+A partial install (`--cli-only`, `--vscode-only`, `--skip-copilot`) or an out-of-band
+`npm install --global` or VSIX can leave them on different builds. They all report the same
+version, so nothing looks wrong until an older build refuses a record that a newer build wrote.
+
+- **Shell:** `sflow product status` compares the build each surface runs with the build the
+  installation receipt (`~/.singularity-flow/installations/current.json`) recorded. `sflow product
+  align` brings a lagging surface to that installed build from the bytes the receipt retained.
+- **VS Code:** after a window opens, the extension checks once per loaded build and at most daily. It
+  aligns in the background and offers a reload when its own files were replaced.
+
+Alignment follows the same rules on every surface:
+
+1. The target is the installed build, not whichever build is newest. A surface newer than the
+   installed build is never downgraded; it is reported with one full-install step.
+2. Only the retained, content-addressed artifacts are installed, and only when their bytes still
+   match the receipt. A development checkout is never replaced.
+3. It never runs while an install or its interrupted-install recovery owns the product surfaces.
+4. Each surface is verified before the next one starts. VS Code goes first, then the CLI, then the
+   Copilot plugin and `/sf-*` skills, which the aligned CLI reinstalls from its own package.
+
+A new build also runs one pass before its first mutation command. It aligns the surfaces and repairs
+machine-local state: a workspace registry entry that drifted from its manifest, and clone staging an
+interrupted clone left behind. If the CLI running that command was the one replaced, the command
+continues on the aligned build. A failed pass never fails the command:
+it prints the retry command, `singularity-flow product align`. Set
+`SINGULARITY_FLOW_PRODUCT_ALIGNMENT=off` to switch the automatic pass off.
+
+Alignment reproduces only builds this machine retains. When a record was written by a teammate's
+newer release that was never installed here, every surface already runs the installed build, and the
+refusal says to install that release with its own install wrapper. A repository whose approved
+configuration requires the newer build installs it automatically; see "Keep a team on one build".
+
+## Keep a team on one build
+
+A repository can require a minimum build in its approved configuration, `singularity/product.yml`.
+It names the build, where the signed release lives (a shared folder or an https location), and the
+artifact-builder public key that must have signed it. See `docs/RELEASE-ARTIFACT-HANDOFF.md` for
+the file and how to publish a release there.
+
+On a teammate's machine, the next mutation in that repository on an older build installs the release
+on every surface before the command runs, then continues the command on the new build:
+
+- Only a file read from the approved configuration authority counts. A copy in a working tree
+  installs nothing, because it names both what to install and who may sign it.
+- The release is verified against the key the reviewed file carries, never a key shipped beside
+  the release, and is installed by the same transactional distribution installer, with rollback.
+- A release is installed only when the build stamped inside it meets the requirement and is not
+  older than the running build, judged before anything is staged and again on the verified bytes.
+  A requirement raised before its release was published installs nothing; publish the build there.
+- When the machine already runs the required build on PATH (a VS Code window that has not reloaded
+  yet), the command continues on that build instead of installing the release again.
+- The check reads each repository's approved configuration at most once a day per build, on the
+  first mutation, whether or not the working tree carries the file: approved configuration lives on
+  `sflow/config`, and a Story pins its own copy when it starts, so neither `main` nor an older
+  Story has it. A requirement file written after the last check, such as a new Story's copy, is read
+  at once. A development checkout never updates itself.
+- A failed download or install never fails the command: it says what to run and continues on the
+  current build. Set `SINGULARITY_FLOW_PRODUCT_UPDATE=off` to switch the check off.
+- `singularity-flow product status` lists each repository's last check on this machine, including
+  why a required release could not be installed. VS Code warns once about each failed install.
+
 ## State and safety
 
-These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
+These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, `product align`, `product reviews`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
 
 ## Troubleshooting
 

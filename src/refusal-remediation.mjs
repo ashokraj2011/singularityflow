@@ -189,7 +189,93 @@ function artifactAuthoringSubject(argv, error) {
   return { phase, kind: initiative ? 'initiative' : 'story' };
 }
 
+const productAlignmentSteps = (label) => [
+  step('inspect-product-builds', label, 'singularity-flow product status', 'diagnostic', '/sf-product'),
+  step('align-product', 'Bring every surface to the installed build from the bytes this machine retains.',
+    'singularity-flow product align', 'remediation', '/sf-product')
+];
+
+/**
+ * Refusals an upgrade can reach. Each is guided to one exact next step; the contract in
+ * src/upgrade-contract.mjs keeps this list and the version-sensitive codes identical.
+ */
+const UPGRADE_KNOWN = Object.freeze({
+  SCHEMA_VERSION_FUTURE: () => [
+    ...productAlignmentSteps('A newer Singularity Flow build wrote this record. Check which build each surface runs.'),
+    // Alignment only reproduces builds this machine retains. A teammate's newer release is not one.
+    step('install-newer-release',
+      'When every surface already runs the installed build, a newer release wrote this record: install that release with its own install wrapper. A repository whose approved singularity/product.yml requires it installs it automatically.',
+      null, 'remediation')
+  ],
+  DOCS_MANIFEST_MISMATCH: () => productAlignmentSteps(
+    'The installed help catalog does not match its package. Check which build each surface runs.'),
+  SCHEMA_VERSION_ARCHIVED: () => [
+    step('diagnose-archived-record',
+      'The record predates every schema this build reads. Inspect it; read it with the archival reader of its release.',
+      'singularity-flow doctor --json')
+  ],
+  WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE: () => [
+    step('rebuild-world-model',
+      'The World Model was published by an earlier build this build cannot verify. Rebuild it; grounding continues without it until then.',
+      'singularity-flow world-model build', 'remediation')
+  ],
+  WMB_MIGRATION_REQUIRED: () => [
+    step('inspect-legacy-world-model', 'Inspect the legacy projection before replacing it.',
+      'singularity-flow wm doctor --format registered-v4'),
+    step('rebuild-registered-world-model', 'Build the registered model; it replaces the legacy projection without trusting it.',
+      'singularity-flow wm build --format registered-v4', 'remediation')
+  ],
+  WMB_VIEW_VERSION_UNSUPPORTED: () => [
+    step('review-registered-views', 'Compare the requested view version with the installed registered views.',
+      'singularity-flow wm views')
+  ],
+  WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED: (argv, error) => {
+    const workType = lowerKebab(error?.details?.workType) ?? '<WORK-TYPE>';
+    return [
+      step('validate-workflow', 'Review the work type\'s planned-claim contract. Existing Stories keep their pinned policy.',
+        'singularity-flow workflow validate'),
+      step('record-planned-claims', 'Record the reviewed planned-claim policy for new Stories.',
+        `singularity-flow workflow edit ${workType} --planned-claims required --clause-phases <PHASES> --claim-owners <CODE=OWNER>`,
+        'remediation')
+    ];
+  },
+  CONVERGENCE_LEGACY_MIGRATION_REQUIRED: (argv, error) => [
+    step('confirm-convergence-migration',
+      'Review the v1 convergence record, then confirm its exact migration. The original bytes are archived, never overwritten.',
+      typeof error?.details?.command === 'string' ? error.details.command : null, 'remediation')
+  ],
+  GENERATION_PUBLICATION_MIGRATION_REQUIRED: (argv) => [
+    step('diagnose-generation-publication',
+      'The generation has a legacy candidate but no immutable publication record. Inspect the Story before beginning another generation.',
+      safeWorkId(argv[1]) ? `singularity-flow recover ${safeWorkId(argv[1])} --json` : 'singularity-flow doctor --json')
+  ],
+  LEGACY_PERSONA_MIGRATION_UNSAFE: () => [
+    step('review-governed-agents',
+      'Convert the repository-owned role to governed Agent Markdown and review its phase routing, then reinitialize.',
+      'singularity-flow agents list --json')
+  ],
+  REPOSITORY_ONBOARDING_MIGRATION_SOURCE_MISSING: () => [
+    step('inspect-onboarding-source', 'Migration needs current supported configuration or a verified state mirror. Inspect what the repository has.',
+      'singularity-flow workspace doctor --json')
+  ],
+  PRODUCT_ALIGNMENT_INSTALL_ACTIVE: () => [
+    step('inspect-product-builds', 'Another install owns the product surfaces. Let it finish, then check the surfaces again.',
+      'singularity-flow product status', 'diagnostic', '/sf-product')
+  ],
+  PRODUCT_ALIGNMENT_INSTALL_RECOVERY_PENDING: () => [
+    step('finish-install-recovery',
+      'An interrupted install still owns the product surfaces. Run that installer once more to finish its recovery.',
+      null, 'remediation')
+  ],
+  PRODUCT_ALIGNMENT_STEP_FAILED: () => productAlignmentSteps('A surface could not be aligned. Check which build each surface runs.'),
+  PRODUCT_ALIGNMENT_VERIFICATION_FAILED: () => productAlignmentSteps(
+    'A surface did not verify after alignment. Check which build each surface runs.')
+});
+
+export const UPGRADE_GUIDED_CODES = Object.freeze(Object.keys(UPGRADE_KNOWN));
+
 const KNOWN = Object.freeze({
+  ...UPGRADE_KNOWN,
   AUTO_DISABLED: (argv) => [
     step('review-auto-policy',
       'Open VS Code → Singularity Flow → Configuration Center → Auto mode; enable the repository and one work type, then review capability limits.',

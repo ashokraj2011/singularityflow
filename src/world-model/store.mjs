@@ -18,11 +18,18 @@ import {
 } from './publish/manifest.mjs';
 import { classifyWorldModelInput, worldModelMigrationRequired } from './migration/v3-reader.mjs';
 import { validateWorldModelMigrationReceipt } from './migration/v3-to-v4.mjs';
-import { validateDerivationCatalog } from './extract/derivation-catalog.mjs';
+import {
+  validateDerivationCatalog, validateHistoricalDerivationCatalog
+} from './extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from './extract/evidence-catalog.mjs';
-import { validateFactLedger, validateViewFactLedger } from './extract/index.mjs';
+import {
+  validateFactLedger, validateHistoricalFactLedger, validateViewFactLedger
+} from './extract/index.mjs';
 import { verifiedWorldModelExecutionRoute } from './execution-profile.mjs';
-import { assertInstalledExtractorRegistry } from './registry/extractors.mjs';
+import {
+  admitPublishedExtractorRegistry, earlierBuildModelIncompatible, reviewedExtractorRegistryPath,
+  reviewedPathPreservesModel, reviewedValidationContract
+} from '../world-model-reviewed-registries.mjs';
 import { assertInstalledViewRegistry, resolveViewContract } from './registry/views.mjs';
 import { validateProjectionRegistry } from './registry/projections.mjs';
 import { buildCalmProjection, enforceProjectionBudgets } from './projections/calm/projection.mjs';
@@ -135,6 +142,11 @@ function reusableIdentityChanges(built, current) {
   for (const [field, reason, kind] of REUSABLE_IDENTITY_FIELDS) {
     if (!Object.hasOwn(built, field) && !Object.hasOwn(current, field)) continue;
     if (canonicalJson(built[field] ?? null) === canonicalJson(current[field] ?? null)) continue;
+    // A reviewed mechanical registry transition moved only the kernel identity: the published
+    // facts and views are exactly what this build would produce from the same inputs.
+    if (field === 'extractorRegistrySha256' && reviewedPathPreservesModel(
+      reviewedExtractorRegistryPath(built[field], current[field])
+    )) continue;
     const collection = ['requestedViews', 'requestedProjections'].includes(field);
     changes.push(Object.freeze({
       field,
@@ -635,7 +647,7 @@ function exactRecordMap(values, label) {
 
 function assertOptionalRecords(records, manifest, {
   views, viewRegistry, extractorRegistry, factLedger, scopeManifest, sourceSnapshot,
-  evidenceCatalog, derivationCatalog
+  evidenceCatalog, derivationCatalog, validationContract = null
 }) {
   const build = validateBuildRecords(records, {
     manifest, sourceSnapshot, scopeManifest, viewRegistry, extractorRegistry
@@ -741,7 +753,11 @@ function assertOptionalRecords(records, manifest, {
       scopeManifest,
       outputBudget: viewBudget,
       executionRoute: route,
-      admittedFactIds: route === 'model' ? assembled.admittedFactIds : null
+      admittedFactIds: route === 'model' ? assembled.admittedFactIds : null,
+      ...(validationContract ? {
+        candidateSchemaSha256: validationContract.candidateSchemaSha256,
+        validatorSha256: validationContract.validatorSha256
+      } : {})
     });
     if (canonicalJson(revalidated.receipt) !== canonicalJson(view.validationReceipt)) {
       recordFailure(`Published candidate '${entry.viewId}' does not reproduce its validation receipt.`,
@@ -917,77 +933,105 @@ export function readPublishedWorldModelV4(root, {
   const viewRegistry = assertInstalledViewRegistry(
     jsonAt(root, readRef, path.posix.join(target, 'registries/views.json'))
   );
-  const extractorRegistry = assertInstalledExtractorRegistry(
+  // An upgrade must not strand a model published by an earlier reviewed build: its own recorded
+  // registry, verified and vouched for by the reviewed chain, validates its facts and derivations.
+  const extractorRegistryAdmission = admitPublishedExtractorRegistry(
     jsonAt(root, readRef, path.posix.join(target, 'registries/extractors.json'))
   );
-  const evidenceCatalog = validateEvidenceCatalog(
-    jsonAt(root, readRef, path.posix.join(target, 'catalogs/evidence.json')),
-    { sourceSnapshot, scopeManifest }
-  );
-  const derivationRaw = jsonAt(root, readRef, path.posix.join(target, 'catalogs/derivations.json'));
-  const factLedger = validateFactLedger(
-    jsonAt(root, readRef, path.posix.join(target, 'catalogs/facts.json')),
-    {
-      sourceSnapshot, scopeManifest, extractorRegistry, evidenceCatalog,
-      derivationIds: new Set((derivationRaw?.derivations ?? []).map((entry) => entry.id))
+  const extractorRegistry = extractorRegistryAdmission.registry;
+  const historicalRegistry = !extractorRegistryAdmission.installed;
+  const validationContract = historicalRegistry
+    ? reviewedValidationContract(extractorRegistry.registrySha256) : null;
+  const verifyPublishedRecords = () => {
+    const evidenceCatalog = validateEvidenceCatalog(
+      jsonAt(root, readRef, path.posix.join(target, 'catalogs/evidence.json')),
+      { sourceSnapshot, scopeManifest }
+    );
+    const derivationRaw = jsonAt(root, readRef, path.posix.join(target, 'catalogs/derivations.json'));
+    const factLedger = (historicalRegistry ? validateHistoricalFactLedger : validateFactLedger)(
+      jsonAt(root, readRef, path.posix.join(target, 'catalogs/facts.json')),
+      {
+        sourceSnapshot, scopeManifest, extractorRegistry, evidenceCatalog,
+        derivationIds: new Set((derivationRaw?.derivations ?? []).map((entry) => entry.id))
+      }
+    );
+    const derivationCatalog = (historicalRegistry
+      ? validateHistoricalDerivationCatalog : validateDerivationCatalog)(derivationRaw, {
+      evidenceCatalog, factLedger, extractorRegistry
+    });
+    const dependencies = deriveWorldModelManifestDependencies({
+      sourceSnapshot,
+      scopeManifest,
+      policySnapshotSha256: manifest.policySnapshotSha256,
+      viewRegistry,
+      extractorRegistry,
+      evidenceCatalog,
+      derivationCatalog,
+      factLedger,
+      historicalRegistry
+    });
+    const views = manifest.views.map((entry) => {
+      if (entry.status === 'unavailable') return structuredClone(entry);
+      return {
+        ...structuredClone(entry),
+        markdown: readAt(root, readRef, path.posix.join(target, entry.path)),
+        candidate: jsonAt(root, readRef, path.posix.join(target, `candidates/${entry.viewId}.json`)),
+        validationReceipt: jsonAt(root, readRef, path.posix.join(target, `receipts/validation/${entry.viewId}.json`)),
+        execution: jsonAt(root, readRef, path.posix.join(target, `receipts/execution/${entry.viewId}.json`)),
+        usageObservation: jsonAt(root, readRef, path.posix.join(target, `usage/${entry.viewId}.json`))
+      };
+    });
+    const allowlist = exactProjectionAllowlist(root, readRef, target, manifest, viewRegistry);
+    const records = loadProjectionRecords(
+      root, readRef, target, manifest.views, viewRegistry, allowlist.migrationPaths,
+      manifest.projections ?? []
+    );
+    const projections = verifiedPublishedProjections(manifest, records, {
+      sourceSnapshot, scopeManifest, factLedger
+    });
+    const verified = verifyWorldModelManifest(manifest, {
+      dependencies,
+      views,
+      projectionRegistry: records.projectionRegistry,
+      projections,
+      allowUnavailableOptionalViews: manifest.completeness.unavailableOptionalViews > 0,
+      // Views of a reviewed earlier build were validated by that build's own validator.
+      ...(validationContract ? { validationContract } : {})
+    });
+    assertOptionalRecords(records, manifest, {
+      views: verified.views, viewRegistry, extractorRegistry, factLedger, scopeManifest,
+      sourceSnapshot, evidenceCatalog, derivationCatalog, validationContract
+    });
+    for (const view of verified.views.filter((entry) => entry.status === 'available')) {
+      const observation = validateWorldModelUsageObservation(view.usageObservation);
+      const publishedBytes = Buffer.byteLength(view.markdown, 'utf8');
+      if (observation.viewId !== view.viewId
+          || observation.observationSha256 !== view.execution.usageObservationSha256
+          || observation.outputBytes !== publishedBytes) {
+        recordFailure(
+          `Published Usage Observation '${view.viewId}' does not match its exact execution and view bytes.`,
+          'WMB_VIEW_EXECUTION_MISMATCH',
+          { viewId: view.viewId, expectedOutputBytes: publishedBytes }
+        );
+      }
     }
-  );
-  const derivationCatalog = validateDerivationCatalog(derivationRaw, {
-    evidenceCatalog, factLedger, extractorRegistry
-  });
-  const dependencies = deriveWorldModelManifestDependencies({
-    sourceSnapshot,
-    scopeManifest,
-    policySnapshotSha256: manifest.policySnapshotSha256,
-    viewRegistry,
-    extractorRegistry,
-    evidenceCatalog,
-    derivationCatalog,
-    factLedger
-  });
-  const views = manifest.views.map((entry) => {
-    if (entry.status === 'unavailable') return structuredClone(entry);
     return {
-      ...structuredClone(entry),
-      markdown: readAt(root, readRef, path.posix.join(target, entry.path)),
-      candidate: jsonAt(root, readRef, path.posix.join(target, `candidates/${entry.viewId}.json`)),
-      validationReceipt: jsonAt(root, readRef, path.posix.join(target, `receipts/validation/${entry.viewId}.json`)),
-      execution: jsonAt(root, readRef, path.posix.join(target, `receipts/execution/${entry.viewId}.json`)),
-      usageObservation: jsonAt(root, readRef, path.posix.join(target, `usage/${entry.viewId}.json`))
+      evidenceCatalog, derivationCatalog, factLedger, dependencies, records, projections, verified
     };
-  });
-  const allowlist = exactProjectionAllowlist(root, readRef, target, manifest, viewRegistry);
-  const records = loadProjectionRecords(
-    root, readRef, target, manifest.views, viewRegistry, allowlist.migrationPaths,
-    manifest.projections ?? []
-  );
-  const projections = verifiedPublishedProjections(manifest, records, {
-    sourceSnapshot, scopeManifest, factLedger
-  });
-  const verified = verifyWorldModelManifest(manifest, {
-    dependencies,
-    views,
-    projectionRegistry: records.projectionRegistry,
-    projections,
-    allowUnavailableOptionalViews: manifest.completeness.unavailableOptionalViews > 0
-  });
-  assertOptionalRecords(records, manifest, {
-    views: verified.views, viewRegistry, extractorRegistry, factLedger, scopeManifest,
-    sourceSnapshot, evidenceCatalog, derivationCatalog
-  });
-  for (const view of verified.views.filter((entry) => entry.status === 'available')) {
-    const observation = validateWorldModelUsageObservation(view.usageObservation);
-    const publishedBytes = Buffer.byteLength(view.markdown, 'utf8');
-    if (observation.viewId !== view.viewId
-        || observation.observationSha256 !== view.execution.usageObservationSha256
-        || observation.outputBytes !== publishedBytes) {
-      recordFailure(
-        `Published Usage Observation '${view.viewId}' does not match its exact execution and view bytes.`,
-        'WMB_VIEW_EXECUTION_MISMATCH',
-        { viewId: view.viewId, expectedOutputBytes: publishedBytes }
-      );
-    }
+  };
+  let verification;
+  try {
+    verification = verifyPublishedRecords();
+  } catch (error) {
+    // A reviewed earlier build's model is used only when this build reproduces it exactly under
+    // that build's own validation contract. Anything short of that is not accepted, and a rebuild
+    // with this build replaces it. A model of the installed build keeps failing closed.
+    if (!historicalRegistry || !/^WMB_/u.test(String(error?.code ?? ''))) throw error;
+    throw earlierBuildModelIncompatible(extractorRegistry.registrySha256, 'not-reproducible', error);
   }
+  const {
+    evidenceCatalog, derivationCatalog, factLedger, dependencies, records, projections, verified
+  } = verification;
   let sourceFreshness;
   try {
     if (sourceVerification === 'historical-integrity') {

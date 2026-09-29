@@ -13634,7 +13634,9 @@ async function workspaceCommand(positionals, options) {
       dryRun: optionBoolean(options, 'dry-run'),
       acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts'),
       resolutions: optionMap(optionStrings(options, 'resolve'), '--resolve'),
-      confirmPlan: optionString(options, 'confirm-plan')
+      confirmPlan: optionString(options, 'confirm-plan'),
+      // Propose on review branches and never push sflow/config itself: what self-repair runs.
+      reviewOnly: optionBoolean(options, 'review-only')
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else if (!result.results.length) console.log('No registered workspace repositories require configuration refresh.');
@@ -16164,6 +16166,7 @@ async function dispatch(command, positionals, options) {
     'local-reset': () => localResetCommand(options),
     'fresh-install': () => freshInstallCommand(options),
     reinstall: () => reinstallCommand(options),
+    product: async () => (await import('./commands/product.mjs')).run(argv, { positionals, options }),
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),

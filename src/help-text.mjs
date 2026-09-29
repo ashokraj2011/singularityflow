@@ -79,6 +79,9 @@ Usage:
     [--registry URL] [--cli-only] [--no-copilot-telemetry] [--json]
   sf-reinstall --checkout DIRECTORY [--dry-run | --confirm "REINSTALL SINGULARITY FLOW FINGERPRINT"]
     [--registry URL] [--cli-only] [--no-copilot-telemetry] [--json]
+  singularity-flow product status [--json]
+  singularity-flow product align [--dry-run] [--json]
+  singularity-flow product reviews [--json]
   singularity-flow stack status [--epic EPIC-ID] [--json]
   singularity-flow stack sync --epic EPIC-ID [--json]
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
@@ -978,7 +981,9 @@ Usage:
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
     [--resolve PATH=local|bundled|merge] [--accept-bundled-conflicts]
-    [--confirm-plan PLAN-ID] [--json]
+    [--confirm-plan PLAN-ID] [--review-only] [--json]
+    (--review-only proposes each change on a sflow/config-refresh/* review branch and never pushes
+     sflow/config itself)
   singularity-flow workspace reinitialize [WORKSPACE] [--repository ID]
     [--dry-run | --confirm-plan PLAN-ID] [--json]
     (safe, repeatable upgrade path: restores only missing or exact registered framework seeds and

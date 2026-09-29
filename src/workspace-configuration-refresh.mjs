@@ -20,7 +20,7 @@ import {
 } from './configuration-assets.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { SMART_INITIALIZATION_ASSETS } from './initialization-assets.mjs';
-import { gitCommitIdentity } from './git.mjs';
+import { gitCommitIdentity, refHead } from './git.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
@@ -3016,7 +3016,89 @@ async function identicalConcurrentConfiguration(root, candidateCommit, { env = p
   return candidateTree === approvedTree ? approvedCommit : null;
 }
 
+/** Commit a candidate's refreshed configuration; its commit, or null when nothing was staged. */
+function commitRefreshCandidate(root, refresh, env, subject) {
+  run('git', ['add', '-A', '--', ...refresh.files], { cwd: root, env });
+  const staged = run('git', ['diff', '--cached', '--name-only'], { cwd: root, env }).stdout
+    .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  if (!staged.length) return null;
+  const actor = gitCommitIdentity(root, { env });
+  run('git', [
+    '-c', `user.name=${actor.name || 'Singularity Flow'}`,
+    '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+    'commit', '-m', `[configuration][product:${refresh.product.revision}] ${subject}`
+  ], { cwd: root, env });
+  const candidateRef = observeExactRefreshRef(root, `refs/heads/${CONFIGURATION_BRANCH}`, { env });
+  if (candidateRef.status !== 'direct') {
+    throw refreshRefError(`refs/heads/${CONFIGURATION_BRANCH}`, candidateRef.status, 'read');
+  }
+  return candidateRef.commit;
+}
+
+/**
+ * A review is named by what it proposes: the approved commit it starts from and the exact tree it
+ * would make current, never the proposing machine's own commit. Every teammate on the same build
+ * proposes the same tree, and so shares one review. The tree records its build in the package
+ * baseline, so another build's proposal is a review of its own; teammate updates keep a team on one.
+ */
+function reviewProposal(root, candidateCommit, sourceCommit, env) {
+  const tree = refHead(root, `${candidateCommit}^{tree}`, { env });
+  const parent = refHead(root, `${candidateCommit}^1`, { env });
+  if (!tree || !parent) {
+    throw new SingularityFlowError('The proposed configuration commit could not be read back. Nothing was proposed.', {
+      code: 'CONFIGURATION_REVIEW_UNREADABLE'
+    });
+  }
+  return { tree, parent, branch: `sflow/config-refresh/${sourceCommit.slice(0, 8)}-${tree.slice(0, 12)}` };
+}
+
+/** The commit of this exact review when it is already open: the same tree on the same parent. */
+async function openReviewCommit(root, proposal, env) {
+  const fetched = await runRemoteGitAsync([
+    'fetch', '--quiet', '--no-tags', '--refmap=', 'origin', `refs/heads/${proposal.branch}`
+  ], { cwd: root, operation: 'remote-configuration', env });
+  if (fetched.status !== 0) return null;
+  const commit = refHead(root, 'FETCH_HEAD^{commit}', { env });
+  if (!commit) return null;
+  return refHead(root, `${commit}^{tree}`, { env }) === proposal.tree
+    && refHead(root, `${commit}^1`, { env }) === proposal.parent ? commit : null;
+}
+
+/**
+ * A review-only refresh proposes each packaged configuration change on a review branch and never
+ * pushes `sflow/config` itself. It is what self-repair runs: a person approves the change.
+ */
+async function proposeCandidate(candidate) {
+  const { root, repository, refresh, sourceCommit } = candidate;
+  const env = candidate.gitEnv ?? process.env;
+  const result = (status, extra = {}) => ({
+    status, repository: repository.id, remote: repository.displayRemote,
+    memberships: repository.memberships, sourceCommit,
+    conflicts: refresh.conflicts, configurationChanged: false, stateChanged: false, error: null, ...extra
+  });
+  if (!refresh.changed) return result('current');
+  const candidateCommit = commitRefreshCandidate(root, refresh, env, 'propose packaged configuration');
+  if (!candidateCommit) return result('current');
+  const proposal = reviewProposal(root, candidateCommit, sourceCommit, env);
+  const pushed = await runRemoteGitAsync([
+    'push', `--force-with-lease=refs/heads/${proposal.branch}:`, 'origin', `HEAD:refs/heads/${proposal.branch}`
+  ], { cwd: root, operation: 'remote-push', env });
+  if (pushed.status === 0) return result('review-required', { candidateCommit, proposalBranch: proposal.branch });
+  // Another machine, or an earlier attempt whose push outcome was lost, opened this exact review.
+  const open = await openReviewCommit(root, proposal, env);
+  if (!open) {
+    throw new SingularityFlowError(
+      `The configuration review for '${repository.displayRemote}' could not be opened. `
+        + remoteFailureMessage(pushed)
+    );
+  }
+  return result('review-required', {
+    candidateCommit: open, proposalBranch: proposal.branch, ...(open === candidateCommit ? {} : { reviewShared: true })
+  });
+}
+
 async function publishCandidate(candidate) {
+  if (candidate.reviewOnly) return proposeCandidate(candidate);
   const { root, repository, refresh, sourceCommit, desired } = candidate;
   const env = candidate.gitEnv ?? process.env;
   let approvedCommit = sourceCommit;
@@ -3024,21 +3106,8 @@ async function publishCandidate(candidate) {
   // durable mutation without authoring a second refresh commit.
   let configurationChanged = candidate.bootstrapConfigurationCreated === true;
   if (refresh.changed) {
-    run('git', ['add', '-A', '--', ...refresh.files], { cwd: root, env });
-    const staged = run('git', ['diff', '--cached', '--name-only'], { cwd: root, env }).stdout
-      .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
-    if (staged.length) {
-      const actor = gitCommitIdentity(root, { env });
-      run('git', [
-        '-c', `user.name=${actor.name || 'Singularity Flow'}`,
-        '-c', `user.email=${actor.email || 'unknown@invalid'}`,
-        'commit', '-m', `[configuration][product:${refresh.product.revision}] refresh packaged configuration`
-      ], { cwd: root, env });
-      const candidateRef = observeExactRefreshRef(root, `refs/heads/${CONFIGURATION_BRANCH}`, { env });
-      if (candidateRef.status !== 'direct') {
-        throw refreshRefError(`refs/heads/${CONFIGURATION_BRANCH}`, candidateRef.status, 'read');
-      }
-      const candidateCommit = candidateRef.commit;
+    const candidateCommit = commitRefreshCandidate(root, refresh, env, 'refresh packaged configuration');
+    if (candidateCommit) {
       const pushed = await runRemoteGitAsync([
         'push', `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${sourceCommit}`,
         'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
@@ -3236,7 +3305,8 @@ export async function refreshWorkspaceConfigurations({
   restorePackagedSeeds = false,
   confirmPlan = null,
   inspectCandidate = null,
-  cleanupTemporaryTree = removeTemporaryTree
+  cleanupTemporaryTree = removeTemporaryTree,
+  reviewOnly = false
 } = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace configuration refresh requires the workspace registry path.');
   const normalizedResolutions = normalizeRefreshResolutions(resolutions);
@@ -3281,6 +3351,17 @@ export async function refreshWorkspaceConfigurations({
       return { repository, commit: null, bootstrapCommit: null, error };
     }
   });
+  // Creating a first configuration authority is itself a governed change, so a review-only refresh
+  // never does it; it only proposes changes to an authority that already exists.
+  const withoutAuthority = reviewOnly && !dryRun
+    ? observations.filter((item) => !item.error && !item.commit) : [];
+  if (withoutAuthority.length) {
+    throw new SingularityFlowError(
+      `A review-only refresh proposes changes to an existing approved configuration, and ${withoutAuthority.map((item) => item.repository.id).join(', ')} has none yet. `
+        + 'Run the refresh without --review-only to create it.',
+      { code: 'CONFIGURATION_REVIEW_AUTHORITY_MISSING' }
+    );
+  }
   const unreachable = observations.filter((item) => item.error);
   if (unreachable.length) {
     return {
@@ -3688,7 +3769,7 @@ export async function refreshWorkspaceConfigurations({
   const cleanupPending = [];
   try {
     results = await mapLimit(candidates, workers, async (candidate) => {
-      try { return await publishCandidate(candidate); }
+      try { return await publishCandidate(reviewOnly ? { ...candidate, reviewOnly } : candidate); }
       catch (error) {
         const partial = error?.details?.partialPublication ?? {};
         return {

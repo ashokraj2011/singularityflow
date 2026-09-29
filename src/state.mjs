@@ -1251,8 +1251,38 @@ export function currentPhase(workflow) {
   return phase;
 }
 
+const TRANSITION_REPAIR_SWITCH = 'SINGULARITY_FLOW_TRANSITION_REPAIR';
+
+/**
+ * Finish a Story's retained publication before a transition, when that is an ordinary retry.
+ *
+ * A lifecycle command that committed locally but could not push leaves the exact commit and its
+ * remote lease retained. Publishing it is what that command already asked for, so the next
+ * transition completes it instead of refusing. It uses the same exact-lease sync as
+ * `singularity-flow sync`. An interrupted pre-commit publication is never rolled back here, and any
+ * failure leaves the sequence gate to refuse exactly as before.
+ */
+async function repairRetainedPublication(root, config, workflow, action) {
+  if (['off', '0', 'false', 'no'].includes(String(process.env[TRANSITION_REPAIR_SWITCH] ?? '').trim().toLowerCase())) return false;
+  const pending = await readPendingPublication(root, {
+    kind: 'story', id: workflow.workItem.id,
+    legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
+  }).catch(() => null);
+  if (!pending || pending.record?.recoveryStage === 'interrupted-before-branch-ref-advanced') return false;
+  try {
+    const result = await syncPublication(root, config, workflow);
+    if (result.recoveredPrepared) return false;
+  } catch {
+    return false;
+  }
+  if (await storyPublicationPending(root, config, workflow.workItem.id)) return false;
+  console.warn(`Published the retained local commit before this transition (${action}).`);
+  return true;
+}
+
 export async function assertNoPendingPublication(root, config, workflow, action = 'continue') {
-  if (await storyPublicationPending(root, config, workflow.workItem.id)) {
+  if (await storyPublicationPending(root, config, workflow.workItem.id)
+      && !(await repairRetainedPublication(root, config, workflow, action))) {
     await enforceSequenceGate(root, workflow, 'publicationPending', action, {
       reason: 'Publication is pending because a retained local lifecycle commit has not reached its configured remote.'
     });

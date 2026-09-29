@@ -232,6 +232,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'factory-reset') {
     return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   }
+  if (args[0] === 'product') {
+    return (args[1] ?? 'status') === 'status' || enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+  }
   if (args[0] === 'init' && enabledBooleanOption(args, 'smart-detect')
       && enabledBooleanOption(args, 'dry-run') && !hasOption(args, 'output')) return 'read';
   // Configuration inventory and previews are read-only. Every other configuration subcommand is
@@ -695,6 +698,8 @@ export class SingularityFlowClient {
         ? CLI_TIMEOUT_MS : FACTORY_RESET_TRANSACTION_TIMEOUT_MS;
     }
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
+    // Alignment reinstalls product surfaces from retained bytes; npm resolves the CLI's dependencies.
+    if (args[0] === 'product' && (args[1] === 'align' || args[1] === 'reviews')) return WORKSPACE_MUTATION_TIMEOUT_MS;
     if (args[0] === 'repair' && args[1] === 'attempt') return VALIDATION_TIMEOUT_MS;
     if (args[0] === 'story' && args[1] === 'enhance-description') {
       return STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS;

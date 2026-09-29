@@ -3989,3 +3989,63 @@ test('ordinary refresh conflict resolutions use each repository custom templates
     'a resolution approved for one repository custom root cannot cross into another repository'
   );
 });
+
+test('a review-only refresh proposes packaged configuration on a review branch and never pushes sflow/config', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-refresh-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'application');
+  const approved = () => run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim();
+  const before = approved();
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.results[0].status, 'would-update');
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, reviewOnly: true
+  });
+  const [result] = applied.results;
+  assert.equal(result.status, 'review-required');
+  assert.match(result.proposalBranch, /^sflow\/config-refresh\//u);
+  assert.equal(result.error, null, 'a review a person was always going to approve is not an error');
+  assert.equal(approved(), before, 'approved configuration changes only when a person merges the review');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', `refs/heads/${result.proposalBranch}`]).stdout.trim(),
+    result.candidateCommit);
+});
+
+test('every machine proposing the same packaged configuration shares one review', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-shared-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'application');
+  const propose = async () => {
+    const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+    return (await refreshWorkspaceConfigurations({
+      registryFile: registry, confirmPlan: preview.planId, reviewOnly: true
+    })).results[0];
+  };
+  const first = await propose();
+  // Commit times have one-second resolution: a later proposal is a different commit of the same change.
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const second = await propose();
+  assert.equal(first.status, 'review-required');
+  assert.equal(second.status, 'review-required');
+  assert.equal(second.proposalBranch, first.proposalBranch, 'the review is named by what it proposes');
+  assert.match(first.proposalBranch, /^sflow\/config-refresh\/[0-9a-f]{8}-[0-9a-f]{12}$/u,
+    'the approved commit and the proposed tree name it, never the proposing machine\'s own commit');
+  assert.equal(second.candidateCommit, first.candidateCommit, 'the second proposal joins the open review');
+  assert.equal(second.reviewShared, true);
+  const reviews = run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh/'])
+    .stdout.split('\n').filter(Boolean);
+  assert.deepEqual(reviews, [`refs/heads/${first.proposalBranch}`], 'one review, not one per machine');
+});
+
+test('a review-only refresh never creates a first configuration authority', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-bootstrap-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'application');
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.results[0].status, 'would-initialize');
+  await assert.rejects(refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, reviewOnly: true
+  }), { code: 'CONFIGURATION_REVIEW_AUTHORITY_MISSING' });
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/sflow/config'], { allowFailure: true }).status, 1,
+    'no authority was created');
+});

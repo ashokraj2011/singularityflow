@@ -1534,9 +1534,15 @@ export async function handleWorldModelV4Command(root, config, command, positiona
     let state = 'not-built';
     let detail = null;
     try { store = resolvePublishedWorldModelV4(root, { ...worldModelV4StoreOptions(root, config, { options }), required: false }); state = store ? 'valid' : state; }
-    catch (error) { state = 'invalid'; detail = { code: error.code ?? null, message: error.message }; }
+    catch (error) {
+      // A model this build cannot verify because an earlier build wrote it is not corrupt: an
+      // ordinary rebuild replaces it.
+      state = error.code === 'WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE' ? 'earlier-build' : 'invalid';
+      detail = { code: error.code ?? null, message: error.message };
+    }
     const result = {
-      status: state === 'invalid' ? 'fail' : 'pass',
+      status: state === 'invalid' ? 'fail' : state === 'earlier-build' ? 'warn' : 'pass',
+      ...(state === 'earlier-build' ? { next: { command: 'singularity-flow world-model build' } } : {}),
       registries: {
         views: BUILTIN_VIEW_REGISTRY.registrySha256,
         extractors: BUILTIN_EXTRACTOR_REGISTRY.registrySha256
@@ -1546,7 +1552,10 @@ export async function handleWorldModelV4Command(root, config, command, positiona
       summary: store ? worldModelV4StoreSummary(store) : null
     };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else console.log(`WMB v4 doctor: ${result.status} · state ${state} · 4 registered views · ${BUILTIN_EXTRACTOR_REGISTRY.manifests.length} registered extractors`);
+    else {
+      console.log(`WMB v4 doctor: ${result.status} · state ${state} · 4 registered views · ${BUILTIN_EXTRACTOR_REGISTRY.manifests.length} registered extractors`);
+      if (result.next) console.log(`${detail.message} Next: ${result.next.command}`);
+    }
     return result;
   }
   if (command === 'migrate') {

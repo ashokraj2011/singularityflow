@@ -51,9 +51,10 @@ test('workflow skill governs dependency-complete transfer and linked duplication
   assert.match(content, /author where-used <SKILL-ID> --json/);
   assert.match(content, /reads approved configuration; `--story <ID>` selects\s+one accepted local Story/);
   assert.match(content, /Preserve exact ref\/commit\/revision selectors; never fetch or infer/);
-  assert.match(content, /`--story-refs` selects local first-parent windows/);
+  assert.match(content, /`--story-refs` selects local first-parent windows; `--repository-story-refs` selects up to\s+four explicit local roots/);
   assert.match(content, /No provider scan, invented selectors, or repairs/);
   assert.match(content, /unavailable history never means empty usage/);
+  assert.match(content, /`--input @approved-starter\/<ID>` reads the verified authority, not the app checkout/);
   assert.match(content, /--expected-source/);
   assert.match(content, /stale destination plans/);
   assert.match(content, /Headless `author submit <WFD-ID> --revision N` or `author delete` only hands off/);

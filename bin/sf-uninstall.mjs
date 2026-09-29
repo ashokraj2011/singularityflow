@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { restoreDistributionOriginPath } from '../src/distribution-origin-path.mjs';
 import {
   applyProductUninstall, prepareProductUninstall, productUninstallText
 } from '../src/product-uninstall.mjs';
@@ -35,6 +36,7 @@ function parse(argv) {
 }
 
 async function main() {
+  restoreDistributionOriginPath();
   const options = parse(process.argv.slice(2));
   if (options.help) {
     console.log(usage());

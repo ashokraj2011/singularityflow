@@ -874,8 +874,9 @@ function registeredV4RecoveryAction(config, error, phaseId) {
       reason: `${error.message} Refresh the exact configured state authority, then retry.`
     };
   }
+  // A model from an earlier build this build cannot verify is replaced by an ordinary rebuild.
   if (['WMB_MANIFEST_MISSING', 'WMB_VIEW_UNAVAILABLE', 'WMB_SOURCE_SNAPSHOT_STALE',
-    'WMB_SOURCE_SNAPSHOT_REQUIRED'].includes(code)) {
+    'WMB_SOURCE_SNAPSHOT_REQUIRED', 'WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE'].includes(code)) {
     return { command: registeredV4BuildCommand(config, phaseId), reason: error.message };
   }
   return {

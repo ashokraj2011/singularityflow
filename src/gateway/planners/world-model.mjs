@@ -103,7 +103,8 @@ function refusal(operation, subject, code, reference = null) {
 function nextRecommendation(store, error, requestedView = null) {
   const code = error?.code ?? null;
   if (!store) {
-    if (code === 'WMB_MANIFEST_MISSING' || code === 'WMB_MIGRATION_REQUIRED') {
+    if (code === 'WMB_MANIFEST_MISSING' || code === 'WMB_MIGRATION_REQUIRED'
+        || code === 'WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE') {
       return Object.freeze({
         status: 'build-required', classification: 'read', operation: 'world-model.plan',
         command: 'singularity-flow world-model plan --json',

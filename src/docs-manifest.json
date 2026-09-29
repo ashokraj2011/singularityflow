@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "aed577784c3a41410afcb815fc92a3c5b66c80c8",
+  "sourceCommit": "5a7f3c66d0a76c3ead139a7542f3417075de003b",
   "topicCount": 68,
-  "contentSha256": "b9c15e96a608b2e88ff99744f89b44818ad6a68a0f08169b00ded50ed7ee41e4",
+  "contentSha256": "44f3e8f1f4dbee0debd11a7d2d9e6c0f980da6dc6fa689976db52acb404ec9aa",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -264,9 +264,9 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 17,
-      "sha256": "ebbbc09cdccf8bacd6b5d6dbf1984f82b10cfdc8aebc5fe51935d6c0b36851c1",
-      "routingSha256": "9282900d02a0dc95200075b3b65d398903af09edd17350009d3f3379eee4b584",
+      "version": 28,
+      "sha256": "904030ab01f93913fad045540f0951f1847ddd65409f08b44ed548fbc1fe2970",
+      "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
     {
@@ -376,8 +376,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 8,
-      "sha256": "467ec875f8ec1c03298115b4ea169c8e90ac69bc446772ad856001273674b7e4",
+      "version": 9,
+      "sha256": "b1450826c52fcdd8afab6bb1b2793b073ed90d67a6a07e1e6bc021d4f3e222e9",
       "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },
@@ -544,8 +544,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 27,
-      "sha256": "d9ee02cb4ae7ec919e68908f1b3f128235157fbeb61bfd191331627c7f5e2d08",
+      "version": 28,
+      "sha256": "8c96177a8bb512fd55c2cc38439776604d074893cd6aeb47f7c8864b8878b80d",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

@@ -16,6 +16,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,7 +29,15 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const CLI = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 const WORK = 'E2E-1';
 
+/**
+ * This fixture is the person at the keyboard, and with Git 2.54 two of their commits a moment apart
+ * can run overlapping background maintenance that deletes the clone's history (see
+ * withoutAutomaticGitMaintenance in src/platform-process.mjs). That happened here, under full-suite
+ * load, between the convergence checkpoint and the drift commit. The person's own Git therefore
+ * starts none.
+ */
 function shell(command, args, cwd, { allowFailure = false } = {}) {
+  if (command === 'git') args = ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', ...args];
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_LOG_CONSOLE: 'error' }
   });
@@ -93,6 +102,10 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // -b main: a bare repository's HEAD otherwise points at this git's default branch name, and a
   // clone of it checks out a branch that does not exist — an empty tree that fails much later.
   shell('git', ['init', '-q', '--bare', '-b', 'main', '.'], origin);
+  // Pushes from the clone and from Singularity Flow run receive-pack here, which starts the same
+  // maintenance on the server side of this fixture.
+  git(origin, 'config', 'maintenance.auto', 'false');
+  git(origin, 'config', 'receive.autogc', 'false');
   const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-seed-'));
   git(seed, 'init', '-b', 'main');
   git(seed, 'config', 'user.name', 'End To End');
@@ -130,6 +143,15 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   shell('git', ['clone', '-q', '-b', 'main', origin, '.'], root);
   git(root, 'config', 'user.name', 'End To End');
   git(root, 'config', 'user.email', 'e2e@example.invalid');
+  // Singularity Flow must never start Git's automatic maintenance. In this clone any maintenance
+  // runs in the foreground and leaves a commit-graph behind, so the lifecycle below proves that no
+  // command or background worker started one.
+  git(root, 'config', 'maintenance.autoDetach', 'false');
+  git(root, 'config', 'gc.autoDetach', 'false');
+  git(root, 'config', 'maintenance.commit-graph.enabled', 'true');
+  git(root, 'config', 'maintenance.commit-graph.auto', '-1');
+  const maintenanceRan = () => ['commit-graph', 'commit-graphs']
+    .some((name) => existsSync(path.join(root, '.git', 'objects', 'info', name)));
 
   sflow(root, ['start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard',
     '--title', 'Retry a failed payment', '--description', 'Let an operator retry a payment that failed at the provider.']);
@@ -659,4 +681,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   const tamperedGate = sflow(root, ['gate', '--terminal'], { allowFailure: true });
   assert.notEqual(tamperedGate.status, 0, 'terminal governance accepted changed bound claim-map bytes');
   assert.match(tamperedGate.output, /observed claim map changed after publication/i);
+
+  assert.equal(maintenanceRan(), false,
+    'a Singularity Flow command or background worker started Git maintenance in the governed clone');
 });

@@ -471,6 +471,21 @@ export function nonInteractiveGitEnvironment(
   };
 }
 
+/**
+ * The host's own Git starts no automatic maintenance in the governed repository: two of Git 2.54's
+ * background repacks can run at once and delete its history. The engine gives every Git child the
+ * same two settings (withoutAutomaticGitMaintenance in src/platform-process.mjs).
+ * nonInteractiveGitEnvironment has removed every counted entry, so these are the only ones.
+ */
+function hostGitEnvironment(): NodeJS.ProcessEnv {
+  return {
+    ...nonInteractiveGitEnvironment(),
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'maintenance.auto', GIT_CONFIG_VALUE_0: 'false',
+    GIT_CONFIG_KEY_1: 'gc.auto', GIT_CONFIG_VALUE_1: '0'
+  };
+}
+
 function environmentValue(environment: NodeJS.ProcessEnv, name: string): string | undefined {
   const key = Object.keys(environment).find((entry) => entry.toUpperCase() === name);
   return key === undefined ? undefined : environment[key];
@@ -827,7 +842,7 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   const timer = setTimeout(() => stop('timeout'), options.timeout);
   if (options.signal?.aborted) return cancel();
   options.signal?.addEventListener('abort', cancel, { once: true });
-  const env = nonInteractiveGitEnvironment();
+  const env = hostGitEnvironment();
   const launch = (executable: string | null) => {
     try {
       if (settled || stoppingFailure) return;
@@ -935,7 +950,7 @@ export const localGit: LocalGitRunner = async (args, options) => new Promise((re
   if (options.signal?.aborted) return cancel();
   timer = setTimeout(() => stop('timeout'), options.timeout);
   options.signal?.addEventListener('abort', cancel, { once: true });
-  const env = nonInteractiveGitEnvironment();
+  const env = hostGitEnvironment();
   const launch = (executable: string | null) => {
     try {
       if (settled || stoppingFailure) return;

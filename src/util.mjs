@@ -813,6 +813,19 @@ export function gitHeadIsUnborn(cwd, { env = process.env } = {}) {
 }
 
 /**
+ * Whether `cwd` is outside every Git repository, by Git's own "not a git repository".
+ *
+ * Git exits 128 alike for that and for a repository it cannot read, such as one with a bad
+ * configuration line, so the probe runs in the C locale, where the message is never translated,
+ * and nothing but that message counts as outside.
+ */
+export function gitOutsideRepository(cwd, { env = process.env } = {}) {
+  const probe = run('git', ['rev-parse', '--git-dir'], { cwd, env: { ...env, LC_ALL: 'C' }, allowFailure: true });
+  return probe.status === 128 && processResultCompleted(probe)
+    && /\bnot a git repository\b/u.test(String(probe.stderr ?? ''));
+}
+
+/**
  * The shell a configured runner command should be handed to.
  *
  * The world-model runner is a command line a repository configures, so it genuinely needs a shell to

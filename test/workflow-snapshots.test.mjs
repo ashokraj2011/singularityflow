@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -1025,6 +1025,14 @@ test('a Story history read that Git could not complete is refused, never read as
     assert.throws(() => storyHistoryCommits(root, added, "Story 'S-1' creation record"), (error) =>
       error.code === 'WFA_DEPENDENCY_UNAVAILABLE'
       && /^Story 'S-1' creation record could not be read from Git history: \S/.test(error.message));
+
+    // A configuration Git cannot parse fails the HEAD probe too, with the same exit as "not a
+    // repository"; it is still a read that did not happen, not a Story never added.
+    await appendFile(path.join(root, '.git/config'), '[[[broken\n');
+    const never = ['--format=%H', '--diff-filter=A', '--', 'never/added.json'];
+    assert.throws(() => storyHistoryCommits(root, never, 'Absent record'), (error) =>
+      error.code === 'WFA_DEPENDENCY_UNAVAILABLE'
+      && /^Absent record could not be read from Git history: .*bad config/.test(error.message));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

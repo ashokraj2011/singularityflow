@@ -10,7 +10,7 @@ import { gitCommitIdentity, remoteDefaultBranchName, remoteNames } from '../src/
 import { worldModelCommit } from '../src/grounding.mjs';
 import { storyWelEnrollmentStatus } from '../src/state.mjs';
 import { readStoryReviewPacket } from '../src/story-lineage.mjs';
-import { gitHeadIsUnborn, gitReadOutput, run } from '../src/util.mjs';
+import { gitHeadIsUnborn, gitOutsideRepository, gitReadOutput, run } from '../src/util.mjs';
 
 // A failed Git read used to return the same empty output as an honest empty answer: no commits, no
 // remotes, a clean index, a record never added. These tests break Git for real and assert that the
@@ -211,4 +211,15 @@ test('remotes, the remote default branch and commit identity refuse a configurat
   assert.throws(() => remoteNames(root, { env }), refusal('Git remotes'));
   assert.throws(() => remoteDefaultBranchName(root), refusal("The 'origin' default branch"));
   assert.throws(() => gitCommitIdentity(root, { env }), refusal('Git user.name'));
+});
+
+test('outside a repository is told apart from a repository Git cannot read', async (t) => {
+  const { root, parent } = await storyRepository(t);
+  const plain = path.join(parent, 'plain');
+  await mkdir(plain);
+  assert.equal(gitOutsideRepository(plain), true);
+  assert.equal(gitOutsideRepository(root), false);
+  // Both exit 128 from `rev-parse --git-dir`; only Git's own message says which.
+  await appendFile(path.join(root, '.git/config'), '[[[broken\n');
+  assert.equal(gitOutsideRepository(root), false, 'a bad configuration line is not "outside a repository"');
 });

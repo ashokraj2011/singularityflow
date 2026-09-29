@@ -14032,6 +14032,17 @@ async function workspaceCommand(positionals, options) {
       }).catch(() => null) : null;
       if (observation?.ok) originTips = { url: originUrl, observation };
     }
+    // [perf] The intake catalog lists every head of the checkout's own origin anyway; making that
+    // listing first lets authority resolution answer from it too: one listing instead of two.
+    let originHeads = null;
+    if (intakeRequested && !unionStory) {
+      const { ownOriginStoryAuthorityCandidate } = await import('./configuration-branch.mjs');
+      const originUrl = await ownOriginStoryAuthorityCandidate(root);
+      const observation = originUrl ? await intakeSession.observeAsync(originUrl, {
+        includeHead: false, includeAllHeads: true
+      }).catch(() => null) : null;
+      if (observation?.ok) originHeads = { url: originUrl, observation };
+    }
     return withApprovedConfigurationRead(root, async () => {
       let definition = await loadConfig(root);
       const approvedConfigurationSnapshot = configurationReadSnapshot(root);
@@ -14101,6 +14112,7 @@ async function workspaceCommand(positionals, options) {
         }
       }
       let catalog = selectedBaseOnly ? null : await storyBaseCatalog(root, {
+        observedHeads: originHeads,
         remote: definition.git?.remote ?? 'origin',
         defaultBranch: definition.defaultBaseBranch,
         capabilityId: optionString(options, 'capability'),

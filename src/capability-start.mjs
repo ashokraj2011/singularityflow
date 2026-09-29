@@ -350,10 +350,17 @@ export function assertApprovedCapabilityRepositoryPlan(
  */
 /** Bounded asynchronous inventory used by interactive/desktop planning across a capability. */
 export async function publishedBranchesAsync(repositories, {
-  timeoutMs = 20000, workers = DEFAULT_REMOTE_WORKERS, runGit = runRemoteGitAsync
+  timeoutMs = 20000, workers = DEFAULT_REMOTE_WORKERS, runGit = runRemoteGitAsync, observed = null
 } = {}) {
   const observations = await mapLimit(repositories, workers, async (repository) => {
     incrementCommandCounter('git.remote-inventory');
+    // This command listed every head of this exact repository moments ago, for authority
+    // resolution. `[perf]` The same answer serves the inventory.
+    if (observed?.observation?.ok === true && observed.url === repository.url
+        && observed.observation.patterns?.includes('refs/heads/*')) {
+      incrementCommandCounter('git.remote-inventory-shared');
+      return { repository, result: null, branches: observed.observation.branches };
+    }
     const transport = frozenRemoteTransport(repository.url);
     const result = await runGit(['ls-remote', '--heads', '--', transport.remote], {
       operation: 'remote-probe', timeoutMs, env: transport.env
@@ -362,8 +369,10 @@ export async function publishedBranchesAsync(repositories, {
   });
   const published = {};
   const unreachable = [];
-  for (const { repository, result } of observations) {
-    if (result.status !== 0) {
+  for (const { repository, result, branches } of observations) {
+    if (branches) {
+      published[repository.id] = [...branches];
+    } else if (result.status !== 0) {
       published[repository.id] = [];
       unreachable.push({
         repository: repository.id,
@@ -477,7 +486,9 @@ export async function storyBaseCatalog(root, options = {}) {
       choices: []
     };
   }
-  const { published, unreachable } = await publishedBranchesAsync(plan.repositories);
+  const { published, unreachable } = await publishedBranchesAsync(plan.repositories, {
+    observed: options.observedHeads ?? null
+  });
   return { ...plan, published, unreachable, choices: branchChoices(published) };
 }
 

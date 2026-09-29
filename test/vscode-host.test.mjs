@@ -3250,6 +3250,58 @@ test('a window reads its repository first, ahead of discovery and product checks
     'Story discovery waits behind it');
 });
 
+test('a completed reference row is checked and fetched on its own, whatever happens in other rows', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-reference-'));
+  t.after(() => removeFixture(base));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'], { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const source = path.join(base, 'rules');
+  await mkdir(source);
+  run('git', ['init', '-q', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Reference Author'], { cwd: source });
+  run('git', ['config', 'user.email', 'reference@example.test'], { cwd: source });
+  await writeFile(path.join(source, 'Rules.java'), 'final class Rules {}\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'reference'], { cwd: source });
+  const referenceRemote = path.join(base, 'rules.git');
+  run('git', ['clone', '-q', '--bare', source, referenceRemote], { cwd: base });
+  const commit = run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim();
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  await loadExtension(api).activate(context());
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  await until(() => intake.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the Story workflow catalog to load' });
+  await intake.post({ type: 'referenceAdd' });
+  await intake.post({ type: 'referenceAdd' });
+  for (const [field, value] of [['id', 'rules'], ['repository', referenceRemote], ['branch', 'main']]) {
+    await intake.post({ type: 'referenceField', index: 0, field, value });
+  }
+  // Keep typing in the other row while the first one's check is under way.
+  await until(() => /Checking repository and branch/.test(intake.webview.html) ? true : null,
+    { what: 'the completed row to be checked without pressing Check' });
+  for (const value of ['d', 'do', 'docs']) {
+    await intake.post({ type: 'referenceDraft', index: 1, field: 'id', value });
+  }
+  await until(() => intake.webview.html.includes(`Verified at <code>${commit.slice(0, 12)}</code>`) ? true : null,
+    { what: 'the first row to be verified even though the second row changed meanwhile' });
+  const store = path.join(root, '.git', 'singularity-flow', 'reference-prefetch', 'v1');
+  assert.equal(readdirSync(store).filter((name) => /^[0-9a-f]{40}$/.test(name)).length, 1,
+    'its pinned commit was fetched ahead of Start');
+});
+
 test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {
   if (!requireBundle(t)) return;
   const reviewer = { name: 'QA Reviewer', email: 'qa.reviewer@example.com' };

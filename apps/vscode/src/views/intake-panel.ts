@@ -208,7 +208,6 @@ export class IntakePanel {
   private form: IntakeForm;
   private preflightVersion = 0;
   private preflightController: AbortController | null = null;
-  private referenceCheckRevision = 0;
   private enhancementRevision = 0;
   private catalogRevision = 0;
   private enhancementController: AbortController | null = null;
@@ -716,7 +715,6 @@ export class IntakePanel {
     referenceRemove: (message) => {
       const index = this.referenceIndex(message);
       if (index === null) return;
-      this.referenceCheckRevision += 1;
       this.update({
         referenceRepositories: this.form.referenceRepositories.filter((_, row) => row !== index),
         error: null
@@ -957,7 +955,6 @@ export class IntakePanel {
     if (index === null || value === null || !referenceField) return;
     const current = this.form.referenceRepositories[index];
     if (!current) return;
-    this.referenceCheckRevision += 1;
     this.replaceReference(index, {
       ...current,
       [referenceField]: value,
@@ -986,7 +983,11 @@ export class IntakePanel {
       });
       return;
     }
-    const revision = ++this.referenceCheckRevision;
+    // A result belongs to the row only while that row still names the same reference. A global
+    // revision used to drop it whenever any other row was edited, leaving this one checking forever.
+    const unchanged = (current: ReferenceRepositoryDraft | undefined): current is ReferenceRepositoryDraft =>
+      Boolean(current) && current!.id === reference.id && current!.repository === reference.repository
+        && current!.branch === reference.branch;
     this.replaceReference(index, { ...draft, status: 'checking', commit: null, message: null }, true, background);
     try {
       const result = await this.client.run<{
@@ -997,19 +998,16 @@ export class IntakePanel {
         '--reference-branch', `${reference.id}=${reference.branch}`,
         '--prefetch', '--json'
       ]);
-      if (revision !== this.referenceCheckRevision) return;
       const current = this.form.referenceRepositories[index];
-      if (!current || current.id !== reference.id || current.repository !== reference.repository
-          || current.branch !== reference.branch) return;
+      if (!unchanged(current)) return;
       const resolved = result.repositories?.find((entry) => entry.id === reference.id);
       if (!resolved?.commit) throw new Error('The read-only check returned no pinned commit.');
       this.replaceReference(index, {
         ...current, status: 'ready', commit: resolved.commit, message: null
       }, true, background);
     } catch (error) {
-      if (revision !== this.referenceCheckRevision) return;
       const current = this.form.referenceRepositories[index];
-      if (!current) return;
+      if (!unchanged(current)) return;
       this.replaceReference(index, {
         ...current, status: 'error', commit: null, message: (error as Error).message
       }, true, background);

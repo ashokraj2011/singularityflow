@@ -110,20 +110,50 @@ commands became 15, `gh api user` calls went from 4 to 1, root dispatch went fro
 authenticated GitHub operation, the projected saving on the original network is about 7 seconds. That
 projection has not been measured on the real network.
 
-Every freshness probe in the ledger above is unchanged: the configuration cache's authority read,
-destination discovery, enrollment's live-authority comparison, the publication-permission dry run,
-and the ledger reads inside publication.
+## 2026-09-29, second round: one look, one check, one push
+
+After the first round, a start still made 14 network round trips, most of them re-asking a remote a
+question the same command had answered seconds earlier. The refs a start writes are protected by
+exact leases on its push, so the only re-check that buys anything is one confirmation, before the
+first shared mutation, that approved configuration did not move. A start now makes 7:
+
+| Round trip | Purpose |
+|---|---|
+| Authority observation | Selects approved configuration. The configuration read reuses it (opt-in, start only; every other cache read still observes). |
+| Launch fetch | Brings the base, and the state tip, into the new worktree. |
+| Destination discovery | Default branch, base and Story ref, and now the state tip. Capability preflight's launch-fetch reuse proof answers from it instead of probing the same refs. |
+| Publication-permission dry run | Unchanged. It proves write access before anything local happens. |
+| Reference fetch | When automatic enrollment cannot publish, the depth-1 fetch of the branch pins the commit it transfers; the separate resolution only ever existed to refuse before a membership commit. |
+| Authority check | One fresh look at `sflow/config` (and `state` on the same remote) before the first shared mutation. It replaces enrollment's own probe, runs even when enrollment is switched off, answers enrollment's resolution through the start's session, and seeds publication's ledger reads. |
+| Atomic publication | The Story branch, its ledger entry and the entry's pin in one push. |
+
+| Change | Safeguard retained |
+|---|---|
+| Configuration read reuses the authority observation | Only the start opts in, and its authority check refuses if the tip moved before the first shared mutation. Cache metadata and pins are still never authority. |
+| Ledger reads answer from the authority check | Only while the tracking ref already names that exact commit; otherwise the read observes afresh, so a concurrent append is seen, never refused. Every ledger publication forgets the view, and a retry after an uncertain push never uses one. |
+| Branch, entry and pin in one atomic push | Exact leases: the branch's expected tip (absent for a new Story), the state tip the entry extends, absent for the pin. A clean per-ref acknowledgement or a verifying observation is required. A refusal publishes sequentially, skipping the ledger's own atomic attempt; an unverifiable outcome is recorded as transport-indeterminate, which pending-publication recovery already reconciles. |
+| Reference resolution through its fetch | Only when enrollment cannot publish. A failed fetch falls back to the separate resolution, which classifies a missing branch or unreachable remote exactly as before. |
+
+Every lifecycle publication benefits from the combined push, not only the start: approvals and phase
+transitions publish their branch and ledger entry together too.
+
+Replay of the user's reference-driven start from a Story worktree: 16 network round trips before
+either round, 14 after the first, 7 now (two fetches, three observations, two pushes), with one
+`gh api user` call and a shared requirement verdict. An authority change injected just after
+destination discovery is refused at the authority check with nothing published, as before but with
+half the probes. Network savings are projected from the measured per-operation cost, not measured
+on the original network.
 
 ## Deliberately remaining
 
-- The reference repository transfer. It can overlap only enrollment, because the reference policy
-  is known only after work-type resolution. That is the enrollment-mutation overlap below.
-- Two ledger reads inside publication (building the workflow and validating it) each observe the
-  state tip afresh.
+- The publication-permission dry run (one round trip). Dropping it would turn a revoked permission
+  into a retained local commit with a pending push instead of a clean refusal.
+- The reference repository transfer itself (an 11 MiB pack for the measured Story). Fetching only
+  its commit and tree at start and the blobs on first use would change the intake contract.
 - S2's speculative remote fetch and enrollment-mutation overlap; S6's unverified-manifest branch
   probes. A future approved-identity prelude is needed before such reads can safely overlap.
-- Full S3 union observations, exact changed-ref fetching, and persistent cross-command
-  preflight-to-Start receipts. Current reuse is private to one invocation and still proves live tips.
+- Authority and destination as one union observation, exact changed-ref fetching, and persistent
+  cross-command preflight-to-Start receipts. Current reuse is private to one invocation.
 - A shared G10 configuration/state object service, Windows cache qualification, and transform-aware
   projection reuse. This restricted configuration cache does not complete G10.
 - Fully local-only activation discovery, independently proven snapshot slices and persistent

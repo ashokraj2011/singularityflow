@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "2edbae2f02a5c4a62168a105ed1f72af1ef6bde6",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-29-CONFIGURATION-REVIEWS.md",
+    "reviewedAtCommit": "3e161302793e2437115aace8678d38610bed443c",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-29-STORY-START-PUBLICATION.md",
     "companionIds": [
-      "migration-registry"
+      "publication-unit-of-work"
     ]
   },
   "companions": [
@@ -89,7 +89,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:e7431fb02ab8b74699d34f1c840f38f61b86466a1350164014b91fdc3a93316a"
+      "sha256": "sha256:e9f00207cf5a2422787e709d17e0f34fd389a2362cdead1419644e91d148888c"
     },
     {
       "id": "action-authorization",

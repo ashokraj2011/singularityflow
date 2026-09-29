@@ -2449,7 +2449,10 @@ export async function startCommand(positionals, options) {
   // Reference syntax was already validated when options were parsed. Resolve each read-only branch
   // to its exact advertised commit before enrollment as well: an inaccessible or missing reference
   // is an intake refusal, not authority to add a person to sflow/config.
-  const referencePins = await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id });
+  const referencePins = referenceRequests.length
+    ? await measureCommandSpan('start.reference-pins', () =>
+      resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id }))
+    : await resolveReferenceRepositoryPins(referenceRequests, { localNamespace: id });
   // Complete the read-only capability and Git publication proof before automatic enrollment. A
   // contributor must never leave a shared membership commit behind only to discover that the base,
   // destination ref, or office Git policy prevents this Story from starting.
@@ -2904,7 +2907,10 @@ export async function startCommand(positionals, options) {
   });
   assertStoryStartReady(startReadiness);
   await validateDeterministicStartPolicy(config, approvedConfigurationSnapshot, documentCapture.evidence);
-  const referenceRepositories = await materializeReferenceRepositories(root, referencePins);
+  // A reference repository is a full checkout of its pinned tree: often the largest transfer in a start.
+  const referenceRepositories = referencePins.length
+    ? await measureCommandSpan('start.references', () => materializeReferenceRepositories(root, referencePins))
+    : await materializeReferenceRepositories(root, referencePins);
   const selectedAgent = await activatePhaseAgent(
     root, config, id, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
   );

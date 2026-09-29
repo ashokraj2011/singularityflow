@@ -90,7 +90,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
       "import { readFile } from 'node:fs/promises';",
       "import test from 'node:test';",
       '',
-      '/** @ac:AC-001 */',
+      '/** @ac:TOY-001:AC-001 */',
       "test('the governed greeting is exact', async () => {",
       "  assert.equal(await readFile(new URL('../greeting.txt', import.meta.url), 'utf8'), 'Hello, Singularity Flow!\\n');",
       '});',

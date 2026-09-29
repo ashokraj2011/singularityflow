@@ -130,6 +130,14 @@ export const REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS = Object.freeze([
     to: 'sha256:2ef1d57fa168ac0b7c0c41677f0af43c3ba77799bd02c02d3416aba1cee2278f',
     kernelFrom: 'sha256:b4aefa776a1b8813671d7f0df65d21af0e0e8aed2234bf536fd4af21146dbb53',
     kernelTo: 'sha256:3b812b54e3e741f4d38d303b59c9632fd29f7e3b7fb697bc52bb056074bee322'
+  }),
+  Object.freeze({
+    review: 'Qualified clause-binding grammar acceptance',
+    effect: 'source-admission',
+    from: 'sha256:2ef1d57fa168ac0b7c0c41677f0af43c3ba77799bd02c02d3416aba1cee2278f',
+    to: 'sha256:48ddfe38046673188341f2682d813a9ec5c301524f3df3ebefacac83e44c56a3',
+    kernelFrom: 'sha256:3b812b54e3e741f4d38d303b59c9632fd29f7e3b7fb697bc52bb056074bee322',
+    kernelTo: 'sha256:9eef2d9ef8aba21f15c993c2f1b47d6870b0cacdae9f41d2f8eefd25c755206e'
   })
 ]);
 

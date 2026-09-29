@@ -132,7 +132,12 @@ test('a reviewed path is current only when every transition on it was mechanical
   const byReview = (review) => REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS.find((entry) => entry.review === review);
   const afterAdmissionChange = byReview('Portable environment-exclusion identity acceptance').to;
   const beforeAdmissionChange = byReview('Portable environment-exclusion identity acceptance').from;
-  assert.equal(reviewedPathPreservesModel(reviewedExtractorRegistryPath(afterAdmissionChange)), true);
+  const beforeClauseGrammarChange = byReview('Qualified clause-binding grammar acceptance').from;
+  assert.equal(reviewedPathPreservesModel(reviewedExtractorRegistryPath(
+    afterAdmissionChange, beforeClauseGrammarChange
+  )), true, 'intervening mechanical transitions preserved the prior model');
+  assert.equal(reviewedPathPreservesModel(reviewedExtractorRegistryPath(afterAdmissionChange)), false,
+    'the new clause grammar can add facts, so the earlier model is stale');
   assert.equal(reviewedPathPreservesModel(reviewedExtractorRegistryPath(beforeAdmissionChange)), false,
     'a source-admission transition can change facts, so the model is stale');
   assert.equal(reviewedExtractorRegistryPath(`sha256:${'0'.repeat(64)}`), null);
@@ -143,7 +148,7 @@ test('a reviewed path is current only when every transition on it was mechanical
     CURRENT_WORLD_MODEL_VALIDATION_CONTRACT.checkIds);
 });
 
-test('a model published by an earlier reviewed build stays readable and current after an upgrade', async (t) => {
+test('a model published by an earlier reviewed build stays readable but becomes stale after clause admission changes', async (t) => {
   for (const model of EARLIER_MODELS) {
     const { root } = await earlierBuildRepository(t, model);
     const store = groundingRead(root, model);
@@ -152,7 +157,8 @@ test('a model published by an earlier reviewed build stays readable and current 
     assert.notEqual(built, BUILTIN_EXTRACTOR_REGISTRY.registrySha256, model.bundle);
     assert.equal(store.freshness.fresh,
       reviewedPathPreservesModel(reviewedExtractorRegistryPath(built)), model.bundle);
-    assert.deepEqual(store.freshness.changes.map((change) => change.field), [], model.bundle);
+    assert.deepEqual(store.freshness.changes.map((change) => change.field),
+      ['extractorRegistrySha256'], model.bundle);
     const [view] = store.views.filter((entry) => entry.status === 'available');
     assert.equal(view.viewId, 'dev.impact');
     assert.equal(/execution-unit: governed-model-composer@1:/u.test(view.markdown),

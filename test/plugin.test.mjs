@@ -325,6 +325,19 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(code, /approved configuration authority outside the active Story/);
 });
 
+test('code and verification skills place qualified trace tags in the intended file class', async () => {
+  const code = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
+  const verify = await readFile(path.join(pluginRoot, 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
+  const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
+  assert.match(code, /planned product-source path.*@clause:ORDER:REQ-001/s);
+  assert.match(code, /executable tests.*@ac:ORDER:AC-001/s);
+  assert.match(code, /test-only.*planned-claims opt-outs/s);
+  assert.match(verify, /@ac:WORK-ID:AC-001.*executable test/s);
+  assert.match(verify, /@clause:WORK-ID:REQ-001.*trace witness/s);
+  assert.doesNotMatch(verify, /@ac:AC-n/);
+  assert.match(phase, /@clause:WORK-ID:REQ-001.*product source.*@ac:WORK-ID:AC-001.*executable tests/s);
+});
+
 test('generic generation skills branch on the resolved clarification mode before asking or recording', async () => {
   for (const name of ['sflow-phase', 'sflow-code']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');

@@ -648,8 +648,10 @@ function fieldsHtml(form: IntakeForm): string {
       <label>How it will be judged done<br>
         <textarea data-field="acceptanceCriteria" rows="3" cols="64" placeholder="One per line">${escape(form.acceptanceCriteria)}</textarea></label>
     </p>
-    <p class="muted">Each line becomes an acceptance criterion, and each one is what a test is tagged
-      against later.</p>` : ''}`;
+    <p class="muted">Each line becomes an acceptance criterion. In code workflows with traceability
+      enabled, executable tests later use qualified tags such as <code>@ac:WORK-ID:AC-001</code>;
+      planned product source uses <code>@clause:WORK-ID:REQ-001</code> for source-bound clauses.
+      Reviewed test-only or opt-out work may not require source tags.</p>` : ''}`;
 }
 
 /**

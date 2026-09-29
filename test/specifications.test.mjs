@@ -20,6 +20,7 @@ import {
   mergeObservedClaimRecords,
   mergePlannedClaimRecords,
   normalizeClaimMap,
+  normalizeSpecPolicy,
   renderClauseContext,
   runSpecAcceptance, selectActiveSpecRecords, specificationSourceTreeHash,
   selectClauseContext
@@ -386,6 +387,33 @@ test('observed claims use exact changed and tested paths without proximity infer
   });
 });
 
+test('new observed claims require exact source and AC test bindings instead of path overlap', () => {
+  const planned = normalizeClaimMap({ claims: {
+    'APP:REQ-001': { expectedPaths: ['src/app.mjs'], tests: ['test/app.test.mjs'] },
+    'APP:AC-001': { expectedPaths: ['src/app.mjs'], tests: ['test/app.test.mjs', 'test/extra.test.mjs'] }
+  } }, { kind: 'planned', clauseIds: ['APP:REQ-001', 'APP:AC-001'] });
+  const observed = deriveObservedClaimMap(planned, {
+    sourcePaths: ['src/app.mjs'],
+    testPaths: ['test/app.test.mjs', 'test/extra.test.mjs'],
+    traceability: {
+      sourceBindings: [{ clauseId: 'APP:REQ-001', sourcePath: 'src/app.mjs', line: 1, tag: 'clause' }],
+      bindings: [{ clauseId: 'APP:AC-001', testSource: 'test/app.test.mjs' }]
+    }
+  }, { clauseIds: ['APP:REQ-001', 'APP:AC-001'], requireSourceBindings: true });
+  assert.deepEqual(observed.claims['APP:REQ-001'].observedPaths, ['src/app.mjs']);
+  assert.equal(observed.claims['APP:REQ-001'].verdict, 'matched');
+  assert.deepEqual(observed.claims['APP:AC-001'].observedPaths, []);
+  assert.deepEqual(observed.claims['APP:AC-001'].testResults, ['test/app.test.mjs']);
+  assert.equal(observed.claims['APP:AC-001'].verdict, 'partial');
+});
+
+test('new definitions default to qualified conformance while explicit legacy remains available', () => {
+  assert.equal(normalizeSpecPolicy().conformanceRows, 'qualified');
+  assert.equal(normalizeSpecPolicy({ conformanceRows: 'qualified' }).conformanceRows, 'qualified');
+  assert.equal(normalizeSpecPolicy({ conformanceRows: 'legacy' }).conformanceRows, 'legacy');
+  assert.throws(() => normalizeSpecPolicy({ conformanceRows: 'guess' }), /spec.conformanceRows/);
+});
+
 test('acceptance clauses may carry exact test-only evidence without a fabricated source path', () => {
   const planned = normalizeClaimMap({ claims: {
     'APP:AC-001': { expectedPaths: [], tests: ['test/app.test.mjs'] },
@@ -449,6 +477,25 @@ test('test evidence never substitutes for non-AC source evidence', () => {
   assert.deepEqual(coverage.unimplemented, ['APP:REQ-001']);
   assert.deepEqual(coverage.unclaimedChangedPaths, [],
     'the exact planned test is owned even though it cannot prove the requirement alone');
+});
+
+test('terminal coverage accepts an exact changed deletion path but not unrelated missing source', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-spec-deletion-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const index = { clauses: extractClauses('[APP:REQ-001]\nThe obsolete behavior is removed.') };
+  const planned = normalizeClaimMap({ claims: {
+    'APP:REQ-001': { expectedPaths: ['src/obsolete.mjs'], tests: ['test/obsolete.test.mjs'] }
+  } }, { kind: 'planned', clauseIds: ['APP:REQ-001'] });
+  const observed = normalizeClaimMap({ claims: {
+    'APP:REQ-001': {
+      observedPaths: ['src/obsolete.mjs'], testResults: [], verdict: 'matched'
+    }
+  } }, { kind: 'observed', clauseIds: ['APP:REQ-001'] });
+  const records = { indexes: [index], planned: [planned], observed: [observed] };
+  const deleted = evaluateSpecCoverage(records, ['src/obsolete.mjs'], { coverage: 'enforce' }, { root });
+  assert.deepEqual(deleted.invalidEvidence, []);
+  const absentWithoutChange = evaluateSpecCoverage(records, [], { coverage: 'enforce' }, { root });
+  assert.match(absentWithoutChange.invalidEvidence.join(' '), /missing source evidence/);
 });
 
 test('partial or unplanned AC test evidence remains terminally incomplete', () => {

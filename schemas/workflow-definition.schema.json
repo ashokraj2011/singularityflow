@@ -53,6 +53,7 @@
           "type": "object",
           "properties": {
             "source": { "const": "pinned-spec-index" },
+            "sourceBindings": { "enum": ["off", "enforce"], "default": "enforce" },
             "requireNamespaceQualifiedIds": { "type": "boolean" },
             "bareIdCompatibility": { "const": "unique-only" }
           },
@@ -159,6 +160,7 @@
         "mode": { "enum": ["off", "record", "enforce"], "default": "off" },
         "namespace": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}$" },
         "coverage": { "enum": ["off", "record", "enforce"], "default": "off" },
+        "conformanceRows": { "enum": ["legacy", "qualified"], "default": "qualified" },
         "acceptance": { "enum": ["off", "presence", "test-first", "verify"], "default": "off" },
         "compositionCache": { "enum": ["off", "local"], "default": "local" },
         "testCommands": {

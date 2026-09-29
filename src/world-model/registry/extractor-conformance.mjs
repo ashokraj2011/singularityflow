@@ -98,6 +98,10 @@ const CLAUSE_FIXTURE = [
   '// @ac:AC-001',
   'const text = "// @ac:AC-999";',
   '/* @clause:REQ-002 */',
+  '// @clause:ORDER:BEH-003',
+  '# @clause:ORDER:IFC-004',
+  '// @clause:ORDER:CON-005',
+  '// @clause:ORDER:NFR-006',
   ''
 ].join('\n');
 
@@ -194,9 +198,9 @@ const SUITES = Object.freeze({
       version: CLAUSE_CODE_BINDING_VERSION,
       implementationSha256: CLAUSE_CODE_BINDING_IMPLEMENTATION_SHA256
     }),
-    parser: Object.freeze({ id: 'explicit-clause-comment-tags', version: '1.0.0', grammarSha256: sha256('explicit-clause-comment-tags-v1') }),
+    parser: Object.freeze({ id: 'explicit-clause-comment-tags', version: '1.1.0', grammarSha256: sha256('explicit-source-comment-governed-and-legacy-clause-tags-v2') }),
     fixtures: Object.freeze([
-      { id: 'explicit-tags-and-string-decoy', class: 'positive-security', inputSha256: sha256(CLAUSE_FIXTURE), expected: ['AC-001:1', 'REQ-002:3'] }
+      { id: 'explicit-tags-and-string-decoy', class: 'positive-security', inputSha256: sha256(CLAUSE_FIXTURE), expected: ['AC-001:1', 'REQ-002:3', 'ORDER:BEH-003:4', 'ORDER:IFC-004:5', 'ORDER:CON-005:6', 'ORDER:NFR-006:7'] }
     ])
   }),
   'change-region': Object.freeze({

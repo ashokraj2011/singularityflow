@@ -305,6 +305,14 @@ test('quality working directories cannot normalize outside the repository', () =
 test('unsupported code-delivery policy alternatives are rejected instead of silently ignored', () => {
   assert.equal(normalizeCodeDeliveryPolicy().model.minimumAssurance, 'unavailable',
     'the external Copilot host cannot inherit a kernel-audit assurance floor');
+  assert.equal(normalizeCodeDeliveryPolicy().traceability.sourceBindings, 'enforce',
+    'new definitions without an explicit option must enforce source bindings');
+  assert.equal(normalizeCodeDeliveryPolicy({ traceability: { sourceBindings: 'off' } })
+    .traceability.sourceBindings, 'off', 'an explicit new-definition opt-out remains possible');
+  assert.equal(normalizeCodeDeliveryPolicy({ traceability: { sourceBindings: 'enforce' } })
+    .traceability.sourceBindings, 'enforce');
+  assert.throws(() => normalizeCodeDeliveryPolicy({ traceability: { sourceBindings: 'guess' } }),
+    /codeDelivery.traceability.sourceBindings/);
   assert.equal(normalizeCodeDeliveryPolicy().tests.minimumPassed, 1);
   assert.equal(normalizeCodeDeliveryPolicy().tests.testcaseExact.mode, 'disabled');
   assert.deepEqual(normalizeCodeDeliveryPolicy({ tests: { testcaseExact: {
@@ -821,6 +829,24 @@ test('acceptance tags preserve namespaces and reject ambiguous bare suffixes', a
     clauseId: 'AC-001', testSource: 'tests/legacy.test.js',
     bindingAssurance: 'namespace-qualified-legacy-clause', tag: 'MOBILE-101:AC-001'
   }]);
+});
+
+test('new qualified acceptance witnesses must be comments, not executable strings', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-ac-comment-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+  await writeFile(path.join(root, 'tests', 'payment.test.js'),
+    'test("decoy", () => expect("@ac:ORDER:AC-001").toBeTruthy());\n');
+  const decoy = await taggedAcceptanceIds(root, ['tests/payment.test.js'], ['ORDER:AC-001'], {
+    requireNamespaceQualifiedIds: true, requireCommentTags: true
+  });
+  assert.deepEqual(decoy.ids, []);
+  await writeFile(path.join(root, 'tests', 'payment.test.js'),
+    '// @ac:ORDER:AC-001\ntest("payment", () => {});\n');
+  const witnessed = await taggedAcceptanceIds(root, ['tests/payment.test.js'], ['ORDER:AC-001'], {
+    requireNamespaceQualifiedIds: true, requireCommentTags: true
+  });
+  assert.deepEqual(witnessed.ids, ['ORDER:AC-001']);
 });
 
 test('all code tasks route to the canonical skill without hard-coded phase names', () => {

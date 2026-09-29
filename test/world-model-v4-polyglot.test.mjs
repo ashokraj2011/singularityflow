@@ -9,6 +9,7 @@ import { runDeterministicRegistration } from '../src/world-model/extract/runner.
 import {
   extractPolyglotImports, extractPolyglotSymbols, maskPolyglotNonCode
 } from '../src/world-model/extract/adapters/polyglot-lexical.mjs';
+import { scanClauseBindings } from '../src/world-model/extract/adapters/closed-structure.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { verifyBuiltInExtractorConformance } from '../src/world-model/registry/extractor-conformance.mjs';
 
@@ -48,6 +49,29 @@ test('reviewed polyglot grammars ignore comment, string, and docstring decoys', 
     'required-fact-coverage', 'rule-definition', 'runtime-observation-import',
     'signature-and-export', 'symbol-skeleton', 'test-identity'
   ]) assert.ok(conformance.includes(registered), `missing conformance suite ${registered}`);
+});
+
+test('World Model source witnesses share governed clause types while preserving legacy observations', () => {
+  const source = [
+    '// @clause:ORDER:REQ-001',
+    '# @clause:ORDER:BEH-002',
+    '/* @clause:ORDER:IFC-003 */',
+    '// @clause:ORDER:AC-004',
+    '// @clause:ORDER:CON-005',
+    '// @clause:ORDER:NFR-006',
+    '// @ac:AC-007',
+    'const text = "// @clause:ORDER:REQ-999";',
+    '// @ac:ORDER:REQ-008'
+  ].join('\n');
+  assert.deepEqual(scanClauseBindings(source), [
+    { clause: 'ORDER:REQ-001', line: 1 },
+    { clause: 'ORDER:BEH-002', line: 2 },
+    { clause: 'ORDER:IFC-003', line: 3 },
+    { clause: 'ORDER:AC-004', line: 4 },
+    { clause: 'ORDER:CON-005', line: 5 },
+    { clause: 'ORDER:NFR-006', line: 6 },
+    { clause: 'AC-007', line: 7 }
+  ]);
 });
 
 test('Java, Kotlin, Python, and Go produce evidence-bound structural facts', async (t) => {

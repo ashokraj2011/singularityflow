@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { maskPolyglotNonCode } from './polyglot-lexical.mjs';
+import { scanSourceClauseTags } from '../../../traceability-ids.mjs';
 
 const IDENTIFIER = '[A-Za-z_$][\\w$]*';
 const SUPPORTED = new Set([
@@ -335,13 +336,11 @@ export function scanTestIdentities(source, language) {
   return scanTestIdentitiesWithLimitations(source, language).items;
 }
 
-const CLAUSE_TAG = /^(?:\s*)(?:(?:\/\/|#|\/\*+|\*)\s*)(?:[-*]\s*)?@(?:ac|clause)\s*:\s*((?:[A-Za-z][A-Za-z0-9-]*:)?(?:AC|REQ|CON|NFR)-[A-Za-z0-9-]+)\b/i;
-
 /** Explicit clause annotations in source comments; control-flow is never guessed to be a clause. */
 export function scanClauseBindings(source) {
-  return String(source).split(/\r?\n/).flatMap((line, index) => {
-    const match = CLAUSE_TAG.exec(line);
-    if (!match) return [];
-    return [{ clause: match[1].toUpperCase(), line: index + 1 }];
-  });
+  // A World Model can observe legacy bare/NFR comments in an already-pinned checkout.
+  // New code-delivery publication uses this parser's strict qualified form instead.
+  return scanSourceClauseTags(source, { legacy: true }).map(({ clauseId, line }) => ({
+    clause: clauseId, line
+  }));
 }

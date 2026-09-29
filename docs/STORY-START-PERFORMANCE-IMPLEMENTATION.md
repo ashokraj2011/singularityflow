@@ -170,6 +170,17 @@ title. The catalog and its preview also list approved authority once instead of 
 | Reuse is private | The proof exists only inside one start process; it is never accepted from a flag or a file. |
 | Kill switch | `SINGULARITY_FLOW_STORY_INTAKE_RECEIPTS=off`. |
 
+## 2026-09-29, fourth round: intake works while the person types
+
+| Change | Effect | Safeguard retained |
+|---|---|---|
+| Reference prefetch | A completed reference row fetches its pinned commit into a machine-local store; Start copies it instead of transferring it. With a receipt, a Start with a reference now fetches nothing. | Start resolves every pin itself; the store serves only that exact commit, Git verifies every object, and the origin still names the real repository. |
+| One listing for the catalog | Authority resolution and the base inventory share one all-heads listing of the checkout's own origin: 1 round trip instead of 2 (3 before this series). | Only the own origin, only while the repository plan names exactly that URL. |
+| One listing for the preview | The authority listing also carries the base, destination and state refs; the preview skips its fetch when the tracking refs already match: 2 round trips instead of 3. | A moved tip is fetched as before; a separate workspace authority keeps the ordinary path. |
+| Start progress | The engine names each stage on stderr when asked (`SINGULARITY_FLOW_PROGRESS=stderr-v1`); VS Code shows it in the form and notification. | Fixed stage names only; stripped before stderr is shown or parsed; never inherited by child processes. |
+| New window first | A window's first repository read runs at interactive priority, and in a window opened for a just-started Story the product checks wait for the idle period. | Optional work only waits; explicit actions never do. |
+| Selection receipts in isolated starts | A Copilot selection receipt now drives an isolated start: read and checked in the launch checkout, handed over in process, consumed there. | The same session, HEAD and answer checks; the base is observed by start before any change. |
+
 ## Deliberately remaining
 
 - The publication-permission dry run (one round trip). Dropping it would turn a revoked permission
@@ -179,7 +190,11 @@ title. The catalog and its preview also list approved authority once instead of 
 - S2's speculative remote fetch and enrollment-mutation overlap; S6's unverified-manifest branch
   probes. A future approved-identity prelude is needed before such reads can safely overlap.
 - Receipts for capability Stories (several repositories) and on Windows; those starts still take
-  the full path. Union observations outside a receipt, and exact changed-ref fetching generally.
+  the full path. Exact changed-ref fetching generally.
+- The warm-up (`workspace branches --intake --warm`) and its sealed approved-identity prelude were
+  not built. Without them no read may start before approved identity is verified, so the catalog's
+  listing and a preview's dry run still follow the authority listing rather than overlap it.
+- Trimming the roughly 475 local Git processes a start spawns.
 - A shared G10 configuration/state object service, Windows cache qualification, and transform-aware
   projection reuse. This restricted configuration cache does not complete G10.
 - Fully local-only activation discovery, independently proven snapshot slices and persistent

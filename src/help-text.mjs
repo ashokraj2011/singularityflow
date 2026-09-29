@@ -89,6 +89,7 @@ Usage:
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... --from-branch BRANCH [--fetch] [--allow-dirty]
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
+    [--isolated-worktree] [--intake-receipt ID]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
@@ -771,7 +772,7 @@ Usage:
   singularity-flow story enhance-description --draft-stdin [--json]
   singularity-flow story start <STORY-KEY> --from-branch BRANCH [--target-url AUTHORIZED-URL] [--selection-receipt TOKEN] [--fetch]
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
-  singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH [--json]
+  singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH [--prefetch] [--json]
   singularity-flow story references [list|verify|materialize] [--work-id WORK-ID] [--json]
   singularity-flow story inbox [--assigned-to-me] [--project KEY] [--json]
   singularity-flow story fetch <STORY-KEY> [--directory PATH] [--json]

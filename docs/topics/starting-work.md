@@ -13,7 +13,7 @@ related:
   - epics-and-planning
   - pins
   - work-intervals
-version: 10
+version: 11
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -55,6 +55,8 @@ Story start includes one shared, read-only readiness check in the CLI, Copilot f
 The preview is provisional. `sflow start` recomputes it immediately before mutation so a configuration or remote change between preview and Start cannot reuse stale evidence. The successful result includes the readiness checks and a digest-bound receipt for the selected configuration commit, base commits, and destination refs.
 
 A passing preview can also hand Start what it observed. Add `--mint-intake-receipt` to a preview that names its workflow and `preflight.intakeReceipt` returns a receipt ID; pass it to Start as `--intake-receipt <ID>`. The receipt authorizes nothing. Start still observes approved configuration, the base, the Story destination and the state tip again, all at once, dry-runs publication afresh and recomputes readiness; it only skips fetching and observing what the preview already proved unchanged. An expired (15 minutes), edited, already used or foreign receipt, a different request, or anything that moved runs the ordinary start, and `data.intakeReceipt` says which and why. Receipts are single-use and machine-local, issued for one-repository Stories with approved shared configuration on macOS and Linux, and `SINGULARITY_FLOW_STORY_INTAKE_RECEIPTS=off` switches them off. VS Code and `/sf-start` use them automatically.
+
+Read-only reference repositories can be fetched ahead of Start too. `singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH --prefetch` pins each branch and fetches that exact commit into a machine-local store in the repository's Git directory (at most eight entries and 512 MiB, least recently used first out). Start still resolves every pin itself and copies from the store only when it holds exactly that commit; Git verifies every object, and the safety checks and detached checkout run as before. VS Code does this for a completed reference row after a short pause, and shows each stage of Start while it runs.
 
 Use this explicit preview when scripting or diagnosing Start:
 

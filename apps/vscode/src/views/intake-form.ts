@@ -162,6 +162,12 @@ export interface IntakeForm {
   workflowCatalogReason: string | null;
   /** Why Story workflows could not be loaded, when the repository could not provide them. */
   workflowReason: string | null;
+  /**
+   * Where the workflow and base-branch choices came from: still being read, the last known listing
+   * shown while a fresh one is read, or the fresh listing. Only a fresh exact-base readiness check
+   * ever enables Start, whichever it is.
+   */
+  catalogStatus: 'loading' | 'cached' | 'fresh';
   /** Whether a tracker is actually configured. Offering Jira when it is not is a dead end. */
   jiraConfigured: boolean;
   /** Why Jira is unavailable, when it is. */
@@ -228,12 +234,18 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], basePreflightRefreshRecommended: false,
-  workflowReason: null, workflowCatalogReason: null,
+  workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh',
   jiraConfigured: false, jiraReason: null,
   githubConfigured: true, githubReason: null, inFlight: [], approvalAuthorityMissing: false, busy: false,
   enhancing: false, enhanceProposal: null, enhanceError: null, error: null,
   recoveryCommand: null, recoveryRouteCommand: null
 };
+
+/** Why a Story has no workflow to offer: not read yet, or the repository's own reason. */
+function storyWorkflowProblem(form: IntakeForm): string {
+  return form.catalogStatus === 'loading' ? 'Reading the approved Story workflows…'
+    : form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.';
+}
 
 /** What each shape is, and — the part that matters — what it leads to. */
 export const SHAPES: { id: Shape; label: string; leads: string }[] = [
@@ -337,7 +349,7 @@ export function intakeProblems(form: IntakeForm): string[] {
     if (form.storyWorkflows.length && !form.workType) {
       problems.push('Choose the Story workflow, which decides the phases this runs.');
     } else if (!form.storyWorkflows.length) {
-      problems.push(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.');
+      problems.push(storyWorkflowProblem(form));
     }
     if (form.workType === 'poc-workflow') {
       if (!form.targetUrl.trim()) problems.push('Enter the exact authorized HTTPS target URL for this POC.');
@@ -355,7 +367,8 @@ export function intakeProblems(form: IntakeForm): string[] {
       problems.push(form.baseBranchReason
         ?? (form.baseBranchChoices.length
           ? 'Choose the remote base branch from which the Story branch will be created.'
-          : 'No remote base branch is available for this Story.'));
+          : form.catalogStatus === 'loading' ? 'Reading the remote base branches…'
+            : 'No remote base branch is available for this Story.'));
     } else if (form.basePreflightChecking) {
       problems.push('Checking Story-start readiness for configuration, workflow agents, and publication access…');
     } else if (!form.basePreflightPassed) {
@@ -680,12 +693,18 @@ function baseBranchHtml(form: IntakeForm): string {
       <p class="blockers">${escape(form.baseBranchReason)}</p>
       <p class="question">Nothing will be created until the configured remote can be read.</p></section>`;
   }
+  if (!form.baseBranchChoices.length && form.catalogStatus === 'loading') {
+    return `<section><h2>${icon('workflow')}Base branch</h2>
+      <p class="meta" role="status">Reading the remote base branches…</p></section>`;
+  }
   const total = form.baseBranchChoices[0]?.total ?? 0;
   return `
   <section>
     <h2>${icon('workflow')}Base branch</h2>
     <p class="question">Choose explicitly. The new Story branch is cut from the latest remote commit
       and only the Story branch is published.</p>
+    ${form.catalogStatus === 'cached' ? `<p class="meta" role="status">These are the last known
+      branches and workflows. Checking the remote for changes…</p>` : ''}
     <div class="choices">
       ${form.baseBranchChoices.map((choice) => `
       <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}">
@@ -720,6 +739,11 @@ function workflowCatalogCoversBranchFailure(form: IntakeForm): boolean {
 
 function storyWorkflowHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
+  if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length
+      && form.catalogStatus === 'loading') {
+    return `<section><h2>${icon('workflow')}Story workflow</h2>
+      <p class="meta" role="status">${escape(storyWorkflowProblem(form))}</p></section>`;
+  }
   if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length) {
     return `<section><h2>${icon('workflow')}Story workflow</h2>
       <p class="blockers">${escape(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.')}</p>
@@ -936,7 +960,7 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
   const problems = intakeProblems(form);
   // Keep every mutation gate while rendering the workflow authority failure only once.
   const workflowProblem = form.shape === 'story' && !form.storyWorkflows.length
-    ? form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.'
+    ? storyWorkflowProblem(form)
     : null;
   const branchProblem = workflowCatalogCoversBranchFailure(form) ? form.baseBranchReason : null;
   const summaryProblems = workflowProblem

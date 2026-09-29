@@ -2962,6 +2962,79 @@ test('Story readiness is checked once typing the identifier pauses, and the blur
   assert.deepEqual(registered.errors, []);
 });
 
+test('a second Start Work paints the cached catalog at once, then revalidates without losing choices', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-cache-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  const storage = path.join(base, 'global-storage');
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate({ ...context(), globalStorageUri: { fsPath: storage } });
+  const branchReads = () => registered.output.filter((line) => String(line).includes('[Singularity Flow timing]')
+    && String(line).includes('"command":"workspace"') && String(line).includes('"subcommand":"branches"')).length;
+
+  await registered.commands.get('singularityFlow.startWork')();
+  const first = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.match(first.webview.html, /Reading the approved Story workflows…/,
+    'with nothing cached the form says it is reading instead of reporting a missing workflow');
+  await until(() => first.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the fresh catalog on the first open' });
+  const cacheDirectory = path.join(storage, 'intake-catalog-cache-v1');
+  await until(() => existsSync(cacheDirectory)
+    && readdirSync(cacheDirectory).some((name) => name.endsWith('.json')) ? true : null,
+  { what: 'the complete catalog to be cached' });
+  first.dispose();
+  // Past the client's 250 ms read coalescing, so the second open really has to revalidate.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  const readsBefore = branchReads();
+  await registered.commands.get('singularityFlow.startWork')();
+  const second = registered.panels.filter((entry) => entry.id === 'singularityFlow.intake').at(-1);
+  assert.notEqual(second, first, 'a new form opened');
+  assert.match(second.webview.html, /data-work-type="feature"/, 'workflows paint from the cache at once');
+  assert.match(second.webview.html, /data-base-branch="main"/, 'base branches paint from the cache at once');
+  assert.match(second.webview.html, /last known\s+branches and workflows/, 'the cached paint is labelled');
+  assert.doesNotMatch(second.webview.html, /data-base-branch="main" checked/, 'no base is preselected');
+
+  // Choose while the fresh catalog may still be on its way; revalidation must keep both choices.
+  await second.post({ type: 'tracker', value: 'none' });
+  await second.post({ type: 'field', field: 'id', value: 'STORY-CACHED' });
+  await second.post({ type: 'baseBranch', value: 'main' });
+  await until(() => !/last known/.test(second.webview.html)
+    && /Story-start readiness confirmed for[\s\S]*?create <code>STORY-CACHED<\/code>/.test(second.webview.html)
+    ? true : null, { what: 'revalidation and readiness on the chosen base' });
+  assert.match(second.webview.html, /data-base-branch="main" checked/, 'the chosen base survived revalidation');
+  assert.equal(branchReads() - readsBefore, 2,
+    'one revalidating catalog read and one readiness check; revalidation never repeats the check');
+  assert.deepEqual(registered.errors, []);
+});
+
 test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {
   if (!requireBundle(t)) return;
   const reviewer = { name: 'QA Reviewer', email: 'qa.reviewer@example.com' };

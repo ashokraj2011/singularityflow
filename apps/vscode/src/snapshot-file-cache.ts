@@ -20,17 +20,28 @@ interface CacheEnvelope<T> {
   readonly snapshot: T;
 }
 
+/** Another bounded cache of the same kind, in its own directory beneath global storage. */
+export interface RepositoryFileCacheOptions {
+  directoryName?: string;
+  maxBytes?: number;
+  maxRepositories?: number;
+}
+
 function identity(repository: string): string {
   return createHash('sha256').update(repository).digest('hex');
 }
 
 export class RepositorySnapshotFileCache<T extends object> {
   private readonly directory: string;
+  private readonly maxBytes: number;
+  private readonly maxRepositories: number;
   private pending: Promise<void> = Promise.resolve();
   private lastWriteFailed = false;
 
-  constructor(globalStorageDirectory: string) {
-    this.directory = path.join(globalStorageDirectory, 'snapshot-cache-v2');
+  constructor(globalStorageDirectory: string, options: RepositoryFileCacheOptions = {}) {
+    this.directory = path.join(globalStorageDirectory, options.directoryName ?? 'snapshot-cache-v2');
+    this.maxBytes = options.maxBytes ?? MAX_SNAPSHOT_CACHE_BYTES;
+    this.maxRepositories = options.maxRepositories ?? MAX_SNAPSHOT_CACHE_REPOSITORIES;
   }
 
   private target(repository: string): string {
@@ -43,7 +54,7 @@ export class RepositorySnapshotFileCache<T extends object> {
     try {
       descriptor = openSync(this.target(repository), 'r');
       const size = fstatSync(descriptor).size;
-      if (!Number.isSafeInteger(size) || size < 2 || size > MAX_SNAPSHOT_CACHE_BYTES) return null;
+      if (!Number.isSafeInteger(size) || size < 2 || size > this.maxBytes) return null;
       const bytes = Buffer.allocUnsafe(size);
       let offset = 0;
       while (offset < size) {
@@ -68,7 +79,7 @@ export class RepositorySnapshotFileCache<T extends object> {
   write(repository: string, snapshot: T): void {
     const envelope: CacheEnvelope<T> = { schemaVersion: CACHE_SCHEMA_VERSION, snapshot };
     const bytes = Buffer.from(`${JSON.stringify(envelope)}\n`, 'utf8');
-    if (bytes.length > MAX_SNAPSHOT_CACHE_BYTES) return;
+    if (bytes.length > this.maxBytes) return;
     const target = this.target(repository);
     this.pending = this.pending.catch(() => {}).then(async () => {
       const temporary = path.join(this.directory, `.${path.basename(target)}.${randomUUID()}.tmp`);
@@ -100,13 +111,13 @@ export class RepositorySnapshotFileCache<T extends object> {
 
   private async prune(): Promise<void> {
     const names = (await readdir(this.directory)).filter((name) => /^[a-f0-9]{64}\.json$/.test(name));
-    if (names.length <= MAX_SNAPSHOT_CACHE_REPOSITORIES) return;
+    if (names.length <= this.maxRepositories) return;
     const dated = await Promise.all(names.map(async (name) => ({
       name,
       modified: await stat(path.join(this.directory, name)).then((entry) => entry.mtimeMs).catch(() => 0)
     })));
     dated.sort((left, right) => right.modified - left.modified || left.name.localeCompare(right.name));
-    await Promise.all(dated.slice(MAX_SNAPSHOT_CACHE_REPOSITORIES)
+    await Promise.all(dated.slice(this.maxRepositories)
       .map(({ name }) => rm(path.join(this.directory, name), { force: true })));
   }
 }

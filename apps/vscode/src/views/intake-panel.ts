@@ -23,6 +23,7 @@ import { SingularityFlowClient } from '../cli/client.ts';
 import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
+import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
 
 /** A background result waits this long after the last keystroke before it redraws the page. */
 const INTAKE_TYPING_QUIET_MS = 300;
@@ -49,6 +50,8 @@ export interface IntakeTarget {
   approvalAuthorityMissing?: boolean;
   defaults?: IntakeDefaults;
   journey?: StartWizardProgress | null;
+  /** The last complete catalog for this repository, painted while the fresh one is read. */
+  catalogCache?: IntakeCatalogCacheBinding | null;
 }
 
 export interface IntakeDefaults {
@@ -90,6 +93,21 @@ interface EngineStoryWorkflowCatalog {
   workflowCatalogReason?: string | null;
   workflowReason?: string | null;
 }
+
+/** `workspace branches --json --intake`: everything the form offers, in one engine process. */
+interface CatalogListing {
+  choices?: BaseBranchChoice[];
+  remote?: string;
+  unreachable?: { repository: string }[];
+  intake?: EngineStoryWorkflowCatalog & {
+    profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
+    profileReason?: string | null;
+    approvalAuthorityMissing?: boolean;
+  };
+}
+
+/** The first listing, the fresh one replacing a cached paint, or a reload after a configuration change. */
+type CatalogMode = 'initial' | 'revalidate' | 'reload';
 
 /** Keep the launch catalog and exact-base preflight catalog on one validation path. */
 function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoice[] {
@@ -192,6 +210,9 @@ export class IntakePanel {
   private idPreflightTimer: ReturnType<typeof setTimeout> | null = null;
   /** The exact readiness command in flight or last completed, so blur does not repeat it. */
   private preflightKey: string | null = null;
+  private readonly catalogCache: IntakeCatalogCacheBinding | null;
+  /** The base whose readiness answer replaced the workflow choices with that base's own. */
+  private exactCatalogBase: string | null = null;
   private disposed = false;
 
   private constructor(
@@ -208,6 +229,7 @@ export class IntakePanel {
     this.defaults = target.defaults ?? {};
     this.journey = target.journey ?? null;
     this.inFlight = target.inFlight;
+    this.catalogCache = target.catalogCache ?? null;
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
@@ -225,6 +247,8 @@ export class IntakePanel {
       ...(this.defaults.summary ? { title: this.defaults.summary } : {}),
       ...(this.defaults.workType ? { workType: this.defaults.workType } : {})
     };
+    // Paint the last known choices now; `load` revalidates them against the remote.
+    this.form = { ...this.form, ...(this.cachedCatalogChanges() ?? { catalogStatus: 'loading' }) };
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -378,57 +402,121 @@ export class IntakePanel {
    * The Store already owns the fresh lifecycle projection used for `inFlight`. Profiles, installed
    * Story workflows and remote base branches share this aggregate process; Jira is an optional
    * network integration and is probed only after the local form can render.
+   *
+   * A form painted from the cached catalog revalidates here, keeping what the person chose since
+   * wherever it is still offered.
    */
   private async load({ preserveSelections = false }: { preserveSelections?: boolean } = {}): Promise<void> {
     const revision = ++this.catalogRevision;
+    const mode: CatalogMode = preserveSelections ? 'reload'
+      : this.form.catalogStatus === 'cached' ? 'revalidate' : 'initial';
     try {
-      const listed = await this.client.run<{
-        choices?: BaseBranchChoice[];
-        remote?: string;
-        unreachable?: { repository: string }[];
-        intake?: EngineStoryWorkflowCatalog & {
-          profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
-          profileReason?: string | null;
-          approvalAuthorityMissing?: boolean;
-        };
-      }>(['workspace', 'branches', '--json', '--intake']);
+      const listed = await this.client.run<CatalogListing>(['workspace', 'branches', '--json', '--intake']);
       if (revision !== this.catalogRevision || this.disposed) return;
-      const profiles: ProfileChoice[] = (listed.intake?.profiles ?? []).filter((entry) => entry.id).map((entry) => ({
-        id: entry.id!,
-        label: entry.label ?? entry.id!,
-        description: entry.description ?? '',
-        phases: entry.phases ?? []
-      }));
-      const workflows = storyWorkflowCatalog(listed.intake);
-      const priorProfile = preserveSelections ? this.form.profile : null;
-      const priorWorkType = (preserveSelections ? this.form.workType : this.defaults.workType) ?? null;
-      const priorBaseBranch = preserveSelections ? this.form.baseBranch : null;
-      const baseBranchChoices = (listed.choices ?? []).filter((choice) => choice.everywhere);
-      const baseBranch = baseBranchChoices.some((choice) => choice.branch === priorBaseBranch)
-        ? priorBaseBranch : null;
-      const retainedWorkType = storyWorkflowSelectionForReload(
-        priorWorkType, workflows.installed, preserveSelections && Boolean(baseBranch)
-      );
-      const unreachable = listed.unreachable ?? [];
       if (listed.intake?.profileReason) {
         this.output.appendLine(`No delivery profiles could be read: ${listed.intake.profileReason}`);
       }
-      this.update({
+      const { changes, readinessReset, workflowsReplaced } = this.catalogChanges(listed, mode);
+      if (readinessReset && mode === 'revalidate') {
+        this.cancelBasePreflight();
+        this.preflightVersion += 1;
+      }
+      if (workflowsReplaced) this.exactCatalogBase = null;
+      this.update(changes, { background: true });
+      // Only a complete listing is worth painting next time; a degraded one keeps the last good entry.
+      if (!(listed.unreachable ?? []).length && !listed.intake?.workflowReason) {
+        try { this.catalogCache?.write(listed); } catch { /* an acceleration only */ }
+      }
+      if (mode !== 'initial' && readinessReset && this.form.baseBranch) await this.preflightBaseBranch();
+    } catch (error) {
+      if (revision !== this.catalogRevision || this.disposed) return;
+      const reason = (error as Error).message;
+      this.output.appendLine(`Intake catalog could not be read: ${reason}`);
+      if (mode === 'revalidate') {
+        this.cancelBasePreflight();
+        this.preflightVersion += 1;
+      }
+      this.update(mode !== 'initial' ? {
+        // A failed refresh must not erase a valid draft or its last known choices. Mark the
+        // authority stale and require another successful preflight before Start can be enabled.
+        workflowReason: `Could not refresh Story workflows: ${reason}`,
+        baseBranchReason: reason,
+        catalogStatus: 'fresh',
+        ...emptyStoryPreflight()
+      } : {
+        profiles: [], profile: null, storyWorkflows: [], availableStoryWorkflows: [], workType: null,
+        workflowCatalogReason: null,
+        workflowReason: `Could not load Story workflows: ${reason}`,
+        baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason,
+        catalogStatus: 'fresh',
+        ...emptyStoryPreflight(),
+        inFlight: this.inFlight
+      });
+    }
+    // Jira is an optional external integration. Do not make its cold process or network probe part
+    // of the form's critical path; its result updates only the tracker controls when it arrives.
+    if (!preserveSelections) void this.loadTracker();
+  }
+
+  /**
+   * How one catalog listing changes the form.
+   *
+   * `cached` and `initial` start from the defaults. `reload` keeps the person's choices while they
+   * are still offered and always re-checks readiness, because it follows a configuration change.
+   * `revalidate` replaces a cached paint: it keeps the person's choices the same way, and leaves a
+   * readiness check alone while its base and workflow are still offered, since that check read the
+   * exact base and is at least as fresh as this listing. The exact-base workflows it returned stay
+   * too. No mode ever selects a base the person did not choose.
+   */
+  private catalogChanges(listed: CatalogListing, mode: CatalogMode | 'cached'): {
+    changes: Partial<IntakeForm>; readinessReset: boolean; workflowsReplaced: boolean;
+  } {
+    const keepChoices = mode === 'reload' || mode === 'revalidate';
+    const profiles: ProfileChoice[] = (listed.intake?.profiles ?? []).filter((entry) => entry.id).map((entry) => ({
+      id: entry.id!,
+      label: entry.label ?? entry.id!,
+      description: entry.description ?? '',
+      phases: entry.phases ?? []
+    }));
+    const workflows = storyWorkflowCatalog(listed.intake);
+    const priorProfile = keepChoices ? this.form.profile : null;
+    const priorWorkType = (keepChoices ? this.form.workType : this.defaults.workType) ?? null;
+    const priorBaseBranch = keepChoices ? this.form.baseBranch : null;
+    const baseBranchChoices = (listed.choices ?? []).filter((choice) => choice.everywhere);
+    const baseBranch = baseBranchChoices.some((choice) => choice.branch === priorBaseBranch)
+      ? priorBaseBranch : null;
+    const keepExactWorkflows = mode === 'revalidate' && baseBranch !== null
+      && this.exactCatalogBase === baseBranch;
+    const retainedWorkType = mode === 'revalidate'
+      ? storyWorkflowSelection(priorWorkType, workflows.installed)
+      : storyWorkflowSelectionForReload(
+        priorWorkType, workflows.installed, mode === 'reload' && Boolean(baseBranch)
+      );
+    const workType = keepExactWorkflows ? this.form.workType
+      : retainedWorkType
+        // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
+        // click; multiple custom workflows remain an explicit, visible choice in the form.
+        ?? workflows.installed.find((entry) => entry.id === 'feature')?.id
+        ?? workflows.installed[0]?.id ?? null;
+    const readinessReset = !(mode === 'revalidate' && baseBranch !== null && workType === this.form.workType);
+    const unreachable = listed.unreachable ?? [];
+    return {
+      readinessReset,
+      workflowsReplaced: !keepExactWorkflows,
+      changes: {
         profiles,
         // Defaulted so the form is not blocked on a choice with one sensible answer, but still
         // shown, because it decides the phases for the life of the work.
         profile: profiles.find((entry) => entry.id === priorProfile)?.id
           ?? profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
-        storyWorkflows: workflows.installed,
-        availableStoryWorkflows: workflows.available,
-        workflowCatalogReason: listed.intake?.workflowCatalogReason ?? null,
-        // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
-        // click; multiple custom workflows remain an explicit, visible choice in the form.
-        workType: retainedWorkType
-          ?? workflows.installed.find((entry) => entry.id === 'feature')?.id
-          ?? workflows.installed[0]?.id ?? null,
-        workflowReason: listed.intake?.workflowReason
-          ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null,
+        ...(keepExactWorkflows ? {} : {
+          storyWorkflows: workflows.installed,
+          availableStoryWorkflows: workflows.available,
+          workflowCatalogReason: listed.intake?.workflowCatalogReason ?? null,
+          workType,
+          workflowReason: listed.intake?.workflowReason
+            ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null
+        }),
         baseBranchChoices,
         // A Story base is an explicit, permanent choice. Even one available branch must be selected.
         baseBranch,
@@ -438,36 +526,31 @@ export class IntakePanel {
         baseBranchReason: unreachable.length
           ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}. Remote access is required before starting a Story.`
           : null,
-        ...emptyStoryPreflight(),
+        ...(readinessReset ? emptyStoryPreflight() : {}),
         githubConfigured: true,
         githubReason: null,
         inFlight: this.inFlight,
         approvalAuthorityMissing: typeof listed.intake?.approvalAuthorityMissing === 'boolean'
-          ? listed.intake.approvalAuthorityMissing : this.form.approvalAuthorityMissing
-      }, { background: true });
-      if (preserveSelections && baseBranch) await this.preflightBaseBranch();
-    } catch (error) {
-      if (revision !== this.catalogRevision || this.disposed) return;
-      const reason = (error as Error).message;
-      this.output.appendLine(`Intake catalog could not be read: ${reason}`);
-      this.update(preserveSelections ? {
-        // A failed refresh must not erase a valid draft or its last known choices. Mark the
-        // authority stale and require another successful preflight before Start can be enabled.
-        workflowReason: `Could not refresh Story workflows: ${reason}`,
-        baseBranchReason: reason,
-        ...emptyStoryPreflight()
-      } : {
-        profiles: [], profile: null, storyWorkflows: [], availableStoryWorkflows: [], workType: null,
-        workflowCatalogReason: null,
-        workflowReason: `Could not load Story workflows: ${reason}`,
-        baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason,
-        ...emptyStoryPreflight(),
-        inFlight: this.inFlight
-      });
+          ? listed.intake.approvalAuthorityMissing : this.form.approvalAuthorityMissing,
+        catalogStatus: mode === 'cached' ? 'cached' : 'fresh'
+      }
+    };
+  }
+
+  /** The last complete listing for this repository and CLI build, if it still parses. */
+  private cachedCatalogChanges(): Partial<IntakeForm> | null {
+    try {
+      const cached = this.catalogCache?.read();
+      if (!cached) return null;
+      const listed = cached.listed as CatalogListing;
+      if ((listed.choices !== undefined && !Array.isArray(listed.choices))
+          || (listed.intake !== undefined && (typeof listed.intake !== 'object' || listed.intake === null))) {
+        return null;
+      }
+      return this.catalogChanges(listed, 'cached').changes;
+    } catch {
+      return null;
     }
-    // Jira is an optional external integration. Do not make its cold process or network probe part
-    // of the form's critical path; its result updates only the tracker controls when it arrives.
-    if (!preserveSelections) void this.loadTracker();
   }
 
   private async reloadCatalog(): Promise<void> {
@@ -885,6 +968,7 @@ export class IntakePanel {
     this.cancelBasePreflight();
     const command = storyPreflightCommand(this.form);
     if (!command) return;
+    const base = this.form.baseBranch;
     const version = ++this.preflightVersion;
     const controller = new AbortController();
     this.preflightController = controller;
@@ -897,6 +981,7 @@ export class IntakePanel {
       }>(command, controller.signal);
       if (version !== this.preflightVersion) return;
       const readiness = result.preflight?.readiness;
+      if (Array.isArray(result.intake?.storyWorkflows)) this.exactCatalogBase = base;
       // The selected remote base, not the launch checkout, owns a legacy workflow catalog. Replace
       // the choices with the exact-base response before interpreting readiness. If the previous
       // choice does not exist there, clear it and require a visible user selection.

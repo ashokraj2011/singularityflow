@@ -23,6 +23,7 @@ import {
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
+import { IntakeCatalogCache } from './intake-catalog-cache.ts';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
@@ -4439,6 +4440,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Start Work paints the last complete intake catalog at once and revalidates it. `[perf]`
+  const intakeCatalogCache = context.globalStorageUri?.fsPath
+    ? new IntakeCatalogCache(context.globalStorageUri.fsPath, client.location.cli) : null;
+  // The watched repository's verified Git common directory, which its Story worktrees share. Only
+  // used while it still describes the current repository.
+  let intakeCatalogScope: { repository: string; commonDirectory: string } | null = null;
+  const intakeCatalogKey = (): string => intakeCatalogScope?.repository === repository
+    ? intakeCatalogScope.commonDirectory : repository;
+
   const store = new WorkspaceStore(client, snapshotCache);
   if (hostBenchmarkEnabled) {
     persistHostBenchmarkCache = async () => {
@@ -4605,6 +4615,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let watchedGitCommonDirectory: string | null = null;
   const watchGovernedRepository = (target: string, gitCommonDirectory: string | null): void => {
     watchedGitCommonDirectory = gitCommonDirectory;
+    intakeCatalogScope = gitCommonDirectory ? { repository: target, commonDirectory: gitCommonDirectory } : null;
     repositoryWatcher?.dispose();
     autoPrivateWatcher?.dispose();
     if (repositoryRefreshTimer) {
@@ -5668,6 +5679,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       inFlight: intakeInFlight(store.current.snapshot),
       approvalAuthorityMissing,
       defaults,
+      catalogCache: intakeCatalogCache?.bind(intakeCatalogKey()) ?? null,
       journey: defaults.guidedStart ? {
         step: 'work',
         capabilityId: context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null)?.capabilityId ?? null,

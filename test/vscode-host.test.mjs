@@ -3200,6 +3200,13 @@ test('a Story started from the form confirms its readiness check in one pass, an
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const reports = [];
+  const plainProgress = api.window.withProgress;
+  api.window.withProgress = async (options, task) => /^Starting /.test(options.title ?? '')
+    ? task({ report: (value) => reports.push(value.message) }, {
+      isCancellationRequested: false, onCancellationRequested() { return { dispose() {} }; }
+    })
+    : plainProgress(options, task);
   await loadExtension(api).activate(context());
   await registered.commands.get('singularityFlow.startWork')();
   const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
@@ -3222,6 +3229,9 @@ test('a Story started from the form confirms its readiness check in one pass, an
   assert.match(output, /Story start confirmed the readiness check in one pass \(reused: [^)]*launch-fetch/);
   assert.match(output, /--intake-receipt'? '?\[redacted\]/, 'the shown command keeps the option, not the token');
   assert.doesNotMatch(output, /sir_[0-9a-f]{32}/, 'the receipt itself is never shown');
+  assert.ok(reports.includes('Confirming the readiness check') && reports.includes('Publishing the Story'),
+    `the notification follows the start's stages: ${reports.join(' → ')}`);
+  assert.doesNotMatch(output, /@@sflow-progress/, 'progress lines never reach the Output channel');
   assert.deepEqual(registered.errors, []);
 });
 

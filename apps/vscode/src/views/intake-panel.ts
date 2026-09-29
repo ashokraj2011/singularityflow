@@ -21,6 +21,7 @@ import {
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
 import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
+import { startProgressLabel } from '../cli/progress.ts';
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
@@ -1113,7 +1114,7 @@ export class IntakePanel {
       });
       return;
     }
-    this.update({ busy: true, error: null, recoveryCommand: null, recoveryRouteCommand: null });
+    this.update({ busy: true, startStep: null, error: null, recoveryCommand: null, recoveryRouteCommand: null });
 
     // A receipt for exactly this request, with time left, lets Start verify instead of rediscover.
     // It is single-use either way, so the panel forgets it now.
@@ -1146,9 +1147,17 @@ export class IntakePanel {
         configuration?: Started['configuration'];
         intakeReceipt?: { status?: string; reason?: string | null; reused?: string[] };
       };
+      // The engine reports each stage it enters; show it where the person is looking.
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
-        () => this.client.run<StartPayload & { data?: StartPayload }>(args));
+        (progress) => this.client.run<StartPayload & { data?: StartPayload }>(args, undefined, {
+          onProgress: (step) => {
+            const label = startProgressLabel(step);
+            if (!label || label === this.form.startStep) return;
+            progress.report({ message: label });
+            this.update({ startStep: label }, { background: true });
+          }
+        }));
       const payload = result.data ?? result;
       const verified = payload.intakeReceipt;
       if (verified?.status) {

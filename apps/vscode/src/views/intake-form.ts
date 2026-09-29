@@ -202,6 +202,8 @@ export interface IntakeForm {
    */
   approvalAuthorityMissing: boolean;
   busy: boolean;
+  /** The Story start stage under way, in words, while `busy`; null before the first report. */
+  startStep: string | null;
   /** A user-requested Copilot description proposal is in flight. */
   enhancing: boolean;
   /** Advisory Copilot text awaiting an explicit Apply or Discard decision. */
@@ -237,6 +239,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh',
   jiraConfigured: false, jiraReason: null,
   githubConfigured: true, githubReason: null, inFlight: [], approvalAuthorityMissing: false, busy: false,
+  startStep: null,
   enhancing: false, enhanceProposal: null, enhanceError: null, error: null,
   recoveryCommand: null, recoveryRouteCommand: null
 };
@@ -1037,6 +1040,7 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
       <button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
         ${form.busy ? 'Starting…' : `Start this ${escape(noun.toLowerCase())}`}
       </button>
+      ${form.busy && form.startStep ? `<span class="meta" role="status" aria-live="polite">${escape(form.startStep)}…</span>` : ''}
     </p>
   </section></div>`;
 }

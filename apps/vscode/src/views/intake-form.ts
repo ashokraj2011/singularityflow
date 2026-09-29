@@ -1066,4 +1066,49 @@ export const INTAKE_SCRIPT = `
     }
     if (field) vscode.postMessage({ type: 'draft', field, value: event.target.value });
   });
+  /**
+   * Results that arrive in the background (the catalog refresh, readiness, a reference check) redraw
+   * the page. Keep the focused field, its caret and the scroll position in the webview state and put
+   * them back after each redraw, so a result that lands while somebody types never takes the caret.
+   */
+  let intakeUnloading = false;
+  window.addEventListener('pagehide', () => { intakeUnloading = true; });
+  const intakeFocusKey = (el) => !el || !el.dataset ? null
+    : el.dataset.field ? 'field:' + el.dataset.field
+      : el.dataset.referenceField ? 'reference:' + el.dataset.referenceIndex + ':' + el.dataset.referenceField
+        : null;
+  const saveIntakeView = () => {
+    if (intakeUnloading || !vscode.setState) return;
+    const el = document.activeElement;
+    const key = intakeFocusKey(el);
+    const state = (vscode.getState && vscode.getState()) || {};
+    state.intakeView = {
+      key: key,
+      start: key && typeof el.selectionStart === 'number' ? el.selectionStart : null,
+      end: key && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
+      fieldScroll: key ? el.scrollTop : 0,
+      scroll: window.scrollY
+    };
+    vscode.setState(state);
+  };
+  ['focusin', 'keyup', 'mouseup', 'input', 'select'].forEach((name) => document.addEventListener(name, saveIntakeView));
+  document.addEventListener('focusout', () => setTimeout(saveIntakeView, 0));
+  window.addEventListener('scroll', saveIntakeView, { passive: true });
+  const restoreIntakeView = () => {
+    const saved = vscode.getState ? ((vscode.getState() || {}).intakeView || null) : null;
+    if (!saved) return;
+    if (typeof saved.scroll === 'number') window.scrollTo(0, saved.scroll);
+    if (!saved.key) return;
+    const parts = String(saved.key).split(':');
+    const selector = parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
+      : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
+    const el = document.querySelector(selector);
+    if (!el || typeof el.focus !== 'function' || el.disabled) return;
+    el.focus({ preventScroll: true });
+    if (saved.start !== null && typeof el.setSelectionRange === 'function') {
+      try { el.setSelectionRange(saved.start, saved.end === null ? saved.start : saved.end); } catch (error) { /* not a text control */ }
+    }
+    if (typeof saved.fieldScroll === 'number') el.scrollTop = saved.fieldScroll;
+  };
+  restoreIntakeView();
 `;

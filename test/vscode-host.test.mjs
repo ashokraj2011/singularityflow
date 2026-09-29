@@ -2894,6 +2894,74 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   );
 });
 
+test('Story readiness is checked once typing the identifier pauses, and the blur that follows does not repeat it', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-typing-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intake, 'Start Work opens Story intake');
+  assert.match(intake.webview.html, /data-shape="story"[^>]*checked/, 'the form opens on Story');
+  await until(() => intake.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the Story workflow catalog to load' });
+  await intake.post({ type: 'baseBranch', value: 'main' });
+  await intake.post({ type: 'tracker', value: 'none' });
+  const branchReads = () => registered.output.filter((line) => String(line).includes('[Singularity Flow timing]')
+    && String(line).includes('"command":"workspace"') && String(line).includes('"subcommand":"branches"')).length;
+
+  // Keystrokes only; the identifier field never loses focus.
+  for (const value of ['S', 'ST', 'STORY-T', 'STORY-TYPED']) {
+    await intake.post({ type: 'draft', field: 'id', value });
+  }
+  await until(() => /Story-start readiness confirmed for[\s\S]*?create <code>STORY-TYPED<\/code>/
+    .test(intake.webview.html) ? true : null, { what: 'readiness once typing paused, without a blur' });
+  const afterPause = branchReads();
+  assert.ok(afterPause > 0, 'catalog and readiness reads are timed');
+  await intake.post({ type: 'field', field: 'id', value: 'STORY-TYPED' });
+  assert.match(intake.webview.html, /Story-start readiness confirmed for[\s\S]*?create <code>STORY-TYPED<\/code>/,
+    'the blur keeps the answer for the value it re-reports');
+  assert.equal(branchReads(), afterPause, 'the blur does not start a second readiness check');
+
+  // Typing on drops the old answer before the next pause: Start never lights up for the old identifier.
+  await intake.post({ type: 'draft', field: 'id', value: 'STORY-TYPED-2' });
+  await until(() => !/Story-start readiness confirmed for[\s\S]*?create <code>STORY-TYPED<\/code>/
+    .test(intake.webview.html) ? true : null, { what: 'the answer for the old identifier to be withdrawn' });
+  assert.doesNotMatch(intake.webview.html, /readiness confirmed for[\s\S]*?create <code>STORY-TYPED-2<\/code>/,
+    'the new identifier is not reported ready before its own check');
+  await until(() => /Story-start readiness confirmed for[\s\S]*?create <code>STORY-TYPED-2<\/code>/
+    .test(intake.webview.html) ? true : null, { what: 'readiness for the new identifier after the next pause' });
+  assert.deepEqual(registered.errors, []);
+});
+
 test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {
   if (!requireBundle(t)) return;
   const reviewer = { name: 'QA Reviewer', email: 'qa.reviewer@example.com' };

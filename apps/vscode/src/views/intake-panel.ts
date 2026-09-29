@@ -24,6 +24,12 @@ import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cl
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 
+/** A background result waits this long after the last keystroke before it redraws the page. */
+const INTAKE_TYPING_QUIET_MS = 300;
+/** Readiness is checked once somebody pauses typing the identifier this long, not only on blur. */
+const INTAKE_ID_PREFLIGHT_DEBOUNCE_MS = 400;
+const PORTABLE_WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 /** What was started, so the caller can take the reader straight to it. */
 export interface Started {
   shape: Shape;
@@ -179,6 +185,13 @@ export class IntakePanel {
   private catalogRevision = 0;
   private enhancementController: AbortController | null = null;
   private trackerChosen = false;
+  /** Any input at all. A background result never switches the tracker under somebody's typing. */
+  private formTouched = false;
+  private lastDraftAt = 0;
+  private renderTimer: ReturnType<typeof setTimeout> | null = null;
+  private idPreflightTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The exact readiness command in flight or last completed, so blur does not repeat it. */
+  private preflightKey: string | null = null;
   private disposed = false;
 
   private constructor(
@@ -265,7 +278,7 @@ export class IntakePanel {
     if (!current || current.disposed) return;
     if (JSON.stringify(current.inFlight) === JSON.stringify(inFlight)) return;
     current.inFlight = inFlight;
-    current.update({ inFlight });
+    current.update({ inFlight }, { background: true });
   }
 
   /** Refresh an already-open Intake form after approved configuration changes elsewhere. */
@@ -287,7 +300,11 @@ export class IntakePanel {
     );
   }
 
-  private update(changes: Partial<IntakeForm>): void {
+  /**
+   * Merge and redraw. A change the person just made redraws at once; a background result waits until
+   * typing pauses, so a redraw never lands in the middle of a word.
+   */
+  private update(changes: Partial<IntakeForm>, { background = false }: { background?: boolean } = {}): void {
     if (this.disposed) return;
     this.form = {
       ...this.form,
@@ -295,12 +312,46 @@ export class IntakePanel {
         ? { recoveryCommand: null, recoveryRouteCommand: null } : {}),
       ...changes
     };
+    if (background) this.scheduleRender();
+    else this.renderNow();
+  }
+
+  private renderNow(): void {
+    if (this.renderTimer) clearTimeout(this.renderTimer);
+    this.renderTimer = null;
     this.render();
+  }
+
+  private scheduleRender(): void {
+    const quiet = Date.now() - this.lastDraftAt;
+    if (quiet >= INTAKE_TYPING_QUIET_MS) return this.renderNow();
+    if (this.renderTimer) return;
+    this.renderTimer = setTimeout(() => {
+      this.renderTimer = null;
+      if (!this.disposed) this.scheduleRender();
+    }, INTAKE_TYPING_QUIET_MS - quiet);
   }
 
   private cancelBasePreflight(): void {
     this.preflightController?.abort();
     this.preflightController = null;
+    this.preflightKey = null;
+    if (this.idPreflightTimer) clearTimeout(this.idPreflightTimer);
+    this.idPreflightTimer = null;
+  }
+
+  /** Check readiness once the identifier has stopped changing, instead of waiting for blur. */
+  private scheduleIdentifierPreflight(): void {
+    if (this.idPreflightTimer) clearTimeout(this.idPreflightTimer);
+    this.idPreflightTimer = setTimeout(() => {
+      this.idPreflightTimer = null;
+      if (this.disposed || this.form.shape !== 'story') return;
+      const command = storyPreflightCommand(this.form);
+      if (!command || !PORTABLE_WORK_ID.test(intakeIdentifier(this.form))) return;
+      if (JSON.stringify(command) === this.preflightKey) return;
+      this.preflightVersion += 1;
+      void this.preflightBaseBranch();
+    }, INTAKE_ID_PREFLIGHT_DEBOUNCE_MS);
   }
 
   /** Cancel an advisory rewrite whenever any input it was based on changes. */
@@ -393,7 +444,7 @@ export class IntakePanel {
         inFlight: this.inFlight,
         approvalAuthorityMissing: typeof listed.intake?.approvalAuthorityMissing === 'boolean'
           ? listed.intake.approvalAuthorityMissing : this.form.approvalAuthorityMissing
-      });
+      }, { background: true });
       if (preserveSelections && baseBranch) await this.preflightBaseBranch();
     } catch (error) {
       if (revision !== this.catalogRevision || this.disposed) return;
@@ -442,7 +493,7 @@ export class IntakePanel {
   private async loadTracker(): Promise<void> {
     const tracker = await this.tracker();
     let selection = this.form.tracker;
-    if (!this.trackerChosen) {
+    if (!this.trackerChosen && !this.formTouched) {
       selection = this.defaults.source === 'github-issue' ? 'github'
         : this.defaults.source === 'manual' ? 'none'
           : tracker.configured ? 'jira' : 'none';
@@ -452,7 +503,7 @@ export class IntakePanel {
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
       tracker: selection
-    });
+    }, { background: true });
   }
 
   private async tracker(): Promise<{ configured: boolean; reason: string | null }> {
@@ -497,6 +548,7 @@ export class IntakePanel {
       const value = stringField(message, 'value');
       const tracker = value === 'jira' ? 'jira' : value === 'github' ? 'github' : 'none';
       this.trackerChosen = true;
+      this.formTouched = true;
       this.invalidateEnhancement();
       this.preflightVersion += 1;
       this.update({
@@ -574,10 +626,22 @@ export class IntakePanel {
       const field = this.writableField(message);
       const value = typeof message.value === 'string' ? message.value : null;
       if (field && value !== null) {
+        this.formTouched = true;
+        this.lastDraftAt = Date.now();
         if (['title', 'description', 'acceptanceCriteria'].includes(field)) {
           this.invalidateEnhancement();
         }
         (this.form as unknown as Record<string, string>)[field] = value;
+        if (field === 'id' || field === 'key') {
+          // The identifier moved on, so an answer for the old one must never enable Start.
+          if (this.preflightKey !== null
+              && this.preflightKey !== JSON.stringify(storyPreflightCommand(this.form))) {
+            this.cancelBasePreflight();
+            this.preflightVersion += 1;
+            this.update(emptyStoryPreflight(), { background: true });
+          }
+          this.scheduleIdentifierPreflight();
+        }
       }
     },
     field: (message) => {
@@ -586,7 +650,11 @@ export class IntakePanel {
       if (field && value !== null) {
         const invalidatesEnhancement = ['title', 'description', 'acceptanceCriteria'].includes(field);
         if (invalidatesEnhancement) this.invalidateEnhancement();
-        const invalidatesPreflight = field === 'id' || field === 'key';
+        this.formTouched = true;
+        // Blur after a pause re-reports the value readiness is already checking or has checked.
+        const alreadyChecked = (field === 'id' || field === 'key') && this.preflightKey !== null
+          && this.preflightKey === JSON.stringify(storyPreflightCommand({ ...this.form, [field]: value }));
+        const invalidatesPreflight = (field === 'id' || field === 'key') && !alreadyChecked;
         if (invalidatesPreflight) this.preflightVersion += 1;
         this.update({
           [field]: value,
@@ -820,7 +888,8 @@ export class IntakePanel {
     const version = ++this.preflightVersion;
     const controller = new AbortController();
     this.preflightController = controller;
-    this.update({ ...emptyStoryPreflight(), basePreflightChecking: true });
+    this.preflightKey = JSON.stringify(command);
+    this.update({ ...emptyStoryPreflight(), basePreflightChecking: true }, { background: true });
     try {
       const result = await this.client.run<{
         preflight?: { passed?: boolean; readiness?: StoryStartReadinessResult };
@@ -861,7 +930,7 @@ export class IntakePanel {
               : 'The engine did not return Story-start readiness. Reload or update Singularity Flow before retrying.'),
           basePreflightWarnings: warnings,
           basePreflightRefreshRecommended: refreshRecommended
-        });
+        }, { background: true });
         return;
       }
       this.update({
@@ -874,14 +943,15 @@ export class IntakePanel {
         basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null,
         basePreflightWarnings: warnings,
         basePreflightRefreshRecommended: refreshRecommended
-      });
+      }, { background: true });
     } catch (error) {
       if (version !== this.preflightVersion) return;
+      this.preflightKey = null;
       this.update({
         basePreflightPassed: false, basePreflightChecking: false,
         basePreflightReason: (error as Error).message,
         basePreflightWarnings: [], basePreflightRefreshRecommended: false
-      });
+      }, { background: true });
     } finally {
       if (this.preflightController === controller) this.preflightController = null;
     }
@@ -948,6 +1018,8 @@ export class IntakePanel {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.renderTimer) clearTimeout(this.renderTimer);
+    this.renderTimer = null;
     this.invalidateEnhancement();
     this.cancelBasePreflight();
     if (IntakePanel.current === this) IntakePanel.current = null;

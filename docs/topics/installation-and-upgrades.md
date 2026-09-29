@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 28
+version: 29
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -132,9 +132,11 @@ teammate on another build proposes a review of that build. A window waiting to r
 build opens none; the reloaded build does.
 
 A terminal has no window to wait in, so a new build's first mutation starts the same pass as a
-background worker. `singularity-flow product status` lists the reviews it opened. A pass that failed
-is tried again after an hour. A first mutation that is itself a configuration refresh starts no
-worker beside it. Set `SINGULARITY_FLOW_CONFIGURATION_REVIEWS=off` to switch the background pass off.
+background worker. `singularity-flow product status` lists the reviews it opened. One pass runs on a
+machine at a time. A registered repository that cannot be reached does not hold up the others: the
+reachable ones are proposed, and the pass is tried again an hour later, by the next window or command,
+for the rest. So is a pass that failed. A first mutation that is itself a configuration refresh starts
+no worker beside it. Set `SINGULARITY_FLOW_CONFIGURATION_REVIEWS=off` to switch the background pass off.
 
 Use `workspace refresh-configuration --dry-run` to preview all repositories, or add a workspace
 reference and repeatable `--repository ID` filters for a bounded repair. Repository customizations
@@ -272,7 +274,8 @@ on every surface before the command runs, then continues the command on the new 
   Story has it. A requirement file written after the last check, such as a new Story's copy, is read
   at once. A development checkout never updates itself.
 - A failed download or install never fails the command: it says what to run and continues on the
-  current build. Set `SINGULARITY_FLOW_PRODUCT_UPDATE=off` to switch the check off.
+  current build. A download that sends nothing for 30 seconds, or does not finish in time, is
+  abandoned, and a file larger than its limit is refused before it is read. Set `SINGULARITY_FLOW_PRODUCT_UPDATE=off` to switch the check off.
 - `singularity-flow product status` lists each repository's last check on this machine, including
   why a required release could not be installed. VS Code warns once about each failed install.
 

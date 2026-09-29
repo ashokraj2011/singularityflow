@@ -28,6 +28,7 @@ import { inspectLocalProduct, REINSTALL_SURFACES } from './reinstall.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
 import { runWorkspaceHealer } from './workspace-healers.mjs';
+import { withRegistryFileLease } from './file-lease.mjs';
 import {
   acquireActivationLease, inspectNpmTarballBuildSources, inspectVsixBuildSources,
   releaseActivationLease
@@ -504,27 +505,30 @@ async function assertNoInstallRecovery(installations) {
   }
 }
 
+/** Merge one build's pass into the receipt. Writers are serialized, so no build's entry is lost. */
 async function writeAlignmentReceipt(installations, runningBuild, entry) {
   const file = path.join(installations, PRODUCT_ALIGNMENT_RECEIPT);
-  let prior = null;
-  try {
-    const bytes = await regularFileBytes(file);
-    if (bytes) prior = readRecord('product-alignment', bytes).record;
-  } catch { prior = null; }
-  const builds = Object.entries(prior?.builds ?? {})
-    .filter(([line]) => line !== runningBuild)
-    .sort(([, left], [, right]) => String(right?.at ?? '').localeCompare(String(left?.at ?? '')))
-    .slice(0, RECEIPT_BUILDS - 1);
-  const record = {
-    schemaVersion: currentSchemaVersion('product-alignment'),
-    builds: Object.fromEntries([[runningBuild, entry], ...builds])
-  };
   await mkdir(installations, { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-  try { await rename(temporary, file); }
-  finally { await rm(temporary, { force: true }); }
-  await chmod(file, 0o600);
+  await withRegistryFileLease(file, async () => {
+    let prior = null;
+    try {
+      const bytes = await regularFileBytes(file);
+      if (bytes) prior = readRecord('product-alignment', bytes).record;
+    } catch { prior = null; }
+    const builds = Object.entries(prior?.builds ?? {})
+      .filter(([line]) => line !== runningBuild)
+      .sort(([, left], [, right]) => String(right?.at ?? '').localeCompare(String(left?.at ?? '')))
+      .slice(0, RECEIPT_BUILDS - 1);
+    const record = {
+      schemaVersion: currentSchemaVersion('product-alignment'),
+      builds: Object.fromEntries([[runningBuild, entry], ...builds])
+    };
+    const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    try { await rename(temporary, file); }
+    finally { await rm(temporary, { force: true }); }
+    await chmod(file, 0o600);
+  });
   return file;
 }
 

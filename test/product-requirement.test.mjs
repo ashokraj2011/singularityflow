@@ -338,3 +338,84 @@ test('every repository is checked at most once a day per build, with or without 
   assert.equal(await due({ now: T0 + 9 * HOUR }), null, 'elsewhere an offline machine is not slowed every hour');
   assert.match(await due({ now: T0 + 14 * HOUR }), /^0\.9\.0/u);
 });
+
+test('a release download that stalls or never ends fails the check, never hangs the command', async (t) => {
+  const tempRoot = await temporary(t, 'sflow-requirement-temp-');
+  const limits = { idleMs: 50, smallTotalMs: 2_000, artifactTotalMs: 2_000 };
+  const aborted = (signal) => new Promise((_, reject) => {
+    signal.addEventListener('abort', () => reject(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })));
+  });
+  const response = (body, headers = {}) => ({
+    ok: true, status: 200, url: 'https://releases.example.test/sflow/RELEASE.json',
+    headers: { get: (name) => headers[name.toLowerCase()] ?? null }, body
+  });
+
+  // No response at all: the server accepted the connection and went quiet.
+  await assert.rejects(materializeRelease('https://releases.example.test/sflow/', {
+    tempRoot, limits, fetchImpl: (_url, { signal }) => aborted(signal)
+  }), /RELEASE\.json did not arrive in time/u);
+
+  // Headers, then nothing.
+  await assert.rejects(materializeRelease('https://releases.example.test/sflow/', {
+    tempRoot, limits, fetchImpl: async (_url, { signal }) => response({ async *[Symbol.asyncIterator]() { await aborted(signal); } })
+  }), /RELEASE\.json did not arrive in time/u);
+
+  // An oversized file is refused from its declared length, before a byte is read.
+  let read = false;
+  await assert.rejects(materializeRelease('https://releases.example.test/sflow/', {
+    tempRoot, limits, fetchImpl: async () => response({ async *[Symbol.asyncIterator]() { read = true; yield Buffer.alloc(1); } },
+      { 'content-length': String(64 * 1024 * 1024) })
+  }), /RELEASE\.json has an unsupported size/u);
+  assert.equal(read, false);
+
+  // An endless stream is cut off at the limit, never buffered whole.
+  let sent = 0;
+  await assert.rejects(materializeRelease('https://releases.example.test/sflow/', {
+    tempRoot, limits: { ...limits, idleMs: 5_000 }, fetchImpl: async () => response({
+      async *[Symbol.asyncIterator]() { for (;;) { sent += 1; yield Buffer.alloc(1024 * 1024); } }
+    })
+  }), /RELEASE\.json has an unsupported size/u);
+  assert.ok(sent <= 17, `the download stopped at the 16 MiB limit (${sent} MiB sent)`);
+  assert.deepEqual((await readdir(tempRoot)).filter((name) => name.startsWith('sflow-release-')), [], 'nothing is left behind');
+});
+
+test('a repository never seen to carry a requirement stays quiet when its configuration cannot be read', async (t) => {
+  const root = await temporary(t, 'sflow-requirement-repo-');
+  const home = await temporary(t, 'sflow-requirement-machine-');
+  const unreadable = async () => { throw new Error("Template missing for work type 'feature' phase 'intake'"); };
+  const check = async () => {
+    const lines = [];
+    const outcome = await enforceProductRequirement({
+      root, runningBuild: versionLine(OLDER), argv: ['next'], homeDirectory: home, info: OLDER,
+      write: (line) => lines.push(line), read: unreadable, pathBuild: () => null
+    });
+    return { outcome, lines };
+  };
+  const quiet = await check();
+  assert.equal(quiet.outcome.status, 'unavailable');
+  assert.deepEqual(quiet.lines, [], 'most repositories carry no requirement; this one never showed one');
+  const checks = () => readFile(requirementChecksFile(home), 'utf8').then(JSON.parse);
+  assert.equal(Object.values((await checks()).repositories)[0].requirement, false);
+
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'product.yml'), 'schemaVersion: 1\n');
+  assert.match((await check()).lines.join('\n'), /could not read this repository's approved product requirement: Template missing/u,
+    'where the working tree carries the file, the failure is said');
+  await rm(path.join(root, 'singularity', 'product.yml'));
+  const recorded = await checks();
+  const [key] = Object.keys(recorded.repositories);
+  recorded.repositories[key] = { ...recorded.repositories[key], requirement: true };
+  await writeFile(requirementChecksFile(home), `${JSON.stringify(recorded)}\n`);
+  assert.equal((await check()).lines.length, 1, 'and so it is where an earlier check found a requirement');
+});
+
+test('concurrent checks in different repositories each keep their verdict', async (t) => {
+  const home = await temporary(t, 'sflow-requirement-machine-');
+  const roots = await Promise.all(Array.from({ length: 6 }, () => temporary(t, 'sflow-requirement-repo-')));
+  await Promise.all(roots.map((root) => enforceProductRequirement({
+    root, runningBuild: versionLine(OLDER), argv: ['next'], homeDirectory: home, info: OLDER,
+    write: () => {}, read: async () => null, pathBuild: () => null
+  })));
+  const recorded = JSON.parse(await readFile(requirementChecksFile(home), 'utf8')).repositories;
+  assert.equal(Object.keys(recorded).length, 6, 'no verdict was lost to a concurrent writer');
+});

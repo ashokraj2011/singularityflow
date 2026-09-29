@@ -239,3 +239,22 @@ test('a build whose configuration is current opens nothing, and a development ho
   assert.equal(await openConfigurationReviews(host(await extension(t, { packaged: false }), { reviews: opened() }), { loadedBuild: BUILD }),
     'skipped-development');
 });
+
+test('a pass that left repositories unchecked reports what it opened and stays due for a later window', async (t) => {
+  const directory = await extension(t);
+  const unfinished = [{ repository: 'old-service', reason: 'offline' }];
+  const incomplete = host(directory, { reviews: opened({ unfinished }) });
+  assert.equal(await openConfigurationReviews(incomplete, { loadedBuild: BUILD }), 'reviews-opened');
+  assert.ok(incomplete.events.some(([kind]) => kind === 'inform'), 'the window whose pass opened a review says so');
+  assert.ok(incomplete.events.some(([kind, line]) => kind === 'log' && /old-service \(offline\)/u.test(line)));
+  assert.equal(incomplete.state.get(CONFIGURATION_REVIEW_KEY), undefined, 'the unchecked repositories keep this build due');
+
+  const recorded = host(directory, { reviews: opened({ status: 'recorded', unfinished }) });
+  assert.equal(await openConfigurationReviews(recorded, { loadedBuild: BUILD }), 'reviews-opened');
+  assert.equal(recorded.events.some(([kind]) => kind === 'inform'), false, 'announced once, when its pass ran');
+
+  const unreachable = host(directory, { reviews: { status: 'ran', outcome: 'unavailable', reviews: [], unfinished } });
+  assert.equal(await openConfigurationReviews(unreachable, { loadedBuild: BUILD }), 'unavailable');
+  assert.equal(unreachable.events.some(([kind]) => kind === 'warn'), false, 'an offline machine is not warned every hour');
+  assert.equal(unreachable.state.get(CONFIGURATION_REVIEW_KEY), undefined);
+});

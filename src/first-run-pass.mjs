@@ -11,15 +11,13 @@ import os from 'node:os';
 import { startConfigurationReviews } from './configuration-review-pass.mjs';
 import { repairLocalState } from './local-state-repair.mjs';
 import { alignBeforeFirstMutation, recordBuildPass } from './product-alignment.mjs';
+import { foregroundConfigurationRefresh } from './product-alignment-gate.mjs';
 import { commandExists, parseArgs, run } from './util.mjs';
-
-/** Commands that refresh configuration in the foreground and own the refresh cache while they do. */
-const FOREGROUND_REFRESHES = new Set(['refresh-configuration', 'reinitialize']);
 
 function refreshesConfiguration(argv) {
   try {
     const [command, subcommand] = parseArgs(argv ?? []).positionals;
-    return command === 'workspace' && FOREGROUND_REFRESHES.has(subcommand);
+    return foregroundConfigurationRefresh(command, subcommand);
   } catch {
     return false;
   }

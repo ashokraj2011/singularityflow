@@ -32,6 +32,7 @@ import { buildJourney } from './views/journey-model.ts';
 import {
   phaseGenerationChatPrefill, submissionCommandArgv
 } from './views/submission-presentation.ts';
+import { phasePrepublishDecision } from './views/phase-prepublish.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
 import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
@@ -5205,6 +5206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // A suggested command may carry `<PATH>`-style placeholders meant for a person to fill in.
     // Running them literally passes the placeholder to the CLI, which then fails on a file of that
     // name — a failure that says nothing about what was actually wanted.
+    const publishScope = repositoryEpoch.capture();
     const argv = await resolvePlaceholders(node.command, repository);
     if (!argv) return;
     if (argv[0] === 'phase' && argv[1] === 'publish') {
@@ -5247,6 +5249,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return;
         }
+      }
+      const phaseId = argv[2];
+      if (!phaseId || !workflow?.workItem?.id || workflow.currentPhase !== phaseId) {
+        void vscode.window.showWarningMessage(
+          'Publication stopped because the selected Story phase is no longer current. Refresh Lifecycle and choose the phase again.'
+        );
+        return;
+      }
+      try {
+        const checkedRepository = repository;
+        if (!repositoryEpoch.isCurrent(publishScope)) {
+          void vscode.window.showWarningMessage(
+            'Publication stopped because the selected repository changed. Refresh Lifecycle and try again.'
+          );
+          return;
+        }
+        const result = await client.run<unknown>(['phase', 'prepublish', phaseId, '--json']);
+        const currentWorkflow = store.current.snapshot?.workflow;
+        if (!repositoryEpoch.isCurrent(publishScope) || repository !== checkedRepository
+            || currentWorkflow?.workItem?.id !== workflow.workItem.id
+            || currentWorkflow.currentPhase !== phaseId) {
+          void vscode.window.showWarningMessage(
+            'Publication stopped because the selected repository or Story changed during the phase check. Refresh Lifecycle and try again.'
+          );
+          return;
+        }
+        const gate = phasePrepublishDecision(result, {
+          workId: workflow.workItem.id, phaseId
+        });
+        if (!gate.ready) {
+          output.appendLine(`\n$ singularity-flow phase prepublish ${phaseId} --json`);
+          output.appendLine(gate.headline);
+          for (const detail of gate.details) output.appendLine(`- ${detail}`);
+          const correctionPrefill = phaseGenerationChatPrefill(gate.skill);
+          const choice = await vscode.window.showWarningMessage(
+            `${gate.headline}${gate.details[0] ? ` ${gate.details[0]}` : ''}`,
+            ...(correctionPrefill ? ['Fix in Copilot'] : []),
+            'Show correction steps'
+          );
+          if (choice === 'Show correction steps') output.show(true);
+          if (choice === 'Fix in Copilot' && correctionPrefill
+              && repositoryEpoch.isCurrent(publishScope)
+              && repository === checkedRepository
+              && store.current.snapshot?.workflow?.workItem?.id === workflow.workItem.id
+              && store.current.snapshot?.workflow?.currentPhase === phaseId) {
+            // A partial prefill offers the engine-selected phase owner; the click executes nothing.
+            await vscode.commands.executeCommand('workbench.action.chat.open', correctionPrefill);
+          }
+          return;
+        }
+      } catch (error) {
+        showRefusal(error, { headline: `Could not check ${phaseId} before publication` });
+        return;
       }
     }
     // A registered local Story checkout may contain unpublished work ahead of its remote. Opening

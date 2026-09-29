@@ -602,6 +602,7 @@ Usage:
     [--why TEXT] [--status answered|deferred] [--blocking] [--owner TEXT] [--impact TEXT] [--replace]
   singularity-flow phase show [PHASE] [--json]
   singularity-flow phase draft-check [PHASE] [--json]
+  singularity-flow phase prepublish [PHASE] [--json]
   singularity-flow phase begin [PHASE] [--json]
     [--adopt-existing|--adopt-current-interval] [--confirm CHANGE-SET-DIGEST]
   singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]

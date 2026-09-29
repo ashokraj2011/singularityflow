@@ -73,6 +73,27 @@ test('workspace migrate-schemas is a read-only model-free operation', () => {
   assert.equal(operationCatalog().find((entry) => entry.id === operation.id)?.classification, 'read');
 });
 
+test('phase review and prepublish commands remain reads while publication remains a mutation', () => {
+  const catalog = new Map(operationCatalog().map((entry) => [entry.id, entry]));
+  for (const subcommand of ['show', 'draft-check', 'prepublish']) {
+    const resolved = resolveOperation({
+      requestedCommand: 'phase', positionals: ['phase', subcommand, 'planning'], options: { json: true }
+    });
+    assert.equal(resolved.id, `phase.${subcommand}`);
+    assert.equal(resolved.classification, 'read');
+    assert.equal(resolved.modelPolicy, 'never');
+    assert.equal(catalog.get(resolved.id)?.classification, 'read');
+  }
+  for (const subcommand of ['begin', 'publish']) {
+    const resolved = resolveOperation({
+      requestedCommand: 'phase', positionals: ['phase', subcommand, 'planning']
+    });
+    assert.equal(resolved.id, 'phase');
+    assert.equal(resolved.classification, 'mutation');
+    assert.equal(catalog.get(resolved.id)?.classification, 'mutation');
+  }
+});
+
 test('mixed deterministic commands classify their actual operation rather than their top-level name', () => {
   const classify = (requestedCommand, positionals, options = {}) => resolveOperation({ requestedCommand, positionals, options }).classification;
   assert.equal(classify('report', ['report']), 'read');

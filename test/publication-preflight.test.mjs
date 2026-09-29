@@ -9,6 +9,7 @@ import test from 'node:test';
 
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { recoveryPlan, recoveryText } from '../src/collaboration.mjs';
+import { phasePrepublish } from '../src/phase-prepublish.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import {
@@ -1319,6 +1320,28 @@ test('recovery reports an unsupported native test runner before publication is a
   assert.match(blocker.details.message, /Do not edit protected workflow configuration/);
   assert.equal(context.phase.generation, 0);
   assert.equal(context.phase.generationIntent.status, 'open');
+});
+
+test('prepublish keeps a complete code draft red when its repository test contract is unsupported', async (t) => {
+  const context = await codeFixture('unsupported-angular-prepublish', {
+    testProfile: 'angular-unsupported'
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'app'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.ts'),
+    'export const filter = (values) => values.filter(Boolean);\n');
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.spec.ts'),
+    '/** @ac:DELIVERY-1:AC-001 */\nexport const covered = true;\n');
+
+  const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+    session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }
+  });
+  assert.equal(checked.status, 'correction-required');
+  assert.equal(checked.readiness.knownRecoveryBlockers, false);
+  assert.equal(checked.commands.publish, null);
+  assert.ok(checked.findings.some((finding) => finding.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'));
+  assert.equal(checked.correction.skill, '/sf-workflows');
+  assert.equal(checked.mutates, false);
 });
 
 test('Angular Karma publication infers tests, captures stdout, and leaves protected workflow untouched', async (t) => {

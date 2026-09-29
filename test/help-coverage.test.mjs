@@ -43,6 +43,7 @@ test('phase and Epic help expose the guarded forms used by Copilot skills', () =
   const initiative = renderCommandHelp('initiative');
   const epic = renderCommandHelp('epic');
   assert.match(phase, /singularity-flow phase draft-check \[PHASE\] \[--json\]/);
+  assert.match(phase, /singularity-flow phase prepublish \[PHASE\] \[--json\]/);
   assert.match(initiative, /singularity-flow initiative phase draft-check \[PHASE\] \[--initiative INIT-ID\] \[--json\]/);
   assert.match(epic, /singularity-flow epic jira apply --epic EPIC-KEY --plan SHA256 --confirm EPIC-KEY/);
 });

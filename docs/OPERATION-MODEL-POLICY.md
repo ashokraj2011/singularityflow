@@ -393,6 +393,9 @@ Every public operation is classified before its implementation module is importe
 | pack.revoke | mutation | never | — | — |
 | pack.show | read | never | — | — |
 | phase | mutation | never | — | — |
+| phase.draft-check | read | never | — | — |
+| phase.prepublish | read | never | — | — |
+| phase.show | read | never | — | — |
 | plan | read | never | — | — |
 | plugin | mutation | never | — | — |
 | policy.apply | mutation | never | — | — |

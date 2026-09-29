@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "20e23a271465236e2c6e8fcb4a7ff3165ae7bb78",
+  "sourceCommit": "5a7f3c66d0a76c3ead139a7542f3417075de003b",
   "topicCount": 68,
-  "contentSha256": "7acd9a47270945d01a11d938abb485ecf16ef1a6326c130c1c834a5fcc3cd509",
+  "contentSha256": "44f3e8f1f4dbee0debd11a7d2d9e6c0f980da6dc6fa689976db52acb404ec9aa",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -480,8 +480,8 @@
     {
       "id": "story-lifecycle",
       "title": "Story lifecycle, phases, and generations",
-      "version": 4,
-      "sha256": "8b10b5076bb05c27f6cef3dffda3d8429fe2171289b9cb06fe751c60055be0b7",
+      "version": 5,
+      "sha256": "465b2154bb8539a77868f5732103b881d4047d34b8c45b109b4ac7cc03ff0ae9",
       "routingSha256": "ba05ed458214e52a31a5cf002c0104c63bb35ae9dc202dd81fca74cac023a886",
       "file": "story-lifecycle.md"
     },

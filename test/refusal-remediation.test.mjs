@@ -342,7 +342,7 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
   assert.ok(protectedPath.steps.every((entry) => entry.execution === 'user-reviewed'));
 });
 
-test('incomplete authoring refusals lead with a read-only draft check and bounded correction guidance', () => {
+test('incomplete authoring refusals lead with a read-only prepublish check and bounded correction guidance', () => {
   const error = Object.assign(new Error("Phase planning contains unresolved placeholder 'TODO'."), {
     code: 'ARTIFACT_AUTHORING_INCOMPLETE',
     details: {
@@ -353,8 +353,8 @@ test('incomplete authoring refusals lead with a read-only draft check and bounde
   const plan = refusalRemediationPlan(error, ['phase', 'publish', 'planning', '--json']);
 
   assert.equal(plan.steps[0].id, 'inspect-authored-draft');
-  assert.equal(plan.steps[0].command, 'singularity-flow phase draft-check planning --json');
-  assert.deepEqual(plan.steps[0].argv, ['phase', 'draft-check', 'planning', '--json']);
+  assert.equal(plan.steps[0].command, 'singularity-flow phase prepublish planning --json');
+  assert.deepEqual(plan.steps[0].argv, ['phase', 'prepublish', 'planning', '--json']);
   assert.equal(plan.steps[0].kind, 'diagnostic');
   assert.equal(plan.steps[0].skill, '/sf-phase');
   assert.equal(plan.steps[0].copyable, true);
@@ -365,7 +365,7 @@ test('incomplete authoring refusals lead with a read-only draft check and bounde
   assert.match(plan.steps[1].label, /Do not .*invoke another model, publish, submit, or approve/);
   assert.ok(plan.steps.every((entry) => entry.execution === 'user-reviewed'));
   assert.equal(plan.retry.automatic, false);
-  assert.match(plan.retry.label, /draft check reports ready/);
+  assert.match(plan.retry.label, /prepublish check reports ready/);
   assert.equal(plan.steps[2].command, 'singularity-flow recover --phase planning --json');
   assert.equal(plan.steps[2].skill, '/sf-recover');
   assert.equal(plan.context.scope, 'phase');
@@ -383,7 +383,7 @@ test('incomplete code authoring preserves the engine-selected code correction ro
   });
   const plan = refusalRemediationPlan(error, ['phase', 'publish', 'implementation', '--json']);
   assert.equal(plan.steps[0].command,
-    'singularity-flow phase draft-check implementation --json');
+    'singularity-flow phase prepublish implementation --json');
   assert.equal(plan.steps[0].skill, '/sf-code');
   assert.equal(plan.steps[0].copilotCommand, '/sf-code');
   assert.equal(plan.retry.command, null);
@@ -420,7 +420,7 @@ test('incomplete authoring remediation derives a safe phase from lifecycle argv 
       code: 'ARTIFACT_AUTHORING_INCOMPLETE'
     }), argv);
     assert.equal(plan.steps[0].command,
-      `singularity-flow phase draft-check ${phase} --json`, argv.join(' '));
+      `singularity-flow phase prepublish ${phase} --json`, argv.join(' '));
     assert.equal(plan.steps[0].copyable, true, argv.join(' '));
   }
 });

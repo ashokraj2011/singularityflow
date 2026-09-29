@@ -53,6 +53,7 @@ test('--help --all prints the complete usage reference', () => {
     assert.match(result.stdout, /singularity-flow inbox \[--offline\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow phase show \[PHASE\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow phase draft-check \[PHASE\] \[--json\]/);
+    assert.match(result.stdout, /singularity-flow phase prepublish \[PHASE\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow initiative phase draft-check \[PHASE\]/);
     assert.match(result.stdout, /singularity-flow epic jira apply --epic EPIC-KEY --plan SHA256 --confirm EPIC-KEY/);
     assert.match(result.stdout, /singularity-flow factory-reset \[--dry-run\]/);

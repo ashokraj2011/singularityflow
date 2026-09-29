@@ -99,6 +99,24 @@ test('start JSON uses the same versioned command-result contract as terminal out
   assert.equal(parsed.data.currentPhase, 'intake');
 });
 
+test('phase prepublish exposes a read-only same-phase repair route before publication', async () => {
+  const root = await repository();
+  const workId = 'PREPUBLISH-1';
+  flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer',
+    '--title', 'Check phase prepublication', '--description', 'Keep an incomplete phase in progress.'
+  ]);
+  const before = execute('git', ['status', '--porcelain'], root).stdout;
+  const result = JSON.parse(flow(root, ['phase', 'prepublish', 'intake', '--json']).stdout);
+  assert.equal(result.resultType, 'sflow-phase-prepublish');
+  assert.equal(result.status, 'correction-required');
+  assert.equal(result.workId, workId);
+  assert.equal(result.phase, 'intake');
+  assert.equal(result.commands.publish, null);
+  assert.equal(result.mutates, false);
+  assert.equal(execute('git', ['status', '--porcelain'], root).stdout, before);
+});
+
 test('off-mode clarification record emits recovery before reading response input', async () => {
   const root = await repository();
   const workId = 'CLARIFICATION-OFF-1';

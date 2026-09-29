@@ -87,7 +87,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence',
   'diagnose-only', 'diagnostics', 'disclose-provider-results', 'draft-stdin', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
   'include-existing', 'independent', 'isolated-worktree',
-  'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
+  'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'review-only', 'set', 'sign', 'solo',
@@ -98,7 +98,9 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
 const DISPLAY_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;
 function displayIsSecretOptionKey(value: string): boolean {
   const key = value.replace(/^--/, '');
-  return DISPLAY_SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization)/i.test(key);
+  return DISPLAY_SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization)/i.test(key)
+    // A Story intake receipt is a machine-local bearer token. Anchored: `--mint-intake-receipt` is a flag.
+    || /^intake[-_]receipt$/i.test(key);
 }
 const DISPLAY_REMOTE_OPTION = /^--(?:repository|repository-url|reference-repository|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
 /** Local evidence paths are executable inputs but must not enter output, logs, or timeout replay. */
@@ -1755,13 +1757,29 @@ export interface InvokeOptions {
   priority?: 'interactive' | 'normal' | 'background';
 }
 
+/**
+ * A replayed command never carries a Story intake receipt: it is single-use, machine-local and a
+ * bearer token. Without it the replay simply takes Story start's full verification path.
+ */
+export function withoutIntakeReceipt(argv: readonly string[]): string[] {
+  const kept: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = String(argv[index]);
+    if (token === '--intake-receipt') { index += 1; continue; }
+    if (token.startsWith('--intake-receipt=')) continue;
+    kept.push(token);
+  }
+  return kept;
+}
+
 /** Preserve replay-safe recovery copy when a subscriber, rather than the child, owns its deadline. */
 export function cliInvocationTimeoutError(
   options: Pick<InvokeOptions, 'executable' | 'cli' | 'repository' | 'args' | 'input'>,
   timeoutMs: number
 ): CliTimeoutError {
-  const command = options.input == null && cliArgsAreReplaySafe(options.args)
-    ? terminalCommand(options.repository, options.args, process.platform, options) : null;
+  const replay = withoutIntakeReceipt(options.args);
+  const command = options.input == null && cliArgsAreReplaySafe(replay)
+    ? terminalCommand(options.repository, replay, process.platform, options) : null;
   return new CliTimeoutError(timeoutMs, command);
 }
 

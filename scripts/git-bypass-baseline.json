@@ -1175,6 +1175,12 @@
       },
       "digest": "43345ce36af0369707171887e11e693ed5185eac60954ed979fce2aae7bdf36a"
     },
+    "src/story-intake-verification.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "231e436d0823afbdb29c6fa10f5a2166e6fead3fe080a7c34f378fa65351e6c8"
+    },
     "src/story-lineage.mjs": {
       "counts": {
         "command-run": 10

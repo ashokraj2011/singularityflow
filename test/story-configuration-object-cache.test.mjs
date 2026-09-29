@@ -412,6 +412,27 @@ test('a Story start read reuses the authority it just observed, while every othe
     'without the opt-in a warm read still observes exact current authority');
 });
 
+test('the advisory intake read admits the authority it just listed, and other readers still list twice', cacheProfile, async (t) => {
+  const f = await fixture(t); const before = await f.before();
+  await onlineReaderEnvironment(f, async () => {
+    const cold = await approvedReader(f, { useObjectCache: true, reuseAuthorityObservation: true });
+    assert.equal(cold.counters['configuration.object-cache-fetch'], 1);
+    const warm = await approvedReader(f, { useObjectCache: true, reuseAuthorityObservation: true });
+    assert.equal(warm.counters['configuration.object-cache-hit'], 1);
+    assert.equal(warm.counters['git.remote.command.ls-remote'], 1,
+      'one listing selects the approved revision and admits the cached copy of exactly that revision');
+    const ordinary = await approvedReader(f, { useObjectCache: true });
+    assert.equal(ordinary.counters['git.remote.command.ls-remote'], 2,
+      'a reader that did not opt in keeps its own fresh admission observation');
+    assert.deepEqual(warm.value, ordinary.value);
+    const uncached = await approvedReader(f, { reuseAuthorityObservation: true });
+    assert.equal(uncached.counters['configuration.object-cache-hit'] ?? 0, 0,
+      'without the object cache there is nothing to admit, so the flag changes nothing');
+    assert.deepEqual(uncached.value, ordinary.value);
+  });
+  assert.deepEqual(await f.before(), before);
+});
+
 test('unreachable authority and removed authority never become a warm cache success', cacheProfile, async (t) => {
   const f = await fixture(t); await read(f);
   git(f.base, '--git-dir', f.remote, 'update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`);

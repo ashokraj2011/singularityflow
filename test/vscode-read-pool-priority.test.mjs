@@ -114,3 +114,14 @@ test('a higher-priority caller joining a queued identical read raises it', async
   assert.ok(started(rows, 'shared').at < firstBlockerEnd.at,
     'the raised read took the free slot instead of waiting for a background slot');
 });
+
+test('a readiness check that mints an intake receipt is never shared between callers', async (t) => {
+  const f = await fixture(t);
+  const args = ['workspace', 'branches', '--json', '--intake', '--preflight-story', 'S', '--from-branch', 'main',
+    '--mint-intake-receipt', '--case', 'mint', '--delay', '100'];
+  const [first, second] = await Promise.all([f.client.run(args), f.client.run(args)]);
+  assert.equal(first.id, 'mint');
+  assert.equal(second.id, 'mint');
+  assert.equal((await f.events()).filter((row) => row.kind === 'start' && row.id === 'mint').length, 2,
+    'each caller gets its own process, and so its own receipt');
+});

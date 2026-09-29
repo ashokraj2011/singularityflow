@@ -30,7 +30,9 @@ import {
 } from '../src/configuration-read-scope.mjs';
 import { approvedConfigurationMaterializations } from '../src/configuration-materialization.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
-import { publishCurrentIdentityToConfiguration } from '../src/configuration-people.mjs';
+import {
+  automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration
+} from '../src/configuration-people.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { run } from '../src/util.mjs';
 import {
@@ -1804,12 +1806,48 @@ test('automatic identity enrollment obeys the approved configuration switch', as
       'a pinned Story no-op must verify the live ref without cloning its configuration tree');
     assert.equal(timing.counters['git.remote.command.ls-remote'], 1,
       'authority resolution and the no-op comparison must share one exact remote observation');
+    assert.equal(automaticEnrollmentMayPublish(checkout, snapshot), false,
+      'with automatic enrollment switched off there is never a membership commit to refuse ahead of');
+
+    // Story start makes that one observation itself, just before enrollment, and passes its session.
+    const session = new GitRemoteSession({ cwd: checkout });
+    await session.observeAsync(configuredOrigin, {
+      refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false, refresh: true
+    });
+    const sharedTimer = commandTimer('story-identity-enrollment-shared', { commandClass: 'write' });
+    const shared = await withCommandTiming(sharedTimer, () => publishCurrentIdentityToConfiguration(checkout, {
+      automatic: true, configurationSnapshot: snapshot, expectedSourceCommit: snapshot.sourceCommit, session
+    }));
+    assert.equal(shared.commit, snapshot.sourceCommit);
+    assert.equal(sharedTimer.finish().counters['git.remote.command.ls-remote'] ?? 0, 0,
+      'enrollment answers from the observation the start already made');
 
     const after = YAML.parse(run('git', [
       'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
     ], { cwd: fixture.remote }).stdout);
     assert.ok(Object.values(after.approvalAuthorities).every((authority) =>
       !authority.members.some((member) => member.email === 'unlisted@example.com')));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('Story start can tell from the snapshot alone whether automatic enrollment could publish', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'enrollment-predicate-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'New Developer'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'new-developer@example.com'], { cwd: checkout });
+    const snapshot = await loadStoryConfigurationSnapshot(await resolveRemoteStoryConfigurationAuthority(fixture.remote));
+    assert.equal(automaticEnrollmentMayPublish(checkout, snapshot), true, 'an unlisted identity would be enrolled');
+    const enrolled = await publishCurrentIdentityToConfiguration(checkout, {
+      automatic: true, configurationSnapshot: snapshot
+    });
+    assert.equal(enrolled.changed, true);
+    const after = await loadStoryConfigurationSnapshot(await resolveRemoteStoryConfigurationAuthority(fixture.remote));
+    assert.equal(automaticEnrollmentMayPublish(checkout, after), false, 'an enrolled identity has nothing to publish');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

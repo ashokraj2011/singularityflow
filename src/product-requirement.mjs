@@ -22,7 +22,7 @@
  * and the key that authorises it; a working-tree copy authorises nothing.
  */
 import { randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -35,7 +35,9 @@ import {
   compareBuilds, parseBuildLine, parseStampedBuildInfo, stampedBuildLine
 } from './product-alignment.mjs';
 import { PRODUCT_ALIGNMENT_SWITCH } from './product-alignment-gate.mjs';
-import { priorRequirementCheck, PRODUCT_UPDATE_SWITCH, requirementChecksFile } from './product-requirement-gate.mjs';
+import {
+  priorRequirementCheck, PRODUCT_UPDATE_SWITCH, requirementChecksFile, requirementRepositoryKey
+} from './product-requirement-gate.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
@@ -376,7 +378,7 @@ export async function installRequiredRelease(requirement, {
 /** Merge one repository's verdict into the record. Writers are serialized, so no verdict is lost. */
 async function recordRequirementVerdict(homeDirectory, root, entry) {
   const file = requirementChecksFile(homeDirectory);
-  const key = await realpath(root).catch(() => path.resolve(root));
+  const key = await requirementRepositoryKey(root);
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   await withRegistryFileLease(file, async () => {
     let repositories = {};

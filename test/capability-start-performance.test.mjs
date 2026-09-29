@@ -10,7 +10,7 @@ import { publishCapabilityRepositoriesDurably } from '../src/capability-publicat
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { configuredRemoteAuthority } from '../src/git-remote-diagnostics.mjs';
 import { gitCommonDir, refHead } from '../src/git.mjs';
-import { runRemoteGitAsync } from '../src/git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from '../src/git-execution.mjs';
 import { run } from '../src/util.mjs';
 
 const entries = (count) => Array.from({ length: count }, (_, index) => ({
@@ -300,6 +300,39 @@ test('capability preflight reuses a same-command launch fetch after one fresh ex
   assert.equal(probes.length, 1);
   assert.deepEqual(probes[0].slice(-3).sort(), ['refs/heads/main', 'refs/heads/STORY-FRESH', 'refs/heads/state'].sort());
   assert.equal(checked[0].worldModelAuthorityRefresh.commit, fixture.options.launchFetchProof.stateCommit);
+});
+
+test('capability preflight reuses Story destination discovery instead of probing the same refs again', async (t) => {
+  const fixture = await launchFixture(t, { registered: true });
+  const url = fixture.options.launchFetchProof.transportRemote;
+  const observation = await new GitRemoteSession({ cwd: fixture.root }).observeAsync(url, {
+    includeHead: true, refs: ['refs/heads/STORY-FRESH', 'refs/heads/main', 'refs/heads/state'], refresh: true
+  });
+  fixture.options.launchFetchObservation = { url, observation };
+  const checked = await fixture.preflight();
+  assert.equal(checked[0].fetchReused, true);
+  assert.equal(fixture.calls.filter((args) => args[0] === 'ls-remote').length, 0,
+    'destination discovery already asked this remote for these refs after the launch fetch');
+  assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 0);
+  assert.equal(checked[0].worldModelAuthorityRefresh.commit, fixture.options.launchFetchProof.stateCommit);
+});
+
+test('a destination observation that misses a proof ref or names another remote is probed as before', async (t) => {
+  const fixture = await launchFixture(t, { registered: true });
+  const url = fixture.options.launchFetchProof.transportRemote;
+  const narrow = await new GitRemoteSession({ cwd: fixture.root }).observeAsync(url, {
+    includeHead: true, refs: ['refs/heads/STORY-FRESH', 'refs/heads/main'], refresh: true
+  });
+  fixture.options.launchFetchObservation = { url, observation: narrow };
+  assert.equal((await fixture.preflight())[0].fetchReused, true);
+  assert.equal(fixture.calls.filter((args) => args[0] === 'ls-remote').length, 1, 'the state tip was never asked');
+  const full = await new GitRemoteSession({ cwd: fixture.root }).observeAsync(url, {
+    includeHead: true, refs: ['refs/heads/STORY-FRESH', 'refs/heads/main', 'refs/heads/state'], refresh: true
+  });
+  fixture.calls.length = 0;
+  fixture.options.launchFetchObservation = { url: `${url}.other`, observation: full };
+  assert.equal((await fixture.preflight())[0].fetchReused, true);
+  assert.equal(fixture.calls.filter((args) => args[0] === 'ls-remote').length, 1);
 });
 
 test('moved launch base is fetched and bound rather than reused', async (t) => {

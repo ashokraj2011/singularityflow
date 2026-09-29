@@ -676,14 +676,19 @@ async function runMain(argv) {
   // subcommands; classification is known only after the now-measured dispatch probes complete.
   timingInput.commandClass = operation.classification;
   timingInput.operationId = operation.id;
+  // The passes below run before the command's module loads. Each is a named span, with its Git work
+  // counted, so a slow command says where its first seconds went instead of one opaque root-dispatch.
+  const dispatchSpan = (name, action) => withCommandTiming(timer, () => timer.measure(name, action));
   // A repository whose approved configuration requires a newer build installs that build's signed
   // release before any mutation runs on an older one, then continues the command on it.
   const requiredBuild = await productRequirementDue({
     root, command: definition.name, classification: operation.classification
   });
   if (requiredBuild) {
-    const { enforceProductRequirement } = await import('./product-requirement.mjs');
-    const required = await enforceProductRequirement({ root, runningBuild: requiredBuild, argv });
+    const required = await dispatchSpan('dispatch.product-requirement', async () => {
+      const { enforceProductRequirement } = await import('./product-requirement.mjs');
+      return enforceProductRequirement({ root, runningBuild: requiredBuild, argv });
+    });
     if (required.status === 'handed-off') {
       process.exitCode = required.exitCode;
       return null;
@@ -696,8 +701,10 @@ async function runMain(argv) {
     command: definition.name, classification: operation.classification
   });
   if (passBuild) {
-    const { firstRunPass } = await import('./first-run-pass.mjs');
-    const aligned = await firstRunPass({ runningBuild: passBuild, argv });
+    const aligned = await dispatchSpan('dispatch.first-run', async () => {
+      const { firstRunPass } = await import('./first-run-pass.mjs');
+      return firstRunPass({ runningBuild: passBuild, argv });
+    });
     if (aligned.status === 'handed-off') {
       process.exitCode = aligned.exitCode;
       return null;
@@ -710,8 +717,10 @@ async function runMain(argv) {
       command: definition.name, subcommand, classification: operation.classification
     });
     if (retryBuild) {
-      const { startConfigurationReviews } = await import('./configuration-review-pass.mjs');
-      await startConfigurationReviews({ runningBuild: retryBuild });
+      await dispatchSpan('dispatch.configuration-reviews', async () => {
+        const { startConfigurationReviews } = await import('./configuration-review-pass.mjs');
+        await startConfigurationReviews({ runningBuild: retryBuild });
+      });
     }
   }
   const smartInitDryRun = definition.name === 'init'

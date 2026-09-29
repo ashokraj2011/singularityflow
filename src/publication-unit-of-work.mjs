@@ -9,6 +9,7 @@ import {
   clearLedgerOutbox,
   ledgerStatus,
   persistLedgerIntent,
+  publishBranchWithLedgerEntry,
   recordLedgerOutbox
 } from './ledger.mjs';
 import { assertLifecycleEvent, bindLifecycleEvent } from './lifecycle-event.mjs';
@@ -625,6 +626,7 @@ export class GitPublicationUnitOfWork {
     let pushed = false;
     let replayed = false;
     let publishedCommit = sourceCommit;
+    let combinedPublication = null;
     if (publication.mode !== 'off') {
       // Publish the exact commit this transaction created. HEAD is mutable repository state: a
       // hook, another subject transaction, or a person at the keyboard may advance it after our
@@ -636,8 +638,25 @@ export class GitPublicationUnitOfWork {
       await updatePublicationJournal(root, subject, {
         stage: 'publishing', pushOutcome: 'transport-indeterminate'
       }, { transactionId: journal.transactionId });
-      let result = publicationAuthority?.url
-        ? await pushCommitToBranchAsync(
+      // The branch, its ledger entry and the entry's pin travel in one atomic push when they share a
+      // remote. Anything short of a verified landing publishes the branch alone as before; an unclear
+      // outcome is the same transport-indeterminate state a lost branch-push response leaves.
+      combinedPublication = publicationAuthority?.url && ledger?.config?.enabled && ledger.intent
+        ? await publishBranchWithLedgerEntry(root, ledger.config, ledger.intent, {
+          commit: sourceCommit,
+          branch: publication.branch,
+          expectedBranchSha: publication.expectedRemoteSha,
+          pushRemote: publicationAuthority.url,
+          upstreamRemote: publicationAuthority.remote
+        })
+        : null;
+      let result;
+      if (combinedPublication?.landed) {
+        result = { status: 0, stdout: '', stderr: '', signal: null };
+      } else if (combinedPublication?.uncertain) {
+        result = combinedPublication.result;
+      } else if (publicationAuthority?.url) {
+        result = await pushCommitToBranchAsync(
           root,
           publicationRemote,
           sourceCommit,
@@ -647,11 +666,13 @@ export class GitPublicationUnitOfWork {
             transportRemote: publicationAuthority.url,
             upstreamRemote: publicationAuthority.remote
           }
-        )
-        : {
-            status: 1, stdout: '', signal: null,
-            stderr: `Publication remote '${publicationRemote}' is not configured with a credential-free authority.`
-          };
+        );
+      } else {
+        result = {
+          status: 1, stdout: '', signal: null,
+          stderr: `Publication remote '${publicationRemote}' is not configured with a credential-free authority.`
+        };
+      }
       const initialPushOutcome = result.status === 0 ? 'published' : publicationPushOutcome(result);
       // An ambiguous transport may already have advanced the ref. Local replay after that boundary
       // would replace the only ownership receipt with a different commit/error and permanently lose
@@ -776,7 +797,11 @@ export class GitPublicationUnitOfWork {
     let ledgerResult = null;
     if (ledger?.config?.enabled && ledger.intent) {
       try {
-        ledgerResult = await appendLedgerIntent(root, ledger.config, ledger.intent, publishedCommit);
+        ledgerResult = combinedPublication?.landed
+          ? combinedPublication.ledger
+          : await appendLedgerIntent(root, ledger.config, ledger.intent, publishedCommit, {
+            atomic: combinedPublication?.refused !== true
+          });
         await clearLedgerOutbox(root, ledger.intent.eventId);
       } catch (error) {
         const safeLedgerError = publicationDiagnostic(error?.message ?? String(error));

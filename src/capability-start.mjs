@@ -139,7 +139,7 @@ export function preflightWorldModelAuthorityRefreshes(preflight = []) {
  * Local tips and transport identity are checked again after the async probe, so a concurrent fetch
  * or remote retarget cannot make a stale receipt authoritative.
  */
-async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, proof, runGit) {
+async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, proof, runGit, recent = null) {
   proof = proof ? Object.freeze({ ...proof }) : null;
   if (!proof || proof.remote !== remote || proof.baseBranch !== baseBranch
       || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(proof.baseCommit ?? '')
@@ -168,19 +168,23 @@ async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, p
     && refHead(candidate.root, storyRef) === null
     && (!state || refHead(candidate.root, stateRef) === proof.stateCommit);
   if (!localInputsMatch()) return false;
-  let observed;
-  try {
-    observed = await new GitRemoteSession({
-      cwd: candidate.root, runAsyncCommand: runGit
-    }).observeAsync(candidate.fetchAuthority.url, {
-      includeHead: false,
-      refs: [remoteBaseRef, remoteStoryRef, ...(remoteStateRef ? [remoteStateRef] : [])],
-      refresh: true,
-      timeoutMs: 5_000
-    });
-  } catch {
-    // Optional reuse must not replace the normal fetch's classified office-transport refusal.
-    return false;
+  const needed = [remoteBaseRef, remoteStoryRef, ...(remoteStateRef ? [remoteStateRef] : [])];
+  // Story start's destination discovery already asked this remote for exactly these refs after the
+  // launch fetch. Use that answer rather than asking again; anything narrower is probed as before.
+  let observed = recent?.url === candidate.fetchAuthority.url && recent.observation?.ok === true
+    && needed.every((ref) => recent.observation.patterns?.includes(ref))
+    ? recent.observation : null;
+  if (!observed) {
+    try {
+      observed = await new GitRemoteSession({
+        cwd: candidate.root, runAsyncCommand: runGit
+      }).observeAsync(candidate.fetchAuthority.url, {
+        includeHead: false, refs: needed, refresh: true, timeoutMs: 5_000
+      });
+    } catch {
+      // Optional reuse must not replace the normal fetch's classified office-transport refusal.
+      return false;
+    }
   }
   if (!observed.ok || observed.refs.get(remoteBaseRef) !== proof.baseCommit
       || observed.refs.has(remoteStoryRef)
@@ -654,6 +658,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   configurationSnapshot = null,
   capabilityEvidence = null,
   launchFetchProof = null,
+  launchFetchObservation = null,
   workers = DEFAULT_REMOTE_WORKERS,
   runGit = runRemoteGitAsync
 } = {}) {
@@ -751,7 +756,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
     const fetchReused = await reusableLaunchFetch(
       candidate, remote, plan.resolution.resolved[candidate.repository.id].branch,
-      storyBranch, launchFetchProof, runGit
+      storyBranch, launchFetchProof, runGit, launchFetchObservation
     );
     let result;
     if (fetchReused) {

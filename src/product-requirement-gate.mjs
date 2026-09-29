@@ -16,6 +16,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
+import { repositoryGitDirectory } from './git-directory.mjs';
 import { PRODUCT_ALIGNMENT_EXEMPT_COMMANDS } from './product-alignment-gate.mjs';
 
 export const PRODUCT_UPDATE_SWITCH = 'SINGULARITY_FLOW_PRODUCT_UPDATE';
@@ -62,10 +63,24 @@ export async function recordedRequirementChecks({ homeDirectory = os.homedir() }
     .sort((left, right) => String(right.checkedAt ?? '').localeCompare(String(left.checkedAt ?? ''))));
 }
 
+/**
+ * The repository a verdict belongs to: its main checkout, whichever of its checkouts asked.
+ *
+ * Keyed by the asking checkout, every new Story worktree had no verdict of its own, so the "daily"
+ * read of approved configuration ran on the first mutation in each one — in practice on nearly every
+ * isolated Story start. The requirement belongs to the repository's approved configuration, which
+ * every checkout shares. A main checkout's key is its own path, as before.
+ */
+export async function requirementRepositoryKey(root) {
+  const shared = repositoryGitDirectory(root);
+  const anchor = shared ? (path.basename(shared) === '.git' ? path.dirname(shared) : shared) : root;
+  return realpath(anchor).catch(() => path.resolve(anchor));
+}
+
 /** The last requirement verdict this machine recorded for one repository, or null. Never throws. */
 export async function priorRequirementCheck({ homeDirectory = os.homedir(), root } = {}) {
   try {
-    const key = await realpath(root).catch(() => path.resolve(root));
+    const key = await requirementRepositoryKey(root);
     return JSON.parse(await readFile(requirementChecksFile(homeDirectory), 'utf8'))?.repositories?.[key] ?? null;
   } catch {
     return null;

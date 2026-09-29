@@ -11,8 +11,9 @@ import { fileURLToPath } from 'node:url';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import {
-  materializeReferenceRepositories, parseReferenceRepositoryOptions,
+  materializeReferenceRepositories, materializeReferenceRepositoriesFromBranches, parseReferenceRepositoryOptions,
   readReferenceRepositoryManifest, referenceRepositoryContextMarkdown,
   referenceRepositoryGroundingContext, resolveReferenceRepositoryPins,
   storyReferenceRepositories, verifyReferenceRepositories, writeReferenceRepositoryManifest
@@ -263,6 +264,53 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     assert.equal(blocked.repositories[0].status, 'invalid');
     await assert.rejects(materializeReferenceRepositories(fixture.target, durable),
       (error) => error.code === 'REFERENCE_REPOSITORY_TAMPERED');
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('one fetch resolves a reference branch and materializes it, pinning the same commit', async () => {
+  const fixture = await repositoryFixture({ worldModel: false });
+  try {
+    const requests = parseReferenceRepositoryOptions(
+      [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=main']
+    );
+    const commands = [];
+    const runGit = (args, options) => {
+      commands.push(args[0] === 'fetch' ? `fetch ${args.at(-1)}` : args[0]);
+      return runRemoteGitAsync(args, options);
+    };
+    const references = await materializeReferenceRepositoriesFromBranches(fixture.target, requests, {
+      localNamespace: 'SPARK-2', runGit
+    });
+    assert.deepEqual(commands, ['fetch refs/heads/main'],
+      'the depth-1 fetch of the branch pins exactly the commit it transfers');
+    assert.equal(references[0].commit, git(fixture.source, ['rev-parse', 'HEAD']).stdout.trim());
+    assert.equal(references[0].materialization, 'created');
+    assert.match(references[0].tree, /^[0-9a-f]{40}$/);
+    const [resolved] = await resolveReferenceRepositoryPins(requests, { localNamespace: 'SPARK-2' });
+    const { pinnedAt: _fetchedAt, tree: _tree, materialization: _state, ...fetched } = references[0];
+    const { pinnedAt: _resolvedAt, tree: _none, ...separate } = resolved;
+    assert.deepEqual(fetched, separate, 'both resolution paths record one pin shape');
+
+    // An existing checkout can only be verified against a known commit, so it is resolved first.
+    commands.length = 0;
+    const again = await materializeReferenceRepositoriesFromBranches(fixture.target, requests, {
+      localNamespace: 'SPARK-2', runGit
+    });
+    assert.equal(again[0].materialization, 'reused');
+    assert.deepEqual(commands, ['ls-remote']);
+
+    const missing = parseReferenceRepositoryOptions(
+      [`java-rule-engine=${fixture.remote}`], ['java-rule-engine=missing']
+    );
+    await assert.rejects(
+      materializeReferenceRepositoriesFromBranches(fixture.target, missing, { localNamespace: 'SPARK-3' }),
+      (error) => error.code === 'REFERENCE_REPOSITORY_BRANCH_NOT_FOUND',
+      'a missing branch refuses exactly as the separate resolution does'
+    );
+    assert.deepEqual(await readdir(path.join(fixture.target, '.singularity-flow/reference-repositories/SPARK-3')), [],
+      'the private staging checkout is removed');
   } finally {
     await rm(fixture.directory, { recursive: true, force: true });
   }

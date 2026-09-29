@@ -2324,7 +2324,9 @@ function storyObjectCacheProfile(directory, commit, env, state) {
   return withinBounds || declined('bytes');
 }
 
-async function cachedStoryConfigurationSnapshot(authority, { env, captureAuthoringBytes, session }) {
+async function cachedStoryConfigurationSnapshot(authority, {
+  env, captureAuthoringBytes, session, reuseAuthorityObservation = false
+}) {
   // Capture scalar selectors before the first await; a caller may otherwise change the selected
   // remote/commit while the fresh observation is in flight.
   authority = Object.freeze({ remote: authority.remote, branch: authority.branch,
@@ -2340,11 +2342,15 @@ async function cachedStoryConfigurationSnapshot(authority, { env, captureAuthori
         && !/^(?:[^/@:\s]+@)?[^/:\s]+:[^\s]+$/u.test(remote))
       || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(authority.commit ?? '')) return null;
   // Cache metadata and a caller's pin are not current authority. Preserve the original clone's
-  // mutable-ref fence even on a warm hit and even if a prior session observation was memoized.
+  // mutable-ref fence even on a warm hit and even if a prior session observation was memoized —
+  // with one exception. A Story start resolves authority through this same session moments earlier
+  // in the same command, and it checks the live tip again before its first shared mutation, so its
+  // own observation is current authority and a second one would only repeat it.
   const admittedEnv = enterpriseGitEnvironment(env);
   const gitEnv = Object.freeze(inheritEnterpriseGitEnvironment(admittedEnv, { ...admittedEnv }));
   const observed = await configurationBranchHead(authority.remote, {
-    session: session ?? new GitRemoteSession({ cwd: REMOTE_GIT_READ_CWD, env: gitEnv }), refresh: true
+    session: session ?? new GitRemoteSession({ cwd: REMOTE_GIT_READ_CWD, env: gitEnv }),
+    refresh: !(reuseAuthorityObservation === true && session)
   });
   requireRemoteObservation(observed.observation, 'Story configuration authority');
   if (observed.sha !== authority.commit) throw new SingularityFlowError(
@@ -2518,7 +2524,8 @@ async function cachedStoryConfigurationSnapshot(authority, { env, captureAuthori
  * its additional blob batch nor retain its additional private copies.
  */
 export async function loadStoryConfigurationSnapshot(authority, {
-  env = process.env, captureAuthoringBytes = false, useObjectCache = false, session = null
+  env = process.env, captureAuthoringBytes = false, useObjectCache = false, session = null,
+  reuseAuthorityObservation = false
 } = {}) {
   if (!authority?.remote || !authority?.branch) {
     throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
@@ -2546,7 +2553,9 @@ export async function loadStoryConfigurationSnapshot(authority, {
     }
   }
   if (useObjectCache === true) {
-    const cached = await cachedStoryConfigurationSnapshot(authority, { env, captureAuthoringBytes, session });
+    const cached = await cachedStoryConfigurationSnapshot(authority, {
+      env, captureAuthoringBytes, session, reuseAuthorityObservation
+    });
     if (cached) return cached;
     incrementCommandCounter('configuration.object-cache-declined');
   }

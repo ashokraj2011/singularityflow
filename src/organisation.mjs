@@ -6625,7 +6625,8 @@ async function publishActivationAtomically(root, {
   const refused = pushed.status !== 0 && (/does not support --atomic/iu.test(String(pushed.stderr ?? ''))
     || String(pushed.stdout ?? '').split(/\r?\n/u).filter((line) => line.startsWith('!\t')).length
       === updates.length);
-  if (refused) return null;
+  // Report a refusal distinctly: the sequential audit need not try its own atomic push again.
+  if (refused) return { refused: true };
   // Verify every update, also when the acknowledgement was lost.
   const after = await session.observeAsync(remote, {
     refs: named, includeHead: false, refresh: true
@@ -7256,15 +7257,17 @@ export async function activateCapabilityProposal(url, branch, {
       // The audit entry, its pin, the retained history and the state mirror normally move in one
       // atomic push. Anything short of a verified landing continues with the sequential publication
       // below, which keeps its audit-first recovery contract.
-      const atomicPublication = await publishActivationAtomically(root, {
+      const atomicAttempt = await publishActivationAtomically(root, {
         remote, env, definition, intent, targetCommit, configurationCommit: currentConfigurationCommit,
         commitIdentity: frozenCommitIdentity, commitSigning
       }).catch(() => null);
+      const atomicPublication = atomicAttempt?.refused ? null : atomicAttempt;
       let audit = atomicPublication?.audit ?? null;
       try {
         audit ??= await appendLedgerIntent(root, definition.ledger, intent, targetCommit, {
           env, transportRemote: remote,
-          commitIdentity: frozenCommitIdentity, commitSigning
+          commitIdentity: frozenCommitIdentity, commitSigning,
+          atomic: atomicAttempt?.refused !== true
         });
       } catch (error) {
         const nextAction = {

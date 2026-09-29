@@ -19,7 +19,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'no
 import { mkdtemp, mkdir, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
@@ -6267,6 +6267,47 @@ test('post-start handoff with a mismatched configuration pin retains ordinary St
     'Post-start Story inventory deferred until idle')), false);
   assert.ok(values.get('singularityFlow.storyStartHandoff.v1'),
     'an unproven hint does not become a consumed successful handoff');
+  assert.deepEqual(registered.errors, []);
+});
+
+test('Story discovery waits while Start Work is on screen and runs once it closes', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await publishedStoryHandoffFixture(t);
+  const gateDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-discovery-gate-'));
+  t.after(() => rm(gateDirectory, { recursive: true, force: true }));
+  // The first repository snapshot waits until the form is open, so the order below is fixed: the
+  // confirmed snapshot that starts discovery lands while somebody is looking at Start Work.
+  const gate = path.join(gateDirectory, 'snapshot-may-run');
+  const gatedCli = path.join(gateDirectory, 'gated-cli.mjs');
+  await writeFile(gatedCli, `
+    import { existsSync } from 'node:fs';
+    if (process.argv.includes('snapshot')) {
+      while (!existsSync(${JSON.stringify(gate)})) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'bin', 'singularity-flow.mjs')).href)});
+  `);
+  const values = new Map([['singularityFlow.firstRunHealth.v1', { status: 'healthy' }]]);
+  const hostContext = context(values);
+  fixture.setContext(hostContext);
+  const { api, registered } = stubVscode();
+  // A real window returns from activation before its first confirmed read.
+  api.env = { ...api.env, appHost: 'desktop' };
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.root } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? gatedCli : '', update: async () => {} });
+  await loadExtension(api).activate(hostContext);
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intake, 'Start Work opened before the first snapshot confirmed');
+  await writeFile(gate, '');
+
+  await until(() => registered.output.some((line) => String(line).includes(
+    'Story discovery waits until Start Work is closed.')) ? true : null, { attempts: 400,
+    what: 'automatic discovery to wait for the open form' });
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(storyInventoryInvocations(registered), 0, 'no remote Story scan while the form is on screen');
+  intake.dispose();
+  await until(() => storyInventoryInvocations(registered) === 1 ? true : null, { attempts: 400,
+    what: 'discovery once Start Work closed' });
   assert.deepEqual(registered.errors, []);
 });
 

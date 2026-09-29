@@ -24,6 +24,7 @@ import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cl
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
+import type { BackgroundHold } from '../background-governor.ts';
 
 /** A background result waits this long after the last keystroke before it redraws the page. */
 const INTAKE_TYPING_QUIET_MS = 300;
@@ -52,6 +53,8 @@ export interface IntakeTarget {
   journey?: StartWizardProgress | null;
   /** The last complete catalog for this repository, painted while the fresh one is read. */
   catalogCache?: IntakeCatalogCacheBinding | null;
+  /** Held while the form is on screen, so optional background work does not compete with it. */
+  holdBackgroundWork?: ((reason: string) => BackgroundHold) | null;
 }
 
 export interface IntakeDefaults {
@@ -211,6 +214,8 @@ export class IntakePanel {
   /** The exact readiness command in flight or last completed, so blur does not repeat it. */
   private preflightKey: string | null = null;
   private readonly catalogCache: IntakeCatalogCacheBinding | null;
+  private readonly holdBackgroundWork: ((reason: string) => BackgroundHold) | null;
+  private backgroundHold: BackgroundHold | null = null;
   /** The base whose readiness answer replaced the workflow choices with that base's own. */
   private exactCatalogBase: string | null = null;
   private disposed = false;
@@ -230,6 +235,7 @@ export class IntakePanel {
     this.journey = target.journey ?? null;
     this.inFlight = target.inFlight;
     this.catalogCache = target.catalogCache ?? null;
+    this.holdBackgroundWork = target.holdBackgroundWork ?? null;
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
@@ -257,8 +263,21 @@ export class IntakePanel {
       return this.router.route(raw);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.onDidChangeViewState((event) => this.holdWhileVisible(event.webviewPanel.visible),
+      null, this.disposables);
+    this.holdWhileVisible(this.panel.visible);
     this.render();
     void this.load();
+  }
+
+  /** Optional background work waits while this form is on screen, and resumes once it is not. */
+  private holdWhileVisible(visible: boolean): void {
+    if (visible && !this.disposed) {
+      this.backgroundHold ??= this.holdBackgroundWork?.('intake') ?? null;
+      return;
+    }
+    this.backgroundHold?.release();
+    this.backgroundHold = null;
   }
 
   static show(
@@ -1103,6 +1122,7 @@ export class IntakePanel {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.holdWhileVisible(false);
     if (this.renderTimer) clearTimeout(this.renderTimer);
     this.renderTimer = null;
     this.invalidateEnhancement();

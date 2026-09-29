@@ -24,6 +24,7 @@ import {
 import { WorkspaceStore } from './state.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import { IntakeCatalogCache } from './intake-catalog-cache.ts';
+import { BackgroundWorkGovernor } from './background-governor.ts';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
@@ -298,6 +299,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   extensionLifetime.abort();
   extensionLifetime = new AbortController();
   const activationSignal = extensionLifetime.signal;
+  // Optional work (Story discovery, product checks) waits while the intake form is on screen.
+  const backgroundWork = new BackgroundWorkGovernor();
   // Module state can survive a deactivate/reactivate cycle in the same extension host. Until this
   // activation validates a workspace or folder, no command may inherit the previous routing choice.
   setActiveRepositoryContext(null);
@@ -3745,9 +3748,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(onExtensionsChanged(() => { void loadedBundle.offerReload(productHost); }));
   }
   if (vscode.env?.appHost) {
+    // Both checks are optional, so neither competes with somebody filling in the intake form.
     void initialWorkspaceRefresh
+      .then(() => backgroundWork.waitUntilIdle({ signal: activationSignal }))
       .then(() => alignProductSurfaces(productHost, { loadedBuild, bundle: loadedBundle }))
       .then((outcome) => output.appendLine(`Product surface check: ${outcome}`))
+      .then(() => backgroundWork.waitUntilIdle({ signal: activationSignal }))
       .then(() => openConfigurationReviews(productHost, { loadedBuild, bundle: loadedBundle }))
       .then((outcome) => output.appendLine(`Configuration review check: ${outcome}`))
       .catch((error) => output.appendLine(`Product surface check could not run: ${(error as Error).message}`));
@@ -4730,11 +4736,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     postStartDiscoveryTimer = null;
   };
   context.subscriptions.push({ dispose: cancelPostStartDiscoveryTimer });
+  let deferredDiscovery: AbortController | null = null;
+  const cancelDeferredDiscovery = (): void => {
+    deferredDiscovery?.abort();
+    deferredDiscovery = null;
+  };
+  context.subscriptions.push({ dispose: cancelDeferredDiscovery });
   const refreshRemoteStories = ({ afterCurrent = false, refreshSnapshot = true }: {
     afterCurrent?: boolean; refreshSnapshot?: boolean;
   } = {}): Promise<void> => {
     // Explicit Refresh/attachment/map actions never wait for the advisory post-start idle hint.
     cancelPostStartDiscoveryTimer();
+    cancelDeferredDiscovery();
     const scope = repositoryEpoch.capture();
     return storyRefreshGate.run(scope.epoch, async (): Promise<void> => {
       let issue: string | null = null;
@@ -4869,6 +4882,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`Story discovery needs attention: ${(error as Error).message}`);
       }
     }); };
+    // Discovery is optional: while the intake form is on screen it waits, for at most two minutes.
+    // A forced read never waits, and an explicit refresh cancels the wait.
+    const discoverWhenIdle = (): void => {
+      if (forceReadiness || !backgroundWork.held) return discover();
+      cancelDeferredDiscovery();
+      const controller = new AbortController();
+      deferredDiscovery = controller;
+      output.appendLine('Story discovery waits until Start Work is closed.');
+      void backgroundWork.waitUntilIdle({ signal: controller.signal }).then(() => {
+        if (controller.signal.aborted || deferredDiscovery !== controller) return;
+        deferredDiscovery = null;
+        if (activationSignal.aborted || !repositoryEpoch.isCurrent(scope)) return;
+        discover();
+      });
+    };
     const handoff = context.globalState.get<unknown>(STORY_START_HANDOFF_KEY);
     if (!forceReadiness && storyStartHandoffMatches(handoff, scope.repository, state.snapshot)) {
       // Confirmed core/lifecycle bytes remain the only source for actions. This one-use hint just
@@ -4883,13 +4911,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (postStartDiscoveryTimer !== timer) return;
         postStartDiscoveryTimer = null;
         if (activationSignal.aborted || !repositoryEpoch.isCurrent(scope)) return;
-        discover();
+        discoverWhenIdle();
       }, STORY_START_DISCOVERY_IDLE_MS);
       postStartDiscoveryTimer = timer;
       postStartDiscoveryTimer.unref?.();
       return;
     }
-    discover();
+    discoverWhenIdle();
   };
   context.subscriptions.push(store.onDidChange((state, change) => {
     if (change.kind !== 'snapshot' || state.stale || state.error || !state.snapshot) return;
@@ -5680,6 +5708,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       approvalAuthorityMissing,
       defaults,
       catalogCache: intakeCatalogCache?.bind(intakeCatalogKey()) ?? null,
+      holdBackgroundWork: (reason) => backgroundWork.hold(reason),
       journey: defaults.guidedStart ? {
         step: 'work',
         capabilityId: context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null)?.capabilityId ?? null,

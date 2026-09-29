@@ -38,7 +38,9 @@ export interface IntakeTarget {
   workspace: string | null;
   repository: string;
   branch: string | null;
+  /** From the Store's last snapshot, possibly cached; `lifecycleChanged` keeps it current. */
   inFlight: InFlight[];
+  approvalAuthorityMissing?: boolean;
   defaults?: IntakeDefaults;
   journey?: StartWizardProgress | null;
 }
@@ -167,7 +169,7 @@ export class IntakePanel {
   private readonly onStarted: (started: Started) => Promise<void>;
   private readonly defaults: IntakeDefaults;
   private readonly journey: StartWizardProgress | null;
-  private readonly inFlight: InFlight[];
+  private inFlight: InFlight[];
   private readonly disposables: vscode.Disposable[] = [];
   private form: IntakeForm;
   private preflightVersion = 0;
@@ -198,7 +200,11 @@ export class IntakePanel {
       targetWorkspace: target.workspace,
       targetRepository: target.repository,
       targetBranch: target.branch,
-      ...(this.defaults.shape ? { shape: this.defaults.shape } : {}),
+      // Starting a Story is the common case, so the form opens on it unless the caller asked for
+      // another shape.
+      shape: this.defaults.shape ?? 'story',
+      approvalAuthorityMissing: target.approvalAuthorityMissing === true,
+      inFlight: target.inFlight,
       ...(this.defaults.source ? {
         tracker: this.defaults.source === 'github-issue' ? 'github'
           : this.defaults.source === 'jira' ? 'jira' : 'none'
@@ -248,6 +254,18 @@ export class IntakePanel {
       });
     IntakePanel.current = new IntakePanel(panel, client, output, onStarted, target);
     return IntakePanel.current;
+  }
+
+  /**
+   * The Store refreshed its lifecycle slice. The form opens on the last known in-flight work instead
+   * of waiting for a fresh snapshot, so this is how it learns about work started since.
+   */
+  static lifecycleChanged(inFlight: InFlight[]): void {
+    const current = IntakePanel.current;
+    if (!current || current.disposed) return;
+    if (JSON.stringify(current.inFlight) === JSON.stringify(inFlight)) return;
+    current.inFlight = inFlight;
+    current.update({ inFlight });
   }
 
   /** Refresh an already-open Intake form after approved configuration changes elsewhere. */
@@ -320,6 +338,7 @@ export class IntakePanel {
         intake?: EngineStoryWorkflowCatalog & {
           profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
           profileReason?: string | null;
+          approvalAuthorityMissing?: boolean;
         };
       }>(['workspace', 'branches', '--json', '--intake']);
       if (revision !== this.catalogRevision || this.disposed) return;
@@ -371,7 +390,9 @@ export class IntakePanel {
         ...emptyStoryPreflight(),
         githubConfigured: true,
         githubReason: null,
-        inFlight: this.inFlight
+        inFlight: this.inFlight,
+        approvalAuthorityMissing: typeof listed.intake?.approvalAuthorityMissing === 'boolean'
+          ? listed.intake.approvalAuthorityMissing : this.form.approvalAuthorityMissing
       });
       if (preserveSelections && baseBranch) await this.preflightBaseBranch();
     } catch (error) {

@@ -190,6 +190,11 @@ export interface IntakeForm {
   /** Whether the readiness result points at repository configuration as the repair surface. */
   basePreflightRefreshRecommended: boolean;
   inFlight: InFlight[];
+  /**
+   * The last known configuration names no approval authority with a member. Only an Epic or an
+   * Initiative needs one to start, so it is a problem for those shapes and never blocks a Story.
+   */
+  approvalAuthorityMissing: boolean;
   busy: boolean;
   /** A user-requested Copilot description proposal is in flight. */
   enhancing: boolean;
@@ -225,7 +230,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   basePreflightWarnings: [], basePreflightRefreshRecommended: false,
   workflowReason: null, workflowCatalogReason: null,
   jiraConfigured: false, jiraReason: null,
-  githubConfigured: true, githubReason: null, inFlight: [], busy: false,
+  githubConfigured: true, githubReason: null, inFlight: [], approvalAuthorityMissing: false, busy: false,
   enhancing: false, enhanceProposal: null, enhanceError: null, error: null,
   recoveryCommand: null, recoveryRouteCommand: null
 };
@@ -312,6 +317,10 @@ export function intakeProblems(form: IntakeForm): string[] {
 
   if (needsProfile(form.shape) && form.profiles.length && !form.profile) {
     problems.push('Choose the delivery profile, which decides the phases this runs.');
+  }
+  if (needsProfile(form.shape) && form.approvalAuthorityMissing) {
+    problems.push('No approval authority has a member yet, so governed work cannot be started. '
+      + 'Add at least one person in People & approvals.');
   }
   if (form.shape === 'story') {
     let references: ReferenceRepositoryEntry[] = [];

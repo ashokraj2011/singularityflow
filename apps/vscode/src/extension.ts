@@ -4453,6 +4453,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return item?.id ? { id: item.id, kind: item.workType ?? null } : null;
   };
   context.subscriptions.push(store);
+  // An open intake form started on the Store's last snapshot; keep its in-flight list current. The
+  // panels bundle is never loaded just to listen: no bundle means no open form.
+  context.subscriptions.push(store.onDidChange((state) => {
+    const panels = lazyPanelsRuntime;
+    if (panels && state.snapshot) panels.IntakePanel.lifecycleChanged(panels.intakeInFlight(state.snapshot));
+  }));
   // Registered before the tree-model listeners, so the benchmark labels the render they queue
   // with the exact projection that caused it. This is inert outside the explicit host benchmark.
   context.subscriptions.push(store.onDidChange((state, change) => {
@@ -5520,15 +5526,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     guidedStart?: boolean;
     workspaceName?: string | null;
   } = {}): Promise<void> => {
-    // Refresh before asking anything. `start` refuses a dirty tree, and discovering that only after
-    // somebody completes the intake form wastes their answers and makes a correct guard look like a
-    // dead button. The target is stated here because a selected workspace may point this window at
-    // a lead repository other than the folder visible in the title bar.
-    // Loading a new slice already performs a fresh snapshot. Calling refresh unconditionally after
-    // it made the first Start Work click pay for the same repository scan twice; only an already
-    // loaded configuration needs the explicit freshness read below.
-    const refreshedForConfiguration = await store.ensureSlices(['configuration']);
-    if (!refreshedForConfiguration) await store.refresh();
+    // An Initiative or an Epic starts in this checkout, so asked for directly it refreshes before
+    // asking anything: `start` refuses a dirty tree, and discovering that only after somebody
+    // completes the form wastes their answers. A Story runs in its own worktree and its form reads
+    // its own catalog and readiness, so the form opens at once on the Store's last snapshot; the
+    // refresh runs behind it and updates the in-flight list when it lands. Waiting here used to cost
+    // one or two full snapshots, including a network clone of approved configuration, before any
+    // form appeared.
+    const checkoutShape = Boolean(defaults.shape && defaults.shape !== 'story');
+    if (checkoutShape) {
+      // Loading a new slice already performs a fresh snapshot; only an already loaded
+      // configuration needs the explicit freshness read.
+      const refreshedForConfiguration = await store.ensureSlices(['configuration']);
+      if (!refreshedForConfiguration) await store.refresh();
+    } else if (!store.current.snapshot || store.current.stale) {
+      void store.refresh().catch(() => undefined);
+    }
     const repositoryState = store.current.snapshot?.repository;
     const changedPaths = repositoryState?.changes ?? [];
     // Stories run in dedicated worktrees, so a dirty checkout from another Story is not a blocker.
@@ -5599,12 +5612,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    // Checked before anything is asked. The engine refuses to start governed work when no approval
-    // authority has a member, and discovering that after a filled-in form — with a message naming a
-    // YAML key — is a poor greeting for someone who has just initialized a repository.
+    // Checked before anything is asked. The engine refuses to start an Epic or an Initiative when no
+    // approval authority has a member, and discovering that after a filled-in form — with a message
+    // naming a YAML key — is a poor greeting for someone who has just initialized a repository. From
+    // the generic entry the form shows the same thing as a problem once one of those shapes is chosen.
     const authorities = store.current.snapshot?.portfolio?.approvalAuthorities ?? {};
     const named = Object.entries(authorities).filter(([, authority]) => (authority?.members ?? []).length);
-    if (Object.keys(authorities).length && !named.length) {
+    const approvalAuthorityMissing = Object.keys(authorities).length > 0 && !named.length;
+    if (checkoutShape && approvalAuthorityMissing) {
       const open = await vscode.window.showWarningMessage(
         'No approval authority has a member yet, so governed work cannot be started.',
         { modal: true, detail: 'Add at least one person in People & approvals. Every governed approval is checked against the configured Git or GitHub identity.' },
@@ -5648,9 +5663,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspace: workspaceLabel,
       repository: repositoryState?.root ?? repository,
       branch: repositoryState?.branch ?? null,
-      // Start Work already refreshed the Store's core lifecycle slice. Re-project those exact bytes
-      // instead of spawning a second full `snapshot --json` process inside the panel.
+      // Re-project the Store's lifecycle slice rather than spawning a second full `snapshot --json`
+      // inside the panel. For a Story it may be the last snapshot; `lifecycleChanged` follows it.
       inFlight: intakeInFlight(store.current.snapshot),
+      approvalAuthorityMissing,
       defaults,
       journey: defaults.guidedStart ? {
         step: 'work',

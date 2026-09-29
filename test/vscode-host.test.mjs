@@ -2725,6 +2725,9 @@ test('an Epic can be started and its first source pinned entirely from the edito
   const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
   assert.ok(intakePanel, 'a start-work panel was created');
   assert.match(intakePanel.webview.html, /default-src 'none'/);
+  // The form opens on a Story, the common case; an Epic is one click away.
+  assert.match(intakePanel.webview.html, /data-shape="story"[^>]*checked/);
+  await intakePanel.post({ type: 'shape', value: 'epic' });
   // All three shapes are offered, and this repository has no Jira, which is said rather than hidden.
   const loaded = await until(() =>
     (intakePanel.webview.html.includes('data-choose-profile') || intakePanel.webview.html.includes('epic-intake')
@@ -3242,11 +3245,25 @@ test('starting work before any approver is named says so first, and offers the f
   await extension.activate(context());
 
   registered.selfApprovalAnswer = undefined; // the person dismissed the modal
-  await registered.commands.get('singularityFlow.startWork')();
-
+  // Asked for directly, an Epic checks the precondition before anything is asked.
+  await registered.commands.get('singularityFlow.startWork')({ shape: 'epic' });
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked before the precondition was checked');
   assert.ok(registered.warnings.some((message) => /No approval authority has a member/.test(message)));
+  assert.equal(registered.panels.filter((entry) => entry.id === 'singularityFlow.intake').length, 0,
+    'the Epic form was not opened over a precondition that would refuse it');
   assert.deepEqual(registered.errors, [], 'a missing precondition is not an error dialog');
+
+  // A Story needs no approver to start, so the generic entry opens the form at once. The same
+  // precondition is shown in the form as soon as a shape that needs it is chosen.
+  registered.warnings.length = 0;
+  await registered.commands.get('singularityFlow.startWork')();
+  const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intakePanel, 'the Story form opened without waiting on the Epic-only precondition');
+  assert.ok(!registered.warnings.some((message) => /No approval authority has a member/.test(message)));
+  await until(() => (intakePanel.webview.html.includes('data-work-type') ? true : null));
+  await intakePanel.post({ type: 'shape', value: 'epic' });
+  assert.match(await until(() => (/No approval authority has a member/.test(intakePanel.webview.html)
+    ? intakePanel.webview.html : null)), /People &amp; approvals/);
 });
 
 test('People & approvals adds the current Git identity to every configured group and publishes it', async (t) => {

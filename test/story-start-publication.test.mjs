@@ -733,6 +733,63 @@ test('workspace intake aggregates profiles, installed workflows, and one remote 
     'the aggregate must not repeat the base catalog for its additional intake fields');
 });
 
+test('the intake catalog says whether a Story ID is new, published or taken, from listings it already made', async () => {
+  const { root } = await repository();
+  const fresh = flow(root, ['workspace', 'branches', '--json', '--intake', '--work-id', 'STORY-NEW', '--timings']);
+  const listed = JSON.parse(fresh.stdout);
+  const repositoryId = listed.repositories[0].id;
+  assert.deepEqual(listed.existingWork, {
+    workId: 'STORY-NEW', status: 'new', localBranch: false, publishedBy: [], unreadRepositories: []
+  });
+  assert.match(fresh.stderr, /git\.remote-inventory=1(?:\s|$)/, 'existence comes from the same heads listing');
+
+  // A remote branch of that name is a started Story or a released Epic seed; only a fetch tells.
+  git(root, 'push', 'origin', 'main:refs/heads/STORY-PUBLISHED');
+  const published = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake', '--work-id', 'STORY-PUBLISHED'
+  ]).stdout).existingWork;
+  assert.equal(published.status, 'published');
+  assert.deepEqual(published.publishedBy, [repositoryId]);
+
+  // Start refuses to adopt an ungoverned local branch, so the catalog calls it a conflict.
+  git(root, 'branch', 'STORY-LOCAL');
+  const local = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake', '--work-id', 'STORY-LOCAL'
+  ]).stdout).existingWork;
+  assert.equal(local.status, 'local-conflict');
+  assert.equal(local.localBranch, true);
+
+  start(root, 'STORY-STARTED');
+  git(root, 'switch', 'main');
+  const started = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--intake', '--work-id', 'STORY-STARTED'
+  ]).stdout).existingWork;
+  assert.equal(started.status, 'local-story', 'a governed local Story resumes rather than restarts');
+
+  const selectedOnly = flow(root, [
+    'workspace', 'branches', '--json', '--intake', '--work-id', 'STORY-NEW',
+    '--preflight-story', 'STORY-NEW', '--from-branch', 'main', '--selected-base-only'
+  ], { allowFailure: true });
+  assert.notEqual(selectedOnly.status, 0);
+  assert.match(`${selectedOnly.stdout}${selectedOnly.stderr}`, /--work-id reads the complete branch catalog/);
+  const invalid = flow(root, ['workspace', 'branches', '--json', '--work-id', '../escape'], { allowFailure: true });
+  assert.notEqual(invalid.status, 0, 'the identifier is validated like any other Story ID');
+});
+
+test('the intake catalog says whether its workflows depend on the chosen base, and lists authority once', async () => {
+  const { root } = await repository();
+  const legacy = JSON.parse(flow(root, ['workspace', 'branches', '--json', '--intake']).stdout);
+  assert.equal(legacy.intake.workflowCatalogScope, 'selected-base',
+    'a repository without approved configuration takes its workflows from the chosen base');
+  git(root, 'push', 'origin', 'main:refs/heads/sflow/config');
+  flow(root, ['workspace', 'branches', '--json', '--intake']);
+  const warm = flow(root, ['workspace', 'branches', '--json', '--intake', '--timings']);
+  assert.equal(JSON.parse(warm.stdout).intake.workflowCatalogScope, 'approved-configuration');
+  assert.match(warm.stderr, /configuration\.object-cache-hit=1(?:\s|$)/);
+  assert.match(warm.stderr, /git\.remote\.command\.ls-remote=2(?:\s|$)/,
+    'one authority listing selects and admits the cached configuration; the other lists the heads');
+});
+
 test('workspace branch choices use approved configuration when application main has no workflow file', async () => {
   const { root } = await repository();
   git(root, 'push', 'origin', 'main:refs/heads/sflow/config');

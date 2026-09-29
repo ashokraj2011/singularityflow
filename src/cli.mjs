@@ -10734,6 +10734,36 @@ async function stdinText() {
  * start at all. The engine refuses one while no approval authority has a member; saying so here lets
  * the form show it before anyone fills it in, without loading configuration just to check.
  */
+/**
+ * Whether a Story ID is already in use, from what the intake catalog has already read. `[perf]`
+ *
+ * Copilot's Start Work ran `session candidates`, a fresh fetch of every repository, only to learn
+ * that a new ID was new. The catalog has already listed every required repository's heads, and the
+ * local branch needs no network. It reports only what it can tell: a remote branch of that name may
+ * be a started Story or a released Epic seed, which only a fetch tells apart, so it is `published`
+ * and never either. A repository that could not be read makes the answer `unknown`, never `new`.
+ */
+async function intakeExistingWork(root, workId, catalog) {
+  const localRef = `refs/heads/${workId}`;
+  let local = null;
+  if (refExists(root, localRef)) {
+    if (await durableLocalStoryOnBranch(root, workId, workId)) local = 'story';
+    else if (fileAtRef(root, localRef, posix(path.join('singularity', 'seeds', `${workId}.yml`))) !== null) local = 'seed';
+    else local = 'ungoverned';
+  }
+  const unread = new Set((catalog.unreachable ?? []).map((entry) => entry.repository));
+  const publishedBy = (catalog.repositories ?? [])
+    .filter((repository) => !unread.has(repository.id)
+      && (catalog.published?.[repository.id] ?? []).includes(workId))
+    .map((repository) => repository.id);
+  const status = local === 'story' ? 'local-story'
+    : local === 'seed' ? 'local-seed'
+      : local === 'ungoverned' ? 'local-conflict'
+        : publishedBy.length ? 'published'
+          : unread.size ? 'unknown' : 'new';
+  return { workId, status, localBranch: local !== null, publishedBy, unreadRepositories: [...unread].sort() };
+}
+
 function intakePortfolioChoices(portfolio) {
   const authorities = Object.values(portfolio?.approvalAuthorities ?? {});
   return {
@@ -13887,6 +13917,14 @@ async function workspaceCommand(positionals, options) {
           '--selected-base-only requires --preflight-story and --from-branch.'
         );
       }
+      const existingWorkId = optionString(options, 'work-id');
+      if (existingWorkId) {
+        validatePortableWorkId(existingWorkId);
+        // Existence is read from the complete heads listing, which a selected-base request skips.
+        if (selectedBaseOnly) {
+          throw new SingularityFlowError('--work-id reads the complete branch catalog; omit --selected-base-only.');
+        }
+      }
       let catalog = selectedBaseOnly ? null : await storyBaseCatalog(root, {
         remote: definition.git?.remote ?? 'origin',
         defaultBranch: definition.defaultBaseBranch,
@@ -14080,7 +14118,14 @@ async function workspaceCommand(positionals, options) {
         unreachable: catalog.unreachable,
         choices: catalog.choices,
         preflight,
-        ...(intake ? { intake } : {})
+        ...(existingWorkId ? { existingWork: await intakeExistingWork(root, existingWorkId, catalog) } : {}),
+        ...(intake ? { intake: {
+          ...intake,
+          // With approved shared configuration the workflows are the same whichever base is chosen,
+          // so no base-only readiness request is needed to learn them. A legacy repository's
+          // workflows come from the chosen base itself.
+          workflowCatalogScope: approvedConfigurationSnapshot ? 'approved-configuration' : 'selected-base'
+        } } : {})
       };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(catalog.scope === 'capability'
@@ -14092,7 +14137,10 @@ async function workspaceCommand(positionals, options) {
       }
       for (const entry of catalog.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || catalog.remote}).`);
       return result;
-    }, { preferAuthority: true, useObjectCache: true });
+      // The catalog and its readiness preview are advisory: Story start observes authority again and
+      // recomputes readiness before it mutates anything. One authority listing therefore serves both
+      // the selection and the cached read of that exact revision.
+    }, { preferAuthority: true, useObjectCache: true, reuseAuthorityObservation: true });
   }
   if (subcommand === 'prune') {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(compatibility, null, 2));

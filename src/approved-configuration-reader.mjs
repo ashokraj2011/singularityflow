@@ -15,7 +15,7 @@ import {
   configuredRemoteIdentity, frozenRemoteTransport
 } from './git-remote-diagnostics.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
-import { runRemoteGitAsync } from './git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 const CONFIGURATION_BRANCH = 'sflow/config';
@@ -422,6 +422,10 @@ export async function withRepositoryConfigurationCommitRead(root, {
  * only. Ordinary Story/workspace reads do not pay for or expose that extra private byte profile.
  * `useObjectCache` explicitly opts CLI online reads into exact-commit object transfer reuse. It
  * preserves fresh authority observation and validation; default/gateway reads remain cache-off.
+ * `reuseAuthorityObservation` lets that cached read admit the authority this same call observed a
+ * moment earlier instead of listing the remote a second time. Only a read whose answer is advisory
+ * opts in: the intake catalog and its readiness preview, which Story start recomputes before any
+ * mutation. Every other reader keeps its own fresh admission observation.
  */
 export async function withApprovedConfigurationRead(root, fn, {
   preferAuthority = false,
@@ -432,7 +436,8 @@ export async function withApprovedConfigurationRead(root, fn, {
   selectPaths = null,
   freshOwnerCapture = false,
   captureAuthoringBytes = false,
-  useObjectCache = false
+  useObjectCache = false,
+  reuseAuthorityObservation = false
 } = {}) {
   if (freshOwnerCapture) {
     return withoutConfigurationReadScope(() => withApprovedConfigurationRead(root, fn, {
@@ -472,9 +477,12 @@ export async function withApprovedConfigurationRead(root, fn, {
       hasStoryConfigurationAuthorityCandidate, loadStoryConfigurationSnapshot,
       resolveStoryConfigurationAuthority, withStoryConfigurationSnapshotRead
     } = await import('./configuration-branch.mjs');
-    const resolved = await resolveStoryConfigurationAuthority(root, 'origin', { captureAuthoringBytes });
+    const session = reuseAuthorityObservation && useObjectCache ? new GitRemoteSession({ cwd: root }) : undefined;
+    const resolved = await resolveStoryConfigurationAuthority(root, 'origin', { captureAuthoringBytes, session });
     if (resolved) {
-      const snapshot = await loadStoryConfigurationSnapshot(resolved, { captureAuthoringBytes, useObjectCache });
+      const snapshot = await loadStoryConfigurationSnapshot(resolved, {
+        captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation: Boolean(session)
+      });
       return withStoryConfigurationSnapshotRead(root, snapshot, fn, { selectPaths });
     }
     if (requireAuthorityRefresh) return fn(null);

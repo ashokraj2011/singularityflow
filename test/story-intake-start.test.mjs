@@ -223,3 +223,27 @@ test('a receipt is issued only for a request start can verify, and says why not 
   assert.equal(listed(['--work-type', 'feature']).intakeReceipt, undefined, 'none unless asked for');
   assert.deepEqual(listed(['--mint-intake-receipt']).intakeReceipt, { issued: false, reason: 'work-type' });
 });
+
+test('a reference fetched during intake is copied at start, which then transfers nothing', posix, async (t) => {
+  const { base, root } = await repository(t);
+  const source = path.join(base, 'reference-source');
+  const referenceRemote = path.join(base, 'reference.git');
+  await mkdir(source);
+  git(source, 'init', '-q', '-b', 'main');
+  git(source, 'config', 'user.name', 'Reference Author');
+  git(source, 'config', 'user.email', 'reference@example.test');
+  await writeFile(path.join(source, 'Rules.java'), 'final class Rules {}\n');
+  git(source, 'add', '.');
+  git(source, 'commit', '-q', '-m', 'reference');
+  git(base, 'clone', '-q', '--bare', source, referenceRemote);
+  const references = ['--reference-repository', `rules=${referenceRemote}`, '--reference-branch', 'rules=main'];
+
+  const inspected = JSON.parse(flow(root, ['story', 'references', 'inspect', ...references, '--prefetch', '--json']).stdout);
+  assert.deepEqual(inspected.prefetched, [{ id: 'rules', status: 'prefetched' }]);
+  const receipt = preflight(root, 'STORY-REFERENCE', references);
+  const started = start(root, 'STORY-REFERENCE', [...references, '--intake-receipt', receipt.id]);
+  assert.equal(data(started).intakeReceipt.status, 'verified', JSON.stringify(data(started).intakeReceipt));
+  assert.equal(counter(started.stderr, 'reference.prefetch-used'), 1);
+  assert.equal(counter(started.stderr, 'git.remote.command.fetch'), 0,
+    'neither the base nor the reference is transferred again');
+});

@@ -742,9 +742,18 @@ export async function storyCommand(positionals, options) {
       );
     }
     const repositories = await resolveReferenceRepositoryPins(requests);
+    // `--prefetch` also fetches each pinned commit into this repository's machine-local reference
+    // store, so the Story start that follows can copy it instead of transferring it. `[perf]`
+    const { prefetchReferenceRepository } = optionBoolean(options, 'prefetch')
+      ? await import('../reference-prefetch.mjs') : {};
+    const prefetchRoot = prefetchReferenceRepository ? repoRoot() : null;
+    const prefetched = prefetchReferenceRepository ? await Promise.all(repositories.map(async (entry) => ({
+      id: entry.id, ...await prefetchReferenceRepository(prefetchRoot, entry)
+    }))) : null;
     const result = {
       status: 'ready', immutable: false, provisional: true,
-      deliveryRepositoriesChanged: false, repositories
+      deliveryRepositoriesChanged: false, repositories,
+      ...(prefetched ? { prefetched } : {})
     };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log('Reference repository preflight (read-only, provisional)');

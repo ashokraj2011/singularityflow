@@ -980,11 +980,17 @@
       },
       "digest": "dd5c05002cb94ab552b29ae9c2357f7ec19f8e93658ef266b41fde32647efa63"
     },
+    "src/reference-prefetch.mjs": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "5457dcfce1f951974c7ce174318c82e500922245e258bbb628b2e0391b91d047"
+    },
     "src/reference-repositories.mjs": {
       "counts": {
-        "command-run": 14
+        "command-run": 15
       },
-      "digest": "0a376b6e1cc5bd387feaf408762c58d94eeef27e949324f42fc8fde30d0f0e5c"
+      "digest": "9481a0856ebe1fc99b74fab4a06842359e0667ae6db21a860a6401915f0256b7"
     },
     "src/regression-analysis.mjs": {
       "counts": {

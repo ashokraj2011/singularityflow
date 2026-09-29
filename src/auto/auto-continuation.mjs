@@ -2,7 +2,7 @@
 import path from 'node:path';
 
 import { branch, gitCommonDir, head } from '../git.mjs';
-import { posix, run, SingularityFlowError } from '../util.mjs';
+import { gitReadOutput, posix, run, SingularityFlowError } from '../util.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, remoteFingerprint
 } from '../git-remote-diagnostics.mjs';
@@ -139,6 +139,17 @@ export async function verifyAutoFlightContinuation(root, state) {
   return Object.freeze({ plan, definition, workflow, binding, currentHead, phaseTransition });
 }
 
+/**
+ * The output of a read that proves a phase advance, or a refusal when Git could not answer.
+ *
+ * An empty revision list used to be reported as a stale checkpoint, and an empty change list let
+ * the governed-state-only check pass without inspecting anything. Both reads walk commits that
+ * already exist, so no failure here is an empty answer.
+ */
+function phaseAdvanceRead(root, args, label) {
+  return gitReadOutput(run('git', args, { cwd: root, allowFailure: true }), label);
+}
+
 async function verifyGovernedPhaseAdvance(root, definition, workflow, state, currentHead) {
   const prior = state.lastSuccessfulStoryRevision;
   const workflowRelative = posix(path.join(
@@ -172,9 +183,8 @@ async function verifyGovernedPhaseAdvance(root, definition, workflow, state, cur
     });
   }
   const itemPrefix = `${posix(path.dirname(workflowRelative))}/`;
-  const revisions = run('git', ['rev-list', '--reverse', `${prior}..${currentHead}`], {
-    cwd: root, allowFailure: true
-  }).stdout.trim().split(/\s+/).filter(Boolean);
+  const revisions = phaseAdvanceRead(root, ['rev-list', '--reverse', `${prior}..${currentHead}`],
+    'The phase-advance revisions').trim().split(/\s+/).filter(Boolean);
   if (!revisions.length) {
     throw new SingularityFlowError('The governed phase advance has no committed transition.', {
       code: 'AUTO_CHECKPOINT_STALE'
@@ -192,9 +202,8 @@ async function verifyGovernedPhaseAdvance(root, definition, workflow, state, cur
   }
   let approvalCount = 0;
   for (const revision of revisions) {
-    const changed = run('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', revision], {
-      cwd: root, allowFailure: true
-    }).stdout.split('\0').filter(Boolean).map(posix);
+    const changed = phaseAdvanceRead(root, ['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', revision],
+      `The paths changed by ${revision}`).split('\0').filter(Boolean).map(posix);
     if (changed.some((entry) => !entry.startsWith(itemPrefix))) {
       throw new SingularityFlowError('The phase-advance tail contains changes outside governed Story state.', {
         code: 'AUTO_CHECKPOINT_STALE', details: { revision }

@@ -31,7 +31,7 @@ import {
   validateId,
   workDirRelative
 } from './state-stores.mjs';
-import { run, SingularityFlowError } from './util.mjs';
+import { gitReadOutput, run, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { writeReturnLocator } from './return-locator.mjs';
@@ -551,9 +551,11 @@ export async function startStory(root, {
         );
       }
       if (enrollment.changed) {
-        const enrollmentParent = run('git', ['rev-parse', `${enrollment.commit}^`], {
-          cwd: root, allowFailure: true
-        }).stdout.trim();
+        // `rev-parse` without --verify echoes an unresolved argument, and a failed read is not a
+        // concurrent configuration change: only Git's clean "no parent" may fall through to stale.
+        const enrollmentParent = gitReadOutput(run('git', [
+          'rev-parse', '--verify', '--quiet', `${enrollment.commit}^`
+        ], { cwd: root, allowFailure: true }), 'Automatic enrollment parent', { absentStatus: 1 })?.trim() ?? '';
         if (!selectedConfigurationCommit || enrollmentParent !== selectedConfigurationCommit) {
           throw new SingularityFlowError(
             'Approved configuration changed after Story choices were frozen and before automatic enrollment. Refresh Story intake and retry; no Story checkout was changed.',

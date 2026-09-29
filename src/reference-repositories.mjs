@@ -19,7 +19,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
-  SingularityFlowError, ensureSecureRepositoryDirectory, isGitRefName, mapLimit, nowIso, posix,
+  SingularityFlowError, ensureSecureRepositoryDirectory, gitReadOutput, isGitRefName, mapLimit, nowIso, posix,
   readJson, removeTemporaryTree, run, secureRepositoryPath, writeJson
 } from './util.mjs';
 import { validateWorldModelDirectory, worldModelFreshness } from './grounding.mjs';
@@ -468,9 +468,10 @@ async function materializeOne(root, reference, { env, runGit, resolveBranch = nu
 /** Exclude the local reference root and refuse one that holds tracked application files. */
 async function prepareReferenceRoot(root) {
   await ensureLocallyExcluded(root);
-  const tracked = run('git', ['ls-files', '--', REFERENCE_REPOSITORY_LOCAL_ROOT], {
+  // An index Git could not read is not proof that the root holds no tracked files.
+  const tracked = gitReadOutput(run('git', ['ls-files', '--', REFERENCE_REPOSITORY_LOCAL_ROOT], {
     cwd: root, allowFailure: true
-  }).stdout.trim();
+  }), `Tracked files under '${REFERENCE_REPOSITORY_LOCAL_ROOT}'`).trim();
   if (tracked) {
     fail(`Reference materialization root '${REFERENCE_REPOSITORY_LOCAL_ROOT}' contains tracked files. `
       + 'Remove those files from the application repository before attaching read-only references.',

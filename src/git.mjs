@@ -7,7 +7,7 @@ import {
   accessSync, constants as FS_CONSTANTS, existsSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
-import { SingularityFlowError, invariant, run, writeAtomic, removeTemporaryTree } from './util.mjs';
+import { SingularityFlowError, gitReadOutput, invariant, run, writeAtomic, removeTemporaryTree } from './util.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
@@ -33,6 +33,17 @@ function git(args, options = {}) {
   // it visible in a terminal while leaving stdout pure for machine-readable output.
   if (options.stdio === 'inherit') return run('git', args, { ...options, stdio: ['inherit', 2, 'inherit'] });
   return run('git', args, options);
+}
+
+/**
+ * Git's answer to a read a decision rests on, or a refusal when Git could not give one.
+ *
+ * Empty output here means no configured identity, no remotes, no remote default branch, nothing
+ * staged to scan for secrets or no refspec installed yet. A read that failed used to mean the same;
+ * only a successful read, or Git's documented negative answer (`absentStatus`), may be empty.
+ */
+function gitAnswer(args, options, label, { absentStatus = null } = {}) {
+  return gitReadOutput(git(args, { ...options, allowFailure: true }), label, { absentStatus }) ?? '';
 }
 
 /**
@@ -111,10 +122,9 @@ export function remoteDefaultBranchName(root, config = {}, remote = null) {
     ?? config?.git?.remote
     ?? config?.definition?.git?.remote
     ?? 'origin';
-  const symbolic = git(['symbolic-ref', '--quiet', '--short', `refs/remotes/${remoteName}/HEAD`], {
-    cwd: root,
-    allowFailure: true
-  }).stdout.trim();
+  const symbolic = gitAnswer(['symbolic-ref', '--quiet', '--short', `refs/remotes/${remoteName}/HEAD`], {
+    cwd: root
+  }, `The '${remoteName}' default branch`, { absentStatus: 1 }).trim();
   const prefix = `${remoteName}/`;
   return (symbolic.startsWith(prefix) ? symbolic.slice(prefix.length) : symbolic) || null;
 }
@@ -258,7 +268,7 @@ function cachedGithubAccount(root, { cacheOnly = false, env = process.env } = {}
 
 /** The repository's configured presentation name, without account or environment fallbacks. */
 export function localGitDisplayName(root, { env = process.env } = {}) {
-  return git(['config', '--get', 'user.name'], { cwd: root, env, allowFailure: true }).stdout.trim() || null;
+  return gitAnswer(['config', '--get', 'user.name'], { cwd: root, env }, 'Git user.name', { absentStatus: 1 }).trim() || null;
 }
 
 /**
@@ -280,7 +290,7 @@ export function gitCommitIdentity(root, { env = process.env } = {}) {
   }
   return {
     name: localGitDisplayName(root, { env }) || env.USER || env.USERNAME || 'Singularity Flow',
-    email: git(['config', '--get', 'user.email'], { cwd: root, env, allowFailure: true }).stdout.trim() || null,
+    email: gitAnswer(['config', '--get', 'user.email'], { cwd: root, env }, 'Git user.email', { absentStatus: 1 }).trim() || null,
     login: null,
     githubLookup: GITHUB_LOOKUP.NOT_CHECKED
   };
@@ -704,7 +714,7 @@ export function identity(root, { offline = false, env = process.env } = {}) {
    * is cached on disk where the value really is stable.
    */
   const name = localGitDisplayName(root, { env }) ?? '';
-  const email = git(['config', '--get', 'user.email'], { cwd: root, env, allowFailure: true }).stdout.trim();
+  const email = gitAnswer(['config', '--get', 'user.email'], { cwd: root, env }, 'Git user.email', { absentStatus: 1 }).trim();
   /**
    * `offline` no longer means "pretend there is no account". It means "do not dial out for one" —
    * a fresh cache still answers, and only a cold one degrades to a declared non-answer.
@@ -749,7 +759,7 @@ export function hasRemote(root, remote = 'origin', { env = process.env } = {}) {
 
 /** Enumerate configured remote names through the shared Git execution boundary. */
 export function remoteNames(root, { env = process.env } = {}) {
-  return git(['remote'], { cwd: root, env, allowFailure: true }).stdout
+  return gitAnswer(['remote'], { cwd: root, env }, 'Git remotes')
     .split(/\r?\n/u).map((value) => value.trim()).filter(Boolean);
 }
 
@@ -883,9 +893,8 @@ function configureUpstream(root, name, remote) {
   git(['config', '--local', `branch.${name}.merge`, `refs/heads/${name}`], { cwd: root });
   if (!hasUpstream(root)) {
     const exact = `+refs/heads/${name}:refs/remotes/${remote}/${name}`;
-    const configured = git(['config', '--local', '--get-all', `remote.${remote}.fetch`], {
-      cwd: root, allowFailure: true
-    }).stdout.split(/\r?\n/u).filter(Boolean);
+    const configured = gitAnswer(['config', '--local', '--get-all', `remote.${remote}.fetch`], { cwd: root },
+      `Git remote '${remote}' fetch refspecs`, { absentStatus: 1 }).split(/\r?\n/u).filter(Boolean);
     if (!configured.includes(exact)) {
       git(['config', '--local', '--add', `remote.${remote}.fetch`, exact], { cwd: root });
     }
@@ -2163,10 +2172,9 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
   assertCommitEnvironmentPolicy(root, paths, { label });
   const listed = paths?.length
     ? [...new Set(paths.filter(Boolean))]
-    : git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT'], {
-      cwd: root, env, allowFailure: true
-    })
-      .stdout.split('\0').filter(Boolean);
+    // Nothing staged skips the scan below, so a staged list Git could not read must refuse.
+    : gitAnswer(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT'], { cwd: root, env },
+      `${label} staged paths`).split('\0').filter(Boolean);
   if (!listed.length) return null;
 
   const entries = [];
@@ -2180,8 +2188,8 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
         const stat = statSync(absolute);
         // A path may name a directory the caller staged wholesale; expand it to its tracked files.
         if (stat.isDirectory()) {
-          const tracked = git(['ls-files', '-z', '--', item], { cwd: root, env, allowFailure: true })
-            .stdout.split('\0').filter(Boolean);
+          const tracked = gitAnswer(['ls-files', '-z', '--', item], { cwd: root, env },
+            `${label} tracked files under '${item}'`).split('\0').filter(Boolean);
           for (const file of tracked) {
             entries.push({ path: file, content: readFileSync(path.resolve(root, file), 'utf8') });
           }

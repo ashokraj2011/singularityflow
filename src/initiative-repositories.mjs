@@ -12,7 +12,8 @@ import {
 } from './initiative-graph.mjs';
 export { initiativeMilestoneReadiness } from './initiative-milestones.mjs';
 import {
-  secureRepositoryPath, SingularityFlowError, ensureDir, exists, nowIso, posix, run, snapshot, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, ensureDir, exists, gitReadOutput, nowIso, posix, run, snapshot,
+  writeJson, writeText
 } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
@@ -1118,6 +1119,19 @@ export async function initiativeMergeState(root, initiativeId) {
   };
 }
 
+/**
+ * The commit a managed clone's revision names, null when it names none, or a refusal.
+ *
+ * `rev-parse <revision>` without --verify echoes an unresolved revision back on stdout, so a missing
+ * Story branch was recorded as the commit `origin/<id>`, and a failed read looked the same. Only
+ * Git's clean "no such revision" is a missing branch.
+ */
+function managedCloneCommit(cache, revision) {
+  return gitReadOutput(run('git', ['rev-parse', '--verify', '--quiet', `${revision}^{commit}`], {
+    cwd: cache, allowFailure: true
+  }), `Managed clone revision '${revision}'`, { absentStatus: 1 })?.trim() || null;
+}
+
 export async function syncInitiativeRepositories(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
@@ -1153,7 +1167,15 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: safeGitDiagnosticReference(fetched, 'Unable to fetch the Initiative repository') });
       continue;
     }
-    const commit = run('git', ['rev-parse', `origin/${workId}`], { cwd: cache, allowFailure: true }).stdout.trim();
+    let commit;
+    let observedHead;
+    try {
+      commit = managedCloneCommit(cache, `origin/${workId}`);
+      observedHead = commit ? managedCloneCommit(cache, `origin/${repository.defaultBranch}`) : null;
+    } catch (error) {
+      results.push({ storyId: story.id, repository: story.repository, status: 'invalid-cache', error: error.message });
+      continue;
+    }
     if (!commit) {
       results.push({ storyId: story.id, repository: story.repository, status: 'missing-branch' });
       continue;
@@ -1188,7 +1210,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
         initiative.childStories[story.id] = current;
         lock.repositories[story.repository] = {
           ...lock.repositories[story.repository],
-          observedHead: run('git', ['rev-parse', `origin/${repository.defaultBranch}`], { cwd: cache, allowFailure: true }).stdout.trim() || null,
+          observedHead,
           observedAt
         };
         results.push({ storyId: story.id, repository: story.repository, status: 'invalid-workflow', commit, error: error.message });
@@ -1247,7 +1269,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
     initiative.childStories[story.id] = current;
     lock.repositories[story.repository] = {
       ...lock.repositories[story.repository],
-      observedHead: run('git', ['rev-parse', `origin/${repository.defaultBranch}`], { cwd: cache, allowFailure: true }).stdout.trim() || null,
+      observedHead,
       observedAt: current.observedAt
     };
     results.push({ storyId: story.id, repository: story.repository, status: 'synchronized', commit, workflowStatus: current.status, currentPhase: current.currentPhase });

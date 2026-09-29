@@ -16,7 +16,7 @@ import { stateConfigurationHistoryBranch } from '../../configuration-branch.mjs'
 import { identity } from '../../git.mjs';
 import { runRemoteGitAsync } from '../../git-execution.mjs';
 import { frozenRemoteTransport } from '../../git-remote-diagnostics.mjs';
-import { SingularityFlowError, run } from '../../util.mjs';
+import { gitReadOutput, SingularityFlowError, run } from '../../util.mjs';
 import { withTrustedSgosConfigurationRead } from '../authority-trust.mjs';
 import {
   createPlatformMutationAuthorization, platformSha256
@@ -118,6 +118,16 @@ async function assertApprovedConfigurationBoundary(root, approvedRoot) {
 }
 
 /**
+ * Git's answer to a read that proves policy authority, or a refusal when Git could not give one.
+ *
+ * Every negative answer below refuses as unapproved configuration. A read that failed used to give
+ * that same refusal, with Git's real error hidden; only Git's documented "absent" answers may.
+ */
+function authorityGitRead(cwd, args, label, { absentStatus = null, encoding = 'utf8' } = {}) {
+  return gitReadOutput(run('git', args, { cwd, allowFailure: true, encoding }), label, { absentStatus });
+}
+
+/**
  * Read a historical workflow only from the object store that supplied the verified authority.
  *
  * An application repository can share history with configuration authority while still owning
@@ -180,9 +190,9 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
           approvedConfigurationCommit: sourceCommit
         });
     }
-    const retained = run('git', [
-      'rev-parse', '--verify', `refs/heads/${expectedHistoryBranch}^{commit}`
-    ], { cwd: root, allowFailure: true }).stdout.trim();
+    const retained = authorityGitRead(root, [
+      'rev-parse', '--verify', '--quiet', `refs/heads/${expectedHistoryBranch}^{commit}`
+    ], `Configuration history ref '${expectedHistoryBranch}'`, { absentStatus: 1 })?.trim() ?? '';
     if (retained !== sourceCommit) {
       fail('Verified local state authority is missing its retained configuration history ref.',
         'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
@@ -193,10 +203,10 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
   }
 
   try {
-    const retainedSource = run('git', [
-      'rev-parse', '--verify', authority.remote
+    const retainedSource = authorityGitRead(objectStore, [
+      'rev-parse', '--verify', '--quiet', authority.remote
         ? 'refs/sgos-authority/source^{commit}' : `${sourceCommit}^{commit}`
-    ], { cwd: objectStore, allowFailure: true }).stdout.trim();
+    ], 'The verified configuration source commit', { absentStatus: 1 })?.trim() ?? '';
     if (retainedSource !== sourceCommit) {
       fail('The selected configuration authority object store does not contain its verified source commit.',
         'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
@@ -204,24 +214,29 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
           approvedConfigurationCommit: sourceCommit
         });
     }
-    const ancestry = run('git', [
+    // A revision absent from the approved object store is outside its history; `--is-ancestor`
+    // answers 1 for "not an ancestor", and any other failure is a read that did not happen.
+    const present = authorityGitRead(objectStore, ['rev-parse', '--verify', '--quiet', `${revision}^{commit}`],
+      'Policy authorityRevision', { absentStatus: 1 }) !== null;
+    const ancestry = present && authorityGitRead(objectStore, [
       'merge-base', '--is-ancestor', revision, sourceCommit
-    ], { cwd: objectStore, allowFailure: true });
-    if (ancestry.status !== 0) {
+    ], 'Policy authorityRevision ancestry', { absentStatus: 1 }) !== null;
+    if (!ancestry) {
       fail('Pinned policy authorityRevision is not an ancestor of the refreshed approved configuration.',
         'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
           policyAuthorityRevision: revision,
           approvedConfigurationCommit: sourceCommit
         });
     }
-    const pinned = run('git', [
-      'show', `${revision}:${WORKFLOW_PATH}`
-    ], { cwd: objectStore, allowFailure: true, encoding: 'buffer' });
-    if (pinned.status !== 0) {
+    const pinnedObject = authorityGitRead(objectStore, ['rev-parse', '--verify', '--quiet', `${revision}:${WORKFLOW_PATH}`],
+      `Pinned policy ${WORKFLOW_PATH}`, { absentStatus: 1 })?.trim();
+    if (!pinnedObject) {
       fail(`Pinned policy authorityRevision does not contain ${WORKFLOW_PATH}.`,
         'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', { policyAuthorityRevision: revision });
     }
-    return pinned.stdout;
+    return authorityGitRead(objectStore, ['cat-file', 'blob', pinnedObject], `Pinned policy ${WORKFLOW_PATH}`, {
+      encoding: 'buffer'
+    });
   } finally {
     if (temporary) await rm(temporary, { recursive: true, force: true });
   }

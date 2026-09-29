@@ -31,7 +31,8 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import {
-  nowIso, posix, readJson, run, secureRepositoryPath, SingularityFlowError, writeAtomic, writeJson, writeText
+  gitReadOutput, nowIso, posix, readJson, run, secureRepositoryPath, SingularityFlowError, writeAtomic,
+  writeJson, writeText
 } from './util.mjs';
 
 const PLAN_ID = /^cfp-[a-f0-9]{20}$/;
@@ -57,6 +58,17 @@ function sha256(value) { return createHash('sha256').update(typeof value === 'st
 export function changeFlightPlanSha256(value) { return sha256(value); }
 function splitNull(value) { return String(value ?? '').split('\0').filter(Boolean); }
 
+/**
+ * Git's answer to a read a baseline or recovery decision rests on, or a refusal when it gave none.
+ *
+ * Empty output here is recorded as "detached", "clean" or "no model tree", or proves which Auto
+ * start is being recovered, so only a successful read, or Git's own documented negative answer
+ * (`absentStatus`), may produce it.
+ */
+function flightGit(cwd, args, label, { absentStatus = null } = {}) {
+  return gitReadOutput(run('git', args, { cwd, allowFailure: true }), label, { absentStatus }) ?? '';
+}
+
 function gitTextAt(root, revision, relative) {
   const result = run('git', ['show', `${revision}:${relative}`], { cwd: root, allowFailure: true, maxBuffer: 8 * 1024 * 1024 });
   return result.status === 0 ? result.stdout : null;
@@ -81,7 +93,7 @@ function treeEntries(root, revision) {
 }
 
 function repositoryIdentity(root) {
-  const remote = run('git', ['config', '--get', 'remote.origin.url'], { cwd: root, allowFailure: true }).stdout.trim();
+  const remote = flightGit(root, ['config', '--get', 'remote.origin.url'], 'The origin remote', { absentStatus: 1 }).trim();
   return remote || path.resolve(root);
 }
 
@@ -144,7 +156,7 @@ async function resolvedFlightWorldModel(root, revision) {
   const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
   const projectionManifestPath = `${outputDir}/manifest.json`;
   const projectedText = gitTextAt(root, revision, projectionManifestPath);
-  const dirty = run('git', ['status', '--porcelain'], { cwd: root, allowFailure: true }).stdout.trim().length > 0;
+  const dirty = flightGit(root, ['status', '--porcelain'], 'The working tree status').trim().length > 0;
   if (dirty) {
     return {
       valid: false,
@@ -181,7 +193,7 @@ async function resolvedFlightWorldModel(root, revision) {
       throw new SingularityFlowError(`Preserved model describes ${freshness.built ?? 'an unknown source'}, not ${source.sha256}.`);
     }
     const finalRevision = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root }).stdout.trim();
-    const finalDirty = run('git', ['status', '--porcelain'], { cwd: root, allowFailure: true }).stdout.trim().length > 0;
+    const finalDirty = flightGit(root, ['status', '--porcelain'], 'The working tree status').trim().length > 0;
     const finalSource = await worldModelSourceSnapshot(root, definition);
     if (finalRevision !== revision || finalDirty || finalSource.sha256 !== source.sha256) {
       throw new SingularityFlowError('Repository source changed while the exact world-model baseline was being resolved.');
@@ -197,9 +209,9 @@ async function resolvedFlightWorldModel(root, revision) {
       authority: located.authority ?? null,
       historical: located.historical === true,
       snapshotRef: located.snapshotRef ?? located.commit ?? revision,
-      treeSha: located.treeSha ?? (run('git', ['rev-parse', `${revision}:${outputDir}`], {
-        cwd: root, allowFailure: true
-      }).stdout.trim() || null),
+      // Without --verify, rev-parse echoes an unresolved `revision:path` back as if it were a tree.
+      treeSha: located.treeSha ?? (flightGit(root, ['rev-parse', '--verify', '--quiet', `${revision}:${outputDir}`],
+        'The world-model tree', { absentStatus: 1 }).trim() || null),
       sourceTreeSha256: source.sha256,
       reason: null
     };
@@ -220,7 +232,7 @@ async function resolvedFlightWorldModel(root, revision) {
 
 async function baselineAt(root) {
   const revision = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root }).stdout.trim();
-  const branch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim() || null;
+  const branch = flightGit(root, ['branch', '--show-current'], 'The checked-out branch').trim() || null;
   const entries = treeEntries(root, revision);
   const specifications = approvedSpecificationSnapshot(root, revision, entries);
   const worldModel = await resolvedFlightWorldModel(root, revision);
@@ -574,9 +586,7 @@ async function validateRecoveredAutoStory(worktree, id, cfpPlan, identity) {
   const definition = await loadDefinition(worktree);
   const { loadStoryAggregate } = await import('./state-stores.mjs');
   const workflow = await loadStoryAggregate(worktree, definition, identity.workId);
-  const actualBranch = run('git', ['branch', '--show-current'], {
-    cwd: worktree, allowFailure: true
-  }).stdout.trim();
+  const actualBranch = flightGit(worktree, ['branch', '--show-current'], 'The recovered Story branch').trim();
   if (actualBranch !== identity.workId
       || workflow.workItem?.id !== identity.workId
       || workflow.workItem?.branch !== identity.workId
@@ -598,9 +608,8 @@ async function validateRecoveredAutoStory(worktree, id, cfpPlan, identity) {
 
 async function removeExactPreparedAutoWorktree(root, id, cfpPlan, identity) {
   const stagingBranch = cfpStagingBranch(id, identity.workId);
-  const actualBranch = run('git', ['branch', '--show-current'], {
-    cwd: identity.expectedWorktree, allowFailure: true
-  }).stdout.trim();
+  const actualBranch = flightGit(identity.expectedWorktree, ['branch', '--show-current'],
+    'The prepared Auto worktree branch').trim();
   const actualHead = localRefHead(identity.expectedWorktree, 'HEAD');
   const dirty = run('git', ['status', '--porcelain=v2', '-z'], {
     cwd: identity.expectedWorktree, allowFailure: true
@@ -640,9 +649,8 @@ async function recoverExactAutoStart(root, id, cfpPlan, options, existing = null
   if (worktreePresent) {
     const { recoverStoryStart } = await import('./story-start-journal.mjs');
     await recoverStoryStart(identity.expectedWorktree, identity.workId);
-    const currentBranch = run('git', ['branch', '--show-current'], {
-      cwd: identity.expectedWorktree, allowFailure: true
-    }).stdout.trim();
+    const currentBranch = flightGit(identity.expectedWorktree, ['branch', '--show-current'],
+      'The Auto start worktree branch').trim();
     if (currentBranch === cfpStagingBranch(id, identity.workId)) {
       await removeExactPreparedAutoWorktree(root, id, cfpPlan, identity);
       return null;

@@ -10,7 +10,9 @@ import {
   commitAndPublish, loadWorkflow, saveStoryDraft, sourceTreeHash, workflowBranchAllowed,
   storyWelEnrollmentStatus, workflowPublicationBranch, workDir
 } from './state-stores.mjs';
-import { nowIso, run, SingularityFlowError, snapshot, writeJson } from './util.mjs';
+import {
+  gitHeadIsUnborn, gitReadOutput, nowIso, run, SingularityFlowError, snapshot, writeJson
+} from './util.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
@@ -581,8 +583,12 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
   // Approval is against the currently checked-out submitted branch. Looking across every local
   // ref would let an unrelated branch provide the bytes even though they were never part of the
   // reviewed branch's ancestry.
-  const commits = run('git', ['log', '--format=%H', 'HEAD', '--', selected.path], { cwd: root, allowFailure: true })
-    .stdout.split(/\r?\n/).filter(Boolean);
+  // A history Git could not walk is not a packet that was never committed: refuse, naming why.
+  const commits = (gitReadOutput(run('git', ['log', '--format=%H', 'HEAD', '--', selected.path], {
+    cwd: root, allowFailure: true
+  }), `Story '${workflow.workItem.id}' review packet history`, {
+    absentWhen: () => gitHeadIsUnborn(root)
+  }) ?? '').split(/\r?\n/u).filter(Boolean);
   const failures = [];
   for (const evidenceCommit of commits) {
     const historical = run('git', ['show', `${evidenceCommit}:${selected.path}`], { cwd: root, allowFailure: true });

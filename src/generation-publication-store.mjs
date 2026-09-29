@@ -12,7 +12,9 @@ import path from 'node:path';
 import { verifyRepositoryChangeSetIntegrity } from './repository-change-set.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { posix, run, SingularityFlowError, writeJson } from './util.mjs';
+import {
+  gitHeadIsUnborn, gitReadOutput, posix, run, SingularityFlowError, writeJson
+} from './util.mjs';
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
 } from './world-model/canonicalize.mjs';
@@ -354,6 +356,20 @@ export async function persistGenerationPublicationRecord(root, workflow, phase, 
   return { path: recordPath, record };
 }
 
+/**
+ * The commits a publication history query names, or a refusal when Git could not answer.
+ *
+ * No commit here means a generation was never published. A failed read used to give that same
+ * empty answer, so a published generation could be reported unpublished. Only before the first
+ * commit is an empty history real.
+ */
+function publicationHistory(root, args, label) {
+  const output = gitReadOutput(run('git', args, { cwd: root, allowFailure: true }), label, {
+    absentWhen: () => gitHeadIsUnborn(root)
+  });
+  return (output ?? '').split(/\r?\n/u).filter(Boolean);
+}
+
 /** Resolve the exact verified generation commit; presentation subjects only enumerate legacy candidates. */
 export function publishedGenerationCommit(root, workflow, phase, number = phase.generation) {
   const generation = Number(number);
@@ -366,9 +382,8 @@ export function publishedGenerationCommit(root, workflow, phase, number = phase.
       ? phase.generationIntent?.publication?.record?.path : null)
     ?? generationPublicationRelative(phase, generation);
   if (recordPath) {
-    const commits = run('git', ['log', '--format=%H', '--diff-filter=A', '--', recordPath], {
-      cwd: root, allowFailure: true
-    }).stdout.split(/\r?\n/).filter(Boolean);
+    const commits = publicationHistory(root, ['log', '--format=%H', '--diff-filter=A', '--', recordPath],
+      `Generation ${generation} publication record`);
     const checked = commits.map((commit) => {
       try {
         const storedRecord = readStoredAt(root, commit, recordPath);
@@ -405,9 +420,8 @@ export function publishedGenerationCommit(root, workflow, phase, number = phase.
   }
 
   const subject = `[${workId}][phase:${phase.id}][generated:${generation}]`;
-  const candidates = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], {
-    cwd: root, allowFailure: true
-  }).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t'))
+  const candidates = publicationHistory(root, ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject],
+    `Generation ${generation} publication commits`).map((line) => line.split('\t'))
     .filter(([, message]) => message.startsWith(subject)).map(([commit]) => commit);
   const legacyPath = generationPublicationRelative(phase, generation);
   if (!legacyPath) return null;

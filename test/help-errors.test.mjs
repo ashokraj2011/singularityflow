@@ -13,6 +13,7 @@ test('stable error identifiers resolve to reviewed help without carrying transcr
   assert.equal(helpTopicForError({ code: 'GIT_COMMIT_IDENTITY_INVALID' }), 'capability-management');
   assert.equal(helpTopicForError({ code: 'CAPABILITY_ACTIVATION_AUDIT_PENDING' }), 'capability-management');
   assert.equal(helpTopicForError({ code: 'WFA_DEPENDENCY_UNAVAILABLE' }), 'repository-state-and-snapshots');
+  assert.equal(helpTopicForError({ code: 'GIT_READ_UNAVAILABLE' }), 'repository-state-and-snapshots');
   assert.equal(helpTopicForError({ code: 'WFA_RUNTIME_INCOMPATIBLE' }), 'repository-state-and-snapshots');
   assert.equal(helpTopicForError({ code: 'WMC_INTENT_REPORT_MISMATCH' }), 'calm-architecture');
   assert.equal(helpTopicForError({ code: 'WMC_INTENT_REVISION_CONFLICT' }), 'calm-architecture');

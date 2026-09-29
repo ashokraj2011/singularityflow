@@ -14,7 +14,7 @@ import {
 import {
   configuredRemoteIdentity, frozenRemoteTransport
 } from './git-remote-diagnostics.mjs';
-import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
+import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 
 const WORKFLOW_PATH = 'singularity/workflow.yml';
@@ -80,10 +80,20 @@ function assetPolicyAtCommit(root, commit) {
   );
 }
 
-function configurationAuthorityAtRef(root, ref) {
-  const commit = run('git', ['rev-parse', '--verify', `${ref}^{commit}`], {
+/**
+ * The commit `revision` names, null when it names none, or a refusal when Git could not answer.
+ *
+ * Null skips an authority candidate. A failed read used to be that null, so a Git failure quietly
+ * selected a lower-priority configuration authority, or skipped a remote's published one.
+ */
+function authorityCommit(root, revision) {
+  return gitReadOutput(run('git', ['rev-parse', '--verify', '--quiet', `${revision}^{commit}`], {
     cwd: root, allowFailure: true
-  }).stdout.trim();
+  }), `Approved configuration ref '${revision}'`, { absentStatus: 1 })?.trim() ?? '';
+}
+
+function configurationAuthorityAtRef(root, ref) {
+  const commit = authorityCommit(root, ref);
   if (!/^[0-9a-f]{40,64}$/.test(commit)) return null;
   if (ref.endsWith(`/${CONFIGURATION_BRANCH}`)
       || ref === `refs/heads/${CONFIGURATION_BRANCH}`) {
@@ -242,18 +252,14 @@ async function refreshApprovedConfigurationAuthority(root, {
       const destination = `refs/remotes/${remote}/${branch}`;
       const validRef = run('git', ['check-ref-format', destination], { cwd: root, allowFailure: true });
       if (validRef.status !== 0) continue;
-      const localCommit = run('git', ['rev-parse', '--verify', `${destination}^{commit}`], {
-        cwd: root, allowFailure: true
-      }).stdout.trim();
+      const localCommit = authorityCommit(root, destination);
       if (localCommit !== advertisedCommit) {
         const fetched = await runRemoteGitAsync([
           'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
           `+${source}:${destination}`
         ], { cwd: root, operation: 'remote-configuration', env: transport.env });
         if (fetched.status !== 0) continue;
-        const fetchedCommit = run('git', ['rev-parse', '--verify', `${destination}^{commit}`], {
-          cwd: root, allowFailure: true
-        }).stdout.trim();
+        const fetchedCommit = authorityCommit(root, destination);
         // The branch moved between advertisement and fetch. Do not bind a commit that this exact
         // proof round did not observe; the next operation will negotiate the new head.
         if (fetchedCommit !== advertisedCommit) continue;

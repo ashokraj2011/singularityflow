@@ -28,7 +28,9 @@ import {
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
-import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
+import {
+  gitHeadIsUnborn, gitReadOutput, removeTemporaryTree, SingularityFlowError, run
+} from './util.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteAuthority, configuredRemoteIdentity,
   frozenRemoteTransport, isPortableAbsoluteGitPath, sanitizeRemote
@@ -1035,6 +1037,17 @@ async function inspectApprovedConfiguration(remote, capability = null, options =
   }
 }
 
+/**
+ * Git's answer to a read that proves configuration bytes unchanged, or a refusal when it gave none.
+ *
+ * A mismatch here tells a person to preview again or to start from the approved configuration. A
+ * read that failed used to send them there with Git's real error hidden. `absentStatus` and
+ * `absentWhen` admit only Git's own documented negative answers.
+ */
+function configurationGitRead(cwd, env, args, label, { absentStatus = null, absentWhen = null } = {}) {
+  return gitReadOutput(run('git', args, { cwd, env, allowFailure: true }), label, { absentStatus, absentWhen });
+}
+
 async function publishPreparedConfigurationCandidate(remote, {
   root, commit: expectedCommit, tree: expectedTree, sourceCommit, sourceBranch,
   session, env
@@ -1050,18 +1063,16 @@ async function publishPreparedConfigurationCandidate(remote, {
       }
     );
   }
-  const branch = run('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], {
-    cwd: candidateRoot, env, allowFailure: true
-  }).stdout.trim();
-  const commit = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], {
-    cwd: candidateRoot, env, allowFailure: true
-  }).stdout.trim();
-  const tree = run('git', ['rev-parse', '--verify', 'HEAD^{tree}'], {
-    cwd: candidateRoot, env, allowFailure: true
-  }).stdout.trim();
-  const parents = run('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], {
-    cwd: candidateRoot, env, allowFailure: true
-  }).stdout.trim().split(/\s+/u).filter(Boolean);
+  const branch = configurationGitRead(candidateRoot, env, ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+    'The prepared configuration candidate branch', { absentStatus: 1 })?.trim() ?? '';
+  const commit = configurationGitRead(candidateRoot, env, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
+    'The prepared configuration candidate commit', { absentStatus: 1 })?.trim() ?? '';
+  const tree = configurationGitRead(candidateRoot, env, ['rev-parse', '--verify', '--quiet', 'HEAD^{tree}'],
+    'The prepared configuration candidate tree', { absentStatus: 1 })?.trim() ?? '';
+  const parents = (configurationGitRead(candidateRoot, env, ['rev-list', '--parents', '-n', '1', 'HEAD'],
+    'The prepared configuration candidate parents', {
+      absentWhen: () => gitHeadIsUnborn(candidateRoot, { env })
+    }) ?? '').trim().split(/\s+/u).filter(Boolean);
   const clean = run('git', ['status', '--porcelain'], { cwd: candidateRoot, env }).stdout;
   if (branch !== CONFIGURATION_BRANCH || commit !== expectedCommit || tree !== expectedTree
       || parents.length !== 1 || clean !== '') {
@@ -3075,10 +3086,12 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
     const actual = createHash('sha256').update(await readFile(asset)).digest('hex');
     let canonicalMatch = actual === expected;
     if (!canonicalMatch && descriptor?.object) {
-      const indexed = run('git', ['ls-files', '--stage', '-z', '--', relative], {
-        cwd: root, allowFailure: true
-      }).stdout.split('\0').find(Boolean)?.match(/^(\d{6}) ([0-9a-f]{40,64}) \d\t/);
-      const clean = run('git', ['diff', '--quiet', '--', relative], { cwd: root, allowFailure: true }).status === 0;
+      const indexed = configurationGitRead(root, undefined, ['ls-files', '--stage', '-z', '--', relative],
+        `Pinned configuration asset '${relative}' index entry`).split('\0').find(Boolean)
+        ?.match(/^(\d{6}) ([0-9a-f]{40,64}) \d\t/);
+      // `diff --quiet` exits 1 for a difference; any other failure is not one.
+      const clean = configurationGitRead(root, undefined, ['diff', '--quiet', '--', relative],
+        `Pinned configuration asset '${relative}' working-tree difference`, { absentStatus: 1 }) !== null;
       canonicalMatch = Boolean(indexed && indexed[2] === descriptor.object
         && (!descriptor.mode || indexed[1] === descriptor.mode) && clean);
     }

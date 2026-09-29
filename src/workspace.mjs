@@ -13,7 +13,7 @@ import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
 } from './repository-subject-index.mjs';
 import {
-  gitWorkerCount, isGitRefName, mapLimit, portableIdentifier, SingularityFlowError, run
+  gitReadOutput, gitWorkerCount, isGitRefName, mapLimit, portableIdentifier, SingularityFlowError, run
 } from './util.mjs';
 import { removeTemporaryTree } from './util.mjs';
 import {
@@ -496,6 +496,17 @@ export function previewWorkspace({
 }
 
 /**
+ * Git's answer to a read an adoption or receipt proof rests on, or a refusal when it gave none.
+ *
+ * Empty output here was recorded as "no origin", "no submodules", "no worktrees" or "no tracked
+ * paths" in an adoption proof, or refused a retained receipt as changed. Only a successful read,
+ * or Git's documented negative answer (`absentStatus`), may be empty.
+ */
+function repositoryProofRead(cwd, args, label, { absentStatus = null, env = undefined } = {}) {
+  return gitReadOutput(run('git', args, { cwd, env, allowFailure: true }), label, { absentStatus }) ?? '';
+}
+
+/**
  * Everything a workspace needs to know about a repository, read from the repository itself.
  *
  * Adding a repository by typing an identifier and a clone URL is how a workspace ends up pointing at
@@ -526,7 +537,7 @@ export async function workspaceRepositoryDefaults(repository) {
     throw new SingularityFlowError(`Select the Git repository root instead of a nested folder: ${root}`);
   }
 
-  const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
+  const origin = repositoryProofRead(root, ['remote', 'get-url', 'origin'], 'The origin remote', { absentStatus: 2 }).trim();
   if (!origin) throw new SingularityFlowError(`Repository '${root}' has no origin remote and cannot be cloned into a workspace.`);
   const operationalOrigin = storableRemote(origin, { redactCredentials: true });
 
@@ -535,10 +546,8 @@ export async function workspaceRepositoryDefaults(repository) {
   const currentBranch = executeGitQuery(root, 'repository.branch') ?? '';
   if (!currentBranch) throw new SingularityFlowError(`Repository '${root}' has a detached HEAD and cannot be adopted as a workspace checkout.`);
 
-  const remoteHead = run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
-    cwd: root,
-    allowFailure: true
-  }).stdout.trim();
+  const remoteHead = repositoryProofRead(root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'],
+    'The origin default branch', { absentStatus: 1 }).trim();
   const visibleRemoteBranches = remoteBranches(root, 'origin');
   const defaultBranch = remoteHead.replace(/^origin\//, '')
     || (visibleRemoteBranches.length === 1 ? visibleRemoteBranches[0] : null)
@@ -550,13 +559,11 @@ export async function workspaceRepositoryDefaults(repository) {
   }).stdout;
   const fingerprint = worktreeFingerprint(root);
   const worktreeStatusHash = `sha256:${fingerprint.sha256}`;
-  const submodules = run('git', ['submodule', 'status', '--recursive'], {
-    cwd: root, allowFailure: true
-  }).stdout.trim().split('\n').filter(Boolean).slice(0, 100);
-  const worktrees = run('git', ['worktree', 'list', '--porcelain'], {
-    cwd: root, allowFailure: true
-  }).stdout.split('\n').filter((line) => line.startsWith('worktree ')).map((line) => line.slice(9));
-  const tracked = run('git', ['ls-files', '-z'], { cwd: root, allowFailure: true }).stdout.split('\0').filter(Boolean);
+  const submodules = repositoryProofRead(root, ['submodule', 'status', '--recursive'], 'Submodules')
+    .trim().split('\n').filter(Boolean).slice(0, 100);
+  const worktrees = repositoryProofRead(root, ['worktree', 'list', '--porcelain'], 'Worktrees')
+    .split('\n').filter((line) => line.startsWith('worktree ')).map((line) => line.slice(9));
+  const tracked = repositoryProofRead(root, ['ls-files', '-z'], 'Tracked paths').split('\0').filter(Boolean);
   const byCase = new Map();
   const caseCollisions = [];
   for (const file of tracked) {
@@ -1166,18 +1173,16 @@ export async function rehydrateWorkspaceCapabilityValidation(manifest, {
   const authorityUrl = manifest.capabilityAuthority?.url
     ?? manifest.repositories?.[manifest.leadRepository]?.url;
   const authority = assertCredentialFreeRemote(authorityUrl);
-  const storedRemote = run('git', ['config', '--local', '--get', 'remote.origin.url'], {
-    cwd: store, env: gitEnv, allowFailure: true
-  }).stdout.trim();
+  const storedRemote = repositoryProofRead(store, ['config', '--local', '--get', 'remote.origin.url'],
+    'The receipt object store origin', { absentStatus: 1, env: gitEnv }).trim();
   let storedRemoteFingerprint = null;
   try { storedRemoteFingerprint = remoteFingerprint(assertCredentialFreeRemote(storedRemote)); }
   catch { /* The structured invalid-receipt diagnostic below owns this refusal. */ }
-  const objectFormat = run('git', ['rev-parse', '--show-object-format'], {
-    cwd: store, env: gitEnv, allowFailure: true
-  }).stdout.trim();
-  const commit = run('git', [
-    'rev-parse', '--verify', String(proof.commit) + '^{commit}'
-  ], { cwd: store, env: gitEnv, allowFailure: true }).stdout.trim();
+  const objectFormat = repositoryProofRead(store, ['rev-parse', '--show-object-format'],
+    'The receipt object format', { env: gitEnv }).trim();
+  const commit = repositoryProofRead(store, [
+    'rev-parse', '--verify', '--quiet', String(proof.commit) + '^{commit}'
+  ], 'The receipt commit', { absentStatus: 1, env: gitEnv }).trim();
   const validOidLength = objectFormat === 'sha256' ? 64 : objectFormat === 'sha1' ? 40 : 0;
   const oid = new RegExp('^[a-f0-9]{' + validOidLength + '}$');
   if (proof.kind !== 'workspace-capability-catalog-proof'
@@ -1208,12 +1213,13 @@ export async function rehydrateWorkspaceCapabilityValidation(manifest, {
       code: 'WORKSPACE_CAPABILITY_RECEIPT_INVALID'
     }
   );
-  const capabilitiesObject = run('git', [
-    'rev-parse', commit + ':' + proof.capabilitiesPath
-  ], { cwd: store, env: gitEnv, allowFailure: true }).stdout.trim();
-  const portfolioObject = proof.portfolioObject == null ? null : run('git', [
-    'rev-parse', commit + ':' + proof.portfolioPath
-  ], { cwd: store, env: gitEnv, allowFailure: true }).stdout.trim();
+  // Without --verify, rev-parse echoes an unresolved `commit:path` back instead of failing.
+  const capabilitiesObject = repositoryProofRead(store, [
+    'rev-parse', '--verify', '--quiet', commit + ':' + proof.capabilitiesPath
+  ], 'The receipt capability map', { absentStatus: 1, env: gitEnv }).trim();
+  const portfolioObject = proof.portfolioObject == null ? null : repositoryProofRead(store, [
+    'rev-parse', '--verify', '--quiet', commit + ':' + proof.portfolioPath
+  ], 'The receipt portfolio', { absentStatus: 1, env: gitEnv }).trim();
   if (capabilitiesObject !== proof.capabilitiesObject
       || portfolioObject !== proof.portfolioObject
       || !oid.test(capabilitiesObject)

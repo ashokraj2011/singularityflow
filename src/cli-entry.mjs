@@ -6,7 +6,9 @@ import {
   commandTimer, recordCommandTiming, withCommandTiming, writeCommandTimings
 } from './dx-command-timing.mjs';
 import { repoRoot } from './git.mjs';
-import { optionBoolean, optionString, optionStrings, parseArgs, requirePositional, run, SingularityFlowError } from './util.mjs';
+import {
+  gitReadOutput, optionBoolean, optionString, optionStrings, parseArgs, requirePositional, run, SingularityFlowError
+} from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { VERSION } from './version.mjs';
 import { versionLine } from './build-info.mjs';
@@ -159,6 +161,17 @@ export function hasWorkingTreeGovernance(root) {
   return Boolean(root && existsSync(path.join(root, 'singularity', 'workflow.yml')));
 }
 
+/**
+ * Git's answer to a routing probe, or a refusal when Git could not give one.
+ *
+ * Every "no" here routes the command to another workspace. A failed read used to be that "no", so
+ * a Story disappeared exactly when its damaged repository needed repair. Only a successful read, or
+ * Git's documented negative answer (`absentStatus`), may say this checkout carries no governance.
+ */
+function routingGitRead(root, args, label, { absentStatus = null, input = undefined } = {}) {
+  return gitReadOutput(run('git', args, { cwd: root, allowFailure: true, input }), label, { absentStatus }) ?? '';
+}
+
 /** A production application branch may be configuration-free while these exact refs govern it. */
 export function hasLocalGovernanceAuthority(root) {
   if (hasWorkingTreeGovernance(root)) return true;
@@ -166,50 +179,48 @@ export function hasLocalGovernanceAuthority(root) {
   // The common application-branch case has an approved configuration/state ref locally. Ask that
   // bounded ref namespace first; walking the tracked index and then grepping every candidate
   // aggregate is fallback work for damaged/custom layouts, not the price of every invocation.
-  const refs = run('git', [
+  const refs = routingGitRead(root, [
     'for-each-ref', '--format=%(refname)',
     'refs/heads/sflow/config', 'refs/remotes/*/sflow/config',
     'refs/heads/state', 'refs/remotes/*/state'
-  ], { cwd: root, allowFailure: true });
-  if (refs.status === 0 && refs.stdout.split(/\r?\n/).some((entry) => entry.trim())) return true;
+  ], 'Governance branches');
+  if (refs.split(/\r?\n/).some((entry) => entry.trim())) return true;
 
   // A lifecycle branch is self-contained after Story creation. Its immutable configuration
   // snapshot remains authoritative even when the shared configuration/state branches are
   // temporarily unavailable. Batch-check every local branch tip in one Git process.
-  const lifecycleRefs = run('git', [
+  const lifecycleRefs = routingGitRead(root, [
     'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'
-  ], { cwd: root, allowFailure: true }).stdout
+  ], 'Local and remote branches')
     .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
   if (lifecycleRefs.length) {
-    const checked = run('git', ['cat-file', '--batch-check'], {
-      cwd: root, allowFailure: true,
+    const checked = routingGitRead(root, ['cat-file', '--batch-check'], 'Lifecycle configuration snapshots', {
       input: `${lifecycleRefs.map((ref) => `${ref}:singularity/workflow.yml`).join('\n')}\n`
     });
-    if (checked.status === 0 && checked.stdout.split(/\r?\n/)
-      .some((line) => /\sblob\s\d+$/.test(line.trim()))) return true;
+    if (checked.split(/\r?\n/).some((line) => /\sblob\s\d+$/.test(line.trim()))) return true;
   }
   // A checked-out lifecycle aggregate is itself an unambiguous repository claim. Recovery and
   // read-only review commands must stay with it even if its configuration snapshot is damaged or
   // absent; redirecting those commands to the machine's last selected workspace makes the Story
   // disappear precisely when it needs repair. Use Git's tracked-file index instead of accepting an
   // arbitrary untracked directory that merely happens to use a Singularity-looking name.
-  const governedSubjects = run('git', [
+  const governedSubjects = routingGitRead(root, [
     'ls-files', '--',
     'singularity/work-items/*/workflow.json',
     'singularity/initiatives/*/state.json'
-  ], { cwd: root, allowFailure: true });
-  if (governedSubjects.status === 0 && governedSubjects.stdout.trim()) return true;
+  ], 'Tracked governed subjects');
+  if (governedSubjects.trim()) return true;
   // workItemRoot and initiativeRoot are configurable. If the configuration snapshot itself is the
   // damaged file being recovered, the exact roots are no longer available to route the command.
   // Recognize tracked aggregate content in one bounded Git search instead of falling back to fixed
   // product-default directories or recursively searching the filesystem.
-  const configuredSubjects = run('git', [
+  const configuredSubjects = routingGitRead(root, [
     'grep', '-l', '-E',
     '-e', '"workItem"[[:space:]]*:',
     '-e', '"initiative"[[:space:]]*:',
     '--', ':(glob)**/workflow.json', ':(glob)**/state.json'
-  ], { cwd: root, allowFailure: true });
-  if (configuredSubjects.status === 0 && configuredSubjects.stdout.trim()) return true;
+  ], 'Tracked governed aggregates', { absentStatus: 1 });
+  if (configuredSubjects.trim()) return true;
   return false;
 }
 
@@ -222,7 +233,7 @@ export function hasLocalGovernanceAuthority(root) {
  */
 export async function hasRemoteGovernanceAuthority(root) {
   if (!root) return false;
-  const remotes = run('git', ['remote'], { cwd: root, allowFailure: true }).stdout
+  const remotes = routingGitRead(root, ['remote'], 'Configured remotes')
     .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
   for (const remote of remotes) {
     const advertised = await runRemoteGitAsync([

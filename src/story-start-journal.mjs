@@ -325,9 +325,13 @@ function restoreRepositoryCheckout(repository, targetBranch) {
     return `${repository.repository}: checkout moved to '${currentBranch}'`;
   }
   if (currentBranch === targetBranch) {
-    const targetHead = run('git', ['rev-parse', 'HEAD'], { cwd: repository.target, allowFailure: true }).stdout.trim();
-    if (!repository.targetBranchExisted && repository.baseCommit && targetHead !== repository.baseCommit) {
-      return `${repository.repository}: Story branch contains an unrecognized commit`;
+    if (!repository.targetBranchExisted && repository.baseCommit) {
+      // A HEAD Git could not read is not an unrecognized commit; recovery must say which it saw.
+      const targetHead = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd: repository.target, allowFailure: true });
+      if (targetHead.status !== 0) return `${repository.repository}: repository is unavailable`;
+      if (targetHead.stdout.trim() !== repository.baseCommit) {
+        return `${repository.repository}: Story branch contains an unrecognized commit`;
+      }
     }
     const switched = run('git', ['switch', repository.from], { cwd: repository.target, allowFailure: true });
     if (switched.status !== 0) return `${repository.repository}: ${(switched.stderr || switched.stdout).trim() || 'switch failed'}`;

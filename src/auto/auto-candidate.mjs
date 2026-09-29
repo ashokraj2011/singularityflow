@@ -16,7 +16,7 @@ import {
   buildRepositoryTreeChangeSet, compareRepositoryIdentity
 } from '../repository-change-set.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
-import { secureRepositoryPath, SingularityFlowError, run } from '../util.mjs';
+import { gitReadOutput, secureRepositoryPath, SingularityFlowError, run } from '../util.mjs';
 import { resolvePlatformProcess, tryWindowsTaskkill } from '../platform-process.mjs';
 import { applicationChangeSetProjection, isApplicationChangePath } from '../work-intervals.mjs';
 import { readAutoPrivateRecord, writeAutoPrivateRecord } from './auto-private-store.mjs';
@@ -147,6 +147,21 @@ function outputBytes(result) {
 
 function outputText(result) {
   return outputBytes(result).toString('utf8').trim();
+}
+
+/**
+ * Git's answer to a Candidate read, or a refusal when Git could not give one.
+ *
+ * A negative answer below reports the Candidate as lost, its recovery authority as corrupt, or a
+ * verification path as free of Candidate bytes. A read that failed used to give those same answers;
+ * only Git's documented "absent" (`absentStatus`) may.
+ */
+function candidateGitRead(root, args, label, { absentStatus = null } = {}) {
+  return outputBytes({
+    stdout: gitReadOutput(git(root, args, { allowFailure: true }), label, {
+      absentStatus, code: 'AUTO_CANDIDATE_GIT_FAILED'
+    }) ?? ''
+  });
 }
 
 // Candidate refs are immutable authority, not revision expressions. In particular, rev-parse
@@ -530,9 +545,9 @@ function parseCandidateBindingBytes(raw, { flightId = null, candidateId = null }
 function assertLocalCandidateRetention(root, binding) {
   const ref = exactLocalRef(root, binding.repository.retainedRef);
   const observedCommit = ref.kind === 'direct' ? ref.oid : null;
-  const observedTree = observedCommit && outputText(git(root, ['rev-parse', `${observedCommit}^{tree}`], {
-    allowFailure: true
-  }));
+  const observedTree = observedCommit && candidateGitRead(root, [
+    'rev-parse', '--verify', '--quiet', `${observedCommit}^{tree}`
+  ], 'The retained Candidate tree', { absentStatus: 1 }).toString('utf8').trim();
   if (observedCommit !== binding.repository.candidateCommit || observedTree !== binding.repository.candidateTree) {
     fail('Auto Candidate retention ref no longer names the frozen tree.', 'AUTO_CANDIDATE_RETENTION_LOST');
   }
@@ -645,17 +660,19 @@ export async function publishAutoCandidateRecoveryAuthority(root, binding, {
 }
 
 function readFetchedRecoveryAuthority(root, advertisedCommit, parsed) {
-  const fetched = outputText(git(root, ['rev-parse', '--verify', 'FETCH_HEAD'], {
-    allowFailure: true
-  }));
+  const fetched = candidateGitRead(root, ['rev-parse', '--verify', 'FETCH_HEAD'],
+    'The fetched Candidate recovery authority').toString('utf8').trim();
   if (fetched !== advertisedCommit) {
     fail('Fetched Auto Candidate recovery authority differs from its advertised commit.',
       'AUTO_CANDIDATE_RECOVERY_CORRUPT');
   }
-  const parent = outputText(git(root, ['rev-parse', '--verify', `${fetched}^`], {
-    allowFailure: true
-  }));
-  const raw = outputBytes(git(root, ['show', `${fetched}:binding.json`], { allowFailure: true }));
+  const parent = candidateGitRead(root, ['rev-parse', '--verify', '--quiet', `${fetched}^`],
+    'The Candidate recovery authority parent', { absentStatus: 1 }).toString('utf8').trim();
+  // `show` fails alike for an absent binding and an unreadable one; Git's clean exit 1 is absence.
+  const raw = candidateGitRead(root, ['rev-parse', '--verify', '--quiet', `${fetched}:binding.json`],
+    'The Candidate recovery binding', { absentStatus: 1 }).length
+    ? candidateGitRead(root, ['show', `${fetched}:binding.json`], 'The Candidate recovery binding')
+    : Buffer.alloc(0);
   if (!raw.length) fail('Auto Candidate recovery authority has no exact binding.',
     'AUTO_CANDIDATE_RECOVERY_CORRUPT');
   const binding = parseCandidateBindingBytes(raw.toString('utf8'), {
@@ -666,7 +683,8 @@ function readFetchedRecoveryAuthority(root, advertisedCommit, parsed) {
     fail('Auto Candidate recovery ref, binding, and Git parent differ.',
       'AUTO_CANDIDATE_RECOVERY_CORRUPT');
   }
-  const listing = outputText(git(root, ['ls-tree', fetched], { allowFailure: true }));
+  const listing = candidateGitRead(root, ['ls-tree', fetched], 'The Candidate recovery authority tree')
+    .toString('utf8').trim();
   if (!/^100644 blob [a-f0-9]{40,64}\tbinding\.json$/u.test(listing)) {
     fail('Auto Candidate recovery authority tree is not closed to one binding.',
       'AUTO_CANDIDATE_RECOVERY_CORRUPT');
@@ -841,8 +859,8 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
       'fetch', '--no-tags', '--quiet', '--', remote, retained.repository.retainedRef
     ], { operation: 'remote-configuration', allowFailure: true });
     if (fetched.status !== 0
-        || outputText(git(root, ['rev-parse', '--verify', 'FETCH_HEAD'], { allowFailure: true }))
-          !== retained.repository.candidateCommit) {
+        || candidateGitRead(root, ['rev-parse', '--verify', 'FETCH_HEAD'], 'The fetched Candidate commit')
+          .toString('utf8').trim() !== retained.repository.candidateCommit) {
       fail('The governed Auto Candidate commit could not be fetched exactly.',
         'AUTO_CANDIDATE_REMOTE_LOST');
     }
@@ -860,9 +878,9 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
       });
     local = retained.repository.candidateCommit;
   }
-  const tree = outputText(git(root, [
-    'rev-parse', '--verify', `${retained.repository.candidateCommit}^{tree}`
-  ], { allowFailure: true }));
+  const tree = candidateGitRead(root, [
+    'rev-parse', '--verify', '--quiet', `${retained.repository.candidateCommit}^{tree}`
+  ], 'The fetched Candidate tree', { absentStatus: 1 }).toString('utf8').trim();
   if (local !== retained.repository.candidateCommit || tree !== retained.repository.candidateTree) {
     fail('The fetched Auto Candidate does not reproduce its governed tree.',
       'AUTO_CANDIDATE_RETENTION_LOST');
@@ -1341,10 +1359,10 @@ export async function verifyAutoCandidate(root, binding, {
       });
     }
     for (const resultPath of resultPaths) {
-      const candidateEntry = outputText(git(root, [
+      const candidateEntry = candidateGitRead(root, [
         'ls-tree', '-r', '--name-only', retained.repository.candidateTree, '--',
         `:(literal)${resultPath}`
-      ], { allowFailure: true }));
+      ], `Candidate bytes at '${resultPath}'`).toString('utf8').trim();
       if (candidateEntry) {
         fail(`Verification evidence path '${resultPath}' overlaps immutable Candidate bytes.`,
           'AUTO_CANDIDATE_VERIFICATION_INVALID');

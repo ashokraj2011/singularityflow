@@ -33,8 +33,8 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { normalizeSourceRoots, withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import {
-  optionBoolean, optionNumber, optionString, optionStrings, posix, run, SingularityFlowError,
-  writeJson
+  gitHeadIsUnborn, gitReadOutput, optionBoolean, optionNumber, optionString, optionStrings, posix, run,
+  SingularityFlowError, writeJson
 } from './util.mjs';
 
 export const AST_RESULT_SCHEMA_VERSION = currentSchemaVersion('ast-result');
@@ -216,13 +216,25 @@ function assertWorkBinding(expected, actual) {
   }
 }
 
+/**
+ * Git's answer to a read that selects what AST indexes, or a refusal when Git could not give one.
+ *
+ * An empty branch selects no Story scope and an empty change list marks every tracked file as its
+ * committed object, so a failed read used to index the wrong scope or stale bytes.
+ */
+function astGitRead(root, args, label, options = {}) {
+  return gitReadOutput(run('git', args, { cwd: root, allowFailure: true, ...options }), label, {
+    absentWhen: () => gitHeadIsUnborn(root)
+  });
+}
+
 async function loadRuntime(root, requestedWorkBinding = null) {
   const expectedBinding = normalizeWorkBinding(requestedWorkBinding);
   let definition = {};
   let state = null;
   if (existsSync(path.join(configurationReadRoot(root), WORKFLOW_PATH))) {
     definition = await loadDefinition(root);
-    const branch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
+    const branch = (astGitRead(root, ['branch', '--show-current'], 'The checked-out branch') ?? '').trim();
     const workId = expectedBinding?.workId ?? branch;
     const statePath = workId
       ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', workId, 'workflow.json')
@@ -312,9 +324,9 @@ function trackedFiles(root, prefixes = []) {
 
 function changedPaths(root, prefixes = []) {
   const pathspec = prefixes.length ? ['--', ...prefixes] : [];
-  const tracked = splitNull(run('git', ['diff', '--name-only', '-z', 'HEAD', ...pathspec], {
-    cwd: root, allowFailure: true, maxBuffer: GIT_LIST_MAX_BUFFER
-  }).stdout);
+  // Before the first commit there is no HEAD to differ from; that stays an explicit empty answer.
+  const tracked = splitNull(astGitRead(root, ['diff', '--name-only', '-z', 'HEAD', ...pathspec],
+    'Tracked changes since HEAD', { maxBuffer: GIT_LIST_MAX_BUFFER }) ?? '');
   const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z', ...pathspec], {
     cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER
   }).stdout);

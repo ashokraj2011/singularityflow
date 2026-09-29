@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 29
+version: 30
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -269,7 +269,8 @@ on every surface before the command runs, then continues the command on the new 
 - When the machine already runs the required build on PATH (a VS Code window that has not reloaded
   yet), the command continues on that build instead of installing the release again.
 - The check reads each repository's approved configuration at most once a day per build, on the
-  first mutation, whether or not the working tree carries the file: approved configuration lives on
+  first mutation in any of its checkouts, whether or not the working tree carries the file. Every
+  Story worktree shares its repository's last check, so an isolated Story start does not repeat it: approved configuration lives on
   `sflow/config`, and a Story pins its own copy when it starts, so neither `main` nor an older
   Story has it. A requirement file written after the last check, such as a new Story's copy, is read
   at once. A development checkout never updates itself.

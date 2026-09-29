@@ -5,7 +5,8 @@
  */
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -14,7 +15,9 @@ import {
   enforceProductRequirement, installRequiredRelease, materializeRelease, parseProductRequirement,
   productRequirementVerdict, readApprovedProductRequirement
 } from '../src/product-requirement.mjs';
-import { productRequirementDue, requirementChecksFile } from '../src/product-requirement-gate.mjs';
+import {
+  productRequirementDue, requirementChecksFile, requirementRepositoryKey
+} from '../src/product-requirement-gate.mjs';
 import { versionLine } from '../src/build-info.mjs';
 import { parseBuildLine } from '../src/product-alignment.mjs';
 import { distributionFixture } from './helpers/distribution-artifacts.mjs';
@@ -337,6 +340,40 @@ test('every repository is checked at most once a day per build, with or without 
   await rm(requirementFile);
   assert.equal(await due({ now: T0 + 9 * HOUR }), null, 'elsewhere an offline machine is not slowed every hour');
   assert.match(await due({ now: T0 + 14 * HOUR }), /^0\.9\.0/u);
+});
+
+test('one verdict covers the repository and every Story worktree of it', async (t) => {
+  const parent = await temporary(t, 'sflow-requirement-worktrees-');
+  const home = await temporary(t, 'sflow-requirement-machine-');
+  const root = path.join(parent, 'main');
+  const worktree = path.join(parent, 'story-worktrees', 'story-1');
+  await mkdir(root);
+  const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' });
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, '-c', 'user.name=Requirement', '-c', 'user.email=requirement@example.invalid',
+    'commit', '-q', '--allow-empty', '-m', 'initial');
+  git(root, 'worktree', 'add', '-q', '-b', 'story-1', worktree);
+  const T0 = Date.parse('2026-09-28T00:00:00.000Z');
+  const due = (at, checkout) => productRequirementDue({
+    root: checkout, command: 'start', classification: 'mutation', homeDirectory: home, environment: {}, info: OLDER, now: at
+  });
+  const verdict = (at, checkout) => enforceProductRequirement({
+    root: checkout, runningBuild: versionLine(OLDER), argv: ['start'], homeDirectory: home, write: () => {}, info: OLDER,
+    now: () => new Date(at).toISOString(), read: async () => null, pathBuild: () => null
+  });
+
+  // A new Story worktree used to have no verdict of its own, so each isolated Story start read
+  // approved configuration again before doing anything else.
+  await verdict(T0, root);
+  assert.equal(await due(T0 + 60_000, worktree), null, 'the main checkout verdict covers a Story worktree');
+  assert.equal(await requirementRepositoryKey(worktree), await requirementRepositoryKey(root));
+  assert.equal(await requirementRepositoryKey(root), await realpath(root), 'a main checkout keeps its own key');
+  const checks = JSON.parse(await readFile(requirementChecksFile(home), 'utf8'));
+  assert.deepEqual(Object.keys(checks.repositories), [await realpath(root)]);
+
+  // And the other way round: a verdict reached inside a worktree serves the repository.
+  await verdict(T0 + 25 * 60 * 60_000, worktree);
+  assert.equal(await due(T0 + 26 * 60 * 60_000, root), null);
 });
 
 test('a release download that stalls or never ends fails the check, never hangs the command', async (t) => {

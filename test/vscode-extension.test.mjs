@@ -516,7 +516,7 @@ test('every VS Code CLI completion reports one privacy-safe timing envelope', as
       fallback: events[0].fallback
     },
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       event: 'dx.vscode-command-timing',
       command: 'status',
       commandClass: 'read',
@@ -527,6 +527,8 @@ test('every VS Code CLI completion reports one privacy-safe timing envelope', as
   );
   assert.equal(typeof events[0].durationMs, 'number');
   assert.equal(typeof events[0].stages.spawnMs, 'number');
+  assert.equal(events[0].stages.queueMs, 0, 'a direct invocation never waited in the read pool');
+  assert.equal(events[0].priority, 'direct');
   assert.doesNotMatch(JSON.stringify(events[0]), /SECRET-WORK-ID/);
 });
 

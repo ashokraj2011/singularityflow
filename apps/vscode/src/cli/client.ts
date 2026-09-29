@@ -23,32 +23,97 @@ export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
 const READ_RESULT_CACHE_TTL_MS = 250;
 /** Bounds supervised invocations across clients, not attested living native processes. */
 export const CLI_READ_CONCURRENCY = 4;
-const queuedReads: Array<{ run: () => Promise<void>; cancelled: boolean }> = [];
+
+/**
+ * Who is waiting on a read. `[perf]`
+ *
+ * The pool used to be one first-come queue, so a person waiting on the intake form queued behind
+ * activation's background discovery and product checks — and that wait was invisible, because the
+ * timing clock started only when the process spawned. Queued reads start in priority order, and
+ * background reads never hold more than all but one slot, so the next read a person waits on always
+ * finds room. A background read queued for 30 s is promoted so it cannot starve.
+ */
+export type ReadPriority = 'interactive' | 'normal' | 'background';
+const READ_PRIORITY_RANK: Record<ReadPriority, number> = { interactive: 0, normal: 1, background: 2 };
+const BACKGROUND_PROMOTION_MS = 30_000;
+
+interface ReadTicket {
+  run(queuedMs: number, priority: ReadPriority): Promise<void>;
+  cancelled: boolean;
+  priority: ReadPriority;
+  enqueuedAt: number;
+}
+const queuedReads: ReadTicket[] = [];
 let runningReads = 0;
+let runningBackgroundReads = 0;
+
+function effectiveReadPriority(ticket: ReadTicket, now: number): ReadPriority {
+  return ticket.priority === 'background' && now - ticket.enqueuedAt >= BACKGROUND_PROMOTION_MS
+    ? 'normal' : ticket.priority;
+}
+
+function nextReadTicket(): number {
+  const now = Date.now();
+  const backgroundSlotFree = runningBackgroundReads < CLI_READ_CONCURRENCY - 1;
+  let best = -1;
+  for (let index = 0; index < queuedReads.length; index += 1) {
+    const priority = effectiveReadPriority(queuedReads[index]!, now);
+    if (priority === 'background' && !backgroundSlotFree) continue;
+    if (best < 0 || READ_PRIORITY_RANK[priority]
+        < READ_PRIORITY_RANK[effectiveReadPriority(queuedReads[best]!, now)]) best = index;
+  }
+  return best;
+}
 
 function drainReads(): void {
   while (runningReads < CLI_READ_CONCURRENCY && queuedReads.length) {
-    const ticket = queuedReads.shift()!;
-    if (ticket.cancelled) continue;
+    const index = nextReadTicket();
+    if (index < 0) return;
+    const [ticket] = queuedReads.splice(index, 1);
+    if (!ticket || ticket.cancelled) continue;
+    const priority = effectiveReadPriority(ticket, Date.now());
+    const background = priority === 'background';
     runningReads += 1;
+    if (background) runningBackgroundReads += 1;
     // A slot includes bounded process-tree cleanup and unknown-close handle release, not only its
     // subscribers' wait. Releasing a slot does not attest that every native descendant has died.
-    void ticket.run().finally(() => {
+    void ticket.run(Date.now() - ticket.enqueuedAt, priority).finally(() => {
       runningReads -= 1;
+      if (background) runningBackgroundReads -= 1;
       drainReads();
     }).catch(() => {});
   }
 }
 
-function queueRead(run: () => Promise<void>): { cancel(): void } {
-  const ticket = { run, cancelled: false };
+function queueRead(
+  run: ReadTicket['run'], priority: ReadPriority
+): { cancel(): void; raise(priority: ReadPriority): void } {
+  const ticket: ReadTicket = { run, cancelled: false, priority, enqueuedAt: Date.now() };
   queuedReads.push(ticket);
   queueMicrotask(drainReads);
-  return { cancel: () => {
-    ticket.cancelled = true;
-    const index = queuedReads.indexOf(ticket);
-    if (index >= 0) queuedReads.splice(index, 1);
-  } };
+  return {
+    cancel: () => {
+      ticket.cancelled = true;
+      const index = queuedReads.indexOf(ticket);
+      if (index >= 0) queuedReads.splice(index, 1);
+    },
+    // A higher-priority caller joining a queued read must not wait at the lower priority.
+    raise: (next) => {
+      if (READ_PRIORITY_RANK[next] < READ_PRIORITY_RANK[ticket.priority]) {
+        ticket.priority = next;
+        queueMicrotask(drainReads);
+      }
+    }
+  };
+}
+
+/** Priority when the caller does not say: the reads a person is waiting on, and the ones nobody is. */
+export function defaultReadPriority(args: readonly string[]): ReadPriority {
+  if (args[0] === 'workspace' && args[1] === 'branches' && args.includes('--intake')) return 'interactive';
+  if (args[0] === 'session' && args[1] === 'candidates') return 'background';
+  if (args[0] === 'product') return 'background';
+  if (args[0] === 'jira' && args[1] === 'status') return 'background';
+  return 'normal';
 }
 
 interface ReadSubscriber {
@@ -64,7 +129,7 @@ interface ClientRead {
   epoch: number;
   controller: AbortController;
   subscribers: Set<ReadSubscriber>;
-  ticket: { cancel(): void } | null;
+  ticket: { cancel(): void; raise(priority: ReadPriority): void } | null;
   started: boolean;
   finished: boolean;
 }
@@ -445,6 +510,11 @@ export interface ClientOptions {
   onTiming?: (event: CliCommandTiming) => void;
 }
 
+/** Per-call options. Priority only orders reads in the shared pool; writes never queue. */
+export interface RunOptions {
+  priority?: ReadPriority;
+}
+
 /**
  * A thin, typed surface over the commands this extension issues.
  *
@@ -541,7 +611,7 @@ export class SingularityFlowClient {
   }
 
   private invoke<T>(args: string[], timeoutMs: number | null, signal?: AbortSignal, json = true,
-    input: string | null = null): Promise<T> {
+    input: string | null = null, priority: ReadPriority = defaultReadPriority(args)): Promise<T> {
     // Capture before entering the process-wide queue: repository changes and caller argv edits
     // must never change which command a previously requested read eventually launches.
     args = [...args];
@@ -595,6 +665,7 @@ export class SingularityFlowClient {
     if (classification !== 'read') return invokeCli<T>(invocation);
     let job = cacheKey ? this.readInFlight.get(cacheKey) : undefined;
     const fresh = !job;
+    if (job && !job.started) job.ticket?.raise(priority);
     if (!job) {
       job = { key: cacheKey, epoch: this.readEpoch, controller: new AbortController(),
         subscribers: new Set(), ticket: null, started: false, finished: false };
@@ -614,7 +685,7 @@ export class SingularityFlowClient {
       }, timeoutMs);
       if (signal?.aborted) subscriber.onAbort();
     });
-    if (fresh && current.subscribers.size) current.ticket = queueRead(async () => {
+    if (fresh && current.subscribers.size) current.ticket = queueRead(async (queuedMs, queuedPriority) => {
       if (!current.subscribers.size || current.finished) return;
       current.started = true;
       try {
@@ -622,12 +693,12 @@ export class SingularityFlowClient {
         // contracts, across queue+execution. A runner timer owned by the first subscriber would
         // wrongly kill later subscribers; their last departure still supervises native cleanup.
         const value = await invokeCli({ ...invocation,
-          timeoutMs: null, signal: current.controller.signal });
+          timeoutMs: null, signal: current.controller.signal, queuedMs, priority: queuedPriority });
         this.finishRead(current, value, null);
       } catch (error) {
         this.finishRead(current, undefined, error instanceof Error ? error : new Error(String(error)));
       }
-    });
+    }, priority);
     return result;
   }
 
@@ -666,13 +737,16 @@ export class SingularityFlowClient {
   }
 
   /** Everything else, for the governed actions the tree offers. */
-  run<T = unknown>(args: string[], signal?: AbortSignal): Promise<T> {
-    return this.invoke<T>(args, this.timeoutFor(args, signal !== undefined), signal);
+  run<T = unknown>(args: string[], signal?: AbortSignal, options: RunOptions = {}): Promise<T> {
+    return this.invoke<T>(args, this.timeoutFor(args, signal !== undefined), signal, true, null,
+      options.priority ?? defaultReadPriority(args));
   }
 
   /** JSON CLI result with private stdin payload; input is never appended to child argv. */
-  runWithInput<T = unknown>(args: string[], input: string, signal?: AbortSignal): Promise<T> {
-    return this.invoke<T>(args, this.timeoutFor(args, signal !== undefined), signal, true, input);
+  runWithInput<T = unknown>(args: string[], input: string, signal?: AbortSignal,
+    options: RunOptions = {}): Promise<T> {
+    return this.invoke<T>(args, this.timeoutFor(args, signal !== undefined), signal, true, input,
+      options.priority ?? defaultReadPriority(args));
   }
 
   /**

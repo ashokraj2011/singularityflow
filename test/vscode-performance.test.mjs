@@ -72,7 +72,7 @@ test('VS Code CLI diagnostics use the versioned privacy-safe timing envelope', a
   const client = await readFile(path.join(root, 'apps/vscode/src/cli/client.ts'), 'utf8');
   assert.match(runner, /event: 'dx\.vscode-command-timing'/);
   assert.match(runner, /outcome: 'success' \| 'error' \| 'cancelled'/);
-  assert.match(runner, /stages: \{ spawnMs: number \}/);
+  assert.match(runner, /stages: \{ queueMs: number; spawnMs: number \}/);
   assert.match(client, /\[Singularity Flow timing\]/);
   assert.doesNotMatch(client, /JSON\.stringify\(args\)/, 'command arguments must not enter diagnostics');
 });

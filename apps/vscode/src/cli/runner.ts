@@ -1684,7 +1684,7 @@ export function humanError(stderr: string): string {
 export type OutputStream = 'stdout' | 'stderr';
 
 export interface CliCommandTiming {
-  schemaVersion: 2;
+  schemaVersion: 3;
   event: 'dx.vscode-command-timing';
   command: string;
   /** Closed diagnostic vocabulary; never a work ID, URL, path, option value, or raw argv. */
@@ -1697,7 +1697,10 @@ export interface CliCommandTiming {
   exitCode: number | null;
   cleanupStatus: ProcessCleanupStatus;
   fallback: 'none';
-  stages: { spawnMs: number };
+  /** Where the read waited: `direct` for writes, which never queue. */
+  priority: 'interactive' | 'normal' | 'background' | 'direct';
+  /** Queue wait in the shared read pool, then the process itself. The sum is what the caller felt. */
+  stages: { queueMs: number; spawnMs: number };
 }
 
 const TIMING_COMMANDS = new Set([
@@ -1747,6 +1750,9 @@ export interface InvokeOptions {
   onTiming?: (event: CliCommandTiming) => void;
   /** Aborting a run the user cancelled, or that a newer refresh has superseded. */
   signal?: AbortSignal;
+  /** Time this read already waited in the shared pool before its process could spawn. */
+  queuedMs?: number;
+  priority?: 'interactive' | 'normal' | 'background';
 }
 
 /** Preserve replay-safe recovery copy when a subscriber, rather than the child, owns its deadline. */
@@ -1770,7 +1776,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
   const {
     executable, cli, repository, args, input = null, json = true,
     env = process.env, timeoutMs = CLI_TIMEOUT_MS, spawnImpl = spawn, onOutput, onTiming,
-    commandClass = 'unknown', signal
+    commandClass = 'unknown', signal, queuedMs = 0, priority
   } = options;
 
   const startedAt = process.hrtime.bigint();
@@ -1812,7 +1818,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       try {
         const command = TIMING_COMMANDS.has(args[0] ?? '') ? args[0]! : 'command';
         const event: CliCommandTiming = {
-          schemaVersion: 2,
+          schemaVersion: 3,
           event: 'dx.vscode-command-timing',
           command,
           subcommand: TIMING_SUBCOMMANDS[command]?.has(args[1] ?? '') ? args[1]! : null,
@@ -1824,7 +1830,8 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
           exitCode,
           cleanupStatus,
           fallback: 'none',
-          stages: { spawnMs: durationMs }
+          priority: priority ?? 'direct',
+          stages: { queueMs: Number.isFinite(queuedMs) && queuedMs > 0 ? queuedMs : 0, spawnMs: durationMs }
         };
         recentTimings.push(event);
         if (recentTimings.length > 128) recentTimings.shift();

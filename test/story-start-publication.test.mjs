@@ -575,7 +575,11 @@ test('selected-base Story preflight reuses the earlier UI choice without another
   assert.equal(result.preflight.readiness.ready, true);
   assert.doesNotMatch(preview.stderr, /git\.remote-inventory=/,
     'the selected base is proven by the fresh preflight fetch, without a second all-heads probe');
-  assert.match(preview.stderr, /git\.remote-fetch=1(?:\s|$)/);
+  // Proven fresh either by the preflight's own fetch or by a listing, made moments ago, showing the
+  // tracking ref already at the remote tip; never by both, and never by an all-heads inventory.
+  assert.match(preview.stderr, /git\.(?:remote-fetch|story-preflight-fetch-verified)=1(?:\s|$)/);
+  assert.ok(!/git\.remote-fetch=1(?:\s|$)/.test(preview.stderr)
+    || !/git\.story-preflight-fetch-verified=/.test(preview.stderr));
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
 });

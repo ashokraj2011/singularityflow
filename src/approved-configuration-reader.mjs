@@ -437,7 +437,8 @@ export async function withApprovedConfigurationRead(root, fn, {
   freshOwnerCapture = false,
   captureAuthoringBytes = false,
   useObjectCache = false,
-  reuseAuthorityObservation = false
+  reuseAuthorityObservation = false,
+  authoritySession = null
 } = {}) {
   if (freshOwnerCapture) {
     return withoutConfigurationReadScope(() => withApprovedConfigurationRead(root, fn, {
@@ -477,7 +478,10 @@ export async function withApprovedConfigurationRead(root, fn, {
       hasStoryConfigurationAuthorityCandidate, loadStoryConfigurationSnapshot,
       resolveStoryConfigurationAuthority, withStoryConfigurationSnapshotRead
     } = await import('./configuration-branch.mjs');
-    const session = reuseAuthorityObservation && useObjectCache ? new GitRemoteSession({ cwd: root }) : undefined;
+    // A caller that already listed this authority (the readiness preview's union listing) passes
+    // its session so resolution answers from that listing too.
+    const session = reuseAuthorityObservation && useObjectCache
+      ? authoritySession ?? new GitRemoteSession({ cwd: root }) : undefined;
     const resolved = await resolveStoryConfigurationAuthority(root, 'origin', { captureAuthoringBytes, session });
     if (resolved) {
       const snapshot = await loadStoryConfigurationSnapshot(resolved, {

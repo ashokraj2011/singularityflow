@@ -24,6 +24,8 @@ import {
 } from './util.mjs';
 import { validateWorldModelDirectory, worldModelFreshness } from './grounding.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
+import { incrementCommandCounter } from './dx-command-timing.mjs';
+import { hasPrefetchedReference, prefetchedReferenceSource } from './reference-prefetch.mjs';
 
 export const REFERENCE_REPOSITORY_FAMILY = 'story-reference-repository-set';
 export const REFERENCE_REPOSITORY_LOCAL_ROOT = '.singularity-flow/reference-repositories';
@@ -371,21 +373,37 @@ async function materializeOne(root, reference, { env, runGit, resolveBranch = nu
     // branch or unreachable remote.
     let revision = reference.commit;
     if (resolveBranch && !reference.commit) {
-      const fetched = await runGit([
-        'fetch', '--depth=1', '--no-tags', 'origin', `refs/heads/${reference.requestedBranch}`
-      ], {
-        cwd: staging, env, operation: 'remote-configuration',
-        timeoutMs: gitTimeouts(env).configuration, allowFailure: true
-      });
-      if (fetched.status === 0) revision = 'FETCH_HEAD';
-      else reference = await resolveBranch();
+      if (await hasPrefetchedReference(root, reference.repository)) {
+        // A copy fetched during intake serves only an exact commit. One listing to learn today's
+        // tip costs far less than transferring the whole depth-1 pack again.
+        reference = await resolveBranch();
+      } else {
+        const fetched = await runGit([
+          'fetch', '--depth=1', '--no-tags', 'origin', `refs/heads/${reference.requestedBranch}`
+        ], {
+          cwd: staging, env, operation: 'remote-configuration',
+          timeoutMs: gitTimeouts(env).configuration, allowFailure: true
+        });
+        if (fetched.status === 0) revision = 'FETCH_HEAD';
+        else reference = await resolveBranch();
+      }
     }
     if (revision !== 'FETCH_HEAD') {
       revision = reference.commit;
-      await runGit(['fetch', '--depth=1', '--no-tags', 'origin', revision], {
-        cwd: staging, env, operation: 'remote-configuration',
-        timeoutMs: gitTimeouts(env).configuration, allowFailure: false
-      });
+      // The same commit fetched while the Story was being described. Git verifies every object's
+      // identity on this local fetch; anything missing falls through to the network as before.
+      const prefetched = await prefetchedReferenceSource(root, reference);
+      const local = prefetched ? run('git', ['fetch', '--depth=1', '--no-tags', '--quiet', prefetched, revision], {
+        cwd: staging, allowFailure: true
+      }) : null;
+      if (local?.status === 0) {
+        incrementCommandCounter('reference.prefetch-used');
+      } else {
+        await runGit(['fetch', '--depth=1', '--no-tags', 'origin', revision], {
+          cwd: staging, env, operation: 'remote-configuration',
+          timeoutMs: gitTimeouts(env).configuration, allowFailure: false
+        });
+      }
     }
     const treeSafety = referenceTreeSafety(staging, revision);
     if (!treeSafety.ok) {

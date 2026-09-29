@@ -197,6 +197,27 @@ async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, p
     && identity.configured && !identity.ambiguous;
 }
 
+/**
+ * Whether a fresh listing of this repository shows its tracking refs already current: the base at
+ * the remote's tip, no Story branch either side, and the state tip unchanged. `[perf]`
+ */
+function observedTipsCurrent(candidate, remote, baseBranch, storyBranch, tips) {
+  const observed = tips?.observation;
+  if (!observed?.ok || tips.url !== candidate.fetchAuthority.url) return false;
+  const baseRef = `refs/heads/${baseBranch}`;
+  const storyRef = `refs/heads/${storyBranch}`;
+  if (!observed.patterns?.includes(baseRef) || !observed.patterns?.includes(storyRef)) return false;
+  const remoteBase = observed.refs.get(baseRef);
+  if (!remoteBase || refHead(candidate.root, `refs/remotes/${remote}/${baseBranch}`) !== remoteBase) return false;
+  if (observed.refs.has(storyRef) || refHead(candidate.root, `refs/remotes/${remote}/${storyBranch}`) !== null) return false;
+  const config = registeredWorldModelConfig(candidate.worldModelDefinition);
+  const state = config?.remote === remote ? config : null;
+  if (!state) return true;
+  const stateRef = `refs/heads/${state.stateBranch}`;
+  return observed.patterns.includes(stateRef)
+    && (observed.refs.get(stateRef) ?? null) === refHead(candidate.root, `refs/remotes/${remote}/${state.stateBranch}`);
+}
+
 function assertCheckoutRemoteIdentity(root, repository, remote, { publishRequired }) {
   const expected = String(repository.url ?? '').trim();
   let fetchIdentity;
@@ -659,6 +680,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   capabilityEvidence = null,
   launchFetchProof = null,
   launchFetchObservation = null,
+  observedTips = null,
   workers = DEFAULT_REMOTE_WORKERS,
   runGit = runRemoteGitAsync
 } = {}) {
@@ -758,9 +780,16 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       candidate, remote, plan.resolution.resolved[candidate.repository.id].branch,
       storyBranch, launchFetchProof, runGit, launchFetchObservation
     );
+    const tipsCurrent = !fetchReused && observedTipsCurrent(
+      candidate, remote, plan.resolution.resolved[candidate.repository.id].branch, storyBranch, observedTips
+    );
     let result;
     if (fetchReused) {
       incrementCommandCounter('git.story-launch-fetch-reused');
+      result = { status: 0, stdout: '', stderr: '' };
+    } else if (tipsCurrent) {
+      // A listing made moments ago shows the tracking refs already name the remote's tips.
+      incrementCommandCounter('git.story-preflight-fetch-verified');
       result = { status: 0, stdout: '', stderr: '' };
     } else {
       incrementCommandCounter('git.remote-fetch');

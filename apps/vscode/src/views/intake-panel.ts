@@ -31,6 +31,8 @@ const INTAKE_TYPING_QUIET_MS = 300;
 /** Readiness is checked once somebody pauses typing the identifier this long, not only on blur. */
 const INTAKE_ID_PREFLIGHT_DEBOUNCE_MS = 400;
 const PORTABLE_WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** A completed reference row is checked, and its commit fetched ahead of Start, after this pause. */
+const INTAKE_REFERENCE_PREFETCH_DEBOUNCE_MS = 600;
 /** Start passes an intake receipt only while this much of its life remains. */
 const INTAKE_RECEIPT_MINIMUM_REMAINING_MS = 60_000;
 
@@ -222,6 +224,7 @@ export class IntakePanel {
    * this panel: never rendered, logged unredacted, or put in a recovery command.
    */
   private intakeReceipt: { id: string; expiresAt: number; key: string } | null = null;
+  private readonly referencePrefetchTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly catalogCache: IntakeCatalogCacheBinding | null;
   private readonly holdBackgroundWork: ((reason: string) => BackgroundHold) | null;
   private readonly holdNavigation: (() => { release(): void }) | null;
@@ -920,10 +923,28 @@ export class IntakePanel {
     this.update({ storyAttachments: merged.attachments, enhanceError: null, error: null });
   }
 
-  private replaceReference(index: number, entry: ReferenceRepositoryDraft, render = true): void {
+  private replaceReference(index: number, entry: ReferenceRepositoryDraft, render = true, background = false): void {
     const references = this.form.referenceRepositories.map((current, row) => row === index ? entry : current);
-    if (render) this.update({ referenceRepositories: references, error: null });
+    if (render) this.update({ referenceRepositories: references, error: null }, { background });
     else this.form.referenceRepositories = references;
+  }
+
+  /**
+   * Check a completed reference row once typing pauses, which also fetches its pinned commit into
+   * the machine-local reference store so Start can copy it instead of transferring it. `[perf]`
+   */
+  private scheduleReferencePrefetch(index: number): void {
+    const pending = this.referencePrefetchTimers.get(index);
+    if (pending) clearTimeout(pending);
+    this.referencePrefetchTimers.set(index, setTimeout(() => {
+      this.referencePrefetchTimers.delete(index);
+      const draft = this.form.referenceRepositories[index];
+      if (this.disposed || !draft || draft.status === 'checking' || draft.status === 'ready') return;
+      try {
+        if (!referenceRepositoryEntries([draft]).length) return;
+      } catch { return; }
+      void this.checkReference({ type: 'referenceCheck', index } as InboundMessage, { background: true });
+    }, INTAKE_REFERENCE_PREFETCH_DEBOUNCE_MS));
   }
 
   /** Keep typing local to one row; the engine remains the authority for URL/ref validation. */
@@ -943,10 +964,11 @@ export class IntakePanel {
     }, render);
     // A completed row changes the request an intake receipt must bind.
     this.scheduleIdentifierPreflight();
+    this.scheduleReferencePrefetch(index);
   }
 
   /** Read-only provisional check. Story start resolves the branch again before creating state. */
-  private async checkReference(message: InboundMessage): Promise<void> {
+  private async checkReference(message: InboundMessage, { background = false }: { background?: boolean } = {}): Promise<void> {
     const index = this.referenceIndex(message);
     if (index === null) return;
     const draft = this.form.referenceRepositories[index];
@@ -964,7 +986,7 @@ export class IntakePanel {
       return;
     }
     const revision = ++this.referenceCheckRevision;
-    this.replaceReference(index, { ...draft, status: 'checking', commit: null, message: null });
+    this.replaceReference(index, { ...draft, status: 'checking', commit: null, message: null }, true, background);
     try {
       const result = await this.client.run<{
         repositories?: Array<{ id?: string; commit?: string }>;
@@ -972,7 +994,7 @@ export class IntakePanel {
         'story', 'references', 'inspect',
         '--reference-repository', `${reference.id}=${reference.repository}`,
         '--reference-branch', `${reference.id}=${reference.branch}`,
-        '--json'
+        '--prefetch', '--json'
       ]);
       if (revision !== this.referenceCheckRevision) return;
       const current = this.form.referenceRepositories[index];
@@ -982,14 +1004,14 @@ export class IntakePanel {
       if (!resolved?.commit) throw new Error('The read-only check returned no pinned commit.');
       this.replaceReference(index, {
         ...current, status: 'ready', commit: resolved.commit, message: null
-      });
+      }, true, background);
     } catch (error) {
       if (revision !== this.referenceCheckRevision) return;
       const current = this.form.referenceRepositories[index];
       if (!current) return;
       this.replaceReference(index, {
         ...current, status: 'error', commit: null, message: (error as Error).message
-      });
+      }, true, background);
     }
   }
 
@@ -1164,6 +1186,8 @@ export class IntakePanel {
     if (this.disposed) return;
     this.disposed = true;
     this.holdWhileVisible(false);
+    for (const timer of this.referencePrefetchTimers.values()) clearTimeout(timer);
+    this.referencePrefetchTimers.clear();
     if (this.renderTimer) clearTimeout(this.renderTimer);
     this.renderTimer = null;
     this.invalidateEnhancement();

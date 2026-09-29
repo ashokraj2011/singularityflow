@@ -18,7 +18,7 @@ import { mkdtemp } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { StringDecoder } from 'node:string_decoder';
-import { resolvePlatformProcess } from './platform-process.mjs';
+import { resolvePlatformProcess, withoutAutomaticGitMaintenance } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { localReadDeadlineAt, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
@@ -274,7 +274,7 @@ export async function runRemoteGitAsync(args, {
       }
       incrementCommandCounter('git.spawns');
       child = spawnCommand(launch.executable, launch.arguments, {
-        cwd, env: executionEnvironment, ...launch.spawnOptions,
+        cwd, env: withoutAutomaticGitMaintenance(executionEnvironment, { platform }), ...launch.spawnOptions,
         // A private POSIX process group lets the timeout boundary reach Git, credential helpers,
         // SSH, proxy commands, and any other descendant in one signal. Windows uses taskkill /T.
         detached: platform !== 'win32',

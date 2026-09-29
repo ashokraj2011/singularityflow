@@ -457,3 +457,71 @@ export function resolvePlatformProcess(command, args = [], {
     spawnOptions: batch.spawnOptions
   });
 }
+
+/**
+ * No Git process started by Singularity Flow may start Git's automatic maintenance.
+ *
+ * Commit, merge, fetch (and so pull), rebase and am end with `git maintenance run --auto --detach`.
+ * Git takes `objects/maintenance.lock`, forks, and the exiting parent deletes the lock it created,
+ * so the background repack runs unlocked. The next writing command in the same repository starts a
+ * second repack beside it. A geometric repack then
+ * counts the first repack's `.tmp-<pid>-pack-*` as an existing pack: it deletes the packs and loose
+ * objects that pack covers, the first repack fails on the packs that vanished, and its exit removes
+ * the temporary pack, the only remaining copy of the history. Singularity Flow runs these commands
+ * seconds apart, and background workers run them at the same time as the foreground, so its own
+ * Git children must not start maintenance at all.
+ *
+ * The settings travel as counted `GIT_CONFIG_*` entries appended after the caller's, rather than
+ * as `-c` arguments, so argv and every timing key derived from it stay the same. Hooks and helpers
+ * the child starts inherit them. `gc.auto=0` also stops `git gc --auto`, which some tools and hooks
+ * still run themselves.
+ */
+// A literal, not a frozen export: this module has no top-level calls, so a bundle that imports
+// util.mjs without launching anything can still drop it.
+const AUTOMATIC_MAINTENANCE_OFF = [['maintenance.auto', 'false'], ['gc.auto', '0']];
+
+const GIT_CONFIG_COUNT = 'GIT_CONFIG_COUNT';
+
+// Git reads its environment case-sensitively on POSIX and case-insensitively on Windows. Node
+// drops variables whose value is undefined, so Git never sees them.
+function gitEnvironmentSpellings(env, name, platform) {
+  return (platform === 'win32' ? Object.keys(env).filter((key) => key.toUpperCase() === name) : [name])
+    .filter((key) => Object.hasOwn(env, key) && env[key] !== undefined);
+}
+
+function gitEnvironmentValue(env, name, platform) {
+  const values = [...new Set(gitEnvironmentSpellings(env, name, platform).map((key) => String(env[key])))];
+  return values.length === 1 ? values[0] : values.length ? null : undefined;
+}
+
+/** A copy of `env` whose Git child cannot start automatic maintenance. */
+export function withoutAutomaticGitMaintenance(env = process.env, { platform = process.platform } = {}) {
+  const source = env ?? {};
+  const countText = gitEnvironmentValue(source, GIT_CONFIG_COUNT, platform);
+  // Git refuses a malformed or ambiguous count, or one naming more entries than the environment
+  // holds, before it runs anything: nothing can be added to it safely and nothing needs to be.
+  // Otherwise Git parses the count with strtoul.
+  if (countText === null) return source;
+  if (countText !== undefined && countText !== '' && !/^[ \t\n\v\f\r]*\+?[0-9]+$/u.test(countText)) return source;
+  const count = countText ? Number(countText.trim()) : 0;
+  if (!Number.isSafeInteger(count) || count * 2 > Object.keys(source).length) return source;
+  const effective = new Map();
+  for (let index = 0; index < count; index += 1) {
+    const key = gitEnvironmentValue(source, `GIT_CONFIG_KEY_${index}`, platform);
+    if (typeof key === 'string') effective.set(key.toLowerCase(), gitEnvironmentValue(source, `GIT_CONFIG_VALUE_${index}`, platform));
+  }
+  if (AUTOMATIC_MAINTENANCE_OFF.every(([key, value]) => effective.get(key) === value)) return source;
+  const result = { ...source };
+  for (const key of gitEnvironmentSpellings(source, GIT_CONFIG_COUNT, platform)) delete result[key];
+  let index = count;
+  for (const [key, value] of AUTOMATIC_MAINTENANCE_OFF) {
+    for (const name of [`GIT_CONFIG_KEY_${index}`, `GIT_CONFIG_VALUE_${index}`]) {
+      for (const spelling of gitEnvironmentSpellings(source, name, platform)) delete result[spelling];
+    }
+    result[`GIT_CONFIG_KEY_${index}`] = key;
+    result[`GIT_CONFIG_VALUE_${index}`] = value;
+    index += 1;
+  }
+  result[GIT_CONFIG_COUNT] = String(index);
+  return result;
+}

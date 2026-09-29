@@ -10,7 +10,7 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import {
   isFullyQualifiedWindowsPath, resolvePlatformProcess, resolveWindowsPathExecutable,
-  resolveWindowsSystemTool
+  resolveWindowsSystemTool, withoutAutomaticGitMaintenance
 } from './platform-process.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
@@ -657,7 +657,8 @@ export function run(command, args = [], {
   let result;
   try {
     result = spawnSyncCommand(launch.executable, launch.arguments, {
-      cwd, env, encoding, stdio, timeout: timeoutMs, killSignal,
+      cwd, encoding, stdio, timeout: timeoutMs, killSignal,
+      env: command === 'git' ? withoutAutomaticGitMaintenance(env, { platform }) : env,
       ...launch.spawnOptions,
       ...(windowsHide === undefined ? {} : { windowsHide }),
       ...(maxBuffer === undefined ? {} : { maxBuffer }),

@@ -101,6 +101,21 @@ function bindActionContext(action, workId, repositoryHead, context) {
   };
 }
 
+/** The Story-start choices that come from the approved definition alone. */
+function startDefinitionChoiceSets(definition) {
+  return [
+    {
+      id: 'intake-source',
+      label: 'Intake source',
+      options: [
+        { id: 'jira', label: 'Jira story', description: 'Retrieve the work item and configured fields from Jira.' },
+        { id: 'manual', label: 'Manual description and documents', description: 'Use supplied story details, local files, and URLs.' }
+      ]
+    },
+    { id: 'workflow-template', label: 'Workflow template', options: options(Object.entries(definition.workTypes ?? {})) }
+  ];
+}
+
 async function choiceSets(root, definition, action, workflow = null) {
   if (action === 'start') {
     const { storyBaseCatalog } = await import('./capability-start.mjs');
@@ -140,15 +155,7 @@ async function choiceSets(root, definition, action, workflow = null) {
             : `Published by remote '${catalog.remote}'.`
         }))
       },
-      {
-      id: 'intake-source',
-      label: 'Intake source',
-      options: [
-        { id: 'jira', label: 'Jira story', description: 'Retrieve the work item and configured fields from Jira.' },
-        { id: 'manual', label: 'Manual description and documents', description: 'Use supplied story details, local files, and URLs.' }
-      ]
-    },
-      { id: 'workflow-template', label: 'Workflow template', options: options(Object.entries(definition.workTypes ?? {})) }
+      ...startDefinitionChoiceSets(definition)
     ];
   }
   if (action === 'approve') {
@@ -377,6 +384,49 @@ export async function resolveCustomSelectionReceipt(root, token, { action, workI
     answers[choices.id] = selected;
   }
   return { ...receipt, answers };
+}
+
+/**
+ * A Story-start selection receipt, read and checked in the checkout that recorded it.
+ *
+ * An isolated start runs in a new Story worktree, whose Git directory holds none of the launch
+ * checkout's receipts and whose HEAD is not the one the receipt was bound to, so looking the token
+ * up there always failed. The launch checks what only it can (the receipt exists, is active for
+ * this Copilot session and still binds this checkout's HEAD) and hands the record to the start in
+ * process. It is never serialized or accepted from a flag.
+ */
+export async function readStartSelectionReceipt(root, token, workId) {
+  const receipt = await readReceipt(root, token);
+  await assertActive(root, receipt);
+  if (receipt.action !== 'start' || receipt.workId !== workId) {
+    throw new SingularityFlowError(`The selection receipt is for ${receipt.action} ${receipt.workId}, not start ${workId}.`);
+  }
+  if (receipt.repositoryHead !== head(root)) {
+    throw new SingularityFlowError('The selection receipt is stale because the repository HEAD changed. Ask the contributor to review the choices again.');
+  }
+  if ((receipt.actionContext ?? receipt.approvalContext ?? null) !== null) {
+    throw new SingularityFlowError('The selection receipt is stale because the action context changed.');
+  }
+  return Object.freeze({ token, root: path.resolve(root), receipt: Object.freeze(receipt) });
+}
+
+/**
+ * Check a handed-off start receipt's answers against today's approved definition. The base branch
+ * it names is not listed again here: Story start observes that exact base on the remote itself
+ * before it changes anything, and refuses when it is no longer published.
+ */
+export function resolveHandedOffStartSelectionReceipt(handoff, definition) {
+  const answers = {};
+  const base = handoff.receipt.answers?.['base-branch']?.id;
+  if (!base) throw new SingularityFlowError('The selection receipt is incomplete: Remote base branch has not been answered.');
+  answers['base-branch'] = base;
+  for (const choices of startDefinitionChoiceSets(definition)) {
+    const selected = handoff.receipt.answers?.[choices.id]?.id;
+    if (!selected) throw new SingularityFlowError(`The selection receipt is incomplete: ${choices.label} has not been answered.`);
+    if (!choices.options.some((item) => item.id === selected)) throw new SingularityFlowError(`The selection receipt is stale: ${choices.label} '${selected}' is no longer configured.`);
+    answers[choices.id] = selected;
+  }
+  return { ...handoff.receipt, answers };
 }
 
 export async function consumeSelectionReceipt(root, token) {

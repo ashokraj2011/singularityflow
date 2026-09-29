@@ -175,7 +175,7 @@ import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
 import { remainingRequiredAuthorities, requireApprovalAuthority } from './approval-authority.mjs';
-import { answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, resolveCustomSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
+import { answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, readStartSelectionReceipt, resolveCustomSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
 import { importKnowledgeSeedManifest } from './knowledge-seed-import.mjs';
@@ -1524,6 +1524,9 @@ const ISOLATED_STORY_BASE_FETCH_HANDOFF = Symbol('isolated-story-base-fetch-hand
 // What became of a presented intake receipt, and the wave's process-private proof when it passed.
 // Never accepted from flags: only the isolated launch below creates it.
 const ISOLATED_STORY_INTAKE_HANDOFF = Symbol('isolated-story-intake-handoff');
+// A selection receipt read and checked in the launch checkout that recorded it. The Story worktree
+// holds none of that checkout's receipts, so the start uses this record and consumes it there.
+const ISOLATED_STORY_SELECTION_HANDOFF = Symbol('isolated-story-selection-handoff');
 
 async function sealIsolatedStoryConfiguration(sourceRoot, workId) {
   const authority = await fosStoryConfigurationAuthority(sourceRoot);
@@ -1726,6 +1729,10 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   if (!durableLocalStory) {
     await assertLaunchCheckoutRepositoryReady(sourceRoot, launchDefinition, launchBaseCommit);
   }
+  // Checked here, before any worktree exists, so a stale or foreign receipt refuses at once.
+  const selectionToken = optionString(options, 'selection-receipt');
+  const selectionHandoff = selectionToken && !durableLocalStory
+    ? await readStartSelectionReceipt(sourceRoot, selectionToken, id) : null;
   const prepared = await measureCommandSpan('start.worktree', () =>
     prepareStoryWorktree(sourceRoot, id, {
       base: durableLocalStory ? 'HEAD' : launchBaseCommit
@@ -1778,6 +1785,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     if (intakeReceiptId) {
       childOptions[ISOLATED_STORY_INTAKE_HANDOFF] = Object.freeze({ proof: intakeProof, status: intake });
     }
+    if (selectionHandoff) childOptions[ISOLATED_STORY_SELECTION_HANDOFF] = selectionHandoff;
     process.chdir(prepared.repositoryPath);
     result = await startCommand(positionals, childOptions);
     completeStoryWorktree(prepared);
@@ -2247,10 +2255,12 @@ export async function startCommand(positionals, options) {
       validateId(config, id);
     }
   }
+  const selectionHandoff = options[ISOLATED_STORY_SELECTION_HANDOFF]?.token === receiptToken
+    ? options[ISOLATED_STORY_SELECTION_HANDOFF] : null;
   if (receiptToken) {
-    const resolveReceipt = () => resolveSelectionReceipt(root, config, receiptToken, {
-      action: 'start', workId: id
-    });
+    const resolveReceipt = selectionHandoff
+      ? async () => resolveHandedOffStartSelectionReceipt(selectionHandoff, config)
+      : () => resolveSelectionReceipt(root, config, receiptToken, { action: 'start', workId: id });
     // Recompute the receipt's branch choices inside the same exact approved snapshot that will
     // govern Story creation. Otherwise a stale workspace URL could be contacted while checking a
     // receipt, before the later capability preflight had a chance to reject it.
@@ -3207,9 +3217,9 @@ export async function startCommand(positionals, options) {
       event: publication.event ?? null
     }, capabilityPublications, new Error('The lifecycle Story branch is still pending publication.'));
   }
-  // Spent once the start has landed, not before it is attempted.
+  // Spent once the start has landed, not before it is attempted, in the checkout that recorded it.
   if (receiptToken) {
-    try { await consumeSelectionReceipt(root, receiptToken); }
+    try { await consumeSelectionReceipt(selectionHandoff?.root ?? root, receiptToken); }
     catch (error) {
       // The governed approval is already committed and may already be on the remote. Failure to
       // clean up a machine-local one-shot receipt must not turn that success into a red refusal that

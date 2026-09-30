@@ -367,6 +367,20 @@ test('code skill reads readiness and task policy from their real structured sour
   assert.ok(content.indexOf('status --json') < content.indexOf('recover <WORK-ID>'));
 });
 
+test('code skill treats a prepared draft as authoring work without bypassing genuine recovery', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
+  assert.match(content, /recover <WORK-ID> --phase <phase> --json.*`requiresRecovery`, `blockers\[\]`, action IDs\/modes/);
+  assert.match(content, /`phaseRepairRequired`\/`working-tree` alone is no stop/);
+  assert.match(content, /`current-phase-review-required` or dirty code/);
+  assert.match(content, /git status --porcelain=v1 --untracked-files=all/);
+  assert.match(content, /staged\/unstaged diffs and untracked content.*`workflow\.json`/);
+  assert.match(content, /Verify code phase\/pinned scope; intent must be open\/current if present, else step 5 begins it/);
+  assert.match(content, /Allow owned in-phase `prepare-artifact`, `complete-artifact`, `repair-agent-brief-source`, `complete-code-delivery`; route others/);
+  assert.match(content, /stop for protected\/unrelated\/unowned changes, other manual\/producer actions or `requiresRecovery: true`/i);
+  assert.match(content, /Initial template is baseline; stop on an unchanged fingerprint only after correction/);
+  assert.doesNotMatch(content, /stop for manual\/unchanged\/other-producer recovery/);
+});
+
 test('verify skill routes release to its phase skill without running verification authoring', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
   assert.match(content, /Boundary phase is `release`.*do not run verification authoring/s);

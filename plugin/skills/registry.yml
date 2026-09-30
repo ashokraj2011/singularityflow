@@ -105,7 +105,7 @@ skills:
   sflow-capability-protect: { class: interactive, executionBoundary: repository }
   sflow-capability-doctor: { class: echo, executionBoundary: organisation }
   sflow-capability-map: { class: interactive, executionBoundary: organisation }
-  sflow-code: { class: generative }
+  sflow-code: { class: generative, maximumTokenOverride: 900, exception: 'Code-phase recovery must distinguish prepared drafts and owned dirty source/tests from unsafe changes.' }
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation, executionBoundary: repository }
   sflow-constitution: { class: mutation, executionBoundary: repository }

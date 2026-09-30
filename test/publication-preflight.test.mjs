@@ -958,6 +958,111 @@ test('recovery exposes the same authored-byte findings and a bounded Copilot ret
   assert.equal(action.skill, '/sf-phase');
 });
 
+test('recovery routes exact current-phase draft and preparation changes to reviewed authoring', async () => {
+  const { root, config, workflow, phase, target, statePath } = await fixture('recovery-prepared-worktree');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'baseline Story draft');
+  await writeFile(target, `${await readFile(target, 'utf8')}\nAuthoring remains in progress.\n`);
+  await writeFile(statePath, `${await readFile(statePath, 'utf8')}\n`);
+  const context = path.join(root, 'singularity', 'work-items', 'PREFLIGHT-1', 'context');
+  await mkdir(path.join(context, 'generation-start'), { recursive: true });
+  await writeFile(path.join(context, 'inputs-intake-gen1.json'), '{}\n');
+  await writeFile(path.join(context, 'generation-start', 'intake-gen1.json'), '{}\n');
+  git(root, 'add', path.relative(root, target));
+
+  const plan = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  const action = plan.actions.find((entry) => entry.id === 'working-tree');
+  assert.equal(action.mode, 'guided');
+  assert.equal(action.classification, 'current-phase-review-required');
+  assert.equal(action.reviewRequired, true);
+  assert.equal(action.safe, false, 'an exact path still requires diff review');
+  assert.equal(action.automatic, false);
+  assert.deepEqual(action.unexpectedPaths, []);
+  assert.ok(action.expectedPaths.includes('singularity/work-items/PREFLIGHT-1/workflow.json'));
+  assert.ok(action.expectedPaths.includes('singularity/work-items/PREFLIGHT-1/artifacts/intake/intake.md'));
+  assert.match(action.detail, /Review their Git diff, especially workflow\.json/);
+  assert.equal(plan.requiresRecovery, false, 'dirty authoring is not a lifecycle recovery gate');
+});
+
+test('recovery keeps unrelated and protected paths manual even beside an exact phase draft', async () => {
+  const { root, config, workflow, target } = await fixture('recovery-unrelated-worktree');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'baseline Story draft');
+  await writeFile(target, `${await readFile(target, 'utf8')}\nAuthoring remains in progress.\n`);
+  await writeFile(path.join(root, 'README.md'), '# Unrelated application change\n');
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), '# Protected policy change\n');
+
+  const plan = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  const action = plan.actions.find((entry) => entry.id === 'working-tree');
+  assert.equal(action.mode, 'manual');
+  assert.equal(action.classification, 'review-required');
+  assert.ok(action.expectedPaths.includes('singularity/work-items/PREFLIGHT-1/artifacts/intake/intake.md'));
+  assert.deepEqual(action.unexpectedPaths, ['README.md', 'singularity/workflow.yml']);
+  assert.equal(action.safe, false);
+  assert.equal(action.automatic, false);
+});
+
+test('recovery does not waive a configured protected path merely because it is the current draft', async () => {
+  const { root, config, workflow, target } = await fixture('recovery-protected-draft');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'baseline Story draft');
+  await writeFile(target, `${await readFile(target, 'utf8')}\nAuthoring remains in progress.\n`);
+  const relative = path.relative(root, target).replaceAll('\\', '/');
+  config.governance ??= {};
+  config.governance.protectedPaths = [relative];
+
+  const plan = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  const action = plan.actions.find((entry) => entry.id === 'working-tree');
+  assert.equal(action.mode, 'manual');
+  assert.deepEqual(action.unexpectedPaths, [relative]);
+});
+
+test('recovery does not classify renamed or other-Story files as current-phase authoring', async () => {
+  const { root, config, workflow, target } = await fixture('recovery-rename-worktree');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'baseline Story draft');
+  await writeFile(target, `${await readFile(target, 'utf8')}\nAuthoring remains in progress.\n`);
+  await mkdir(path.join(root, 'singularity', 'work-items', 'OTHER', 'context'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'work-items', 'OTHER', 'context', 'inputs-intake-gen1.json'), '{}\n');
+  git(root, 'mv', 'README.md', 'RENAMED.md');
+
+  const plan = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  const action = plan.actions.find((entry) => entry.id === 'working-tree');
+  assert.equal(action.mode, 'manual');
+  assert.ok(action.unexpectedPaths.includes('singularity/work-items/OTHER/context/inputs-intake-gen1.json'));
+  assert.ok(action.unexpectedPaths.includes('RENAMED.md'));
+});
+
+test('code-phase recovery keeps a prepared untouched implementation summary in authoring, not manual recovery', async (t) => {
+  const context = await codeFixture('recovery-code-template', { acceptance: false });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  git(context.root, 'add', '.');
+  git(context.root, 'commit', '-m', 'baseline code Story');
+  await beginPhaseGeneration(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  await preparePhaseInputs(context.root, context.config, context.workflow, 'implementation');
+  await saveWorkflow(context.root, context.config, context.workflow);
+  const untouched = (await readFile(
+    path.join(packageRoot, 'templates', 'artifacts', 'common', 'implementation.md'), 'utf8'
+  )).replaceAll('{{work.id}}', 'DELIVERY-1');
+  await writeFile(context.target, untouched);
+
+  const plan = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  const workingTree = plan.actions.find((entry) => entry.id === 'working-tree');
+  const authoring = plan.actions.find((entry) => entry.id === 'complete-artifact:implementation');
+  assert.equal(workingTree?.mode, 'guided');
+  assert.equal(workingTree?.classification, 'current-phase-review-required');
+  assert.deepEqual(workingTree?.unexpectedPaths, []);
+  assert.equal(workingTree?.safe, false);
+  assert.equal(authoring?.mode, 'guided');
+  assert.equal(authoring?.skill, '/sf-code');
+  assert.ok(plan.blockers.some((entry) => entry.code === 'artifact.placeholder.unresolved'));
+  assert.equal(plan.requiresRecovery, false);
+});
+
 test('branch recovery exposes one structured Shell and Copilot pair', () => {
   const rendered = recoveryText({
     workId: 'PREFLIGHT-1', planId: 'sha256:plan', branch: 'main',

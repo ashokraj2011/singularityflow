@@ -1,4 +1,4 @@
-import { branch, changes, fetchOrigin, hasUpstream, head, pullFastForward } from './git.mjs';
+import { branch, changedFiles, changes, fetchOrigin, hasUpstream, head, pullFastForward } from './git.mjs';
 import {
   currentPhase, generationResultDigest, generationResultMatches, syncPublication
 } from './state-stores.mjs';
@@ -13,6 +13,74 @@ import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
+
+function repositoryRelativePath(value) {
+  const relative = String(value ?? '').replaceAll('\\', '/').replace(/^\.\//u, '').replace(/\/+$/u, '');
+  if (!relative || relative.startsWith('/') || /^[A-Za-z]:/u.test(relative)
+      || relative.split('/').some((part) => !part || part === '..')) return null;
+  return relative;
+}
+
+function pathWithin(candidate, parent) {
+  const path = candidate.toLocaleLowerCase('en-US');
+  const root = parent.toLocaleLowerCase('en-US').replace(/\/$/u, '');
+  return path === root || path.startsWith(`${root}/`);
+}
+
+/**
+ * A dirty worktree is never automatically repaired. Separate exact current-phase authoring paths
+ * from unrelated changes so a prepared draft does not look like a mandatory manual recovery gate.
+ * This is a routing hint, not publication authority: even the workflow aggregate still needs
+ * review of its diff before an agent may continue.
+ */
+function workingTreeAction(root, config, workflow, phase, status) {
+  let paths;
+  try {
+    paths = changedFiles(root);
+  } catch {
+    paths = [];
+  }
+  const itemRoot = repositoryRelativePath(
+    `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`
+  );
+  const current = phase?.id === workflow.currentPhase && phase.status === 'in_progress'
+    && branch(root) === workflow.workItem.branch && itemRoot;
+  const generation = phase?.generationIntent?.status === 'open'
+    ? Number(phase.generationIntent.generation) : Number(phase?.generation ?? 0) + 1;
+  const artifact = repositoryRelativePath(phase?.requiredArtifact?.path);
+  const expected = current && artifact && Number.isSafeInteger(generation) && generation > 0
+    ? new Set([
+      `${itemRoot}/workflow.json`,
+      `${itemRoot}/${artifact}`,
+      `${itemRoot}/context/inputs-${phase.id}-gen${generation}.json`,
+      `${itemRoot}/context/generation-start/${phase.id}-gen${generation}.json`
+    ])
+    : new Set();
+  const protectedPaths = [
+    ...(config.governance?.protectedPaths ?? []),
+    ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+  ].map(repositoryRelativePath).filter(Boolean);
+  const statusLines = status.split(/\r?\n/u).filter(Boolean);
+  // Renames, removals, conflicts, and type changes have an old endpoint or content transition that
+  // a name-only roster cannot classify safely. Keep their entire recovery action manual.
+  const simpleStatus = statusLines.length === paths.length && statusLines.every((line) =>
+    ['??', ' M', 'M ', 'MM', ' A', 'A ', 'AM'].includes(line.slice(0, 2)));
+  const expectedPaths = paths.filter((candidate) => expected.has(candidate)
+    && !protectedPaths.some((guard) => pathWithin(candidate, guard)));
+  const unexpectedPaths = paths.filter((candidate) => !expectedPaths.includes(candidate));
+  const inPhaseAuthoring = simpleStatus && paths.length > 0 && unexpectedPaths.length === 0;
+  return {
+    id: 'working-tree', safe: false, automatic: false,
+    mode: inPhaseAuthoring ? 'guided' : 'manual',
+    classification: inPhaseAuthoring ? 'current-phase-review-required' : 'review-required',
+    reviewRequired: true,
+    confirmation: inPhaseAuthoring ? 'none' : 'human-authority', command: null,
+    paths, expectedPaths, unexpectedPaths,
+    detail: inPhaseAuthoring
+      ? 'Only exact current-phase preparation paths changed. Review their Git diff, especially workflow.json; these are uncommitted authoring bytes, not publication authority. Continue only if the changes match the current phase. Recovery will not discard or stash them.'
+      : 'Uncommitted changes include paths or Git operations outside exact current-phase preparation. Review them manually; recovery will not discard or stash them.'
+  };
+}
 
 /**
  * Apply an assignment to the in-memory Story aggregate.
@@ -118,11 +186,8 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     blockers.push(...terminalGate.findings);
     actions.push(...recoveryActionsForFindings(terminalGate.findings));
   }
-  if (changes(root).trim()) actions.push({
-    id: 'working-tree', safe: false, automatic: false, mode: 'manual',
-    confirmation: 'human-authority', command: null,
-    detail: 'Uncommitted changes are present. Review them; recovery will not discard or stash them.'
-  });
+  const worktreeStatus = changes(root);
+  if (worktreeStatus.trim()) actions.push(workingTreeAction(root, config, workflow, phase, worktreeStatus));
   if (!actions.length) actions.push({
     id: 'none', safe: true, automatic: false, mode: 'informational', confirmation: 'none', command: null,
     detail: 'No recoverable publication, branch, synchronization, artifact, projection, or generation problem was found.'

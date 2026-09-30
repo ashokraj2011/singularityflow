@@ -377,8 +377,23 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   assert.match(content, /Verify code phase\/pinned scope; intent must be open\/current if present, else step 5 begins it/);
   assert.match(content, /Allow owned in-phase `prepare-artifact`, `complete-artifact`, `repair-agent-brief-source`, `complete-code-delivery`; route others/);
   assert.match(content, /stop for protected\/unrelated\/unowned changes, other manual\/producer actions or `requiresRecovery: true`/i);
+  assert.match(content, /generation\.intent\.consumed-changed.*\/sf-recover/s);
+  assert.match(content, /generation\.intent\.consumed-changed.*never `\/sf-code` or waiver/);
   assert.match(content, /Initial template is baseline; stop on an unchanged fingerprint only after correction/);
   assert.doesNotMatch(content, /stop for manual\/unchanged\/other-producer recovery/);
+});
+
+test('recovery skill reviews a dirty consumed-generation rollover with an exact digest', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-recover', 'SKILL.md'), 'utf8');
+  assert.match(content, /A dirty tree stops recovery except the reviewed rollover/);
+  assert.match(content, /generation\.intent\.consumed-changed/);
+  assert.match(content, /git status --porcelain=v1 --untracked-files=all/);
+  assert.match(content, /ask the user to confirm exact owned, in-scope changes/);
+  assert.match(content, /phase rollover <phase> --json/);
+  assert.match(content, /Compare work ID, phase, command and `confirmation` digest with fresh recovery/);
+  assert.match(content, /phase rollover <phase> --confirm <digest>/);
+  assert.match(content, /Resume `\/sf-code` only when `requiresRecovery` is false/);
+  assert.match(content, /Published-generation integrity is not risk-acceptance eligible/);
 });
 
 test('verify skill routes release to its phase skill without running verification authoring', async () => {

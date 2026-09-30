@@ -3121,6 +3121,9 @@ export async function publishGeneration(root, config, workflow, {
         ...deliveryPreflight.changeClassification,
         declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
       },
+      ...(deliveryPreflight.documentationCorrection ? {
+        documentationCorrection: structuredClone(deliveryPreflight.documentationCorrection)
+      } : {}),
       ...(deliveryPreflight.testingRepair ? {
         testingRepair: structuredClone(deliveryPreflight.testingRepair)
       } : {}),

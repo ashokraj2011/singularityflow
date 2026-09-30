@@ -20,9 +20,11 @@ import {
 } from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
+import { evaluateCodeDeliveryPreflight } from '../src/delivery-evidence.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { buildSpecIndex, canonicalJson } from '../src/specifications.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
 import { sgosRevisionCandidateReference } from '../src/revision/candidate-adapter.mjs';
 import { computeRevisionPrecheck } from '../src/revision/precheck.mjs';
@@ -36,7 +38,7 @@ import {
 import {
   assertPlannedSpecificationClaims, commitAndPublish, createWorkflow,
   inspectRequiredArtifactRegistration, loadConfig, preparePhaseInputs,
-  beginPhaseGeneration, generationResultMatches, publishGeneration, registerArtifact,
+  beginPhaseGeneration, generationResultMatches, loadWorkflow, publishGeneration, registerArtifact,
   saveWorkflow, scanArtifacts, submitPhase
 } from '../src/state.mjs';
 
@@ -1532,7 +1534,7 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   const bounded = unavailableBaseline.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.equal(bounded.mode, 'guided');
   assert.match(bounded.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
-  assert.equal(bounded.skill, '/sf-code');
+  assert.equal(bounded.skill, '/sf-recover');
   await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
 
   await writeFile(
@@ -1555,7 +1557,13 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.ok(renewal, 'recovery did not offer a new generation boundary');
   assert.equal(renewal.mode, 'guided');
   assert.match(renewal.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
-  assert.equal(renewal.skill, '/sf-code');
+  assert.equal(renewal.skill, '/sf-recover');
+  const recoveryRoute = safeCommandGuidance(renewal);
+  assert.ok(recoveryRoute, 'the phase-scoped rollover must have a validated Shell/Copilot pair');
+  assert.equal(recoveryRoute.copilotCommand, '/sf-recover');
+  assert.match(recoveryText(recovery), /Copilot: \/sf-recover/);
+  assert.equal(recovery.blockers.find((entry) => entry.code === 'generation.intent.consumed-changed')
+    .details.riskAcceptance.eligible, false);
 
   const generatedContext = path.join(
     context.root, 'singularity', 'work-items', 'DELIVERY-1', 'context', 'recovery-attempt.json'
@@ -1880,4 +1888,203 @@ test('phase rollover previews exact current bytes and opens one successor withou
   assert.equal(stored.phases.implementation.generationIntent.status, 'open');
   assert.equal(git(context.root, 'rev-parse', 'HEAD'), publishedHead,
     'rollover created a commit instead of a local authoring boundary');
+});
+
+test('an in-scope README edit after code publication routes through recovery, then clears the code gate', async (t) => {
+  const context = await codeFixture('rollover-readme');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  const publishedHead = git(context.root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(context.root, 'README.md'), '# Updated delivery notes\n');
+
+  const recovery = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  const rollover = recovery.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
+  assert.equal(recovery.requiresRecovery, true);
+  assert.equal(rollover?.mode, 'guided');
+  assert.equal(rollover?.skill, '/sf-recover');
+  assert.equal(safeCommandGuidance(rollover)?.copilotCommand, '/sf-recover');
+  assert.equal(recovery.actions.find((entry) => entry.id === 'working-tree')?.mode, 'manual',
+    'dirty README must still require explicit path review');
+
+  const preview = JSON.parse(flow(context.root, ['phase', 'rollover', 'implementation', '--json']).stdout);
+  assert.equal(preview.mutates, false);
+  assert.equal(preview.command, rollover.command);
+  assert.equal(preview.skill, '/sf-recover');
+  assert.equal(preview.copilotCommand, '/sf-recover');
+  assert.deepEqual(preview.argv,
+    ['phase', 'rollover', 'implementation', '--confirm', preview.confirmation]);
+  assert.match(preview.platformCommands.win32, /phase.*rollover.*implementation/);
+  const humanPreview = flow(context.root, ['phase', 'rollover', 'implementation']).stdout;
+  assert.match(humanPreview, /Shell: singularity-flow phase rollover implementation --confirm sha256:/);
+  assert.match(humanPreview, /Copilot: \/sf-recover/);
+  const stale = flow(context.root, [
+    'phase', 'rollover', 'implementation', '--confirm', `sha256:${'0'.repeat(64)}`
+  ], { allowFailure: true });
+  assert.equal(stale.status, 1);
+  assert.equal(git(context.root, 'rev-parse', 'HEAD'), publishedHead);
+
+  flow(context.root, ['phase', 'rollover', 'implementation', '--confirm', preview.confirmation]);
+  const reloaded = await loadWorkflow(context.root, context.config, 'DELIVERY-1');
+  const post = await recoveryPlan(context.root, context.config, reloaded, {
+    phaseId: 'implementation'
+  });
+  assert.equal(post.requiresRecovery, false);
+  assert.ok(!post.blockers.some((entry) => entry.code === 'generation.intent.consumed-changed'));
+  assert.equal(git(context.root, 'rev-parse', 'HEAD'), publishedHead,
+    'rollover must not rewrite the published generation');
+});
+
+test('unverifiable prior publication offers authority repair, never an impossible rollover', async (t) => {
+  const context = await codeFixture('rollover-authority');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  const publication = context.phase.generationPublications.find((entry) => entry.generation === 1);
+  assert.ok(publication?.record?.path);
+  publication.record.path = 'package.json';
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App { int changed = 1; }\n');
+
+  const recovery = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  const repair = recovery.actions.find((entry) => entry.id === 'repair-publication-authority:implementation');
+  assert.equal(recovery.requiresRecovery, true);
+  assert.equal(repair?.mode, 'manual');
+  assert.equal(repair?.command, 'singularity-flow doctor --json');
+  assert.equal(repair?.skill, '/sf-doctor');
+  assert.equal(safeCommandGuidance(repair)?.copilotCommand, '/sf-doctor');
+  assert.ok(!recovery.actions.some((entry) => entry.id === 'begin-new-generation:implementation'));
+  assert.equal(recovery.blockers.find((entry) => entry.code === 'generation.intent.consumed-changed')
+    .details.publicationAuthority.code, 'GENERATION_PUBLICATION_INVALID');
+});
+
+test('README correction after Code publication rolls over and retains byte-verified source and tests', async (t) => {
+  const context = await codeFixture('readme-correction');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  const firstCommit = git(context.root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(context.root, 'README.md'),
+    '# Delivery usage\n\nThis change documents the already generated code.\n');
+  const recovery = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  assert.equal(recovery.requiresRecovery, true);
+  const preview = JSON.parse(flow(context.root, [
+    'phase', 'rollover', 'implementation', '--json'
+  ]).stdout);
+  flow(context.root, [
+    'phase', 'rollover', 'implementation', '--confirm', preview.confirmation
+  ]);
+  const workflow = await loadWorkflow(context.root, context.config, 'DELIVERY-1');
+  assert.equal(workflow.phases.implementation.generationIntent.status, 'open');
+  const draft = JSON.parse(flow(context.root, [
+    'phase', 'draft-check', 'implementation', '--json'
+  ]).stdout);
+  assert.equal(draft.status, 'ready');
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, workflow, 'implementation'
+  ));
+  const phase = workflow.phases.implementation;
+  assert.equal(phase.generation, 2);
+  assert.notEqual(git(context.root, 'rev-parse', 'HEAD'), firstCommit);
+  assert.deepEqual(phase.deliveryEvidence.sourcePaths, ['src/app.java']);
+  assert.deepEqual(phase.deliveryEvidence.testPaths, ['src/test/AppTest.java']);
+  assert.deepEqual(phase.deliveryEvidence.documentationCorrection, {
+    priorGeneration: 1,
+    priorGenerationCommit: firstCommit,
+    changedPaths: ['README.md'],
+    reusedSourcePaths: ['src/app.java'],
+    reusedTestPaths: ['src/test/AppTest.java']
+  });
+  assert.deepEqual(phase.deliveryEvidence.changeClassification.entries
+    .filter((entry) => entry.newPath === 'README.md')
+    .map((entry) => entry.role), ['documentation']);
+  assert.equal(phase.deliveryEvidence.paths.find((entry) => entry.path === 'README.md')?.kind,
+    'documentation');
+  const receipt = JSON.parse(await readFile(path.join(
+    context.root, phase.deliveryEvidence.receiptPath
+  ), 'utf8'));
+  assert.deepEqual(receipt.documentationCorrection, phase.deliveryEvidence.documentationCorrection);
+  assert.ok(receipt.changeSet.digest);
+  await inContext(context.root, () => submitPhase(context.root, context.config, workflow, {
+    phaseId: 'implementation', runChecks: true, persist: false
+  }));
+  assert.equal(phase.deliveryEvidence.testExecutions.length, 1);
+  assert.match(phase.deliveryEvidence.testExecutions[0].receiptPath,
+    /implementation-gen2-fixture-tests\.json$/);
+  assert.equal(phase.deliveryEvidence.status, 'ready');
+});
+
+test('README correction cannot reuse a mismatched prior source fingerprint', async (t) => {
+  const context = await codeFixture('readme-reuse-hash');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  await writeFile(path.join(context.root, 'README.md'), '# Corrected README\n');
+  const preview = JSON.parse(flow(context.root, [
+    'phase', 'rollover', 'implementation', '--json'
+  ]).stdout);
+  flow(context.root, [
+    'phase', 'rollover', 'implementation', '--confirm', preview.confirmation
+  ]);
+  const workflow = await loadWorkflow(context.root, context.config, 'DELIVERY-1');
+  const priorSource = workflow.phases.implementation.deliveryEvidence.paths
+    .find((entry) => entry.path === 'src/app.java');
+  priorSource.sha256 = `sha256:${'0'.repeat(64)}`;
+  await assert.rejects(
+    () => evaluateCodeDeliveryPreflight(
+      context.root, context.config, workflow, workflow.phases.implementation
+    ),
+    (error) => error.code === 'CODE_DELIVERY_REUSE_INVALID'
+  );
+  // Matching a forged workflow fingerprint to modified bytes cannot bypass the boundary even
+  // when Git's assume-unchanged flag tries to hide the source edit from ordinary diff output.
+  const sourcePath = path.join(context.root, 'src', 'app.java');
+  await writeFile(sourcePath, 'final class App { int hidden = 1; }\n');
+  priorSource.sha256 = `sha256:${createHash('sha256')
+    .update(await readFile(sourcePath)).digest('hex')}`;
+  git(context.root, 'update-index', '--assume-unchanged', 'src/app.java');
+  await assert.rejects(
+    () => evaluateCodeDeliveryPreflight(
+      context.root, context.config, workflow, workflow.phases.implementation
+    ),
+    (error) => error.code === 'WORKTREE_HIDDEN_CHANGE'
+  );
+});
+
+test('README alone does not satisfy first-generation Code delivery', async (t) => {
+  const context = await codeFixture('readme-not-source', { acceptance: false });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await writeFile(path.join(context.root, 'README.md'), '# Documentation alone is not code\n');
+  await inContext(context.root, () => assert.rejects(
+    () => publishGeneration(context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    }),
+    (error) => error.code === 'CODE_DELIVERY_EVIDENCE_REQUIRED'
+      && /no product source path changed/.test(error.message)
+  ));
 });

@@ -6155,6 +6155,11 @@ async function phaseCommand(positionals, options) {
       );
     }
     const expected = plan.blocker.details.rolloverConfirmation;
+    const route = safeCommandGuidance(plan.action);
+    if (!route) throw new SingularityFlowError(
+      'The reviewed rollover action has no validated Shell and Copilot route. Re-run recovery before changing state.',
+      { code: 'GENERATION_ROLLOVER_ROUTE_UNAVAILABLE', details: { action: plan.action } }
+    );
     const supplied = optionString(options, 'confirm');
     const preview = {
       schemaVersion: 1,
@@ -6165,7 +6170,12 @@ async function phaseCommand(positionals, options) {
       confirmation: expected,
       changeSetDigest: plan.blocker.details.changeSetDigest,
       currentResultDigest: plan.blocker.details.currentResultDigest,
-      command: plan.action.command,
+      command: route.command,
+      executable: route.executable,
+      argv: route.argv,
+      skill: route.skill,
+      copilotCommand: route.copilotCommand,
+      platformCommands: route.platformCommands,
       mutates: Boolean(supplied)
     };
     if (!supplied) {
@@ -6173,7 +6183,7 @@ async function phaseCommand(positionals, options) {
       else {
         console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${phase.generation + 1}.`);
         console.log(`Confirm exact current bytes: ${expected}`);
-        printCommandRoutes(plan.action.command, { label: 'Continue' });
+        printCommandRoutes(route, { label: 'Continue' });
         console.log('Nothing was changed.');
       }
       return;

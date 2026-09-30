@@ -247,6 +247,24 @@ test('a policy-selected custom code phase keeps the generic code-authoring Copil
   assert.equal(guidance.copilotCommand, '/sf-code');
 });
 
+test('phase rollover has a dedicated recovery route, not the code-authoring route', () => {
+  const command = `singularity-flow phase rollover implementation --confirm sha256:${'a'.repeat(64)}`;
+  assert.equal(skillForCommandLine(command), 'sf-recover');
+  const guidance = safeCommandGuidance({ command, skill: '/sf-recover' });
+  assert.ok(guidance);
+  assert.equal(guidance.copilotCommand, '/sf-recover');
+  assert.deepEqual(guidance.argv,
+    ['phase', 'rollover', 'implementation', '--confirm', `sha256:${'a'.repeat(64)}`]);
+  assert.equal(safeCommandGuidance({ command, skill: '/sf-code' }), null,
+    'a consumed-generation recovery must not route back to the code skill that stops on recovery');
+  const custom = safeCommandGuidance({
+    command: `singularity-flow phase rollover build-api --confirm sha256:${'b'.repeat(64)}`,
+    skill: '/sf-recover'
+  });
+  assert.equal(custom?.copilotCommand, '/sf-recover',
+    'repository-defined code phase names must use the same recovery route');
+});
+
 test('structured command argv is authoritative and disagreement fails closed', () => {
   const structured = safeCommandGuidance({
     executable: 'singularity-flow',

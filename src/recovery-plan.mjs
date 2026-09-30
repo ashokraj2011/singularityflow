@@ -67,13 +67,17 @@ export async function generationRecovery(root, workflow, phase, generationDigest
   let changeSetDigest = null;
   let previousGenerationCommit = null;
   let publicationAuthorityError = null;
+  let changeSetInspectionError = null;
   try {
     previousGenerationCommit = publishedGenerationCommit(root, workflow, phase, phase.generation);
   } catch (error) {
     publicationAuthorityError = error;
   }
-  const baseCommit = previousGenerationCommit
-    ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
+  // A successor generation must be based on the authenticated prior publication, not merely an
+  // older interval baseline. `beginCodeGeneration` enforces this too; do not offer a guided
+  // rollover that can only fail after the user has reviewed and confirmed its digest.
+  if (!previousGenerationCommit) mode = 'manual';
+  const baseCommit = previousGenerationCommit;
   if (baseCommit) {
     try {
       const changeSet = await buildRepositoryChangeSet(root, {
@@ -88,14 +92,12 @@ export async function generationRecovery(root, workflow, phase, generationDigest
       );
       if (applicationChangeSet.entries.length) {
         changeSetDigest = applicationChangeSet.digest;
-        if (!previousGenerationCommit
-            && (workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block') !== 'allow-explicit-adoption') {
-          mode = 'manual';
-        }
       }
-    } catch {
-      // The recovery finding remains valid. The ordinary phase-begin command will perform the same
-      // fail-closed change-set inspection and return a more specific repository error.
+    } catch (error) {
+      // The rollover command needs this same change-set inspection. Do not offer an apparently
+      // guided action that can only fail after the user has confirmed its digest.
+      changeSetInspectionError = error;
+      mode = 'manual';
     }
   }
   const rolloverConfirmation = changeSetDigest ?? digest;
@@ -113,6 +115,14 @@ export async function generationRecovery(root, workflow, phase, generationDigest
         currentResultDigest: digest,
         changeSetDigest,
         rolloverConfirmation,
+        riskAcceptance: {
+          eligible: false,
+          reason: 'A published generation may be superseded only by an authenticated successor; its changed bytes cannot be accepted as a waiver.'
+        },
+        changeSetInspection: changeSetInspectionError ? {
+          code: changeSetInspectionError.code ?? 'GENERATION_CHANGE_SET_UNAVAILABLE',
+          message: changeSetInspectionError.message
+        } : null,
         publicationAuthority: publicationAuthorityError ? {
           code: publicationAuthorityError.code ?? 'GENERATION_PUBLICATION_UNAVAILABLE',
           message: publicationAuthorityError.message
@@ -120,13 +130,18 @@ export async function generationRecovery(root, workflow, phase, generationDigest
       }
     },
     action: action({
-      id: `begin-new-generation:${phase.id}`, mode,
+      id: mode === 'manual'
+        ? `${!previousGenerationCommit ? 'repair-publication-authority' : 'repair-generation-change-set'}:${phase.id}`
+        : `begin-new-generation:${phase.id}`, mode,
       detail: mode === 'manual'
         ? publicationAuthorityError
-          ? 'Published bytes changed, but the exact prior generation commit could not be authenticated. Preserve the work and repair or migrate publication authority before beginning another generation.'
-          : 'Published bytes changed, but Story policy forbids adopting the existing application changes. Preserve the work and obtain a policy decision before beginning another generation.'
-        : 'Begin a new generation intent bound to the exact current artifact and application bytes. The published generation remains preserved.',
-      command, skill: mode === 'manual' ? null : '/sf-code',
+          ? `Published bytes changed, but the exact prior generation commit could not be authenticated (${publicationAuthorityError.code ?? 'GENERATION_PUBLICATION_UNAVAILABLE'}: ${publicationAuthorityError.message}). Preserve the work and repair or migrate publication authority before beginning another generation.`
+          : changeSetInspectionError
+            ? `Published bytes changed, but the application change set could not be inspected (${changeSetInspectionError.code ?? 'GENERATION_CHANGE_SET_UNAVAILABLE'}: ${changeSetInspectionError.message}). Preserve the work and repair the repository read before beginning another generation.`
+            : 'Published bytes changed, but the exact prior generation commit is unavailable. Preserve the work and repair publication authority before beginning another generation.'
+        : 'Review the exact current artifact and application changes, then begin a successor generation without changing the published generation. Use /sf-recover for this phase-scoped rollover; /sf-code resumes only after recovery clears.',
+      command: mode === 'manual' ? 'singularity-flow doctor --json' : command,
+      skill: mode === 'manual' ? '/sf-doctor' : '/sf-recover',
       evidence: { path: phase.generationIntent.path ?? null, line: null }
     })
   };

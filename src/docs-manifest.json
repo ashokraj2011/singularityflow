@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "4c492e7b13463621c780cfc95349a8a039fdd12e",
+  "sourceCommit": "d0860a34b39c739eb7c118140b2e10e73f23c9d6",
   "topicCount": 68,
-  "contentSha256": "19b8a0d01a342299c64a18ec4ecdca87160b26191bb339f453b9d98f80314e85",
+  "contentSha256": "939161f0aad7a47d9035866eaeda6e305d6a8bef76f932edfb294885959acd80",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -40,8 +40,8 @@
     {
       "id": "artifacts-and-generation",
       "title": "Artifacts, templates, and publication",
-      "version": 6,
-      "sha256": "e52449c12bf7592751340ddc8579cb2d0677ffc94adc1395ec404cd7067dd320",
+      "version": 7,
+      "sha256": "ef7cf45ee7f030ae6ac98aa7d632694a8b497630bfb6abc4ececfb5adc7ff520",
       "routingSha256": "dd716dda63734db0f89e1995d31e40d3f25400815b1a17e57d2f0d758e7c58b7",
       "file": "artifacts-and-generation.md"
     },
@@ -376,8 +376,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 9,
-      "sha256": "b1450826c52fcdd8afab6bb1b2793b073ed90d67a6a07e1e6bc021d4f3e222e9",
+      "version": 10,
+      "sha256": "9793b4ec41fe39cc79239a2c38ffbd38ba4645b4b6d1242d260699ebd2097948",
       "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },

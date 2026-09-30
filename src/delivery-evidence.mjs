@@ -47,6 +47,15 @@ function pathInside(candidate, root) {
   return Boolean(value && prefix && (value === prefix || value.startsWith(`${prefix}/`)));
 }
 
+// Documentation may accompany a code delivery, but it cannot itself satisfy the product-source
+// requirement. Keep this intentionally narrow: a Markdown file under docs/ or a nested README
+// may be executable product input in a documentation application. Only conventional top-level
+// project notes get this special classification.
+function isDocumentationPath(candidate) {
+  const relative = posix(candidate ?? '');
+  return /^(?:README|CHANGELOG|CONTRIBUTING|LICENSE|NOTICE)(?:\.(?:md|markdown|mdx|rst|adoc|txt))?$/iu.test(relative);
+}
+
 /**
  * Describe what each changed path is for without pretending path names prove who authored bytes.
  * Explicit authorship/change-origin declarations live on the generation receipt; this projection
@@ -65,6 +74,7 @@ export function classifyDeliveryChanges(changeSet, {
     const migration = /(?:^|\/)(?:migrations?|db\/migrate)(?:\/|$)/i.test(candidate ?? '');
     const test = isAllowedTestAutomationPath(candidate ?? '');
     const tooling = /(?:^|\/)(?:pom\.xml|build\.gradle(?:\.kts)?|package\.json|pyproject\.toml|go\.mod|Cargo\.toml)$/i.test(candidate ?? '');
+    const documentation = isDocumentationPath(candidate);
     const generated = configuredGenerated || isGeneratedOutputPath(candidate ?? '');
     const role = configuredGenerated ? 'generated-source'
       : testOutput ? 'test-output'
@@ -72,7 +82,8 @@ export function classifyDeliveryChanges(changeSet, {
           : migration ? 'migration'
             : test ? 'test-source'
               : tooling ? 'build-configuration'
-                : generated ? 'generated-output' : 'product-source';
+                : documentation ? 'documentation'
+                  : generated ? 'generated-output' : 'product-source';
     const likelyOrigin = configuredGenerated ? 'code-generator'
       : testOutput ? 'test-runner'
         : compilerOutput ? 'compiler'
@@ -329,7 +340,8 @@ async function pathEvidence(root, paths, { changeSet = null } = {}) {
       : false;
     records.push({
       path: relative,
-      kind: isAllowedTestAutomationPath(relative) ? 'test' : 'source',
+      kind: isAllowedTestAutomationPath(relative) ? 'test'
+        : isDocumentationPath(relative) ? 'documentation' : 'source',
       fileKind: gitlink ? 'gitlink' : !info ? 'missing' : info.isSymbolicLink() ? 'symlink' : info.isFile() ? 'regular-file' : 'non-regular',
       exists: gitlink || current.exists,
       size: gitlink ? null : current.size,
@@ -373,6 +385,66 @@ async function validatedReusablePaths(root, candidates, priorEvidence, { role, s
     valid.push(record.path);
   }
   return valid;
+}
+
+function assertPublishedDocumentationBaseline(root, config, workflow, phase, priorCommit) {
+  const priorGeneration = Number(phase.generation ?? 0);
+  const itemPath = posix(path.join(
+    config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
+  ));
+  const receiptPath = posix(path.join(
+    itemPath,
+    'context', 'code-delivery', `${phase.id}-gen${priorGeneration}.json`
+  ));
+  const workflowPath = `${itemPath}/workflow.json`;
+  if (phase.deliveryEvidence?.receiptPath !== receiptPath
+      || Number(phase.deliveryEvidence?.generation) !== priorGeneration) {
+    throw new SingularityFlowError(
+      'The previous code-delivery receipt is not bound to this phase generation.',
+      { code: 'CODE_DELIVERY_REUSE_INVALID' }
+    );
+  }
+  let prior;
+  let publishedEvidence;
+  try {
+    const historical = exactFileAtObject(root, priorCommit, receiptPath, {
+      maximumBytes: MAX_BOUND_SOURCE_BYTES
+    });
+    const historicalWorkflow = exactFileAtObject(root, priorCommit, workflowPath, {
+      maximumBytes: MAX_BOUND_SOURCE_BYTES
+    });
+    if (!historical) throw new Error('receipt is absent from the published commit');
+    if (!historicalWorkflow) throw new Error('Story state is absent from the published commit');
+    prior = readRecord('code-delivery', historical.toString('utf8')).record;
+    publishedEvidence = readRecord('story-workflow', historicalWorkflow.toString('utf8')).record
+      .phases?.[phase.id]?.deliveryEvidence;
+  } catch (error) {
+    throw new SingularityFlowError(
+      `The previous code-delivery receipt cannot be verified: ${error.message}`,
+      { code: 'CODE_DELIVERY_REUSE_INVALID', cause: error }
+    );
+  }
+  const exactPaths = (left, right) => Array.isArray(left) && Array.isArray(right)
+    && canonicalJson(left) === canonicalJson(right);
+  if (prior.kind !== 'code-delivery'
+      || prior.workId !== workflow.workItem.id || prior.phase !== phase.id
+      || Number(prior.generation) !== priorGeneration
+      || !['pending-tests', 'ready'].includes(prior.status)
+      || !exactPaths(prior.changeSet?.sourcePaths, phase.deliveryEvidence.sourcePaths)
+      || !exactPaths(prior.changeSet?.executableTestPaths, phase.deliveryEvidence.testPaths)
+      || !exactPaths(publishedEvidence?.paths, phase.deliveryEvidence.paths)
+      || !exactPaths(publishedEvidence?.sourcePaths, phase.deliveryEvidence.sourcePaths)
+      || !exactPaths(publishedEvidence?.testPaths, phase.deliveryEvidence.testPaths)
+      || publishedEvidence?.receiptPath !== receiptPath
+      || Number(publishedEvidence?.generation) !== priorGeneration
+      || publishedEvidence?.sourceTreeSha256 !== phase.deliveryEvidence.sourceTreeSha256
+      || publishedEvidence?.changeSet?.digest !== phase.deliveryEvidence.changeSet?.digest
+      || prior.changeSet?.digest !== phase.deliveryEvidence.changeSet?.digest) {
+    throw new SingularityFlowError(
+      'The previous code-delivery source/test paths or fingerprints differ from the published generation.',
+      { code: 'CODE_DELIVERY_REUSE_INVALID' }
+    );
+  }
 }
 
 /** Refuse a code phase before generation state or telemetry is mutated. */
@@ -444,6 +516,15 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const changedEndpointPaths = new Set(applicationEntries.flatMap((entry) =>
     [entry.oldPath, entry.newPath].filter(Boolean)));
   const changedTestCandidates = changedPaths.filter(isAllowedTestAutomationPath);
+  const priorGenerationCommit = phase.generationIntent?.baseline?.previousGenerationCommit ?? null;
+  const documentationOnlyCorrection = Number(phase.generation ?? 0) > 0
+    && priorGenerationCommit === baselineCommit
+    && applicationEntries.length > 0
+    && applicationEntries.every((entry) => [entry.oldPath, entry.newPath]
+      .filter(Boolean).every(isDocumentationPath));
+  if (documentationOnlyCorrection) {
+    assertPublishedDocumentationBaseline(root, config, workflow, phase, priorGenerationCommit);
+  }
   const sourceExtensions = [...new Set((phase.qualityCommands ?? []).flatMap((command, index) => {
     try { return normalizeExternalCommand(command, index).result?.sourceExtensions ?? []; }
     catch { return []; }
@@ -476,10 +557,11 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths])].sort();
   const deletedSourcePaths = applicationEntries
     .filter((entry) => entry.oldPath && entry.oldPath !== entry.newPath
-      && !isAllowedTestAutomationPath(entry.oldPath))
+      && !isAllowedTestAutomationPath(entry.oldPath) && !isDocumentationPath(entry.oldPath))
     .map((entry) => entry.oldPath);
   const changedSourcePaths = [...new Set([
-    ...changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate)),
+    ...changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate)
+      && !isDocumentationPath(candidate)),
     ...deletedSourcePaths
   ])].sort();
   // A reviewer-returned Testing defect can change only executable tests or their supporting
@@ -507,8 +589,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     && applicationEntries.length > 0
     && applicationEntries.every((entry) => [entry.oldPath, entry.newPath]
       .filter(Boolean).every(isAllowedTestAutomationPath));
-  const reusableSourceCandidates = intentRevalidation || testOnlyRepair
-    ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) => !changedEndpointPaths.has(candidate))
+  const reusableSourceCandidates = intentRevalidation || testOnlyRepair || documentationOnlyCorrection
+    ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) =>
+      !changedEndpointPaths.has(candidate) && !isDocumentationPath(candidate))
     : [];
   const reusableSourcePaths = await validatedReusablePaths(
     root, reusableSourceCandidates, phase.deliveryEvidence?.paths, { role: 'source' }
@@ -577,6 +660,14 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     deletedSourcePaths: [...new Set(deletedSourcePaths)].sort(),
     testPaths,
     supportingTestPaths,
+    documentationCorrection: documentationOnlyCorrection ? {
+      priorGeneration: Number(phase.generation),
+      priorGenerationCommit,
+      changedPaths: [...new Set(applicationEntries.flatMap((entry) =>
+        [entry.oldPath, entry.newPath].filter(Boolean)))].sort(),
+      reusedSourcePaths: reusableSourcePaths,
+      reusedTestPaths: reusableTestPaths
+    } : null,
     intentRevalidation: intentRevalidation ? phase.intentAmendmentRevalidation.id : null,
     testingRepair: testOnlyRepair ? {
       changeRequestId: repairRequest.id,

@@ -104,7 +104,7 @@ const entries = {
   visual: ['sf-visual'],
   documents: ['sf-documents', 'sf-upload'],
   prepare: ['sf-phase', 'sf-code', 'sf-specify', 'sf-plan', 'sf-implement', 'sf-converge', 'sf-verify'],
-  phase: ['sf-phase', 'sf-code', 'sf-specify', 'sf-plan', 'sf-implement', 'sf-converge', 'sf-verify'],
+  phase: ['sf-phase', 'sf-code', 'sf-specify', 'sf-plan', 'sf-implement', 'sf-converge', 'sf-verify', 'sf-recover'],
   artifact: ['sf-phase'],
   pr: ['sf-pr', 'sf-stack'],
   stack: ['sf-stack'],
@@ -201,7 +201,9 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     'begin approve': 'sf-approve'
   }),
   fault: route('sf-fault'),
-  phase: route('sf-phase'),
+  phase: route('sf-phase', {
+    rollover: 'sf-recover'
+  }),
   prepare: route('sf-phase'),
   documents: route('sf-documents', {
     upload: 'sf-upload',

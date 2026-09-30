@@ -4816,7 +4816,8 @@ async function documentsCommand(positionals, options) {
     console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
     if (result.record.url) console.log(`URL: ${result.record.url}`);
     else console.log(`Path: ${result.absolutePath ?? pathForDisplay(root, result.record.path)}`);
-    if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or local viewer.');
+    if (result.rendition?.status === 'extracted') process.stdout.write(`\nText extracted from this file (the original is binary):\n\n${result.rendition.text}`);
+    else if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or local viewer.');
     else if (result.content != null) process.stdout.write(`\n${result.content}`);
     return;
   }

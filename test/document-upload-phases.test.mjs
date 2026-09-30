@@ -87,9 +87,12 @@ test('a spec-driven Story takes documents at start and in its first phase withou
 
   const definition = await loadDefinition(root);
   const workflow = await loadStoryAggregate(root, definition, 'SPEC-DOC-1');
-  assert.deepEqual(workflow.resolution.documents.allowedPhases, [], 'the pinned list is still empty');
-  assert.deepEqual(documentUploadPhases(workflow, definition), ['specification'],
-    'an empty list falls back to the first phase');
+  assert.deepEqual(workflow.resolution.documents.allowedPhases, ['specification', 'planning'],
+    'the spec-driven work type names the phases that read sources');
+  assert.deepEqual(documentUploadPhases(workflow, definition), ['specification', 'planning']);
+  const unnamed = { ...workflow, resolution: { ...workflow.resolution, documents: { ...workflow.resolution.documents, allowedPhases: [] } } };
+  assert.deepEqual(documentUploadPhases(unnamed, definition), ['specification'],
+    'a work type whose list names none of its phases falls back to its first phase');
 
   const later = await brief('provider notes.md', '# Provider notes\nThe provider returns 409 on a duplicate.\n');
   flow(root, ['documents', 'upload', later, '--name', 'Provider notes']);

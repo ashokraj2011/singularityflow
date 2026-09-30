@@ -107,8 +107,11 @@ function creationStoryText(root, base, relative) {
 }
 
 /**
- * The Story text and the pinned attachments offered to `phaseId`. A document recorded before
- * phase scope existed is offered to every phase, so bindings of existing reviews do not change.
+ * The Story text and the pinned attachments offered to `phaseId`, and the attachments a reviewer
+ * cannot cite: a link, a document kept on one machine, a file with no text layer (a PDF or an
+ * image), or one too large to cite. Those no longer refuse the review; each becomes a decision a
+ * person records. A document recorded before phase scope existed is offered to every phase, and a
+ * review whose sources are all readable binds exactly what it bound before.
  */
 async function storySources(root, config, workflow, phaseId) {
   const base = itemRelative(config, workflow.workItem.id);
@@ -125,22 +128,26 @@ async function storySources(root, config, workflow, phaseId) {
     text: boundedText(utf8(story.bytes, 'Story text'), 'Story text'),
     originalSha256: source.sha256
   }];
+  const unreadable = [];
   const manifestRelative = `${base}/documents.json`;
   const manifest = await secureRepositoryPath(root, manifestRelative, { label: 'Story document catalog' });
-  if (!manifest.exists) return sources;
+  if (!manifest.exists) return { sources, unreadable };
   const catalog = readRecord('document-manifest',
     (await checkedFile(root, manifestRelative, 'Story document catalog')).bytes).record;
   if (catalog.workId !== workflow.workItem.id || !Array.isArray(catalog.documents)) throw new SingularityFlowError('Story document catalog is malformed.', {
     code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE'
   });
   for (const document of catalog.documents.filter((entry) => entry?.status !== 'detached' && documentOfferedToPhase(entry, phaseId))) {
+    const name = document.name ?? document.id;
+    // A review is re-checked on other machines, which do not have a machine-local document's bytes.
     if (isLocalDocument(document)) {
-      // A review is re-checked on other machines, which do not have these bytes.
-      throw new SingularityFlowError(
-        `Attachment '${document.id}' (${document.name ?? document.id}) is kept on one machine only, so an independent review cannot cite it. `
-        + `Stop offering it to ${phaseId} with singularity-flow documents scope ${document.id} --phases <PHASES> --reason "<why>", or re-attach it with --store git.`,
-        { code: 'SOURCE_REVIEW_INPUT_UNREADABLE' }
-      );
+      unreadable.push({ id: document.id, name, code: 'machine-local-storage', originalSha256: document.sha256,
+        reason: 'it is kept on one machine only' });
+      continue;
+    }
+    if (document.type === 'url') {
+      unreadable.push({ id: document.id, name, code: 'external-reference', reason: `it is a link (${document.url}) with no pinned bytes` });
+      continue;
     }
     if (document.type !== 'file' || !document.path || !SHA256.test(String(document.sha256 ?? ''))) {
       throw new SingularityFlowError(`Attachment '${document.id ?? 'unknown'}' has no pinned reviewable file bytes.`, {
@@ -156,21 +163,26 @@ async function storySources(root, config, workflow, phaseId) {
     if (isTextualSource(document.mimeType, relative)) text = utf8(file.bytes, `Attachment '${document.id}'`);
     else {
       const extracted = extractSourceText(file.bytes, document.mimeType);
-      if (extracted.status !== 'extracted') throw new SingularityFlowError(
-        `Attachment '${document.id}' (${document.mimeType ?? 'unknown type'}) cannot be cited: ${extracted.reason}.`,
-        { code: 'SOURCE_REVIEW_INPUT_UNREADABLE' }
-      );
+      if (extracted.status !== 'extracted') {
+        unreadable.push({ id: document.id, name, code: 'no-text-layer', originalSha256: file.sha256,
+          reason: `${document.mimeType ?? 'its type'} has no text a reviewer can cite (${extracted.reason})` });
+        continue;
+      }
       text = extracted.text;
     }
-    sources.push({ id: document.id, path: relative,
-      text: boundedText(text, `Attachment '${document.id}'`), originalSha256: file.sha256 });
+    if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
+      unreadable.push({ id: document.id, name, code: 'too-large-to-cite', originalSha256: file.sha256,
+        reason: `its text is larger than the ${MAX_TEXT_BYTES}-byte review limit` });
+      continue;
+    }
+    sources.push({ id: document.id, path: relative, text, originalSha256: file.sha256 });
   }
   if (sources.reduce((total, entry) => total + Buffer.byteLength(entry.text, 'utf8'), 0) > MAX_TOTAL_TEXT_BYTES) {
     throw new SingularityFlowError('Pinned Story sources exceed the source review text budget.', {
       code: 'SOURCE_REVIEW_INPUT_TOO_LARGE'
     });
   }
-  return sources;
+  return { sources, unreadable };
 }
 
 async function phaseArtifact(root, config, workflow, phaseId) {
@@ -200,7 +212,7 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
       { code: 'SOURCE_REVIEW_AGENT_NOT_PINNED' }
     );
   }
-  const sources = await storySources(root, config, workflow, phaseId);
+  const { sources, unreadable } = await storySources(root, config, workflow, phaseId);
   const artifact = await phaseArtifact(root, config, workflow, phaseId);
   const upstreamSpec = phaseId === 'planning'
     ? await (async () => {
@@ -213,7 +225,7 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
     : null;
   const context = {
     kind: phaseId, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
-    sources, artifact, ...(upstreamSpec ? { upstreamSpec } : {}),
+    sources, ...(unreadable.length ? { unreadableSources: unreadable } : {}), artifact, ...(upstreamSpec ? { upstreamSpec } : {}),
     authorAgentId: phase.generatedAgent ?? 'human-author', reviewerAgentId, reviewerAgentSha256
   };
   return { ...context, binding: sourceReviewBinding(context) };
@@ -431,6 +443,8 @@ export async function sourceReviewContext(root, config, workflow, phaseId, stagi
     sources: input.sources.map((source) => ({ id: source.id, path: source.path,
       originalSha256: source.originalSha256, textSha256: sha256(Buffer.from(source.text, 'utf8')),
       text: source.text })),
+    // Not for the reviewer to cite: each needs a person's recorded decision instead.
+    ...(input.unreadableSources?.length ? { unreadableSources: input.unreadableSources } : {}),
     artifact: { path: input.artifact.path, sha256: input.binding.artifact.sha256,
       originalSha256: input.binding.artifact.originalSha256, text: input.artifact.text },
     ...(input.upstreamSpec ? { upstreamSpec: {

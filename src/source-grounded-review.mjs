@@ -64,8 +64,20 @@ function artifactBinding(artifact, label) {
     ...(artifact.originalSha256 ? { originalSha256: artifact.originalSha256 } : {}) };
 }
 
+const UNREADABLE_CODES = new Set(['machine-local-storage', 'external-reference', 'no-text-layer', 'too-large-to-cite']);
+
+/** An attachment the reviewer cannot cite, bound by identity so a later change is noticed. */
+function unreadableBinding(entry) {
+  const id = requireId(entry?.id, 'Unreadable source id');
+  if (!UNREADABLE_CODES.has(entry?.code)) throw new SingularityFlowError(`Unreadable source '${id}' has an unknown reason code.`);
+  if (entry.originalSha256 != null && !SHA256.test(entry.originalSha256)) {
+    throw new SingularityFlowError(`Unreadable source '${id}' original SHA-256 is invalid.`);
+  }
+  return { id, code: entry.code, ...(entry.originalSha256 ? { originalSha256: entry.originalSha256 } : {}) };
+}
+
 /** Build the binding expected in the independent report from current, trusted input bytes. */
-export function sourceReviewBinding({ kind, workId, phase, generation, sources, artifact, upstreamSpec = null }) {
+export function sourceReviewBinding({ kind, workId, phase, generation, sources, artifact, upstreamSpec = null, unreadableSources = [] }) {
   if (!['specification', 'planning'].includes(kind)) throw new SingularityFlowError('Review kind must be specification or planning.');
   requireId(workId, 'Review work ID');
   requireId(phase, 'Review phase');
@@ -78,9 +90,15 @@ export function sourceReviewBinding({ kind, workId, phase, generation, sources, 
     throw new SingularityFlowError('Review source IDs must be unique.');
   }
   if (kind === 'planning' && !upstreamSpec) throw new SingularityFlowError('Planning review needs the approved specification.');
+  const unreadable = (unreadableSources ?? []).map(unreadableBinding).sort((left, right) => left.id.localeCompare(right.id));
+  if (unreadable.some((entry) => boundSources.some((source) => source.id === entry.id))) {
+    throw new SingularityFlowError('A source cannot be both cited and unreadable.');
+  }
   return {
     workId, phase, generation,
     sources: boundSources,
+    // Present only when an attachment cannot be cited, so an all-readable review binds as before.
+    ...(unreadable.length ? { unreadableSources: unreadable } : {}),
     artifact: artifactBinding(artifact, 'Review artifact'),
     ...(kind === 'planning' ? { upstreamSpec: artifactBinding(upstreamSpec, 'Approved specification') } : {})
   };
@@ -267,6 +285,11 @@ export function evaluateSourceGroundedReview(report, context) {
     findings.push(finding('reviewer-not-independent', 'A trusted, read-only reviewer distinct from the artifact author is required.'));
   }
   reviewedSourceSet(report, binding, findings);
+  // The reviewer cannot cite these; a person records that the phase proceeds without them.
+  for (const entry of context.unreadableSources ?? []) pendingDispositions.push({
+    id: `unreadable:${entry.id}`, kind: 'unreadable-source', documentId: entry.id, code: entry.code,
+    reason: `${entry.id} (${entry.name ?? entry.id}) cannot be cited: ${entry.reason ?? entry.code}.`
+  });
   try {
     if (context.kind === 'specification') evaluateSpecificationRows(report, context, binding, findings, pendingDispositions);
     else evaluatePlanningRows(report, context, findings, pendingDispositions);

@@ -7763,7 +7763,7 @@ First run `singularity-flow review`; show its artifact, provenance, checks, deci
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~608 body tokens</span>
+          <span class="pill">~659 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review-source</code></dd></div>
@@ -7790,11 +7790,11 @@ argument-hint: &quot;&lt;specification|planning&gt;&quot;
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow review-source context &lt;phase&gt; --json`. Require the selected phase to be `specification` or `planning`, with a current published generation and a complete pinned source inventory. If any source is unavailable or truncated, stop and report it.
+1. Run `singularity-flow review-source context &lt;phase&gt; --json`. Require the selected phase to be `specification` or `planning`, with a current published generation and a complete pinned source inventory. If any listed source is unavailable or truncated, stop and report it. Documents under `unreadableSources` (links, PDFs or images without text, machine-local, too large) are not cited; each becomes an `unreadable:&lt;DOC-id&gt;` decision for a human.
 2. Select the independently pinned governed agent named by `requiredReviewerAgentId` with `singularity-flow agent --agent &lt;that-id&gt;`. Have that agent read the packet and its exact cited files. The specification or plan author cannot be the reviewer. The reviewer must not edit source, artifacts, tests, workflow records, or approvals.
 3. Produce the JSON report with the exact `binding` from the context command. For specification rows, cite `sourceId`, one-based `line`, exact `quote`, `S#` scenario, and full clause IDs, or propose an `excluded` row with reason or a `question` row. For planning rows, assess every approved clause&#39;s exact source paths and planned test paths and expose every `not-applicable` reason. List blocking semantic gaps with source citations. Never infer that zero validator findings prove semantic correctness.
 4. Stage the report only at the Git-private path returned by the context command. Run `singularity-flow review-source submit &lt;phase&gt; --report-file &lt;that-path&gt;`. The command must validate the source and artifact hashes and retain the review separately from the author&#39;s artifact. If the agent cannot establish independent reviewer provenance, stop; the author may not self-certify by writing a packet.
-5. Show the retained report hash, mapped sources and clauses, blocking findings, pending exclusions, unanswered questions, and test exceptions. Route corrections to the artifact author and exclusions or test exceptions to the authorized human reviewer with `singularity-flow review-source decide &lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt;`. After a correction, review the new exact generation again. The read-only reviewer must not submit, approve, or advance the phase; select the configured phase agent again before the next phase action.
+5. Show the retained report hash, mapped sources and clauses, blocking findings, pending exclusions, unanswered questions, and test exceptions. Route corrections to the artifact author and exclusions, unreadable sources, or test exceptions to the authorized human reviewer with `singularity-flow review-source decide &lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt;`. After a correction, review the new exact generation again. The read-only reviewer must not submit, approve, or advance the phase; select the configured phase agent again before the next phase action.
 </code></pre>
       </div>
     </details>
@@ -8592,7 +8592,7 @@ argument-hint: &quot;analyze|claims|coverage|acceptance|tasks|trace&quot;
           <span class="pill">echo</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~776 body tokens</span>
+          <span class="pill">~789 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-specify</code></dd></div>
@@ -8617,16 +8617,15 @@ disable-model-invocation: true
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
-1. Run `singularity-flow specify --json`. It resolves the subject, phase, generation, pending publication and approval state, and returns the milestone, the checkpoint it stopped at, and the underlying kernel operations.
+1. Run `singularity-flow specify --json`. It returns the milestone, the checkpoint it stopped at, and the underlying kernel operations.
 2. Relay `checkpoint.reason` and the ordered `next[]` actions. Never invent an action the router did not return.
 3. If the checkpoint is `recovery`, route it first. Nothing else may proceed while a retained commit has not reached its remote.
 4. If the checkpoint is `approval`, stop. Approval needs an authorized human Git identity; a governed agent cannot grant it.
-5. At `model-generation`, require the first `NOW` action in the returned `next[]` to be `singularity-flow prepare specification`; run that exact returned command once and use its artifact path. If the action differs, stop and relay the returned route; never author a seeded or stale draft. With the resolved agent, approved inputs, pinned template/constitution, and required world-model views, author `spec.md` scenario-first: prioritized Given/When/Then scenarios, actors, empty/failure states, permissions, boundaries, and non-functional requirements. Fill `Agent brief` with approved intent only; the kernel preserves exact sections for review. Where evidence is missing, write `[NEEDS CLARIFICATION: &lt;one question grounded in the current Story evidence&gt;]`, not an invented answer.
+5. At `model-generation`, require the first `NOW` action in the returned `next[]` to be `singularity-flow prepare specification`; run that exact returned command once and use its artifact path. If the action differs, stop and relay the returned route; never author a seeded or stale draft. With the resolved agent, approved inputs, pinned template/constitution, and required world-model views, author `spec.md` scenario-first: prioritized Given/When/Then scenarios, actors, empty/failure states, permissions, boundaries, and non-functional requirements. Fill `Agent brief` with approved intent only; the kernel preserves exact sections for review. Read `singularity-flow documents list --phase specification --json`; under `## Sources` cite each document used as `DOC-nnn — &lt;name&gt;` and list unreadable or unavailable ones as gaps. Where evidence is missing, write `[NEEDS CLARIFICATION: &lt;one question grounded in the current Story evidence&gt;]`, not an invented answer.
 6. Before publication run `singularity-flow phase draft-check specification --json`, then `singularity-flow phase prepublish specification --json`. If unready, run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase specification --json`; keep recovery in this phase. Repair every structured agent finding in this Copilot turn from the governed prompt and approved evidence only when `correction.sameTurn`; otherwise route to its producer or human. Allow at most three distinct changed fingerprints; stop on an unchanged fingerprint or still unready after three. Never blindly delete markers, invent facts, add padding, launch a nested Copilot/model invocation, or overwrite human-, deterministic-, or external-authored output. Publish only when prepublish `status` is `ready`. A race-time `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and at most one publication retry if ready, never a loop. Never submit or approve.
 7. Never present a milestone as reached unless the router says so. A command returning successfully is not completion.
 8. State the underlying operations you ran.
-9. Do not approve, reject, or advance a phase.
-10. For every returned next action, show its direct Copilot route first as `Next in Copilot: /sf-...`, followed by the exact `Terminal equivalent: singularity-flow ...`. Never omit or guess either route.
+9. For every returned next action, show its direct Copilot route first as `Next in Copilot: /sf-...`, followed by the exact `Terminal equivalent: singularity-flow ...`. Never omit or guess either route.
 </code></pre>
       </div>
     </details>

@@ -19,7 +19,8 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { scopedReadSync } from './read-scope.mjs';
-import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
+import { scannablePath, scannedAsExtractedText, scanEntries, secretRefusal } from './secrets.mjs';
+import { extractSourceTextForPath } from './source-text.mjs';
 import {
   ENVIRONMENT_DECLARATION_PATH, loadEnvironmentDeclarationSync, matchEnvironmentLocalPath,
   parseEnvironmentDeclaration
@@ -2073,6 +2074,16 @@ export function admitExactProspectiveTree(root, {
     if (!bytes) {
       throw new SingularityFlowError(
         `Cannot scan '${item}' for secrets from the prospective tree.`,
+        { code: 'SECRET_SCAN_UNREADABLE' }
+      );
+    }
+    // A DOCX or XLSX is a ZIP of XML: its text is scanned, and an unreadable one is still refused.
+    if (['100644', '100755'].includes(mode) && scannedAsExtractedText(item)) {
+      const extracted = extractSourceTextForPath(bytes, item);
+      if (extracted.status === 'extracted') return [{ path: item, content: extracted.text, forceScan }];
+      if (extracted.empty) return [{ path: item }];
+      throw new SingularityFlowError(
+        `Cannot scan '${item}' for secrets: its text could not be extracted (${extracted.reason}).`,
         { code: 'SECRET_SCAN_UNREADABLE' }
       );
     }

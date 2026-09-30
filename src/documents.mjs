@@ -13,6 +13,7 @@ import {
   documentOfferedToPhase, normalizeDocumentPhases, resolveDocumentRecord, validateDocumentName
 } from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
+import { SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_RENDITION_SUFFIX, extractSourceText, hasTextExtractor } from './source-text.mjs';
 import {
   isLocalDocument, localDocumentAvailability, readLocalDocument, resolveDocumentStorage, storeLocalDocument
 } from './document-storage.mjs';
@@ -44,7 +45,12 @@ const MIME_TYPES = {
   '.r': 'text/x-r', '.rb': 'text/x-ruby', '.rs': 'text/x-rust', '.scala': 'text/x-scala', '.scss': 'text/x-scss',
   '.sh': 'text/x-shellscript', '.sql': 'text/x-sql', '.svg': 'image/svg+xml', '.swift': 'text/x-swift', '.tf': 'text/x-terraform',
   '.ts': 'text/typescript', '.tsx': 'text/tsx', '.txt': 'text/plain', '.vue': 'text/x-vue', '.webp': 'image/webp',
-  '.xml': 'application/xml', '.yaml': 'application/yaml', '.yml': 'application/yaml'
+  '.xml': 'application/xml', '.yaml': 'application/yaml', '.yml': 'application/yaml',
+  // Office formats: DOCX and XLSX text is extracted for prompts and reviews; the others are named honestly.
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.doc': 'application/msword', '.xls': 'application/vnd.ms-excel', '.ppt': 'application/vnd.ms-powerpoint'
 };
 const INLINE_PREVIEW_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']);
 
@@ -687,6 +693,21 @@ async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, 
 
 function assertDocumentInputContainsNoSecret(input, captured) {
   const logicalPath = input.sourceRelativePath ? posix(input.sourceRelativePath) : safeName(input.source);
+  // An Office document's text reaches prompts through its rendition, so that text is scanned too.
+  const type = mimeType(input.source);
+  if (hasTextExtractor(type)) {
+    const extracted = extractSourceText(captured.bytes, type);
+    if (extracted.status === 'extracted') {
+      const refusal = secretRefusal(scanEntries([{ path: `${logicalPath}${TEXT_RENDITION_SUFFIX}`, content: extracted.text }]));
+      if (refusal) throw new SingularityFlowError(`Document upload was refused before any bytes were copied.\n\n${refusal}`, { code: 'SECRET_DETECTED' });
+    } else if (!extracted.empty) {
+      throw new SingularityFlowError(
+        `Document upload was refused before any bytes were copied: the text of '${logicalPath}' could not be read to scan it for secrets (${extracted.reason}).`,
+        { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
+      );
+    }
+    return;
+  }
   if (!scannablePath(logicalPath)) return;
   let content;
   try {
@@ -1056,10 +1077,17 @@ export async function viewDocument(root, config, workflow, reference, { includeD
       throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`);
     }
   }
-  if (binary) return {
-    record, content: null, binary: true, absolutePath: absolute,
-    verifiedSha256: current.sha256, size: current.size, previewBytes: 0, truncated: false
-  };
+  if (binary) {
+    // A DOCX or XLSX is a ZIP of XML whose text is what a reader needs; the bytes stay as they are.
+    const rendition = hasTextExtractor(record.mimeType)
+      ? documentRendition(bytes ?? await readFile(absolute), record.mimeType, documentPolicy(workflow, config).maxPreviewBytes ?? 1048576)
+      : null;
+    return {
+      record, content: null, binary: true, absolutePath: absolute,
+      verifiedSha256: current.sha256, size: current.size, previewBytes: 0, truncated: false,
+      ...(rendition ? { rendition } : {})
+    };
+  }
   const policy = documentPolicy(workflow, config); bytes ??= await readFile(absolute); const limit = policy.maxPreviewBytes ?? 1048576;
   let previewBytes = Math.min(bytes.length, limit);
   let content = bytes.subarray(0, previewBytes).toString('utf8');
@@ -1073,6 +1101,28 @@ export async function viewDocument(root, config, workflow, reference, { includeD
   return {
     record, content, binary: false, absolutePath: absolute,
     verifiedSha256: current.sha256, size: current.size, previewBytes, truncated
+  };
+}
+
+/** Cut text to at most `limit` UTF-8 bytes without ending inside a code point. */
+function utf8Prefix(text, limit) {
+  const encoded = Buffer.from(text, 'utf8');
+  if (encoded.length <= limit) return { text, bytes: encoded.length, truncated: false };
+  let end = limit;
+  let prefix = encoded.subarray(0, end).toString('utf8');
+  while (prefix.endsWith('\uFFFD') && end > 0) { end -= 1; prefix = encoded.subarray(0, end).toString('utf8'); }
+  return { text: prefix, bytes: end, truncated: true };
+}
+
+/** The extracted text of an Office document, bounded like any text preview, or why there is none. */
+function documentRendition(bytes, type, limit) {
+  const extracted = extractSourceText(bytes, type);
+  if (extracted.status !== 'extracted') return { status: 'unreadable', reason: extracted.reason };
+  const bounded = utf8Prefix(extracted.text, limit);
+  return {
+    status: 'extracted', extractor: 'source-text', version: SOURCE_TEXT_EXTRACTOR_VERSION,
+    text: bounded.truncated ? `${bounded.text}\n… extracted text truncated …\n` : bounded.text,
+    bytes: bounded.bytes, sha256: createHash('sha256').update(extracted.text).digest('hex'), truncated: bounded.truncated
   };
 }
 

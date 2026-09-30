@@ -28,9 +28,15 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
       '8334062f0d4d0e5295d3ba1e3ccc64bef8901d3cdbccdb2ab880cd33fed20111'
     ]),
     // Previous spec-driven starter preserved only three specification headings in downstream
-    // briefs and left implementation clause coverage advisory.
+    // briefs and left implementation clause coverage advisory. The second revision took no
+    // supporting documents after Story start.
     'spec-driven-standard': Object.freeze([
-      '3f354e9fe3bf1de8bf2c5c2c1e4e135e9bf5ecbc13d34b2e8514000f784d03ce'
+      '3f354e9fe3bf1de8bf2c5c2c1e4e135e9bf5ecbc13d34b2e8514000f784d03ce',
+      'cf9cda3f0927f3b32fbfd585e5c2c7bedd9f6e7d0821bfbe7a0bf6d0e46d2461'
+    ]),
+    // Took no supporting documents after Story start.
+    'reference-driven-build': Object.freeze([
+      'ee3b8742aaadf5fcc04735833a3db98431b34fd11231d3caa50279e8eb3eed74'
     ])
   }),
   phases: Object.freeze({
@@ -85,9 +91,9 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'poc-lite': '87eed6bd5881b47c0cab5316d96c7652b114f43863fb0ceed1f1615165f262f0',
     'poc-workflow': 'dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75',
     'quick-fix': '6ee5ad86a29a3805d914552eed7d0b5d049abb8044ea98365df10dd3fd5cbcc3',
-    'reference-driven-build': 'ee3b8742aaadf5fcc04735833a3db98431b34fd11231d3caa50279e8eb3eed74',
+    'reference-driven-build': 'a577515ed38c8f6d12c82890cc7076ac3ddf06d22370028d3e52c3f911acbc71',
     'spec-code-test-loop': 'f6a911e589320f8fd63b4933c61b2656068c9757d55267e60f2e47c6e5259e3b',
-    'spec-driven-standard': 'cf9cda3f0927f3b32fbfd585e5c2c7bedd9f6e7d0821bfbe7a0bf6d0e46d2461'
+    'spec-driven-standard': '6528062cd8e1ce663f60ebf361720562f778a03bc808e52158de07bb6cabeacf'
   }),
   phases: Object.freeze({
     'component-mapping': '35e812770061284af78d1c9bac956ced7f331ca184cb4bea7f3ca04d7f9c95eb',

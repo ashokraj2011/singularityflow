@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { entropy, redact, scanEntries, scanText, secretRefusal, scannablePath, SECRET_RULES } from '../src/secrets.mjs';
+import { entropy, redact, scanEntries, scanText, secretRefusal, scannablePath, scannedAsExtractedText, SECRET_RULES } from '../src/secrets.mjs';
 
 /** Assembled at runtime so this test file is not itself a file full of credential-shaped strings. */
 const fake = {
@@ -128,6 +128,13 @@ test('binary and lockfiles are skipped; test directories are not', () => {
   // "just to check".
   assert.equal(scannablePath('test/fixtures/config.json'), true);
   assert.equal(scannablePath('src/app.js'), true);
+  // Office and image formats with no recoverable text are binary like a PDF; DOCX and XLSX are
+  // scanned through their extracted text instead of their ZIP bytes.
+  for (const binary of ['deck.pptx', 'legacy.doc', 'sheet.xls', 'slides.ppt', 'screen.webp', 'design.fig']) assert.equal(scannablePath(binary), false, binary);
+  assert.equal(scannablePath('brief.docx'), true);
+  assert.equal(scannedAsExtractedText('brief.docx'), true);
+  assert.equal(scannedAsExtractedText('BUDGET.XLSX'), true);
+  assert.equal(scannedAsExtractedText('notes.md'), false);
 });
 
 test('an explicitly non-regular entry cannot hide a secret behind a binary extension', () => {

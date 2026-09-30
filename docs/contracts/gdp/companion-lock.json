@@ -4,10 +4,9 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "b87d68ac5f92f8a5e678f02ba1b43754c217fc79",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-30-STORY-DOCUMENT-IDENTITY.md",
+    "reviewedAtCommit": "38b6b81505f95f6afae284c54cfe8aee21333391",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-09-30-SPEC-DRIVEN-DOCUMENTS.md",
     "companionIds": [
-      "migration-registry",
       "workflow-configuration"
     ]
   },
@@ -15,7 +14,7 @@
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:41dae1b036584215970e4aabf1407b6d0acb2b08f1409de42a924882619bcaf2"
+      "sha256": "sha256:218c26a36350b07e40596c00038885830d13804c240df7ad2130a990969cb442"
     },
     {
       "id": "sgos-portable-schema",

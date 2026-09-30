@@ -169,6 +169,25 @@ export function renderSourceRendition(record, text) {
   ].join('\n');
 }
 
+/** Whether a text rendition can be derived for this MIME type at all; cheap, reads no bytes. */
+export function hasTextExtractor(mimeType) {
+  return Object.hasOwn(EXTRACTORS, String(mimeType ?? ''));
+}
+
+const EXTRACTOR_MIME_BY_EXTENSION = {
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+};
+
+/** Extract text by file name rather than MIME type, for callers that only have a path. */
+export function extractSourceTextForPath(bytes, name) {
+  const extension = String(name ?? '').slice(String(name ?? '').lastIndexOf('.')).toLowerCase();
+  return extractSourceText(bytes, EXTRACTOR_MIME_BY_EXTENSION[extension] ?? 'application/octet-stream');
+}
+
+/** Version of the extractors above, recorded with every rendition a prompt or review uses. */
+export const SOURCE_TEXT_EXTRACTOR_VERSION = 1;
+
 export function extractSourceText(bytes, mimeType) {
   const extractor = EXTRACTORS[mimeType];
   if (!extractor) {
@@ -181,7 +200,8 @@ export function extractSourceText(bytes, mimeType) {
   }
   try {
     const text = extractor(Buffer.from(bytes)).trim();
-    if (!text) return { status: 'unreadable', reason: 'the document contained no extractable text' };
+    // Readable but empty (a document of pictures, say): there is nothing to cite or to scan.
+    if (!text) return { status: 'unreadable', reason: 'the document contained no extractable text', empty: true };
     return { status: 'extracted', text };
   } catch (error) {
     return { status: 'unreadable', reason: error.message };

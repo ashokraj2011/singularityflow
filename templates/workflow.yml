@@ -823,6 +823,9 @@ workTypes:
     description: Creates a new implementation in the delivery repository from one or more immutable, read-only repository branches pinned at Story intake.
     references: { mode: required }
     phases: [specification, planning, implementation, convergence, verification, release]
+    # Supporting documents belong to the phases that read sources: the specification cites them
+    # and planning checks the plan against them.
+    documents: { allowedPhases: [specification, planning] }
     spec: { mode: enforce }
     plannedClaims:
       mode: required
@@ -845,6 +848,9 @@ workTypes:
     # replaced with stable [WORK-ID:AC-001] anchors before its specification can be approved.
     spec: { mode: enforce, coverage: enforce }
     sourceReview: { mode: enforce, phases: [specification, planning], reviewerAgent: sflow-source-reviewer }
+    # Supporting documents belong to the phases that read sources: the specification cites them
+    # and planning checks the plan against them.
+    documents: { allowedPhases: [specification, planning] }
     plannedClaims:
       mode: required
       clausePhases: [specification]

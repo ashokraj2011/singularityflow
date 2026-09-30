@@ -149,10 +149,47 @@ test('review context binds Story snapshot, exact attachment bytes, and published
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'missing');
 });
 
-test('unsupported URL attachment fails closed and changed pinned attachment is rejected', async (t) => {
-  const unsupported = await fixture(t, { document: 'url' });
-  await assert.rejects(sourceReviewInput(unsupported.root, unsupported.config, unsupported.workflow, 'specification'),
-    { code: 'SOURCE_REVIEW_INPUT_UNREADABLE' });
+test('an attachment a reviewer cannot cite waits for a recorded human decision instead of refusing', async (t) => {
+  const readable = await fixture(t);
+  const readableInput = await sourceReviewInput(readable.root, readable.config, readable.workflow, 'specification');
+  assert.equal(Object.hasOwn(readableInput.binding, 'unreadableSources'), false,
+    'a review whose sources are all readable binds exactly what it bound before');
+
+  const { root, config, workflow } = await fixture(t, { document: 'url' });
+  const input = await sourceReviewInput(root, config, workflow, 'specification');
+  assert.deepEqual(input.sources.map((source) => source.id), ['story']);
+  assert.deepEqual(input.binding.unreadableSources, [{ id: 'DOC-001', code: 'external-reference' }]);
+  const packet = await sourceReviewContext(root, config, workflow, 'specification', '/tmp/report.json');
+  assert.match(packet.unreadableSources[0].reason, /a link \(https:\/\/example\.test\/notes\)/);
+  const report = {
+    schemaVersion: 1, resultType: 'source-grounded-review', kind: 'specification',
+    binding: sourceReviewBinding(input), reviewer: { agentId: 'sflow-source-reviewer', readOnly: true },
+    sourcesReviewed: ['story'], findings: [],
+    rows: [{ id: 'story-draft', sourceId: 'story', line: 2, quote: 'Save a draft and show saved status.',
+      outcome: 'covered', scenarioId: 'S1', clauseIds: ['EXAMPLE:REQ-001', 'EXAMPLE:AC-001'] }]
+  };
+  const evaluation = evaluateSubmittedSourceReview(report, input, session);
+  assert.deepEqual(evaluation.pendingDispositions.map((entry) => entry.id), ['unreadable:DOC-001']);
+  const reportEvent = await appendEvent(root, workflow, { kind: 'source-grounded-review',
+    reportSha256: evaluation.reportSha256, actor: session.actor, agent: session.agent });
+  await retainSourceReview(root, config, workflow, 'specification', report, evaluation, session, reportEvent);
+  git(root, 'add', '.');
+  git(root, 'commit', '-q', '-m', 'Retain source review');
+  const pending = await readSourceReviewStatus(root, config, workflow, 'specification');
+  assert.equal(pending.status, 'correction-required');
+  assert.match(pending.findings.map((entry) => entry.message).join('\n'), /Human disposition is required for unreadable:DOC-001/);
+  const actor = { email: 'approver@example.test' };
+  const decisionEvent = await appendEvent(root, workflow, { kind: 'source-review-disposition',
+    reportSha256: pending.reportSha256, actor, authorityGroup: 'product-approvers', findingId: 'unreadable:DOC-001' });
+  await retainSourceReviewDecision(root, config, workflow, 'specification', pending,
+    'unreadable:DOC-001', 'The linked page repeats the Story; nothing to cite.', actor,
+    { authorityGroup: 'product-approvers', identityAssurance: 'configured-local' }, decisionEvent);
+  git(root, 'add', '.');
+  git(root, 'commit', '-q', '-m', 'Retain human decision');
+  assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'ready');
+});
+
+test('a changed pinned attachment is rejected', async (t) => {
   const changed = await fixture(t);
   await put(changed.root, `${ITEM}/inputs/notes.md`, `${NOTES}Changed.\n`);
   await assert.rejects(sourceReviewInput(changed.root, changed.config, changed.workflow, 'specification'),

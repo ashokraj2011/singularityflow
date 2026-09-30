@@ -212,8 +212,10 @@ test('nothing on the activation path stops the extension host with a synchronous
     'VS Code system tools do not require a fully qualified local drive root');
   assert.doesNotMatch(runner, /path\.win32\.isAbsolute\(root\)/,
     'VS Code system tools still accept root-relative, UNC, or device paths');
-  assert.match(runner, /killer\.once\('close', \(code\) => finish\(code === 0\)\)/,
+  assert.match(runner, /function onClose\(code: number \| null\)\s*\{[\s\S]*?finish\(code === 0\)/,
     'Windows taskkill is assumed successful without observing its exit status');
+  assert.match(runner, /killer\.once\('close', onClose\)/,
+    'Windows taskkill no longer observes the close callback');
   assert.match(runner, /if \(killed\) return true;[\s\S]*?child\.kill\(signal\)/,
     'taskkill failure has no direct-child fallback');
   assert.match(runner,

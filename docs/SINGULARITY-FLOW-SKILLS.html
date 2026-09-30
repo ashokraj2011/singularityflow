@@ -98,10 +98,10 @@
     <h1>Singularity Flow Skill Catalog</h1>
     <p>Every packaged Copilot skill, its invocation and execution policy, and its complete reviewed instruction source. This file is generated from the repository and uses no external scripts, fonts, trackers, or network resources.</p>
     <div class="stats">
-      <span class="stat"><strong>158</strong> skills</span>
+      <span class="stat"><strong>159</strong> skills</span>
       <span class="stat"><strong>12</strong> automatic</span>
-      <span class="stat"><strong>146</strong> explicit only</span>
-      <span class="stat"><strong>147</strong> never-model operations</span>
+      <span class="stat"><strong>147</strong> explicit only</span>
+      <span class="stat"><strong>148</strong> never-model operations</span>
     </div>
   </header>
   <section class="toolbar" aria-label="Catalog filters">
@@ -581,6 +581,10 @@
     <span>sflow-review</span>
     <small>review</small>
   </a>
+  <a href="#sflow-review-source" data-skill-link="sflow-review-source">
+    <span>sflow-review-source</span>
+    <small>review</small>
+  </a>
   <a href="#sflow-revise" data-skill-link="sflow-revise">
     <span>sflow-revise</span>
     <small>mutation</small>
@@ -746,7 +750,7 @@
     <small>interactive</small>
   </a></nav>
     <main>
-      <div class="result-row"><h2>Packaged skills</h2><p id="result-count" aria-live="polite">158 shown</p></div>
+      <div class="result-row"><h2>Packaged skills</h2><p id="result-count" aria-live="polite">159 shown</p></div>
       <div id="empty" class="empty">No skill matches these filters.</div>
       <section id="catalog">
   <article class="skill-card" id="sflow-about"
@@ -6231,7 +6235,7 @@ description: Show ordered next actions from the current workflow state.
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~800 body tokens</span>
+          <span class="pill">~798 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -6259,16 +6263,16 @@ argument-hint: &quot;[generation focus]&quot;
 
 Stop on `Out of sequence`; never bypass a gate.
 
-1. Require `ready`, matching `phaseAgent`, and `repositoryPath`; run `singularity-flow phase show &lt;phase&gt; --json`. Keep Story context governed. Route code to `/sf-code`, deterministic convergence to `/sf-converge`; show Shell equivalent and stop.
+1. Require `ready`, `phaseAgent`, `repositoryPath`; run `singularity-flow phase show &lt;phase&gt; --json`. Keep Story governed. Route code to `/sf-code`, convergence to `/sf-converge`; show Shell; stop.
 2. Run `singularity-flow documents list`.
-3. Reuse the governed prompt or run `singularity-flow wm compose --phase &lt;phase&gt;` once. Never derive `--task` from Story text. Unavailable intelligence is zero-byte context.
-4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, `ask_user`, wait, record before preparation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`; never at `singularity/work-items/**/context/clarifications-*.json`. Delete on success; never pass Markdown.
-5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`; use returned `localPath` read-only. Run its exact `singularity-flow prepare &lt;phase&gt;` action. Stop on placeholders, untouched templates, or padding.
-6. Preserve qualified `[WORK-ID:REQ-001]` and `[WORK-ID:AC-001]` through conformance. Plan exact paths; `/sf-code` puts `@clause:WORK-ID:REQ-001` in product source and `@ac:WORK-ID:AC-001` in executable tests.
-7. Run read-only `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; follow only current-phase lawful actions. Stop for human confirmation, protected configuration, or another producer.
-8. Run `singularity-flow phase draft-check &lt;phase&gt; --json`, then `singularity-flow phase prepublish &lt;phase&gt; --json`. Correct every structured agent authoring finding now from approved evidence; recheck at most three changed fingerprints; stop on an unchanged fingerprint. Obey `correction.class`/`sameTurn`: regenerate deterministic output exactly; route external/human output to its owner. Never delete markers blindly, invent facts, invoke nested models, or overwrite another producer.
-9. Publish only when prepublish `status` is `ready`, using configured producer/channel; never submit or approve. On `ARTIFACT_AUTHORING_INCOMPLETE`, recheck once; retry once if ready; never create a publication retry loop. Preserve sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`.
-10. Run `singularity-flow phase show &lt;phase&gt; --json`; show evidence, commit/push, resolved model and token/cost status. Show bounded source preview, hash-bound references, not full files. Say **Published generation &lt;N&gt; — ready to submit**; never say `publish-ready`. End with `Next in Copilot: /sf-submit &lt;phase&gt;` and `Terminal equivalent: singularity-flow submit &lt;phase&gt;`.
+3. Reuse the governed prompt or run `singularity-flow wm compose --phase &lt;phase&gt;` once. Never derive `--task` from Story text; missing intelligence adds zero bytes.
+4. Run `singularity-flow clarification status &lt;phase&gt; --json`. For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, use `ask_user`, wait and record before preparation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`, never in Story context. Delete on success; never pass Markdown.
+5. Run `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`; read returned `localPath`. Run exact `singularity-flow prepare &lt;phase&gt;` action. Stop on placeholders, templates, padding.
+6. Preserve qualified `[WORK-ID:REQ-001]` and `[WORK-ID:AC-001]` through conformance; plan paths. `/sf-code` puts `@clause:WORK-ID:REQ-001` in product source and `@ac:WORK-ID:AC-001` in executable tests.
+7. Read `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`; follow current-phase actions. Stop for human confirmation, protected config, or other producer.
+8. Run `singularity-flow phase draft-check &lt;phase&gt; --json`, then `singularity-flow phase prepublish &lt;phase&gt; --json`. Correct every agent finding in this Copilot turn from approved evidence; recheck at most three changed fingerprints, stop on an unchanged fingerprint. Obey `correction.class`/`sameTurn`; route non-agent work to its owner. Never invent facts, add padding, delete markers blindly, invoke nested models or overwrite another producer.
+9. Publish only when prepublish `status` is `ready`, using configured producer/channel. On `ARTIFACT_AUTHORING_INCOMPLETE`, recheck once; retry once if ready; never loop. Preserve sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never submit or approve.
+10. Run `singularity-flow phase show &lt;phase&gt; --json`; report evidence, commit/push, model, cost, bounded preview and hash-bound references. For specification/planning, run `singularity-flow review-source status &lt;phase&gt; --json`. If required but not `ready`, say **Published generation &lt;N&gt; — source review required**; next: Copilot `/sf-review-source &lt;phase&gt;`, Shell `singularity-flow review-source context &lt;phase&gt; --json`. Otherwise say **Published generation &lt;N&gt; — ready to submit**; next: Copilot `/sf-submit &lt;phase&gt;`, Shell `singularity-flow submit &lt;phase&gt;`. Never submit or approve here.
 </code></pre>
       </div>
     </details>
@@ -7742,6 +7746,60 @@ First run `singularity-flow review`; show its artifact, provenance, checks, deci
       </div>
     </details>
   </article>
+  <article class="skill-card" id="sflow-review-source"
+    data-name="sflow-review-source"
+    data-class="review"
+    data-boundary="story"
+    data-invocation="explicit"
+    data-model="never">
+    <details>
+      <summary>
+        <span class="skill-number">118</span>
+        <span class="skill-title"><strong>sflow-review-source</strong><span>Independently check a published Story specification or plan against pinned sources and exact clause-to-test mappings, then submit the cited review packet.</span></span>
+        <span class="chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="skill-content">
+        <div class="pills" aria-label="Skill policy">
+          <span class="pill ">explicit only</span>
+          <span class="pill">review</span>
+          <span class="pill">story boundary</span>
+          <span class="pill">model: never</span>
+          <span class="pill">~608 body tokens</span>
+        </div>
+        <dl>
+          <div><dt>Command</dt><dd><code>/sflow-review-source</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>&lt;specification|planning&gt;</code></dd></div>
+          <div><dt>Model-capable operations</dt><dd>none</dd></div>
+          <div><dt>Source</dt><dd><code>plugin/skills/sflow-review-source/SKILL.md</code></dd></div>
+        </dl>
+        <div class="source-heading">
+          <h3>Complete skill instructions</h3>
+          <button type="button" class="copy" data-copy="sflow-review-source">Copy Markdown</button>
+        </div>
+        <pre data-source="sflow-review-source"><code>---
+name: sflow-review-source
+description: Independently check a published Story specification or plan against pinned sources and exact clause-to-test mappings, then submit the cited review packet.
+disable-model-invocation: true
+argument-hint: &quot;&lt;specification|planning&gt;&quot;
+
+---
+
+# Review source coverage
+
+&lt;!-- sflow-output-contract: governed-review --&gt;
+**Output contract:** Show the exact reviewed hashes, cited gaps, exclusions, questions, and test exceptions before any human approval.
+&lt;!-- sflow-execution-boundary --&gt;
+**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+
+1. Run `singularity-flow review-source context &lt;phase&gt; --json`. Require the selected phase to be `specification` or `planning`, with a current published generation and a complete pinned source inventory. If any source is unavailable or truncated, stop and report it.
+2. Select the independently pinned governed agent named by `requiredReviewerAgentId` with `singularity-flow agent --agent &lt;that-id&gt;`. Have that agent read the packet and its exact cited files. The specification or plan author cannot be the reviewer. The reviewer must not edit source, artifacts, tests, workflow records, or approvals.
+3. Produce the JSON report with the exact `binding` from the context command. For specification rows, cite `sourceId`, one-based `line`, exact `quote`, `S#` scenario, and full clause IDs, or propose an `excluded` row with reason or a `question` row. For planning rows, assess every approved clause&#39;s exact source paths and planned test paths and expose every `not-applicable` reason. List blocking semantic gaps with source citations. Never infer that zero validator findings prove semantic correctness.
+4. Stage the report only at the Git-private path returned by the context command. Run `singularity-flow review-source submit &lt;phase&gt; --report-file &lt;that-path&gt;`. The command must validate the source and artifact hashes and retain the review separately from the author&#39;s artifact. If the agent cannot establish independent reviewer provenance, stop; the author may not self-certify by writing a packet.
+5. Show the retained report hash, mapped sources and clauses, blocking findings, pending exclusions, unanswered questions, and test exceptions. Route corrections to the artifact author and exclusions or test exceptions to the authorized human reviewer with `singularity-flow review-source decide &lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt;`. After a correction, review the new exact generation again. The read-only reviewer must not submit, approve, or advance the phase; select the configured phase agent again before the next phase action.
+</code></pre>
+      </div>
+    </details>
+  </article>
   <article class="skill-card" id="sflow-revise"
     data-name="sflow-revise"
     data-class="mutation"
@@ -7750,7 +7808,7 @@ First run `singularity-flow review`; show its artifact, provenance, checks, deci
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">118</span>
+        <span class="skill-number">119</span>
         <span class="skill-title"><strong>sflow-revise</strong><span>Preview and run one exact, bounded revision interval for the active code Candidate.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -7806,7 +7864,7 @@ argument-hint: &quot;&lt;feedback&gt; [--criteria &lt;CLAUSE-ID&gt;] [--attachme
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">119</span>
+        <span class="skill-number">120</span>
         <span class="skill-title"><strong>sflow-revision</strong><span>Inspect installed Revision Loop capabilities, activation state, or attachment boundaries without starting a loop.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -7859,7 +7917,7 @@ argument-hint: &quot;capabilities | activation | attachments&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">120</span>
+        <span class="skill-number">121</span>
         <span class="skill-title"><strong>sflow-revision-attachments</strong><span>Preview, register, inspect, or exclude Story/phase-bound REV feedback files.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -7912,7 +7970,7 @@ argument-hint: &quot;preview FILE | register PLAN | list | status | remove SET&q
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">121</span>
+        <span class="skill-number">122</span>
         <span class="skill-title"><strong>sflow-revision-checks</strong><span>Inspect and plan exact Candidate-bound browser checks without claiming test, publication, or lifecycle authority.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -7966,7 +8024,7 @@ argument-hint: &quot;capabilities | plan | status [RUN-ID] | result &lt;RUN-ID&g
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">122</span>
+        <span class="skill-number">123</span>
         <span class="skill-title"><strong>sflow-run</strong><span>Guide one Singularity Flow phase until the next human authoring or approval boundary without automatically approving.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8015,7 +8073,7 @@ Run `singularity-flow nextsteps --json` first. Follow the lifecycle action marke
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">123</span>
+        <span class="skill-number">124</span>
         <span class="skill-title"><strong>sflow-secrets</strong><span>Scan tracked or staged content for likely credentials and explicitly install repository secret protection.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8067,7 +8125,7 @@ argument-hint: &quot;scan [--staged] | protect&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">124</span>
+        <span class="skill-number">125</span>
         <span class="skill-title"><strong>sflow-session</strong><span>Select an exact Story, open its managed local checkout or attach from remote, and bind its phase agent.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8125,7 +8183,7 @@ Session setup only: no raw Git, source reads, edits, or lifecycle work. A deferr
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">125</span>
+        <span class="skill-number">126</span>
         <span class="skill-title"><strong>sflow-sgos</strong><span>Run an exact Singularity Governed Operating System command without changing its CLI family or bypassing its authority and confirmation boundaries.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8191,7 +8249,7 @@ Report both equivalent invocations:
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">126</span>
+        <span class="skill-number">127</span>
         <span class="skill-title"><strong>sflow-sgos-create</strong><span>Guide and create a bounded core SGOS Workflow Candidate from confirmed Intent.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8248,7 +8306,7 @@ argument-hint: &quot;&lt;INTENT-IR&gt; --policy FILE --registry FILE --storage-p
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">127</span>
+        <span class="skill-number">128</span>
         <span class="skill-title"><strong>sflow-show</strong><span>Expand one registered Singularity Flow reference handle deterministically, with optional section, pointer, or range selection.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8303,7 +8361,7 @@ Only `sfref:v1:` handles registered in committed Story or Initiative context are
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">128</span>
+        <span class="skill-number">129</span>
         <span class="skill-title"><strong>sflow-show-prompt</strong><span>Display the complete Copilot skill instructions and exact governed prompt for the active Singularity Flow Story phase. Use when a contributor or reviewer wants to audit everything Copilot receives from the phase contract, governed agent, repository world model, agents, and approved inputs before generation.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8359,7 +8417,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">129</span>
+        <span class="skill-number">130</span>
         <span class="skill-title"><strong>sflow-skill</strong><span>Inspect local, approved, or exact retained Story skill bytes without execution or phase authority.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8420,7 +8478,7 @@ Present detected output/input candidates as proposals requiring ordinary workflo
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">130</span>
+        <span class="skill-number">131</span>
         <span class="skill-title"><strong>sflow-snapshot</strong><span>Read a bounded revision-aware snapshot of governed work and optional diagnostic timings.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8472,7 +8530,7 @@ argument-hint: &quot;[WORK-ID] [--include &lt;slice&gt;]&quot;
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">131</span>
+        <span class="skill-number">132</span>
         <span class="skill-title"><strong>sflow-spec</strong><span>Inspect and maintain specification indexes, claims, coverage, acceptance evidence, and traceability.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8525,7 +8583,7 @@ argument-hint: &quot;analyze|claims|coverage|acceptance|tasks|trace&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">132</span>
+        <span class="skill-number">133</span>
         <span class="skill-title"><strong>sflow-specify</strong><span>Route a spec-driven Story toward an approved specification.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8582,7 +8640,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">133</span>
+        <span class="skill-number">134</span>
         <span class="skill-title"><strong>sflow-stack</strong><span>Show or synchronize the dependency-safe Story pull-request and merge stack for an Epic.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8641,7 +8699,7 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">134</span>
+        <span class="skill-number">135</span>
         <span class="skill-title"><strong>sflow-start</strong><span>Explicitly choose a remote base, intake source, and workflow; create and publish the canonical Story branch.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8698,7 +8756,7 @@ argument-hint: &quot;&lt;WORK-ID&gt; [--jira | manual story details] [documents 
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">135</span>
+        <span class="skill-number">136</span>
         <span class="skill-title"><strong>sflow-status</strong><span>Show the current phase, artifacts, checks, and approvals.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8746,7 +8804,7 @@ Run `singularity-flow status` with the supplied work ID, if any. Read `STATUS.md
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">136</span>
+        <span class="skill-number">137</span>
         <span class="skill-title"><strong>sflow-stories</strong><span>List Story candidates and their progress, then ask which exact Story to make active through /sf-session.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8798,7 +8856,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">137</span>
+        <span class="skill-number">138</span>
         <span class="skill-title"><strong>sflow-story-branch</strong><span>Create, attach, inspect, or promote a Developer child branch with an explicit canonical Jira Story parent and repository completion policy.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8852,7 +8910,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">138</span>
+        <span class="skill-number">139</span>
         <span class="skill-title"><strong>sflow-story-checks</strong><span>Record exact-SHA GitHub repository-check, PR, lineage, freshness, and conformance evidence for the current finalized Story packet.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8905,7 +8963,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">139</span>
+        <span class="skill-number">140</span>
         <span class="skill-title"><strong>sflow-story-fetch</strong><span>Securely fetch a governed Jira Story branch, verify its parent and Story specifications, and start its pinned repository workflow.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -8959,7 +9017,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">140</span>
+        <span class="skill-number">141</span>
         <span class="skill-title"><strong>sflow-story-inbox</strong><span>List active Jira Stories carrying governed Singularity lineage so a developer can choose work safely.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9012,7 +9070,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">141</span>
+        <span class="skill-number">142</span>
         <span class="skill-title"><strong>sflow-story-skill-version</strong><span>Review and adopt an approved new skill package version for an active Story without silently changing its pinned execution snapshot.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9066,7 +9124,7 @@ argument-hint: &quot;status | preview &lt;SKILL-ID&gt; --reason &lt;TEXT&gt; | p
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">142</span>
+        <span class="skill-number">143</span>
         <span class="skill-title"><strong>sflow-story-start</strong><span>Select a Jira Story, workflow, and prompt-only governed agent, then create or resume its canonical governed branch.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9132,7 +9190,7 @@ The canonical branch is the exact Jira key. Jira intake pins the normalized issu
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">143</span>
+        <span class="skill-number">144</span>
         <span class="skill-title"><strong>sflow-submit</strong><span>Validate and submit the active Singularity Flow phase for human approval, registering changed artifacts and running configured quality commands.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9142,7 +9200,7 @@ The canonical branch is the exact Jira key. Jira intake pins the normalized issu
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~782 body tokens</span>
+          <span class="pill">~756 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
@@ -9170,15 +9228,16 @@ argument-hint: &quot;[--skip-checks only when explicitly authorized]&quot;
 
 Stop on `Out of sequence`. Show soft warnings; only the human confirms them. Never edit state to bypass gates.
 
-1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`. Require `resultType` exactly `sflow-submission-readiness`, matching `workId`/`phaseId`, plus `draftExists`, `draftModified`, `publicationRecorded`, `nextSkill`, and `nextCommand`. Read `lifecycleReady` only as the explicit boolean returned by this projection; never infer it from raw `singularity-flow status --json`, labels, or missing fields. `publishedGeneration` equal to `currentGeneration` while `in_progress` is the normal ready-to-submit state; do not republish.
-2. An existing generation-zero draft is **Seeded draft — not published**, never a generated artifact. With `lifecycleReady: true`, say **Published generation &lt;N&gt; — ready to submit**, never `publish-ready`. Otherwise disable Submit. For `classification: generation-required`, show exactly one primary action, **Generate and publish &lt;Phase&gt;**, prefilling the engine-selected `nextSkill`; do not also offer Submit. Never invoke the generation skill from this submission skill. Then stop without preparing, regenerating, publishing, modifying files, or guessing.
-3. When `confirmationRequired: true`, run only the returned Work-ID-pinned command and surface its complete soft-gate warning. Only the human may type or provide `continue`; never confirm it for them.
-4. For `convergence`, never run generic `singularity-flow submit`. Run the returned `singularity-flow story advance` command without `--confirm`, show its review and digest, and stop on unresolved dispositions. Ask the human to confirm that digest; only then run its exact `--confirm sha256:&lt;DIGEST&gt;` command once. A changed digest requires fresh review.
-5. Run the returned Work-ID-pinned submit command. Add `--skip-checks` only when authorized.
-6. On validation failure, fix only current-phase artifacts or checks and register them. Fingerprint the refusal code plus current artifact/check hashes; retry only while that fingerprint changes. Stop on an unchanged fingerprint or after three distinct changed fingerprints. Never loop quality commands.
-7. After success run `singularity-flow phase show &lt;phase&gt; --json`. In the visible assistant response, reproduce every generated current-phase document, including `agent-brief`, in full with ID, kind, bytes, SHA-256, and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. A Shell/tool block does not satisfy artifact review. Show binary/image paths and metadata.
-8. Fetch omissions with `singularity-flow documents view &lt;DOCUMENT-ID&gt; --json`. Never say “shown above” or summarize; show them before offering approval or rejection.
-9. Report commit/push, hashes, checks, token/cost. Approval is separate `/sf-approve`.
+1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`. Require exact `resultType: sflow-submission-readiness`, matching work/phase IDs, `draftExists`, `draftModified`, `publicationRecorded`, `nextSkill`, and `nextCommand`. Trust only its explicit `lifecycleReady` boolean, not raw status or labels. Equal published/current generation while `in_progress` is ready; do not republish.
+2. Generation zero means **Seeded draft — not published**. With `lifecycleReady: true`, say **Published generation &lt;N&gt; — ready to submit**. Otherwise disable Submit; for `classification: generation-required`, show only **Generate and publish &lt;Phase&gt;** using returned `nextSkill`, then stop. Never generate or publish from this skill.
+3. For published specification/planning, run `singularity-flow review-source status &lt;phase&gt; --json`. `not-required` means no pinned review gate. If required but not `ready`, stop; show findings and route to Copilot `/sf-review-source &lt;phase&gt;` / Shell `singularity-flow review-source context &lt;phase&gt; --json`. Artifact corrections need a new publication; a reviewer report is not human approval.
+4. When `confirmationRequired: true`, run only the returned Work-ID-pinned command and surface its complete soft-gate warning. Only the human may type or provide `continue`; never confirm it for them.
+5. For `convergence`, never run generic `singularity-flow submit`. Run the returned `singularity-flow story advance` command without `--confirm`, show its review and digest, and stop on unresolved dispositions. Ask the human to confirm that digest; only then run its exact `--confirm sha256:&lt;DIGEST&gt;` command once. A changed digest requires fresh review.
+6. Run the returned Work-ID-pinned submit command. Add `--skip-checks` only when authorized.
+7. On failure, fix only current-phase artifacts/checks. Fingerprint the refusal code plus current artifact/check hashes. Stop on an unchanged fingerprint or after three distinct changed fingerprints. Never loop quality commands.
+8. After success run `singularity-flow phase show &lt;phase&gt; --json`. Reproduce every current-phase document, including `agent-brief`, in the response with ID, kind, bytes, SHA-256, and `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. Tool output alone is insufficient; show binary/image paths and metadata.
+9. Fetch omissions with `singularity-flow documents view &lt;DOCUMENT-ID&gt; --json`. Never say “shown above” or summarize; show them before offering approval or rejection.
+10. Report commit/push, hashes, checks, token/cost. Approval is separate `/sf-approve`.
 </code></pre>
       </div>
     </details>
@@ -9191,7 +9250,7 @@ Stop on `Out of sequence`. Show soft warnings; only the human confirms them. Nev
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">144</span>
+        <span class="skill-number">145</span>
         <span class="skill-title"><strong>sflow-telemetry</strong><span>Inspect Context X-Ray, Token Ledger, and privacy-safe local Copilot usage without estimating unavailable values.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9246,7 +9305,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">145</span>
+        <span class="skill-number">146</span>
         <span class="skill-title"><strong>sflow-upload</strong><span>Attach, inspect, list, or governably detach files, folders, images, PDFs, Figma exports, notes, and HTTPS references for an Epic or Story.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9322,7 +9381,7 @@ Use `singularity-flow documents list --all` or `singularity-flow epic sources li
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">146</span>
+        <span class="skill-number">147</span>
         <span class="skill-title"><strong>sflow-validate</strong><span>Validate the selected Singularity Flow repository without changing workflow or Git state.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9372,7 +9431,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">147</span>
+        <span class="skill-number">148</span>
         <span class="skill-title"><strong>sflow-verify</strong><span>Verify implementation against acceptance criteria, run checks, capture evidence, and register the Singularity Flow verification artifact.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9434,7 +9493,7 @@ argument-hint: &quot;[test scope or environment]&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">148</span>
+        <span class="skill-number">149</span>
         <span class="skill-title"><strong>sflow-visual</strong><span>Inspect visual-assurance status or compare expected and actual governed visual evidence.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9486,7 +9545,7 @@ argument-hint: &quot;status | compare --expected &lt;record&gt; --actual &lt;rec
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">149</span>
+        <span class="skill-number">150</span>
         <span class="skill-title"><strong>sflow-watch</strong><span>Watch a governed work item for remote lifecycle changes without modifying its branch or state.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9538,7 +9597,7 @@ argument-hint: &quot;[WORK-ID] [--once]&quot;
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">150</span>
+        <span class="skill-number">151</span>
         <span class="skill-title"><strong>sflow-work-interval</strong><span>Inspect, checkpoint, reconcile, or safely escalate the current governed Story work interval without committing unfinished source.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9594,7 +9653,7 @@ Use the CLI as the authority. Never stage, commit, push, or copy unfinished sour
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">151</span>
+        <span class="skill-number">152</span>
         <span class="skill-title"><strong>sflow-workflow-rules</strong><span>Background rules for Singularity Flow-managed SDLC work. Load when a repository has governed Story state at its configured work-item root or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9653,7 +9712,7 @@ user-invocable: false
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">152</span>
+        <span class="skill-number">153</span>
         <span class="skill-title"><strong>sflow-workflows</strong><span>List, preview, transfer, duplicate governed workflows, or explicitly share inert Git-backed workflow drafts.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9740,7 +9799,7 @@ On refusal, relay routes.
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">153</span>
+        <span class="skill-number">154</span>
         <span class="skill-title"><strong>sflow-workspace</strong><span>Select a saved Singularity Flow workspace and repository for this Copilot session, optionally binding the visible context to a Story ID.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9800,7 +9859,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">154</span>
+        <span class="skill-number">155</span>
         <span class="skill-title"><strong>sflow-workspace-bootstrap</strong><span>Prepare, diagnose, resume, or abandon a recoverable Singularity Flow workspace setup before governed Story work begins.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9879,7 +9938,7 @@ directory automatically, or claims that a failed push was completed.
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">155</span>
+        <span class="skill-number">156</span>
         <span class="skill-title"><strong>sflow-workspace-impact</strong><span>Run or inspect an advisory impact analysis across the selected workspace without creating a Work ID or lifecycle branch.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9934,7 +9993,7 @@ disable-model-invocation: true
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">156</span>
+        <span class="skill-number">157</span>
         <span class="skill-title"><strong>sflow-workspace-session</strong><span>Attach the current terminal or Copilot session to a saved Singularity Flow workspace before selecting Story work.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -9991,7 +10050,7 @@ This is context setup only. Do not inspect application files, start implementati
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">157</span>
+        <span class="skill-number">158</span>
         <span class="skill-title"><strong>sflow-workspaces</strong><span>Show the complete saved-workspace table and active context; workspace selection belongs to /sf-workspace.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -10042,7 +10101,7 @@ disable-model-invocation: true
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">158</span>
+        <span class="skill-number">159</span>
         <span class="skill-title"><strong>sflow-worldmodel</strong><span>Build, verify, inspect, and compose the repository-owned world model used to ground governed phase prompts.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>

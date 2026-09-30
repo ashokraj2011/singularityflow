@@ -3,6 +3,8 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { phaseAuthoredReviewArtifacts } from './publication-preflight.mjs';
 import { changedFiles } from './git.mjs';
+import { sourceReviewRequired } from './source-review-policy.mjs';
+import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -106,10 +108,26 @@ export async function submissionReadiness(root, config, workflow, {
   changedPaths = null
 } = {}) {
   const draftEvidence = await submissionDraftEvidence(root, config, workflow, phaseId, changedPaths);
+  let sourceReviewEvidence = null;
+  const phase = phaseId ? workflow?.phases?.[phaseId] : null;
+  if (phase && sourceReviewRequired(workflow, phaseId)
+      && phase.status === 'in_progress' && Number(phase.generation) > 0) {
+    try {
+      sourceReviewEvidence = await readSourceReviewStatus(root, config, workflow, phaseId);
+    } catch (error) {
+      // An unavailable or malformed source is a review blocker, not a reason to lose the whole
+      // host-facing readiness projection. The exact command still owns the detailed refusal.
+      sourceReviewEvidence = {
+        status: 'correction-required', findings: [{ code: error.code ?? 'source-review-unavailable',
+          message: error.message }]
+      };
+    }
+  }
   return submissionReadinessSnapshot(workflow, {
     phaseId,
     pendingSynchronization,
-    draftEvidence
+    draftEvidence,
+    sourceReviewEvidence
   });
 }
 
@@ -121,7 +139,8 @@ export async function submissionReadiness(root, config, workflow, {
 export function submissionReadinessSnapshot(workflow, {
   phaseId = workflow?.currentPhase ?? null,
   pendingSynchronization = false,
-  draftEvidence = null
+  draftEvidence = null,
+  sourceReviewEvidence = null
 } = {}) {
   const phase = phaseId ? workflow?.phases?.[phaseId] ?? null : null;
   const draft = draftEvidence == null ? {} : {
@@ -217,6 +236,20 @@ export function submissionReadinessSnapshot(workflow, {
     reasonCode: 'CONVERGENCE_ADVANCE_REQUIRED'
   });
 
+  if (sourceReviewRequired(workflow, phase.id) && sourceReviewEvidence?.status !== 'ready') {
+    return result(workflow, phase, {
+      ...draft,
+      classification: 'source-review-required',
+      lifecycleReady: false,
+      validation: 'source-review-pending',
+      sourceReviewStatus: sourceReviewEvidence?.status ?? 'unverified',
+      sourceReviewFindings: sourceReviewEvidence?.findings ?? [],
+      command: `singularity-flow review-source context ${phase.id} --json`,
+      nextSkill: '/sf-review-source',
+      reasonCode: 'SOURCE_REVIEW_REQUIRED'
+    });
+  }
+
   return result(workflow, phase, {
     ...draft,
     classification: 'ready-to-attempt',
@@ -248,6 +281,8 @@ export function submissionReadinessText(snapshot) {
     `Phase status: ${snapshot.phaseStatus ?? 'none'} · generation ${snapshot.currentGeneration ?? 'none'} · published ${snapshot.publishedGeneration ?? 'none'}`,
     artifactState,
     snapshot.confirmationRequired ? `Human confirmation required: soft gate ${snapshot.sequenceGate}` : null,
+    snapshot.sourceReviewStatus && snapshot.sourceReviewStatus !== 'ready'
+      ? `Independent source review: ${snapshot.sourceReviewStatus}` : null,
     `Full artifact, test, policy, and evidence validation: ${snapshot.validation}`,
     snapshot.nextCommand ? `Shell: ${snapshot.nextCommand}` : null,
     snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null

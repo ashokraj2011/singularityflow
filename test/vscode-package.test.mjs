@@ -85,12 +85,17 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
     'src/revision/approved-runner-boundary.mjs',
     'src/revision/approved-runner-contract.mjs',
     'src/revision/publication-adapter.mjs',
+    'src/source-grounded-review.mjs',
+    'src/source-review-lifecycle.mjs',
+    'src/source-review-policy.mjs',
     'src/skp-amendment-plan.mjs',
     'src/wel-readiness-foundation.mjs',
     'src/wel-test-lifecycle.mjs',
     'schemas/revision-runner-artifact-admission.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',
-    'schemas/wel-test-lifecycle.schema.json'
+    'schemas/wel-test-lifecycle.schema.json',
+    'plugin/agents/sflow-source-reviewer.agent.md',
+    'plugin/skills/sflow-review-source/SKILL.md'
   ]) {
     assert.ok(VSIX_REQUIRED_CLI_RUNTIME.includes(required),
       `the bundled CLI declares its new runtime dependency ${required}`);
@@ -164,6 +169,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     mkdir(path.join(repository, 'src', 'revision'), { recursive: true }),
     mkdir(path.join(repository, 'src', 'world-model', 'history'), { recursive: true }),
     mkdir(path.join(repository, 'schemas'), { recursive: true }),
+    mkdir(path.join(repository, 'plugin', 'agents'), { recursive: true }),
+    mkdir(path.join(repository, 'plugin', 'skills', 'sflow-review-source'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'skills', 'sflow-sgos'), { recursive: true }),
     mkdir(path.join(repository, 'toolchains', 'npm-pack'), { recursive: true }),
     mkdir(path.join(privateNpm, 'node_modules', 'npm', 'bin'), { recursive: true })
@@ -189,6 +196,9 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'revision', 'approved-runner-boundary.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'revision', 'approved-runner-contract.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'revision', 'publication-adapter.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'source-grounded-review.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'source-review-lifecycle.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'source-review-policy.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'wel-lifecycle.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'wel-readiness-foundation.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'wel-test-lifecycle.mjs'), '// fixture\n'),
@@ -204,6 +214,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
       .filter((relative) => relative.startsWith('schemas/revision-')
         || relative.startsWith('schemas/wel-'))
       .map((relative) => writeFile(path.join(repository, ...relative.split('/')), '{}\n')),
+    writeFile(path.join(repository, 'plugin', 'agents', 'sflow-source-reviewer.agent.md'), '# fixture\n'),
+    writeFile(path.join(repository, 'plugin', 'skills', 'sflow-review-source', 'SKILL.md'), '# fixture\n'),
     writeFile(path.join(repository, 'plugin', 'skills', 'sflow-sgos', 'SKILL.md'), '# fixture\n'),
     writeFile(path.join(repository, 'package.json'), '{"name":"fixture","version":"1.0.0"}\n'),
     writeFile(path.join(repository, 'toolchains', 'npm-pack', 'package.json'), `${JSON.stringify({
@@ -236,6 +248,9 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/revision/approved-runner-boundary.mjs',
     'src/revision/approved-runner-contract.mjs',
     'src/revision/publication-adapter.mjs',
+    'src/source-grounded-review.mjs',
+    'src/source-review-lifecycle.mjs',
+    'src/source-review-policy.mjs',
     'src/wel-lifecycle.mjs',
     'src/wel-readiness-foundation.mjs',
     'src/wel-test-lifecycle.mjs',
@@ -245,6 +260,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'schemas/skill-version-adoption-decision.schema.json',
     ...VSIX_REQUIRED_CLI_RUNTIME.filter((relative) => relative.startsWith('schemas/revision-')
       || relative.startsWith('schemas/wel-')),
+    'plugin/agents/sflow-source-reviewer.agent.md',
+    'plugin/skills/sflow-review-source/SKILL.md',
     'plugin/skills/sflow-sgos/SKILL.md', 'package.json',
     'package-lock.json', 'toolchains/npm-pack/package.json']);
   runGit(['commit', '-q', '-m', 'Fixture']);
@@ -353,6 +370,14 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   await assert.rejects(
     stageCli({ rootDir: repository, extensionDir: path.join(repository, 'extension') }),
     /Staged CLI is missing required runtime file: src\/world-model\/history\/story-grounding-activation\.mjs.*Add the file to the Git index/
+  );
+  assert.equal(existsSync(path.join(repository, 'extension', 'cli')), false);
+
+  runGit(['add', 'src/world-model/history/story-grounding-activation.mjs']);
+  runGit(['rm', '--cached', 'src/source-review-policy.mjs']);
+  await assert.rejects(
+    stageCli({ rootDir: repository, extensionDir: path.join(repository, 'extension') }),
+    /Staged CLI is missing required runtime file: src\/source-review-policy\.mjs.*Add the file to the Git index/
   );
   assert.equal(existsSync(path.join(repository, 'extension', 'cli')), false);
 });

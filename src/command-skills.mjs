@@ -89,6 +89,7 @@ const entries = {
   logs: ['sf-logs'],
   doctor: ['sf-doctor'],
   review: ['sf-review'],
+  'review-source': ['sf-review-source'],
   workflow: ['sf-workflows'],
   skill: ['sf-skill'],
   assign: ['sf-assign'],

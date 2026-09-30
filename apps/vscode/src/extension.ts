@@ -6950,12 +6950,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const prefill = phaseGenerationChatPrefill(node?.prefill);
       if (!prefill) {
         void vscode.window.showWarningMessage(
-          'The lifecycle snapshot did not provide a supported generation skill. Refresh and try again.'
+          'The lifecycle snapshot did not provide a supported phase action skill. Refresh and try again.'
         );
         return;
       }
       // This is deliberately a partial query. Clicking the lifecycle action cannot prepare,
-      // author, publish, or submit anything; the contributor reviews the engine-selected skill.
+      // review, author, publish, or submit anything; the contributor reviews the engine-selected skill.
       await vscode.commands.executeCommand('workbench.action.chat.open', prefill);
     },
     'singularityFlow.approve': runNode as never,

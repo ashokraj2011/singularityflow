@@ -593,7 +593,10 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
   const claims = {};
   for (const id of knownIds) {
     const plan = planned.claims[id];
-    if (!plan || plan.testDisposition === 'not-applicable') continue;
+    // A reviewed not-applicable disposition excuses only a test, never the implementation.
+    // Source-only clauses must still observe their planned changed paths and remain incomplete
+    // when those paths are absent.
+    if (!plan) continue;
     const observedPaths = plan.expectedPaths.filter((candidate) =>
       changedPaths.has(candidate) && (!requireSourceBindings || sourceBindings.get(candidate)?.has(id)));
     const testResults = plan.tests.filter((candidate) => {

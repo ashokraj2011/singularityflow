@@ -122,6 +122,12 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // convergence and sends it back for rework. Disable the source-witness gate for this fixture;
   // sourceBindings=enforce correctly refuses such an incomplete implementation at publication.
   workflow.codeDelivery.traceability.sourceBindings = 'off';
+  // This fixture intentionally approves a partial first implementation to exercise governed
+  // convergence rework. The new spec-driven starter blocks that earlier at final code approval;
+  // pin this one historical rework scenario to advisory clause coverage instead. The independent
+  // source-review transaction is exercised in its own end-to-end tests, not in this CLI rail.
+  workflow.workTypes['spec-driven-standard'].spec.coverage = 'record';
+  workflow.workTypes['spec-driven-standard'].sourceReview = { mode: 'off' };
   // Exercise the complete convergence rework transaction with ledger intent persistence enabled.
   // The intent is written after lifecycle state, so this catches a post-state guard that captures
   // too early and then mistakes the transaction's own ledger file for concurrent user change.
@@ -185,13 +191,17 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '- **Given** a payment that failed at the provider',
     '  **When** an operator retries it',
     '  **Then** a new attempt is created and the original is preserved.', '',
+    '## Failure and empty states', '', 'A missing failed attempt is rejected without a retry.', '',
+    '## Permissions', '', 'Only payments operators may request retries.', '',
     '## Requirements', '',
     '- The system creates a new attempt when an operator retries a failed payment. [E2E:REQ-001]',
     '- The system preserves the original failed attempt and its provider response. [E2E:REQ-002]', '',
     '## Non-functional requirements', '',
     'Retry processing remains deterministic and append-only.', '',
     '## Boundary conditions', '',
-    'Only failed provider attempts are eligible and the original record is immutable.', ''
+    'Only failed provider attempts are eligible and the original record is immutable.', '',
+    '## Assumptions', '', 'The provider returns a stable attempt identifier.', '',
+    '## Out of scope', '', 'Settlement reconciliation is unchanged.', ''
   ].join('\n'));
   await completePhase(root, 'specification');
   assert.equal((await workflowOf(root)).phases.specification.status, 'approved');
@@ -428,13 +438,17 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '- **Given** a payment that failed at the provider',
     '  **When** an operator retries it',
     '  **Then** a new attempt is created and the original is preserved.', '',
+    '## Failure and empty states', '', 'A missing failed attempt is rejected without a retry.', '',
+    '## Permissions', '', 'Only payments operators may request retries.', '',
     '## Requirements', '',
     '- Only an operator holding the payments role may create a new attempt for a failed payment. [E2E:REQ-001]',
     '- Every retry preserves the original failed attempt and its provider response without mutation. [E2E:REQ-002]', '',
     '## Non-functional requirements', '',
     'Retry processing remains deterministic and append-only.', '',
     '## Boundary conditions', '',
-    'Only failed provider attempts are eligible and role authorization is mandatory.', ''
+    'Only failed provider attempts are eligible and role authorization is mandatory.', '',
+    '## Assumptions', '', 'The provider returns a stable attempt identifier.', '',
+    '## Out of scope', '', 'Settlement reconciliation is unchanged.', ''
   ].join('\n'));
   const proposed = JSON.parse(sflow(root, ['story', 'intent-amendment', 'propose',
     '--file', amendmentFile, '--reason', 'Make retry authority explicit.', '--json']).stdout);

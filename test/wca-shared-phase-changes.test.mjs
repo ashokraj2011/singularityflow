@@ -207,6 +207,11 @@ test('current packaged catalog shared replacement preserves exact raw extensions
     const text = await readFile(new URL(`../templates/agents/${name}`, import.meta.url), 'utf8');
     agents.push({ ...parseAgentDependencies(text, { source: `templates/agents/${name}` }), text, scope: 'bundled' });
   }
+  for (const name of await readdir(new URL('../plugin/agents/', import.meta.url))) {
+    if (!name.endsWith('.agent.md')) continue;
+    const text = await readFile(new URL(`../plugin/agents/${name}`, import.meta.url), 'utf8');
+    agents.push({ ...parseAgentDependencies(text, { source: `plugin/agents/${name}` }), text, scope: 'plugin' });
+  }
   const original = structuredClone(approvedDefinition.phases.requirements);
   const changes = [{ kind: 'phase', id: 'requirements', operation: 'edit', expectedDefinitionSha256: phaseDefinitionSha256(original),
     replacement: { ...original, label: 'Exact shared requirements' } }];

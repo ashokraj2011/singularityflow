@@ -56,6 +56,7 @@ import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
+import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './source-review-policy.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
@@ -1322,6 +1323,12 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       workType.references, `Work type '${id}' references`
     );
     workType.spec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
+    workType.sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
+      workTypeId: id, phases: workType.phases
+    });
+    if (!storyBootstrap && definition.agentCatalog?.length) assertSourceReviewerAvailable(workType.sourceReview, definition.agentCatalog, {
+      workTypeId: id
+    });
   }
   if (definition.noModel != null) {
     if (!definition.noModel || typeof definition.noModel !== 'object' || Array.isArray(definition.noModel)) throw new SingularityFlowError('noModel must be an object.');
@@ -2202,6 +2209,11 @@ export function resolveWorkType(definition, workTypeId) {
   const spec = ['opt-out', 'legacy-opt-out'].includes(plannedClaims.mode)
     ? { ...configuredSpec, acceptance: 'off' }
     : configuredSpec;
+  const sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
+    workTypeId, phases: workType.phases
+  });
+  if (definition.agentCatalog?.length) assertSourceReviewerAvailable(sourceReview,
+    definition.agentCatalog, { workTypeId });
   return {
     id: workTypeId,
     label: workType.label,
@@ -2235,6 +2247,7 @@ export function resolveWorkType(definition, workTypeId) {
     // types. In particular, a zero-clause spec-driven specification must not silently disable
     // every downstream traceability and active-clause safeguard.
     spec,
+    sourceReview,
     plannedClaims,
     codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
     // Fault policy is pinned with the Story resolution so a repair requested for that Story cannot
@@ -2311,6 +2324,7 @@ export async function snapshotResolution(root, definition, resolved) {
     tokenEconomy: structuredClone(resolved.tokenEconomy ?? normalizeTokenEconomy(definition.tokenEconomy ?? {})),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
+    sourceReview: structuredClone(resolved.sourceReview ?? { mode: 'off', phases: [], reviewerAgent: null }),
     plannedClaims: structuredClone(resolved.plannedClaims ?? null),
     ...(resolved.reworkLoops?.length ? { reworkLoops: structuredClone(resolved.reworkLoops) } : {}),
     codeDelivery: structuredClone(resolved.codeDelivery ?? normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {})),

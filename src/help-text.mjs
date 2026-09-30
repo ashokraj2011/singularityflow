@@ -284,6 +284,14 @@ Usage:
   singularity-flow secrets scan [--staged] [--json]
   singularity-flow secrets protect [--force]
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
+  singularity-flow review-source context <specification|planning> [--json]
+      read exact pinned Story sources, attachments, published artifact, and approved specification (planning)
+  singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
+      publish an independent, source-cited review sidecar bound to the current generation
+  singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
+      record an authorized human decision on an exclusion or not-applicable test exception
+  singularity-flow review-source status <specification|planning> [--json]
+      re-evaluate the latest report, source hashes, artifact hashes, and human decisions
   singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative
   singularity-flow workflow author [list|read WFD-ID|show WFD-ID|history WFD-ID|op-status OP-ID] [--json]
   singularity-flow workflow author create [WFD-ID] --operation-id ID --expected-head empty|OID [--name TEXT] [--input FILE|@approved-starter/ID] [--json]

@@ -843,7 +843,8 @@ workTypes:
     label: Spec-Driven Standard
     # This profile promises clause-level continuity. Display-only labels such as "AC-001" must be
     # replaced with stable [WORK-ID:AC-001] anchors before its specification can be approved.
-    spec: { mode: enforce }
+    spec: { mode: enforce, coverage: enforce }
+    sourceReview: { mode: enforce, phases: [specification, planning], reviewerAgent: sflow-source-reviewer }
     plannedClaims:
       mode: required
       clausePhases: [specification]
@@ -883,19 +884,19 @@ workTypes:
     phaseOverrides:
       planning:
         inputs:
-          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
+          - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
       implementation:
         inputs:
-          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
+          - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
           - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
       convergence:
         inputs:
-          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
+          - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
           - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
       verification:
         inputs:
-          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
+          - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
           - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
       release:

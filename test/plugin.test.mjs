@@ -297,11 +297,11 @@ test('initial phase skills require interactive clarification instead of silently
   for (const content of [workflowAgent, phase, requirements, code, epicRequirements]) {
     assert.match(content, /ask_user/);
     assert.match(content, /wait/i);
-    assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|mutation); stop if unavailable)/i);
+    assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); stop if unavailable)/i);
   }
   for (const content of [phase, code]) {
     assert.match(content, /git rev-parse --git-path singularity-flow\/clarification-responses/i);
-    assert.match(content, /never at `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json`/i);
+    assert.match(content, /never (?:at `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json`|in Story context)/i);
     assert.match(content, /Delete on success/i);
     assert.match(content, /Never pass Markdown/i);
     assert.match(content, /"responses"/);
@@ -888,20 +888,21 @@ test('approval skill is explicitly user-invoked', async () => {
 test('submit skill presents generated documents before approval', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(content, /status <WORK-ID> --submission-readiness --json/);
-  assert.match(content, /resultType.*exactly `sflow-submission-readiness`/s);
-  assert.match(content, /Read `lifecycleReady` only as the explicit boolean/);
-  assert.match(content, /never infer it from raw `singularity-flow status --json`/);
-  assert.match(content, /`publishedGeneration` equal to `currentGeneration`.*normal ready-to-submit state/s);
+  assert.match(content, /Require exact `resultType: sflow-submission-readiness`/);
+  assert.match(content, /matching work\/phase IDs.*`draftExists`.*`draftModified`.*`publicationRecorded`.*`nextSkill`.*`nextCommand`/);
+  assert.match(content, /explicit `lifecycleReady` boolean, not raw status or labels/);
+  assert.match(content, /Equal published\/current generation while `in_progress` is ready; do not republish/);
   assert.match(content, /Seeded draft — not published/);
   assert.match(content, /Published generation <N> — ready to submit/);
-  assert.match(content, /exactly one primary action, \*\*Generate and publish <Phase>\*\*/);
-  assert.match(content, /prefilling the engine-selected `nextSkill`/);
-  assert.match(content, /do not also offer Submit/);
-  assert.match(content, /Never invoke the generation skill from this submission skill/);
+  assert.match(content, /`classification: generation-required`.*show only \*\*Generate and publish <Phase>\*\* using returned `nextSkill`, then stop/);
+  assert.match(content, /Never generate or publish from this skill/);
+  assert.match(content, /review-source status <phase> --json/);
+  assert.match(content, /If required but not `ready`, stop; show findings and route to Copilot `\/sf-review-source <phase>`/);
+  assert.match(content, /a reviewer report is not human approval/);
   assert.match(content, /confirmationRequired: true.*Only the human/s);
   assert.match(content, /Work-ID-pinned submit command/);
-  assert.match(content, /stop without preparing, regenerating, publishing, modifying files, or guessing/);
-  assert.match(content, /every generated current-phase document/);
+  assert.match(content, /then stop\. Never generate or publish from this skill/);
+  assert.match(content, /Reproduce every current-phase document/);
   assert.match(content, /singularity-flow phase show <phase>/);
   assert.match(content, /show them before offering approval or rejection/);
 });
@@ -909,8 +910,9 @@ test('submit skill presents generated documents before approval', async () => {
 test('phase publication uses the unambiguous ready-to-submit label', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
   assert.match(content, /Published generation <N> — ready to submit/);
-  assert.match(content, /never say `publish-ready`/);
-  assert.match(content, /never submit or approve/);
+  assert.match(content, /(?:review is )?required but not `ready`.*Published generation <N> — source review required/s);
+  assert.doesNotMatch(content, /publish-ready/);
+  assert.match(content, /Never submit or approve here/);
 });
 
 test('help skill serves natural questions from cited docs and delegates work IDs to the guide', async () => {
@@ -1073,7 +1075,8 @@ test('generation skills preserve sanitized work-item telemetry with each publica
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /telemetry\/<phase>-gen<N>\.json/i, `${name} must require the committed telemetry summary`);
     assert.match(content, /without raw traces or conversation identifiers|sanitized/i, `${name} must exclude raw Copilot traces`);
-    assert.match(content, /resolved model.*token\/cost status/i, `${name} must report captured model and cost`);
+    assert.match(content, /(?:resolved model.*token\/cost status|report[^.]*model, cost)/i,
+      `${name} must report captured model and cost`);
   }
 });
 
@@ -1081,9 +1084,11 @@ test('submission and approval reproduce exact artifacts outside collapsible Shel
   for (const name of ['sflow-submit', 'sflow-approve']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /phase show <phase> --json/i, `${name} must load artifact content as JSON`);
-    assert.match(content, /visible assistant response/i, `${name} must put artifacts in the response`);
+    assert.match(content, /visible assistant response|in the response/i,
+      `${name} must put artifacts in the response`);
     assert.match(content, /--- BEGIN <path> ---[\s\S]*--- END <path> ---/i, `${name} must delimit exact artifact bodies`);
-    assert.match(content, /Shell\/tool block[\s\S]*does not satisfy artifact review/i, `${name} must not rely on collapsed command output`);
+    assert.match(content, /Shell\/tool block[\s\S]*does not satisfy artifact review|Tool output alone is insufficient/i,
+      `${name} must not rely on collapsed command output`);
     assert.match(content, /Never say .*shown above/i, `${name} must prohibit false visibility claims`);
   }
   const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');

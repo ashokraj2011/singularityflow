@@ -19,6 +19,9 @@ import {
 const MAXIMUM_STATE_AUTHORITY_CENSUS_BYTES = 64 * 1024 * 1024;
 const MAXIMUM_LIFECYCLE_REF_CENSUS_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAXIMUM_LIFECYCLE_REFS = 2_000;
+// Starter-pack draft inputs are templates, not durable lifecycle records. Including them in a
+// census makes an otherwise empty main branch look like a Story-bearing lifecycle ref.
+const STARTER_PACK_TEMPLATES = 'singularity/templates/starter-packs/';
 
 function isInside(boundary, candidate) {
   const relative = path.relative(boundary, candidate);
@@ -477,6 +480,7 @@ function lifecycleRefFiles(root, refs, roots, historyDir, {
       maxObjectBytes: maximumFileBytes,
       filter: (relativePath, { oid, size, mode, type }) => {
         if (!/\.jsonl?$/i.test(relativePath)) return false;
+        if (relativePath.startsWith(STARTER_PACK_TEMPLATES)) return false;
         if (excludedHistoryObjects.some((prefix) => relativePath.startsWith(prefix))) return false;
         if (excludedWorldModelPrefixes.some((prefix) => relativePath.startsWith(prefix))) return false;
         matched = true;
@@ -631,7 +635,10 @@ export async function schemaCensus(root, {
     // untracked or Story-branch copies double-count or falsely block the authority census. Without
     // a materialized authority ref, retain the legacy checkout census but never descend into its
     // context-free content-addressed object store.
-    const excludedDirectories = [repositoryHistoryObjectsRoot];
+    const excludedDirectories = [
+      repositoryHistoryObjectsRoot,
+      path.join(root, STARTER_PACK_TEMPLATES)
+    ];
     if (authoritativeHistory) {
       // A configured history root may deliberately coincide with an existing governed root such
       // as `.sdlc`. Exclude only the WMP-owned namespaces; excluding the root itself would hide

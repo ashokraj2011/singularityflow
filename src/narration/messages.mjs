@@ -444,6 +444,22 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.workId)} is at ${slot(s.phase)}.`,
     preserves: true
   },
+  'source-review.context-reported': {
+    headline: (s) => `Pinned source review context for ${slot(s.workId)} / ${slot(s.phase)} generation ${slot(s.generation)} is ready.`,
+    preserves: true
+  },
+  'source-review.status-reported': {
+    headline: (s) => `Source review for ${slot(s.workId)} / ${slot(s.phase)} is ${slot(s.status)}.`,
+    preserves: true
+  },
+  'source-review.submitted': {
+    headline: (s) => `Retained independent source review ${slot(s.reportSha256)} for ${slot(s.workId)} / ${slot(s.phase)}.`,
+    preserves: false
+  },
+  'source-review.decided': {
+    headline: (s) => `Recorded human source review decision ${slot(s.findingId)} for ${slot(s.workId)} / ${slot(s.phase)}.`,
+    preserves: false
+  },
   'context.reported': {
     headline: (s) => `Context X-Ray for ${slot(s.workId)} covers ${slot(s.phase)}.`,
     preserves: true

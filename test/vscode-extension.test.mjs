@@ -2085,6 +2085,30 @@ test('a recorded publication awaiting synchronization stays visible but not subm
     'singularityFlow.continueSafely');
 });
 
+test('published source-review gate offers a guided review but never Submit', () => {
+  const snapshot = storySnapshot({ generation: 1 });
+  Object.assign(snapshot.submissionReadiness, {
+    lifecycleReady: false,
+    publicationRecorded: true,
+    classification: 'source-review-required',
+    reasonCode: 'SOURCE_REVIEW_REQUIRED',
+    nextSkill: '/sf-review-source',
+    nextCommand: 'singularity-flow review-source context design --json'
+  });
+  const tree = buildTree(snapshot);
+  assert.equal(find(tree, 'story:design:publication-status').label,
+    'Published generation 1 — source review required');
+  assert.equal(find(tree, 'story:design:submit'), undefined);
+  const review = find(tree, 'story:design:review-source');
+  assert.equal(review.runCommand, 'singularityFlow.prefillStoryPhaseGeneration');
+  assert.equal(review.prefill, '/sf-review-source');
+  assert.equal(submissionCommandArgv(snapshot.submissionReadiness, 'design'), null);
+
+  snapshot.submissionReadiness.nextSkill = '/sf-submit';
+  assert.equal(find(buildTree(snapshot), 'story:design:review-source'), undefined,
+    'a contradictory route cannot become a guided action');
+});
+
 test('missing readiness fails closed but keeps a safe way to ask the engine what is legal', () => {
   const snapshot = storySnapshot({ generation: 1 });
   delete snapshot.submissionReadiness;
@@ -2591,6 +2615,28 @@ test('the Work Journey uses explicit readiness for generation and submission pre
   mismatched.submissionReadiness.nextSkill = '/sf-docs';
   assert.equal(buildJourney(mismatched).nextAction, null,
     'a lifecycle action with a contradictory Copilot route is not rendered or executable');
+});
+
+test('the Work Journey guides source review without enabling submission', () => {
+  const snapshot = storySnapshot({ generation: 1 });
+  Object.assign(snapshot.submissionReadiness, {
+    lifecycleReady: false,
+    classification: 'source-review-required',
+    reasonCode: 'SOURCE_REVIEW_REQUIRED',
+    nextSkill: '/sf-review-source',
+    nextCommand: 'singularity-flow review-source context design --json'
+  });
+  const journey = buildJourney(snapshot);
+  assert.equal(journey.currentStage.publicationLabel,
+    'Published generation 1 — source review required');
+  assert.equal(journey.nextAction.label, 'Review Design against its sources');
+  assert.equal(journey.nextAction.execution, 'prefill');
+  assert.equal(journey.nextAction.skill, '/sf-review-source');
+  assert.equal(journey.nextAction.command, 'singularity-flow review-source context design --json');
+
+  snapshot.submissionReadiness.nextSkill = '/sf-submit';
+  assert.equal(buildJourney(snapshot).nextAction, null,
+    'a contradictory Copilot route cannot become a guided action');
 });
 
 test('Epic artifact rows attribute only the approval bound to that artifact', () => {

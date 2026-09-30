@@ -156,6 +156,11 @@ import {
   redactDiagnosticText
 } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown, witnessMappingReview } from './review.mjs';
+import {
+  evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
+  retainSourceReviewDecision, sourceReviewContext, sourceReviewInput
+} from './source-review-lifecycle.mjs';
+import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { unavailableWelEnforcementReadiness } from './wel-readiness-foundation.mjs';
 import {
@@ -8530,6 +8535,157 @@ async function reviewCommand(positionals, options) {
   process.stdout.write(rendered);
 }
 
+async function reviewSourceCommand(positionals, options) {
+  const action = requirePositional(positionals, 1, 'source review action');
+  if (!['context', 'submit', 'decide', 'status'].includes(action)) {
+    throw new SingularityFlowError("Source review action must be context, submit, decide, or status.");
+  }
+  const phaseId = requirePositional(positionals, 2, 'specification or planning phase');
+  if (!['specification', 'planning'].includes(phaseId)) {
+    throw new SingularityFlowError('Source review phase must be specification or planning.');
+  }
+  const root = repoRoot();
+  const { config, workflow } = await loadAcceptedStoryExecution(root);
+  if (!workflowBranchAllowed(workflow, branch(root))) {
+    throw new SingularityFlowError(`Current branch is not registered for Story '${workflow.workItem.id}'.`);
+  }
+  const phase = workflow.phases?.[phaseId];
+  if (!phase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no '${phaseId}' phase.`);
+  const emitReview = (operation, outcome, changed, data) => emitCommandResult(commandResult({
+    operation: { id: `review-source.${operation}`, classification: changed ? 'mutation' : 'read' },
+    subject: { kind: 'story', id: workflow.workItem.id }, outcome,
+    effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true }) : noEffects(),
+    restState: changed ? 'complete' : 'informational', data
+  }), { postState: workflow });
+  if (action === 'status' && !sourceReviewRequired(workflow, phaseId)) {
+    const result = { schemaVersion: 1, resultType: 'source-review-status',
+      workId: workflow.workItem.id, phase: phaseId, mode: 'off', status: 'not-required',
+      findings: [], pendingDispositions: [] };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Source review: not required for ${workflow.workItem.id} ${phaseId} (pinned policy is off).`);
+    return emitReview('status', noop('source-review.status-reported', {
+      workId: workflow.workItem.id, phase: phaseId, status: 'not-required'
+    }), false, result);
+  }
+  const stagingPath = path.join(gitDir(root), 'singularity-flow', 'source-reviews',
+    `${workflow.workItem.id}-${phaseId}-gen${phase.generation}.json`);
+  if (action === 'context') {
+    if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
+      throw new SingularityFlowError(`Source review context requires current in-progress phase '${phaseId}'.`);
+    }
+    const packet = await sourceReviewContext(root, config, workflow, phaseId, stagingPath);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(packet, null, 2));
+    console.log(`Source review context: ${packet.workId} ${phaseId} generation ${packet.generation}`);
+    console.log(`Artifact: ${packet.artifact.path} · ${packet.artifact.sha256}`);
+    for (const source of packet.sources) console.log(`Source: ${source.id} · ${source.path} · ${source.originalSha256}`);
+    if (packet.upstreamSpec) console.log(`Approved specification: ${packet.upstreamSpec.path} · ${packet.upstreamSpec.sha256}`);
+    console.log(`Independent reviewer: ${packet.requiredReviewerAgentId}`);
+    console.log(`Report staging path: ${packet.stagingPath}`);
+    return emitReview('context', noop('source-review.context-reported', {
+      workId: workflow.workItem.id, phase: phaseId, generation: packet.generation
+    }), false, packet);
+  }
+  if (action === 'status') {
+    const status = await readSourceReviewStatus(root, config, workflow, phaseId);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
+    console.log(`Source review: ${status.status} for ${status.workId} ${phaseId} generation ${status.generation}`);
+    if (status.reportSha256) console.log(`Report: ${status.reportSha256} · ${status.reportPath}`);
+    for (const finding of status.findings) console.log(`- ${finding.code}: ${finding.message}`);
+    for (const pending of status.pendingDispositions) console.log(`- Human decision pending: ${pending.id} — ${pending.reason}`);
+    return emitReview('status', noop('source-review.status-reported', {
+      workId: workflow.workItem.id, phase: phaseId, status: status.status
+    }), false, status);
+  }
+  if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
+    throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
+  }
+  await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
+  if (action === 'submit') {
+    const reportFile = optionString(options, 'report-file');
+    if (!reportFile || path.resolve(reportFile) !== path.resolve(stagingPath)) {
+      throw new SingularityFlowError(`Source review report must be staged at ${stagingPath}.`, {
+        code: 'SOURCE_REVIEW_REPORT_STAGING_REQUIRED'
+      });
+    }
+    const session = await loadSession(root);
+    const input = await sourceReviewInput(root, config, workflow, phaseId);
+    const stagingEntry = await lstat(stagingPath).catch(() => null);
+    if (!stagingEntry?.isFile() || stagingEntry.size > 8 * 1024 * 1024) {
+      throw new SingularityFlowError('Staged source review must be a regular JSON file of at most 8 MiB.', {
+        code: 'SOURCE_REVIEW_REPORT_STAGING_INVALID'
+      });
+    }
+    const report = JSON.parse(await readFile(stagingPath, 'utf8'));
+    const evaluation = evaluateSubmittedSourceReview(report, input, session);
+    let retained;
+    const { publication } = await transactStory(root, config, workflow, {
+      type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
+      actor: session.actor, agent: session.agent,
+      payload: { kind: 'source-grounded-review', reportSha256: evaluation.reportSha256 }
+    }, `[${workflow.workItem.id}][phase:${phaseId}][source-review] ${evaluation.reportSha256.slice(0, 12)}`,
+    async (aggregate, publicationEvent) => {
+      const current = await sourceReviewInput(root, config, aggregate, phaseId);
+      if (JSON.stringify(current.binding) !== JSON.stringify(input.binding)) throw new SingularityFlowError(
+        'Review sources or artifact changed during submission.', { code: 'SOURCE_REVIEW_BINDING_STALE' }
+      );
+      retained = await retainSourceReview(root, config, aggregate, phaseId, report, evaluation, session, publicationEvent);
+      return retained;
+    });
+    const status = await readSourceReviewStatus(root, config, await loadStoryAggregate(root, config, workflow.workItem.id), phaseId);
+    const result = { ...status, commit: publication.sha, pushed: publication.pushed };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Source review retained: ${retained.reportSha256} · ${retained.path}`);
+    console.log(`Commit: ${publication.sha}${publication.pushed ? ' (pushed)' : ' (local)'}`);
+    console.log(`Status: ${status.status}; ${status.findings.length} finding(s), ${status.pendingDispositions.length} human decision(s) pending.`);
+    return emitReview('submit', succeeded('source-review.submitted', {
+      workId: workflow.workItem.id, phase: phaseId, reportSha256: retained.reportSha256
+    }), true, result);
+  }
+  const decisionSession = await loadSession(root, { required: false });
+  if (decisionSession?.agent === workflow.resolution?.sourceReview?.reviewerAgent) {
+    throw new SingularityFlowError(
+      `The read-only source reviewer '${decisionSession.agent}' cannot record a human source review decision. Select a different agent or use an authorized human shell session, then retry.`,
+      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_DECIDE' }
+    );
+  }
+  const status = await readSourceReviewStatus(root, config, workflow, phaseId);
+  const id = optionString(options, 'finding');
+  const reason = optionString(options, 'reason');
+  if (!status.reportSha256 || !id || !reason) throw new SingularityFlowError(
+    'Source review decision requires a retained report, --finding ID, and --reason TEXT.'
+  );
+  const actor = identity(root);
+  const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
+  const authority = requireApprovalAuthority(authorities, phase.approvalPolicy, actor);
+  let retained;
+  const { publication } = await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
+    actor, agent: null, authorityGroup: authority.authorityGroup,
+    payload: { kind: 'source-review-disposition',
+      reportSha256: status.reportSha256, findingId: id }
+  }, `[${workflow.workItem.id}][phase:${phaseId}][source-review-decision] ${id}`,
+  async (aggregate, publicationEvent) => {
+    const current = await readSourceReviewStatus(root, config, aggregate, phaseId);
+    if (current.reportSha256 !== status.reportSha256 || current.status === 'stale') throw new SingularityFlowError(
+      'Source review changed before the human decision was recorded.', {
+        code: 'SOURCE_REVIEW_BINDING_STALE'
+      }
+    );
+    retained = await retainSourceReviewDecision(root, config, aggregate, phaseId, current,
+      id, reason, actor, authority, publicationEvent);
+    return retained;
+  });
+  const updated = await readSourceReviewStatus(root, config, await loadStoryAggregate(root, config, workflow.workItem.id), phaseId);
+  const result = { ...updated, decision: retained, commit: publication.sha, pushed: publication.pushed };
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  console.log(`Human source review decision retained: ${id} · ${retained.recordSha256}`);
+  console.log(`Commit: ${publication.sha}${publication.pushed ? ' (pushed)' : ' (local)'}`);
+  console.log(`Status: ${updated.status}; ${updated.findings.length} finding(s) remain.`);
+  return emitReview('decide', succeeded('source-review.decided', {
+    workId: workflow.workItem.id, phase: phaseId, findingId: id
+  }), true, result);
+}
+
 async function receiptCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'show';
   if (subcommand !== 'show') throw new SingularityFlowError("receipt supports only 'show'.");
@@ -16594,6 +16750,7 @@ async function dispatch(command, positionals, options) {
     logs: () => logsCommand(positionals, options),
     doctor: () => doctorCommand(positionals, options),
     review: () => reviewCommand(positionals, options),
+    'review-source': () => reviewSourceCommand(positionals, options),
     receipt: () => receiptCommand(positionals, options),
     workflow: () => workflowCommand(positionals, options),
     skill: async () => (await import('./commands/skill.mjs')).run(argv, { positionals, options }),

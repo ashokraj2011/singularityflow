@@ -87,6 +87,29 @@ test('a recorded current generation in progress is explicitly ready to submit', 
   assert.doesNotMatch(submissionReadinessText(result), /publish-ready/);
 });
 
+test('a pinned independent review routes the host to review before Submit', () => {
+  const source = workflow();
+  source.resolution.sourceReview = {
+    mode: 'enforce', phases: ['specification'], reviewerAgent: 'sflow-source-reviewer'
+  };
+  const pending = snapshot(source, {
+    sourceReviewEvidence: { status: 'correction-required',
+      findings: [{ code: 'source-unmapped', message: 'A source request is not mapped.' }] }
+  });
+  assert.equal(pending.classification, 'source-review-required');
+  assert.equal(pending.lifecycleReady, false);
+  assert.equal(pending.publicationRecorded, true);
+  assert.equal(pending.nextSkill, '/sf-review-source');
+  assert.equal(pending.nextCommand, 'singularity-flow review-source context specification --json');
+  assert.equal(pending.sourceReviewFindings[0].code, 'source-unmapped');
+  assert.match(submissionReadinessText(pending), /Published generation 1 — not ready to submit/);
+
+  const ready = snapshot(source, { sourceReviewEvidence: { status: 'ready', findings: [] } });
+  assert.equal(ready.lifecycleReady, true);
+  assert.equal(ready.nextSkill, '/sf-submit');
+  assert.equal(snapshot(source).sourceReviewStatus, 'unverified');
+});
+
 test('a generation number without its immutable publication record is not publication evidence', () => {
   const result = snapshot(workflow({ publicationRecord: false }));
 

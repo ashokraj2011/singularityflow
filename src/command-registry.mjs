@@ -1,11 +1,11 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck', 'skill']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise', 'env', 'skill', 'product']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'architecture', 'revision', 'revise', 'env', 'skill', 'product', 'review-source']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'phase', 'product']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'phase', 'product']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -112,7 +112,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
-  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'], ['skill'],
+  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['review-source'], ['workflow'], ['skill'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
@@ -1339,6 +1339,14 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       ? never(`phase.${positionals[1]}`, definition, 'read')
       : never('phase', definition, 'mutation');
   }
+  if (definition.name === 'review-source') {
+    const subcommand = positionals[1];
+    if (!['context', 'status', 'submit', 'decide'].includes(subcommand)) {
+      return unknownSubcommand('review-source', subcommand, ['context', 'status', 'submit', 'decide']);
+    }
+    return never(`review-source.${subcommand}`, definition,
+      ['context', 'status'].includes(subcommand) ? 'read' : 'mutation');
+  }
   // These handlers only discover Jira via GET or read the existing audit files. Logging a CLI
   // invocation is incidental diagnostics, not permission to treat the handler as a mutation.
   if (definition.name === 'jira') return positionals[1] === 'status'
@@ -1552,6 +1560,8 @@ export function operationCatalog() {
   const modelFreeMixed = [
     never('phase', commandDefinition('phase'), 'mutation'),
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
+    ...['context', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
+    ...['submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
     never('revise.preview', reviseDefinition, 'read'),
     never('revise.apply', reviseDefinition, 'mutation'),
     ...REVISION_READ_SUBCOMMANDS.map((name) => never(`revision.${name}`, revisionDefinition, 'read')),

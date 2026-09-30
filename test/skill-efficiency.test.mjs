@@ -12,7 +12,10 @@ test('every public skill has a bounded class and output contract', async () => {
   const result = await auditSkillPolicy(root);
   assert.deepEqual(result.errors, []);
   assert.equal(result.rows.length, Object.keys(policy.skills ?? {}).length);
-  assert.ok(result.rows.every((row) => row.class && row.bodyTokens <= 800));
+  assert.ok(result.rows.every((row) => row.class
+    && row.bodyTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
+  assert.deepEqual(result.rows.filter((row) => row.bodyTokens > 800).map((row) => row.name), ['sflow-code']);
+  assert.ok(policy.skills['sflow-code'].exception);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
   assert.deepEqual(result.rows.filter((row) => row.kernelModelPolicy === 'conditional').map((row) => row.name), [
     'sflow-auto', 'sflow-explain-code', 'sflow-initiative-phase', 'sflow-next', 'sflow-run', 'sflow-spec', 'sflow-story-start',
@@ -96,8 +99,8 @@ test('phase handoffs always show the Copilot action and terminal equivalent', as
       assert.match(content, /`Copilot: \/sf-\.\.\.`/);
       assert.match(content, /`Shell: singularity-flow \.\.\.`/);
     } else {
-      assert.match(content, /Next in Copilot: \/sf-/, `${name} must lead its handoff with a Copilot command`);
-      assert.match(content, /Terminal equivalent: singularity-flow /, `${name} must include the terminal equivalent`);
+      assert.match(content, /Next in Copilot: \/sf-|next: Copilot `\/sf-/, `${name} must lead its handoff with a Copilot command`);
+      assert.match(content, /Terminal equivalent: singularity-flow |Shell `singularity-flow /, `${name} must include the terminal equivalent`);
     }
   }
   const verify = await readFile(path.join(root, 'plugin', 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');

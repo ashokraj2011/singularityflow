@@ -304,9 +304,12 @@ test('--here actually renders the state plane in a governed repository', async (
   assert.match(text, /— FEAT-1 at revision [0-9a-f]{7}/);
 });
 
-test('handle expansion round-trips the longest topic through show', async () => {
+test('handle expansion round-trips the longest fully expandable topic through show', async () => {
   const topics = await loadTopics();
-  const longest = [...topics].sort((a, b) => b.body.length - a.body.length)[0];
+  // A topic above the independent hard ceiling remains intentionally bounded by `show`.
+  const longest = [...topics]
+    .filter((topic) => Buffer.byteLength(topic.body, 'utf8') <= DOCS_HARD_MAXIMUM_BYTES)
+    .sort((a, b) => b.body.length - a.body.length)[0];
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-docs-handle-'));
 
   // Force truncation, which is the only condition under which a handle is offered at all.

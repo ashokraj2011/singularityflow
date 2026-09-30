@@ -126,6 +126,31 @@ test('claim maps, coverage, and clause-scoped context preserve traceability', ()
   }, { kind: 'observed', clauseIds: ['APP:AC-001'], policy: { mode: 'record' } }).claims['APP:AC-001']);
 });
 
+test('a justified test not-applicable still requires exact implemented source paths', () => {
+  const id = 'APP:REQ-001';
+  const planned = normalizeClaimMap({ claims: {
+    [id]: {
+      expectedPaths: ['src/implementation.mjs'], tests: [],
+      testDisposition: 'not-applicable', testReason: 'Compile-time type contract has no runtime test.'
+    }
+  } }, { kind: 'planned', clauseIds: [id] });
+  const missing = deriveObservedClaimMap(planned, { sourcePaths: [] }, { clauseIds: [id] });
+  assert.deepEqual(Object.keys(missing.claims), []);
+  assert.deepEqual(evaluateSpecCoverage({
+    indexes: [{ clauses: [{ id }] }], planned: [planned], observed: [missing]
+  }, [], { coverage: 'enforce' }).unimplemented, [id]);
+
+  const observed = deriveObservedClaimMap(planned, {
+    sourcePaths: ['src/implementation.mjs'],
+    traceability: { sourceBindings: [{ clauseId: id, sourcePath: 'src/implementation.mjs' }] }
+  }, { clauseIds: [id], requireSourceBindings: true });
+  assert.deepEqual(observed.claims[id].observedPaths, ['src/implementation.mjs']);
+  assert.equal(observed.claims[id].verdict, 'matched');
+  assert.equal(evaluateSpecCoverage({
+    indexes: [{ clauses: [{ id }] }], planned: [planned], observed: [observed]
+  }, ['src/implementation.mjs'], { coverage: 'enforce' }).complete, true);
+});
+
 test('live governance ignores historical specification generations', () => {
   const workflow = {
     workItem: { id: 'WORK-1' },

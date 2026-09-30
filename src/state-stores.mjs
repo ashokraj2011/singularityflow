@@ -81,8 +81,8 @@ export class StoryStateStore {
     const publication = await this.publish(workflow, event, message, paths, {
       ...options,
       rollbackWorkflow: prior,
-      beforeStateWrite: async () => {
-        value = await transition(workflow);
+      beforeStateWrite: async (...publicationContext) => {
+        value = await transition(workflow, ...publicationContext);
         return value;
       }
     });

@@ -4,7 +4,7 @@ import { commandArgv } from '../commands.ts';
 export type GenerationSkill = `/sf-${string}`;
 
 export interface PhaseSubmissionPresentation {
-  kind: 'generation-required' | 'ready-to-submit' | 'unavailable';
+  kind: 'generation-required' | 'source-review-required' | 'ready-to-submit' | 'unavailable';
   statusLabel: string;
   detail: string;
   generation: number | null;
@@ -92,6 +92,17 @@ export function phaseSubmissionPresentation(
       detail: exact.draftModified ? 'draft has local edits' : 'generation not recorded',
       generation: exact.currentGeneration,
       skill
+    };
+  }
+  if (exact?.publicationRecorded && exact.lifecycleReady === false
+      && exact.classification === 'source-review-required') {
+    const published = exact.publishedGeneration ?? phase.generation;
+    return {
+      kind: 'source-review-required',
+      statusLabel: `Published generation ${published} — source review required`,
+      detail: 'independent source review must be recorded before submission',
+      generation: published,
+      skill: skill === '/sf-review-source' ? skill : null
     };
   }
   if (exact?.publicationRecorded) {

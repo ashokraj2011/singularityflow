@@ -343,6 +343,18 @@
           "auto": { "$ref": "#/$defs/autoWorkTypePolicy" },
           "references": { "$ref": "#/$defs/referenceRepositoryPolicy" },
           "plannedClaims": { "$ref": "#/$defs/plannedClaimsPolicy" },
+          "sourceReview": {
+            "type": "object",
+            "properties": {
+              "mode": { "enum": ["off", "enforce"] },
+              "phases": {
+                "type": "array", "uniqueItems": true,
+                "items": { "enum": ["specification", "planning"] }
+              },
+              "reviewerAgent": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" }
+            },
+            "additionalProperties": false
+          },
           "templateOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
           "phaseOverrides": {
             "type": "object",

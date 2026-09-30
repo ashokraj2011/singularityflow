@@ -55,6 +55,8 @@ import {
   normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
+import { sourceReviewRequired } from './source-review-policy.mjs';
+import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
   evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
   verifyCodeDeliveryReceipt
@@ -127,8 +129,9 @@ import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mj
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import {
-  buildSpecIndex, deriveObservedClaimMap, derivePlannedClaimMap, evaluateSpecAcceptance,
-  isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
+  buildSpecIndex, changedRepositoryPaths, deriveObservedClaimMap, derivePlannedClaimMap,
+  evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase,
+  loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
   readBoundSpecificationClaimMap,
   predecessorSpecClauses
 } from './specifications.mjs';
@@ -1649,6 +1652,52 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
   }
   bindPhaseClaimMap(phase, 'observed', relative, digest);
   return record;
+}
+
+/**
+ * The final code approval is the last human boundary before convergence. A passing test command
+ * and a valid receipt prove execution, but neither proves that every approved clause was covered.
+ * Use only this Story's pinned, committed specification/plan/observation bindings and the exact
+ * submitted code revision. Earlier code phases may accumulate evidence and are not final gates.
+ */
+export async function assertFinalCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit) {
+  const policy = specificationPolicy(config, workflow);
+  if (policy.coverage !== 'enforce'
+      || !explicitPlannedClaimsRequired(workflow)
+      || !phaseRequiresCodeDelivery(phase)) return null;
+  const codePhases = (workflow.phaseOrder ?? []).filter((id) =>
+    phaseRequiresCodeDelivery(workflow.phases?.[id]));
+  if (codePhases.at(-1) !== phase.id) return null;
+  const records = await loadBoundActiveSpecRecords(
+    root, workDir(root, config, workflow.workItem.id), workflow, policy,
+    { requireCommitted: true }
+  );
+  const changedPaths = changedRepositoryPaths(root, {
+    base: workflow.workItem.baseCommit
+      ?? workflow.phases?.[workflow.phaseOrder?.[0]]?.sourceCommit
+      ?? workflow.workItem.baseBranch,
+    target: evidenceCommit,
+    pathContext: applicationPathContext(config, workflow)
+  });
+  const coverage = evaluateSpecCoverage(records, changedPaths, policy, { root });
+  if (coverage.complete) return coverage;
+  const findings = [
+    ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
+    ...coverage.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}`),
+    ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
+    ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
+  ];
+  throw new SingularityFlowError(
+    `Phase '${phase.id}' cannot be approved because specification coverage is incomplete:\n- ${findings.join('\n- ')}\n`
+    + `Return this phase for correction, complete the source and test evidence, then publish and submit a new generation. Never hand-edit an observed claim map.`,
+    {
+      code: 'SPEC_COVERAGE_INCOMPLETE',
+      details: {
+        workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
+        evidenceCommit, coverage
+      }
+    }
+  );
 }
 
 
@@ -3824,6 +3873,13 @@ async function submitPhaseTransition(root, config, workflow, {
   const session = actor
     ? { actor, agent: agent ?? null }
     : await loadSession(root);
+  if (workflow.resolution?.sourceReview?.mode === 'enforce'
+      && session.agent === workflow.resolution.sourceReview.reviewerAgent) {
+    throw new SingularityFlowError(
+      `The read-only source reviewer '${session.agent}' cannot submit phase '${phase.id}'. Select the configured phase agent, then retry.`,
+      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_SUBMIT' }
+    );
+  }
   // Repair legacy generations whose raw reporter output was registered as a phase artifact. The
   // normalized test-execution receipt is durable evidence; `.sflow/results/**` is disposable
   // command transport and commonly changes timestamps on every otherwise identical test run.
@@ -3847,6 +3903,29 @@ async function submitPhaseTransition(root, config, workflow, {
     requestedPhase: phase.id,
     reason: phase.generation < 1 ? 'The phase has no published generation.' : 'The phase was returned for correction and has not been regenerated.'
   });
+  // This is an opt-in policy pinned with the Story, so older in-flight Stories retain their
+  // accepted contract. The reviewer is a different governed agent and its report is bound to
+  // exact current Story inputs, artifact bytes and generation. A human must explicitly dispose
+  // of exclusions before submission; a reviewer cannot approve their own omissions.
+  if (sourceReviewRequired(workflow, phase.id)) {
+    const review = await readSourceReviewStatus(root, config, workflow, phase.id);
+    if (review.status !== 'ready') {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' cannot be submitted until an independent source-grounded review is ready. `
+        + `Run singularity-flow review-source context ${phase.id} --json, select the configured reviewer, `
+        + `submit its report, and resolve the listed findings before retrying.\n- `
+        + (review.findings?.map((entry) => entry.message).join('\n- ') || `Review status: ${review.status}.`),
+        {
+          code: 'SOURCE_REVIEW_REQUIRED',
+          details: {
+            workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
+            status: review.status, findings: review.findings ?? [],
+            pendingDispositions: review.pendingDispositions ?? []
+          }
+        }
+      );
+    }
+  }
   /**
    * The same gate again, at the other boundary `[SPK:REQ-065]` names.
    *
@@ -4415,6 +4494,24 @@ export async function approvePhase(root, config, workflow, {
       );
     }
   }
+  // Re-evaluate the exact retained review at the human decision boundary as well as submission.
+  // A modified or superseded report cannot ride on an earlier ready verdict.
+  if (sourceReviewRequired(workflow, phase.id)) {
+    const review = await readSourceReviewStatus(root, config, workflow, phase.id);
+    if (review.status !== 'ready') {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' cannot be approved: the independent source review is ${review.status}.\n- `
+        + (review.findings?.map((entry) => entry.message).join('\n- ') || 'Review the current source and artifact bindings.'),
+        {
+          code: 'SOURCE_REVIEW_REQUIRED',
+          details: {
+            workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
+            status: review.status, findings: review.findings ?? []
+          }
+        }
+      );
+    }
+  }
   const packetEntry = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
     entry.phase === phase.id && Number(entry.generation) === Number(phase.generation));
   if (!packetEntry) {
@@ -4708,6 +4805,9 @@ export async function approvePhase(root, config, workflow, {
         );
       }
     }
+    await assertFinalCodeSpecificationCoverage(
+      root, config, workflow, phase, submittedReview.evidenceCommit
+    );
   }
   if (phase.requiredArtifact?.kind === 'conformance-report') {
     const report = await readArtifactText(root, requiredRepoPath(config, workflow, phase));
@@ -4731,6 +4831,13 @@ export async function approvePhase(root, config, workflow, {
   const session = decisionActor
     ? { actor: decisionActor, agent: decisionAgent ?? null }
     : await loadSession(root);
+  if (workflow.resolution?.sourceReview?.mode === 'enforce'
+      && session.agent === workflow.resolution.sourceReview.reviewerAgent) {
+    throw new SingularityFlowError(
+      `The read-only source reviewer '${session.agent}' cannot approve phase '${phase.id}'. Select the phase agent or use an authorized human shell session, then retry.`,
+      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE' }
+    );
+  }
   const actor = session.actor;
   const key = actorKey(actor);
   const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');

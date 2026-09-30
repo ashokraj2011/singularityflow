@@ -65,7 +65,7 @@ test('direct skills install as personal bare-command aliases and update only man
   const directSubmit = await readFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), 'utf8');
   const sourceSubmit = await readFile(path.join(sourceRoot, 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(directSubmit, /^name: sf-submit$/m);
-  assert.match(directSubmit, /every generated current-phase document/);
+  assert.match(directSubmit, /Reproduce every current-phase document/);
   assert.equal(directSubmit, renderDirectSkill(sourceSubmit, 'sflow-submit'));
 
   await writeFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), directSubmit.replace('Validate and submit', 'OLD Validate and submit'));

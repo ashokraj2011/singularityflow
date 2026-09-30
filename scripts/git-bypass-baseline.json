@@ -1169,6 +1169,12 @@
       },
       "digest": "06448aec86928ea8859f4454d4829f6f4c8d90e41da12311f6a6529400538c39"
     },
+    "src/source-review-lifecycle.mjs": {
+      "counts": {
+        "command-run": 8
+      },
+      "digest": "0728c0233034cf5039e3791ee937c70b18a557aef2fde9f0e35c45b5c9879401"
+    },
     "src/specifications.mjs": {
       "counts": {
         "command-run": 8

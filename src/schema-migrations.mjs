@@ -3218,6 +3218,19 @@ const families = [
   family({ id: 'initiative-invalidation-record', currentVersion: 1, paths: [/^singularity\/initiatives\/[^/]+\/invalidations\/records\/[a-f0-9]{64}\.json$/], immutable: true }),
   family({ id: 'initiative-approval-summary', currentVersion: 1, paths: [/^singularity\/initiatives\/[^/]+\/approvals\/SUMMARY\.json$/] }),
   family({ id: 'story-lineage', currentVersion: 1 }),
+  family({ id: 'source-grounded-review', currentVersion: 1, immutable: true }),
+  family({
+    id: 'source-review-record', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'source-review-pointer', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/current\.json$/]
+  }),
+  family({
+    id: 'source-review-decision', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/decisions\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/]
+  }),
   family({
     id: 'configuration-source', currentVersion: 2,
     steps: [migration(1, 2, configurationSourceV1ToV2)],

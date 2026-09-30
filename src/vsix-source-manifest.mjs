@@ -24,6 +24,9 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/revision/approved-runner-boundary.mjs',
   'src/revision/approved-runner-contract.mjs',
   'src/revision/publication-adapter.mjs',
+  'src/source-grounded-review.mjs',
+  'src/source-review-lifecycle.mjs',
+  'src/source-review-policy.mjs',
   'src/wel-lifecycle.mjs',
   'src/wel-readiness-foundation.mjs',
   'src/wel-test-lifecycle.mjs',
@@ -41,6 +44,8 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'schemas/revision-runner-artifact-admission.schema.json',
   'schemas/wel-enforcement-readiness.schema.json',
   'schemas/wel-test-lifecycle.schema.json',
+  'plugin/agents/sflow-source-reviewer.agent.md',
+  'plugin/skills/sflow-review-source/SKILL.md',
   'plugin/skills/sflow-sgos/SKILL.md'
 ]);
 

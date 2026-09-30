@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { phasePrepublish } from '../src/phase-prepublish.mjs';
+import { buildSpecIndex, derivePlannedClaimMap } from '../src/specifications.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-prepublish-'));
@@ -225,4 +226,164 @@ test('prepublish refuses a required collection whose only evidence Git ignores',
     { session: item.session });
   assert.equal(ready.status, 'ready');
   assert.notEqual(ready.draftFingerprint, blocked.draftFingerprint);
+});
+
+test('prepublish surfaces enforced specification quality before publication without recording state', async (t) => {
+  const item = await fixture(t);
+  item.phase.id = 'specification';
+  item.phase.requiredArtifact.kind = 'requirements';
+  item.phase.specificationQuality = { mode: 'enforce' };
+  item.workflow.currentPhase = 'specification';
+  item.workflow.phases = { specification: item.phase };
+  const session = { ...item.session, phaseId: 'specification' };
+  await writeFile(item.absolute, '# Plan\n\nA complete sentence without the required review sections.\n');
+
+  const blocked = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session });
+  assert.equal(blocked.status, 'correction-required');
+  assert.equal(blocked.commands.publish, null);
+  assert.equal(blocked.correction.class, 'agent-authoring');
+  assert.equal(blocked.correction.sameTurn, true);
+  assert.deepEqual(blocked.findings.filter((finding) =>
+    finding.code === 'specification.missing-required-section').map((finding) => finding.value),
+  ['Actors', 'Requirements', 'User scenarios']);
+  assert.equal(item.phase.generation, 0);
+
+  await writeFile(item.absolute, '# Plan\n\nReviewed outcome.\n\n## Actors\n\nA buyer.\n\n## User scenarios\n\nA buyer completes checkout.\n\n## Requirements\n\nThe checkout accepts payment.\n');
+  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session });
+  assert.equal(ready.status, 'ready');
+  assert.deepEqual(ready.findings, []);
+  assert.equal(item.phase.generation, 0);
+});
+
+test('prepublish validates a prospective specification index without writing it', async (t) => {
+  const item = await fixture(t);
+  item.phase.id = 'specification';
+  item.phase.requiredArtifact.kind = 'requirements';
+  item.workflow.currentPhase = 'specification';
+  item.workflow.phases = { specification: item.phase };
+  item.workflow.resolution.spec = { mode: 'enforce', namespace: 'PRE-1', acceptance: 'off' };
+  const session = { ...item.session, phaseId: 'specification' };
+  await writeFile(item.absolute, '# Plan\n\n[PRE-1:REQ-001]\nThe checkout accepts a payment.\n\n[PRE-1:REQ-001]\nThe checkout records a receipt.\n');
+
+  const blocked = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session });
+  assert.equal(blocked.status, 'correction-required');
+  assert.ok(blocked.findings.some((finding) => finding.code === 'specification.index-invalid'
+    && /duplicated/u.test(finding.message)));
+  assert.equal(blocked.commands.publish, null);
+
+  await writeFile(item.absolute, '# Plan\n\n[PRE-1:REQ-001]\nThe checkout accepts a payment.\n\n[PRE-1:AC-001]\nThe checkout records a receipt.\n');
+  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session });
+  assert.equal(ready.status, 'ready');
+  assert.equal(item.phase.specIndex, undefined);
+  await assert.rejects(readFile(path.join(item.root, 'singularity/work-items/PRE-1/context/spec-indexes/specification-gen1.json')),
+    { code: 'ENOENT' });
+});
+
+test('prepublish routes an unresolved specification marker to human clarification', async (t) => {
+  const item = await fixture(t);
+  item.phase.id = 'specification';
+  item.phase.requiredArtifact.kind = 'requirements';
+  item.phase.clarification = { mode: 'off', markers: { mode: 'block' } };
+  item.workflow.currentPhase = 'specification';
+  item.workflow.phases = { specification: item.phase };
+  await writeFile(item.absolute, '# Plan\n\n[NEEDS CLARIFICATION: May the buyer retry payment?]\n');
+
+  const blocked = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: { ...item.session, phaseId: 'specification' } });
+  assert.equal(blocked.status, 'correction-required');
+  assert.equal(blocked.correction.class, 'human-input');
+  assert.equal(blocked.correction.sameTurn, false);
+  assert.equal(blocked.commands.next, 'singularity-flow clarification status specification --json');
+  assert.equal(blocked.commands.publish, null);
+  assert.ok(blocked.findings.some((finding) =>
+    finding.code === 'specification.unresolved-clarification' && finding.line === 3));
+});
+
+test('prepublish checks every approved clause against the planning table without creating a claim map', async (t) => {
+  const item = await fixture(t);
+  item.phase.requiredArtifact.kind = 'design';
+  item.workflow.phaseOrder = ['specification', 'planning', 'implementation'];
+  item.workflow.resolution.spec = { mode: 'record', namespace: 'PRE-1', acceptance: 'presence' };
+  item.workflow.resolution.plannedClaims = {
+    mode: 'required', clausePhases: ['specification'], owners: { implementation: 'planning' }
+  };
+  const specPhase = {
+    id: 'specification', status: 'approved', generation: 1,
+    requiredArtifact: { path: 'artifacts/specification/spec.md', kind: 'requirements' }
+  };
+  const implementation = { id: 'implementation', generationPolicy: { task: 'code' } };
+  item.workflow.phases = { specification: specPhase, planning: item.phase, implementation };
+  const specRelative = 'singularity/work-items/PRE-1/artifacts/specification/spec.md';
+  await mkdir(path.join(item.root, path.dirname(specRelative)), { recursive: true });
+  await writeFile(path.join(item.root, specRelative), '# Requirements\n\n[PRE-1:REQ-001]\nThe checkout accepts a payment.\n\n[PRE-1:AC-001]\nAn accepted payment produces a receipt.\n');
+  await buildSpecIndex(item.root, specRelative, {
+    workId: 'PRE-1', phase: 'specification', generation: 1,
+    outputPath: 'singularity/work-items/PRE-1/context/spec-indexes/specification-gen1.json',
+    policy: item.workflow.resolution.spec
+  });
+  await writeFile(item.absolute, '# Plan\n\nImplement payment and receipt handling.\n');
+
+  const blocked = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(blocked.status, 'correction-required');
+  assert.deepEqual(blocked.findings.filter((finding) =>
+    finding.code === 'specification.planned-test-missing').map((finding) => finding.details.clauseId),
+  ['PRE-1:AC-001', 'PRE-1:REQ-001']);
+  assert.equal(blocked.correction.class, 'agent-authoring');
+  assert.equal(blocked.correction.sameTurn, true);
+  assert.equal(blocked.commands.publish, null);
+
+  await writeFile(item.absolute, [
+    '# Plan', '', 'Implement payment and receipt handling.', '',
+    '| Clause | Expected paths | Planned tests |',
+    '| --- | --- | --- |',
+    '| [PRE-1:REQ-001] | `src/payment.mjs` | `test/payment.test.mjs` |',
+    '| [PRE-1:AC-001] | `src/receipt.mjs` | not-applicable: to be determined |', ''
+  ].join('\n'));
+  const placeholder = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(placeholder.status, 'correction-required');
+  assert.ok(placeholder.findings.some((finding) =>
+    finding.code === 'specification.planned-test-placeholder'
+      && finding.details.clauseId === 'PRE-1:AC-001'));
+
+  await writeFile(item.absolute, [
+    '# Plan', '', 'Implement payment and receipt handling.', '',
+    '| Clause | Expected paths | Planned tests |',
+    '| --- | --- | --- |',
+    '| [PRE-1:REQ-001] | `src/payment.mjs` | `test/payment.test.mjs` |',
+    '| [PRE-1:AC-001] | `src/receipt.mjs` | `test/receipt.test.mjs` |', ''
+  ].join('\n'));
+  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(ready.status, 'ready');
+  assert.deepEqual(ready.findings, []);
+  assert.equal(item.phase.claimMaps, undefined);
+  await assert.rejects(readFile(path.join(item.root, 'singularity/work-items/PRE-1/context/claims/planning-gen1-planned.json')),
+    { code: 'ENOENT' });
+
+  const planText = await readFile(item.absolute, 'utf8');
+  const seedPath = path.join(item.root,
+    'singularity/work-items/PRE-1/context/claims/planning-gen1-planned.json');
+  await mkdir(path.dirname(seedPath), { recursive: true });
+  const seeded = {
+    ...derivePlannedClaimMap(planText, {
+      clauseIds: ['PRE-1:REQ-001', 'PRE-1:AC-001'], policy: item.workflow.resolution.spec
+    }).claimMap,
+    workId: 'PRE-1', phase: 'planning', generation: 1,
+    source: { path: path.relative(item.root, item.absolute),
+      sha256: '0'.repeat(64), bytes: Buffer.byteLength(planText) }
+  };
+  await writeFile(seedPath, `${JSON.stringify(seeded)}\n`);
+  const seededBytes = await readFile(seedPath, 'utf8');
+  const stale = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(stale.status, 'correction-required');
+  assert.ok(stale.findings.some((finding) => finding.code === 'specification.planned-test-invalid'
+    && /does not match the reviewed Markdown/u.test(finding.message)));
+  assert.equal(await readFile(seedPath, 'utf8'), seededBytes);
 });

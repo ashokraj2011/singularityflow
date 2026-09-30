@@ -227,6 +227,8 @@ function storyJourneyOf(
     ? commandGuidance({ command: readiness.nextCommand, skill: '/sf-submit' })
     : presentation?.kind === 'generation-required' && presentation.skill && readiness?.nextCommand
       ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
+      : presentation?.kind === 'source-review-required' && presentation.skill && readiness?.nextCommand
+        ? commandGuidance({ command: readiness.nextCommand, skill: presentation.skill })
       : null;
   return {
     kind: 'story',
@@ -265,6 +267,17 @@ function storyJourneyOf(
             label: `Generate and publish ${currentStage?.label ?? 'current phase'}`,
             execution: 'prefill', skill: actionRoutes.skill
           }
+        : presentation?.kind === 'source-review-required' && actionRoutes
+          ? {
+              command: actionRoutes.command,
+              executable: actionRoutes.executable,
+              argv: actionRoutes.argv,
+              copilotCommand: actionRoutes.copilotCommand,
+              copyable: actionRoutes.copyable,
+              reason: presentation.statusLabel,
+              label: `Review ${currentStage?.label ?? 'current phase'} against its sources`,
+              execution: 'prefill', skill: actionRoutes.skill
+            }
         : null,
     empty: null
   };

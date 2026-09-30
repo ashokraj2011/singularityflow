@@ -821,6 +821,19 @@ function storyPhaseActions(
     contextValue: 'sflow.story.generate'
   }];
 
+  if (presentation.kind === 'source-review-required') return [{
+    kind: 'message', id: `story:${phase.id}:publication-status`,
+    label: presentation.statusLabel,
+    description: presentation.detail, icon: 'statusWaiting'
+  }, ...(presentation.skill ? [{
+    kind: 'action' as const, id: `story:${phase.id}:review-source`,
+    label: `Review ${phase.label} against its sources`,
+    description: `prefill ${presentation.skill} for your review`, icon: 'sparkle',
+    runCommand: 'singularityFlow.prefillStoryPhaseGeneration',
+    prefill: presentation.skill,
+    contextValue: 'sflow.story.sourceReview'
+  }] : [])];
+
   // Missing or non-generation readiness is not permission to infer a Submit action. The shared
   // Continue safely action above remains available and will ask the engine for the legal route.
   return [{

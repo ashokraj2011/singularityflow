@@ -85,6 +85,9 @@ async function story(name, { markers = 'block', quality = 'enforce' } = {}) {
     authority.members = [ACTOR];
   }
   const resolved = resolveWorkType(config, 'spec-driven-standard');
+  // These tests isolate marker/checklist policy. Independent source review has its own lifecycle
+  // tests; do not let the starter's new review requirement mask the gate under test here.
+  resolved.sourceReview = { mode: 'off', phases: [], reviewerAgent: null };
   const specification = resolved.phases.find((phase) => phase.id === 'specification');
   resolved.phases = [{
     ...specification,
@@ -301,6 +304,37 @@ test('submission re-reads the artifact, so a policy tightened after publication 
       /cannot be submitted for approval[\s\S]*unresolved clarification marker/
     );
     assert.equal(workflow.phases.specification.submittedAt, null, 'a refused submission recorded a submission time');
+  });
+});
+
+test('new spec-driven source review gate blocks submission without independent evidence', async () => {
+  const { root, config, resolved } = await story('independent-review', {
+    markers: 'off', quality: 'enforce'
+  });
+  resolved.sourceReview = {
+    mode: 'enforce', phases: ['specification'], reviewerAgent: 'sflow-source-reviewer'
+  };
+  await inContext(root, async () => {
+    const workflow = await begin(root, config, resolved);
+    await author(root, workflow, spec());
+    await scanArtifacts(root, config, workflow, 'specification');
+    await publishGoverned(root, config, workflow, 'specification', AUTHORSHIP);
+    await assert.rejects(
+      () => submitPhase(root, config, workflow, {
+        phaseId: 'specification', runChecks: false, persist: false,
+        actor: ACTOR, agent: 'sflow-source-reviewer'
+      }),
+      (error) => error.code === 'SOURCE_REVIEW_REVIEWER_CANNOT_SUBMIT'
+    );
+    await assert.rejects(
+      () => submitPhase(root, config, workflow, {
+        phaseId: 'specification', runChecks: false, persist: false
+      }),
+      (error) => error.code === 'SOURCE_REVIEW_REQUIRED'
+        && /independent source-grounded review/.test(error.message)
+    );
+    assert.equal(workflow.phases.specification.status, 'in_progress');
+    assert.equal(workflow.phases.specification.approvals.length, 0);
   });
 });
 

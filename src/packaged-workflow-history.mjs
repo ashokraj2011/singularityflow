@@ -26,6 +26,11 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     // Modern v2 predecessor immediately before the guarded REV pilot was added.
     'classic-delivery': Object.freeze([
       '8334062f0d4d0e5295d3ba1e3ccc64bef8901d3cdbccdb2ab880cd33fed20111'
+    ]),
+    // Previous spec-driven starter preserved only three specification headings in downstream
+    // briefs and left implementation clause coverage advisory.
+    'spec-driven-standard': Object.freeze([
+      '3f354e9fe3bf1de8bf2c5c2c1e4e135e9bf5ecbc13d34b2e8514000f784d03ce'
     ])
   }),
   phases: Object.freeze({
@@ -82,7 +87,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'quick-fix': '6ee5ad86a29a3805d914552eed7d0b5d049abb8044ea98365df10dd3fd5cbcc3',
     'reference-driven-build': 'ee3b8742aaadf5fcc04735833a3db98431b34fd11231d3caa50279e8eb3eed74',
     'spec-code-test-loop': 'f6a911e589320f8fd63b4933c61b2656068c9757d55267e60f2e47c6e5259e3b',
-    'spec-driven-standard': '3f354e9fe3bf1de8bf2c5c2c1e4e135e9bf5ecbc13d34b2e8514000f784d03ce'
+    'spec-driven-standard': 'cf9cda3f0927f3b32fbfd585e5c2c7bedd9f6e7d0821bfbe7a0bf6d0e46d2461'
   }),
   phases: Object.freeze({
     'component-mapping': '35e812770061284af78d1c9bac956ced7f331ca184cb4bea7f3ca04d7f9c95eb',

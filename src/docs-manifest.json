@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "1de197cd48ffc5705b9457861cec2a73e099f51e",
+  "sourceCommit": "4c492e7b13463621c780cfc95349a8a039fdd12e",
   "topicCount": 68,
-  "contentSha256": "253cc3de297c7d9cfbc1ff6e2888b77c55cd35ec76f00c758b1a7f853eb48505",
+  "contentSha256": "19b8a0d01a342299c64a18ec4ecdca87160b26191bb339f453b9d98f80314e85",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -464,9 +464,9 @@
     {
       "id": "specification-quality",
       "title": "Specification quality and clarification markers",
-      "version": 3,
-      "sha256": "450867b5befbd766e1b7e61812997af2ec3a2fa77379f33d832fd52ab16e8fdd",
-      "routingSha256": "7eb5df06407fc8acbbad69ea6e864ed0264d5e9468f4d54f9c2145569f0dd86d",
+      "version": 5,
+      "sha256": "dbb22fff6a5cb032b06434619d7bef12b211901ef86b0defe7ffec57e2d0201e",
+      "routingSha256": "6f4200409c982f2aec675cbaf904563a0b014733cbc9e88da82127c4982fdd21",
       "file": "specification-quality.md"
     },
     {

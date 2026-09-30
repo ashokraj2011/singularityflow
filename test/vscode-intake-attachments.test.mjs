@@ -59,6 +59,29 @@ test('selected Story documents are escaped, replaceable, and clearable', () => {
     'a document saved before names existed is offered its file name, escaped');
 });
 
+test('Story start documents carry one storage choice and one phase set', () => {
+  const choices = {
+    storyWorkflows: [{ id: 'spec-driven-standard', label: 'Spec', description: '', phases: ['specification', 'planning', 'implementation'] }],
+    workType: 'spec-driven-standard', baseBranch: 'main', basePreflightPassed: true
+  };
+  const storyAttachments = [{ sourcePath: '/source/brief.md', displayName: 'brief.md', name: 'Brief' }, null, null, null];
+  const plain = intakeCommand(story({ ...choices, storyAttachments }));
+  assert.ok(!plain.includes('--document-store') && !plain.includes('--document-phases'), 'Git and every phase are the defaults');
+  const narrowed = intakeCommand(story({ ...choices, storyAttachments, storyDocumentStore: 'local', storyDocumentPhases: ['specification', 'planning'] }));
+  assert.deepEqual(narrowed.slice(narrowed.indexOf('--document')), [
+    '--document', '/source/brief.md', '--document-name', 'Brief', '--document-store', 'local', '--document-phases', 'specification,planning'
+  ]);
+  const none = intakeCommand(story({ ...choices, storyAttachments: [null, null, null, null], storyDocumentStore: 'local', storyDocumentPhases: ['planning'] }));
+  assert.ok(!none.includes('--document-store'), 'no document, no document options');
+  const html = intakeHtml(story({ ...choices, storyAttachments, storyDocumentPhases: ['planning'] }));
+  assert.match(html, /<select data-attachment-store/);
+  assert.match(html, /data-attachment-phase="specification">/);
+  assert.match(html, /data-attachment-phase="planning" checked>/);
+  assert.match(intakeHtml(story({ ...choices, storyAttachments, storyDocumentPhases: [] })), /Choose at least one phase that uses the supporting documents/);
+  assert.match(INTAKE_SCRIPT, /type: 'attachmentStore', value: el\.value/);
+  assert.match(INTAKE_SCRIPT, /type: 'attachmentPhases'/);
+});
+
 test('every selected Story document needs its own name before Story start is offered', () => {
   const choices = {
     storyWorkflows: [{ id: 'feature', label: 'Feature', description: '', phases: ['intake'] }],
@@ -181,7 +204,7 @@ test('the intake host owns file selection and bounds the attachment list', async
   const panel = await readFile(source('intake-panel.ts'), 'utf8');
   for (const message of [
     'attachmentPick', 'attachmentsPick', 'attachmentClear', 'attachmentName', 'attachmentNameDraft',
-    'enhanceDescription', 'enhanceApply', 'enhanceDiscard'
+    'attachmentStore', 'attachmentPhases', 'enhanceDescription', 'enhanceApply', 'enhanceDiscard'
   ]) {
     assert.match(panel, new RegExp(`${message}:`));
   }

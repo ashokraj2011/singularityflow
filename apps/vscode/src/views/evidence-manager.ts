@@ -2,7 +2,7 @@
 import * as vscode from 'vscode';
 import type { WorkspaceStore } from '../state.ts';
 import {
-  evidenceCatalog, evidenceTargets, type EvidenceCatalogItem, type EvidenceTarget
+  evidenceCatalog, evidenceStorageLabel, evidenceTargets, type EvidenceCatalogItem, type EvidenceTarget
 } from '../evidence.ts';
 import { brandLockup,
   contentSecurityPolicy, escape, icon, navigationTarget, nonce, page, type IconName
@@ -18,6 +18,8 @@ export interface EvidenceManagerActions {
   attach(target: EvidenceTarget, source: EvidenceSourceKind): Promise<void>;
   open(item: EvidenceCatalogItem): Promise<void>;
   detach(item: EvidenceCatalogItem): Promise<void>;
+  /** Change which phases use a Story document. */
+  scope(item: EvidenceCatalogItem): Promise<void>;
 }
 
 function targetKey(target: EvidenceTarget): string {
@@ -50,19 +52,28 @@ export function evidenceManagerHtml(
       <span class="evidence-source-icon">${icon(glyph, { size: 24 })}</span>
       <strong>${escape(label)}</strong><span>${escape(description)}</span>
     </button>`).join('');
-  const itemCards = (catalog: EvidenceCatalogItem[], history = false): string => catalog.map((item) => `
+  const itemCards = (catalog: EvidenceCatalogItem[], history = false): string => catalog.map((item) => {
+    const storage = evidenceStorageLabel(item);
+    const story = item.target.kind === 'story';
+    // Only this checkout's copy can be opened; elsewhere a machine-local document has no bytes.
+    const openable = item.storage !== 'local' || item.availability === 'available';
+    return `
     <article class="evidence-item${history ? ' detached' : ''}">
       <span class="evidence-item-icon">${icon(item.mimeType?.startsWith('image/') ? 'visual' : 'document', { size: 20 })}</span>
       <div><strong>${escape(item.label)}</strong>
         <p>${escape(item.target.label)} · ${escape(item.id)} · ${escape(item.mimeType ?? item.kind)}</p>
         <small>${item.sha256 ? `sha256 ${escape(item.sha256.slice(0, 16))}…` : escape(item.url ?? item.path ?? 'metadata only')}</small>
+        ${storage ? `<small class="evidence-storage${item.storage === 'local' && item.availability !== 'available' ? ' warn' : ''}">${escape(storage)}</small>` : ''}
+        ${story ? `<small class="evidence-phases">Used in: ${escape(item.phases?.length ? item.phases.join(', ') : 'every phase')}</small>` : ''}
         ${history ? `<small>Detached${item.detachReason ? ` · ${escape(item.detachReason)}` : ''}${item.detachedBy ? ` · ${escape(item.detachedBy)}` : ''}</small>` : ''}
       </div>
       <div class="evidence-actions">
-        <button class="secondary" type="button" data-open="${escape(itemKey(item))}">${history ? 'Open history' : 'Open'}</button>
+        ${openable ? `<button class="secondary" type="button" data-open="${escape(itemKey(item))}">${history ? 'Open history' : 'Open'}</button>` : ''}
+        ${!history && story ? `<button class="secondary" type="button" data-scope="${escape(itemKey(item))}">Phases…</button>` : ''}
         ${history ? '' : `<button class="danger secondary" type="button" data-detach="${escape(itemKey(item))}">Detach…</button>`}
       </div>
-    </article>`).join('');
+    </article>`;
+  }).join('');
 
   const body = `
     ${brandLockup()}
@@ -98,6 +109,8 @@ export function evidenceManagerHtml(
       if(attach){window.__sfVscode.postMessage({type:'attach',targetKey:target(),source:attach.dataset.attach});return;}
       const open=event.target.closest('[data-open]');
       if(open){window.__sfVscode.postMessage({type:'open',itemKey:open.dataset.open});return;}
+      const scope=event.target.closest('[data-scope]');
+      if(scope){window.__sfVscode.postMessage({type:'scope',itemKey:scope.dataset.scope});return;}
       const detach=event.target.closest('[data-detach]');
       if(detach) window.__sfVscode.postMessage({type:'detach',itemKey:detach.dataset.detach});
     });`;
@@ -141,7 +154,7 @@ export class EvidenceManagerPanel implements vscode.Disposable {
   }
 
   /**
-   * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   * The four messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
    *
    * Both lookups are unchanged: the page names a key and the *snapshot* says which target or item
    * that is, so a forged key finds nothing rather than reaching something it should not.
@@ -173,6 +186,11 @@ export class EvidenceManagerPanel implements vscode.Disposable {
       const item = this.itemFor(message);
       // Only an active attachment can be detached; the page cannot ask to detach a superseded one.
       return item?.status === 'active' ? this.act(() => this.actions.detach(item)) : undefined;
+    },
+    scope: (message) => {
+      const item = this.itemFor(message);
+      // Phase scope belongs to active Story documents; Epic sources have no phases.
+      return item?.status === 'active' && item.target.kind === 'story' ? this.act(() => this.actions.scope(item)) : undefined;
     }
   });
 

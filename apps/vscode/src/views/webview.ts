@@ -319,6 +319,10 @@ export const STYLE = `
   .attachment-slots .attachment-slot { min-width: 0; margin: 0; }
   .attachment-slot strong { overflow-wrap: anywhere; }
   @media(max-width:640px) { .attachment-slots { grid-template-columns: 1fr; } }
+  .attachment-options { display: grid; gap: .5rem; margin-top: .75rem; }
+  .attachment-phases { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; }
+  .attachment-phases label { display: inline-flex; align-items: center; gap: .35rem; }
+  .evidence-storage.warn { color: var(--vscode-editorWarning-foreground); }
   /* A choice between a few things, each of which needs a sentence to be choosable at all. A radio in
      a row of radios shows only names, and the names are never the difference. */
   .choices { display: grid; gap: .5rem; }

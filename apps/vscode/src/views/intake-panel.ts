@@ -693,7 +693,8 @@ export class IntakePanel {
       if (workflow) {
         this.cancelBasePreflight();
         this.preflightVersion += 1;
-        this.update({ workType: workflow.id, error: null, ...emptyStoryPreflight() });
+        // Another workflow has other phases, so a narrowed phase set does not carry over.
+        this.update({ workType: workflow.id, storyDocumentPhases: null, error: null, ...emptyStoryPreflight() });
         return this.preflightBaseBranch();
       }
     },
@@ -733,6 +734,18 @@ export class IntakePanel {
     // the Start button reflects whether every document now has its own name.
     attachmentNameDraft: (message) => this.renameStoryAttachment(message, false),
     attachmentName: (message) => this.renameStoryAttachment(message, true),
+    attachmentStore: (message) => {
+      const value = stringField(message, 'value');
+      if (value === 'git' || value === 'local') this.update({ storyDocumentStore: value, error: null });
+    },
+    attachmentPhases: (message) => {
+      const phases = this.form.storyWorkflows.find((workflow) => workflow.id === this.form.workType)?.phases ?? [];
+      const raw = Array.isArray(message.value) ? message.value : null;
+      if (!raw || raw.some((entry) => typeof entry !== 'string' || !phases.includes(entry))) return;
+      // Every phase is the default, so it passes no flag; anything narrower is kept in workflow order.
+      const chosen = phases.filter((phase) => raw.includes(phase));
+      this.update({ storyDocumentPhases: chosen.length === phases.length ? null : chosen, error: null });
+    },
     attachmentClear: (message) => {
       const index = this.attachmentIndex(message);
       if (index === null) return;

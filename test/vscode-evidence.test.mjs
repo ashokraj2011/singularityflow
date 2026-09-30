@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceTargets, expandEpicEvidenceDirectory,
+  defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceScopeCommand,
+  evidenceStorageLabel, evidenceTargets, expandEpicEvidenceDirectory,
   suggestedEvidenceName, validateEvidenceName, validateEvidenceUrl
 } = await import(path.join(packageRoot, 'apps/vscode/src/evidence.ts'));
 
@@ -35,6 +36,47 @@ test('Story evidence keeps multi-file and Figma-folder uploads in one governed c
     kind: 'url', url: 'https://www.figma.com/design/abc', label: 'Checkout design'
   }), [['documents', 'upload', '--url', 'https://www.figma.com/design/abc', '--name', 'Checkout design']],
   'a Story link is named by the label the person gave it');
+});
+
+test('Story attachments pass where the bytes are kept and which phases use them', () => {
+  const target = { kind: 'story', id: 'MOB-123', label: 'Story MOB-123' };
+  assert.deepEqual(evidenceCommands(target, {
+    kind: 'files', paths: ['/tmp/salary.xlsx'], names: ['Salary bands'], store: 'local', phases: ['specification', 'planning']
+  }), [['documents', 'upload', '/tmp/salary.xlsx', '--name', 'Salary bands', '--store', 'local', '--phases', 'specification,planning']]);
+  assert.deepEqual(evidenceCommands(target, { kind: 'files', paths: ['/tmp/a.md'], names: ['A'], store: 'git', phases: null }),
+    [['documents', 'upload', '/tmp/a.md', '--name', 'A']], 'Git and the default phases need no flags');
+  assert.deepEqual(evidenceCommands(target, { kind: 'url', url: 'https://example.com/x', label: 'X', phases: ['design'] }),
+    [['documents', 'upload', '--url', 'https://example.com/x', '--name', 'X', '--phases', 'design']]);
+  const epic = { kind: 'epic', id: 'MOB-100', label: 'Epic MOB-100' };
+  assert.deepEqual(evidenceCommands(epic, { kind: 'files', paths: ['/tmp/a.pdf'], names: ['A'], store: 'local', phases: ['design'] }),
+    [['epic', 'sources', 'add', '--epic', 'MOB-100', '--provider', 'local', '--file', '/tmp/a.pdf']], 'Epic sources have no storage choice or phases');
+  assert.deepEqual(defaultEvidencePhases(['intake', 'design', 'implementation'], 'design'), ['design', 'implementation']);
+  assert.deepEqual(defaultEvidencePhases(['intake', 'design'], null), ['intake', 'design']);
+});
+
+test('the evidence catalog says where each Story file is kept and whether this checkout has it', () => {
+  const snapshot = {
+    workflow: { workItem: { id: 'MOB-123' } },
+    documents: [
+      { id: 'DOC-001', type: 'file', name: 'Brief', path: 'items/DOC-001/brief.md', storage: { kind: 'git' }, phases: ['design'] },
+      { id: 'DOC-002', type: 'file', name: 'Salary bands', storage: { kind: 'local', key: 'x' }, availability: 'available' },
+      { id: 'DOC-003', type: 'file', name: 'Elsewhere', storage: { kind: 'local', key: 'y' }, availability: 'unavailable' },
+      { id: 'DOC-004', type: 'url', name: 'Figma', url: 'https://www.figma.com/design/abc' }
+    ]
+  };
+  const byId = Object.fromEntries(evidenceCatalog(snapshot).map((item) => [item.id, item]));
+  assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([id, item]) => [id, [item.storage ?? null, item.availability ?? null]])), {
+    'DOC-001': ['git', null], 'DOC-002': ['local', 'available'], 'DOC-003': ['local', 'unavailable'], 'DOC-004': [null, null]
+  });
+  assert.equal(evidenceStorageLabel(byId['DOC-001']), 'Committed to Git');
+  assert.equal(evidenceStorageLabel(byId['DOC-002']), 'Kept on this machine only');
+  assert.equal(evidenceStorageLabel(byId['DOC-003']), 'Kept on another machine · not available here');
+  assert.equal(evidenceStorageLabel(byId['DOC-004']), null);
+  assert.deepEqual(byId['DOC-001'].phases, ['design']);
+  assert.deepEqual(evidenceScopeCommand(byId['DOC-001'], ['design', 'implementation'], 'Also used when coding', { dryRun: true }),
+    ['documents', 'scope', 'DOC-001', '--phases', 'design,implementation', '--reason', 'Also used when coding', '--dry-run', '--json']);
+  assert.deepEqual(evidenceScopeCommand(byId['DOC-001'], ['design'], 'Only design'),
+    ['documents', 'scope', 'DOC-001', '--phases', 'design', '--reason', 'Only design', '--yes', '--json']);
 });
 
 test('Story document names are required, bounded, descriptive and unique in the Story', () => {

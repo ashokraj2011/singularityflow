@@ -10,11 +10,13 @@ export type EvidenceTarget = {
 
 /**
  * What to attach. A Story document needs a name, one per path in order (a folder is one document
- * package named once); an Epic source keeps its own labels, so `names` is ignored there.
+ * package named once); an Epic source keeps its own labels, so `names` is ignored there. `store`
+ * and `phases` apply to Story documents only: where the file bytes are kept, and which phases
+ * use the documents (absent means the current phase onward).
  */
 export type EvidenceInput =
-  | { kind: 'files' | 'figma-export'; paths: string[]; names?: string[] }
-  | { kind: 'url'; url: string; label: string };
+  | { kind: 'files' | 'figma-export'; paths: string[]; names?: string[]; store?: 'git' | 'local'; phases?: string[] | null }
+  | { kind: 'url'; url: string; label: string; phases?: string[] | null };
 
 export type EvidenceCatalogItem = {
   target: EvidenceTarget;
@@ -22,6 +24,9 @@ export type EvidenceCatalogItem = {
   label: string;
   /** The phases a Story document is offered to; absent means every phase. */
   phases?: string[];
+  /** Where a Story file's bytes are kept, and for one kept on one machine whether this checkout has it. */
+  storage?: 'git' | 'local';
+  availability?: 'available' | 'unavailable' | 'changed';
   status: 'active' | 'detached';
   kind: string;
   path?: string;
@@ -51,6 +56,8 @@ export function evidenceCatalog(snapshot: RepositorySnapshot | null | undefined)
       items.push({
         target, id: record.id, label: record.name ?? record.label ?? record.id,
         ...(Array.isArray(record.phases) ? { phases: record.phases } : {}),
+        ...(record.storage?.kind === 'local' ? { storage: 'local' as const, availability: record.availability ?? 'unavailable' }
+          : record.type === 'file' ? { storage: 'git' as const } : {}),
         status: record.status === 'detached' ? 'detached' : 'active',
         kind: record.kind ?? record.type ?? 'evidence', path: record.path, url: record.url,
         mimeType: record.mimeType, sha256: record.sha256 ?? undefined, packageId: record.packageId,
@@ -103,14 +110,16 @@ export function evidenceTargets(snapshot: RepositorySnapshot | null | undefined)
 export function evidenceCommands(target: EvidenceTarget, input: EvidenceInput): string[][] {
   if (input.kind === 'url') {
     return target.kind === 'story'
-      ? [['documents', 'upload', '--url', input.url, '--name', input.label]]
+      ? [['documents', 'upload', '--url', input.url, '--name', input.label, ...phaseArguments(input.phases)]]
       : [['epic', 'sources', 'add', '--epic', target.id, '--url', input.url, '--label', input.label]];
   }
   if (target.kind === 'story') {
     return [[
       'documents', 'upload', ...input.paths,
       ...(input.names ?? []).flatMap((name) => ['--name', name]),
-      ...(input.kind === 'figma-export' ? ['--kind', 'figma-export'] : [])
+      ...(input.kind === 'figma-export' ? ['--kind', 'figma-export'] : []),
+      ...(input.store === 'local' ? ['--store', 'local'] : []),
+      ...phaseArguments(input.phases)
     ]];
   }
   // Epic source intake accepts one file at a time. Keep the order deterministic so a retry and its
@@ -119,6 +128,35 @@ export function evidenceCommands(target: EvidenceTarget, input: EvidenceInput): 
     'epic', 'sources', 'add', '--epic', target.id, '--provider', 'local', '--file', file,
     ...(input.kind === 'figma-export' ? ['--label', `Figma export · ${path.basename(file)}`] : [])
   ]);
+}
+
+function phaseArguments(phases?: string[] | null): string[] {
+  return phases?.length ? ['--phases', phases.join(',')] : [];
+}
+
+/**
+ * The CLI change to which phases use a Story document. A dry run previews what the change would
+ * invalidate and changes nothing; the real run carries the reviewed decision as `--yes`.
+ */
+export function evidenceScopeCommand(item: EvidenceCatalogItem, phases: string[], reason: string, { dryRun = false } = {}): string[] {
+  return ['documents', 'scope', item.id, '--phases', phases.join(','), '--reason', reason,
+    ...(dryRun ? ['--dry-run', '--json'] : ['--yes', '--json'])];
+}
+
+/** The phases a new Story document is offered to unless someone chooses otherwise. */
+export function defaultEvidencePhases(phaseOrder: string[], currentPhase?: string | null): string[] {
+  const start = currentPhase ? phaseOrder.indexOf(currentPhase) : 0;
+  return phaseOrder.slice(Math.max(0, start));
+}
+
+/** How a Story document's storage reads in a list. */
+export function evidenceStorageLabel(item: EvidenceCatalogItem): string | null {
+  if (item.storage === 'local') {
+    return item.availability === 'available' ? 'Kept on this machine only'
+      : item.availability === 'changed' ? 'Kept on this machine only · changed since it was added'
+        : 'Kept on another machine · not available here';
+  }
+  return item.storage === 'git' ? 'Committed to Git' : null;
 }
 
 /**

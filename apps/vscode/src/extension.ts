@@ -92,7 +92,8 @@ import {
 } from './views/navigation-trees.ts';
 import { SecureCredentials } from './credentials.ts';
 import {
-  evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceTargets, suggestedEvidenceName, validateEvidenceName,
+  defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceScopeCommand, evidenceTargets,
+  suggestedEvidenceName, validateEvidenceName,
   expandEpicEvidenceDirectory, validateEvidenceUrl,
   type EvidenceCatalogItem, type EvidenceTarget
 } from './evidence.ts';
@@ -5864,6 +5865,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return chosen;
     };
+    // Which phases use the new documents: the current phase onward unless the person narrows it.
+    // Returns undefined on cancel, and null when the default was kept, so no flag is passed.
+    const askPhases = async (): Promise<string[] | null | undefined> => {
+      if (target?.kind !== 'story') return null;
+      const workflow = store.current.snapshot?.workflow;
+      const phaseOrder = workflow?.phaseOrder ?? [];
+      if (!phaseOrder.length) return null;
+      const defaults = defaultEvidencePhases(phaseOrder, workflow?.currentPhase);
+      const picked = await vscode.window.showQuickPick(
+        phaseOrder.map((phase) => ({ label: phase, picked: defaults.includes(phase) })),
+        { canPickMany: true, title: 'Which phases use it?', placeHolder: 'Only these phases\' prompts and source reviews include it', ignoreFocusOut: true }
+      );
+      if (!picked) return undefined;
+      if (!picked.length) {
+        void vscode.window.showWarningMessage('Choose at least one phase. Nothing was attached.');
+        return undefined;
+      }
+      const chosen = phaseOrder.filter((phase) => picked.some((entry) => entry.label === phase));
+      return chosen.length === defaults.length && chosen.every((phase) => defaults.includes(phase)) ? null : chosen;
+    };
     let input: Parameters<typeof evidenceCommands>[1] | null = null;
     if (source.value === 'files') {
       const picked = await vscode.window.showOpenDialog({
@@ -5881,7 +5902,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const paths = picked.map((entry) => entry.fsPath);
       const names = await askNames(paths);
       if (!names) return;
-      input = { kind: 'files', paths, names };
+      let storage: 'git' | 'local' = 'git';
+      if (target.kind === 'story') {
+        const choice = await vscode.window.showQuickPick([{
+          label: 'Commit to Git', description: 'Everyone working on this Story gets the file', value: 'git' as const
+        }, {
+          label: 'Keep on this machine only',
+          description: 'Git records its name, size and SHA-256; other machines cannot open it', value: 'local' as const
+        }], { title: paths.length > 1 ? 'Where should these files be kept?' : 'Where should this file be kept?', ignoreFocusOut: true });
+        if (!choice) return;
+        storage = choice.value;
+      }
+      const phases = await askPhases();
+      if (phases === undefined) return;
+      input = { kind: 'files', paths, names, store: storage, phases };
     } else if (source.value === 'figma-export') {
       const picked = await vscode.window.showOpenDialog({
         title: `Attach a Figma export folder to ${target.label}`,
@@ -5900,7 +5934,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const names = await askNames(target.kind === 'story' ? paths : []);
       if (!names) return;
-      input = { kind: 'figma-export', paths, names };
+      const phases = await askPhases();
+      if (phases === undefined) return;
+      input = { kind: 'figma-export', paths, names, phases };
     } else {
       const figmaOnly = source.value === 'figma-link';
       const url = await vscode.window.showInputBox({
@@ -5921,7 +5957,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           : value.trim() ? null : 'A label is required.'
       });
       if (!label?.trim()) return;
-      input = { kind: 'url', url: url.trim(), label: label.trim() };
+      const phases = await askPhases();
+      if (phases === undefined) return;
+      input = { kind: 'url', url: url.trim(), label: label.trim(), phases };
     }
 
     const commands = evidenceCommands(target, input);
@@ -5932,7 +5970,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? input.names.map((name) => `'${name}'`).join(', ')
         : `${input.paths.length} ${input.paths.length === 1 ? 'path' : 'paths'}`;
     const confirmation = await vscode.window.showInformationMessage(
-      `Attach ${summary} to ${target.label}? The governed record will be committed and pushed.`,
+      input.kind === 'files' && input.store === 'local'
+        ? `Attach ${summary} to ${target.label}? The file stays on this machine; only its name, size and SHA-256 are committed and pushed.`
+        : `Attach ${summary} to ${target.label}? The governed record will be committed and pushed.`,
       { modal: true }, 'Attach evidence');
     if (confirmation !== 'Attach evidence') return;
     for (const [index, command] of commands.entries()) {
@@ -5949,10 +5989,66 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `Attached ${summary} to ${target.label}. Open Lifecycle to review the governed IDs and artifacts.`);
   };
 
+  // Verified document text, shown read-only and memory-backed: never the stored file, never a temporary file.
+  const evidencePreviews = new Map<string, string>();
+  let evidencePreviewProvider: vscode.Disposable | null = null;
+  const showEvidencePreview = async (item: EvidenceCatalogItem, content: string): Promise<void> => {
+    if (!evidencePreviewProvider) {
+      evidencePreviewProvider = vscode.workspace.registerTextDocumentContentProvider('sflow-evidence', {
+        provideTextDocumentContent: (uri) => evidencePreviews.get(uri.toString())
+          ?? 'This preview is no longer retained. Open the document again from Evidence & designs.'
+      });
+      context.subscriptions.push(evidencePreviewProvider, vscode.workspace.onDidCloseTextDocument((document) => {
+        if (document.uri.scheme === 'sflow-evidence') evidencePreviews.delete(document.uri.toString());
+      }));
+    }
+    const uri = vscode.Uri.from({
+      scheme: 'sflow-evidence', path: `/${item.target.id}/${item.id} ${item.label.replace(/[\\/]/gu, '-')}.md`
+    });
+    evidencePreviews.set(uri.toString(), content);
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true });
+  };
+
+  /**
+   * Open a document through `documents view`, which verifies its SHA-256: the rendered text in a
+   * read-only preview (the stored file is never opened for editing), or the verified file itself
+   * when it is an image or PDF.
+   */
+  const openVerifiedEvidence = async (item: EvidenceCatalogItem): Promise<void> => {
+    try {
+      const viewed = await client.run<{
+        content?: string | null; binary?: boolean; absolutePath?: string; rendition?: { status: string; text?: string }
+      }>(['documents', 'view', item.id, '--work-id', item.target.id, '--json']);
+      const text = viewed.rendition?.status === 'extracted' ? viewed.rendition.text : viewed.binary ? null : viewed.content;
+      if (text != null) {
+        await showEvidencePreview(item, text);
+      } else if (viewed.absolutePath && (item.mimeType?.startsWith('image/') || item.mimeType === 'application/pdf')) {
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(viewed.absolutePath));
+      } else {
+        void vscode.window.showInformationMessage(`${item.id} (${item.label}) is a binary document with no text preview.`);
+      }
+    } catch (error) {
+      showRefusal(error, { headline: `Could not open ${item.id}` });
+    }
+  };
+
   const openEvidence = async (item: EvidenceCatalogItem): Promise<void> => {
     if (item.url) {
       await vscode.env.openExternal(vscode.Uri.parse(item.url));
       return;
+    }
+    if (item.storage === 'local') {
+      if (item.availability !== 'available') {
+        void vscode.window.showWarningMessage(item.availability === 'changed'
+          ? `${item.id} (${item.label}) is kept on this machine, but the copy here no longer matches its committed SHA-256.`
+          : `${item.id} (${item.label}) is kept on another machine; this checkout does not have its bytes.`);
+        return;
+      }
+      return openVerifiedEvidence(item);
+    }
+    // A DOCX or XLSX is shown as its extracted text rather than as ZIP bytes.
+    if (item.target.kind === 'story' && /officedocument\.(?:wordprocessingml|spreadsheetml)/u.test(item.mimeType ?? '')) {
+      return openVerifiedEvidence(item);
     }
     if (!item.path) {
       void vscode.window.showInformationMessage(
@@ -6031,8 +6127,62 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (action === 'Show complete result') output.show(true);
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);
-      showRefusal(error, { headline: 'Could not detach ${target}' });
+      showRefusal(error, { headline: `Could not detach ${target}` });
     }
+  };
+
+  /** Change which phases use a Story document: choose, give a reason, review the dry run, confirm. */
+  const scopeEvidenceItem = async (item: EvidenceCatalogItem): Promise<void> => {
+    const phaseOrder = store.current.snapshot?.workflow?.phaseOrder ?? [];
+    if (item.target.kind !== 'story' || !phaseOrder.length) return;
+    const current = item.phases?.length ? item.phases : phaseOrder;
+    const picked = await vscode.window.showQuickPick(
+      phaseOrder.map((phase) => ({ label: phase, picked: current.includes(phase) })),
+      { canPickMany: true, title: `Which phases use ${item.label}?`, placeHolder: 'Only these phases\' prompts and source reviews include it', ignoreFocusOut: true }
+    );
+    if (!picked) return;
+    if (!picked.length) {
+      void vscode.window.showWarningMessage('Choose at least one phase. To stop using a document everywhere, detach it.');
+      return;
+    }
+    const phases = phaseOrder.filter((phase) => picked.some((entry) => entry.label === phase));
+    if (phases.length === current.length && phases.every((phase) => current.includes(phase))) {
+      void vscode.window.showInformationMessage(`${item.label} is already used in exactly those phases.`);
+      return;
+    }
+    const reason = await vscode.window.showInputBox({
+      title: `Why change which phases use ${item.label}?`,
+      prompt: 'This reason is committed in the document scope decision record.',
+      ignoreFocusOut: true,
+      validateInput: (value) => value.trim() ? null : 'A reason is required.'
+    });
+    if (!reason?.trim()) return;
+    let preview: { removedPhases?: string[]; addedPhases?: string[]; dependentContextRecords?: string[]; reopenedPhase?: string | null };
+    try {
+      preview = await client.run(evidenceScopeCommand(item, phases, reason.trim(), { dryRun: true }));
+    } catch (error) {
+      showRefusal(error, { headline: `Could not preview the change for ${item.id}` });
+      return;
+    }
+    const detail = [
+      preview.removedPhases?.length ? `No longer used in: ${preview.removedPhases.join(', ')}.` : null,
+      preview.addedPhases?.length ? `Used from now on in: ${preview.addedPhases.join(', ')}.` : null,
+      preview.dependentContextRecords?.length
+        ? `${preview.dependentContextRecords.length} prompt(s) that already used it become stale.`
+        : 'No prompt of a removed phase has used it.',
+      preview.reopenedPhase
+        ? `Reopens ${preview.reopenedPhase}: its approvals and every later phase are invalidated.` : null
+    ].filter(Boolean).join('\n');
+    const confirmed = await vscode.window.showWarningMessage(
+      `Change which phases use ${item.id} — ${item.label}?`, { modal: true, detail }, 'Change phases');
+    if (confirmed !== 'Change phases') return;
+    const ran = await runGovernedAction(client, {
+      command: evidenceScopeCommand(item, phases, reason.trim()),
+      title: `Changing which phases use ${item.label}`
+    }, output);
+    if (!ran) return;
+    await refreshAfterKnownMutation();
+    void vscode.window.showInformationMessage(`${item.label} is now used in: ${phases.join(', ')}.`);
   };
 
   const resolveEvidenceNode = (node?: TreeNode): EvidenceCatalogItem | undefined => {
@@ -6048,7 +6198,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     EvidenceManagerPanel.show(store, {
       attach: collectEvidence,
       open: openEvidence,
-      detach: detachEvidenceItem
+      detach: detachEvidenceItem,
+      scope: scopeEvidenceItem
     });
   };
 

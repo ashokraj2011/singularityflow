@@ -89,6 +89,7 @@ import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabi
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { collectRepositoryReadinessEvidence } from '../repository-readiness-evidence.mjs';
+import { loadRepositoryTestBaseline } from '../initialization/runtime-readiness.mjs';
 import {
   assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
 } from '../story-start-readiness.mjs';
@@ -573,7 +574,29 @@ export async function storyFetchCommand(positionals, options) {
   const capabilityPreflight = await preflightFetchedStoryCapability(target, {
     capabilityId: optionString(options, 'capability') ?? capabilityBase?.capability ?? null
   });
+  const config = await loadConfig(target);
   if (capabilityBase) {
+    const readinessRequired = config.repositoryReadiness?.requiredBeforeStory === true
+      || config.initialization?.proof?.preStory?.requiredBeforeStory === true;
+    const parentBase = seed.story.baseCommit;
+    const creatingWorkflow = !await exists(path.join(workDir(target, config, storyKey), 'workflow.json'));
+    if (creatingWorkflow && readinessRequired && /^[a-f0-9]{40,64}$/u.test(parentBase ?? '')
+        && head(target) !== parentBase) {
+      // A published Story seed is normally ahead of its parent base. Refuse a local failed
+      // baseline before moving sibling checkouts: that checkout cannot recompute the base plan.
+      const scopes = requiredRepositoryReadinessScope(config) === 'full'
+        ? ['full', 'dependency-test'] : ['dependency-test'];
+      for (const scope of scopes) {
+        if (await loadRepositoryTestBaseline(target, { commit: parentBase, scope })) {
+          throw new SingularityFlowError(
+            'The fetched Story seed cannot verify failed pre-Story tests on its parent base. '
+            + 'No sibling repository was selected. Repair the base tests and refresh the Story seed, '
+            + 'or use Story start from a checkout that can recheck the exact base.',
+            { code: 'STORY_REPOSITORY_READINESS_REQUIRED' }
+          );
+        }
+      }
+    }
     // Validate the seed and exact pinned capability catalog after fetching the delivery branch but
     // before moving any sibling repository. An unknown/stale workspace ID therefore cannot leave a
     // partially attached multi-repository Story behind.
@@ -583,7 +606,6 @@ export async function storyFetchCommand(positionals, options) {
     if (!optionBoolean(options, 'json')) printCapabilityBase(capabilityBase.plan, prepared);
   }
 
-  const config = await loadConfig(target);
   let workflow;
   try {
     workflow = await loadStoryAggregate(target, config, storyKey);

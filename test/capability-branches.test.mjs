@@ -204,6 +204,9 @@ test('every clone path that had a hard-coded default branch now accepts the capa
   const siblingPreparation = story.indexOf('const prepared = await prepareCapabilityRepositories');
   assert.ok(capabilityPreflight >= 0 && siblingPreparation > capabilityPreflight,
     'story fetch moves sibling repositories before validating the fetched capability catalog');
+  const failedBaselineGuard = story.indexOf('loadRepositoryTestBaseline(target, { commit: parentBase, scope })');
+  assert.ok(failedBaselineGuard >= 0 && failedBaselineGuard < siblingPreparation,
+    'story fetch moves sibling repositories before refusing an off-checkout failed baseline');
   assert.match(story, /capabilityId: capabilityPreflight\.capabilityId[\s\S]*capabilityMapSha256: capabilityPreflight\.capabilityMapSha256/,
     'story fetch drops the selected capability or exact map digest before lifecycle creation');
   const acceptedRiskGuard = story.indexOf("=== 'accepted-known-failures'");

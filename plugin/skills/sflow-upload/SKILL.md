@@ -23,7 +23,7 @@ REV feedback: use `/sf-revision-attachments`; ordinary upload cannot bypass its 
    - Record an HTTPS reference with `singularity-flow epic sources add --epic <EPIC-KEY> --url <URL> --label "<LABEL>"`.
    - Add `--provider`, `--mime`, or `--label` only when provided or required by repository policy.
 4. For the verified attached Story, ask the user for a unique name per path or URL:
-   - Upload files or complete export directories with `singularity-flow documents upload <PATH...> --name "<NAME>"` (one `--name` per path, in order), plus `--phases <PHASE,...|all>` only if the user limits its phases.
+   - Upload files or complete export directories with `singularity-flow documents upload <PATH...> --name "<NAME>"` (one `--name` per path, in order), plus `--phases <PHASE,...|all>` only if the user limits its phases, and `--store local` when they want files kept on this machine only.
    - Record an HTTPS reference with `singularity-flow documents upload --url <URL> --name "<NAME>"`.
 5. Respect phase, provider, size, and sequence gates; leave soft warnings to the user.
 6. Never expose credentials, follow a URL implicitly, invent a MIME type, or bypass the managed catalog.
@@ -39,4 +39,4 @@ For detachment:
 6. Only after confirmation, for an Epic run `singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason "<reason>" --yes`. `--yes` conveys the reviewed decision to the noninteractive CLI; never add it before confirmation.
 7. Report the CLI decision, commit, publication status, invalidated and reopened phases, and next `/sf-*` action.
 
-Use `singularity-flow documents list --all` or `singularity-flow epic sources list --epic <EPIC-ID> --all` only to inspect detached history. Never delete or directly alter governed evidence bytes.
+Use `--all` listings only to inspect detached history. Never delete or directly alter governed evidence bytes.

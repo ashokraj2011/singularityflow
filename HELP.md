@@ -1533,6 +1533,7 @@ singularity-flow documents view DOC-001 --work-id WORK-123
 singularity-flow documents view "Payment brief" --work-id WORK-123
 singularity-flow documents upload ./brief.pdf ./wireframe.png --name "Payment brief" --name "Checkout wireframe"
 singularity-flow documents upload ./figma-export --kind figma-export --name "Checkout export" --phases design,implementation
+singularity-flow documents upload ./salary-bands.xlsx --name "Salary bands" --store local
 singularity-flow documents upload \
   --url https://www.figma.com/design/example \
   --name "Checkout design"
@@ -3520,7 +3521,7 @@ singularity-flow tokens report --today [--json]
 singularity-flow copilot [--mode interactive|plan] [--repository ID] [--story ID] [--host cli|vscode-terminal|intellij-terminal] [--dry-run]
 singularity-flow documents list [WORK-ID] [--phase PHASE] [--active|--all] [--json]
 singularity-flow documents view <DOCUMENT-ID|NAME|PATH> [--work-id ID] [--all]
-singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...|all] [--json]
+singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...|all] [--store git|local] [--json]
 singularity-flow documents upload --url URL --name TEXT [--phases PHASE,...|all] [--json]
 singularity-flow documents scope <DOCUMENT-ID|NAME> --phases PHASE,...|all --reason TEXT [--scope file|package] [--dry-run] [--yes]
 singularity-flow documents detach <DOCUMENT-ID|NAME> [--scope file|package] --reason TEXT [--yes]

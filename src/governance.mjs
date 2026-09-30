@@ -33,6 +33,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
 import { documentNameKey } from './document-identity.mjs';
+import { isLocalDocument, localDocumentAvailability, validLocalDocumentKey } from './document-storage.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { classifyStoryGateFailures } from './gate-recovery.mjs';
@@ -171,7 +172,17 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
       if (!admitted(document)) errors.push(`${document.id} was uploaded outside the immutable document phase policy`);
       if (!document.addedBy || !document.agent) errors.push(`${document.id} is missing actor or agent attribution`);
-      if (document.type === 'file') {
+      if (isLocalDocument(document)) {
+        // Kept on one machine: the catalog commits its identity, never its bytes. Here it is either
+        // the committed bytes, or not here at all, which is expected on every other machine.
+        if (document.path != null) errors.push(`${document.id} is kept on one machine but also names a repository path`);
+        else if (!validLocalDocumentKey(document.storage.key)) errors.push(`${document.id} has an invalid machine-local storage key`);
+        else {
+          const availability = await localDocumentAvailability(root, workflow.workItem.id, document, { verify: true });
+          if (availability === 'changed') errors.push(`document integrity failed: ${document.id} (kept on this machine, but the copy no longer matches its SHA-256)`);
+          else if (availability === 'unavailable' && evidenceIsActive(document)) warnings.push(`${document.id} is kept on another machine; its integrity cannot be checked here`);
+        }
+      } else if (document.type === 'file') {
         const current = await snapshot(path.join(root, document.path));
         if (!current.exists || current.size !== document.size || current.sha256 !== document.sha256) errors.push(`document integrity failed: ${document.id} (${document.path})`);
       } else if (document.type === 'url' && !/^https?:\/\/\S+$/i.test(document.url ?? '')) errors.push(`${document.id} has an invalid external URL`);

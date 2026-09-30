@@ -130,10 +130,12 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
     selfApproval: item.selfApproval === true
   }));
   const documents = (await documentCatalog(root, config, workflow)).filter((item) => item.type !== 'system').map(({
-    id, name, type, label, kind, phase: sourcePhase, phases, path: file, url, mimeType, size, sha256, status, generation
+    id, name, type, label, kind, phase: sourcePhase, phases, path: file, url, mimeType, size, sha256, status, generation, storage
   }) => ({
     id, ...(name != null ? { name } : {}), type, label, kind, phase: sourcePhase,
-    ...(phases !== undefined ? { phases } : {}), path: file, url, mimeType, size, sha256, status, generation
+    ...(phases !== undefined ? { phases } : {}), path: file, url, mimeType, size, sha256, status, generation,
+    // A reviewer on another machine cannot open it, so the packet says where it is.
+    ...(storage?.kind === 'local' ? { storage: 'local' } : {})
   }));
   const agentBriefs = [];
   for (const brief of (phase.agentBriefs ?? []).filter((entry) => entry.generation === phase.generation)) {

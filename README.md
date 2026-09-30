@@ -2012,6 +2012,9 @@ singularity-flow documents upload \
   --url https://www.figma.com/design/example \
   --name "Checkout design"
 
+# Keep a sensitive file on this machine only: the commit carries its name, size and SHA-256
+singularity-flow documents upload ./salary-bands.xlsx --name "Salary bands" --store local
+
 singularity-flow documents list
 singularity-flow documents list --phase design
 singularity-flow documents view "Payment brief"
@@ -2031,6 +2034,8 @@ singularity-flow epic sources list --epic MOB-100 --all
 ```
 
 Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME type, original filename, phase, human actor, and governed agent. Directory imports preserve the package name and relative source path for every discovered regular file; symbolic links are rejected. Upload creates and pushes one atomic work-item commit. Text evidence is embedded in governed Copilot prompts up to the pinned preview-byte limit. Images, PDFs, `.fig`, and other binaries contribute a verified repository path, MIME type, byte count, and SHA-256 so Copilot can inspect them with its file/image tools without base64 token inflation. Live Figma links remain external references and are never fetched automatically.
+
+Where a document's bytes are kept is chosen per upload with `--store`. `git`, the default, commits them under `inputs/` so every clone has them. `local` keeps them on the machine that added them, in that clone's Git directory (`.git/singularity-flow/local-documents/`, owner-only), and commits only the name, size and SHA-256. Its Story worktrees see the file; another clone or machine lists it as kept on another machine, refuses to open it and says who added it, and the gate warns instead of failing. Prompts never include a local document's bytes or where it is stored, because prompt receipts are committed: they name it and say how to read it on the machine that has it. Folders and links cannot be kept locally, and source review cannot cite a local document. `documents.storage: {allowed, default}` in the workflow configuration narrows the choice or changes the default. OneDrive and Jira storage are refused as not yet available. `start` takes `--document-store`, and a story file entry takes `store`.
 
 Changing a document's phases is an atomic commit/push decision too. It requires a reason and records a hash-addressed decision under `evidence/document-scope/`. Adding a phase affects only prompts composed afterwards. Removing a phase whose prompt already used the document marks that prompt stale and reopens the earliest such phase, so no approval keeps resting on evidence its phase no longer uses; `--dry-run` shows all of that first.
 
@@ -2828,7 +2833,7 @@ evidence workflow.
 | `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
 | `singularity-flow documents list [ID] [--phase PHASE] [--active\|--all]` | List active uploaded inputs and generated documents, only those one phase uses, or include detached evidence history. |
 | `singularity-flow documents view <ID\|NAME> [--all]` | Display active text content or return the path/URL for a binary/external document; `--all` permits audited detached evidence. |
-| `singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...\|all]` | Recursively copy, hash, catalog, commit, and push named supporting evidence during configured initial phases. |
+| `singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...\|all] [--store git\|local]` | Recursively copy, hash, catalog, commit, and push named supporting evidence during configured initial phases; `--store local` commits only its identity. |
 | `singularity-flow documents scope <ID\|NAME> --phases PHASE,...\|all --reason TEXT [--dry-run]` | Change which phases use a document, audit the decision, and reopen only a phase whose prompt already used it. |
 | `singularity-flow documents detach <ID\|NAME> [--scope file\|package] --reason TEXT` | Preserve Story evidence bytes, audit the decision, exclude future prompts, and invalidate only dependent phases. |
 | `singularity-flow epic sources list --epic <ID> [--active\|--all]` | List active Epic sources or include detached history. |

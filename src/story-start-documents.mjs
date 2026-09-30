@@ -16,6 +16,7 @@ import { gitCommonDir } from './git.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import { assertAvailableDocumentNames, assignDocumentNames, normalizeDocumentPhases } from './document-identity.mjs';
+import { resolveDocumentStorage } from './document-storage.mjs';
 
 const DEFAULT_MAX_DOCUMENT_BYTES = 26214400;
 const DEFAULT_CAPTURE_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -512,12 +513,25 @@ function inputNames(input) {
  * Check the names and phases of every Story-start document before anything is captured, enrolled
  * or published. Every document needs its own name; without this check a missing name would be
  * found only inside the opening publication, after automatic enrollment may already have pushed.
- * Phases are checked against `phaseOrder` when the work type is already known.
+ * Phases are checked against `phaseOrder`, and storage against `documentPolicy`, when the work
+ * type is already known. A folder cannot be kept on one machine, which is refused here too.
  */
-export function assertStartDocuments(inputs = [], { phaseOrder = null } = {}) {
+export async function assertStartDocuments(inputs = [], { phaseOrder = null, documentPolicy = null } = {}) {
   const names = [];
   for (const input of inputs) {
     const { files, url } = inputSources(input);
+    if (input?.store != null) {
+      const storage = resolveDocumentStorage(input.store, documentPolicy ?? {});
+      if (storage === 'local') {
+        for (const file of files) {
+          const info = await lstat(path.resolve(String(file))).catch(() => null);
+          if (info?.isDirectory()) {
+            throw new SingularityFlowError(`Story document '${file}' is a folder. Folders are committed to Git; attach its files one by one to keep them on this machine only.`,
+              { code: 'DOCUMENT_STORAGE_UNSUPPORTED' });
+          }
+        }
+      }
+    }
     const source = url ?? files[0] ?? 'document';
     try {
       names.push(...assignDocumentNames(files.length + (url != null ? 1 : 0), { names: inputNames(input), label: input?.label ?? null }));
@@ -599,6 +613,7 @@ export async function stageInitialStoryDocuments(root, config, workflow, {
       label: input.label ?? null,
       kind: input.kind ?? null,
       phases: input.phases ?? null,
+      store: input.store ?? null,
       frozenEvidence,
       // Only Story creation freezes its documents first, so only it may admit them outside the
       // upload window as part of the opening record.

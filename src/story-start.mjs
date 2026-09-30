@@ -238,6 +238,7 @@ export async function startStory(root, {
   documentNames = [],
   urlNames = [],
   documentPhases = null,
+  documentStore = null,
   expectedBaseCommit = null,
   flightPlan = null,
   auto = null,
@@ -420,10 +421,12 @@ export async function startStory(root, {
       capabilityPolicy.maxDocumentBytes ?? Number.MAX_SAFE_INTEGER
     );
     const startDocumentInputs = [
-      ...(files.length ? [{ files, names: documentNames, phases: documentPhases }] : []),
+      ...(files.length ? [{ files, names: documentNames, phases: documentPhases, store: documentStore }] : []),
       ...urls.map((url, index) => ({ url, name: urlNames[index] ?? null, phases: documentPhases }))
     ];
-    assertStartDocuments(startDocumentInputs, { phaseOrder: resolvedStartWorkType.phases.map((phase) => phase.id) });
+    await assertStartDocuments(startDocumentInputs, {
+      phaseOrder: resolvedStartWorkType.phases.map((phase) => phase.id), documentPolicy: resolvedDocumentPolicy
+    });
     documentCapture = await preflightInitialStoryDocuments(startDocumentInputs, {
       repositoryRoot: root,
       maxFileBytes,

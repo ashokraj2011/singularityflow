@@ -244,6 +244,8 @@ export interface StoryArtifact {
   phases?: string[] | null;
   /** Where a supporting document's bytes are kept. */
   storage?: { kind: string; key?: string };
+  /** For a document kept on one machine: whether this checkout has it. Never committed. */
+  availability?: 'available' | 'unavailable' | 'changed';
   origin?: string | null;
   type?: string;
   kind?: string;

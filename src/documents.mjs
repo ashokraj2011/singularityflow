@@ -14,6 +14,9 @@ import {
 } from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
 import {
+  isLocalDocument, localDocumentAvailability, readLocalDocument, resolveDocumentStorage, storeLocalDocument
+} from './document-storage.mjs';
+import {
   loadEnvironmentDeclarationSync, matchEnvironmentLocalPath
 } from './environment-declaration.mjs';
 import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
@@ -725,7 +728,7 @@ async function governedDocumentPath(root, config, workflow, record) {
 
 export async function addDocuments(root, config, workflow, {
   files = [], url = null, names = [], label = null, kind = null, phases = null,
-  frozenEvidence = null, origin = null
+  store = null, frozenEvidence = null, origin = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'upload documents');
   const phase = await assertPhaseSequence(root, workflow, 'upload documents');
@@ -741,6 +744,11 @@ export async function addDocuments(root, config, workflow, {
   // nothing. One name per top-level input: each file or folder, then the URL.
   const assignedNames = assignDocumentNames(files.length + (url ? 1 : 0), { names, label });
   const offeredPhases = normalizeDocumentPhases(phases, workflow, { fromPhase: phase.id });
+  // Where file bytes are kept; a link has none, so it is recorded the same way either way.
+  const storage = resolveDocumentStorage(store, policy);
+  if (storage === 'local' && !files.length) {
+    throw new SingularityFlowError('A link has no bytes to keep on this machine; --store applies to files.', { code: 'DOCUMENT_STORAGE_INVALID' });
+  }
   const verifiedUrl = url ? validateDocumentUrl(url) : null;
   const urlName = verifiedUrl ? assignedNames[files.length] : null;
   const resourceBudget = createStoryDocumentBudget();
@@ -769,6 +777,12 @@ export async function addDocuments(root, config, workflow, {
         })
       })));
     } else throw new SingularityFlowError(`Document path is not a regular file or directory: ${candidate}`);
+  }
+  // A folder becomes a package whose inventory and gallery are committed and link to its files, so
+  // its members are committed too; keeping them on one machine would leave those pages broken.
+  if (storage === 'local' && fileInputs.some((input) => input.packageSource)) {
+    throw new SingularityFlowError('Folders are committed to Git. Attach their files one by one to keep them on this machine only.',
+      { code: 'DOCUMENT_STORAGE_UNSUPPORTED' });
   }
   const manifest = await loadManifest(root, config, workflow);
   assertAvailableDocumentNames(manifest.documents, [
@@ -809,6 +823,17 @@ export async function addDocuments(root, config, workflow, {
   }
   for (const { source, packageName, packageSource, sourceRelativePath, documentName } of fileInputs) {
     const id = nextId(manifest.documents); const filename = safeName(source);
+    if (storage === 'local') {
+      // Only the name, size and SHA-256 are committed; the bytes stay in this clone's Git directory.
+      const captured = capturedBySource.get(path.resolve(source));
+      if (!captured) throw new SingularityFlowError(
+        `Story document capture is unavailable: ${source}`, { code: 'STORY_DOCUMENT_CHANGED' }
+      );
+      const { key } = await storeLocalDocument(root, workflow.workItem.id, { bytes: captured.bytes, sha256: captured.sha256, filename });
+      const record = { id, type: 'file', name: documentName, label: documentName, kind: kind ?? 'reference', storage: { kind: 'local', key }, sourceName: path.basename(source), mimeType: mimeType(filename), size: captured.size, sha256: captured.sha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
+      manifest.documents.push(record); added.push(record);
+      continue;
+    }
     // Preserve the review-friendly package hierarchy while sanitizing every component. In
     // particular, a literal `.git` component disappears from `git add`, and DOS device names make a
     // commit produced on Linux impossible to check out on Windows.
@@ -862,7 +887,7 @@ function resolveStorageProvider(config, providerId, workflow = null) {
 // another machine has the content, not just a link. The caller commits/pushes the result.
 export async function fetchRemoteDocument(root, config, workflow, {
   providerId = null, remoteRef = null, name = null, filename: requestedFilename = null,
-  label = null, kind = null, phases = null, runtime = {}
+  label = null, kind = null, phases = null, store = null, runtime = {}
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'fetch documents');
   const phase = await assertPhaseSequence(root, workflow, 'fetch documents');
@@ -872,6 +897,7 @@ export async function fetchRemoteDocument(root, config, workflow, {
   // `name` is the document's name, like an upload's; the stored file name comes from the provider.
   const [documentName] = assignDocumentNames(1, { names: name == null ? [] : [name], label });
   const offeredPhases = normalizeDocumentPhases(phases, workflow, { fromPhase: phase.id });
+  const storage = resolveDocumentStorage(store, policy);
   assertAvailableDocumentNames((await loadManifest(root, config, workflow)).documents, [documentName]);
   const { selectedId, provider } = resolveStorageProvider(config, providerId, workflow);
   const session = await loadSession(root);
@@ -901,15 +927,26 @@ export async function fetchRemoteDocument(root, config, workflow, {
   assertDocumentInputContainsNoSecret(input, { bytes: fetchedBytes });
   const manifest = await loadManifest(root, config, workflow);
   const id = nextId(manifest.documents);
-  const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, filename);
-  const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, fetchedBytes);
-  const fileSnapshot = await snapshot(destination);
-  const record = {
-    id, type: 'file', name: documentName, label: documentName, kind: kind ?? 'provider-fetch', storage: { kind: 'git' }, sourceName: filename,
-    path: posix(relative), mimeType: result.mimeType ?? headMeta?.mimeType ?? mimeType(filename),
-    size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent,
-    remote: { source: provider.type, providerId: selectedId, objectId: result.objectId ?? reference.objectId ?? String(remoteRef), version: result.version ?? headMeta?.version ?? null, ref: String(remoteRef) }
-  };
+  const remote = { source: provider.type, providerId: selectedId, objectId: result.objectId ?? reference.objectId ?? String(remoteRef), version: result.version ?? headMeta?.version ?? null, ref: String(remoteRef) };
+  let record;
+  if (storage === 'local') {
+    const fetchedSha256 = createHash('sha256').update(fetchedBytes).digest('hex');
+    const { key } = await storeLocalDocument(root, workflow.workItem.id, { bytes: fetchedBytes, sha256: fetchedSha256, filename });
+    record = {
+      id, type: 'file', name: documentName, label: documentName, kind: kind ?? 'provider-fetch', storage: { kind: 'local', key }, sourceName: filename,
+      mimeType: result.mimeType ?? headMeta?.mimeType ?? mimeType(filename),
+      size: fetchedBytes.length, sha256: fetchedSha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, remote
+    };
+  } else {
+    const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, filename);
+    const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, fetchedBytes);
+    const fileSnapshot = await snapshot(destination);
+    record = {
+      id, type: 'file', name: documentName, label: documentName, kind: kind ?? 'provider-fetch', storage: { kind: 'git' }, sourceName: filename,
+      path: posix(relative), mimeType: result.mimeType ?? headMeta?.mimeType ?? mimeType(filename),
+      size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, remote
+    };
+  }
   manifest.documents.push(record);
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
   workflow.documents = documentCounters(manifest, manifest.updatedAt);
@@ -934,8 +971,15 @@ export async function documentCatalog(root, config, workflow, { includeDetached 
   const manifest = await loadManifest(root, config, workflow);
   // A phase filter narrows the supporting documents to those offered to that phase; system
   // documents and phase artifacts are listed as before.
-  const records = manifest.documents.filter((record) => (includeDetached || evidenceIsActive(record))
-    && (phaseId == null || documentOfferedToPhase(record, phaseId)));
+  const records = [];
+  for (const record of manifest.documents) {
+    if (!(includeDetached || evidenceIsActive(record)) || !(phaseId == null || documentOfferedToPhase(record, phaseId))) continue;
+    // Whether this checkout holds a machine-local document differs by machine, so it is computed
+    // here and never written back to the catalog.
+    records.push(isLocalDocument(record)
+      ? { ...record, availability: await localDocumentAvailability(root, workflow.workItem.id, record) }
+      : record);
+  }
   for (const packageRecord of manifest.packages ?? []) {
     if (!includeDetached && !evidenceIsActive(packageRecord)) continue;
     for (const [suffix, label, kind, filePath, type] of [['INVENTORY', `${packageRecord.name} inventory`, 'package-inventory', packageRecord.inventoryPath, 'text/markdown'], ['GALLERY', `${packageRecord.name} gallery`, 'package-gallery', packageRecord.galleryPath, 'text/html'], ['MANIFEST', `${packageRecord.name} manifest`, 'package-manifest', packageRecord.manifestPath, 'application/json']]) {
@@ -996,18 +1040,27 @@ export async function viewDocument(root, config, workflow, reference, { includeD
   const records = await documentCatalog(root, config, workflow, { includeDetached });
   // An ID or alias first, then a document name, then a path or file name.
   const record = resolveDocumentRecord(records, reference); if (record.type === 'url') return { record, content: null, binary: false };
-  const extension = path.extname(record.path).toLowerCase(); const binary = !TEXT_EXTENSIONS.has(extension) && !record.mimeType.startsWith('text/');
-  const absolute = await governedDocumentPath(root, config, workflow, record);
-  const current = await snapshot(absolute);
-  if ((record.sha256 && current.sha256 !== record.sha256)
-      || (record.size != null && current.size !== record.size)) {
-    throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`);
+  const extension = path.extname(record.path ?? record.storage?.key ?? record.sourceName ?? '').toLowerCase(); const binary = !TEXT_EXTENSIONS.has(extension) && !record.mimeType.startsWith('text/');
+  let absolute;
+  let bytes;
+  let current;
+  if (isLocalDocument(record)) {
+    // Verified against the committed SHA-256, or refused with who has it and how to share it.
+    ({ bytes, absolutePath: absolute } = await readLocalDocument(root, workflow.workItem.id, record));
+    current = { sha256: record.sha256, size: bytes.length };
+  } else {
+    absolute = await governedDocumentPath(root, config, workflow, record);
+    current = await snapshot(absolute);
+    if ((record.sha256 && current.sha256 !== record.sha256)
+        || (record.size != null && current.size !== record.size)) {
+      throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`);
+    }
   }
   if (binary) return {
     record, content: null, binary: true, absolutePath: absolute,
     verifiedSha256: current.sha256, size: current.size, previewBytes: 0, truncated: false
   };
-  const policy = documentPolicy(workflow, config); const bytes = await readFile(absolute); const limit = policy.maxPreviewBytes ?? 1048576;
+  const policy = documentPolicy(workflow, config); bytes ??= await readFile(absolute); const limit = policy.maxPreviewBytes ?? 1048576;
   let previewBytes = Math.min(bytes.length, limit);
   let content = bytes.subarray(0, previewBytes).toString('utf8');
   // Do not end a byte-limited preview halfway through a UTF-8 code point.
@@ -1031,13 +1084,21 @@ export async function previewDocument(root, config, workflow, reference) {
   }
   const policy = documentPolicy(workflow, config);
   const limit = policy.maxFileBytes ?? 26214400;
-  const absolute = await governedDocumentPath(root, config, workflow, viewed.record);
-  const current = await snapshot(absolute);
-  if (current.sha256 !== viewed.record.sha256 || current.size !== viewed.record.size) {
-    throw new SingularityFlowError(`Document '${viewed.record.id}' no longer matches its committed catalog hash. Expected ${viewed.record.sha256}, found ${current.sha256}.`);
+  let bytes;
+  let current;
+  let absolute = null;
+  if (isLocalDocument(viewed.record)) {
+    ({ bytes } = await readLocalDocument(root, workflow.workItem.id, viewed.record));
+    current = { sha256: viewed.record.sha256, size: bytes.length };
+  } else {
+    absolute = await governedDocumentPath(root, config, workflow, viewed.record);
+    current = await snapshot(absolute);
+    if (current.sha256 !== viewed.record.sha256 || current.size !== viewed.record.size) {
+      throw new SingularityFlowError(`Document '${viewed.record.id}' no longer matches its committed catalog hash. Expected ${viewed.record.sha256}, found ${current.sha256}.`);
+    }
   }
   if (current.size > limit) throw new SingularityFlowError(`Document '${viewed.record.id}' exceeds the ${limit} byte inline-preview limit.`);
-  const bytes = await readFile(absolute);
+  bytes ??= await readFile(absolute);
   return {
     record: viewed.record,
     content: null,

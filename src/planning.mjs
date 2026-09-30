@@ -300,7 +300,10 @@ async function workItemSupportingDocuments(root, definition, workflow, phaseId) 
   const evidence = await renderActiveStoryEvidence(root, definition, workflow, { phaseId });
   const sources = evidence.entries.map((entry) => entry.type === 'url'
     ? { kind: 'external-reference', evidenceId: entry.id, path: entry.url, sha256: null, bytes: null }
-    : { kind: 'uploaded-document', evidenceId: entry.id, path: entry.path, sha256: entry.sha256, bytes: entry.bytes, mimeType: entry.mimeType, packageId: entry.packageId });
+    // A machine-local document has no repository path, so the pack pins its hash and nothing else.
+    : entry.storage === 'local'
+      ? { kind: 'machine-local-document', evidenceId: entry.id, path: null, sha256: entry.sha256, bytes: entry.bytes, mimeType: entry.mimeType }
+      : { kind: 'uploaded-document', evidenceId: entry.id, path: entry.path, sha256: entry.sha256, bytes: entry.bytes, mimeType: entry.mimeType, packageId: entry.packageId });
   const manifest = path.join(workDir(root, definition, workflow.workItem.id), 'documents.json');
   if (await exists(manifest)) {
     const info = await snapshot(manifest);

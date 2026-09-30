@@ -86,7 +86,8 @@ Usage:
   singularity-flow stack sync --epic EPIC-ID [--json]
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
   singularity-flow start <WORK-ID> [--jira | --github URL|owner/repo#number | --story-file FILE] [--title TEXT] [--description TEXT]
-    [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... --from-branch BRANCH [--fetch] [--allow-dirty]
+    [--acceptance-criteria TEXT] [--document FILE --document-name TEXT]... [--document-url URL --document-url-name TEXT]...
+    [--document-phases PHASE,...|all] [--document-store git|local] --from-branch BRANCH [--fetch] [--allow-dirty]
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
     [--isolated-worktree] [--intake-receipt ID]
@@ -579,10 +580,10 @@ Usage:
   singularity-flow documents list [WORK-ID] [--phase PHASE] [--active|--all] [--json]
   singularity-flow documents view <DOCUMENT-ID|NAME|PATH> [--work-id ID] [--all] [--json]
   singularity-flow documents preview <DOCUMENT-ID|NAME|PATH> [--work-id ID] [--json]
-  singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...|all] [--kind KIND] [--json]
+  singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...|all] [--store git|local] [--kind KIND] [--json]
   singularity-flow documents upload --url URL --name TEXT [--phases PHASE,...|all] [--json]
   singularity-flow documents browse --provider ID [--path PATH] [--json]
-  singularity-flow documents fetch <ITEM-ID> --provider ID --name TEXT [--filename FILE] [--phases PHASE,...|all] [--json]
+  singularity-flow documents fetch <ITEM-ID> --provider ID --name TEXT [--filename FILE] [--phases PHASE,...|all] [--store git|local] [--json]
   singularity-flow documents scope <DOCUMENT-ID|NAME> --phases PHASE,...|all --reason TEXT [--scope file|package] [--dry-run] [--yes] [--json]
   singularity-flow documents detach <DOCUMENT-ID|NAME> [--scope file|package] --reason TEXT [--yes]
   singularity-flow revision activation [--json]

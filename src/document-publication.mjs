@@ -4,6 +4,7 @@ import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, posix, run } from './util.mjs';
+import { validLocalDocumentKey } from './document-storage.mjs';
 
 // Version of the embedded event binding, not a separately persisted schema family.
 const DOCUMENT_SET_FORMAT_VERSION = 1;
@@ -73,16 +74,24 @@ function governedTreePath(value, { label = 'Governed document path' } = {}) {
   return candidate;
 }
 
-function treeEntries(root, tree, requestedPaths) {
+/**
+ * The exact entries for `requestedPaths`, each of which must exist. Any entry at or below one of
+ * `forbiddenPrefixes` is collected into `forbidden` instead, so a caller can prove a directory is
+ * absent from the same query.
+ */
+function treeEntries(root, tree, requestedPaths, { forbiddenPrefixes = [] } = {}) {
   if (!GIT_OBJECT_ID.test(String(tree ?? ''))) {
     refusal('Document publication did not provide an exact prospective Git tree.', 'DOCUMENT_SET_TREE_INVALID');
   }
   const requested = [...new Set(requestedPaths.map((item) => governedTreePath(item)))];
+  const prefixes = [...new Set(forbiddenPrefixes.map((item) => governedTreePath(item)))];
   const wanted = new Set(requested);
   const entries = new Map();
+  const forbidden = [];
   const env = { ...process.env, GIT_NO_LAZY_FETCH: '1' };
-  for (let offset = 0; offset < requested.length; offset += TREE_QUERY_BATCH) {
-    const batch = requested.slice(offset, offset + TREE_QUERY_BATCH);
+  const queried = [...requested, ...prefixes];
+  for (let offset = 0; offset < queried.length; offset += TREE_QUERY_BATCH) {
+    const batch = queried.slice(offset, offset + TREE_QUERY_BATCH);
     const result = run('git', [
       '--literal-pathspecs', 'ls-tree', '-r', '--full-tree', '-z', tree, '--', ...batch
     ], {
@@ -99,6 +108,10 @@ function treeEntries(root, tree, requestedPaths) {
       const header = tab < 0 ? '' : raw.slice(0, tab);
       const item = tab < 0 ? '' : raw.slice(tab + 1);
       const match = header.match(/^(100644|100755|120000|160000) (blob|commit) ([a-f0-9]{40,64})$/u);
+      if (match && prefixes.some((prefix) => item === prefix || item.startsWith(`${prefix}/`))) {
+        forbidden.push(item);
+        continue;
+      }
       if (!match || !wanted.has(item)) continue;
       if (entries.has(item)) {
         refusal(`Prospective Git tree contains an ambiguous document entry for '${item}'.`, 'DOCUMENT_SET_TREE_INVALID');
@@ -111,6 +124,7 @@ function treeEntries(root, tree, requestedPaths) {
       refusal(`Prospective Git tree is missing governed document path '${item}'.`, 'DOCUMENT_SET_TREE_MISMATCH');
     }
   }
+  entries.forbidden = forbidden;
   return entries;
 }
 
@@ -208,8 +222,18 @@ export function validateDocumentPublicationTree(root, config, workflow, event, {
   }
 
   const files = [];
+  const localInputs = [];
   let totalBytes = 0;
   for (const record of selected) {
+    if (record.type === 'file' && record.storage?.kind === 'local') {
+      // Kept on one machine: its identity is in the manifest, and its bytes must not be in the commit.
+      if (record.path != null || !Number.isSafeInteger(record.size) || record.size < 0
+          || !CONTENT_SHA256.test(String(record.sha256 ?? '')) || !validLocalDocumentKey(record.storage.key)) {
+        refusal(`Document '${record.id}' has invalid machine-local identity metadata.`, 'DOCUMENT_SET_MANIFEST_INVALID');
+      }
+      localInputs.push(governedTreePath(path.posix.join(itemRoot, 'inputs', record.id), { label: `Document '${record.id}' input directory` }));
+      continue;
+    }
     if (record.type === 'url') {
       if (!String(record.url ?? '').trim() || record.path != null) {
         refusal(`Document '${record.id}' has an invalid URL record.`, 'DOCUMENT_SET_MANIFEST_INVALID');
@@ -229,6 +253,12 @@ export function validateDocumentPublicationTree(root, config, workflow, event, {
       refusal('Governed document set exceeds its publication verification byte limit.', 'DOCUMENT_SET_RESOURCE_LIMIT');
     }
     files.push({ record, path: recordPath });
+  }
+  if (localInputs.length) {
+    const committed = treeEntries(root, prospectiveTree, [], { forbiddenPrefixes: localInputs }).forbidden;
+    if (committed.length) {
+      refusal(`A document kept on one machine has bytes in the commit: ${committed.join(', ')}.`, 'DOCUMENT_SET_LOCAL_BYTES_COMMITTED', { paths: committed });
+    }
   }
   if (files.length) {
     const blobs = readTreeFiles(root, prospectiveTree, files.map((item) => item.path), {

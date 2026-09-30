@@ -1,4 +1,5 @@
 import { documentCatalog, viewDocument } from './documents.mjs';
+import { isLocalDocument } from './document-storage.mjs';
 
 /**
  * Render active Story evidence once for every governed prompt consumer. Evidence is explicitly
@@ -25,6 +26,26 @@ export async function renderActiveStoryEvidence(root, definition, workflow, { ph
     if (record.type === 'url') {
       lines.push(`## ${record.id} — ${record.name ?? record.label}`, '', `- External reference: ${record.url}`, `- Kind: ${record.kind ?? 'reference'}`, '', 'Do not fetch credentials or assume the live content is identical to a pinned export.', '');
       entries.push({ id: record.id, name: record.name ?? null, type: 'url', url: record.url, sha256: null, kind: record.kind ?? 'reference' });
+      continue;
+    }
+    if (isLocalDocument(record)) {
+      // Prompt receipts are committed, so a document kept on one machine contributes its identity
+      // only: never its bytes, and never a path that would say where on that machine it lives.
+      const here = record.availability === 'available';
+      lines.push(
+        `## ${record.id} — ${record.name ?? record.label}`,
+        '',
+        '- Kept on one machine only; its bytes are not in the repository',
+        `- MIME type: \`${record.mimeType}\``,
+        `- Bytes: ${record.size}`,
+        `- SHA-256: \`${record.sha256}\``,
+        '',
+        here
+          ? `Read it on this machine with \`singularity-flow documents view ${record.id}\` if this phase needs it.`
+          : 'It is not on this machine. Do not guess its contents; say it was unavailable if this phase needed it.',
+        ''
+      );
+      entries.push({ id: record.id, name: record.name ?? null, type: 'file', storage: 'local', path: null, sha256: record.sha256, bytes: record.size, mimeType: record.mimeType, injectedBytes: 0, truncated: false, availability: record.availability ?? 'unavailable', packageId: null });
       continue;
     }
     const viewed = await viewDocument(root, definition, workflow, record.id);

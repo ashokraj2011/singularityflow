@@ -19,7 +19,7 @@ function documentRecords(value, baseDirectory) {
     const candidate = item.path ?? item.url ?? item.value;
     if (typeof candidate !== 'string' || !candidate.trim()) throw new SingularityFlowError(`Manual story document ${index + 1} requires path or url.`);
     // `name` is the document's name; `label`, its earlier spelling, still names a single document.
-    const described = { name: item.name ?? null, label: item.label ?? null, kind: item.kind ?? null, phases: item.phases ?? null };
+    const described = { name: item.name ?? null, label: item.label ?? null, kind: item.kind ?? null, phases: item.phases ?? null, store: item.store ?? null };
     if (/^https?:\/\//i.test(candidate)) return { type: 'url', url: candidate, ...described };
     return { type: 'file', path: path.resolve(baseDirectory, candidate), ...described };
   });

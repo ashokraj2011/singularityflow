@@ -2552,8 +2552,9 @@ export async function startCommand(positionals, options) {
     });
   }
   const initialDocumentInputs = [...(preloadedManual?.documents ?? []), ...explicitDocumentInputs];
-  assertStartDocuments(initialDocumentInputs, {
-    phaseOrder: deterministicPolicy.resolved?.phases?.map((phase) => phase.id) ?? null
+  await assertStartDocuments(initialDocumentInputs, {
+    phaseOrder: deterministicPolicy.resolved?.phases?.map((phase) => phase.id) ?? null,
+    documentPolicy: deterministicPolicy.resolved?.documents ?? null
   });
   documentCapture = await measureCommandSpan('start.documents', () => preflightInitialStoryDocuments(initialDocumentInputs, {
     repositoryRoot: root,
@@ -2821,8 +2822,9 @@ export async function startCommand(positionals, options) {
     ).policy
     : legacyCapabilityEvidence?.capability?.policy ?? {};
   // Names are unique across every Story-start document, and phases belong to the chosen work type.
-  assertStartDocuments([...documentCapture.inputs, ...laterDocuments], {
-    phaseOrder: resolvedWorkType.phases.map((phase) => phase.id)
+  await assertStartDocuments([...documentCapture.inputs, ...laterDocuments], {
+    phaseOrder: resolvedWorkType.phases.map((phase) => phase.id),
+    documentPolicy: resolvedWorkType.documents ?? null
   });
   documentCapture = await measureCommandSpan('start.documents', () =>
     preflightInitialStoryDocuments(laterDocuments, {
@@ -4699,8 +4701,10 @@ function startDocumentInputs(options, files, urls) {
   }
   const phaseValues = optionStrings(options, 'document-phases').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
   const phases = phaseValues.length ? phaseValues : null;
+  // Where the files' bytes are kept; a link has none.
+  const store = optionString(options, 'document-store') ?? null;
   return [
-    ...files.map((candidate, index) => ({ type: 'file', path: candidate, name: fileNames[index] ?? null, label: null, kind: null, phases })),
+    ...files.map((candidate, index) => ({ type: 'file', path: candidate, name: fileNames[index] ?? null, label: null, kind: null, phases, store })),
     ...urls.map((url, index) => ({ type: 'url', url, name: urlNames[index] ?? null, label: null, kind: null, phases }))
   ];
 }
@@ -4714,9 +4718,9 @@ const DOCUMENTS_SUBCOMMAND_OPTIONS = Object.freeze({
   browse: ['provider', 'path'],
   detach: ['reason', 'scope', 'yes'],
   scope: ['phases', 'reason', 'scope', 'dry-run', 'yes'],
-  upload: ['url', 'name', 'label', 'kind', 'phases', 'confirm-override'],
-  add: ['url', 'name', 'label', 'kind', 'phases', 'confirm-override'],
-  fetch: ['provider', 'ref', 'name', 'filename', 'label', 'kind', 'phases', 'confirm-override']
+  upload: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
+  add: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
+  fetch: ['provider', 'ref', 'name', 'filename', 'label', 'kind', 'phases', 'store', 'confirm-override']
 });
 
 /**
@@ -4750,6 +4754,16 @@ function documentPhasesLabel(record, phaseOrder = []) {
   return record.phases.join(', ');
 }
 
+/** Where a supporting document is, as a reader of the listing needs to know it. */
+function documentLocation(item) {
+  if (item.storage?.kind === 'local') {
+    return item.availability === 'available' ? 'kept on this machine only'
+      : item.availability === 'changed' ? 'kept on this machine only (changed since it was added)'
+        : 'kept on another machine (not available here)';
+  }
+  return item.url ?? item.path ?? '';
+}
+
 function documentTitle(record) {
   return `${record.id} — ${record.name ?? record.label ?? record.id}`;
 }
@@ -4776,7 +4790,7 @@ async function documentsCommand(positionals, options) {
     if (supporting.length) {
       sections.push(`Supporting documents${phaseId ? ` offered to ${phaseId}` : ''}\n${table(supporting.map((item) => ({
         id: item.id, name: item.name ?? item.label ?? '', type: item.type, added: item.phase ?? '', status: item.status ?? 'active',
-        reason: item.detachReason ?? '', phases: documentPhasesLabel(item, workflow.phaseOrder), location: item.url ?? item.path ?? ''
+        reason: item.detachReason ?? '', phases: documentPhasesLabel(item, workflow.phaseOrder), location: documentLocation(item)
       })), [
         { key: 'id', label: 'ID' }, { key: 'name', label: 'NAME' }, { key: 'type', label: 'TYPE' }, { key: 'added', label: 'ADDED IN' },
         { key: 'status', label: 'STATUS' }, { key: 'reason', label: 'DETACH REASON' },
@@ -4798,6 +4812,7 @@ async function documentsCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(documentTitle(result.record));
     if (['file', 'url'].includes(result.record.type)) console.log(`Used in: ${documentPhasesLabel(result.record, workflow.phaseOrder)}`);
+    if (result.record.storage?.kind === 'local') console.log('Kept on this machine only; its bytes are not in the repository.');
     console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
     if (result.record.url) console.log(`URL: ${result.record.url}`);
     else console.log(`Path: ${result.absolutePath ?? pathForDisplay(root, result.record.path)}`);
@@ -4884,7 +4899,8 @@ async function documentsCommand(positionals, options) {
             names: optionStrings(options, 'name'),
             label: optionString(options, 'label'),
             kind: optionString(options, 'kind'),
-            phases: documentPhasesOption(options)
+            phases: documentPhasesOption(options),
+            store: optionString(options, 'store') ?? null
           });
           return records;
         },
@@ -4897,7 +4913,7 @@ async function documentsCommand(positionals, options) {
       }
     );
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result }, null, 2));
-    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
   }
   if (subcommand === 'browse') {
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
@@ -4929,7 +4945,8 @@ async function documentsCommand(positionals, options) {
             filename: optionString(options, 'filename'),
             label: optionString(options, 'label'),
             kind: optionString(options, 'kind'),
-            phases: documentPhasesOption(options)
+            phases: documentPhasesOption(options),
+            store: optionString(options, 'store') ?? null
           });
           return records;
         },
@@ -4943,7 +4960,7 @@ async function documentsCommand(positionals, options) {
       }
     );
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result }, null, 2));
-    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`));
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`));
     console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
     return;
   }

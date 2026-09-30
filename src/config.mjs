@@ -3,6 +3,7 @@ import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
+import { assertDocumentStoragePolicy } from './document-storage-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
   ensureSecureRepositoryDirectory,
@@ -1287,6 +1288,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   }
   for (const phaseId of definition.documents?.allowedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Document policy references unknown phase '${phaseId}'.`);
   if (definition.documents?.maxFileBytes != null && (!Number.isInteger(definition.documents.maxFileBytes) || definition.documents.maxFileBytes < 1)) throw new SingularityFlowError('documents.maxFileBytes must be a positive integer.');
+  assertDocumentStoragePolicy(definition.documents?.storage);
   // Optional per-work-item storage providers (OneDrive/SharePoint, Artifactory, S3, …) let the
   // documents feature fetch governed bytes. Same normalizer as the initiative portfolio, so the
   // schema never drifts between the two surfaces.
@@ -1311,6 +1313,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     }
     for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
     for (const phaseId of workType.documents?.allowedPhases ?? []) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' allows document upload in inactive phase '${phaseId}'.`);
+    assertDocumentStoragePolicy(workType.documents?.storage, `workTypes.${id}.documents.storage`);
     normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
     // `[SPK:REQ-090]`: one constitution per approved configuration, named by the work type that
     // is held to it. Validated here so a typo cannot resolve into a policy that governs nothing.

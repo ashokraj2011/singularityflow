@@ -8,6 +8,7 @@ import { matchApprovalAuthority } from './approval-authority.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
+import { isLocalDocument } from './document-storage.mjs';
 import { extractSourceText, isTextualSource } from './source-text.mjs';
 import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
@@ -133,6 +134,14 @@ async function storySources(root, config, workflow, phaseId) {
     code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE'
   });
   for (const document of catalog.documents.filter((entry) => entry?.status !== 'detached' && documentOfferedToPhase(entry, phaseId))) {
+    if (isLocalDocument(document)) {
+      // A review is re-checked on other machines, which do not have these bytes.
+      throw new SingularityFlowError(
+        `Attachment '${document.id}' (${document.name ?? document.id}) is kept on one machine only, so an independent review cannot cite it. `
+        + `Stop offering it to ${phaseId} with singularity-flow documents scope ${document.id} --phases <PHASES> --reason "<why>", or re-attach it with --store git.`,
+        { code: 'SOURCE_REVIEW_INPUT_UNREADABLE' }
+      );
+    }
     if (document.type !== 'file' || !document.path || !SHA256.test(String(document.sha256 ?? ''))) {
       throw new SingularityFlowError(`Attachment '${document.id ?? 'unknown'}' has no pinned reviewable file bytes.`, {
         code: 'SOURCE_REVIEW_INPUT_UNREADABLE'

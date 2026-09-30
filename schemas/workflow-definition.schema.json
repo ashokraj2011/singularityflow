@@ -253,7 +253,16 @@
       "properties": {
         "allowedPhases": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "maxFileBytes": { "type": "integer", "minimum": 1 },
-        "maxPreviewBytes": { "type": "integer", "minimum": 1 }
+        "maxPreviewBytes": { "type": "integer", "minimum": 1 },
+        "storage": {
+          "type": "object",
+          "description": "Where supporting document bytes may be kept: git commits them; local keeps them on the machine that added them.",
+          "properties": {
+            "allowed": { "type": "array", "items": { "enum": ["git", "local"] }, "minItems": 1, "uniqueItems": true },
+            "default": { "enum": ["git", "local"] }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

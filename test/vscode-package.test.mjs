@@ -172,6 +172,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     mkdir(path.join(repository, 'plugin', 'agents'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'skills', 'sflow-review-source'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'skills', 'sflow-sgos'), { recursive: true }),
+    mkdir(path.join(repository, 'plugin', 'skills', 'sflow-code-docs'), { recursive: true }),
     mkdir(path.join(repository, 'toolchains', 'npm-pack'), { recursive: true }),
     mkdir(path.join(privateNpm, 'node_modules', 'npm', 'bin'), { recursive: true })
   ]);
@@ -203,6 +204,11 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'wel-readiness-foundation.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'wel-test-lifecycle.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'workflow-transfer.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'document-identity.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'document-storage.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'document-storage-policy.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'code-documentation.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'code-documentation-inspection.mjs'), '// fixture\n'),
     writeFile(path.join(
       repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
     ), '// fixture\n'),
@@ -217,6 +223,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'plugin', 'agents', 'sflow-source-reviewer.agent.md'), '# fixture\n'),
     writeFile(path.join(repository, 'plugin', 'skills', 'sflow-review-source', 'SKILL.md'), '# fixture\n'),
     writeFile(path.join(repository, 'plugin', 'skills', 'sflow-sgos', 'SKILL.md'), '# fixture\n'),
+    writeFile(path.join(repository, 'plugin', 'skills', 'sflow-code-docs', 'SKILL.md'), '# fixture\n'),
     writeFile(path.join(repository, 'package.json'), '{"name":"fixture","version":"1.0.0"}\n'),
     writeFile(path.join(repository, 'toolchains', 'npm-pack', 'package.json'), `${JSON.stringify({
       name: 'fixture-npm-pack-toolchain',
@@ -255,6 +262,11 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/wel-readiness-foundation.mjs',
     'src/wel-test-lifecycle.mjs',
     'src/workflow-transfer.mjs',
+    'src/document-identity.mjs',
+    'src/document-storage.mjs',
+    'src/document-storage-policy.mjs',
+    'src/code-documentation.mjs',
+    'src/code-documentation-inspection.mjs',
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',
@@ -262,7 +274,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
       || relative.startsWith('schemas/wel-')),
     'plugin/agents/sflow-source-reviewer.agent.md',
     'plugin/skills/sflow-review-source/SKILL.md',
-    'plugin/skills/sflow-sgos/SKILL.md', 'package.json',
+    'plugin/skills/sflow-sgos/SKILL.md', 'plugin/skills/sflow-code-docs/SKILL.md', 'package.json',
     'package-lock.json', 'toolchains/npm-pack/package.json']);
   runGit(['commit', '-q', '-m', 'Fixture']);
 

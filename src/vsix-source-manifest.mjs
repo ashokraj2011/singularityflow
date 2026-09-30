@@ -46,7 +46,13 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'schemas/wel-test-lifecycle.schema.json',
   'plugin/agents/sflow-source-reviewer.agent.md',
   'plugin/skills/sflow-review-source/SKILL.md',
-  'plugin/skills/sflow-sgos/SKILL.md'
+  'plugin/skills/sflow-sgos/SKILL.md',
+  'src/document-identity.mjs',
+  'src/document-storage.mjs',
+  'src/document-storage-policy.mjs',
+  'src/code-documentation.mjs',
+  'src/code-documentation-inspection.mjs',
+  'plugin/skills/sflow-code-docs/SKILL.md'
 ]);
 
 const FORMAT_VERSION = 1;

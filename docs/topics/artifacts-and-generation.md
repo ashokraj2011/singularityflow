@@ -17,9 +17,9 @@ related:
   - manual-authorship
   - approvals
   - sequence-gates
-version: 7
+version: 8
 ---
-Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Inputs and reference documents are added with `sflow inputs add` / `sflow documents upload` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it.
+Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Approved upstream inputs are prepared with `sflow inputs [PHASE]`; supporting documents are added with `sflow documents upload <FILE> --name <NAME>` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it.
 
 For code phases, run `sflow phase begin <phase>` before changing source. Begin creates or returns a
 local, hash-bound generation-start receipt; it does not create a lifecycle event, commit, push, or
@@ -28,6 +28,13 @@ ledger entry. Publication verifies that exact receipt and binds it into the norm
 the isolated commit; an editor, formatter, generator, or test-watcher write during that boundary
 causes a safe refusal without advancing the branch. VS Code saves and rechecks repository buffers
 before asking the kernel to publish.
+
+While a code generation is open, `sflow phase draft-check <phase> --json` and
+`sflow phase prepublish <phase> --json` also return `advisories[]` and a `documentation` summary: every public function,
+method, or class the generation added or changed without a doc comment, in product source only
+(tests, generated and vendored files, and Story records are skipped). Advisories never block
+publication and never become findings. `/sf-code` writes doc comments as it implements;
+`/sf-code-docs` adds any that are missing afterwards, changing comments only.
 
 If a prior generation was consumed and bytes now differ, run
 `/sf-recover` (or `sflow recover <WORK-ID> --phase <phase> --json`) first. The recovery route previews
@@ -54,7 +61,7 @@ Use this topic when the current goal matches **artifacts and generation**. Start
 ## Use it from each surface
 
 - **Shell:** `sflow phase`, `sflow clarification`, `sflow inputs`, `sflow documents`, `sflow prepare`, `sflow artifact`. Run `singularity-flow phase --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-phase`, `/sf-recover`, `/sf-inputs`, `/sf-documents`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-phase`, `/sf-recover`, `/sf-inputs`, `/sf-documents`, `/sf-code-docs`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

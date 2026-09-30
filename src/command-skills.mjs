@@ -104,7 +104,7 @@ const entries = {
   visual: ['sf-visual'],
   documents: ['sf-documents', 'sf-upload'],
   prepare: ['sf-phase', 'sf-code', 'sf-specify', 'sf-plan', 'sf-implement', 'sf-converge', 'sf-verify'],
-  phase: ['sf-phase', 'sf-code', 'sf-specify', 'sf-plan', 'sf-implement', 'sf-converge', 'sf-verify', 'sf-recover'],
+  phase: ['sf-phase', 'sf-code', 'sf-code-docs', 'sf-specify', 'sf-plan', 'sf-implement', 'sf-converge', 'sf-verify', 'sf-recover'],
   artifact: ['sf-phase'],
   pr: ['sf-pr', 'sf-stack'],
   stack: ['sf-stack'],

@@ -385,6 +385,9 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     artifact: draft.artifact,
     artifacts: draft.artifacts,
     findings: Object.freeze([...findings.values()].map((finding) => Object.freeze(finding))),
+    // Carried through unchanged: advisories never enter findings or readiness.
+    advisories: draft.advisories,
+    documentation: draft.documentation,
     readiness: Object.freeze({
       lifecycle: lifecycleReady,
       authoring: draft.status === 'ready',

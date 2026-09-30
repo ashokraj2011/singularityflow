@@ -6461,6 +6461,12 @@ async function phaseCommand(positionals, options) {
     if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
     if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
+    if (result.advisories?.length) {
+      console.log(`Documentation advisories (never block publication): ${result.documentation.undocumented} public declaration(s) without a doc comment.`);
+      for (const advisory of result.advisories.slice(0, 10)) console.log(`  · ${advisory.message}`);
+      if (result.documentation.undocumented > 10) console.log(`  · …and ${result.documentation.undocumented - 10} more (--json lists up to 50).`);
+      console.log(`Documentation: ${result.documentation.guidance}`);
+    }
     if (result.status === 'correction-required') {
       console.log(`Correction: ${result.correction.guidance}`);
       if (result.commands.next) printCommandRoutes(result.commands.next, {

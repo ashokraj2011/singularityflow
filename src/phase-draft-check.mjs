@@ -10,6 +10,7 @@ import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import {
   artifactFindingMessage, inspectPhaseAuthoredReviewContent, phaseAuthoredReviewArtifacts
 } from './publication-preflight.mjs';
+import { inspectCodeDocumentation } from './code-documentation-inspection.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -125,6 +126,10 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     }
   }
 
+  // Doc comments on the code this generation changed: advisories only, never findings, so they
+  // cannot change the status, the correction class or whether publication is offered.
+  const { documentation, advisories } = await inspectCodeDocumentation(root, config, workflow, phase);
+
   const repairClass = convergenceReview?.class ?? correctionClass(producer);
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase));
   const awaitingApproval = phase.status === 'awaiting_approval';
@@ -149,6 +154,8 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       ...finding,
       message: finding.message ?? artifactFindingMessage(finding)
     }))),
+    advisories: Object.freeze([...advisories]),
+    documentation,
     correction: Object.freeze({
       class: repairClass,
       automatic: false,

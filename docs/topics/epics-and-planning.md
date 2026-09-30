@@ -11,9 +11,10 @@ commands:
 related:
   - starting-work
   - inbox-and-review
-version: 2
+  - supporting-documents
+version: 3
 ---
-Epic intake (`sflow epic start --jira` or local) runs governed planning: the brief and attached materials (`sflow documents upload` — hash-pinned) become inputs; requirements and a story breakdown are drafted after clarifying questions. The breakdown is the product owner's to shape — edit, `split`, `adopt`, reorder (in VS Code, the Stories view is the business review boundary; every change reopens the exact planning package). Approved stories arrive on developer desks ready to start, carrying lineage to the epic and acceptance criteria as addressable clauses the implementation must claim.
+Epic intake (`sflow epic start --jira` or local) runs governed planning: the brief and its sources (`sflow epic sources add --file <PATH>` or `--url <URL>`, and `sflow epic sources note --text-file <FILE>` for authored notes — each hash-pinned) become inputs; requirements and a story breakdown are drafted after clarifying questions. The breakdown is the product owner's to shape — edit, `split`, `adopt`, reorder (in VS Code, the Stories view is the business review boundary; every change reopens the exact planning package). Approved stories arrive on developer desks ready to start, carrying lineage to the epic and acceptance criteria as addressable clauses the implementation must claim.
 
 ## Purpose and prerequisites
 
@@ -21,8 +22,8 @@ Use this topic when the current goal matches **epics and planning**. Start in a 
 
 ## Use it from each surface
 
-- **Shell:** `sflow epic`, `sflow documents`. Run `singularity-flow epic --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-documents`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Shell:** `sflow epic` (Epic sources: `sflow epic sources list|add|note|detach --epic <EPIC-KEY>`), and `sflow documents` for the Stories released from it. Run `singularity-flow epic --help` for the exact forms supported by this build.
+- **Copilot:** `/sf-upload`, `/sf-documents` (pass `--epic <EPIC-ID>` for Epic sources). The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle and Planning**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -46,4 +47,4 @@ These commands can mutate governed or machine-local state: `epic`, `documents`. 
 
 ## Related topics
 
-Continue with `sflow explain starting-work`, `sflow explain inbox-and-review`.
+Continue with `sflow explain starting-work`, `sflow explain inbox-and-review`, `sflow explain supporting-documents`.

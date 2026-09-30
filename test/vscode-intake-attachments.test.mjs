@@ -33,7 +33,8 @@ test('Story intake gives the description room and always exposes four document s
   assert.equal((html.match(/data-attachment-pick="\d+"/g) ?? []).length,
     MIN_STORY_ATTACHMENT_SLOTS);
   assert.match(html, /Choose documents…/);
-  assert.match(html, /opening\s+governed Git commit and push/);
+  assert.match(html, /opening governed Git\s+commit; files kept in Git are copied into that commit and pushed/);
+  assert.match(html, /files kept on this machine\s+stay here/, 'machine-only documents are not promised to the commit');
   assert.match(html, /may use bounded text from selected\s+text documents/);
 
   const epic = intakeHtml({ ...story(), shape: 'epic' });

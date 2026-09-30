@@ -1852,7 +1852,9 @@ Manual intake has the same durable state-transfer behavior as Jira intake. Put t
 
 In VS Code, choose **Lifecycle → Start intake** and leave **Create without
 Jira** selected. Enter a Work ID and title, use the larger description editor,
-and optionally choose as many as four local supporting documents. **Enhance
+and optionally choose as many as four local supporting documents, naming each
+one and choosing, once for all of them, where they are kept (committed to Git or
+on this machine only) and which phases use them. **Enhance
 description** sends the bounded draft through private standard input to the
 configured model with tools disabled and puts its advisory proposal back into
 the editor beside the unchanged draft for review. **Apply proposal** replaces the

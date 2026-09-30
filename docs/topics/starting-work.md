@@ -13,7 +13,8 @@ related:
   - epics-and-planning
   - pins
   - work-intervals
-version: 11
+  - supporting-documents
+version: 12
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -22,10 +23,16 @@ VS Code starts every Story in a dedicated linked Git worktree and opens that fol
 In VS Code, Start Work opens at once on Story. It shows the last complete workflow and branch listing for the repository, labelled as last known, while it reads the current one; with none recorded yet, it says it is reading. Readiness is checked once typing the Story ID pauses, not only when the field loses focus. No base is ever preselected, and neither the last known listing nor an earlier answer enables Start: only a passing readiness check for the chosen base and workflow does.
 
 For manual intake, the VS Code User Story form provides four optional local-document slots. Each
-selected file is captured before mutation, copied under
-`singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`, and recorded with its SHA-256 and metadata in
-`documents.json`. Those exact bytes, the manifest, `source.json`, `USER-STORY.md`, and the workflow
-state land in the single opening governed commit and are pushed together. Intake and later phase
+selected file needs a name, unique within the Story. Below the slots the form asks once where the
+files are kept (**Committed to Git** or **On this machine only**) and which phases use them (every
+phase of the workflow by default). Each file is captured before mutation and recorded with its
+SHA-256, name, storage, and phases in `documents.json`. A Git-kept file is copied under
+`singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`; a machine-only file stays in this clone's Git
+directory, and only its name, size, and hash are committed. The manifest, the Git-kept bytes,
+`source.json`, `USER-STORY.md`, and the workflow state land in the single opening governed commit and
+are pushed together. The shell form is
+`sflow start … --document <FILE> --document-name <NAME>`, with optional `--document-phases <A,B>` and
+`--document-store git|local`; see `sflow explain supporting-documents`. Intake and later phase
 prompts consume the active hash-verified document evidence; they do not rely on the original laptop
 path. Embedded instructions remain untrusted evidence, and normal configured size, MIME, and
 resource limits still apply.

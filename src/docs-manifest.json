@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "903ebe9457ee10c414476da6db28bd24cd3cc969",
-  "topicCount": 68,
-  "contentSha256": "d230b874322b430a51f825a7243dcd419e4fa76a16def2feebbd8d6e17fd984f",
+  "sourceCommit": "91d08c5770c463f689981b5585535de4d829c72e",
+  "topicCount": 69,
+  "contentSha256": "a3ef92351d7f230e73fbe9dcf6cba29ef568d83da1452cd87f9835442add1ae1",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -160,9 +160,9 @@
     {
       "id": "epics-and-planning",
       "title": "Epics, planning, and user stories",
-      "version": 2,
-      "sha256": "5858f1afca7e960fa560fcc08a31a6b4a791e545ca31b3069a3c7daecfba5da1",
-      "routingSha256": "1760905e1885a9fd17c197b5097d1468922374409bdcee11af26af47770abac0",
+      "version": 3,
+      "sha256": "2852b057d88c3170c254f9ed1b683b8cfa42793f4150b47aab83c2c3f0c1bf13",
+      "routingSha256": "c02ac0d580b365aaaf3127a46264b228cff86e95d584a66c644004b86928401f",
       "file": "epics-and-planning.md"
     },
     {
@@ -472,9 +472,9 @@
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 11,
-      "sha256": "44d30b2e770d628618c2c158d4cfc18d3dc9ba9eea18ce123c56db223ab6dc68",
-      "routingSha256": "0a25dd7e16419886423f1b0b153555c1815ea66b67a025cb1a279f96f3511c59",
+      "version": 12,
+      "sha256": "fb1104557da1db43278938126f12a5eeb2cf4170bb7ca1f34e1fcaa5ee83874c",
+      "routingSha256": "5693a64459940975a49c2840529f78c8668f80c781e37f8b1b33e46042b54d08",
       "file": "starting-work.md"
     },
     {
@@ -484,6 +484,14 @@
       "sha256": "465b2154bb8539a77868f5732103b881d4047d34b8c45b109b4ac7cc03ff0ae9",
       "routingSha256": "ba05ed458214e52a31a5cf002c0104c63bb35ae9dc202dd81fca74cac023a886",
       "file": "story-lifecycle.md"
+    },
+    {
+      "id": "supporting-documents",
+      "title": "Supporting documents",
+      "version": 1,
+      "sha256": "adc32cf11020e8bc54c4408d30d9f56fecbd015f8c2df1e6b27a5a5255f54f10",
+      "routingSha256": "e999b62cfd8ab0711c2320feca3f5d0f54656404584de22af6de4aa30060db1c",
+      "file": "supporting-documents.md"
     },
     {
       "id": "telemetry-and-cost",

@@ -984,8 +984,9 @@ function storyAttachmentsHtml(form: IntakeForm): string {
     <p class="question">Choose the requirements, designs, examples, or other source documents that
       should travel with this Story and be available as grounded Copilot context. Choosing a file
       only stages it locally. <strong>Enhance with Copilot</strong> may use bounded text from selected
-      text documents; Story start copies the exact files and their SHA-256 manifest into the opening
-      governed Git commit and push.</p>
+      text documents. Story start records each file's name and SHA-256 in the opening governed Git
+      commit; files kept in Git are copied into that commit and pushed, and files kept on this machine
+      stay here.</p>
     <div class="attachment-slots" aria-label="Story supporting document slots">
       ${slots.map((entry, index) => `<div class="card attachment-slot" data-attachment-slot="${index}">
         <div class="card-head">

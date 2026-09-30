@@ -1963,7 +1963,7 @@ The configurable gates are:
 | `generationCommit` | Submitting without the required generation commit |
 | `remoteGeneration` | Submitting before the generation reaches the configured remote |
 | `publicationPending` | Mutating while a retained local commit still needs synchronization |
-| `documentPhase` | Uploading supporting documents outside the configured intake phases |
+| `documentPhase` | Uploading supporting documents outside the configured document phases (the first phase when none of them belongs to the work type); documents given at Story start are never gated |
 
 A `hard` gate exits with code `2` before changing workflow files or creating a commit. A `soft` gate displays the same current state, reason, required command, and consequences, then asks:
 

@@ -429,11 +429,7 @@ export async function detachDocuments(root, config, workflow, {
   await writeJson(decisionFile, decisionBase);
   manifest.updatedAt = timestamp;
   await writeJson(manifestPath(root, config, workflow), manifest);
-  workflow.documents = {
-    count: manifest.documents.filter(evidenceIsActive).length,
-    totalCount: manifest.documents.length,
-    updatedAt: timestamp
-  };
+  workflow.documents = documentCounters(manifest, timestamp);
   workflow.history.push({
     at: timestamp,
     actor: session.actor.login ?? session.actor.email ?? session.actor.name,
@@ -475,6 +471,46 @@ async function writePackageIndexes(root, config, workflow, manifest, packageReco
 
 function documentPolicy(workflow, config) {
   return workflow.resolution?.documents ?? config.documents ?? { allowedPhases: ['intake'], maxFileBytes: 26214400, maxPreviewBytes: 1048576 };
+}
+
+/**
+ * The phases in which a Story accepts documents: the pinned policy's allowed phases or, when that
+ * list is empty, the Story's first phase.
+ *
+ * The global allow-list names phases of the classic work types and is narrowed to the work type's
+ * own phases. A work type sharing no phase name with it (spec-driven-standard starts at
+ * specification) resolved to no phase at all, so every document was refused — including an upload
+ * from VS Code, which has no terminal to confirm a soft gate. A list that names phases is a
+ * deliberate choice and is kept as it is.
+ */
+export function documentUploadPhases(workflow, config) {
+  const allowed = documentPolicy(workflow, config).allowedPhases ?? ['intake'];
+  if (allowed.length) return [...allowed];
+  const first = workflow.phaseOrder?.[0] ?? null;
+  return first ? [first] : [];
+}
+
+/**
+ * The document counters a Story keeps. `count` is the active documents and `totalCount` every record
+ * ever added: detached records stay in the catalog, so the two differ after a detach. Upload once
+ * wrote the total as `count` and detach the active number, so the governance gate failed after any
+ * detach that no later upload happened to repair.
+ */
+export function documentCounters(manifest, updatedAt) {
+  return {
+    count: manifest.documents.filter(evidenceIsActive).length,
+    totalCount: manifest.documents.length,
+    updatedAt
+  };
+}
+
+async function enforceDocumentPhase(root, workflow, config, phase, action) {
+  const allowed = documentUploadPhases(workflow, config);
+  if (allowed.includes(phase.id)) return;
+  await enforceSequenceGate(root, workflow, 'documentPhase', action, {
+    requestedPhase: phase.id,
+    reason: `Documents may be added only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
+  });
 }
 
 function assertCapabilityMime(workflow, type, label) {
@@ -578,15 +614,17 @@ async function governedDocumentPath(root, config, workflow, record) {
 }
 
 export async function addDocuments(root, config, workflow, {
-  files = [], url = null, label = null, kind = null, frozenEvidence = null
+  files = [], url = null, label = null, kind = null, frozenEvidence = null, origin = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'upload documents');
   const phase = await assertPhaseSequence(root, workflow, 'upload documents');
-  const policy = documentPolicy(workflow, config); const allowed = policy.allowedPhases ?? ['intake'];
-  if (!allowed.includes(phase.id)) await enforceSequenceGate(root, workflow, 'documentPhase', 'upload documents', {
-    requestedPhase: phase.id,
-    reason: `Documents may be uploaded only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
-  });
+  // Documents supplied when the Story is created are part of its opening record, whatever the
+  // upload window says: the person described the work with them. Only the creation path passes
+  // this origin, and only while the first phase has not produced anything yet.
+  const atCreation = origin === 'story-start' && phase.id === workflow.phaseOrder?.[0]
+    && Number(phase.generation ?? 0) === 0;
+  if (!atCreation) await enforceDocumentPhase(root, workflow, config, phase, 'upload documents');
+  const policy = documentPolicy(workflow, config);
   if (!files.length && !url) throw new SingularityFlowError('Provide one or more files or --url <https-url>.');
   const verifiedUrl = url ? validateDocumentUrl(url) : null;
   const resourceBudget = createStoryDocumentBudget();
@@ -668,17 +706,17 @@ export async function addDocuments(root, config, workflow, {
         { code: 'STORY_DOCUMENT_CHANGED' }
       );
     }
-    const record = { id, type: 'file', label: label ?? sourceRelativePath ?? filename, kind: kind ?? (packageName ? 'directory-import' : 'reference'), sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent };
+    const record = { id, type: 'file', label: label ?? sourceRelativePath ?? filename, kind: kind ?? (packageName ? 'directory-import' : 'reference'), sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
     if (packageName) { record.sourcePackage = packageName; record.packageId = packageMap.get(packageSource).id; record.sourceRelativePath = sourceRelativePath; }
     manifest.documents.push(record); added.push(record);
   }
   if (verifiedUrl) {
-    const id = nextId(manifest.documents); const record = { id, type: 'url', label: label ?? verifiedUrl, kind: kind ?? (/figma\.com/i.test(verifiedUrl) ? 'figma' : 'reference'), url: verifiedUrl, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent };
+    const id = nextId(manifest.documents); const record = { id, type: 'url', label: label ?? verifiedUrl, kind: kind ?? (/figma\.com/i.test(verifiedUrl) ? 'figma' : 'reference'), url: verifiedUrl, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
     manifest.documents.push(record); added.push(record);
   }
   for (const packageRecord of packageMap.values()) await writePackageIndexes(root, config, workflow, manifest, packageRecord);
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
-  workflow.documents = { count: manifest.documents.length, updatedAt: manifest.updatedAt };
+  workflow.documents = documentCounters(manifest, manifest.updatedAt);
   workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: added.map((item) => item.id).join(', ') });
   await saveStoryDraft(root, config, workflow); return added;
 }
@@ -698,11 +736,8 @@ function resolveStorageProvider(config, providerId, workflow = null) {
 export async function fetchRemoteDocument(root, config, workflow, { providerId = null, remoteRef = null, name = null, label = null, kind = null, runtime = {} } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'fetch documents');
   const phase = await assertPhaseSequence(root, workflow, 'fetch documents');
-  const policy = documentPolicy(workflow, config); const allowed = policy.allowedPhases ?? ['intake'];
-  if (!allowed.includes(phase.id)) await enforceSequenceGate(root, workflow, 'documentPhase', 'fetch documents', {
-    requestedPhase: phase.id,
-    reason: `Documents may be added only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
-  });
+  await enforceDocumentPhase(root, workflow, config, phase, 'fetch documents');
+  const policy = documentPolicy(workflow, config);
   if (!remoteRef) throw new SingularityFlowError('Provide a provider item ID or path to fetch (documents fetch --ref <id>).');
   const { selectedId, provider } = resolveStorageProvider(config, providerId, workflow);
   const session = await loadSession(root);
@@ -743,7 +778,7 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   };
   manifest.documents.push(record);
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
-  workflow.documents = { count: manifest.documents.length, updatedAt: manifest.updatedAt };
+  workflow.documents = documentCounters(manifest, manifest.updatedAt);
   workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: `${id} ← ${provider.type}:${selectedId}` });
   await saveStoryDraft(root, config, workflow); return [record];
 }

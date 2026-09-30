@@ -558,7 +558,10 @@ export async function stageInitialStoryDocuments(root, config, workflow, {
       url: input.url ?? null,
       label: input.label ?? null,
       kind: input.kind ?? null,
-      frozenEvidence
+      frozenEvidence,
+      // Only Story creation freezes its documents first, so only it may admit them outside the
+      // upload window as part of the opening record.
+      origin: requireFrozen ? 'story-start' : null
     }));
   }
   return records;

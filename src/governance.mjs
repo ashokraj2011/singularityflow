@@ -31,6 +31,7 @@ import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
+import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { classifyStoryGateFailures } from './gate-recovery.mjs';
@@ -144,19 +145,35 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
 
   const documentManifest = path.join(workDir(root, config, workflow.workItem.id), 'documents.json');
   if (await exists(documentManifest)) {
-    const manifest = JSON.parse(await readFile(documentManifest, 'utf8')); const seen = new Set();
+    const manifest = readRecord('document-manifest', await readFile(documentManifest)).record; const seen = new Set();
     if (manifest.workId !== workflow.workItem.id) errors.push('document catalog work ID does not match workflow');
+    // The same phases the upload gate admits, the documents given at Story creation (part of its
+    // opening record), and any phase a confirmed soft-gate override opened before the document was
+    // added: that upload was audited, not outside the policy.
+    const uploadPhases = documentUploadPhases(workflow, config);
+    const overrides = (workflow.sequenceOverrides ?? []).filter((override) => override.gate === 'documentPhase');
+    const admitted = (document) => uploadPhases.includes(document.phase)
+      || (document.origin === 'story-start' && document.phase === workflow.phaseOrder?.[0])
+      || overrides.some((override) => override.requestedPhase === document.phase
+        && String(override.at ?? '') <= String(document.addedAt ?? ''));
     for (const document of manifest.documents ?? []) {
       if (seen.has(document.id)) errors.push(`duplicate document ID: ${document.id}`); seen.add(document.id);
-      if (!(workflow.resolution.documents?.allowedPhases ?? []).includes(document.phase)) errors.push(`${document.id} was uploaded outside the immutable document phase policy`);
+      if (!admitted(document)) errors.push(`${document.id} was uploaded outside the immutable document phase policy`);
       if (!document.addedBy || !document.agent) errors.push(`${document.id} is missing actor or agent attribution`);
       if (document.type === 'file') {
         const current = await snapshot(path.join(root, document.path));
         if (!current.exists || current.size !== document.size || current.sha256 !== document.sha256) errors.push(`document integrity failed: ${document.id} (${document.path})`);
       } else if (document.type === 'url' && !/^https?:\/\/\S+$/i.test(document.url ?? '')) errors.push(`${document.id} has an invalid external URL`);
     }
-    if ((workflow.documents?.count ?? 0) !== (manifest.documents?.length ?? 0)) errors.push('workflow document count differs from documents.json');
-    else passes.push(`document integrity: ${manifest.documents?.length ?? 0} supporting inputs`);
+    // `totalCount` counts every record and `count` the active ones. Older Stories wrote only `count`,
+    // as the total after an upload, so a counter without `totalCount` is compared as the total.
+    const records = manifest.documents ?? [];
+    const counters = workflow.documents ?? {};
+    const totalMatches = (counters.totalCount ?? counters.count ?? 0) === records.length;
+    const activeMatches = counters.totalCount === undefined
+      || (counters.count ?? 0) === records.filter(evidenceIsActive).length;
+    if (!totalMatches || !activeMatches) errors.push('workflow document count differs from documents.json');
+    else passes.push(`document integrity: ${records.length} supporting inputs`);
   } else if ((workflow.documents?.count ?? 0) > 0) errors.push('workflow records documents but documents.json is missing');
 
   const pinnedBase = workflow.workItem.baseCommit ?? null;

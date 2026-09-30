@@ -221,8 +221,11 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
   };
   const { standing, reason, authorities } = standingFor(snapshot, actor, policy, []);
   // `phase.requiredArtifact.path` is relative to the work-item directory. The document catalog is
-  // already repository-relative, so it is the only safe path for an editor tab to open.
-  const catalogArtifact = snapshot.documents?.find((item) => item.phase === phase.id && Boolean(item.path));
+  // already repository-relative, so it is the only safe path for an editor tab to open. Uploaded
+  // documents share the catalog and come first in it, so only generated outputs qualify: a brief
+  // attached during a phase is not what that phase's approval reviews.
+  const catalogArtifact = snapshot.documents?.find((item) => (item.type === 'artifact' || (!item.type && Boolean(item.phase)))
+    && item.phase === phase.id && Boolean(item.path));
   const artifact = catalogArtifact?.path ?? null;
   const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((item) =>
     item.phase === phase.id && item.generation === phase.generation);

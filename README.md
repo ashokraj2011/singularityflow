@@ -1986,7 +1986,7 @@ Durations include nights and weekends; they are not business-hours or developer-
 
 ## Supporting documents and designs
 
-Supporting inputs are managed under `singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Uploads are allowed only in the initial phases configured by `documents.allowedPhases`; the starter profile allows intake, requirements/design/specification, and the corresponding bugfix phases.
+Supporting inputs are managed under `singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Uploads are allowed only in the phases configured by `documents.allowedPhases`, narrowed to the work type's own phases; the starter profile allows intake, requirements, design, implementation-spec and the corresponding bugfix phases. A work type whose phases share no name with that list (spec-driven-standard starts at specification) accepts uploads in its first phase. Documents given when a Story is started are always accepted as part of its opening record.
 
 In VS Code, open **Singularity Flow → Lifecycle → Attach evidence & designs**. The same action works for the selected Story or Epic and offers:
 

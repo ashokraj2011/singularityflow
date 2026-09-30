@@ -3351,6 +3351,23 @@ test('a submitted Story phase appears in the same approval inbox with its exact 
   assert.deepEqual(inbox.groups.map((group) => group.phase), ['design']);
 });
 
+test('a document uploaded during a phase is never presented as the artifact that phase submits', () => {
+  // The catalog lists uploaded documents before generated artifacts, and both carry a phase.
+  const shot = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  shot.documents = [
+    { id: 'DOC-001', type: 'file', phase: 'design', label: 'Vendor brief',
+      path: 'singularity/work-items/STORY-42/inputs/DOC-001/vendor-brief.md' },
+    ...(shot.documents ?? [])
+  ];
+  const approvals = buildApprovals(shot);
+  assert.equal(approvals.pending[0].artifactPath,
+    'singularity/work-items/STORY-42/artifacts/design/design.md');
+  const journey = buildJourney(shot, 'design');
+  assert.ok(journey.artifacts.length > 0);
+  assert.ok(journey.artifacts.every((artifact) => !artifact.path.includes('/inputs/')),
+    'the journey lists the phase output, not the evidence attached to it');
+});
+
 test('an older pinned Story never offers absent or future rejection targets', () => {
   const shot = storySnapshot({ status: 'awaiting_approval', generation: 1 });
   shot.workflow.phaseOrder.push('verification');

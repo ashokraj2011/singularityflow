@@ -171,7 +171,10 @@ function storyArtifacts(snapshot: RepositorySnapshot, workflow: StoryWorkflow, p
   const phase = workflow.phases[phaseId];
   if (!phase) return [];
   const approvals = activeStoryApprovals(phase.approvals ?? []);
-  const catalog = (snapshot.documents ?? []).filter((artifact) => artifact.phase === phaseId && artifact.path);
+  // Generated outputs only: uploaded documents share the catalog and carry the phase they were
+  // attached in, which would otherwise make a brief look like the phase's artifact.
+  const catalog = (snapshot.documents ?? []).filter((artifact) => (artifact.type === 'artifact' || (!artifact.type && Boolean(artifact.phase)))
+    && artifact.phase === phaseId && artifact.path);
   const records: StoryArtifact[] = catalog.length ? catalog : (phase.artifacts ?? []);
   return records.map((artifact, index) => ({
     id: `story:${phaseId}:${artifact.id ?? index}`,

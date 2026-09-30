@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -29,12 +29,13 @@ async function write(root, relative, contents) {
   await writeFile(target, contents);
 }
 
-async function fixture() {
+async function fixture({ baselineFirst = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-code-coverage-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Coverage Test');
   git(root, 'config', 'user.email', 'coverage@example.invalid');
   await write(root, 'README.md', '# Project\n');
+  if (baselineFirst) await write(root, 'src/first.mjs', 'export const first = false;\n');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'baseline');
   const baseCommit = git(root, 'rev-parse', 'HEAD');
@@ -163,4 +164,47 @@ test('historical and intermediate code phases retain their pinned coverage bound
   };
   workflow.phaseOrder.push('finalization');
   assert.equal(await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision), null);
+});
+
+test('final code approval refuses a claimed source path reverted to its pre-Story bytes', async () => {
+  const { root, config, workflow, observedRecord } = await fixture({ baselineFirst: true });
+  const finalPath = `${ITEM}/context/claims/finalization-gen1-observed.json`;
+  workflow.phaseOrder.push('finalization');
+  workflow.resolution.plannedClaims.owners.finalization = 'planning';
+  const phase = workflow.phases.finalization = {
+    id: 'finalization', generation: 1,
+    requiredArtifact: { kind: 'implementation-summary' },
+    claimMaps: { observed: { path: finalPath, generation: 1 } }
+  };
+  await write(root, 'src/first.mjs', 'export const first = false;\n');
+  await write(root, 'src/second.mjs', '// @clause:COVER-1:REQ-002\nexport const second = true;\n');
+  const observed = { ...observedRecord(['src/first.mjs', 'src/second.mjs']), phase: 'finalization' };
+  await write(root, finalPath, canonicalJson(observed));
+  phase.claimMaps.observed.sha256 = digest(observed);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'revert first clause while implementing second');
+
+  await assert.rejects(
+    () => assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')),
+    (error) => error.code === 'SPEC_COVERAGE_INCOMPLETE'
+      && error.details.coverage.invalidEvidence.some((message) =>
+        message.includes('COVER-1:REQ-001') && message.includes('src/first.mjs'))
+  );
+});
+
+test('final code approval retains exact source deletion as implementation evidence', async () => {
+  const { root, config, workflow, observedPath, observedRecord } = await fixture({ baselineFirst: true });
+  const phase = workflow.phases.implementation;
+  await unlink(path.join(root, 'src/first.mjs'));
+  await write(root, 'src/second.mjs', '// @clause:COVER-1:REQ-002\nexport const second = true;\n');
+  const observed = observedRecord(['src/first.mjs', 'src/second.mjs']);
+  await write(root, observedPath, canonicalJson(observed));
+  phase.claimMaps.observed.sha256 = digest(observed);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'delete obsolete first source and implement second');
+
+  const coverage = await assertFinalCodeSpecificationCoverage(
+    root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')
+  );
+  assert.equal(coverage.complete, true);
 });

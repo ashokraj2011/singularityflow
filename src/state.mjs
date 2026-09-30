@@ -1679,7 +1679,23 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
     target: evidenceCommit,
     pathContext: applicationPathContext(config, workflow)
   });
-  const coverage = evaluateSpecCoverage(records, changedPaths, policy, { root });
+  const coverageResult = evaluateSpecCoverage(records, changedPaths, policy, { root });
+  // Observations accumulate across code phases, but a later phase can restore a previously
+  // changed file to its pre-Story bytes. A still-existing file is not proof that its observed
+  // implementation survived in the exact code revision being approved. Deletions remain valid
+  // because Git includes their paths in the base-to-submission change set.
+  const finalChangedPaths = new Set(changedPaths);
+  const revertedClaims = [...new Set(records.observed.flatMap((record) =>
+    Object.entries(record.claims ?? {}).flatMap(([id, claim]) =>
+      (claim.observedPaths ?? [])
+        .filter((candidate) => !finalChangedPaths.has(candidate))
+        .map((candidate) => `${id} references source evidence absent from the final change set: ${candidate}`)
+    )))].sort();
+  const coverage = revertedClaims.length
+    ? { ...coverageResult,
+        invalidEvidence: [...new Set([...coverageResult.invalidEvidence, ...revertedClaims])].sort(),
+        complete: false, severity: 'error' }
+    : coverageResult;
   if (coverage.complete) return coverage;
   const findings = [
     ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),

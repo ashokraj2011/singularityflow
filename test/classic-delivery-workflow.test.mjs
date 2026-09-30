@@ -101,6 +101,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
     await rm(remote, { recursive: true, force: true });
   });
   const workId = 'CLASSIC-1';
+  const approvedSource = `// @clause:${workId}:AC-001\nexport const value = 2;\n`;
   const cli = (...args) => run(process.execPath, [CLI, '--no-model', ...args], root);
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Classic Delivery Tester'], root);
@@ -158,7 +159,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
   cli('approve', 'intake', '--yes');
 
   cli('prepare', 'implementation');
-  await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 2;\n');
+  await writeFile(path.join(root, 'src/value.mjs'), approvedSource);
   await writeFile(path.join(root, 'test/value.test.mjs'), [
     `// @ac:${workId}:AC-001`,
     "import test from 'node:test';",
@@ -169,7 +170,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
   const codeText = await readFile(codeArtifact, 'utf8');
   await writeFile(codeArtifact, codeText.replace(/TODO:[^\n]*/gu,
-    'The value module and acceptance-tagged unit test now prove the approved value 2.'));
+    'The clause-tagged value module and acceptance-tagged unit test now prove the approved value 2.'));
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
   cli('approve', 'implementation', '--yes');
@@ -193,12 +194,19 @@ test('Classic delivery commits passing test results before Testing and Code chec
     const current = (await workflow()).phases[phase];
     const artifact = path.join(item, current.requiredArtifact.path);
     let text = await readFile(artifact, 'utf8');
+    if (phase === 'conformance') {
+      const sampleRow = `| \`${workId}:AC-001\` | TODO | TODO | TODO | TODO: matched/partial/missing/deviated/unplanned | TODO |`;
+      assert.ok(text.includes(sampleRow), 'Code checking must provide the sample clause row');
+      text = text.replace(sampleRow,
+        `| \`${workId}:AC-001\` | Exported value equals 2 | \`src/value.mjs\` @clause:${workId}:AC-001 | \`test/value.test.mjs\` @ac:${workId}:AC-001 and ${receiptPath} | matched | none |`);
+    }
     text = text.replace(/TODO:[^\n]*/gu,
       `Verified ${workId}:AC-001 against ${receiptPath} and the committed passing unit-test receipt.`);
     text = text.replace(/\bTODO\b/gu, 'matched');
     await writeFile(artifact, text);
     if (phase === 'testing') {
-      await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 3;\n');
+      await writeFile(path.join(root, 'src/value.mjs'),
+        `// @clause:${workId}:AC-001\nexport const value = 3;\n`);
       const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', phase,
         '--authored', 'human', '--channel', 'manual-in-place', '--json'], root, { allowFailure: true });
       assert.notEqual(refused.status, 0);
@@ -210,7 +218,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
       assert.match(repairPreview.stdout + repairPreview.stderr, /TESTING_REPAIR_CONFIRMATION_REQUIRED/u);
       assert.match(repairPreview.stdout + repairPreview.stderr, /src\/value\.mjs/u);
       assert.equal((await workflow()).currentPhase, 'testing');
-      await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 2;\n');
+      await writeFile(path.join(root, 'src/value.mjs'), approvedSource);
     }
     cli('phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place');
     cli('submit', phase);

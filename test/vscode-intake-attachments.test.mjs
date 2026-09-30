@@ -74,6 +74,12 @@ test('Story start documents carry one storage choice and one phase set', () => {
   ]);
   const none = intakeCommand(story({ ...choices, storyAttachments: [null, null, null, null], storyDocumentStore: 'local', storyDocumentPhases: ['planning'] }));
   assert.ok(!none.includes('--document-store'), 'no document, no document options');
+  // The storage and phase choices are visible before any file is chosen, so they can be found.
+  const empty = intakeHtml(story({ ...choices, storyAttachments: [null, null, null, null] }));
+  assert.match(empty, /Keep the documents you choose\s*<select data-attachment-store/);
+  assert.match(empty, /data-attachment-phase="specification" checked>/);
+  assert.match(empty, /No document selected\. Choose a file, then give it a name here\./);
+  assert.doesNotMatch(empty, /Choose at least one phase/, 'with no document, the phase choice is not a problem yet');
   const html = intakeHtml(story({ ...choices, storyAttachments, storyDocumentPhases: ['planning'] }));
   assert.match(html, /<select data-attachment-store/);
   assert.match(html, /data-attachment-phase="specification">/);

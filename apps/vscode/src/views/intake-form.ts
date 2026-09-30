@@ -1000,12 +1000,15 @@ function referenceRepositoriesHtml(form: IntakeForm): string {
   </section>`;
 }
 
-/** Where the selected documents are kept and which phases use them, for all of them at once. */
+/**
+ * Where the Story's documents are kept and which phases use them, for all of them at once. Shown
+ * before any file is chosen so the choice is visible up front; it applies only once a file is.
+ */
 function storyAttachmentOptionsHtml(form: IntakeForm): string {
   const phases = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.phases ?? [];
   const chosen = form.storyDocumentPhases ?? phases;
   return `<div class="attachment-options">
-      <label>Keep these documents
+      <label>Keep the documents you choose
         <select data-attachment-store aria-label="Where the supporting documents are kept">
           <option value="git"${form.storyDocumentStore === 'git' ? ' selected' : ''}>Committed to Git — everyone on the Story gets them</option>
           <option value="local"${form.storyDocumentStore === 'local' ? ' selected' : ''}>On this machine only — Git records name, size and SHA-256</option>
@@ -1046,7 +1049,7 @@ function storyAttachmentsHtml(form: IntakeForm): string {
           <input type="text" data-attachment-name="${index}" value="${escape(storyAttachmentName(entry))}"
             maxlength="${STORY_DOCUMENT_NAME_MAXIMUM_LENGTH}" aria-label="Name for document ${index + 1}">
         </label>`
-    : '<p class="muted">No document selected.</p>'}
+    : '<p class="muted">No document selected. Choose a file, then give it a name here.</p>'}
         <p class="card-foot">
           <button type="button" class="secondary" data-attachment-pick="${index}">${entry ? 'Replace file' : 'Choose file'}</button>
           ${entry ? `<button type="button" class="secondary" data-attachment-clear="${index}">Clear</button>` : ''}
@@ -1056,7 +1059,7 @@ function storyAttachmentsHtml(form: IntakeForm): string {
     <p class="card-foot">
       <button type="button" class="secondary" data-attachments-pick${selectedCount >= MAX_STORY_ATTACHMENT_SLOTS ? ' disabled' : ''}>Choose documents…</button>
     </p>
-    ${selectedCount ? storyAttachmentOptionsHtml(form) : ''}
+    ${storyAttachmentOptionsHtml(form)}
     <p class="muted">Four slots are available. Each document needs its own name; prompts, reviews
       and citations refer to it by that name. File paths come from VS Code's native picker and
       cannot be typed or posted by webview content.</p>

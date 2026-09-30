@@ -46,7 +46,14 @@ export function phasePrepublishDecision(
       && readiness.knownRecoveryBlockers === true
       && readiness.publicationTransaction === 'not-run'
       && (publishCommand === expectedPublish || publishCommand?.startsWith(`${expectedPublish} `))) {
-    return { ready: true, headline: `${expected.phaseId} is ready to publish.`, details: [], skill: null };
+    const testsPending = record(projection.testExecution)?.status === 'not-run';
+    return {
+      ready: true,
+      headline: testsPending
+        ? `${expected.phaseId} is ready for a publication attempt; required tests run during publication.`
+        : `${expected.phaseId} is ready to publish.`,
+      details: [], skill: null
+    };
   }
   const details = (findings ?? []).slice(0, 5)
     .map((finding) => line(record(finding)?.message))

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { phasePrepublish } from '../src/phase-prepublish.mjs';
+import { phasePrepublish, prepublishTestExecutionLines } from '../src/phase-prepublish.mjs';
 import { buildSpecIndex, derivePlannedClaimMap } from '../src/specifications.mjs';
 
 async function fixture(t) {
@@ -28,6 +28,22 @@ async function fixture(t) {
   const session = { workId: 'PRE-1', phaseId: 'planning', agent: 'architect' };
   return { root, absolute, config: { workItemRoot: 'singularity/work-items' }, workflow, phase, session };
 }
+
+test('human prepublish test preview prints inferred argv and withholds configured secrets', () => {
+  const lines = prepublishTestExecutionLines({
+    status: 'not-run', commands: [
+      { id: 'maven-tests', argvSource: 'inferred', argv: ['mvn', 'test'],
+        workingDirectory: 'module', result: { adapter: 'junit-xml', path: 'target/surefire-reports' } },
+      { id: 'qualityCommands[0]', argvSource: 'approved-configuration',
+        argv: ['node', 'tests.mjs', '--token', 'hidden-configured-secret'],
+        workingDirectory: '.', result: { adapter: 'node-tap', path: '.sflow/results/tests.tap' } }
+    ]
+  });
+  assert.match(lines.join('\n'), /argv=\["mvn","test"\] cwd=module report=junit-xml:target\/surefire-reports/u);
+  assert.match(lines.join('\n'), /planned, not run by prepublish/u);
+  assert.match(lines.join('\n'), /argv=\[see approved qualityCommands configuration\]/u);
+  assert.doesNotMatch(lines.join('\n'), /hidden-configured-secret/u);
+});
 
 test('prepublish routes authored findings to same-phase correction, then enables publication only when ready', async (t) => {
   const item = await fixture(t);

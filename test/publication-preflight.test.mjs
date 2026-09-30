@@ -24,6 +24,7 @@ import { evaluateCodeDeliveryPreflight } from '../src/delivery-evidence.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { buildSpecIndex, canonicalJson } from '../src/specifications.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
 import { sgosRevisionCandidateReference } from '../src/revision/candidate-adapter.mjs';
@@ -145,9 +146,14 @@ async function codeFixture(name, {
   await writeFile(path.join(root, 'test-runner.mjs'), [
     "import { appendFileSync, existsSync, writeFileSync } from 'node:fs';",
     "if (existsSync('.sflow/results/mutate-source')) appendFileSync('src/app.java', '// changed by test command\\n');",
+    "if (existsSync('.sflow/results/fail-submit')) { process.stdout.write('SUBMIT-STDOUT\\n'); process.stderr.write('SUBMIT-STDERR\\n'); process.exit(23); }",
     "writeFileSync('.sflow/results/unit.json', JSON.stringify({ run: Date.now(), tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } }));",
     ''
   ].join('\n'));
+  if (testProfile === 'maven') {
+    await mkdir(path.join(root, 'module'), { recursive: true });
+    await writeFile(path.join(root, 'module', 'pom.xml'), '<project/>\n');
+  }
   if (testProfile === 'angular-karma') {
     await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.sflow/results/\n');
     const binDirectory = path.join(root, 'node_modules', '.bin');
@@ -196,8 +202,10 @@ async function codeFixture(name, {
     inputs: [],
     clarification: { ...implementation.clarification, mode: 'off' },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] },
-    qualityCommands: angularProfile ? [] : [{
-      id: 'fixture-tests', kind: 'test', argv: [process.execPath, 'test-runner.mjs'],
+    qualityCommands: angularProfile || testProfile === 'maven' ? [] : [{
+      id: 'fixture-tests', kind: 'test',
+      argv: [process.execPath, 'test-runner.mjs',
+        ...(testProfile === 'configured-secret' ? ['--token', 'hidden-configured-secret'] : [])],
       workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
       result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/unit.json', minimumDiscovered: 1 }
     }]
@@ -1380,6 +1388,108 @@ test('structured test discovery fails before publication consumes the generation
   );
 });
 
+test('failed required test execution reports bounded diagnostics before publication', async (t) => {
+  const context = await codeFixture('failed-test-diagnostic', { testProfile: 'configured-secret' });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "process.stdout.write(`PUBLISH-STDOUT:${'x'.repeat(5000)}:TAIL\\n`);",
+    "process.stderr.write('PUBLISH-STDERR token=hidden-output-secret\\n');",
+    'process.exit(23);', ''
+  ].join('\n'));
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_FAILED');
+    assert.match(error.message, /failed before publication \(exit 23\).*error\.requiredTestExecution/u);
+    const execution = error.details.requiredTestExecution;
+    assert.equal(execution.commandId, 'fixture-tests');
+    assert.equal(execution.argv, null);
+    assert.equal(execution.argvWithheld, true);
+    assert.doesNotMatch(JSON.stringify(error.details), /hidden-configured-secret|hidden-output-secret/u);
+    assert.equal(execution.cwd, context.root);
+    assert.equal(execution.exitCode, 23);
+    assert.equal(execution.status, 'failed');
+    assert.equal(execution.resultPath, path.join(context.root, '.sflow', 'results', 'unit.json'));
+    assert.equal(execution.configuredResultPath, '.sflow/results/unit.json');
+    assert.match(execution.stdout.text, /^PUBLISH-STDOUT:/);
+    assert.match(execution.stdout.text, /:TAIL/);
+    assert.equal(execution.stdout.truncated, true);
+    assert.ok(execution.stdout.text.length <= 2000);
+    assert.equal(execution.stderr.text, 'PUBLISH-STDERR token=[REDACTED]');
+    const refusal = refusalEnvelope(error, ['phase', 'publish', 'implementation', '--json']);
+    assert.equal(refusal.error.requiredTestExecution.argv, null,
+      'configured argv may contain positional credentials and must not cross the CLI boundary');
+    assert.equal(refusal.error.requiredTestExecution.exitCode, 23);
+    assert.match(refusal.error.requiredTestExecution.stderr.text, /PUBLISH-STDERR/u);
+    return true;
+  });
+  assert.equal(context.phase.generation, 0);
+  assert.equal(context.phase.generationIntent.status, 'open');
+});
+
+test('missing structured report retains the successful process diagnostics', async (t) => {
+  const context = await codeFixture('missing-result-diagnostic');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'),
+    "process.stdout.write('reporter wrote nothing\\n');\n");
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_RESULT_REQUIRED');
+    const execution = error.details.requiredTestExecution;
+    assert.equal(execution.exitCode, 0);
+    assert.equal(execution.status, 'passed');
+    assert.equal(execution.stdout.text, 'reporter wrote nothing');
+    assert.equal(execution.resultPath, path.join(context.root, '.sflow', 'results', 'unit.json'));
+    return true;
+  });
+  assert.equal(context.phase.generation, 0);
+  assert.equal(context.phase.generationIntent.status, 'open');
+});
+
+test('submission rerun exposes required test failure without changing its gate', async (t) => {
+  const context = await codeFixture('submit-test-diagnostic');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  await mkdir(path.join(context.root, '.sflow', 'results'), { recursive: true });
+  await writeFile(path.join(context.root, '.sflow', 'results', 'fail-submit'), '1\n');
+
+  await assert.rejects(() => inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_FAILED');
+    assert.match(error.message, /failed \(exit 23\).*error\.requiredTestExecution/u);
+    const execution = error.details.requiredTestExecution;
+    assert.equal(execution.argv, null);
+    assert.equal(execution.argvWithheld, true);
+    assert.equal(execution.cwd, context.root);
+    assert.equal(execution.exitCode, 23);
+    assert.equal(execution.stdout.text, 'SUBMIT-STDOUT');
+    assert.equal(execution.stderr.text, 'SUBMIT-STDERR');
+    return true;
+  });
+});
+
 test('a protected workflow edit refuses before tests run or generation state changes', async (t) => {
   const context = await codeFixture('protected-workflow-edit');
   t.after(() => rm(context.root, { recursive: true, force: true }));
@@ -1449,6 +1559,51 @@ test('prepublish keeps a complete code draft red when its repository test contra
   assert.ok(checked.findings.some((finding) => finding.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'));
   assert.equal(checked.correction.skill, '/sf-workflows');
   assert.equal(checked.mutates, false);
+});
+
+test('prepublish previews the inferred Maven command and report without claiming execution', async (t) => {
+  const context = await codeFixture('maven-prepublish-plan', { testProfile: 'maven' });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const source = path.join(context.root, 'module', 'src', 'main', 'java', 'App.java');
+  const testSource = path.join(context.root, 'module', 'src', 'test', 'java', 'AppTest.java');
+  await mkdir(path.dirname(source), { recursive: true });
+  await mkdir(path.dirname(testSource), { recursive: true });
+  await writeFile(source, 'final class App {}\n');
+  await writeFile(testSource, '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+
+  const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+    session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }
+  });
+  assert.equal(checked.status, 'ready', JSON.stringify(checked.findings));
+  assert.equal(checked.testExecution.status, 'not-run', JSON.stringify(checked.findings));
+  assert.equal(checked.readiness.requiredTests, 'not-run');
+  assert.deepEqual(checked.testExecution.commands, [{
+    id: 'module-maven-tests', argv: ['mvn', 'test'], argvSource: 'inferred',
+    workingDirectory: 'module', affectedRoots: ['module'],
+    result: { adapter: 'junit-xml', path: 'target/surefire-reports',
+      minimumDiscovered: 1, minimumPassed: 1 }
+  }]);
+  assert.equal(checked.readiness.publicationTransaction, 'not-run');
+  await assert.rejects(readFile(path.join(context.root, 'module', 'target', 'surefire-reports',
+    'TEST-AppTest.xml')), { code: 'ENOENT' });
+});
+
+test('prepublish withholds configured test argv from its JSON projection', async (t) => {
+  const context = await codeFixture('configured-prepublish-plan', {
+    testProfile: 'configured-secret'
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+    session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }
+  });
+  assert.equal(checked.testExecution.status, 'not-run', JSON.stringify(checked.findings));
+  assert.equal(checked.testExecution.commands[0].argv, null);
+  assert.equal(checked.testExecution.commands[0].argvSource, 'approved-configuration');
+  assert.doesNotMatch(JSON.stringify(checked), /hidden-configured-secret/u);
 });
 
 test('Angular Karma publication infers tests, captures stdout, and leaves protected workflow untouched', async (t) => {

@@ -383,6 +383,15 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   assert.doesNotMatch(content, /stop for manual\/unchanged\/other-producer recovery/);
 });
 
+test('code skill distinguishes read-only readiness from publication-time test execution', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
+  assert.match(content, /`prepublish: ready` does not mean tests passed/i);
+  assert.match(content, /Compare its argv\/report with manual tests/i);
+  assert.match(content, /`\.\-maven-tests` is an ID, not a shell command/);
+  assert.match(content, /Pre-mutation failure keeps the open intent; retry after repair/);
+  assert.match(content, /Never edit `singularity\/workflow\.yml`.*disable Git hooks/);
+});
+
 test('recovery skill reviews a dirty consumed-generation rollover with an exact digest', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-recover', 'SKILL.md'), 'utf8');
   assert.match(content, /A dirty tree stops recovery except the reviewed rollover/);

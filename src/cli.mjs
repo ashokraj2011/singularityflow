@@ -105,7 +105,7 @@ import {
   phasePublicationContract, phaseUsesDeterministicGeneration
 } from './manual-authorship.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
-import { phasePrepublish } from './phase-prepublish.mjs';
+import { phasePrepublish, prepublishTestExecutionLines } from './phase-prepublish.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { assertPlannedClaimsReady, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
@@ -6264,8 +6264,11 @@ async function phaseCommand(positionals, options) {
       session
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}.`);
+    const pendingTests = subcommand === 'prepublish'
+      && result.testExecution?.status === 'not-run';
+    console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}${pendingTests && result.status === 'ready' ? ' for a publication attempt' : ''}.`);
     if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
+    if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
     if (result.status === 'correction-required') {
       console.log(`Correction: ${result.correction.guidance}`);

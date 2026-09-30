@@ -25,6 +25,11 @@ const ready = {
 
 test('VS Code Publish accepts only an exact fresh read-only ready projection', () => {
   assert.equal(phasePrepublishDecision(ready, expected).ready, true);
+  const withPendingTests = phasePrepublishDecision({
+    ...ready, testExecution: { status: 'not-run', commands: [] }
+  }, expected);
+  assert.equal(withPendingTests.ready, true);
+  assert.match(withPendingTests.headline, /required tests run during publication/u);
   for (const result of [
     null, {},
     { ...ready, status: 'correction-required' },

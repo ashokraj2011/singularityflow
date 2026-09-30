@@ -167,10 +167,14 @@ function projectionFinding(error, phase) {
  */
 export async function inspectPhaseRecovery(root, config, workflow, phase, { generationDigest } = {}) {
   if (!phase || !['in_progress', 'awaiting_approval'].includes(phase.status)) {
-    return { phaseId: phase?.id ?? null, blockers: [], actions: [], requiresLifecycleRecovery: false };
+    return { phaseId: phase?.id ?? null, blockers: [], actions: [], requiresLifecycleRecovery: false,
+      testExecution: { status: phase && phaseRequiresCodeDelivery(phase) ? 'unavailable' : 'not-required', commands: [] } };
   }
   const blockers = [];
   const actions = [];
+  const testExecution = {
+    status: phaseRequiresCodeDelivery(phase) ? 'unavailable' : 'not-required', commands: []
+  };
 
   const generation = generationDigest
     ? await generationRecovery(root, workflow, phase, generationDigest)
@@ -243,8 +247,32 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
           ...phase, deliveryEvidence
         })).filter((command) => command && typeof command === 'object'
           && !Array.isArray(command) && command.kind === 'test');
-        for (const [index, command] of testCommands.entries()) normalizeRequiredTestCommand(command, index);
+        const normalized = testCommands.map((command, index) =>
+          normalizeRequiredTestCommand(command, index));
         if (!testCommands.length) throw structuredTestCommandRequiredError(phase);
+        const testPolicy = workflow.resolution?.codeDelivery?.tests;
+        testExecution.status = 'not-run';
+        testExecution.commands = normalized.map((command, index) => {
+          // Native inference emits a bounded, known argv. Approved configured argv can contain
+          // arbitrary positional secrets, so the read-only JSON projection never echoes it.
+          const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
+          const configured = configuredIndex >= 0;
+          return {
+            id: configured ? `qualityCommands[${configuredIndex}]` : command.id,
+            argv: configured ? null : command.argv,
+            argvSource: configured ? 'approved-configuration' : 'inferred',
+            workingDirectory: command.workingDirectory,
+            affectedRoots: command.affectedRoots,
+            result: {
+              adapter: command.result.adapter,
+              path: command.result.path,
+              minimumDiscovered: Math.max(command.result.minimumDiscovered,
+                testPolicy?.minimumDiscovered ?? 1),
+              minimumPassed: Math.max(command.result.minimumPassed,
+                testPolicy?.minimumPassed ?? 1)
+            }
+          };
+        });
       } catch (error) {
         const configurationDependency = error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'
           || error.code === 'CODE_TEST_RESULT_REQUIRED';
@@ -278,6 +306,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
     phaseId: phase.id,
     blockers,
     actions: uniqueActions,
-    requiresLifecycleRecovery: blockers.some((finding) => finding.category === 'lifecycle')
+    requiresLifecycleRecovery: blockers.some((finding) => finding.category === 'lifecycle'),
+    testExecution
   };
 }

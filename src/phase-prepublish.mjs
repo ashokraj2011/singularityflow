@@ -8,6 +8,7 @@ import {
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
@@ -25,6 +26,19 @@ import { exists, posix, secureRepositoryPath, snapshot } from './util.mjs';
 function findingKey(finding) {
   return [finding.code, finding.path ?? '', finding.line ?? '',
     finding.details?.clauseId ?? finding.value ?? ''].join('\0');
+}
+
+/** Render only safe, read-only test-plan facts for the human CLI route. */
+export function prepublishTestExecutionLines(testExecution) {
+  if (testExecution?.status !== 'not-run') return [];
+  const lines = ['Required tests: planned, not run by prepublish.'];
+  for (const command of testExecution.commands ?? []) {
+    const argv = command.argvSource === 'inferred' && Array.isArray(command.argv)
+      ? JSON.stringify(command.argv.map((argument) => redactDiagnosticText(argument)))
+      : '[see approved qualityCommands configuration]';
+    lines.push(`  - ${redactDiagnosticText(command.id)}: argv=${argv} cwd=${redactDiagnosticText(command.workingDirectory)} report=${redactDiagnosticText(command.result?.adapter)}:${redactDiagnosticText(command.result?.path)}`);
+  }
+  return lines;
 }
 
 function plannedClaimOwner(workflow, phase) {
@@ -307,6 +321,9 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
 export async function phasePrepublish(root, config, workflow, phase, options = {}) {
   const draft = await phaseDraftCheck(root, config, workflow, phase, options);
   const recovery = await inspectPhaseRecovery(root, config, workflow, phase);
+  // Recovery resolves the prospective structured command without running it. Keep that exact
+  // argv/report contract visible while publication and its required test execution are pending.
+  const testExecution = recovery.testExecution;
   const staticChecks = await staticPublicationBlockers(root, config, workflow, phase);
   const specificationChecks = await specificationPublicationBlockers(root, config, workflow, phase, draft);
   const blockers = [...staticChecks.blockers, ...specificationChecks.blockers];
@@ -372,7 +389,12 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       lifecycle: lifecycleReady,
       authoring: draft.status === 'ready',
       knownRecoveryBlockers: blockers.length === 0 && recovery.blockers.length === 0,
+      requiredTests: testExecution.status,
       publicationTransaction: 'not-run'
+    }),
+    testExecution: Object.freeze({
+      status: testExecution.status,
+      commands: Object.freeze(testExecution.commands.map((command) => Object.freeze(command)))
     }),
     correction: Object.freeze({
       ...draft.correction,

@@ -109,7 +109,7 @@ import {
   publishCapabilityRepositoriesDurably,
   verifyCapabilityPublicationRecoveryPlan
 } from './capability-publication-recovery.mjs';
-import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
@@ -3449,6 +3449,57 @@ function boundedQualityDiagnostic(value, max = 2000) {
   return `${text.slice(0, first)}${marker}${text.slice(-(remaining - first))}`;
 }
 
+function requiredTestExecutionDiagnostic(root, command, check) {
+  const cwd = path.resolve(root, command.workingDirectory);
+  const captured = (stream) => {
+    const value = String(check?.[stream] ?? '');
+    return {
+      text: redactDiagnosticText(boundedQualityDiagnostic(value)).trimEnd(),
+      bytes: Number.isInteger(check?.[`${stream}Bytes`]) ? check[`${stream}Bytes`] : Buffer.byteLength(value),
+      truncated: check?.[`${stream}Truncated`] === true || value.length > 2000
+    };
+  };
+  return {
+    commandId: command.id,
+    argv: command.provenance === 'inferred' ? [...command.argv] : null,
+    argvWithheld: command.provenance !== 'inferred',
+    provenance: command.provenance ?? 'configured',
+    cwd,
+    workingDirectory: command.workingDirectory,
+    exitCode: Number.isInteger(check?.exitCode) ? check.exitCode : null,
+    status: check?.status ?? 'not-run',
+    resultPath: path.resolve(cwd, command.result.path),
+    configuredResultPath: command.result.path,
+    resultAdapter: command.result.adapter,
+    stdout: captured('stdout'),
+    stderr: captured('stderr')
+  };
+}
+
+function attachRequiredTestExecution(error, root, command, check) {
+  if (!(error instanceof SingularityFlowError) && !(error instanceof SyntaxError)) return error;
+  const refusal = error instanceof SingularityFlowError
+    ? error
+    : new SingularityFlowError(
+      `Required test command '${command.id}' produced an unreadable structured result. `
+      + 'See error.requiredTestExecution in --json for the command and bounded output.',
+      { code: 'CODE_TEST_RESULT_REQUIRED', cause: error }
+    );
+  refusal.details = {
+    ...(refusal.details ?? {}),
+    requiredTestExecution: requiredTestExecutionDiagnostic(root, command, check)
+  };
+  if (refusal.code === 'CODE_TEST_FAILED') {
+    const stage = /before publication/u.test(refusal.message) ? ' before publication' : '';
+    const outcome = check?.status === 'blocked' ? 'was blocked'
+      : check?.status === 'passed' ? 'did not produce passing test evidence' : 'failed';
+    const exit = Number.isInteger(check?.exitCode) ? ` (exit ${check.exitCode})` : '';
+    refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
+      + 'See error.requiredTestExecution in --json for the command and bounded output.';
+  }
+  return refusal;
+}
+
 const transientQualityResultRestorers = new WeakMap();
 
 async function stageTransientQualityResult(root, commandRoot, resultPath) {
@@ -3751,8 +3802,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         : infrastructureError ?? result.stderr),
       stdoutBytes: result.stdoutBytes,
       stderrBytes: result.stderrBytes,
-      stdoutTruncated: result.stdoutTruncated,
-      stderrTruncated: result.stderrTruncated
+      stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
+      stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000
     };
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
     checks.push(check);
@@ -3775,7 +3826,10 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   }
   const commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence }))
     .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
-    .map((command, index) => normalizeRequiredTestCommand(command, index))
+    .map((command, index) => ({
+      ...normalizeRequiredTestCommand(command, index),
+      provenance: (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred'
+    }))
     .map((command) => ({
       ...command,
       result: {
@@ -3798,30 +3852,34 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   try {
     for (const command of commands) {
       const check = checks.find((entry) => entry.id === command.id);
-      if (!check || check.status === 'skipped-warning') {
-        throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
+      try {
+        if (!check || check.status === 'skipped-warning') {
+          throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
+        }
+        if (check.status === 'blocked') {
+          throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication.`, { code: 'CODE_TEST_FAILED' });
+        }
+        if (check.status !== 'passed' || check.exitCode !== 0) {
+          throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
+        }
+        const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+        const exactTestcaseObservation = await observeExactTestcaseIdentities(
+          root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
+        );
+        const receipt = buildTestExecutionReceipt(command, check, parsed, {
+          testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null,
+          exactTestcaseObservation
+        });
+        if (receipt.tests.discovered < parsed.minimumDiscovered) {
+          throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
+        }
+        if (!testReceiptPassing(receipt, parsed.minimumDiscovered, command.result.minimumPassed)) {
+          throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' });
+        }
+        passing.push(command);
+      } catch (error) {
+        throw attachRequiredTestExecution(error, root, command, check);
       }
-      if (check.status === 'blocked') {
-        throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication: ${check.stderr}`, { code: 'CODE_TEST_FAILED' });
-      }
-      if (check.status !== 'passed' || check.exitCode !== 0) {
-        throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
-      }
-      const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
-      const exactTestcaseObservation = await observeExactTestcaseIdentities(
-        root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
-      );
-      const receipt = buildTestExecutionReceipt(command, check, parsed, {
-        testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null,
-        exactTestcaseObservation
-      });
-      if (receipt.tests.discovered < parsed.minimumDiscovered) {
-        throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
-      }
-      if (!testReceiptPassing(receipt, parsed.minimumDiscovered, command.result.minimumPassed)) {
-        throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' });
-      }
-      passing.push(command);
     }
   } finally {
     for (const check of checks) await restoreTransientQualityResult(check);
@@ -4012,7 +4070,10 @@ async function submitPhaseTransition(root, config, workflow, {
     }
     requiredTestCommands = deliveryCommands
       .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
-      .map((command, index) => normalizeRequiredTestCommand(command, index))
+      .map((command, index) => ({
+        ...normalizeRequiredTestCommand(command, index),
+        provenance: (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred'
+      }))
       .map((command) => ({
         ...command,
         result: {
@@ -4148,32 +4209,38 @@ async function submitPhaseTransition(root, config, workflow, {
     try {
       for (const command of requiredTestCommands) {
         const check = phase.checks.find((entry) => entry.id === command.id);
-        if (!check || check.status === 'skipped-warning') {
-          throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
-        }
-        if (check.status === 'blocked') {
-          throw new SingularityFlowError(`Required test command '${command.id}' was blocked: ${check.stderr}`, { code: 'CODE_TEST_FAILED' });
-        }
-        if (check.status !== 'passed' || check.exitCode !== 0) {
-          throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
-        }
-        const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
-        const exactTestcaseObservation = await observeExactTestcaseIdentities(
-          root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
-        );
-        const receipt = buildTestExecutionReceipt(command, check, parsed, {
-          testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null,
-          exactTestcaseObservation
-        });
-        const minimumPassed = Math.max(
-          parsed.minimumPassed,
-          workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
-        );
-        if (receipt.tests.discovered < parsed.minimumDiscovered) {
-          throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
-        }
-        if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
-          throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
+        let parsed;
+        let receipt;
+        try {
+          if (!check || check.status === 'skipped-warning') {
+            throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
+          }
+          if (check.status === 'blocked') {
+            throw new SingularityFlowError(`Required test command '${command.id}' was blocked.`, { code: 'CODE_TEST_FAILED' });
+          }
+          if (check.status !== 'passed' || check.exitCode !== 0) {
+            throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
+          }
+          parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+          const exactTestcaseObservation = await observeExactTestcaseIdentities(
+            root, command, parsed, workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
+          );
+          receipt = buildTestExecutionReceipt(command, check, parsed, {
+            testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null,
+            exactTestcaseObservation
+          });
+          const minimumPassed = Math.max(
+            parsed.minimumPassed,
+            workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
+          );
+          if (receipt.tests.discovered < parsed.minimumDiscovered) {
+            throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
+          }
+          if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
+            throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
+          }
+        } catch (error) {
+          throw attachRequiredTestExecution(error, root, command, check);
         }
         await persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt);
         const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');

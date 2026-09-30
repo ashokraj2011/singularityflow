@@ -480,6 +480,65 @@ function deduplicate(steps) {
   }).slice(0, 3);
 }
 
+const MAX_REQUIRED_TEST_DIAGNOSTIC_CHARS = 2000;
+const MAX_REQUIRED_TEST_ARGV = 128;
+
+function boundedRequiredTestText(value) {
+  const redacted = redactDiagnosticText(value ?? '');
+  return redacted.length <= MAX_REQUIRED_TEST_DIAGNOSTIC_CHARS
+    ? redacted
+    : `${redacted.slice(0, MAX_REQUIRED_TEST_DIAGNOSTIC_CHARS)}…[truncated]`;
+}
+
+function requiredTestExecutionForRefusal(error) {
+  if (!['CODE_TEST_FAILED', 'CODE_TEST_SKIPPED', 'CODE_TEST_ZERO_DISCOVERED',
+    'CODE_TEST_RESULT_REQUIRED'].includes(error?.code)) return null;
+  const execution = error?.details?.requiredTestExecution;
+  if (!execution || typeof execution !== 'object'
+      || typeof execution.commandId !== 'string' || typeof execution.cwd !== 'string'
+      || typeof execution.resultPath !== 'string') return null;
+  // Repository configuration can supply arbitrary argv values. Only commands assembled by the
+  // deterministic inference adapters have a safe command shape for public diagnostic replay.
+  const inferred = execution.provenance === 'inferred';
+  if (inferred && !Array.isArray(execution.argv)) return null;
+  let argvRedacted = false;
+  const argv = (inferred ? execution.argv : []).slice(0, MAX_REQUIRED_TEST_ARGV).map((argument, index) => {
+    const previous = String(execution.argv[index - 1] ?? '');
+    if (/^--?(?:password|passwd|token|secret|api[-_]?key|access[-_]?key|authorization|credential)$/iu.test(previous)) {
+      argvRedacted = true;
+      return '[REDACTED]';
+    }
+    const raw = String(argument);
+    const safe = boundedRequiredTestText(raw);
+    if (safe !== raw) argvRedacted = true;
+    return safe;
+  });
+  const stream = (name) => ({
+    text: boundedRequiredTestText(execution[name]?.text),
+    bytes: Number.isSafeInteger(execution[name]?.bytes) && execution[name].bytes >= 0
+      ? execution[name].bytes : 0,
+    truncated: execution[name]?.truncated === true
+      || String(execution[name]?.text ?? '').length > MAX_REQUIRED_TEST_DIAGNOSTIC_CHARS
+  });
+  return {
+    commandId: boundedRequiredTestText(execution.commandId),
+    argv: inferred ? argv : null,
+    argvWithheld: !inferred,
+    argvRedacted,
+    argvTruncated: inferred && execution.argv.length > MAX_REQUIRED_TEST_ARGV,
+    provenance: inferred ? 'inferred' : 'configured',
+    cwd: boundedRequiredTestText(execution.cwd),
+    workingDirectory: boundedRequiredTestText(execution.workingDirectory),
+    exitCode: Number.isInteger(execution.exitCode) ? execution.exitCode : null,
+    status: boundedRequiredTestText(execution.status),
+    resultPath: boundedRequiredTestText(execution.resultPath),
+    configuredResultPath: boundedRequiredTestText(execution.configuredResultPath),
+    resultAdapter: boundedRequiredTestText(execution.resultAdapter),
+    stdout: stream('stdout'),
+    stderr: stream('stderr')
+  };
+}
+
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
@@ -553,6 +612,7 @@ export function refusalEnvelope(error, argv = []) {
   const diagnosticAction = error?.details?.diagnosticAction;
   const diagnostic = diagnosticAction?.command ? safeCommandGuidance(diagnosticAction) : null;
   const remoteFailure = error?.details?.remoteFailure;
+  const requiredTestExecution = requiredTestExecutionForRefusal(error);
   return {
     schemaVersion: 1, // schema-transient: process-boundary result, never persisted
     resultType: 'sflow-refusal-plan',
@@ -569,7 +629,8 @@ export function refusalEnvelope(error, argv = []) {
         copyable: diagnostic.copyable,
         platformCommands: diagnostic.platformCommands
       } } : {}),
-      ...(remoteFailure ? { remoteFailure } : {})
+      ...(remoteFailure ? { remoteFailure } : {}),
+      ...(requiredTestExecution ? { requiredTestExecution } : {})
     },
     remediationPlan: refusalRemediationPlan(error, argv)
   };

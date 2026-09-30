@@ -151,6 +151,40 @@ test('the refusal envelope pairs every bounded transport diagnostic with a Copil
   assert.equal(envelope.remediationPlan.steps[0].command, diagnosticAction.command);
 });
 
+test('required test refusals relay bounded execution evidence without exposing configured argv', () => {
+  const execution = {
+    commandId: 'fixture-tests', argv: ['node', 'test-runner.mjs', 'unknown-positional-secret'],
+    provenance: 'configured', cwd: '/repo', workingDirectory: '.', exitCode: 23, status: 'failed',
+    resultPath: '/repo/.sflow/results/unit.json', configuredResultPath: '.sflow/results/unit.json',
+    resultAdapter: 'sflow-test-result-v1',
+    stdout: { text: `token=office-secret ${'x'.repeat(5000)}`, bytes: 5020, truncated: true },
+    stderr: { text: 'test failed', bytes: 11, truncated: false }
+  };
+  const configured = refusalEnvelope(Object.assign(new Error('Required test failed.'), {
+    code: 'CODE_TEST_FAILED', details: { requiredTestExecution: execution }
+  }), ['phase', 'publish', 'implementation', '--json']);
+  const relayed = configured.error.requiredTestExecution;
+  assert.equal(configured.error.code, 'CODE_TEST_FAILED');
+  assert.equal(relayed.argv, null);
+  assert.equal(relayed.argvWithheld, true);
+  assert.equal(relayed.cwd, '/repo');
+  assert.equal(relayed.resultPath, '/repo/.sflow/results/unit.json');
+  assert.equal(relayed.exitCode, 23);
+  assert.ok(relayed.stdout.text.length <= 2012);
+  assert.equal(relayed.stdout.truncated, true);
+  assert.doesNotMatch(JSON.stringify(configured), /office-secret|unknown-positional-secret/u);
+
+  const inferred = refusalEnvelope(Object.assign(new Error('Required test failed.'), {
+    code: 'CODE_TEST_FAILED', details: { requiredTestExecution: {
+      ...execution, provenance: 'inferred', argv: ['mvn', 'test'],
+      stdout: { text: 'build failed', bytes: 12, truncated: false }
+    } }
+  }), ['phase', 'publish', 'implementation', '--json']);
+  assert.deepEqual(inferred.error.requiredTestExecution.argv, ['mvn', 'test']);
+  assert.equal(inferred.error.requiredTestExecution.argvWithheld, false);
+  assert.equal(inferred.error.requiredTestExecution.stdout.text, 'build failed');
+});
+
 test('the refusal envelope preserves a safe full Copilot relay and drops unsafe diagnostics', () => {
   const relayed = refusalEnvelope(Object.assign(new Error('SGOS check failed.'), {
     details: { diagnosticAction: {

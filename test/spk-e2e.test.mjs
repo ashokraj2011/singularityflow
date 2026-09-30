@@ -90,11 +90,6 @@ async function completePhase(root, phase, { articles = [] } = {}) {
   return result;
 }
 
-const SATISFIED = [
-  'completeness=satisfied', 'ambiguity=satisfied', 'consistency=satisfied',
-  'verifiability=satisfied', 'boundary-conditions=satisfied', 'non-functional=satisfied'
-];
-
 test('a Story runs specification through release from a fresh clone', async (t) => {
   t.diagnostic('AC-008 drives the real binary through every phase; it is slow on purpose.');
 
@@ -198,14 +193,15 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '## Boundary conditions', '',
     'Only failed provider attempts are eligible and the original record is immutable.', ''
   ].join('\n'));
-  await completePhase(root, 'specification', { articles: SATISFIED });
+  await completePhase(root, 'specification');
   assert.equal((await workflowOf(root)).phases.specification.status, 'approved');
 
   // The specification's artifact set was catalogued and the approval bound the whole bundle.
   const afterSpecification = await workflowOf(root);
   assert.equal(afterSpecification.phases.specification.artifactSet.setId, 'spec-driven-specification');
   assert.match(afterSpecification.phases.specification.approvals.at(-1).bundleSha256, /^[0-9a-f]{64}$/);
-  assert.equal(afterSpecification.phases.specification.approvals.at(-1).checklist.length, 6);
+  assert.equal('checklist' in afterSpecification.phases.specification.approvals.at(-1), false,
+    'the starter Specification approval does not require the legacy six-article checklist');
 
   // ---- planning, with the advisory task map derived from the approved specification -------------
   sflow(root, ['spec', 'tasks']);

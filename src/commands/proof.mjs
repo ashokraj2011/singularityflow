@@ -10,6 +10,7 @@ import { branch, repoRoot } from '../git.mjs';
 import { commandResult, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { recordSha256 } from '../records.mjs';
+import { resolvedSpecificationQualityPolicy } from '../specification-gate.mjs';
 import { extractClauses } from '../specifications.mjs';
 import { optionBoolean, optionString, secureRepositoryPath, SingularityFlowError } from '../util.mjs';
 
@@ -128,14 +129,19 @@ async function observedJunit(root, workflow) {
   return null;
 }
 
-async function m4Observation(root, workflow, diagnostic) {
+async function m4Observation(root, definition, workflow, diagnostic) {
   if (!diagnostic.records?.proofSubject) return null;
   const junit = await observedJunit(root, workflow);
+  const specification = workflow.phases?.specification;
+  const approvalChecklist = specification
+    ? resolvedSpecificationQualityPolicy(definition, workflow, specification).approvalChecklist
+    : undefined;
   return observeProofInputs({
     proofSubject: diagnostic.records.proofSubject,
     policySha256: diagnostic.policies.sourcePolicySha256,
     clauses: await observedClauses(root, workflow),
     checklistDecisions: observedChecklist(workflow),
+    approvalChecklist,
     shouldSetItems: [],
     environment: junit ? {
       platform: process.platform, architecture: process.arch,
@@ -215,7 +221,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     proofProfile: optionString(options, 'proof-profile') ?? 'standard'
   });
   const observation = observeShadowProof(diagnostic);
-  const observations = await m4Observation(root, workflow, diagnostic);
+  const observations = await m4Observation(root, definition, workflow, diagnostic);
   const combined = observations ? { ...observation, observations } : observation;
   const data = selectData(action, combined, predicateId);
   return emitCommandResult(commandResult({

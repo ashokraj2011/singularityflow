@@ -40,6 +40,8 @@ import { run } from '../src/util.mjs';
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
   const definition = await loadDefinition(root); const feature = resolveWorkType(definition, 'feature'); const bugfix = resolveWorkType(definition, 'bugfix'); const figmaMobile = resolveWorkType(definition, 'figma-mobile');
+  const specDriven = resolveWorkType(definition, 'spec-driven-standard');
+  assert.equal(specDriven.phases.find((item) => item.id === 'specification').specificationQuality.approvalChecklist, 'off');
   assert.equal(feature.phases.find((item) => item.id === 'implementation-spec').template, 'feature/implementation-spec.md');
   assert.equal(bugfix.phases.find((item) => item.id === 'fix-spec').template, 'bugfix/fix-spec.md');
   assert.deepEqual(feature.documents.allowedPhases, ['intake', 'requirements', 'design', 'implementation-spec']);

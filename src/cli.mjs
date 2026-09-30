@@ -7424,10 +7424,11 @@ async function decisionWorkflow(positionals, options, action) {
 /**
  * The reviewer's checklist decisions, from `--article` or `--checklist`. `[SPK:REQ-060]`
  *
- * `--article completeness=satisfied` reads well for the common case and `--checklist decisions.json`
- * carries reasons that do not fit on a command line. There is deliberately no flag that answers
- * every article at once: the checklist is the reviewer's instrument, and a one-word way to satisfy
- * all six would be the rubber stamp `[SPK:REQ-060]` exists to prevent.
+ * When the pinned phase policy requires the legacy checklist, `--article completeness=satisfied`
+ * reads well for an individual decision and `--checklist decisions.json` carries longer reasons.
+ * There is deliberately no flag that answers every article at once: that would turn the required
+ * checklist into the rubber stamp `[SPK:REQ-060]` exists to prevent. The starter policy is off,
+ * so its approvals do not accept these flags.
  *
  * Reasons come from `--article-reason` and not `--reason`, which already means "why this Story is
  * being returned" on `reject` and on `epic review`. Two meanings on one flag would have made

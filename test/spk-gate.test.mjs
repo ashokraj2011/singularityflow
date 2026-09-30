@@ -21,6 +21,7 @@ import test from 'node:test';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { createReviewBundle, reviewMarkdown } from '../src/review.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createStoryReviewPacket } from '../src/story-lineage.mjs';
 import { evaluateApprovalChecklist, priorChecklistExceptions } from '../src/specification-gate.mjs';
@@ -307,6 +308,7 @@ test('an approval without its checklist is not an approval', async () => {
   // `[SPK:REQ-060]` `[SPK:REQ-181]`. The reviewer's confirmation is the product of this phase; an
   // approval that skips it records agreement nobody expressed.
   const { root, config, resolved } = await story('checklist', { markers: 'off', quality: 'enforce' });
+  resolved.phases[0].specificationQuality.approvalChecklist = 'required';
   resolved.phases[0].approval = {
     authorities: ['product-approvers'], minimum: 1, rejectTo: ['specification'], allowSelfApproval: true
   };
@@ -387,6 +389,62 @@ test('an exception authority narrows who may take one', async () => {
   const satisfied = STARTER_CHECKLIST.articles.map((article) => ({ article: article.id, decision: 'satisfied' }));
   assert.deepEqual(evaluateApprovalChecklist({ policy, decisions: satisfied, authorities, actor: ACTOR }).errors, []);
   assert.equal(root.length > 0, true);
+});
+
+test('approval checklist opt-out leaves no articles to decide or submit', async () => {
+  const policy = { mode: 'enforce', approvalChecklist: 'off' };
+  const omitted = evaluateApprovalChecklist({ policy, decisions: [] });
+  assert.equal(omitted.required, false);
+  assert.equal(omitted.mode, 'off');
+  assert.deepEqual(omitted.errors, []);
+  assert.deepEqual(omitted.decisions, []);
+  assert.equal('checklistSha256' in omitted, false);
+  assert.match(evaluateApprovalChecklist({
+    policy, decisions: [{ article: 'completeness', decision: 'satisfied' }]
+  }).errors[0], /article decisions must not be submitted/);
+  assert.equal(evaluateApprovalChecklist({
+    policy: { mode: 'enforce', approvalChecklist: 'required' }, decisions: []
+  }).errors.length, STARTER_CHECKLIST.articles.length);
+
+  const { root, config, resolved } = await story('approval-checklist-off', {
+    markers: 'off', quality: 'enforce'
+  });
+  resolved.phases[0].specificationQuality.approvalChecklist = 'off';
+  resolved.phases[0].approval = {
+    authorities: ['product-approvers'], minimum: 1, rejectTo: ['specification'], allowSelfApproval: true
+  };
+  await inContext(root, async () => {
+    const workflow = await begin(root, config, resolved);
+    await author(root, workflow, spec());
+    const bundle = await createReviewBundle(root, config, workflow, 'specification');
+    assert.equal(bundle.specificationQuality.mode, 'enforce');
+    assert.equal(bundle.specificationQuality.approvalChecklist, 'off');
+    assert.equal('checklist' in bundle.specificationQuality, false);
+    assert.equal('checklistSha256' in bundle.specificationQuality, false);
+    const rendered = reviewMarkdown(bundle);
+    assert.match(rendered, /approval checklist: off/);
+    assert.match(rendered, /### Deterministic findings/);
+    assert.doesNotMatch(rendered, /### Articles to decide|\*\*Completeness\*\*|\*\*Ambiguity\*\*/);
+
+    await scanArtifacts(root, config, workflow, 'specification');
+    await publishGoverned(root, config, workflow, 'specification', AUTHORSHIP);
+    await submitPhase(root, config, workflow, { phaseId: 'specification', runChecks: false });
+    await createStoryReviewPacket(root, config, workflow, workflow.phases.specification);
+    git(root, 'add', '.');
+    git(root, 'commit', '-m', '[DRIVE-1][phase:specification][submit] immutable review evidence');
+    await assert.rejects(
+      () => approvePhase(root, config, workflow, {
+        phaseId: 'specification', checklist: [{ article: 'completeness', decision: 'satisfied' }],
+        persist: false
+      }),
+      /article decisions must not be submitted[\s\S]*Remove --article/
+    );
+    const { approval } = await approvePhase(root, config, workflow, {
+      phaseId: 'specification', persist: false
+    });
+    assert.equal('checklist' in approval, false);
+    assert.equal('checklistSha256' in approval, false);
+  });
 });
 
 test('the analyzer report and the gate are the same evaluation', async () => {

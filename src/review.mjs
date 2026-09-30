@@ -158,8 +158,9 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   const specificationQuality = quality.mode === 'off' ? null : {
     mode: quality.mode,
     exceptionAuthority: quality.exceptionAuthority,
-    checklist: STARTER_CHECKLIST,
-    checklistSha256: policyHash(quality, STARTER_CHECKLIST),
+    ...(quality.approvalChecklist === 'off'
+      ? { approvalChecklist: 'off' }
+      : { checklist: STARTER_CHECKLIST, checklistSha256: policyHash(quality, STARTER_CHECKLIST) }),
     findings: qualityAnalysis?.findings ?? [],
     witnessedClauses: qualityAnalysis?.witnessedClauses ?? null,
     /**
@@ -288,14 +289,20 @@ function specificationQualitySection(bundle) {
   if (!quality && !bundle.markers && !bundle.priorExceptions?.length) return [];
   const lines = ['## Specification quality — is the requirement good enough?', ''];
   if (quality) {
-    lines.push(`- Policy: **${quality.mode}** · checklist \`${quality.checklist.id}\` v${quality.checklist.version} (\`${quality.checklistSha256.slice(0, 12)}\`)`);
-    if (quality.exceptionAuthority) lines.push(`- Exceptions require: **${quality.exceptionAuthority}**`);
-    lines.push('', '### Articles to decide', '');
-    for (const article of quality.checklist.articles) lines.push(`- **${article.title}** (\`${article.id}\`) — ${article.question}`);
+    if (quality.approvalChecklist === 'off') {
+      lines.push(`- Policy: **${quality.mode}** · approval checklist: off`);
+    } else {
+      lines.push(`- Policy: **${quality.mode}** · checklist \`${quality.checklist.id}\` v${quality.checklist.version} (\`${quality.checklistSha256.slice(0, 12)}\`)`);
+      if (quality.exceptionAuthority) lines.push(`- Exceptions require: **${quality.exceptionAuthority}**`);
+      lines.push('', '### Articles to decide', '');
+      for (const article of quality.checklist.articles) lines.push(`- **${article.title}** (\`${article.id}\`) — ${article.question}`);
+    }
     lines.push('', '### Deterministic findings', '');
     lines.push(...(quality.findings.length
       ? quality.findings.map((finding) => `- \`${finding.kind}\` — ${finding.message}`)
-      : ['- None. This is not a claim that the specification is complete, clear, consistent, or correct; those are the articles above.']));
+      : [quality.approvalChecklist === 'off'
+        ? '- None. This is not a claim that the specification is complete, clear, consistent, or correct.'
+        : '- None. This is not a claim that the specification is complete, clear, consistent, or correct; those are the articles above.']));
     if (quality.witnessedClauses) {
       lines.push('', '### Witnessed clause structure', '',
         `- Profile: \`${quality.witnessedClauses.profile}\` · ${quality.witnessedClauses.analyzedClauseCount}/${quality.witnessedClauses.enrolledClauseCount} clauses analyzed`);

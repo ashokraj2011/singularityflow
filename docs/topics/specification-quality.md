@@ -18,9 +18,11 @@ related:
   - approvals
   - artifacts-and-generation
   - rejection-and-rework
-version: 2
+version: 3
 ---
 Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one governed model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate.
+
+The current starter workflow keeps those deterministic checks but does not require the six legacy quality-article decisions at Specification approval. The reviewer still examines the published artifact and confirms the approval. Stories already pinned to a workflow that requires the checklist keep that requirement; their approval policy is not silently changed. A custom workflow can set `phases.specification.specificationQuality.approvalChecklist` to `off` or `required` explicitly.
 
 ## Purpose and prerequisites
 

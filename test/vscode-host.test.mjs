@@ -2382,7 +2382,7 @@ test('approving from the editor still demands the exact confirmation a terminal 
   assert.equal(validateInput(''), null, 'an empty box is not yet an error, just not a confirmation');
 });
 
-test('Story approval collects every specification-quality decision in one guarded form', async (t) => {
+test('starter Story approval does not ask the six legacy specification-quality questions', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();
   const cli = (args) => spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
@@ -2461,11 +2461,12 @@ test('Story approval collects every specification-quality decision in one guarde
   const approvalRun = registered.commands.get('singularityFlow.approve')(approval);
   const panel = await until(() => registered.panels.find((entry) =>
     entry.id === 'singularityFlow.approvalReview'));
-  await until(() => panel.webview.html.includes('Specification quality checklist') ? true : null);
+  await until(() => panel.webview.html.includes('This phase has no human specification-quality checklist') ? true : null);
+  assert.doesNotMatch(panel.webview.html, /<h2>Specification quality checklist<\/h2>/);
   for (const article of [
     'Completeness', 'Ambiguity', 'Consistency', 'Verifiability', 'Boundary conditions',
     'Non-functional requirements'
-  ]) assert.match(panel.webview.html, new RegExp(article));
+  ]) assert.doesNotMatch(panel.webview.html, new RegExp(article));
   assert.match(panel.webview.html, /Self-approval — not independent review/);
   assert.match(panel.webview.html, /CFA-STORY/);
   assert.match(panel.webview.html,
@@ -2477,24 +2478,12 @@ test('Story approval collects every specification-quality decision in one guarde
     type: 'approval.submit', confirmation: 'specification', acknowledgeSelfApproval: true,
     decisions: [{ article: 'completeness', decision: 'satisfied' }]
   });
-  assert.match(panel.webview.html, /Choose a decision for/,
-    'forged or incomplete page messages are rejected again by the extension host');
-
-  const articleIds = [
-    'completeness', 'ambiguity', 'consistency', 'verifiability', 'boundary-conditions', 'non-functional'
-  ];
-  await panel.post({
-    type: 'approval.submit', confirmation: 'specification', acknowledgeSelfApproval: true,
-    decisions: articleIds.map((article) => ({
-      article, decision: article === 'ambiguity' ? 'exception' : 'satisfied', reason: ''
-    }))
-  });
-  assert.match(panel.webview.html, /Explain why &#39;ambiguity&#39; is exception/,
-    'exceptions and not-applicable decisions cannot be submitted without a reason');
+  assert.match(panel.webview.html, /Unknown checklist article/,
+    'forged legacy decisions are rejected again by the extension host');
 
   await panel.post({
     type: 'approval.submit', confirmation: 'specification', acknowledgeSelfApproval: true,
-    decisions: articleIds.map((article) => ({ article, decision: 'satisfied', reason: '' }))
+    decisions: []
   });
   await approvalRun;
 
@@ -2504,7 +2493,7 @@ test('Story approval collects every specification-quality decision in one guarde
   ));
   const recorded = state.phases.specification.approvals.at(-1);
   assert.equal(state.phases.specification.status, 'approved');
-  assert.equal(recorded.checklist.length, 6, 'all six human decisions reached the governed record');
+  assert.equal('checklist' in recorded, false, 'the approval has no legacy quality decisions');
   assert.equal(recorded.selfApproval, true, 'the engine retained the non-independent-review fact');
 });
 

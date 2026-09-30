@@ -4743,12 +4743,9 @@ export async function approvePhase(root, config, workflow, {
   if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`);
 
   /**
-   * The reviewer's checklist `[SPK:REQ-060]` `[SPK:REQ-061]` `[SPK:REQ-181]`.
-   *
-   * Evaluated before the decision is constructed, so an approval that does not carry its articles
-   * never becomes one. There is deliberately no shortcut that fills the articles in: `[SPK:CON-030]`
-   * says a model may summarize the evidence but must not produce the confirmation attributed to a
-   * human, and a `--all-satisfied` flag would be precisely that flag with a human's name on it.
+   * The reviewer's checklist `[SPK:REQ-060]` `[SPK:REQ-061]` `[SPK:REQ-181]` applies only
+   * when the pinned phase policy requires it. Evaluate before constructing the approval so legacy
+   * Stories cannot record an incomplete checklist and opted-out Stories cannot record stray answers.
    */
   const review = evaluateApprovalChecklist({
     policy: resolvedSpecificationQualityPolicy(config, workflow, phase),
@@ -4760,7 +4757,9 @@ export async function approvePhase(root, config, workflow, {
   if (review.errors.length) {
     throw new SingularityFlowError(
       `Phase ${phase.id} approval is incomplete:\n- ${review.errors.join('\n- ')}\n`
-      + `Record one decision for every article with singularity-flow approve ${phase.id} --article <id>=satisfied|exception|not-applicable [--article-reason TEXT], or --checklist <file.json>.`
+      + (review.mode === 'off'
+        ? `Remove --article and --checklist decisions, then retry singularity-flow approve ${phase.id}.`
+        : `Record one decision for every article with singularity-flow approve ${phase.id} --article <id>=satisfied|exception|not-applicable [--article-reason TEXT], or --checklist <file.json>.`)
     );
   }
   const submittedWitnessMappings = submittedReview.witnessReview?.clauseMappings ?? [];

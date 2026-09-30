@@ -1,10 +1,10 @@
 /**
  * The human approval ceremony for a Story phase.
  *
- * Specification-quality articles are deliberately not model-decidable. The extension therefore
- * renders the exact checklist carried by the review bundle, leaves every decision empty, requires
- * reasons for exceptions and not-applicable decisions, and requires the phase confirmation to be
- * typed. Nothing is inferred or preselected on behalf of the reviewer.
+ * When a pinned policy requires Specification-quality articles, the extension renders the exact
+ * checklist carried by the review bundle, leaves every decision empty, and requires reasons for
+ * exceptions and not-applicable decisions. The starter policy has no such articles. Every approval
+ * still requires the phase confirmation to be typed; nothing is inferred or preselected.
  */
 import * as vscode from 'vscode';
 

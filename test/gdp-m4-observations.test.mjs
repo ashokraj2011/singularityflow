@@ -73,6 +73,25 @@ test('M4 keeps reviewer judgement, local Surefire names, and optional structure 
   assert.deepEqual(observation(), current);
 });
 
+test('M4 omits approval checklist gaps only for a Story that opted out', () => {
+  const legacy = observation({ checklistDecisions: [] });
+  assert.equal(legacy.checklist.length, 6);
+  assert.equal(legacy.gaps.filter((gap) => gap.startsWith('CHECKLIST_')).length, 6);
+  assert.deepEqual(observation({ checklistDecisions: [], approvalChecklist: 'required' }), legacy,
+    'an omitted legacy policy still uses the original projection');
+
+  const optedOut = observation({ checklistDecisions: [], approvalChecklist: 'off' });
+  assert.deepEqual(optedOut.checklist, []);
+  assert.equal(optedOut.gaps.some((gap) => gap.startsWith('CHECKLIST_')), false);
+  assert.deepEqual(
+    optedOut.gaps,
+    legacy.gaps.filter((gap) => !gap.startsWith('CHECKLIST_')),
+    'the opt-out changes only checklist observations'
+  );
+  assert.deepEqual(observation({ approvalChecklist: 'off' }).checklist, [],
+    'old decision entries cannot revive an opted-out checklist');
+});
+
 test('M4 World Model absence and unsupported test inputs are explicit and non-blocking', () => {
   const current = observation({
     proofSubject: {

@@ -403,6 +403,7 @@ function clauseObservation(clause) {
 /** Build the M4 view shown by proof status. It is a projection only and never a gate input. */
 export function observeProofInputs({
   proofSubject, policySha256, clauses = [], checklistDecisions = [], shouldSetItems = [],
+  approvalChecklist = undefined,
   environment = null, junit = null
 } = {}) {
   const proofSubjectSha256 = digest(proofSubject?.proofSubjectSha256, 'proofSubject.proofSubjectSha256');
@@ -410,7 +411,9 @@ export function observeProofInputs({
   const model = worldModel(proofSubject?.worldModel);
   const normalizedClauses = sortedUnique(clauses, clauseObservation, 'clauses');
   const decisionByArticle = new Map((checklistDecisions ?? []).map((entry) => [entry.article, entry]));
-  const checklist = CHECKLIST.map((article) => {
+  // The six reviewer questions belonged to legacy Specification approvals. A Story that pinned
+  // approvalChecklist: off has no such decision to observe; absence is not an unreviewed gap.
+  const checklist = (approvalChecklist === 'off' ? [] : CHECKLIST).map((article) => {
     const decision = decisionByArticle.get(article);
     return decision && ['satisfied', 'exception', 'not-applicable'].includes(decision.decision)
       ? { article, status: 'reviewed', decision: decision.decision }

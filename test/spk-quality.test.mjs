@@ -172,6 +172,33 @@ test('the policy decides severity, and enforce is the starter default for specif
   );
 });
 
+test('approval checklist opt-out is explicit and leaves deterministic quality enforcement intact', () => {
+  const legacy = specificationQualityPolicy({ mode: 'enforce' });
+  assert.deepEqual(legacy, {
+    mode: 'enforce', checklist: 'requirements-quality-v1', exceptionAuthority: null, assisted: false
+  });
+  assert.equal('approvalChecklist' in legacy, false);
+  assert.equal(policyHash({ mode: 'enforce' }),
+    'f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab');
+
+  const optedOut = specificationQualityPolicy({ mode: 'enforce', approvalChecklist: 'off' });
+  assert.equal(optedOut.mode, 'enforce');
+  assert.equal(optedOut.approvalChecklist, 'off');
+  assert.notEqual(policyHash(optedOut), policyHash(legacy));
+  assert.equal(specificationQualityPolicy({ mode: 'enforce', approvalChecklist: 'required' }).approvalChecklist,
+    'required');
+  for (const approvalChecklist of [null, 'warn', true]) {
+    assert.throws(() => specificationQualityPolicy({ mode: 'enforce', approvalChecklist }),
+      /approvalChecklist must be off or required/);
+  }
+
+  const report = analyze('# Specification\n\n## Requirements\n\n- A thing. [DEMO:REQ-001]\n', {
+    policy: optedOut
+  });
+  assert.equal(report.mode, 'enforce');
+  assert.ok(evaluateSpecificationQuality(report).errors.some((finding) => /Actors/.test(finding)));
+});
+
 test('witnessed-clause policy is strict, normalized, and absent unless explicitly enrolled', () => {
   const legacy = specificationQualityPolicy({ mode: 'warn' });
   assert.equal('witnessedClauses' in legacy, false, 'an absent profile changed the legacy policy projection');

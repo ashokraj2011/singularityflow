@@ -175,6 +175,13 @@ export function evaluateApprovalChecklist({
   policy, decisions = [], authorities = null, actor = null, checklist = STARTER_CHECKLIST
 } = {}) {
   const resolved = specificationQualityPolicy(policy ?? {});
+  if (resolved.approvalChecklist === 'off') {
+    return {
+      required: false, mode: 'off',
+      errors: decisions.length ? ['specification-quality approval checklist is off; article decisions must not be submitted'] : [],
+      warnings: [], decisions: []
+    };
+  }
   if (resolved.mode === 'off') return { required: false, mode: 'off', errors: [], warnings: [], decisions: [] };
 
   const validated = validateChecklistDecisions(decisions, { checklist, mode: resolved.mode });

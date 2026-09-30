@@ -47,6 +47,10 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     // Modern v2 predecessor before explicit clarification-off policy was added.
     planning: Object.freeze([
       '91c8f6571cd05fafac5e28c225e5f08009d27b59ee14be776de7ffff8d4632e9'
+    ]),
+    // Previous starter required six human checklist decisions at Specification approval.
+    specification: Object.freeze([
+      '11ef5fa9479175bd8e27d5a07af58a74471473fe8322116ba6dd7e93d5ccb527'
     ])
   }),
   artifactSets: Object.freeze({
@@ -108,7 +112,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     release: 'ea1d875e603e54c8621eacf8c0e23fa2d2c20d2b9358c479b4eec6c2731f1d2a',
     reproduction: '493668d016cd6d280c31011fcccfad2017b2931a8bd5871acaccf561efc1063b',
     requirements: '360a64821e529395e9ba85bf6d80270ca16562323f7fa535494c6719616d44b1',
-    specification: '11ef5fa9479175bd8e27d5a07af58a74471473fe8322116ba6dd7e93d5ccb527',
+    specification: 'e3fd4a7f7797f8cb7ad10766a74c931b6edf0adba453ba8e19a84b50d40befc7',
     testing: '4ecef918781975e253ea4b85baeb635a15966f9eb9b24c68815ba1cb54e18e09',
     verification: 'b76ea4b72e122af77b6c2b42492a929d99fb927cb8cf8d23407dc429e372ea42',
     verify: 'b223f79a5b01215f4dff056c33711c0bc96fde20d9ec6fa8f8c88c6dd5e12875',

@@ -224,9 +224,9 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
   agent,
   target = null,
   reason = null,
-  // Reviewing a Story from its Epic is the same approval as reviewing it from the Story, so it
-  // carries the same checklist `[SPK:REQ-060]`. Threaded rather than defaulted: a surface that
-  // cannot collect the articles must fail asking for them, not quietly approve without them.
+  // Reviewing a Story from its Epic uses the same pinned approval policy as Story review. When
+  // that policy requires the legacy checklist `[SPK:REQ-060]`, this surface must collect it;
+  // when the checklist is off, no article decisions are submitted.
   checklist = [],
   channel = 'desktop-epic-review'
 } = {}) {

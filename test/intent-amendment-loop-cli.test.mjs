@@ -76,10 +76,7 @@ test('Code feedback proposes an immutable spec correction and authority decides 
   cli('artifact', 'scan', '--phase', 'specification');
   cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'specification', '--skip-checks');
-  cli('approve', 'specification', '--yes',
-    '--article', 'completeness=satisfied', '--article', 'ambiguity=satisfied',
-    '--article', 'consistency=satisfied', '--article', 'verifiability=satisfied',
-    '--article', 'boundary-conditions=satisfied', '--article', 'non-functional=satisfied');
+  cli('approve', 'specification', '--yes');
 
   const candidateDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-loop-candidate-'));
   t.after(() => rm(candidateDirectory, { recursive: true, force: true }));

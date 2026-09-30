@@ -156,6 +156,10 @@ export function specificationQualityPolicy(value = {}) {
   if (typeof checklist !== 'string' || !checklist) {
     throw new SingularityFlowError('specificationQuality.checklist must name a checklist definition.');
   }
+  const approvalChecklist = value?.approvalChecklist;
+  if (approvalChecklist !== undefined && !['off', 'required'].includes(approvalChecklist)) {
+    throw new SingularityFlowError('specificationQuality.approvalChecklist must be off or required.');
+  }
   /**
    * Who may take an exception `[SPK:REQ-061]`.
    *
@@ -174,6 +178,8 @@ export function specificationQualityPolicy(value = {}) {
   return Object.freeze({
     mode,
     checklist,
+    // Keep the omitted field absent so existing normalized policies and their hashes do not change.
+    ...(approvalChecklist === undefined ? {} : { approvalChecklist }),
     exceptionAuthority,
     // Assisted analysis is opt-in and never the default; the deterministic path must stand alone.
     assisted: Boolean(value?.assisted ?? false),

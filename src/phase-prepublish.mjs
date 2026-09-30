@@ -1,10 +1,16 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import {
+  catalogArtifactSet, resolvedArtifactSet, unpublishableRequiredArtifactSetMembers
+} from './artifact-sets.mjs';
+import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { directCopilotSkill } from './copilot-guidance.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { phaseDraftCheck } from './phase-draft-check.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
 import { inspectPhaseRecovery } from './recovery-plan.mjs';
+import { posix } from './util.mjs';
 
 function findingKey(finding) {
   return [finding.code, finding.path ?? '', finding.line ?? ''].join('\0');
@@ -13,6 +19,7 @@ function findingKey(finding) {
 async function staticPublicationBlockers(root, config, workflow, phase) {
   const blockers = [];
   const actions = [];
+  let artifactSetFingerprint = null;
   const id = workflow.workItem.id;
   const pending = await inspectPendingPublication(root, {
     kind: 'story', id,
@@ -75,7 +82,35 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
       });
     }
   }
-  return { blockers, actions };
+  const artifactSet = resolvedArtifactSet(config, workflow, phase);
+  if (artifactSet) {
+    const itemRelative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', id));
+    const catalog = await catalogArtifactSet(root, itemRelative, phase, artifactSet);
+    const unpublishable = (await unpublishableRequiredArtifactSetMembers(root, catalog))
+      .filter((member) => !catalog.missingRequired.includes(member));
+    artifactSetFingerprint = `${catalog.bundleSha256}\0${unpublishable.join('\0')}`;
+    for (const missing of catalog.missingRequired) {
+      blockers.push({
+        code: 'phase.artifact-set.required-member-missing', category: 'artifact-set',
+        path: missing, line: null,
+        message: `Required artifact-set member '${missing}' is missing or contains no evidence files.`
+      });
+    }
+    for (const member of unpublishable) {
+      blockers.push({
+        code: 'phase.artifact-set.required-member-unpublishable', category: 'artifact-set',
+        path: member, line: null,
+        message: `Required artifact-set member '${member}' contains evidence that Git would not publish. Remove ignored or unsafe files and add eligible evidence before publication.`
+      });
+    }
+    if (catalog.missingRequired.length || unpublishable.length) actions.push({
+      command: `singularity-flow phase prepublish ${phase.id} --json`,
+      skill: phase.id === 'release' ? '/sf-release'
+        : directCopilotSkill(generationSkillForPhase(phase)),
+      detail: 'Complete the required members in the current phase artifact directory, then recheck.'
+    });
+  }
+  return { blockers, actions, artifactSetFingerprint };
 }
 
 /**
@@ -107,13 +142,29 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
   }
   const ready = lifecycleReady && draft.status === 'ready'
     && staticChecks.blockers.length === 0 && recovery.blockers.length === 0;
-  const action = draft.status !== 'ready'
-    ? recovery.actions[0] ?? staticChecks.actions[0] ?? null
-    : staticChecks.actions[0] ?? recovery.actions[0] ?? null;
+  const action = !lifecycleReady
+    ? {
+        command: draft.commands.recover,
+        skill: '/sf-recover',
+        detail: 'The phase is not current and in progress. Inspect lifecycle recovery before changing evidence.'
+      }
+    : draft.status !== 'ready'
+      ? recovery.actions[0] ?? staticChecks.actions[0] ?? null
+      : staticChecks.actions[0] ?? recovery.actions[0] ?? null;
   const briefOnly = recovery.actions.length > 0
     && recovery.actions.every((entry) => entry.id === `repair-agent-brief-source:${phase.id}`);
   const hardBlocker = staticChecks.blockers.some((entry) =>
     ['lifecycle', 'host'].includes(entry.category));
+  const artifactRepairOnly = staticChecks.blockers.length > 0
+    && staticChecks.blockers.every((entry) => entry.category === 'artifact-set')
+    && recovery.blockers.length === 0;
+  const agentOwnsRepair = draft.ownership.proven && draft.producer === 'governed-agent';
+  // A supporting evidence collection is not a prose draft, but its exact bundle hash must still
+  // move the bounded same-turn repair fingerprint when an agent adds a file beneath it.
+  const draftFingerprint = staticChecks.artifactSetFingerprint == null
+    ? draft.draftFingerprint
+    : `sha256:${createHash('sha256').update(`${draft.draftFingerprint}\0${staticChecks.artifactSetFingerprint}`)
+      .digest('hex')}`;
   return Object.freeze({
     schemaVersion: 1,
     resultType: 'sflow-phase-prepublish',
@@ -124,7 +175,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     phaseStatus: phase.status,
     producer: draft.producer,
     ownership: draft.ownership,
-    draftFingerprint: draft.draftFingerprint,
+    draftFingerprint,
     artifact: draft.artifact,
     artifacts: draft.artifacts,
     findings: Object.freeze([...findings.values()].map((finding) => Object.freeze(finding))),
@@ -136,15 +187,18 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     }),
     correction: Object.freeze({
       ...draft.correction,
-      class: draft.status === 'ready' && (staticChecks.blockers.length || recovery.blockers.length)
-        ? 'phase-recovery' : draft.correction.class,
-      sameTurn: !ready && !hardBlocker && (draft.status !== 'ready'
+      class: !lifecycleReady ? 'phase-recovery'
+        : draft.status === 'ready' && (staticChecks.blockers.length || recovery.blockers.length)
+        ? artifactRepairOnly && agentOwnsRepair ? 'agent-authoring' : 'phase-recovery'
+        : draft.correction.class,
+      sameTurn: lifecycleReady && !ready && !hardBlocker && (draft.status !== 'ready'
         ? draft.correction.sameTurn
-        : briefOnly && draft.ownership.proven && draft.producer === 'governed-agent'),
-      guidance: ready ? null : draft.status !== 'ready'
+        : (briefOnly || artifactRepairOnly) && agentOwnsRepair),
+      guidance: ready ? null : !lifecycleReady ? action.detail : draft.status !== 'ready'
         ? draft.correction.guidance
         : action?.detail ?? 'Resolve the reported phase-scoped blocker, then recheck before publication.',
-      skill: ready ? null : draft.status !== 'ready' ? draft.correction.skill : action?.skill ?? null
+      skill: ready ? null : !lifecycleReady ? action.skill
+        : draft.status !== 'ready' ? draft.correction.skill : action?.skill ?? null
     }),
     commands: Object.freeze({
       recheck: `singularity-flow phase prepublish ${phase.id} --json`,

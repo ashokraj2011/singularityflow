@@ -1,7 +1,8 @@
 /** Deterministic structural scenarios only. No receipts, permissions or runtime effects are minted. */
 import { recordSha256 } from './records.mjs';
 import { evaluateSequence, phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
-import { approvalPolicyCapacity, approvalRequirementsMet, remainingRequiredAuthorities } from './approval-authority.mjs';
+import { approvalPolicyCapacity, approvalRequirementsMet, normalizeApprovalSecurity,
+  remainingRequiredAuthorities } from './approval-authority.mjs';
 import { normalizeReworkLoops, normalizeRepairBudget, repairBudgetPhaseForRejection, consumeRepairAttempt } from './repair-budget.mjs';
 import { advanceCompletedPhase, reopenPhaseRange } from './lifecycle-transitions.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
@@ -22,6 +23,7 @@ const DIMENSIONS = ['progression', 'generation-publication', 'input-output-conti
 const ASSUMPTIONS = Object.freeze([
   'All projected output bytes, published generations, successful checks and human decisions are hypothetical scenario inputs, not observed evidence.',
   'Configured reviewer capacity is static policy feasibility, not authenticated provider membership or actual human availability.',
+  'When Story-start auto-enrollment is enabled, capacity may include one hypothetical new creator in each authority group; this is not an actual enrolled identity or an independent reviewer.',
   'Policy-waiver eligibility is not inferred; the human-review fallback is exercised.',
   'No real host enforcement, model behavior, artifact content, command outcome, network availability or execution readiness is established.',
   'Confirmed SKP provenance is supplied by the configuration owner; this report creates no confirmation or evidence acceptance.',
@@ -88,6 +90,23 @@ function symbolicApprovals(policy) {
     actor: { name: `hypothetical-reviewer-${index + 1}` } }));
 }
 
+function storyStartApprovalAuthorities(resolved) {
+  if (!normalizeApprovalSecurity(resolved.approvalSecurity ?? {}).autoEnrollNewIdentities) return null;
+  // createWorkflow() enrolls the same Story creator in every pinned authority group before
+  // checking phase capacity. Use one distinct symbolic identity across all groups: this can
+  // satisfy a single ordinary reviewer slot, never two independently required groups.
+  const authorities = structuredClone(resolved.approvalAuthorities);
+  const existing = new Set(Object.values(authorities).flatMap((authority) =>
+    (authority.members ?? []).map((member) => String(member.githubLogin ?? '').toLowerCase())));
+  let login = 'sflow-simulation-creator';
+  while (existing.has(login)) login += '-next';
+  for (const authority of Object.values(authorities)) {
+    authority.members ??= [];
+    authority.members.push({ githubLogin: login });
+  }
+  return authorities;
+}
+
 /** The caller supplies the existing owner's resolved Story contract, never executable actions. */
 export function simulateResolvedWorkflowLifecycle(resolved) {
   let captured; let sourceDefinitionSha256 = null; let workflowId = null; const scenarios = []; const findings = [];
@@ -126,6 +145,7 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
     const order = captured.phases.map((phase) => phase.id);
     if (new Set(order).size !== order.length || order.some((id) => !validId(id))) throw failure('WCA_SIMULATION_INVALID');
     if (!['off', 'record', 'enforce'].includes(captured.inputsMode ?? 'off')) throw failure('WCA_SIMULATION_INVALID');
+    const autoEnrolledAuthorities = storyStartApprovalAuthorities(captured);
     const outputs = new Map(); const declarations = new Map(); const sets = new Map();
     for (const [index, phase] of captured.phases.entries()) {
       if (!ordinary(phase) || phase.order !== index || !ordinary(phase.artifact)
@@ -192,7 +212,10 @@ export function simulateResolvedWorkflowLifecycle(resolved) {
             || !Array.isArray(phase.approval.requiredAuthorities)
             || phase.approval.authorities.some((id) => !validId(id))) { finding('WCA_SIMULATION_APPROVAL_INVALID', phase.id); continue; }
         try {
-          const capacity = approvalPolicyCapacity(captured.approvalAuthorities, phase.approval);
+          // A phase requiring independent review cannot count the hypothetical Story creator.
+          const authorities = phase.approval.allowSelfApproval === false
+            ? captured.approvalAuthorities : autoEnrolledAuthorities ?? captured.approvalAuthorities;
+          const capacity = approvalPolicyCapacity(authorities, phase.approval);
           if (!capacity.attainable) finding('WCA_SIMULATION_APPROVAL_UNATTAINABLE', phase.id);
           if (phase.approval.minimum > 128) throw failure('WCA_SIMULATION_LIMIT');
         } catch (error) { if (error.code === 'WCA_SIMULATION_LIMIT') throw error; finding('WCA_SIMULATION_APPROVAL_INVALID', phase.id); }

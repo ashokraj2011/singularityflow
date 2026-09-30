@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { resolveWorkType, normalizeGenerationPolicy } from '../src/config.mjs';
-import { normalizeApprovalPolicy } from '../src/approval-authority.mjs';
+import { normalizeApprovalPolicy, normalizeApprovalSecurity } from '../src/approval-authority.mjs';
 import { inputFindingSeverity, qualityValidationVerdict } from '../src/lifecycle-evidence-policy.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { compileConfirmedSkillPhase, configurationPhaseFromCompiledSkill, skillCandidateCatalogSha256,
@@ -63,9 +63,11 @@ test('required review is a valid human wait and partial approval cannot advance'
 });
 
 test('unattainable and overlapped required reviewer assignments invalidate the structural route', () => {
-  const resolved = fixture(); resolved.phases[1].approval.minimum = 3;
+  const resolved = fixture(); resolved.approvalSecurity.autoEnrollNewIdentities = false;
+  resolved.phases[1].approval.minimum = 3;
   assert.ok(simulateResolvedWorkflowLifecycle(resolved).findings.some((finding) => finding.code === 'WCA_SIMULATION_APPROVAL_UNATTAINABLE'));
-  const overlap = fixture(); overlap.approvalAuthorities = {
+  const overlap = fixture(); overlap.approvalSecurity.autoEnrollNewIdentities = false;
+  overlap.approvalAuthorities = {
     first: { members: [{ email: 'same@example.test' }] }, second: { members: [{ email: 'same@example.test' }] }, optional: { members: [{ email: 'different@example.test' }] }
   };
   overlap.phases[1].approval = normalizeApprovalPolicy({ authorities: ['first', 'second', 'optional'], requiredAuthorities: ['first', 'second'], minimum: 2 }, overlap.approvalAuthorities, 'analysis');
@@ -73,6 +75,41 @@ test('unattainable and overlapped required reviewer assignments invalidate the s
   assert.equal(report.status, 'invalid'); assert.deepEqual(report.scenarios, []);
   assert.ok(report.findings.some((finding) => finding.code === 'WCA_SIMULATION_APPROVAL_UNATTAINABLE'));
   assert.equal(JSON.stringify(report).includes('same@example.test'), false);
+});
+
+test('Story-start auto-enrollment supplies one hypothetical creator but never an independent reviewer or two required groups', () => {
+  const resolved = fixture((value) => { value.approvalAuthorities.reviewers.members = []; });
+  const report = simulateResolvedWorkflowLifecycle(resolved);
+  assert.equal(report.status, 'complete-for-profile');
+  assert.equal(find(report, 'human-wait:analysis').outcome, 'expected-wait');
+  assert.match(report.assumptions.join('\n'), /hypothetical new creator/);
+
+  const disabled = structuredClone(resolved);
+  disabled.approvalSecurity.autoEnrollNewIdentities = false;
+  assert.ok(simulateResolvedWorkflowLifecycle(disabled).findings.some((finding) => finding.code === 'WCA_SIMULATION_APPROVAL_UNATTAINABLE'));
+
+  const independent = structuredClone(resolved);
+  independent.phases[1].approval.allowSelfApproval = false;
+  assert.ok(simulateResolvedWorkflowLifecycle(independent).findings.some((finding) => finding.code === 'WCA_SIMULATION_APPROVAL_UNATTAINABLE'));
+  independent.approvalAuthorities.reviewers.members = [{ email: 'independent@example.test' }];
+  assert.equal(simulateResolvedWorkflowLifecycle(independent).status, 'complete-for-profile',
+    'a named independent reviewer remains sufficient without counting the Story creator');
+
+  const twoRequired = structuredClone(resolved);
+  twoRequired.approvalAuthorities = { first: { members: [] }, second: { members: [] } };
+  twoRequired.phases[1].approval = normalizeApprovalPolicy({ authorities: ['first', 'second'],
+    requiredAuthorities: ['first', 'second'], minimum: 2 }, twoRequired.approvalAuthorities, 'analysis');
+  assert.ok(simulateResolvedWorkflowLifecycle(twoRequired).findings.some((finding) => finding.code === 'WCA_SIMULATION_APPROVAL_UNATTAINABLE'));
+});
+
+test('regulated approval profile does not assume Story-start enrollment by default', () => {
+  const resolved = fixture((value) => {
+    value.approvalSecurity = { profile: 'regulated' };
+    value.approvalAuthorities.reviewers.members = [{ email: 'reviewer@example.test' }];
+    value.phases.analysis.approval.minimum = 2;
+  });
+  assert.equal(normalizeApprovalSecurity(resolved.approvalSecurity).autoEnrollNewIdentities, false);
+  assert.ok(simulateResolvedWorkflowLifecycle(resolved).findings.some((finding) => finding.code === 'WCA_SIMULATION_APPROVAL_UNATTAINABLE'));
 });
 
 test('soft sequence gates require separate human override rather than silently proceeding', () => {

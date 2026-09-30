@@ -338,6 +338,49 @@ test('code and verification skills place qualified trace tags in the intended fi
   assert.match(phase, /@clause:WORK-ID:REQ-001.*product source.*@ac:WORK-ID:AC-001.*executable tests/s);
 });
 
+test('fast-path authoring skills execute the returned preparation checkpoint before editing', async () => {
+  for (const [name, phase, artifact] of [
+    ['sflow-specify', 'specification', 'spec.md'],
+    ['sflow-plan', 'planning', 'plan.md']
+  ]) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    const prepare = `singularity-flow prepare ${phase}`;
+    assert.match(content, /first `NOW` action in the returned `next\[\]`/);
+    assert.ok(content.includes(`to be \`${prepare}\``), `${name} must require the exact routed prepare action`);
+    assert.match(content, /run that exact returned command once/);
+    assert.match(content, /If the action differs, stop and relay the returned route/);
+    const authoring = artifact === 'plan.md' ? 'Derive `plan.md`' : 'author `spec.md`';
+    assert.ok(content.indexOf('run that exact returned command once') < content.indexOf(authoring),
+    `${name} must prepare before authoring`);
+    assert.ok(content.indexOf('run that exact returned command once') < content.indexOf(`phase draft-check ${phase}`),
+      `${name} must prepare before draft-check`);
+  }
+});
+
+test('code skill reads readiness and task policy from their real structured sources', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
+  assert.match(content, /session current --json.*ready: true.*workId.*repositoryPath.*phase.*phaseAgent\.valid/s);
+  assert.match(content, /status --json.*match workId\/currentPhase.*phases\[<phase>\]\.generationPolicy\.task: code/s);
+  assert.match(content, /legacy `implementation-summary` without task/);
+  assert.match(content, /phase show <phase> --json` is artifact review, not readiness or task policy/);
+  assert.ok(content.indexOf('session current --json') < content.indexOf('status --json'));
+  assert.ok(content.indexOf('status --json') < content.indexOf('recover <WORK-ID>'));
+});
+
+test('verify skill routes release to its phase skill without running verification authoring', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
+  assert.match(content, /Boundary phase is `release`.*do not run verification authoring/s);
+  assert.match(content, /first `NOW` action is `singularity-flow prepare release`.*Next in Copilot: \/sf-release.*Terminal equivalent: singularity-flow prepare release.*then stop/s);
+  assert.match(content, /For any other release action, relay its exact returned Copilot and Shell routes and stop/);
+  assert.ok(content.indexOf('Boundary phase is `release`') < content.indexOf('phase `verification`'));
+});
+
+test('requirements skill authors qualified acceptance-criteria identifiers', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-requirements', 'SKILL.md'), 'utf8');
+  assert.match(content, /stable qualified `\[WORK-ID:AC-001\]` anchors/);
+  assert.match(content, /Never use a bare `AC-001` as the authoritative clause ID/);
+});
+
 test('generic generation skills branch on the resolved clarification mode before asking or recording', async () => {
   for (const name of ['sflow-phase', 'sflow-code']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');

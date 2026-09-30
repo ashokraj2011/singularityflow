@@ -22,7 +22,9 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 
 import { recordSha256 } from './records.mjs';
-import { exists, posix, SingularityFlowError } from './util.mjs';
+import { executeGitQuery } from './git-query.mjs';
+import { untrackedFiles } from './git.mjs';
+import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 /** How much a member's absence or change is allowed to mean. */
@@ -147,18 +149,36 @@ export async function catalogArtifactSet(root, workDirRelativePath, phase, set) 
     const relative = posix(path.posix.join(rootRelative, member.path));
     const absolute = path.join(root, relative);
     const directory = member.path.endsWith('/');
-    const present = await exists(absolute);
+    // A required member cannot borrow bytes through a link outside the repository. In particular,
+    // stat() follows a symlinked collection root and would hash files Git only records as link text.
+    let secured = null;
+    let unsafe = false;
+    if (member.required) {
+      try {
+        secured = await secureRepositoryPath(root, relative.replace(/\/+$/u, ''), {
+          label: `Required artifact-set member '${member.path}'`
+        });
+      } catch (error) {
+        if (error.code !== 'REPOSITORY_PATH_UNSAFE') throw error;
+        unsafe = true;
+      }
+    }
+    const present = !unsafe && (secured ? secured.exists : await exists(absolute));
     let sha256 = null;
     let bytes = null;
     let files = null;
     if (present) {
-      const info = await stat(absolute);
-      if (info.isDirectory()) ({ sha256, files } = await hashDirectory(absolute));
-      else { sha256 = await hashFile(absolute); bytes = info.size; }
+      const info = secured?.entry ?? await stat(absolute);
+      // A declared collection must be a directory, and a declared file must be a regular file.
+      // Treat the wrong shape as absent rather than hashing it as if it were valid evidence.
+      if (directory === info.isDirectory() && (directory || info.isFile())) {
+        if (directory) ({ sha256, files } = await hashDirectory(absolute));
+        else { sha256 = await hashFile(absolute); bytes = info.size; }
+      }
     }
     members.push({
       path: relative, member: member.path, role: member.role, required: member.required,
-      authority: member.authority, directory, exists: present, sha256, bytes, files
+      authority: member.authority, directory, exists: present && sha256 !== null, sha256, bytes, files
     });
   }
   const ordered = [...members].sort((left, right) => left.path.localeCompare(right.path));
@@ -179,8 +199,60 @@ export async function catalogArtifactSet(root, workDirRelativePath, phase, set) 
       setId: set.id,
       members: ordered.map(({ path: memberPath, role, sha256 }) => ({ path: memberPath, role, sha256 }))
     }),
-    missingRequired: ordered.filter((member) => member.required && !member.exists).map((member) => member.path)
+    // A required evidence collection needs evidence, not merely an empty directory entry.
+    missingRequired: ordered.filter((member) => member.required
+      && (!member.exists || (member.directory && member.files === 0))).map((member) => member.path)
   };
+}
+
+async function regularFilesInDirectory(absolute, relative = '', files = []) {
+  for (const entry of await readdir(path.join(absolute, relative), { withFileTypes: true })) {
+    const child = relative ? path.posix.join(relative, entry.name) : entry.name;
+    if (entry.isDirectory()) await regularFilesInDirectory(absolute, child, files);
+    else files.push({ path: child, regular: entry.isFile() });
+    // A nested symlink or special file is not represented in the catalogue hash. Refuse the
+    // collection instead of claiming that its hash identifies all committed evidence entries.
+  }
+  return files;
+}
+
+/** Required evidence must consist only of files Git can include in the review commit. */
+export async function unpublishableRequiredArtifactSetMembers(root, catalog) {
+  const blocked = [];
+  const eligible = new Set([
+    ...executeGitQuery(root, 'repository.tracked-paths'),
+    ...untrackedFiles(root)
+  ].map(posix));
+  for (const member of catalog?.members ?? []) {
+    if (!member.required) continue;
+    const relative = member.path.replace(/\/+$/u, '');
+    let secured;
+    try {
+      secured = await secureRepositoryPath(root, relative, {
+        label: `Required artifact-set member '${member.member}'`
+      });
+    } catch (error) {
+      if (error.code !== 'REPOSITORY_PATH_UNSAFE') throw error;
+      blocked.push(member.path);
+      continue;
+    }
+    if (!secured.exists || member.directory && !secured.entry.isDirectory()
+        || !member.directory && !secured.entry.isFile()) {
+      blocked.push(member.path);
+      continue;
+    }
+    const files = member.directory
+      ? (await regularFilesInDirectory(secured.absolute)).map((entry) => ({
+          path: posix(path.posix.join(relative, entry.path)), regular: entry.regular
+        }))
+      : [{ path: relative, regular: true }];
+    if (!files.length) {
+      blocked.push(member.path);
+      continue;
+    }
+    if (files.some((file) => !file.regular || !eligible.has(file.path))) blocked.push(member.path);
+  }
+  return blocked;
 }
 
 /**

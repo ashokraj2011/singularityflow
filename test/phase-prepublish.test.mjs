@@ -10,6 +10,7 @@ import { phasePrepublish } from '../src/phase-prepublish.mjs';
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-prepublish-'));
   t.after(() => rm(root, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q', root]);
   const relative = 'singularity/work-items/PRE-1/artifacts/planning/plan.md';
   const absolute = path.join(root, relative);
   await mkdir(path.dirname(absolute), { recursive: true });
@@ -100,7 +101,6 @@ test('prepublish never promises publication for an unqualified skill phase or mi
 test('prepublish refuses an unreadable retained publication marker without rewriting it', async (t) => {
   const item = await fixture(t);
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
-  execFileSync('git', ['init', '-q', item.root]);
   const marker = path.join(item.root, '.git', 'singularity-flow', 'pending-publication',
     'story--PRE-1.json');
   await mkdir(path.dirname(marker), { recursive: true });
@@ -113,4 +113,116 @@ test('prepublish refuses an unreadable retained publication marker without rewri
   assert.equal(result.correction.sameTurn, false);
   assert.ok(result.findings.some((finding) => finding.code === 'phase.publication.unreadable'));
   assert.equal(await readFile(marker, 'utf8'), original);
+});
+
+test('prepublish requires a nonempty declared evidence collection', async (t) => {
+  const item = await fixture(t);
+  await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
+  item.phase.artifactSet = 'planning-evidence';
+  item.workflow.resolution.artifactSets['planning-evidence'] = {
+    primary: 'plan.md', members: [
+      { path: 'plan.md', role: 'plan', required: true },
+      { path: 'evidence/', role: 'evidence', required: true }
+    ]
+  };
+  const evidence = path.join(path.dirname(item.absolute), 'evidence');
+  await mkdir(evidence);
+  const blocked = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(blocked.status, 'correction-required');
+  assert.equal(blocked.commands.publish, null);
+  assert.equal(blocked.correction.skill, '/sf-phase');
+  assert.equal(blocked.correction.class, 'agent-authoring');
+  assert.equal(blocked.correction.sameTurn, true);
+  assert.ok(blocked.findings.some((finding) => finding.code === 'phase.artifact-set.required-member-missing'));
+
+  await writeFile(path.join(evidence, 'index.md'), '# Approved verification evidence\n');
+  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(ready.status, 'ready');
+  assert.notEqual(ready.draftFingerprint, blocked.draftFingerprint);
+});
+
+test('release evidence correction stays with the release skill', async (t) => {
+  const item = await fixture(t);
+  await writeFile(item.absolute, '# Plan\n\nDeployment steps and rollback validated from approved evidence.\n');
+  item.phase.id = 'release';
+  item.phase.label = 'Release';
+  item.phase.artifactSet = 'release-evidence';
+  item.workflow.currentPhase = 'release';
+  item.workflow.phases = { release: item.phase };
+  item.workflow.resolution.artifactSets['release-evidence'] = {
+    primary: 'plan.md', members: [
+      { path: 'plan.md', role: 'plan', required: true },
+      { path: 'verification/', role: 'evidence', required: true }
+    ]
+  };
+  const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: { ...item.session, phaseId: 'release' } });
+  assert.equal(result.status, 'correction-required');
+  assert.equal(result.correction.skill, '/sf-release');
+  assert.equal(result.correction.sameTurn, true);
+  assert.equal(result.commands.publish, null);
+});
+
+test('prepublish routes missing evidence through lifecycle recovery once the phase awaits approval', async (t) => {
+  const item = await fixture(t);
+  await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
+  item.phase.status = 'awaiting_approval';
+  item.phase.artifactSet = 'planning-evidence';
+  item.workflow.resolution.artifactSets['planning-evidence'] = {
+    primary: 'plan.md', members: [
+      { path: 'plan.md', role: 'plan', required: true },
+      { path: 'evidence/', role: 'evidence', required: true }
+    ]
+  };
+  const blocked = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(blocked.status, 'correction-required');
+  assert.ok(blocked.findings.some((finding) => finding.code === 'phase.artifact-set.required-member-missing'));
+  assert.ok(blocked.findings.some((finding) => finding.code === 'phase.lifecycle.not-publishable'));
+  assert.equal(blocked.correction.class, 'phase-recovery');
+  assert.equal(blocked.correction.sameTurn, false);
+  assert.equal(blocked.correction.skill, '/sf-recover');
+  assert.equal(blocked.commands.next, 'singularity-flow recover PRE-1 --phase planning --json');
+  assert.match(blocked.correction.guidance, /before changing evidence/u);
+  assert.equal(blocked.commands.publish, null);
+
+  await writeFile(item.absolute, '# Plan\n\nTODO describe the plan.\n');
+  const unfinished = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(unfinished.correction.class, 'phase-recovery');
+  assert.equal(unfinished.correction.sameTurn, false);
+  assert.equal(unfinished.correction.skill, '/sf-recover');
+  assert.match(unfinished.correction.guidance, /before changing evidence/u);
+});
+
+test('prepublish refuses a required collection whose only evidence Git ignores', async (t) => {
+  const item = await fixture(t);
+  await writeFile(item.absolute, '# Plan\n\nDeployment evidence is recorded in the release bundle.\n');
+  item.phase.artifactSet = 'release-evidence';
+  item.workflow.resolution.artifactSets['release-evidence'] = {
+    primary: 'plan.md', members: [
+      { path: 'plan.md', role: 'plan', required: true },
+      { path: 'evidence/', role: 'evidence', required: true }
+    ]
+  };
+  const evidence = path.join(path.dirname(item.absolute), 'evidence');
+  await mkdir(evidence);
+  await writeFile(path.join(evidence, '.gitignore'), '*.log\n');
+  await writeFile(path.join(evidence, 'run.log'), 'passing tests\n');
+  const blocked = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(blocked.status, 'correction-required');
+  assert.equal(blocked.commands.publish, null);
+  assert.equal(blocked.correction.sameTurn, true);
+  assert.ok(blocked.findings.some((finding) =>
+    finding.code === 'phase.artifact-set.required-member-unpublishable'));
+
+  execFileSync('git', ['add', '-f', path.relative(item.root, path.join(evidence, 'run.log'))],
+    { cwd: item.root });
+  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: item.session });
+  assert.equal(ready.status, 'ready');
+  assert.notEqual(ready.draftFingerprint, blocked.draftFingerprint);
 });

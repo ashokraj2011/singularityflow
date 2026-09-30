@@ -124,6 +124,14 @@ test('the command result preserves policy-selected generation skills', () => {
   assert.equal(narratedImplementation.copilotCommand, '/sf-code');
 });
 
+test('verify routes release preparation as a distinct authoring checkpoint', () => {
+  const release = planFastPath(story('release'), DEFINITION, 'verify');
+  assert.equal(release.checkpoint.kind, 'model-generation');
+  assert.equal(release.next[0].rank, 'NOW');
+  assert.equal(release.next[0].command, 'singularity-flow prepare release');
+  assert.notEqual(release.next[0].command, 'singularity-flow prepare verification');
+});
+
 test('a published generation awaiting submit is a review checkpoint, never model generation', () => {
   for (const [phaseId, verb] of [['specification', 'specify'], ['convergence', 'converge']]) {
     const workflow = phaseId === 'convergence' ? deterministicStory() : story(phaseId);

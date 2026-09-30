@@ -529,7 +529,9 @@ workTypes:
       implementation-spec: { inputs: [requirements, design] }
       implementation: { inputs: [design, implementation-spec] }
       verification: { inputs: [implementation-spec, implementation] }
-      conformance: { inputs: [implementation-spec, implementation, verification] }
+      conformance:
+        inputs: [implementation-spec, implementation, verification]
+        approval: { rejectTo: [implementation-spec, implementation, verification, conformance] }
   bugfix:
     label: Bug fix
     phases: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance]
@@ -548,7 +550,9 @@ workTypes:
       fix-spec: { inputs: [reproduction, fix-design] }
       implementation: { inputs: [fix-spec] }
       verification: { inputs: [fix-spec, implementation] }
-      conformance: { inputs: [fix-spec, implementation, verification] }
+      conformance:
+        inputs: [fix-spec, implementation, verification]
+        approval: { rejectTo: [fix-spec, implementation, verification, conformance] }
   chore:
     label: Chore
     phases: [intake, implementation, verification, conformance]
@@ -559,7 +563,9 @@ workTypes:
       # shared implementation artifact but do not misclassify this work type as code generation.
       implementation: { inputs: [intake], generation: { task: analyze } }
       verification: { inputs: [implementation] }
-      conformance: { inputs: [implementation, verification] }
+      conformance:
+        inputs: [implementation, verification]
+        approval: { rejectTo: [implementation, verification, conformance] }
   figma-mobile:
     label: Figma export to mobile app
     phases: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance]

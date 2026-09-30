@@ -65,6 +65,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/prompts/copilot-planning.md': Object.freeze([
     'd4a47524fb1563faa4a07d63bec271a0c8e3361689fdf75e1d99ea78851af9b6'
   ]),
+  'singularity/templates/spec-driven/release.md': Object.freeze([
+    'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f'
+  ]),
   '.github/agents/architect.agent.md': Object.freeze([
     '0c8630b4f5d3bf2bbdabc4f67f4619caa7e537a566111cef40440c6c7abce016',
     '188198ceb7da73ef10814aaea2426dea127442f199fa16939f84a95415547ee5',
@@ -208,20 +211,20 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
 
 /** Current release digests, kept separate so a known current file is never offered as repairable. */
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
-  '.github/agents/architect.agent.md': 'c17746841c5afad787e9a33c8a97aa6de15bf44a798d541f1d4c61659485d872',
+  '.github/agents/architect.agent.md': 'cb10e2ec957759b702df2935ed7889192da5946814c97f9ca6c9e53b173f3342',
   '.github/agents/developer.agent.md': 'edfba1ce014ba9a5cf379303efa3841eb4345dd1602f2b2566c8e5001d4c99d1',
-  '.github/agents/mobile-architect.agent.md': '830219deadfb61f600397ae9c63402b7954fbc4c21f4a893058a4a138df24903',
-  '.github/agents/poc-analyst.agent.md': '7b7690a834615919f4a4417a60783359965a848f8775dfa67acadb818684411d',
+  '.github/agents/mobile-architect.agent.md': '314f95afdbc297e47a40fca9bfb8621ebb915d21d40cac18c6978032cd996cd7',
+  '.github/agents/poc-analyst.agent.md': '8edf5a781b1cfab7af89b4ce53f8ac52343d31cd1cb65cfe929da7660dc737ec',
   '.github/agents/poc-automation.agent.md': 'ec5709c720d979d389ebb20cb73977f0efc485d87781b62135857c622c625a7c',
-  '.github/agents/poc-explorer.agent.md': '6c471ac9d6bf14f865e73cd1a39a3cef635e3bdc7c4f455d182ae9b0845b7277',
+  '.github/agents/poc-explorer.agent.md': '73135df4f261fa3e08f8f5676f985da4f3c4b139833413c9d6ffd7db0c6d9a07',
   '.github/agents/poc-lite-implementer.agent.md': '8fa2344494618a1200b987aec80600b8d05cde24c3dee57e7ef6934fdd42e064',
-  '.github/agents/poc-lite-planner.agent.md': '85b821ac88fb52eb7972f1026f605f04144fb27df5afc2e42fc0c06212562a9b',
-  '.github/agents/poc-lite-verifier.agent.md': 'd2a01fd1beebae0b2399d0a2908d4ac0db5ad8cbc803020f40697914a2b7ee60',
+  '.github/agents/poc-lite-planner.agent.md': '13269e0e0dd315c053c81d50d0de27a94a7e1a8621ea1230b24d3a3a53d6c2e1',
+  '.github/agents/poc-lite-verifier.agent.md': '32cea87f319945c6ef3963aebf92e55ee15a291f8d7cf5691ca28a38fe68dd42',
   '.github/agents/poc-test-developer.agent.md': '4c82f12e6642c42e60ef6b0e4a19b9c37b70a73c2089b8dfd2c525858d7a4681',
-  '.github/agents/poc-validator.agent.md': '904954066c83b071fc03c8077733027bb5741b8f870c869e8754a896eeca8714',
-  '.github/agents/product-designer.agent.md': 'b08909068f12c3caa816fa6fab8855428e40902797a1e78316ff38a367574f16',
-  '.github/agents/product-owner.agent.md': '86fc702216b2e84cd7ed65ff7ea05b569af345180e9cac6ac14fa5d8bf8526ce',
-  '.github/agents/qa.agent.md': 'e4b50c0b7fa8c2cc84d9cfd5794a9406d91216a024e4b44200b276032d1822ad',
+  '.github/agents/poc-validator.agent.md': '970a1539220c22ba61eac4f80a743328437a0913d83fbeec20a6a3ed6f74a10f',
+  '.github/agents/product-designer.agent.md': 'b46014bafb6a5fe79642e8e1917f28ef37adc3a8304408534cdcee1e75d47016',
+  '.github/agents/product-owner.agent.md': 'a9c322786305e1eee80229c696ae19ff21e0f4fc2843d4c7f28a80ccd24e96ff',
+  '.github/agents/qa.agent.md': '5c00c8126703c867854c06c23bfd376e7a191735c438e9545b8a655c06ea71ab',
   'singularity/agent-mappings.yml': '1b39a4f4caa3242749889a291e2259a361c815712bd762abde3db3cbe9f8a688',
   'singularity/impact.yml': 'e91000c4f19ba8f8c08812ebea1d3e825919f5b31dadd1f3e22f1749e3b05313',
   'singularity/modelTiers.yml': '9c829dea6676d1ad6066197a582125ec049a7e42c62300736ec83cb2ba563449',
@@ -324,7 +327,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-code-test-loop/testing.md': 'eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284',
   'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
   'singularity/templates/spec-driven/plan.md': 'e8af98405a723a55c572c705e34a5b2fc05a11b3efe632e169ba6becf6c1a04f',
-  'singularity/templates/spec-driven/release.md': 'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f',
+  'singularity/templates/spec-driven/release.md': 'a78b2eb703b2dfc70ccb33d30d94b24fe39247ca06ba79e6a988054e94a737b7',
   'singularity/templates/spec-driven/spec.md': '27424a624b1dab57323fd7482ac62708bd42d11ba42e41c102f94e15182fe485',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',
   'singularity/templates/starter-packs/skp-team-notes/draft-input.json': '71b39ad32ea3d376bf3a9b45a3f3e6cedea81a1cd95948108635be4aca08c6c5'

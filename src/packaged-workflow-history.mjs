@@ -10,9 +10,18 @@ import { createHash } from 'node:crypto';
  */
 const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   workTypes: Object.freeze({
-    feature: Object.freeze(['ede8edc40a1344342e8668202f33fd0beee614cf30064154f2b6c2c681ffab63']),
-    bugfix: Object.freeze(['3ac82069488a0728421c7c86d9a47b29b13bed568be47a8c67fab7c75a0287c3']),
-    chore: Object.freeze(['327de2a67c41d50bccc308a5925c2025f19efb170e1a4f1aa20cec5df9f63c67']),
+    feature: Object.freeze([
+      'ede8edc40a1344342e8668202f33fd0beee614cf30064154f2b6c2c681ffab63',
+      '07788c17b175c7cd6abe11d719022fa041c28f28227d3e01664c3aee3c61ae8a'
+    ]),
+    bugfix: Object.freeze([
+      '3ac82069488a0728421c7c86d9a47b29b13bed568be47a8c67fab7c75a0287c3',
+      'c1f0c3bf9e28757f0a60dea93412dd258890d73b82802227a825ada21bce4ef4'
+    ]),
+    chore: Object.freeze([
+      '327de2a67c41d50bccc308a5925c2025f19efb170e1a4f1aa20cec5df9f63c67',
+      'c5ffa49fee9721d9fb1e7c55d800cbd13b7d045dcdde800fbd42fb085986139c'
+    ]),
     'figma-mobile': Object.freeze(['d165709b28aa97f2a2d4416d19cf7cdde14bb9fa0f1632b30733ff4e2c266e52']),
     // Modern v2 predecessor immediately before the guarded REV pilot was added.
     'classic-delivery': Object.freeze([
@@ -59,10 +68,10 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   workTypes: Object.freeze({
     'benchmarking-a': '0a18e2ce95010eee32b209c98e1e9ab9d3a9993e78ca10f23938b2d3fe3d13cd',
     'benchmarking-b': 'aa433bacbaead95204b96700360598b5e2e1c682ac1a5846d6fa415adf1b5548',
-    bugfix: 'c1f0c3bf9e28757f0a60dea93412dd258890d73b82802227a825ada21bce4ef4',
-    chore: 'c5ffa49fee9721d9fb1e7c55d800cbd13b7d045dcdde800fbd42fb085986139c',
+    bugfix: '39ac9d457a906eeeae595d44fa379b709c4ecb77f2992b30d54b327c1312fc24',
+    chore: 'bbb46f247a676e737505f28c6b06638dddbf47108d324ea6c4b15d97632aa9ba',
     'classic-delivery': '98cc169510f82d9e046df5471975cf354b7afb7d1acacd0ef0c91b5c51d4f039',
-    feature: '07788c17b175c7cd6abe11d719022fa041c28f28227d3e01664c3aee3c61ae8a',
+    feature: 'f69c7d96643df7084e58aa5eb6692a703be004d21d31d06942dbb9a6962a25d3',
     'figma-mobile': '145c68b32584aea0b8b6332db9558c5f06b3cb85e346d737a57c8b7e5f07c6ee',
     'poc-lite': '87eed6bd5881b47c0cab5316d96c7652b114f43863fb0ceed1f1615165f262f0',
     'poc-workflow': 'dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75',

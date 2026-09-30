@@ -32,7 +32,8 @@ import {
 import { verifyGroundingRecord } from './grounding.mjs';
 import { answeredMarkerHashes, verifyClarificationRecord } from './clarifications.mjs';
 import {
-  artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot, resolvedArtifactSet
+  artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot, resolvedArtifactSet,
+  unpublishableRequiredArtifactSetMembers
 } from './artifact-sets.mjs';
 import {
   citedArticleIds, constitutionIndex, constitutionPin, loadConstitution, validateCitations
@@ -2695,6 +2696,18 @@ async function assertPassedCodeDeliveryInput(root, config, workflow, phase) {
   return { sourcePhase: sourceId, evidenceCommit: packet.evidenceCommit, receiptPath: binding.path, receiptSha256: binding.sha256 };
 }
 
+async function assertRequiredArtifactSetPublishable(root, phase, catalog) {
+  const paths = [...new Set([
+    ...catalog.missingRequired,
+    ...await unpublishableRequiredArtifactSetMembers(root, catalog)
+  ])];
+  if (!paths.length) return;
+  throw new SingularityFlowError(
+    `Phase ${phase.id} is missing required artifact-set member(s) or contains evidence Git cannot publish: ${paths.join(', ')}. Complete them before publication.`,
+    { code: 'ARTIFACT_SET_REQUIRED_MEMBER_MISSING', details: { phase: phase.id, paths } }
+  );
+}
+
 export async function publishGeneration(root, config, workflow, {
   phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null,
   architectureCandidateSnapshot = null
@@ -2776,6 +2789,14 @@ export async function publishGeneration(root, config, workflow, {
         }
       }
     );
+  }
+  // Required artifact-set members are part of the declared publication bundle. Refuse before
+  // inputs, briefs, telemetry, or generation state are written; a warning after cataloguing is
+  // too late for the author to repair this generation safely.
+  const requiredSet = resolvedArtifactSet(config, workflow, phase);
+  if (requiredSet) {
+    const catalog = await catalogArtifactSet(root, workDirRelative(config, workflow.workItem.id), phase, requiredSet);
+    await assertRequiredArtifactSetPublishable(root, phase, catalog);
   }
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'publish a generation');
   // A code-generation phase must deliver code and acceptance-mapped tests. This is deliberately
@@ -3207,9 +3228,8 @@ export async function publishGeneration(root, config, workflow, {
   /**
    * The typed artifact set `[SPK:REQ-110]` `[SPK:REQ-111]`.
    *
-   * Catalogued after the scan, so the set describes the bundle as published. A missing required
-   * member is reported rather than refused: no clause asks for a refusal, and turning a descriptive
-   * declaration into a hard gate would break every Story already using a profile that ships one.
+   * Catalogued after the scan, so the set describes the bundle as published. Required members are
+   * checked again here because tests and other publication work ran after the initial preflight.
    *
    * When the phase was reopened for named members, this is also where the promise is checked. The
    * clause asks that incidental change be *disclosed*, not forbidden — a regeneration that reflowed
@@ -3220,9 +3240,9 @@ export async function publishGeneration(root, config, workflow, {
   if (artifactSet) {
     const previous = phase.artifactSet ?? null;
     const catalog = await catalogArtifactSet(root, workDirRelative(config, workflow.workItem.id), phase, artifactSet);
+    await assertRequiredArtifactSetPublishable(root, phase, catalog);
     const diff = artifactSetDiff(previous, catalog, { declared: phase.surgicalReopen?.members ?? [] });
     for (const line of disclosureLines(diff)) console.warn(`Warning: ${line}`);
-    for (const missing of catalog.missingRequired) console.warn(`Warning: artifact set '${catalog.setId}' is missing its required member ${missing}.`);
     phase.artifactSet = {
       ...catalog,
       generation: phase.generation,

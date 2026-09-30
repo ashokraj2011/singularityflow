@@ -8,14 +8,14 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   ARTIFACT_SET_SCHEMA_VERSION, artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot,
-  normalizeArtifactSet, resolvedArtifactSet
+  normalizeArtifactSet, resolvedArtifactSet, unpublishableRequiredArtifactSetMembers
 } from '../src/artifact-sets.mjs';
 import {
   advisoryTaskPath, deriveAdvisoryTasks, planSurfaces, renderAdvisoryTasks
@@ -135,9 +135,13 @@ test('a directory member is the collection, not the directory entry', async () =
   }, 'demo');
   await writeFile(path.join(root, 'work/artifacts/planning/plan.md'), '# Plan\n');
   await mkdir(path.join(root, 'work/artifacts/planning/evidence/runs'), { recursive: true });
+  const empty = await catalogArtifactSet(root, 'work', PHASE, set);
+  assert.deepEqual(empty.missingRequired, ['work/artifacts/planning/evidence/'],
+    'an empty required collection must not count as evidence');
   await writeFile(path.join(root, 'work/artifacts/planning/evidence/runs/one.txt'), 'pass\n');
 
   const before = await catalogArtifactSet(root, 'work', PHASE, set);
+  assert.deepEqual(before.missingRequired, []);
   const evidence = before.members.find((member) => member.member === 'evidence/');
   assert.equal(evidence.directory, true);
   assert.equal(evidence.files, 1);
@@ -146,6 +150,53 @@ test('a directory member is the collection, not the directory entry', async () =
   const after = await catalogArtifactSet(root, 'work', PHASE, set);
   assert.notEqual(after.bundleSha256, before.bundleSha256, 'adding evidence left the bundle unchanged');
   assert.equal(after.members.find((member) => member.member === 'evidence/').files, 2);
+});
+
+test('required members exclude ignored files and linked evidence from publishable bundles', async () => {
+  const root = await fixture('git-evidence');
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const set = normalizeArtifactSet({
+    primary: 'plan.md',
+    members: [{ path: 'plan.md', role: 'plan', required: true },
+      { path: 'evidence/', role: 'evidence', required: true }]
+  }, 'demo');
+  const folder = path.join(root, 'work/artifacts/planning');
+  await writeFile(path.join(folder, 'plan.md'), '# Plan\n');
+  await writeFile(path.join(root, '.gitignore'), '*.log\n');
+  await mkdir(path.join(folder, 'evidence'), { recursive: true });
+  await writeFile(path.join(folder, 'evidence/run.log'), 'pass\n');
+  const ignoredOnly = await catalogArtifactSet(root, 'work', PHASE, set);
+  assert.deepEqual(ignoredOnly.missingRequired, [], 'the physical file is present');
+  assert.deepEqual(await unpublishableRequiredArtifactSetMembers(root, ignoredOnly),
+    ['work/artifacts/planning/evidence/'], 'ignored-only evidence cannot reach the review commit');
+
+  await writeFile(path.join(folder, 'evidence/index.md'), '# Evidence\n');
+  const mixed = await catalogArtifactSet(root, 'work', PHASE, set);
+  assert.deepEqual(await unpublishableRequiredArtifactSetMembers(root, mixed),
+    ['work/artifacts/planning/evidence/'], 'an ignored file cannot enter the hashed bundle beside publishable evidence');
+  assert.equal(spawnSync('git', ['-C', root, 'add', '-f', 'work/artifacts/planning/evidence/run.log']).status, 0);
+  assert.deepEqual(await unpublishableRequiredArtifactSetMembers(root, mixed), [],
+    'a tracked file remains publishable even when a Git ignore rule matches it');
+  const nestedLink = path.join(folder, 'evidence/plan-link.md');
+  await symlink('../plan.md', nestedLink);
+  const linkedMember = await catalogArtifactSet(root, 'work', PHASE, set);
+  assert.deepEqual(await unpublishableRequiredArtifactSetMembers(root, linkedMember),
+    ['work/artifacts/planning/evidence/'],
+    'a nested link cannot enter a required collection without changing its catalogue hash');
+  await unlink(nestedLink);
+  await writeFile(path.join(root, '.gitignore'), '*.log\nwork/artifacts/planning/plan.md\n');
+  assert.deepEqual(await unpublishableRequiredArtifactSetMembers(root, mixed),
+    ['work/artifacts/planning/plan.md'],
+    'an ignored required primary is not publication evidence either');
+
+  const outside = await fixture('external-evidence');
+  await writeFile(path.join(outside, 'outside.md'), '# Outside\n');
+  const linked = await fixture('linked-evidence');
+  await writeFile(path.join(linked, 'work/artifacts/planning/plan.md'), '# Plan\n');
+  await symlink(outside, path.join(linked, 'work/artifacts/planning/evidence'));
+  const unsafe = await catalogArtifactSet(linked, 'work', PHASE, set);
+  assert.deepEqual(unsafe.missingRequired, ['work/artifacts/planning/evidence/'],
+    'a linked collection cannot borrow files outside the repository');
 });
 
 test('a reopen scoped to one member discloses everything else that moved', async () => {
@@ -299,10 +350,14 @@ test('publication catalogues the set and approval binds the bundle', async () =>
   assert.match(state, /bundleSha256: phase\.artifactSet\.bundleSha256/, 'no decision binds the bundle [SPK:CON-045]');
   const publish = state.slice(state.indexOf('export async function publishGeneration'), state.indexOf('export async function reconcilePhaseTelemetry'));
   assert.ok(publish.includes('catalogArtifactSet('), 'the catalogue is built outside publishGeneration');
-  assert.ok(
-    publish.indexOf('await scanArtifacts(') < publish.indexOf('catalogArtifactSet('),
-    'the set is catalogued before the artifacts are scanned, so it describes a stale bundle'
-  );
+  const scanned = publish.indexOf('await scanArtifacts(');
+  assert.ok(publish.indexOf('catalogArtifactSet(') < publish.indexOf('await preparePhaseInputs('),
+    'required members must be checked before publication writes');
+  assert.ok(scanned < publish.indexOf('const catalog = await catalogArtifactSet(', scanned),
+    'the published bundle must be catalogued after artifacts are scanned');
+  const finalCatalog = publish.indexOf('const catalog = await catalogArtifactSet(', scanned);
+  assert.ok(finalCatalog < publish.indexOf('await assertRequiredArtifactSetPublishable(root, phase, catalog);', finalCatalog),
+    'required members must be rechecked against the final post-scan catalog');
 });
 
 /**

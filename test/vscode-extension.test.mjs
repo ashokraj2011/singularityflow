@@ -3305,6 +3305,15 @@ test('a submitted Story phase appears in the same approval inbox with its exact 
   assert.deepEqual(inbox.groups.map((group) => group.phase), ['design']);
 });
 
+test('an older pinned Story never offers absent or future rejection targets', () => {
+  const shot = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  shot.workflow.phaseOrder.push('verification');
+  shot.workflow.phases.design.approvalPolicy.rejectTo = [
+    'intake', 'fix-spec', 'verification', 'design'
+  ];
+  assert.deepEqual(buildApprovals(shot).pending[0].rejectTo, ['intake', 'design']);
+});
+
 /** A snapshot with one artifact awaiting a decision under a named authority. */
 function awaiting({ authorities = ['product-approvers'], members = ['me@example.com'], actor = 'me@example.com', generatedBy = null, chain = null, gateErrors = [] } = {}) {
   const shot = structuredClone(snapshot);

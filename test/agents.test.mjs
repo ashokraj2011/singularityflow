@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -29,6 +29,17 @@ import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
+
+test('seeded native phase agents can run governed commands and author artifacts', async () => {
+  const directory = path.join(packageRoot, 'templates/agents');
+  for (const filename of (await readdir(directory)).filter((name) => name.endsWith('.agent.md'))) {
+    const markdown = await readFile(path.join(directory, filename), 'utf8');
+    const frontmatter = YAML.parse(markdown.match(/^---\n([\s\S]*?)\n---/u)?.[1] ?? '');
+    for (const tool of ['bash', 'edit']) {
+      assert.ok(frontmatter.tools?.includes(tool), `${filename} cannot ${tool === 'bash' ? 'run CLI commands' : 'author its phase artifact'}`);
+    }
+  }
+});
 
 test('packaged agents may advertise optional phases absent from an older workflow-v2 repository', () => {
   const definition = {

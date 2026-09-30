@@ -16,6 +16,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -122,6 +123,10 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   const workflowPath = path.join(seed, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.approvalSecurity = { profile: 'poc' };
+  // This scenario intentionally publishes one unimplemented requirement, then discovers it in
+  // convergence and sends it back for rework. Disable the source-witness gate for this fixture;
+  // sourceBindings=enforce correctly refuses such an incomplete implementation at publication.
+  workflow.codeDelivery.traceability.sourceBindings = 'off';
   // Exercise the complete convergence rework transaction with ledger intent persistence enabled.
   // The intent is written after lifecycle state, so this catches a post-state guard that captures
   // too early and then mistakes the transaction's own ledger file for concurrent user change.
@@ -274,7 +279,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   // ---- implementation: source and artifact, one requirement deliberately unclaimed --------------
   sflow(root, ['prepare', 'implementation']);
-  await write(root, 'src/payments/retry.ts', 'export function retry() { return { attempt: 1 }; }\n');
+  await write(root, 'src/payments/retry.ts', '// @clause:E2E:REQ-001\nexport function retry() { return { attempt: 1 }; }\n');
   await write(root, 'tests/payments-retry.test.mjs', [
     "import assert from 'node:assert/strict';",
     "import test from 'node:test';",
@@ -377,7 +382,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   // ---- implementation, generation two ------------------------------------------------------------
   sflow(root, ['prepare', 'implementation']);
-  await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\nexport function append(attempt) { return [...attempts, attempt]; }\n');
+  await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\n// @clause:E2E:REQ-002\nexport function append(attempt) { return [...attempts, attempt]; }\n');
   await write(root, 'tests/payments-attempts.test.mjs', [
     "import assert from 'node:assert/strict';",
     "import test from 'node:test';",
@@ -494,6 +499,25 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   sflow(root, ['spec', 'tasks']);
   await completePhase(root, 'planning');
   sflow(root, ['prepare', 'implementation']);
+  // The amended operator-only requirement needs a fresh source/test witness in this generation;
+  // merely republishing the prior summary would correctly leave the amended clause partial.
+  await write(root, 'src/payments/retry.ts', [
+    '// @clause:E2E:REQ-001',
+    "export function retry(role = 'operator') {",
+    "  if (role !== 'operator') throw new Error('payments operator required');",
+    '  return { attempt: 1 };',
+    '}', ''
+  ].join('\n'));
+  await write(root, 'tests/payments-retry.test.mjs', [
+    "import assert from 'node:assert/strict';",
+    "import { readFileSync } from 'node:fs';",
+    "import test from 'node:test';", '',
+    '/** @ac:E2E:AC-001 */',
+    "test('operator-only retry contract is present', () => {",
+    "  const source = readFileSync(new URL('../src/payments/retry.ts', import.meta.url), 'utf8');",
+    "  assert.match(source, /payments operator required/);",
+    '});', ''
+  ].join('\n'));
   await completePhase(root, 'implementation');
 
   const third = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
@@ -635,9 +659,22 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     'Approved intent traces to executed evidence for both requirements, through two convergence',
     'iterations and one governed rework.', '',
     '## Clause coverage', '',
-    '- [E2E:REQ-001] — implemented in `src/payments/retry.ts`, verified.',
-    '- [E2E:REQ-002] — implemented in `src/payments/attempts.ts`, verified.', '',
+    '| Clause | Evidence | Verdict |',
+    '|---|---|---|',
+    '| `E2E:REQ-001` | `src/payments/retry.ts` and approved Verification | matched |',
+    '| `E2E:REQ-002` | `src/payments/attempts.ts` and approved Verification | matched |', '',
     '## Deviations', '', 'None outstanding.', ''
+  ].join('\n'));
+  const verified = await workflowOf(root);
+  const evidencePath = `singularity/work-items/${WORK}/artifacts/verification/test-evidence.md`;
+  const evidenceBytes = await readFile(path.join(root, evidencePath));
+  const evidenceHash = createHash('sha256').update(evidenceBytes).digest('hex');
+  await write(root, `singularity/work-items/${WORK}/artifacts/release/verification/evidence-index.md`, [
+    '# Approved verification evidence', '',
+    `Verification generation: ${verified.phases.verification.generation}`,
+    `Source: \`${evidencePath}\``,
+    `SHA-256: \`${evidenceHash}\``,
+    'Observed result: both requirements passed the recorded local checks.', ''
   ].join('\n'));
   await completePhase(root, 'release');
 

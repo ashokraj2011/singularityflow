@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 13
+version: 14
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -58,8 +58,10 @@ select it, its structured result adapter, and host launcher availability without
 `singularity-flow precheck --run --scope dependency-test --json` and confirm its exact `planId` to
 restore locked dependencies and run the existing unit suite. `--scope full` adds the broader
 build, quality, verification, and application start checks when the workflow requires them. A
-repository can make the passing receipt mandatory by approving
-`repositoryReadiness.requiredBeforeStory: true`; existing policies are not silently changed.
+newly initialized repository requires an exact-base readiness receipt before Story start by
+default (`repositoryReadiness.requiredBeforeStory: true`). Older approved policies that omit the
+setting remain compatible and are not silently changed; their owners can opt in through a
+reviewed configuration change.
 
 A confirmed run that encounters an existing failure writes a Git-private
 `repository-test-baseline` record. The record contains the exact base commit, manifest and plan
@@ -69,13 +71,17 @@ After a confirmed, structured test failure, the runner collects the remaining se
 commands so the baseline does not hide another failing suite; it does not proceed to application
 start. Missing structured results remain explicitly unavailable. Review this baseline before feature
 coding and fix the failing tests as separate setup or Bug work. When a complete, unchanged
-dependency/test baseline contains unambiguous JUnit, Jest, or Vitest failure identities, run
+dependency/test baseline contains unambiguous JUnit, Jest, Vitest, or Node TAP failure identities, run
 `singularity-flow precheck --risk-status --json` to inspect eligibility. The exact human reviewer
 may then record a local acknowledgement using `singularity-flow precheck --accept-test-risk
 --confirm-baseline sha256:<DIGEST> --reason "..." --expires <ISO-8601> --json`. The decision is
-Git-private, bound to the exact command and base, and expires within 30 days. It is **not** an
-authenticated approval, a passing test receipt, or a Story-start/publication waiver; those gates
-continue to require passing proof until a separate governed authority binds an approved exception.
+Git-private, bound to the exact command and base, and expires within 30 days. An eligible,
+unchanged decision can permit Story creation with the observed failures shown separately in the
+Story readiness document. It is **not** a passing test receipt or a publication waiver; later
+phase checks still require passing proof. Missing reports, changed failures, and failed dependency
+restoration cannot be accepted through this route. Story creation records the baseline and
+acceptance digests, status, expiry, and failing testcase identities on its branch; the free-text
+risk rationale remains in the machine-local Git-private decision.
 
 Story start includes one shared, read-only readiness check in the CLI, Copilot flow, and VS Code preview. Workflow choices come from the exact selected base (or the approved shared configuration), not from whichever branch happened to launch the form. Selecting another base refreshes the workflow catalog; a workflow absent from that base is cleared and must be chosen again. After the operator selects a base and workflow, readiness proves all of the following before a Story branch, approval-membership change, checkout, commit, or push is allowed:
 

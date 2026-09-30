@@ -609,6 +609,19 @@ export async function storyFetchCommand(positionals, options) {
     const repositoryReadiness = readinessBase ? await collectRepositoryReadinessEvidence([{
       id: 'lifecycle', root: target, baseCommit: readinessBase
     }], { scope: requiredRepositoryReadinessScope(config) }) : null;
+    // `story fetch` is already checked out at the published Story seed, not its parent base.
+    // A local accepted failure needs a fresh plan check on that exact base before Story state is
+    // created. Normal Story start performs that recheck after checkout; this route cannot, so
+    // refuse the narrow exception rather than treating provisional evidence as final.
+    if (readinessRequired && repositoryReadiness?.repositories?.lifecycle?.status
+        === 'accepted-known-failures' && head(target) !== readinessBase) {
+      throw new SingularityFlowError(
+        'This fetched Story seed cannot recheck its accepted failing-test baseline on the exact parent base. '
+        + 'No workflow was created. Repair the base tests and refresh the Story seed, or use Story start '
+        + 'from a verified base checkout that can recheck the acceptance before creating Story state.',
+        { code: 'STORY_REPOSITORY_READINESS_REQUIRED' }
+      );
+    }
     if (readinessRequired) assertStoryStartReady(inspectStoryStartReadiness({
       workId: storyKey, definition: config, workType,
       baseBranch: seed.story.parentBranch ?? repository.defaultBranch,

@@ -352,14 +352,27 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
     { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED', details: { phase: 'implementation' } }
   ), ['phase', 'publish', 'implementation']);
   assert.equal(missing.steps[0].command,
-    'singularity-flow product status --json');
-  assert.equal(missing.steps[0].skill, '/sf-product');
+    'singularity-flow phase show implementation --json');
+  assert.equal(missing.steps[0].skill, '/sf-code');
   assert.equal(missing.steps[1].command, null);
-  assert.match(missing.steps[1].label, /Refreshing sflow\/config changes future Stories only/);
-  assert.match(missing.retry.label, /Do not retry publication until the runtime gains native support/);
-  assert.equal(missing.context.strategy, 'pinned-test-policy-prerequisite');
+  assert.match(missing.steps[1].label, /in-scope test script or runner declaration/);
+  assert.equal(missing.steps[2].command,
+    'singularity-flow phase prepublish implementation --json');
+  assert.match(missing.retry.label, /in-scope repository runner repair/);
   assert.equal(missing.retry.command, null);
-  assert.doesNotMatch(JSON.stringify(missing), /workflow validate|refresh it, then resume this same phase/);
+  assert.doesNotMatch(JSON.stringify(missing), /workflow validate|refresh it, then resume this same phase|phase publish implementation/);
+
+  const malformed = refusalRemediationPlan(Object.assign(
+    new Error('Configured structured test command is malformed.'),
+    { code: 'CODE_TEST_RESULT_REQUIRED', details: {
+      phase: 'implementation', configurationDependency: true
+    } }
+  ), ['phase', 'publish', 'implementation']);
+  assert.equal(malformed.context.strategy, 'pinned-test-policy-prerequisite');
+  assert.equal(malformed.steps[0].command, 'singularity-flow recover --json');
+  assert.equal(malformed.steps[1].command, null);
+  assert.match(malformed.steps[1].label, /No governed same-Story test-policy amendment/);
+  assert.equal(malformed.retry.command, null);
 
   const protectedPath = refusalRemediationPlan(Object.assign(
     new Error('Generation cannot modify protected process paths.'),

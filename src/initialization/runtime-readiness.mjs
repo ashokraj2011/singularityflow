@@ -13,6 +13,10 @@ import { resolvePlatformProcess } from '../platform-process.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import {
+  assessPreStoryRiskForStoryStart, assessPreStoryTestBaseline,
+  listPreStoryTestRiskAcceptances
+} from '../test-baseline-risk.mjs';
+import {
   ensureSecureRepositoryDirectory, secureRepositoryPath,
   signalProcessTree, SingularityFlowError, run
 } from '../util.mjs';
@@ -907,6 +911,19 @@ export async function loadRepositoryTestBaseline(root, {
   }
 }
 
+async function loadSupersedingTestBaseline(root, {
+  commit, platform, arch, scope
+}) {
+  const candidateScopes = scope === 'full' ? ['full', 'dependency-test'] : ['dependency-test'];
+  for (const candidateScope of candidateScopes) {
+    const loaded = await loadRepositoryTestBaseline(root, {
+      commit, platform, arch, scope: candidateScope
+    });
+    if (loaded) return loaded;
+  }
+  return null;
+}
+
 async function writeReceipt(root, receipt) {
   const directory = receiptDirectory(root);
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -983,6 +1000,14 @@ export async function executeRepositoryReadinessPlan(root, {
     };
     const testBaseline = { ...core, baselineSha256: digest(core) };
     const baselineFile = await writeTestBaseline(root, testBaseline);
+    // A failed rerun supersedes any older pass for this exact base. A narrow test failure also
+    // invalidates a previous full-scope pass because that broader receipt claimed these tests
+    // passed. Keep the failed baseline durable before removing the old passing evidence.
+    await rm(receiptFile(root, plan.sourceCommit, plan.platform, plan.arch, plan.scope), {
+      force: true
+    });
+    if (plan.scope === 'dependency-test') await rm(receiptFile(root, plan.sourceCommit,
+      plan.platform, plan.arch, 'full'), { force: true });
     throw new SingularityFlowError(
       `Repository readiness command '${failedCommand.id}' failed.`,
       {
@@ -1072,6 +1097,13 @@ export async function executeRepositoryReadinessPlan(root, {
   };
   const receipt = { ...core, receiptSha256: digest(core) };
   const file = await writeReceipt(root, receipt);
+  // A later successful run supersedes a failed baseline for the same immutable base. Keep the
+  // passing receipt durable before clearing the older failure, so an interrupted write cannot
+  // accidentally turn a failed run into a pass. Full readiness also covers the narrow test scope.
+  await rm(testBaselineFile(root, receipt.sourceCommit, receipt.platform, receipt.arch,
+    receipt.scope), { force: true });
+  if (receipt.scope === 'full') await rm(testBaselineFile(root, receipt.sourceCommit,
+    receipt.platform, receipt.arch, 'dependency-test'), { force: true });
   return { plan, receipt, file };
 }
 
@@ -1146,6 +1178,9 @@ export async function inspectRepositoryReadinessReceipt(root, {
   if (receipt.status !== 'pass') reasons.push('receipt-not-passing');
   if (receipt.sourceCommit !== commit) reasons.push('commit-mismatch');
   if (receipt.platform !== platform || receipt.arch !== arch) reasons.push('runtime-mismatch');
+  if (await loadSupersedingTestBaseline(root, {
+    commit, platform, arch, scope: requestedScope
+  })) reasons.push('failed-baseline-supersedes-receipt');
   let expectedManifest = sourceManifestSha256;
   let expectedPlanId = null;
   if (recompute) {
@@ -1187,6 +1222,7 @@ export async function inspectRepositoryReadinessReceipt(root, {
 export async function hydrateRepositoryDependencies(root, {
   commit = head(root),
   required = false,
+  allowAcceptedBaseline = false,
   runCommand = defaultRunCommand,
   environment = process.env,
   signal = null,
@@ -1205,10 +1241,31 @@ export async function hydrateRepositoryDependencies(root, {
     { code: 'REPOSITORY_READINESS_HYDRATION_COMMIT_MISMATCH' }
   );
   const requestedScope = readinessScope(scope);
-  const loaded = await loadRepositoryReadinessReceipt(root, {
+  const observed = await loadSupersedingTestBaseline(root, {
+    commit, platform, arch, scope: requestedScope
+  });
+  let acceptedBaseline = null;
+  if (observed && allowAcceptedBaseline && requestedScope === 'dependency-test') {
+    if (assessPreStoryTestBaseline(observed.baseline).eligible) {
+      const decisions = await listPreStoryTestRiskAcceptances(root, observed.baseline);
+      const accepted = decisions.find(({ acceptance }) => assessPreStoryRiskForStoryStart(
+        acceptance, observed.baseline, { baseCommit: commit }
+      ).accepted);
+      if (accepted) acceptedBaseline = observed.baseline;
+    }
+  }
+  if (observed && !acceptedBaseline) throw new SingularityFlowError(
+    'The failed repository-readiness baseline supersedes an earlier passing receipt.',
+    { code: 'REPOSITORY_READINESS_ACCEPTED_BASELINE_REQUIRED' }
+  );
+  const loaded = acceptedBaseline ? null : await loadRepositoryReadinessReceipt(root, {
     commit, platform, arch, scope: requestedScope, allowFullFallback
   });
-  if (!loaded) {
+  if (!loaded && !acceptedBaseline) {
+    if (allowAcceptedBaseline) throw new SingularityFlowError(
+      'The accepted failing-test baseline is no longer valid for this exact Story base.',
+      { code: 'REPOSITORY_READINESS_ACCEPTED_BASELINE_REQUIRED' }
+    );
     if (required) throw new SingularityFlowError(
       `Dependency hydration requires a passing repository-readiness receipt for ${commit}.`,
       { code: 'REPOSITORY_READINESS_RECEIPT_REQUIRED' }
@@ -1218,9 +1275,9 @@ export async function hydrateRepositoryDependencies(root, {
       planId: null, commandResults: []
     };
   }
-  const { receipt } = loaded;
+  const receipt = loaded?.receipt ?? acceptedBaseline;
   const receiptScope = recordedReceiptScope(receipt);
-  if (receipt.status !== 'pass') throw new SingularityFlowError(
+  if (receipt.status !== 'pass' && receipt !== acceptedBaseline) throw new SingularityFlowError(
     'Dependency hydration requires a passing repository-readiness receipt.',
     { code: 'REPOSITORY_READINESS_RECEIPT_NOT_PASSING' }
   );
@@ -1253,6 +1310,14 @@ export async function hydrateRepositoryDependencies(root, {
     { code: 'REPOSITORY_READINESS_PLAN_BLOCKED', details: { blockers: plan.blockers } }
   );
   const commands = plan.commands.filter((command) => command.purpose === 'dependency');
+  if (acceptedBaseline && commands.some((command) =>
+    acceptedBaseline.commandResults.filter((entry) => entry.id === command.id
+      && entry.purpose === 'dependency' && entry.status === 'pass').length !== 1)) {
+    throw new SingularityFlowError(
+      'The failing-test baseline did not prove every selected dependency command passed.',
+      { code: 'REPOSITORY_READINESS_ACCEPTED_BASELINE_INCOMPLETE' }
+    );
+  }
   if (!commands.length) {
     if (required) throw new SingularityFlowError(
       'Dependency hydration is required, but the exact readiness plan has no dependency command.',
@@ -1311,6 +1376,7 @@ export async function hydrateRepositoryDependencies(root, {
     reason: null,
     sourceCommit: commit,
     planId: plan.planId,
+    ...(acceptedBaseline ? { sourceEvidence: 'accepted-known-failures' } : {}),
     commandResults
   };
 }

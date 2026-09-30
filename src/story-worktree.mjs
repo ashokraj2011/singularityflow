@@ -338,7 +338,12 @@ export function storyWorktreeChanges(repositoryPath) {
  * Roll back only an unpublished launch. A durable workflow or remote Story ref is never removed;
  * the recovery path returns its exact worktree path instead.
  */
-export function rollbackStoryWorktree(prepared) {
+export function rollbackStoryWorktree(prepared, {
+  removeWorktree = (root, repositoryPath) => run('git', [
+    'worktree', 'remove', '--', repositoryPath
+  ], { cwd: root, allowFailure: true }),
+  waitForRetry = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+} = {}) {
   const root = prepared.sourceRepository;
   const id = prepared.workId;
   const workflowAtBranch = durableStoryWorkflowOnBranch(root, id);
@@ -370,9 +375,21 @@ export function rollbackStoryWorktree(prepared) {
     };
   }
   // Git performs its own final dirty check, closing the gap between our read and removal.
-  const removed = run('git', ['worktree', 'remove', '--', prepared.repositoryPath], {
-    cwd: root, allowFailure: true
-  });
+  let removed = removeWorktree(root, prepared.repositoryPath);
+  const removalError = () => removed.stderr || removed.stdout || '';
+  // Windows file-indexers and virus scanners can briefly hold a newly created checkout open.
+  // Retry only a recognizable lock/permission failure, once, after checking that the exact
+  // checkout still exists and remains clean. Never force-remove a worktree or discard changes.
+  if (removed.status !== 0 && /\b(?:EBUSY|EPERM|EACCES|resource busy|permission denied|access is denied|file in use)\b/iu.test(removalError())) {
+    const stillClean = storyWorktreeChanges(prepared.repositoryPath);
+    if (!stillClean.clean) return {
+      removed: false, retained: true, repositoryPath: prepared.repositoryPath,
+      reason: 'worktree-changes', changedPaths: stillClean.changedPaths,
+      changedEntries: stillClean.entries
+    };
+    waitForRetry();
+    removed = removeWorktree(root, prepared.repositoryPath);
+  }
   if (removed.status !== 0 && !/not a working tree|does not exist/i.test(removed.stderr || removed.stdout)) {
     throw new SingularityFlowError(
       `Story start failed and its isolated checkout could not be removed: ${(removed.stderr || removed.stdout).trim()}`,

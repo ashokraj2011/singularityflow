@@ -338,6 +338,8 @@ export async function startStory(root, {
   let legacyCapabilityEvidence = null;
   let startReadiness = null;
   let repositoryReadiness = null;
+  let repositoryReadinessScope = null;
+  let publishRequired = true;
   let readinessRepositories = [];
   let startJournal = null;
   let configurationSnapshot = null;
@@ -435,7 +437,7 @@ export async function startStory(root, {
       allowedMimeTypes: Object.hasOwn(capabilityPolicy, 'allowedMimeTypes')
         ? capabilityPolicy.allowedMimeTypes : null
     });
-    const publishRequired = (initialDefinition.git?.publish ?? 'required') !== 'off';
+    publishRequired = (initialDefinition.git?.publish ?? 'required') !== 'off';
     capabilityPreflight = storyBase.scope === 'capability'
       ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, id, {
           remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
@@ -524,11 +526,12 @@ export async function startStory(root, {
       destinationRef: `refs/heads/${id}`,
       publishRequired
     }];
+    repositoryReadinessScope = requiredRepositoryReadinessScope(initialDefinition);
     repositoryReadiness = await collectRepositoryReadinessEvidence(
       capabilityPreflight?.map((entry) => ({
         id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
       })) ?? [{ id: 'lifecycle', root, baseCommit }],
-      { scope: requiredRepositoryReadinessScope(initialDefinition) }
+      { scope: repositoryReadinessScope }
     );
     startReadiness = inspectStoryStartReadiness({
       workId: id,
@@ -659,6 +662,30 @@ export async function startStory(root, {
         stage: 'siblings-prepared', capabilityRepositoriesPrepared
       });
     }
+    // The remote-base preview may have been gathered from another checkout. With every Story
+    // checkout now at its selected base, re-evaluate accepted failures against the current
+    // detector and runner before any governed configuration or Story state is written. The
+    // enclosing start journal restores these checkouts if this final proof refuses.
+    repositoryReadinessScope = requiredRepositoryReadinessScope(initialDefinition);
+    repositoryReadiness = await collectRepositoryReadinessEvidence(
+      capabilityPreflight?.map((entry) => ({
+        id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
+      })) ?? [{ id: 'lifecycle', root, baseCommit }],
+      { scope: repositoryReadinessScope }
+    );
+    startReadiness = inspectStoryStartReadiness({
+      workId: id,
+      definition: initialDefinition,
+      configurationSnapshot: approvedConfigurationSnapshot,
+      workType,
+      capabilityId: selectedCapabilityId,
+      baseBranch: storyBase.localBase,
+      repositories: readinessRepositories,
+      repositoryReadiness,
+      publicationRequired: publishRequired,
+      surface: 'programmatic'
+    });
+    assertStoryStartReady(startReadiness);
     if (configurationAuthority) {
       const configurationRestorePoint = await captureConfigurationState(root);
       await updateStoryStartJournal(root, id, startJournal.transactionId, {
@@ -678,11 +705,36 @@ export async function startStory(root, {
   // pinned phase graph, agents, templates, and world-model policy came from stale local main.
   const definition = await loadDefinition(root);
   validateId(definition, id);
+  if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
+  const resolved = assertPlannedClaimsReady(resolveWorkType(definition, workType));
+  if (!existed) {
+    const selectedScope = requiredRepositoryReadinessScope(definition);
+    if (selectedScope !== repositoryReadinessScope) {
+      repositoryReadiness = await collectRepositoryReadinessEvidence(
+        capabilityPreflight?.map((entry) => ({
+          id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
+        })) ?? [{ id: 'lifecycle', root, baseCommit }],
+        { scope: selectedScope }
+      );
+      repositoryReadinessScope = selectedScope;
+    }
+    startReadiness = inspectStoryStartReadiness({
+      workId: id,
+      definition,
+      configurationSnapshot: approvedConfigurationSnapshot,
+      workType,
+      capabilityId: capabilityId ?? storyBase?.capability ?? null,
+      baseBranch: storyBase.localBase,
+      repositories: readinessRepositories,
+      repositoryReadiness,
+      publicationRequired: publishRequired,
+      surface: 'programmatic'
+    });
+    assertStoryStartReady(startReadiness);
+  }
   if (startJournal) await updateStoryStartJournal(root, id, startJournal.transactionId, {
     stage: 'configuration-ready', workItemRelative: workDirRelative(definition, id)
   });
-  if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
-  const resolved = assertPlannedClaimsReady(resolveWorkType(definition, workType));
   const targetOrigin = normalizeMcpTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, {
     required: !existed && workType === 'poc-workflow',
     label: 'POC target URL'

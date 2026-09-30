@@ -1566,16 +1566,16 @@ test('recovery reports an unsupported native test runner before publication is a
   assert.ok(blocker, 'recovery hid the unsupported structured-test runner until publication');
   assert.match(blocker.details.message, /Do not edit protected workflow configuration/);
   assert.deepEqual(blocker.details.recoveryBoundary, {
-    kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
-    retryRequiresChangedRuntimeOrPolicy: true
+    kind: 'repository-test-runner', currentStoryConfigurationRefresh: false,
+    retryRequiresChangedRuntimeOrPolicy: true, inScopeRepositoryRepair: true
   });
   const action = plan.actions.find((entry) =>
-    entry.id === 'resolve-code-delivery-test-policy:implementation');
-  assert.equal(action?.mode, 'manual');
-  assert.equal(action?.command, 'singularity-flow product status --json');
-  assert.equal(action?.skill, '/sf-product');
-  assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-product');
-  assert.match(action.detail, /refreshing sflow\/config affects future Stories only/);
+    entry.id === 'repair-repository-test-runner:implementation');
+  assert.equal(action?.mode, 'guided');
+  assert.equal(action?.command, 'singularity-flow phase show implementation --json');
+  assert.equal(action?.skill, '/sf-code');
+  assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-code');
+  assert.match(action.detail, /repository-owned test script/);
   assert.doesNotMatch(action.detail, /refresh it, then resume this same phase/);
   const unchanged = await recoveryPlan(context.root, context.config, context.workflow, {
     phaseId: 'implementation'
@@ -1584,6 +1584,26 @@ test('recovery reports an unsupported native test runner before publication is a
   assert.equal(unchanged.actions.some((entry) => entry.automatic), false);
   assert.equal(context.phase.generation, 0);
   assert.equal(context.phase.generationIntent.status, 'open');
+
+  // The pinned Story policy stays byte-identical. An ordinary, in-scope repository manifest
+  // repair can nevertheless make its native runner discoverable for this same Story.
+  const pinnedResolution = JSON.stringify(context.workflow.resolution);
+  await writeFile(path.join(context.root, 'package.json'), `${JSON.stringify({
+    name: 'delivery-fixture', private: true,
+    scripts: { test: 'ng test' }, devDependencies: { karma: '6.4.0' }
+  }, null, 2)}\n`);
+  const repaired = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  assert.equal(repaired.blockers.some((entry) =>
+    entry.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'), false);
+  assert.equal(repaired.actions.some((entry) =>
+    entry.id === 'repair-repository-test-runner:implementation'), false);
+  const repairedPrepublish = await phasePrepublish(context.root, context.config, context.workflow,
+    context.phase, { session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' } });
+  assert.equal(repairedPrepublish.testExecution.commands.some((entry) =>
+    entry.result.adapter === 'karma-text'), true);
+  assert.equal(JSON.stringify(context.workflow.resolution), pinnedResolution);
 });
 
 test('prepublish keeps a complete code draft red when its repository test contract is unsupported', async (t) => {
@@ -1604,8 +1624,8 @@ test('prepublish keeps a complete code draft red when its repository test contra
   assert.equal(checked.readiness.knownRecoveryBlockers, false);
   assert.equal(checked.commands.publish, null);
   assert.ok(checked.findings.some((finding) => finding.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'));
-  assert.equal(checked.correction.skill, '/sf-product');
-  assert.equal(checked.commands.next, 'singularity-flow product status --json');
+  assert.equal(checked.correction.skill, '/sf-code');
+  assert.equal(checked.commands.next, 'singularity-flow phase show implementation --json');
   assert.equal(checked.correction.sameTurn, false);
   assert.equal(checked.mutates, false);
 });

@@ -1829,7 +1829,7 @@ argument-hint: &quot;&lt;PATH&gt; --approver &lt;GROUP&gt;&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1092 body tokens</span>
+          <span class="pill">~1119 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -1856,13 +1856,13 @@ argument-hint: &quot;[code-generation focus]&quot;
 **Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
 
 1. `singularity-flow session current --json`: require `ready: true`, `workId`, `repositoryPath`, `phase`, `phaseAgent.valid: true`. `singularity-flow status --json`: match workId/currentPhase; require `phases[&lt;phase&gt;].generationPolicy.task: code` or legacy `implementation-summary` without task. Keep Story context governed.
-2. `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`: inspect `requiresRecovery`, `blockers[]`, action IDs/modes. `phaseRepairRequired`/`working-tree` alone is no stop. For `current-phase-review-required` or dirty code, run `git status --porcelain=v1 --untracked-files=all`; inspect staged/unstaged diffs and untracked content including `workflow.json`. In-scope application and test edits are not a reason to clean or reset the worktree. Verify code phase/pinned scope; intent must be open/current if present, else step 5 begins it. Allow owned in-phase `prepare-artifact`, `complete-artifact`, `repair-agent-brief-source`, `complete-code-delivery`; route others. Stop for protected/unrelated/unowned changes, other manual/producer actions or `requiresRecovery: true`. `generation.intent.consumed-changed` goes to `/sf-recover`, never `/sf-code` or waiver. Follow `resolve-code-delivery-test-policy` once; config refresh does not change this Story&#39;s pin.
-3. `singularity-flow wm compose --phase &lt;phase&gt;` if needed.
+2. `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;phase&gt; --json`: inspect `requiresRecovery`, `blockers[]`, action IDs/modes. `phaseRepairRequired`/`working-tree` alone is no stop. For `current-phase-review-required` or dirty code, run `git status --porcelain=v1 --untracked-files=all`; inspect staged/unstaged diffs and untracked content including `workflow.json`. In-scope application and test edits are not a reason to clean or reset the worktree. Verify code phase/pinned scope; intent must be open/current if present, else step 5 begins it. Allow owned in-phase `prepare-artifact`, `complete-artifact`, `repair-agent-brief-source`, `complete-code-delivery`, and `repair-repository-test-runner` only when its sole blocker is `CODE_DELIVERY_TEST_COMMAND_REQUIRED` and runner repair is in source scope. Recheck after repair. Stop for protected/unrelated/unowned changes, other manual/producer actions or `requiresRecovery: true` except runner repair. `generation.intent.consumed-changed` goes to `/sf-recover`, never `/sf-code` or waiver. For `resolve-code-delivery-test-policy`, config refresh affects future Stories only.
+3. `singularity-flow wm compose --phase &lt;phase&gt;`.
 4. `singularity-flow clarification status &lt;phase&gt; --json`: For `off`, do not ask or record; continue. For `when-needed`, ask and record only for material ambiguity; otherwise continue. For `required`, `ask_user`, wait, record before mutation; stop if unavailable. Stage only `{&quot;responses&quot;:[...]}` at `git rev-parse --git-path singularity-flow/clarification-responses/&lt;phase&gt;.json`; never at `singularity/work-items/**/context/clarifications-*.json`. Delete on success; never pass Markdown.
-5. `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`: use `localPath`; materialize missing; refuse invalid/dirty. `singularity-flow revision status --json`.
-6. Implement code/tests; README cannot replace them. Doc-comment public APIs; tags are not docs. Exclude fixtures/docs/deletions/symlinks. In the planned product-source path put `// @clause:ORDER:REQ-001` (`REQ|BEH|IFC|AC|CON`); in executable tests put `// @ac:ORDER:AC-001`. Honor pinned test-only planned-claims opt-outs.
-7. Run tests; publication deterministically infers supported structured runners: argv `kind: test`, cwd, roots, adapter; no skip/list/dry-run/no-tests. Compare its argv/report with manual tests. Never edit `singularity/workflow.yml`, protected/pinned paths, disable Git hooks, or add a one-off test-result wrapper merely to satisfy publication. Updated runtime may support this phase; approved configuration changes affect future Stories only. No current-Story route: report blocker; stop.
-8. Run `singularity-flow phase draft-check &lt;phase&gt; --json` and `singularity-flow phase prepublish &lt;phase&gt; --json`. Correct every structured agent authoring finding in this Copilot turn; at most three changed fingerprints. Initial template is baseline; stop on an unchanged fingerprint only after correction. If blocking finding code and source code remain unchanged, stop this attempt despite other draft changes. Honor `correction.class`/`sameTurn`; never blindly delete markers, invent facts, use padding, invoke a nested model, or overwrite another producer. `prepublish: ready` does not mean tests passed.
+5. `singularity-flow story references verify --work-id &lt;WORK-ID&gt; --json`: use `localPath`; refuse invalid/dirty. Check `singularity-flow revision status --json`.
+6. Implement code/tests; README cannot replace them. Doc-comment APIs; tags are not docs. Exclude fixtures/docs/deletions/symlinks. In the planned product-source path put `// @clause:ORDER:REQ-001` (`REQ|BEH|IFC|AC|CON`); in executable tests put `// @ac:ORDER:AC-001`. Honor pinned test-only planned-claims opt-outs.
+7. Run tests; publication deterministically infers supported structured runners: test argv, cwd, roots, adapter; no skip/list/dry-run/no-tests. Compare its argv/report with manual tests. Never edit `singularity/workflow.yml`, protected/pinned paths, disable Git hooks, or add a one-off test-result wrapper merely to satisfy publication. In-scope runner declarations may repair missing inference. A malformed pin cannot; approved configuration changes affect future Stories only.
+8. Run `singularity-flow phase draft-check &lt;phase&gt; --json` and `singularity-flow phase prepublish &lt;phase&gt; --json`. Correct every structured agent authoring finding in this Copilot turn; at most three changed fingerprints. Initial template is baseline; stop on an unchanged fingerprint only after correction. If blocking finding code and source code remain unchanged, stop this attempt despite other changes. Honor `correction.class`/`sameTurn`; never blindly delete markers, invent facts, use padding, invoke a nested model, or overwrite another producer. `prepublish: ready` does not mean tests passed.
 9. Publish once only if prepublish `status` is `ready`, with configured producer/channel. On test refusal, `.-maven-tests` is an ID, not a shell command: report argv/cwd/exit/report from `--json`; recover/stop. Pre-mutation failure keeps the open intent; retry after repair only when blocker changed. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once; never create a publication retry loop/submit/approve.
 10. `singularity-flow phase show &lt;phase&gt; --json` is artifact review, not readiness or task policy; bounded preview, hash-bound references; stop.
 </code></pre>
@@ -6807,7 +6807,7 @@ access, and no model is invoked.
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~800 body tokens</span>
+          <span class="pill">~735 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-ready</code></dd></div>
@@ -6838,31 +6838,29 @@ global tools, record secrets, or enter a Story worktree. Build, quality, applica
 end-to-end are forbidden unless `--full` and approved policy permit them.
 
 1. Require exact Git root/clean tree. Run `singularity-flow init --check --json`, then `singularity-flow precheck --quick --json`.
-   Report `testTools`, adapter, launcher availability. Missing runner is setup; `/sf-init` repairs
-   packaged assets without erasing customization.
-2. Select `dependency-test` unless `--full` is requested. Run `singularity-flow precheck --run --scope &lt;SCOPE&gt; --json` once for its plan only. Show base, manifest digest, locked dependencies or frozen restore,
-   test commands, structured test adapter, timeouts, omissions, scope, `planId`. Narrow scope
-   excludes build/start/end-to-end.
+   Report test tools, adapters, and launcher availability.
+2. Select `dependency-test` unless `--full` is requested. Run
+   `singularity-flow precheck --run --scope &lt;SCOPE&gt; --json` once for its plan only. Show base,
+   manifest digest, locked dependencies or frozen restore, test commands, structured test adapter,
+   timeouts, omissions, and `planId`. For blockers, do not confirm or repeat
+   the plan. Use `singularity-flow precheck --quick --json` to identify the native script,
+   package-manager ambiguity, or missing reporter; offer the smallest reviewed setup repair.
 3. Use `ask_user` to confirm the exact `planId`; otherwise stop with Copilot `/sf-ready` and Shell
    `singularity-flow precheck --run --scope &lt;SCOPE&gt; --confirm-plan &lt;PLAN-ID&gt; --json`. Execute once.
-4. Report results/Git-private receipt. On failure report separate baseline/hash: exact base/plan,
-   exit, report digest, testcase IDs. Missing reports stay unavailable. Never commit local
-   dependency directories, build output, test reports, or receipts.
-5. Classify: **local-only** package/cache restore; **committable setup** manifest/lock/wrapper,
-   runner/reporter, or headless unit config; **existing test failure** exact baseline and repair
-   before feature coding. An existing unit failure needs a separate Bug-fix Story if not setup;
-   never mask it. For an unchanged JUnit/Jest/Vitest baseline, offer
-   read-only `singularity-flow precheck --risk-status --json`. If the user explicitly chooses a
-   local acknowledgement, require exact baseline digest, reason, expiry (within 30 days)
-   with `singularity-flow precheck --accept-test-risk --confirm-baseline &lt;SHA256&gt; --reason &lt;TEXT&gt;
-   --expires &lt;ISO-8601&gt; --json`. This Git-private record is not authenticated approval and changes
-   no Story-start/publication gate. Failed is not passed; never silently skip tests or claim this
-   unblocks a workflow.
+4. Report receipt or failed baseline: exact base/plan, exit, report hash, failing testcase IDs.
+   Missing reports remain unavailable. Never commit local dependency directories, build output,
+   test reports, or receipts.
+5. Classify local cache repair, committable setup, or pre-existing failures. An existing unit failure
+   needs a separate Bug-fix Story if not setup. For eligible JUnit/Jest/Vitest/Node TAP baselines, inspect with
+   `singularity-flow precheck --risk-status --json`. Only on explicit choice record digest,
+   reason, and expiry (at most 30 days) via `singularity-flow precheck --accept-test-risk
+   --confirm-baseline &lt;SHA256&gt; --reason &lt;TEXT&gt; --expires &lt;ISO-8601&gt; --json`. Exact-base acceptance
+   may allow Story creation, never marks tests passed or waives later publication checks.
 6. Without `--repair`, stop. With it, ask before committable setup, create
    `sflow/readiness/&lt;PLAN-DIGEST-PREFIX&gt;`, edit only confirmed paths, and show full diff.
 7. After explicit diff approval, rerun and commit only the reviewed paths. Do not push or
-   merge unless separately requested. A commit changes the base, so obtain a new `planId`,
-   confirmation, and receipt before relying on readiness again.
+   merge unless separately requested. A commit changes the base; obtain a new `planId`,
+   confirmation, and receipt.
 8. Report the commit/blockers and handoffs: Copilot `/sf-start`; Shell
    `singularity-flow start &lt;WORK-ID&gt;`. A Git refusal retains the setup branch and creates no Story.
 </code></pre>
@@ -7003,7 +7001,7 @@ Use the durable workspace, work-item, evidence, and repository records. Never in
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~735 body tokens</span>
+          <span class="pill">~785 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-recover</code></dd></div>
@@ -7030,7 +7028,7 @@ argument-hint: &quot;[WORK-ID]&quot;
 
 1. Run `singularity-flow recover $ARGUMENTS --fetch --json` (add `--phase &lt;phase&gt;` for phase recovery); show blockers, actions, paths, preserved state and `planId`. Never use `--apply` for inspection. Deterministic findings are authority; do not reinterpret them or treat missing AST as a blocker.
 2. Stop for branch divergence, remote failure, required authoring or human authority. A dirty tree stops recovery except the reviewed rollover below. `repair-publication-authority:&lt;phase&gt;` and `repair-generation-change-set:&lt;phase&gt;` require the returned read-only diagnostic before another rollover; report their errors. Never waive them.
-3. Keep phase repair in the returned phase, preserving published generations and authored bytes. Never restart the Story, change its pinned workflow, or invoke broad repair for a phase issue. An approval refusal ends its turn; use `/sf-reject` in a later turn if bytes must change. Treat telemetry or local-session refresh failures after commit as advisory.
+3. Keep repair in this phase; preserve published generations and authored bytes. Never restart the Story or change its pin. `repair-repository-test-runner:&lt;phase&gt;` routes to `/sf-code` only for an in-scope repository-owned runner declaration; recheck recovery/prepublish after editing. `resolve-code-delivery-test-policy:&lt;phase&gt;` is a malformed pin; neither Story workflow edits nor `sflow/config` refresh can fix it. An approval refusal ends its turn; use `/sf-reject` later if bytes must change. Treat post-commit telemetry/session failures as advisory.
 4. For automatic actions, ask the user to confirm the exact `planId`. Only then run `singularity-flow recover $ARGUMENTS --fetch --apply --confirm &lt;planId&gt;`. A stale plan requires new inspection. This command never applies guided rollover.
 5. For a guided `begin-new-generation:&lt;phase&gt;`, require `generation.intent.consumed-changed`, current branch/phase, authenticated prior publication, and no competing lifecycle or transport blocker. Inspect `git status --porcelain=v1 --untracked-files=all`, staged/unstaged diffs and untracked content for every path, including README. A `manual` `working-tree` action means path review is required, not automatic refusal: ask the user to confirm exact owned, in-scope changes. Stop for protected, unrelated, unowned, conflicted, removed or symlink paths.
 6. Preview with `singularity-flow phase rollover &lt;phase&gt; --json`. Compare work ID, phase, command and `confirmation` digest with fresh recovery. On mismatch, re-inspect. After user confirmation of exact digest, run the returned `singularity-flow phase rollover &lt;phase&gt; --confirm &lt;digest&gt;` once. Never route to `/sf-code` before rollover succeeds.

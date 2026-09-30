@@ -1,9 +1,10 @@
 /**
  * Narrow local acknowledgement of tests already failing before a Story began.
  *
- * This is not a passing test receipt or an authenticated approval. No current Story or phase gate
- * consumes it. Any future governed caller must retain the failed execution, the risk decision,
- * and a distinct verdict. It must never use this module to suppress a
+ * This is not a passing test receipt or an authenticated approval. Story start may use an exact-base,
+ * unexpired decision only to acknowledge tests that failed before coding. Phase and publication
+ * gates remain independent. Callers must retain the failed execution and a distinct verdict;
+ * they must never use this module to suppress a
  * missing command, missing report, timeout, changed source, protected path, or new failure.
  */
 import { createHash, randomUUID } from 'node:crypto';
@@ -16,7 +17,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
-const SUPPORTED_ADAPTERS = new Set(['junit-xml', 'jest-json', 'vitest-json']);
+const SUPPORTED_ADAPTERS = new Set(['junit-xml', 'jest-json', 'vitest-json', 'node-tap']);
 const MAX_ACCEPTANCE_DAYS = 30;
 
 function digest(value) {
@@ -48,6 +49,7 @@ function displayIdentity(adapter, entry) {
         || entry.ancestorTitles.some((value) => !safe(value))) return null;
     return JSON.stringify([entry.fullName, entry.name, entry.ancestorTitles]);
   }
+  if (adapter === 'node-tap') return safe(entry.name) ? JSON.stringify([entry.name]) : null;
   return null;
 }
 
@@ -89,28 +91,38 @@ export function assessPreStoryTestBaseline(baseline) {
   if (!tools.length || !results.length || observations.length !== tools.length) {
     reasons.push('incomplete-test-inventory');
   }
-  const declaredIds = new Set(tools.map((tool) => tool.id));
-  if (declaredIds.size !== tools.length
-      || results.some((entry) => entry.purpose === 'test' && !declaredIds.has(entry.id))) {
+  const declaredIds = new Set(tools.map((tool) => tool?.id));
+  if (declaredIds.size !== tools.length || tools.some((tool) =>
+    !tool || typeof tool.id !== 'string' || !tool.id
+      || typeof tool.workingDirectory !== 'string'
+      || !Array.isArray(tool.affectedRoots))
+      || results.some((entry) => entry?.purpose === 'test' && !declaredIds.has(entry.id))) {
     reasons.push('unmatched-test-command');
   }
-  if (results.some((entry) => entry.purpose !== 'test' && entry.status !== 'pass')) {
+  if (results.some((entry) => !entry || (entry.purpose !== 'test' && entry.status !== 'pass'))) {
     reasons.push('non-test-readiness-failed');
   }
-  if (baseline?.failedCommandId !== results.find((entry) => entry.status === 'failed')?.id) {
+  if (baseline?.failedCommandId !== results.find((entry) => entry?.status === 'failed')?.id) {
     reasons.push('failed-command-mismatch');
   }
   const commands = [];
   for (const tool of tools) {
-    const observation = observations.filter((entry) => entry.commandId === tool.id);
-    const result = results.filter((entry) => entry.purpose === 'test' && entry.id === tool.id);
+    if (!tool || typeof tool.id !== 'string') {
+      reasons.push('test-observation-incomplete:unknown');
+      continue;
+    }
+    const observation = observations.filter((entry) => entry?.commandId === tool.id);
+    const result = results.filter((entry) => entry?.purpose === 'test' && entry.id === tool.id);
     if (!SUPPORTED_ADAPTERS.has(tool.adapter)
         || !DIGEST.test(tool.argvSha256 ?? '')
+        || !Number.isSafeInteger(tool.minimumDiscovered)
+        || tool.minimumDiscovered < 1
         || !observation.length || observation.length !== 1
         || result.length !== 1 || !['pass', 'failed'].includes(result[0].status)
         || observation[0].status !== 'available'
         || observation[0].adapter !== tool.adapter
         || !validCounts(observation[0].counts)
+        || observation[0].counts.discovered < tool.minimumDiscovered
         || observation[0].failingCasesTruncated) {
       reasons.push(`test-observation-incomplete:${tool.id}`);
       continue;
@@ -288,6 +300,38 @@ function validAcceptance(acceptance, baseline) {
     && acceptance.arch === baseline.arch
     && acceptance.scope === baseline.scope
     && digest(acceptance.commands) === digest(assessPreStoryTestBaseline(baseline).commands);
+}
+
+/**
+ * Verify a local human decision for the selected immutable Story base. This authorizes only
+ * Story creation; it does not turn failing tests into a passing receipt or waive later gates.
+ */
+export function assessPreStoryRiskForStoryStart(acceptance, baseline, {
+  baseCommit, now = new Date().toISOString()
+} = {}) {
+  const assessment = assessPreStoryTestBaseline(baseline);
+  const reasons = [...assessment.reasons];
+  if (!assessment.eligible || !validAcceptance(acceptance, baseline)) {
+    reasons.push('acceptance-record-invalid');
+  }
+  if (!/^[a-f0-9]{40,64}$/u.test(baseCommit ?? '')
+      || baseline?.sourceCommit !== baseCommit
+      || acceptance?.sourceCommit !== baseCommit
+      || acceptance?.sourceManifestSha256 !== baseline?.sourceManifestSha256
+      || acceptance?.planId !== baseline?.planId
+      || acceptance?.platform !== process.platform
+      || acceptance?.arch !== process.arch
+      || baseline?.scope !== 'dependency-test') reasons.push('story-base-or-host-mismatch');
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(nowMs) || nowMs < Date.parse(acceptance?.acceptedAt ?? '')
+      || nowMs > Date.parse(acceptance?.expiresAt ?? '')) reasons.push('acceptance-expired');
+  return Object.freeze({
+    accepted: reasons.length === 0,
+    reasons: Object.freeze([...new Set(reasons)]),
+    baselineSha256: baseline?.baselineSha256 ?? null,
+    acceptanceSha256: acceptance?.acceptanceSha256 ?? null,
+    sourceCommit: baseline?.sourceCommit ?? null
+  });
 }
 
 /** Append-only Git-private decision. No application checkout, Story, or branch is changed. */

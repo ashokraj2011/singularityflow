@@ -168,6 +168,44 @@ test('failed-start rollback retains tracked, untracked, and ignored checkout cha
   });
 });
 
+test('failed-start rollback retries one transient worktree lock without discarding work', async (t) => {
+  const { root } = await repository(t);
+  const prepared = await prepareStoryWorktree(root, 'ISO-TRANSIENT-LOCK', { base: 'main' });
+  let attempts = 0;
+  let waits = 0;
+  const recovered = rollbackStoryWorktree(prepared, {
+    removeWorktree(sourceRepository, repositoryPath) {
+      attempts += 1;
+      if (attempts === 1) return { status: 1, stderr: 'EBUSY: resource busy or locked' };
+      return run('git', ['worktree', 'remove', '--', repositoryPath], sourceRepository, {
+        allowFailure: true
+      });
+    },
+    waitForRetry() { waits += 1; }
+  });
+  assert.equal(attempts, 2);
+  assert.equal(waits, 1);
+  assert.equal(recovered.removed, true);
+  assert.equal(recovered.retained, false);
+  await assert.rejects(access(prepared.repositoryPath), { code: 'ENOENT' });
+});
+
+test('persistent worktree locks stop after one retry and preserve the checkout', async (t) => {
+  const { root } = await repository(t);
+  const prepared = await prepareStoryWorktree(root, 'ISO-PERSISTENT-LOCK', { base: 'main' });
+  let attempts = 0;
+  assert.throws(() => rollbackStoryWorktree(prepared, {
+    removeWorktree() {
+      attempts += 1;
+      return { status: 1, stderr: 'Permission denied' };
+    },
+    waitForRetry() {}
+  }), (error) => error.code === 'STORY_WORKTREE_RECOVERY_REQUIRED');
+  assert.equal(attempts, 2);
+  assert.equal(git(prepared.repositoryPath, ['branch', '--show-current']), prepared.stagingBranch);
+  assert.equal(rollbackStoryWorktree(prepared).removed, true);
+});
+
 test('failed-start rollback retains a branch with a unique commit', async (t) => {
   const { root } = await repository(t);
   const prepared = await prepareStoryWorktree(root, 'ISO-UNPUBLISHED-COMMIT', { base: 'main' });

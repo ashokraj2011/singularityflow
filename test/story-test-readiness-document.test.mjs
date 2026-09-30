@@ -46,3 +46,36 @@ test('Story readiness does not present a stale receipt as test evidence for the 
   assert.deepEqual(stale.repositories[0].testTools, []);
   assert.equal(stale.repositories[0].existingFailureDisposition, 'repair-or-verify-before-code');
 });
+
+test('Story document preserves accepted existing failures and decision instead of calling them green', () => {
+  const baseCommit = 'a'.repeat(40);
+  const baselineSha256 = `sha256:${'b'.repeat(64)}`;
+  const acceptanceSha256 = `sha256:${'c'.repeat(64)}`;
+  const evidence = { repositories: { app: {
+    status: 'accepted-known-failures', sourceCommit: baseCommit,
+    scope: 'dependency-test', baselineSha256,
+    sourceManifestSha256: `sha256:${'d'.repeat(64)}`,
+    planId: `sha256:${'e'.repeat(64)}`,
+    structuredTestContract: { status: 'available', commands: [
+      { id: 'unit', launcher: 'npm', workingDirectory: '.', adapter: 'node-tap' }
+    ] },
+    testObservations: [{ commandId: 'unit', adapter: 'node-tap', status: 'available',
+      counts: { discovered: 3, passed: 2, failed: 1, skipped: 0 },
+      failingCases: [{ name: 'known failing baseline', identityStatus: 'observed-name-only' }] }],
+    commandResults: [{ id: 'install', purpose: 'dependency', status: 'pass' },
+      { id: 'unit', purpose: 'test', status: 'failed' }],
+    riskAcceptance: { status: 'accepted-known-failures', baselineSha256,
+      acceptanceSha256, reason: 'Accepted before Story coding.' }
+  } } };
+  const record = storyTestReadinessDocument('STORY-FAIL', [
+    { id: 'app', baseCommit }
+  ], evidence, { required: true }).repositories[0];
+  assert.equal(record.status, 'accepted-known-failures');
+  assert.equal(record.existingFailureDisposition, 'accepted-pre-existing-test-failures');
+  assert.equal(record.baselineSha256, baselineSha256);
+  assert.equal(record.riskAcceptance.acceptanceSha256, acceptanceSha256);
+  assert.equal(Object.hasOwn(record.riskAcceptance, 'reason'), false);
+  assert.equal(record.commandResults.at(-1).status, 'failed');
+  assert.equal(record.testResults[0].counts.failed, 1);
+  assert.equal(record.testResults[0].failingCases[0].name, 'known failing baseline');
+});

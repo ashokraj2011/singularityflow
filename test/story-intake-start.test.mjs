@@ -48,6 +48,8 @@ async function repository(t) {
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.worldModel.grounding = 'off';
+  // Intake receipt tests isolate fetch/preview behavior; pre-Story execution has its own suite.
+  workflow.repositoryReadiness.requiredBeforeStory = false;
   for (const authority of Object.values(workflow.approvalAuthorities ?? {})) {
     authority.members = [{ name: 'Story Publisher', email: EMAIL }];
   }

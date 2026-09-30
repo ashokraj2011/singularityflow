@@ -404,17 +404,26 @@ const KNOWN = Object.freeze({
       'Preserve the imported organisation map, establish its authority, and add the new capability through a separate reviewed proposal.',
       'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json', 'remediation')
   ],
-  CODE_DELIVERY_TEST_COMMAND_REQUIRED: () => [
-    step('inspect-runtime-test-support',
-      'This Story keeps its pinned test policy. Check the installed Singularity Flow build; a build with deterministic support for this repository runner can be used to recheck the current phase.',
-      'singularity-flow product status --json', 'diagnostic', '/sf-product'),
-    step('stop-unchanged-test-policy',
-      'If this build cannot resolve the runner, stop this publication attempt. Refreshing sflow/config changes future Stories only. A governed same-Story amendment feature or a new Story under corrected policy would be required; no same-Story amendment command is currently available. Do not retry against the same blocker.',
-      null, 'external-prerequisite'),
-    step('review-future-test-policy',
-      'Review how approved test policy is proposed for future Stories.',
-      'singularity-flow explain workflow-authoring', 'help')
+  CODE_DELIVERY_TEST_COMMAND_REQUIRED: (argv, error) => [
+    step('inspect-current-phase',
+      'Inspect the current phase and approved source scope before repairing a repository-owned test runner declaration.',
+      `singularity-flow phase show${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-code'),
+    step('repair-in-scope-repository-runner',
+      'If the affected module has an in-scope test script or runner declaration, repair it without changing the pinned workflow or suppressing tests. A newer runtime may also add native support.',
+      null, 'remediation'),
+    step('recheck-structured-test-contract',
+      'After a real repository or runtime change, recheck the same phase. Do not retry publication against unchanged inputs.',
+      `singularity-flow phase prepublish${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-code')
   ],
+  CODE_TEST_RESULT_REQUIRED: (_argv, error) => error?.details?.configurationDependency !== true ? [] : [
+    step('inspect-pinned-test-command',
+      'Inspect the malformed configured test-command contract; do not print argv containing potential secrets.',
+      'singularity-flow recover --json', 'diagnostic', '/sf-recover'),
+    step('stop-unchanged-pinned-command',
+      'The current Story command is sealed in its accepted policy. Refreshing sflow/config affects future Stories only. No governed same-Story test-policy amendment is installed; do not edit the Story pin or retry publication against unchanged policy.',
+      null, 'external-prerequisite')
+  ],
+  CODE_TEST_SUPPRESSED: (argv, error) => KNOWN.CODE_TEST_RESULT_REQUIRED(argv, error),
   CHANGE_SET_POLICY_VIOLATION: (_argv, error) => error?.details?.violationKind === 'protected-process-path'
     ? [
         step('restore-protected-story-paths',
@@ -545,7 +554,9 @@ function requiredTestExecutionForRefusal(error) {
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
-  const pinnedTestPolicyBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+  const repositoryRunnerBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+  const pinnedTestPolicyBlocked = ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(code)
+    && error?.details?.configurationDependency === true;
   const rawPhaseContext = phaseRemediationContext(argv, error);
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
@@ -575,7 +586,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
-  const ordered = pinnedTestPolicyBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+  const ordered = repositoryRunnerBlocked || pinnedTestPolicyBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
@@ -589,8 +600,10 @@ export function refusalRemediationPlan(error, argv = []) {
   const steps = deduplicate(ordered);
   const retryLabel = skillHostBlocked
     ? 'Do not retry generation, publication, submission or approval until the approved live host controls and exact delivery owner are implemented and qualified. Diagnostics cannot enable execution.'
+    : repositoryRunnerBlocked
+    ? 'Do not retry publication until an in-scope repository runner repair or updated runtime makes a structured test command available and prepublish is ready.'
     : pinnedTestPolicyBlocked
-    ? 'Do not retry publication until the runtime gains native support or the current Story test policy changes through reviewed authority; refreshing sflow/config alone cannot change this Story.'
+    ? 'Do not retry publication until a governed same-Story test-policy amendment is available or the work continues in a new Story under corrected approved policy.'
     : phaseContext?.turn === 'new-turn'
     ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
     : code === 'CLARIFICATION_MODE_OFF'
@@ -611,8 +624,10 @@ export function refusalRemediationPlan(error, argv = []) {
       automatic: false,
       ...(phaseContext ? {
         turn: phaseContext.turn,
-        command: skillHostBlocked ? null : phaseContext.retryCommand,
-        skill: skillHostBlocked ? null : phaseContext.retrySkill
+        command: skillHostBlocked || repositoryRunnerBlocked || pinnedTestPolicyBlocked
+          ? null : phaseContext.retryCommand,
+        skill: skillHostBlocked || repositoryRunnerBlocked || pinnedTestPolicyBlocked
+          ? null : phaseContext.retrySkill
       } : {})
     })
   });

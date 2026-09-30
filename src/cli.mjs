@@ -246,7 +246,8 @@ import {
   assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
 import {
-  assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
+  acceptedPreStoryFailureForRepository, assertStoryStartReady, inspectStoryStartReadiness,
+  requiredRepositoryReadinessScope
 } from './story-start-readiness.mjs';
 import { collectRepositoryReadinessEvidence, preflightTestReadiness } from './repository-readiness-evidence.mjs';
 import { hydrateRepositoryDependencies } from './initialization/runtime-readiness.mjs';
@@ -1587,8 +1588,13 @@ async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourc
   }], { scope });
   const receipt = evidence.repositories.lifecycle;
   if (receipt?.status === 'pass' && receipt.sourceCommit === sourceCommit) return evidence;
+  const dependencyRequired = definition?.repositoryReadiness?.dependencyHydration === 'required'
+    || definition?.initialization?.proof?.preStory?.dependencyHydration === 'required';
+  if (acceptedPreStoryFailureForRepository(receipt, sourceCommit, {
+    scope, dependencyRequired
+  })) return evidence;
   throw new SingularityFlowError(
-    'Repository readiness must pass for the launch checkout before a Story worktree is created.',
+    'Repository readiness must pass or have an exact-base accepted failing-test baseline before a Story worktree is created.',
     {
       code: 'STORY_REPOSITORY_READINESS_REQUIRED',
       details: {
@@ -1743,9 +1749,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     }
   }
   const launchBaseCommit = requestedBaseRef ? refHead(sourceRoot, requestedBaseRef) : head(sourceRoot);
-  if (!durableLocalStory) {
-    await assertLaunchCheckoutRepositoryReady(sourceRoot, launchDefinition, launchBaseCommit);
-  }
+  const launchRepositoryReadiness = !durableLocalStory
+    ? await assertLaunchCheckoutRepositoryReady(sourceRoot, launchDefinition, launchBaseCommit)
+    : null;
   // Checked here, before any worktree exists, so a stale or foreign receipt refuses at once.
   const selectionToken = optionString(options, 'selection-receipt');
   const selectionHandoff = selectionToken && !durableLocalStory
@@ -1766,7 +1772,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       await hydrateRepositoryDependencies(prepared.repositoryPath, {
         commit: launchBaseCommit,
         required: readinessPolicy.dependencyHydration === 'required',
-        scope: requiredRepositoryReadinessScope(launchDefinition)
+        scope: requiredRepositoryReadinessScope(launchDefinition),
+        allowAcceptedBaseline: launchRepositoryReadiness?.repositories?.lifecycle?.status
+          === 'accepted-known-failures'
       });
     }
     const configurationHandoff = await bindIsolatedStoryConfiguration(sealedConfiguration, prepared);

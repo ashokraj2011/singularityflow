@@ -1881,8 +1881,9 @@ const PAGES = Object.freeze({
       'bounded commands and writes a hash-only, Git-private receipt for the exact base.',
       'A failed structured test run can retain a separate Git-private baseline. `--risk-status`',
       'inspects it without changing any gate. `--accept-test-risk` records an explicit, expiring',
-      'human decision only for complete JUnit/Jest/Vitest baselines. This is not a passing test',
-      'receipt and does not by itself authorize Story start or phase publication.'
+      'human decision only for complete JUnit/Jest/Vitest/Node TAP baselines. An exact-base',
+      'accepted decision may permit Story creation, but is never passing test evidence or a',
+      'phase-publication waiver.'
     ],
     options: [
       ['--quick', 'Run metadata-only readiness inspection. Incompatible with --run.'],
@@ -1890,7 +1891,7 @@ const PAGES = Object.freeze({
       ['--scope dependency-test|full', 'Default: dependency-test, for locked packages and existing unit tests only. Full also includes build, quality, and startup when approved policy requires them.'],
       ['--confirm-plan SHA256', 'Execute only the freshly recomputed readiness plan with this exact digest.'],
       ['--risk-status', 'Show the exact current failed-test baseline and existing Git-private risk decisions.'],
-      ['--accept-test-risk', 'Record a human decision for an eligible exact pre-Story test baseline; does not bypass a gate.'],
+      ['--accept-test-risk', 'Record an eligible exact-base decision; Story start rechecks it, while later test and publication gates remain enforced.'],
       ['--confirm-baseline SHA256', 'Confirm the baseline digest displayed by --risk-status.'],
       ['--reason TEXT', 'Explain why the pre-existing failures are accepted for review.'],
       ['--expires ISO-8601', 'Set a decision expiry no later than 30 days after acceptance.'],

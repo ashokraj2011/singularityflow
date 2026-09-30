@@ -394,6 +394,16 @@ test('suppression flags and shell strings cannot satisfy required tests', () => 
   assert.match(testSuppression({ ...base, argv: ['gradle', 'test', '--exclude-task=test'] }), /excluded/);
   assert.match(testSuppression({ ...base, argv: ['npx', 'vitest', '--passWithNoTests'] }), /zero discovered/);
   assert.throws(() => normalizeRequiredTestCommand('npm test'), (error) => error.code === 'CODE_TEST_RESULT_REQUIRED');
+  assert.throws(() => normalizeRequiredTestCommand({
+    ...base, argv: ['mvn', 'test', '--token', 'secret-value'],
+    result: { adapter: 'unsupported', path: 'target/results.xml' }
+  }), (error) => {
+    assert.equal(error.code, 'CODE_TEST_RESULT_REQUIRED');
+    assert.equal(error.details.configurationDependency, true);
+    assert.equal(error.details.commandIndex, 0);
+    assert.doesNotMatch(error.message, /secret-value/);
+    return true;
+  });
   assert.throws(() => normalizeRequiredTestCommand({ ...base, argv: ['mvn', 'test', '-DskipTests'] }), (error) => error.code === 'CODE_TEST_SUPPRESSED');
 });
 

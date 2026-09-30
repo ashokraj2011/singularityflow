@@ -378,33 +378,49 @@ export function testSuppression(command) {
 
 export function normalizeRequiredTestCommand(value, index = 0) {
   if (typeof value === 'string') {
-    throw new SingularityFlowError(`qualityCommands[${index}] must use object argv form for required code-delivery testing.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+    throw new SingularityFlowError(`qualityCommands[${index}] must use object argv form for required code-delivery testing.`, {
+      code: 'CODE_TEST_RESULT_REQUIRED', details: { configurationDependency: true, commandIndex: index }
+    });
   }
-  const command = normalizeExternalCommand(value, index);
+  let command;
+  try {
+    command = normalizeExternalCommand(value, index);
+  } catch {
+    // The validator may reject a malformed argv/result before the code-delivery check can
+    // classify it. Do not expose configured argv in the refusal or misroute this as a source
+    // authoring problem: the accepted test-command contract is a separate policy boundary.
+    throw new SingularityFlowError(`qualityCommands[${index}] has invalid structured test configuration.`, {
+      code: 'CODE_TEST_RESULT_REQUIRED', details: { configurationDependency: true, commandIndex: index }
+    });
+  }
   if (command.kind !== 'test' || !command.argv?.length || !command.workingDirectory
       || !command.affectedRoots?.length || !command.result) {
     throw new SingularityFlowError(
       `qualityCommands[${index}] must declare kind: test, argv, workingDirectory, affectedRoots, and a result adapter.`,
-      { code: 'CODE_TEST_RESULT_REQUIRED' }
+      { code: 'CODE_TEST_RESULT_REQUIRED', details: { configurationDependency: true, commandIndex: index } }
     );
   }
   const suppression = testSuppression(command);
-  if (suppression) throw new SingularityFlowError(suppression, { code: 'CODE_TEST_SUPPRESSED' });
+  if (suppression) throw new SingularityFlowError(suppression, {
+    code: 'CODE_TEST_SUPPRESSED', details: { configurationDependency: true, commandIndex: index }
+  });
   return command;
 }
 
 export function structuredTestCommandRequiredError(phase) {
   return new SingularityFlowError(
     `Phase ${phase.id} has no structured repository test command and Singularity Flow could not infer one. `
-    + 'Do not edit protected workflow configuration on the Story branch. Configure kind: test, argv, '
-    + 'workingDirectory, affectedRoots, and a result adapter through approved configuration authority for '
-    + 'future Stories, or add deterministic support for the repository\'s native test runner.',
+    + 'An in-scope repository test script or runner declaration may be repaired in this Story, then '
+    + 'phase recovery can be rechecked. Do not edit protected workflow configuration on the Story '
+    + 'branch. If repository-owned runner repair is impossible, configure kind: test, argv, '
+    + 'workingDirectory, affectedRoots, and a result adapter through approved configuration '
+    + 'authority for future Stories, or add deterministic support for the native runner.',
     {
       code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED',
       details: {
         phase: phase.id,
-        diagnosticAction: { command: `singularity-flow phase show ${phase.id} --json` },
-        remediation: { action: 'review-approved-test-configuration-outside-story' }
+        diagnosticAction: { command: `singularity-flow recover --phase ${phase.id} --json` },
+        remediation: { action: 'repair-in-scope-repository-runner-or-review-future-policy' }
       }
     }
   );

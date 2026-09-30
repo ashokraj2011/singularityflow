@@ -16,8 +16,12 @@ import {
 } from '../src/initialization/runtime-readiness.mjs';
 import { smartInitPrecheck } from '../src/initialization/precheck.mjs';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
+import { collectRepositoryReadinessEvidence } from '../src/repository-readiness-evidence.mjs';
 import { recordSha256 } from '../src/records.mjs';
-import { assessPreStoryTestBaseline } from '../src/test-baseline-risk.mjs';
+import {
+  assessPreStoryTestBaseline, createPreStoryTestRiskAcceptance,
+  storePreStoryTestRiskAcceptance
+} from '../src/test-baseline-risk.mjs';
 import { run } from '../src/util.mjs';
 
 async function repository() {
@@ -80,6 +84,16 @@ function passingResult(overrides = {}) {
     stderrSha256: null, capturedTestOutput: tap,
     ...overrides
   };
+}
+
+function failingTapResult() {
+  const tap = Buffer.from('TAP version 13\nnot ok 1 - known failure\n# tests 1\n# pass 0\n# fail 1\n# skipped 0\n');
+  return passingResult({
+    status: 'failed', exitCode: 1, reason: 'non-zero-exit',
+    stdoutBytes: tap.length,
+    stdoutSha256: `sha256:${createHash('sha256').update(tap).digest('hex')}`,
+    capturedTestOutput: tap
+  });
 }
 
 test('repository readiness builds one deterministic, purpose-ordered shell-free plan', async () => {
@@ -300,6 +314,158 @@ test('the built-in runner records existing Node TAP failures before Story coding
     assert.equal(observation.failingCases[0].name, 'known failing baseline');
     assert.equal(observation.report.source, 'bounded-stdout');
     assert.doesNotMatch(await readFile(loaded.file, 'utf8'), /pre-existing failure/u);
+  });
+});
+
+test('accepted Node TAP baseline is visible without greenwashing and hydrates exact dependencies', async () => {
+  await withRepository(async (root) => {
+    await mkdir(path.join(root, 'test'), { recursive: true });
+    await writeFile(path.join(root, 'test', 'existing.test.mjs'), [
+      "import test from 'node:test';",
+      "test('known failing baseline', () => { throw new Error('pre-existing failure'); });",
+      ''
+    ].join('\n'));
+    const manifestFile = path.join(root, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+    manifest.scripts.test = 'node --test --test-reporter=tap test/existing.test.mjs';
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    run('git', ['add', 'test/existing.test.mjs', 'package.json'], { cwd: root });
+    run('git', ['commit', '-qm', 'record existing test'], { cwd: root });
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    await assert.rejects(() => executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: plan.planId
+    }), (error) => error.code === 'REPOSITORY_READINESS_COMMAND_FAILED');
+    const loaded = await loadRepositoryTestBaseline(root, { scope: 'dependency-test' });
+    assert.equal(assessPreStoryTestBaseline(loaded.baseline).eligible, true);
+    const before = await collectRepositoryReadinessEvidence([{
+      id: 'app', root, baseCommit: plan.sourceCommit
+    }]);
+    assert.equal(before.repositories.app.status, 'failing-tests');
+    assert.equal(before.repositories.app.testObservations[0].counts.failed, 1);
+    const acceptedAt = new Date(Date.now() - 60_000).toISOString();
+    const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+    const decision = createPreStoryTestRiskAcceptance(loaded.baseline, {
+      actor: 'readiness@example.test',
+      reason: 'Known failing unit case predates the Story and is tracked.',
+      confirmBaselineSha256: loaded.baseline.baselineSha256,
+      acceptedAt, expiresAt
+    });
+    await storePreStoryTestRiskAcceptance(root, decision, loaded.baseline);
+    const evidence = await collectRepositoryReadinessEvidence([{
+      id: 'app', root, baseCommit: plan.sourceCommit
+    }]);
+    assert.equal(evidence.repositories.app.status, 'accepted-known-failures');
+    assert.equal(evidence.repositories.app.commandResults.at(-1).status, 'failed');
+    assert.equal(evidence.repositories.app.riskAcceptance.acceptanceSha256,
+      decision.acceptanceSha256);
+    const hydrated = await hydrateRepositoryDependencies(root, {
+      commit: plan.sourceCommit, scope: 'dependency-test', required: true,
+      allowAcceptedBaseline: true,
+      runCommand: async () => passingResult()
+    });
+    assert.equal(hydrated.status, 'pass');
+    assert.equal(hydrated.sourceEvidence, 'accepted-known-failures');
+    assert.deepEqual(hydrated.commandResults.map((result) => result.purpose), ['dependency']);
+    assert.equal((await loadRepositoryReadinessReceipt(root, {
+      scope: 'dependency-test'
+    })), null, 'hydration must not fabricate a passing test receipt');
+    run('git', ['switch', '-qc', 'other-checkout'], { cwd: root });
+    await writeFile(path.join(root, 'later.txt'), 'Different checkout after the selected base.\n');
+    run('git', ['add', 'later.txt'], { cwd: root });
+    run('git', ['commit', '-qm', 'move launch checkout ahead'], { cwd: root });
+    const offCheckout = await collectRepositoryReadinessEvidence([{
+      id: 'app', root, baseCommit: plan.sourceCommit
+    }]);
+    assert.equal(offCheckout.repositories.app.status, 'accepted-known-failures');
+    assert.equal(offCheckout.repositories.app.riskAssessment.planCurrent, true);
+  });
+});
+
+test('a failed rerun supersedes an older pass until a later pass clears the baseline', async () => {
+  await withRepository(async (root) => {
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    const fullPlan = await buildRepositoryReadinessPlan(root, { scope: 'full' });
+    const runCheck = (failTests) => executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: plan.planId,
+      runCommand: async (command) => failTests && command.purpose === 'test'
+        ? failingTapResult() : passingResult()
+    });
+    const fullPassed = await executeRepositoryReadinessPlan(root, {
+      scope: 'full', confirmation: fullPlan.planId,
+      runCommand: async () => passingResult()
+    });
+    const oldFullReceiptBytes = await readFile(fullPassed.file);
+    const passed = await runCheck(false);
+    assert.equal(passed.receipt.status, 'pass');
+    const oldReceiptBytes = await readFile(passed.file);
+    await assert.rejects(() => runCheck(true), {
+      code: 'REPOSITORY_READINESS_COMMAND_FAILED'
+    });
+    assert.equal(await loadRepositoryReadinessReceipt(root, { scope: 'dependency-test' }), null,
+      'a failed run invalidates an older passing receipt');
+    assert.equal(await loadRepositoryReadinessReceipt(root, { scope: 'full' }), null,
+      'a narrow test failure also invalidates the broader passing receipt');
+    const failed = await loadRepositoryTestBaseline(root, { scope: 'dependency-test' });
+    assert.ok(failed);
+    // Legacy installations may already contain both records. Even if the obsolete pass is
+    // restored, every reader must keep the later failure authoritative.
+    await writeFile(passed.file, oldReceiptBytes);
+    await writeFile(fullPassed.file, oldFullReceiptBytes);
+    const inspected = await inspectRepositoryReadinessReceipt(root, {
+      scope: 'dependency-test', recompute: false
+    });
+    assert.equal(inspected.status, 'stale');
+    assert.ok(inspected.reasons.includes('failed-baseline-supersedes-receipt'));
+    const fullInspected = await inspectRepositoryReadinessReceipt(root, {
+      scope: 'full', recompute: false
+    });
+    assert.equal(fullInspected.status, 'stale');
+    assert.ok(fullInspected.reasons.includes('failed-baseline-supersedes-receipt'));
+    const afterFailure = await collectRepositoryReadinessEvidence([{
+      id: 'app', root, baseCommit: plan.sourceCommit
+    }]);
+    assert.equal(afterFailure.repositories.app.status, 'failing-tests');
+    const acceptedAt = new Date(Date.now() - 60_000).toISOString();
+    const decision = createPreStoryTestRiskAcceptance(failed.baseline, {
+      actor: 'readiness@example.test',
+      reason: 'This known failing case predates Story coding and has been reviewed.',
+      confirmBaselineSha256: failed.baseline.baselineSha256,
+      acceptedAt, expiresAt: new Date(Date.now() + 86_400_000).toISOString()
+    });
+    await storePreStoryTestRiskAcceptance(root, decision, failed.baseline);
+    await assert.rejects(() => hydrateRepositoryDependencies(root, {
+      commit: plan.sourceCommit, scope: 'dependency-test', required: true,
+      runCommand: async () => passingResult()
+    }), { code: 'REPOSITORY_READINESS_ACCEPTED_BASELINE_REQUIRED' });
+    const hydrated = await hydrateRepositoryDependencies(root, {
+      commit: plan.sourceCommit, scope: 'dependency-test', required: true,
+      allowAcceptedBaseline: true, runCommand: async () => passingResult()
+    });
+    assert.equal(hydrated.sourceEvidence, 'accepted-known-failures');
+    await runCheck(false);
+    assert.equal(await loadRepositoryTestBaseline(root, { scope: 'dependency-test' }), null);
+    const afterSuccess = await collectRepositoryReadinessEvidence([{
+      id: 'app', root, baseCommit: plan.sourceCommit
+    }]);
+    assert.equal(afterSuccess.repositories.app.status, 'pass');
+  });
+});
+
+test('a dependency failure is not mislabeled as a known failing test or risk-eligible', async () => {
+  await withRepository(async (root) => {
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    await assert.rejects(() => executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: plan.planId,
+      runCommand: async (command) => command.purpose === 'dependency'
+        ? passingResult({ status: 'failed', exitCode: 1, reason: 'non-zero-exit' })
+        : passingResult()
+    }), (error) => error.code === 'REPOSITORY_READINESS_COMMAND_FAILED');
+    const evidence = await collectRepositoryReadinessEvidence([{
+      id: 'app', root, baseCommit: plan.sourceCommit
+    }]);
+    assert.equal(evidence.repositories.app.status, 'readiness-failed');
+    assert.equal(evidence.repositories.app.riskAssessment.eligible, false);
+    assert.equal(evidence.repositories.app.riskAcceptance, null);
   });
 });
 

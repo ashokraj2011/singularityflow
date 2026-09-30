@@ -147,7 +147,7 @@ noModel:
 # application-start checks are deliberately off unless approved repository policy requires the
 # broader full scope. The receipt is machine-local and contains no caches, reports, or secrets.
 repositoryReadiness:
-  requiredBeforeStory: false
+  requiredBeforeStory: true
   dependencyHydration: when-detected
   build: off
   structuredTests: required-for-code

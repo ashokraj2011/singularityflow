@@ -206,6 +206,10 @@ test('every clone path that had a hard-coded default branch now accepts the capa
     'story fetch moves sibling repositories before validating the fetched capability catalog');
   assert.match(story, /capabilityId: capabilityPreflight\.capabilityId[\s\S]*capabilityMapSha256: capabilityPreflight\.capabilityMapSha256/,
     'story fetch drops the selected capability or exact map digest before lifecycle creation');
+  const acceptedRiskGuard = story.indexOf("=== 'accepted-known-failures'");
+  const workflowCreation = story.indexOf('workflow = await createWorkflow');
+  assert.ok(acceptedRiskGuard >= 0 && acceptedRiskGuard < workflowCreation,
+    'story fetch must reject off-checkout accepted test risk before creating governed state');
 
   const initiative = await source('src/initiative-repositories.mjs');
   assert.match(initiative, /capabilityBase\?\.repositories\?\.\[repository\.id\]\?\.branch \?\? repository\.defaultBranch/,

@@ -16,6 +16,7 @@ import { VERSION } from './version.mjs';
 // This is an ephemeral projection contract, not a durable stored-record schema. Keep its wire
 // version explicit without registering it in the durable migration registry.
 export const STORY_START_READINESS_FORMAT_VERSION = 1;
+const SHA256 = /^sha256:[a-f0-9]{64}$/u;
 
 export function requiredRepositoryReadinessScope(definition = {}) {
   const policies = [definition?.repositoryReadiness, definition?.initialization?.proof?.preStory]
@@ -59,6 +60,55 @@ function runtimeIdentity() {
     version: VERSION,
     build: BUILD_INFO.commit ?? BUILD_INFO.sourceSha256 ?? null,
     stamped: Boolean(BUILD_INFO.commit || BUILD_INFO.sourceSha256)
+  });
+}
+
+/** A failed pre-Story test run can be acknowledged for Story creation, never called passing. */
+export function acceptedPreStoryFailureForRepository(receipt, baseCommit, {
+  scope = 'dependency-test', dependencyRequired = false, now = new Date().toISOString()
+} = {}) {
+  const decision = receipt?.riskAcceptance;
+  if (scope !== 'dependency-test' || receipt?.status !== 'accepted-known-failures'
+      || receipt?.scope !== 'dependency-test'
+      || receipt?.riskAssessment?.eligible !== true
+      || receipt?.riskAssessment?.planCurrent !== true
+      || receipt?.sourceCommit !== baseCommit || decision?.sourceCommit !== baseCommit
+      || decision?.status !== 'accepted-known-failures'
+      || !SHA256.test(receipt?.baselineSha256 ?? '')
+      || !SHA256.test(receipt?.planId ?? '')
+      || !SHA256.test(receipt?.sourceManifestSha256 ?? '')
+      || !SHA256.test(decision?.acceptanceSha256 ?? '')
+      || decision?.baselineSha256 !== receipt.baselineSha256) return false;
+  const current = Date.parse(now);
+  const acceptedAt = Date.parse(decision.acceptedAt);
+  const expiresAt = Date.parse(decision.expiresAt);
+  if (![current, acceptedAt, expiresAt].every(Number.isFinite)
+      || expiresAt <= acceptedAt || expiresAt - acceptedAt > 30 * 86_400_000
+      || current < acceptedAt || current > expiresAt) return false;
+  const tools = receipt.structuredTestContract?.commands ?? [];
+  const results = receipt.commandResults ?? [];
+  const observations = receipt.testObservations ?? [];
+  if (receipt.structuredTestContract?.status !== 'available'
+      || !tools.length || observations.length !== tools.length
+      || results.filter((entry) => entry.purpose === 'test').length !== tools.length
+      || results.some((entry) => entry.purpose !== 'test' && entry.status !== 'pass')
+      || !results.some((entry) => entry.purpose === 'test' && entry.status === 'failed')
+      || (dependencyRequired && !results.some((entry) =>
+        entry.purpose === 'dependency' && entry.status === 'pass'))) return false;
+  return tools.every((tool) => {
+    const matching = results.filter((entry) => entry.id === tool.id && entry.purpose === 'test');
+    const observed = observations.filter((entry) => entry.commandId === tool.id);
+    if (matching.length !== 1 || observed.length !== 1
+        || !['pass', 'failed'].includes(matching[0].status)
+        || observed[0].status !== 'available' || observed[0].adapter !== tool.adapter) return false;
+    const counts = observed[0].counts;
+    return ['discovered', 'passed', 'failed', 'skipped'].every((key) =>
+      Number.isSafeInteger(counts?.[key]) && counts[key] >= 0)
+      && counts.passed + counts.failed + counts.skipped === counts.discovered
+      && Number.isSafeInteger(tool.minimumDiscovered)
+      && tool.minimumDiscovered > 0
+      && counts.discovered >= tool.minimumDiscovered
+      && (matching[0].status === 'failed' ? counts.failed > 0 : counts.failed === 0);
   });
 }
 
@@ -171,9 +221,14 @@ export function inspectStoryStartReadiness({
     const receipts = repositoryReadiness?.repositories
       ?? (normalizedRepositories.length === 1 && repositoryReadiness
         ? { [normalizedRepositories[0].id]: repositoryReadiness } : {});
+    const acceptedKnownFailures = [];
     const invalid = normalizedRepositories.find((entry) => {
       const receipt = receipts[entry.id];
-      if (receipt?.status !== 'pass'
+      const acceptedFailure = acceptedPreStoryFailureForRepository(receipt, entry.baseCommit, {
+        scope: readinessScope,
+        dependencyRequired: repositoryReadinessPolicy.dependencyHydration === 'required'
+      });
+      if ((receipt?.status !== 'pass' && !acceptedFailure)
           || (receipt?.sourceCommit ?? receipt?.sourceHead) !== entry.baseCommit) return true;
       const passedPurposes = new Set((receipt.commandResults ?? [])
         .filter((result) => result.status === 'pass').map((result) => result.purpose));
@@ -187,12 +242,18 @@ export function inspectStoryStartReadiness({
         || [...passedPurposes].some((purpose) => ['dependency', 'build', 'test'].includes(purpose));
       if (structuredTests === 'required'
           && receipt.structuredTestContract?.status !== 'available') return true;
-      return structuredTests === 'required-for-code' && codeDetected
-        && receipt.structuredTestContract?.status !== 'available';
+      if (structuredTests === 'required-for-code' && codeDetected
+          && receipt.structuredTestContract?.status !== 'available') return true;
+      if (acceptedFailure) acceptedKnownFailures.push(entry.id);
+      return false;
     });
     const complete = normalizedRepositories.length > 0 && !invalid;
-    checks.push(complete
+    checks.push(complete && acceptedKnownFailures.length
       ? check(
+          'repository-execution', 'warning', 'STORY_PRE_EXISTING_TEST_FAILURES_ACCEPTED',
+          `Known failing tests were accepted for Story creation in ${acceptedKnownFailures.length} exact-base repository/repositories; later test and publication gates remain required.`
+        )
+      : complete ? check(
           'repository-execution', 'pass', 'STORY_REPOSITORY_READINESS_VALID',
           'Locked dependency and existing structured-test readiness is policy-complete for the exact Story base.'
         )
@@ -216,8 +277,14 @@ export function inspectStoryStartReadiness({
     configurationCommit: authority.commit,
     repositoryReadinessSha256: repositoryReadiness?.repositories
       ? Object.fromEntries(Object.entries(repositoryReadiness.repositories)
-        .map(([id, receipt]) => [id, receipt?.receiptSha256 ?? null]))
-      : repositoryReadiness?.receiptSha256 ?? null,
+        .map(([id, receipt]) => [id, receipt?.baselineSha256 ? {
+          baselineSha256: receipt.baselineSha256,
+          acceptanceSha256: receipt?.riskAcceptance?.acceptanceSha256 ?? null
+        } : receipt?.receiptSha256 ?? null]))
+      : repositoryReadiness?.baselineSha256 ? {
+          baselineSha256: repositoryReadiness.baselineSha256,
+          acceptanceSha256: repositoryReadiness?.riskAcceptance?.acceptanceSha256 ?? null
+        } : repositoryReadiness?.receiptSha256 ?? null,
     baseCommits: Object.fromEntries(normalizedRepositories.map((entry) => [entry.id, entry.baseCommit])),
     destinationRefs: Object.fromEntries(normalizedRepositories.map((entry) => [entry.id, entry.destinationRef]))
   };

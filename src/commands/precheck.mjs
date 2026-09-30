@@ -91,11 +91,22 @@ export async function run(argv, { options } = {}) {
     if (!confirmation) {
       const plan = await buildRepositoryReadinessPlan(root, { scope });
       const command = `singularity-flow precheck --run --scope ${plan.scope} --confirm-plan ${plan.planId} --json`;
+      const blockedNext = plan.blockers.length ? [action({
+        id: 'precheck-repair-test-setup',
+        label: plan.blockers.some((blocker) => blocker.code === 'REPOSITORY_READINESS_STRUCTURED_TEST_REQUIRED')
+          ? 'Inspect the repository test setup, then add or repair a supported structured unit-test reporter before planning again. Do not confirm this blocked plan.'
+          : 'Inspect ambiguous repository setup and choose one supported package manager or test command before planning again. Do not confirm this blocked plan.',
+        command: 'singularity-flow precheck --quick --json',
+        skill: '/sf-ready',
+        kind: 'remediation'
+      })] : [];
       return emitCommandResult(commandResult({
         operation: { id: 'precheck.run.plan', classification: 'read' },
-        outcome: succeeded('precheck.run-planned', { commands: plan.commands.length }),
+        outcome: succeeded(plan.blockers.length ? 'precheck.run-blocked' : 'precheck.run-planned', {
+          commands: plan.commands.length, blockers: plan.blockers.length
+        }),
         effects: noEffects(),
-        next: plan.blockers.length ? [] : [action({
+        next: plan.blockers.length ? blockedNext : [action({
           id: 'precheck-run-confirm',
           label: plan.scope === 'dependency-test'
             ? 'Run the exact reviewed locked-dependency and existing-unit-test plan.'

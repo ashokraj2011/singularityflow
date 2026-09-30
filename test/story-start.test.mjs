@@ -47,6 +47,9 @@ async function repository({ configurationAuthority = false } = {}) {
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off';
+  // These legacy Story-intake fixtures exercise publication and document behavior. Dedicated
+  // readiness tests opt into the newly seeded pre-Story execution requirement explicitly.
+  definition.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(definitionPath, YAML.stringify(definition));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
@@ -869,6 +872,8 @@ test('programmatic Story start uses publication policy from the exact selected l
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const baseWorkflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   baseWorkflow.git.publish = 'required';
+  // This fixture exercises legacy publication policy, not the new pre-Story execution gate.
+  baseWorkflow.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(workflowFile, YAML.stringify(baseWorkflow));
   run('git', ['add', 'singularity/workflow.yml'], root);
   run('git', ['commit', '-m', 'Require publication on selected base'], root);
@@ -1029,7 +1034,13 @@ test('desktop Story intake binds a divergent launch checkout to the exact select
     run('git', ['config', 'user.name', 'Desktop Story Tester'], source);
     run('git', ['config', 'user.email', 'desktop-story@example.com'], source);
     await writeFile(path.join(source, 'README.md'), `# ${id}\n`);
-    if (governed) run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'init'], source);
+    if (governed) {
+      run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'init'], source);
+      const workflowFile = path.join(source, 'singularity/workflow.yml');
+      const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+      workflow.repositoryReadiness.requiredBeforeStory = false;
+      await writeFile(workflowFile, YAML.stringify(workflow));
+    }
     run('git', ['add', '.'], source);
     run('git', ['commit', '-m', 'initial'], source);
     run('git', ['init', '--bare', '-b', 'main', remote], source);

@@ -26,7 +26,9 @@ test('repositories can require pre-Story readiness while omitted policy remains 
   const definition = await shippedDefinition();
 
   assert.deepEqual(normalizeRepositoryReadinessPolicy(), DEFAULT_POLICY);
-  assert.deepEqual(definition.repositoryReadiness, DEFAULT_POLICY);
+  assert.deepEqual(definition.repositoryReadiness, {
+    ...DEFAULT_POLICY, requiredBeforeStory: true
+  });
 
   delete definition.repositoryReadiness;
   validateDefinition(definition);

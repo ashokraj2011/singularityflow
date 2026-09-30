@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -63,6 +63,31 @@ test('precheck defaults to the safe dependency-test scope', async (t) => {
   assert.equal(payload.data.plan.scope, 'dependency-test');
   assert.deepEqual(payload.data.plan.commands.map((command) => command.purpose),
     ['dependency', 'test']);
+});
+
+test('a blocked precheck plan explains the test-setup repair instead of ending with no next action', async (t) => {
+  const root = await repository(t);
+  const manifestFile = path.join(root, 'package.json');
+  const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+  manifest.scripts.test = 'node --test && playwright test';
+  await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  run('git', ['add', 'package.json'], { cwd: root });
+  run('git', ['commit', '-qm', 'composite test script'], { cwd: root });
+
+  const result = spawnSync(process.execPath, [cli, 'precheck', '--run', '--json'], {
+    cwd: root, encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.data.plan.status, 'blocked');
+  assert.equal(payload.outcome.messageId, 'precheck.run-blocked');
+  assert.equal(payload.data.plan.structuredTestContract.status, 'missing');
+  assert.equal(payload.next.length, 1);
+  assert.equal(payload.next[0].id, 'precheck-repair-test-setup');
+  assert.equal(payload.next[0].kind, 'remediation');
+  assert.equal(payload.next[0].command, 'singularity-flow precheck --quick --json');
+  assert.match(payload.next[0].label, /structured unit-test reporter/u);
+  assert.equal(payload.next.some((step) => step.command.includes('--confirm-plan')), false);
 });
 
 test('precheck execution refuses a non-current plan digest before any command runs', async (t) => {

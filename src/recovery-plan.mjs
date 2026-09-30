@@ -274,42 +274,51 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
           };
         });
       } catch (error) {
-        const configurationDependency = error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'
-          || error.code === 'CODE_TEST_RESULT_REQUIRED';
+        const missingRepositoryRunner = error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+        const invalidPinnedCommand = error.code === 'CODE_TEST_RESULT_REQUIRED'
+          || error.code === 'CODE_TEST_SUPPRESSED';
+        const configurationDependency = missingRepositoryRunner || invalidPinnedCommand;
         blockers.push({
           code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
           phase: phase.id, generation: Number(phase.generation) + 1,
           path: null, line: null, value: null,
           details: {
             sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),
-            ...(configurationDependency ? {
+            ...(invalidPinnedCommand ? {
               recoveryBoundary: {
                 kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
                 retryRequiresChangedRuntimeOrPolicy: true
+              }
+            } : missingRepositoryRunner ? {
+              recoveryBoundary: {
+                kind: 'repository-test-runner', currentStoryConfigurationRefresh: false,
+                retryRequiresChangedRuntimeOrPolicy: true,
+                inScopeRepositoryRepair: true
               }
             } : {})
           }
         });
         actions.push(action({
-          id: configurationDependency
-            ? `resolve-code-delivery-test-policy:${phase.id}`
+          id: missingRepositoryRunner
+            ? `repair-repository-test-runner:${phase.id}`
+            : invalidPinnedCommand
+              ? `resolve-code-delivery-test-policy:${phase.id}`
             : `complete-code-delivery:${phase.id}`,
-          mode: configurationDependency ? 'manual' : 'guided',
-          detail: configurationDependency
-            ? error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'
-              ? `${error.message} This Story's test policy is pinned; refreshing sflow/config affects future Stories only. A Singularity Flow build that supports this repository's native runner can be installed and this phase rechecked without changing the Story pin. If no such build exists, this phase remains blocked; a governed same-Story amendment feature or a new Story under corrected policy would be required. No same-Story amendment command is currently available. Do not repeat publication against the unchanged blocker.`
-              : `${error.message} This Story's configured test command is pinned; refreshing sflow/config affects future Stories only. This phase remains blocked; a governed same-Story amendment feature or a new Story under corrected policy would be required. No same-Story amendment command is currently available. Do not repeat publication against the unchanged blocker.`
+          mode: invalidPinnedCommand ? 'manual' : 'guided',
+          detail: missingRepositoryRunner
+            ? `${error.message} Inspect the affected module and, only within this phase's approved source scope, repair its repository-owned test script, manifest, or runner declaration so a supported structured command can be inferred. Preserve the Story pin and existing tests. Recheck recovery and prepublish after the repository change; do not retry publication against unchanged inputs. If the native runner cannot be supported by an in-scope repository change, a newer Singularity Flow runtime or a new Story under separately approved policy is required.`
+            : invalidPinnedCommand
+              ? `${error.message} This Story's configured test command is pinned; refreshing sflow/config affects future Stories only. Do not replace or suppress the command in Story state. A governed same-Story test-policy amendment is not implemented, so this phase remains blocked until such an amendment exists or work is carried into a new Story under corrected approved policy. Do not repeat publication against the unchanged blocker.`
             : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
-          // A configuration refresh cannot change this Story's pin. Missing native support can
-          // be resolved by a new runtime; malformed pinned commands need separate authority.
-          // Neither route authorizes a repeated publication attempt against unchanged inputs.
+          // Repository-owned runner declarations are ordinary in-scope application edits. A
+          // malformed pinned command is not: it requires a distinct reviewed policy amendment.
           command: configurationDependency
-            ? error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'
-              ? 'singularity-flow product status --json'
+            ? missingRepositoryRunner
+              ? `singularity-flow phase show ${phase.id} --json`
               : null
             : `singularity-flow phase show ${phase.id} --json`,
           skill: configurationDependency
-            ? error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' ? '/sf-product' : null
+            ? missingRepositoryRunner ? '/sf-code' : null
             : '/sf-code'
         }));
       }

@@ -47,6 +47,8 @@ async function repository() {
   const definitionFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
   definition.worldModel.grounding = 'off';
+  // Publication fixtures retain their legacy policy; readiness enforcement is tested separately.
+  definition.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(definitionFile, YAML.stringify(definition));
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'Initialize governed repository');

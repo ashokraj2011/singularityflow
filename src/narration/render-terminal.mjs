@@ -540,7 +540,9 @@ export function renderCommandResult(result) {
         { key: 'command', label: 'EXACT ARGV' },
         { key: 'timeout', label: 'TIMEOUT' }
       ])] : ['', style.pending('No repository command was detected.')]),
-      '', 'Nothing ran. Review the exact argv above before confirming.',
+      '', plan.blockers?.length
+        ? 'Nothing ran. This plan cannot be confirmed; repair the setup and request a new plan.'
+        : 'Nothing ran. Review the exact argv above before confirming.',
       ...(result.next.length ? ['', style.heading('Next:'), ...nextLines(result)] : []),
       style.detail(preservationLine(result))
     ].filter(Boolean).join('\n');

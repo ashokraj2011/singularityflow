@@ -7,12 +7,12 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
   const receipts = evidence?.repositories ?? {};
   const records = [...repositories].map((repository) => {
     const receipt = receipts[repository.id] ?? null;
-    const current = receipt?.status === 'pass'
+    const current = ['pass', 'failing-tests', 'accepted-known-failures'].includes(receipt?.status)
       && receipt.sourceCommit === repository.baseCommit;
     const contract = current ? receipt.structuredTestContract ?? null : null;
     const tools = contract?.commands ?? [];
     const observations = current ? receipt.testObservations ?? [] : [];
-    const verifiedTests = current && tools.length > 0
+    const verifiedTests = current && receipt.status === 'pass' && tools.length > 0
       && tools.every((tool) => observations.some((entry) => entry.commandId === tool.id
         && entry.status === 'available' && entry.counts?.discovered > 0
         && entry.counts?.failed === 0));
@@ -23,6 +23,9 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
       scope: receipt?.scope ?? null,
       status: receipt?.status ?? 'not-checked',
       receiptSha256: receipt?.receiptSha256 ?? null,
+      baselineSha256: current ? receipt?.baselineSha256 ?? null : null,
+      sourceManifestSha256: current ? receipt?.sourceManifestSha256 ?? null : null,
+      planId: current ? receipt?.planId ?? null : null,
       testToolStatus: contract?.status ?? 'not-checked',
       testTools: tools.map((command) => ({
         id: command.id,
@@ -40,10 +43,23 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
         commandId: entry.commandId,
         adapter: entry.adapter,
         status: entry.status,
-        counts: entry.counts ?? null
+        counts: entry.counts ?? null,
+        failingCases: entry.failingCases ?? []
       })),
+      riskAcceptance: current && receipt.riskAcceptance ? {
+        status: receipt.riskAcceptance.status,
+        baselineSha256: receipt.riskAcceptance.baselineSha256,
+        acceptanceSha256: receipt.riskAcceptance.acceptanceSha256,
+        sourceCommit: receipt.riskAcceptance.sourceCommit,
+        acceptedAt: receipt.riskAcceptance.acceptedAt,
+        expiresAt: receipt.riskAcceptance.expiresAt
+      } : null,
       existingFailureDisposition: verifiedTests
         ? 'no-observed-pre-story-failures'
+        : current && receipt.status === 'accepted-known-failures'
+          ? 'accepted-pre-existing-test-failures'
+          : current && receipt.status === 'failing-tests'
+            ? 'pre-existing-test-failures-require-decision'
         : current && !tools.length
           ? 'no-test-tool-selected'
           : 'repair-or-verify-before-code'
@@ -55,6 +71,6 @@ export function storyTestReadinessDocument(workId, repositories, evidence, { req
     workId,
     required,
     repositories: records,
-    guidance: 'Existing failures require repair or an explicit, independently verified baseline-risk decision. This document alone never waives a test, publication, approval, or protected-path check.'
+    guidance: 'A verified exact-base risk decision permits Story creation with known failing tests only. It never turns those tests green or waives later test, publication, approval, or protected-path checks.'
   };
 }

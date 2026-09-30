@@ -133,16 +133,20 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Repository readiness has ${slot(s.commands, '0')} command(s) ready for exact review.`,
     preserves: true
   },
+  'precheck.run-blocked': {
+    headline: (s) => `Repository readiness plan is blocked by ${slot(s.blockers, '0')} setup issue(s); no command ran.`,
+    preserves: true
+  },
   'precheck.run-completed': {
     headline: (s) => `Repository readiness passed ${slot(s.commands, '0')} command(s) for ${slot(s.commit)}.`,
     preserves: false
   },
   'precheck.risk-reported': {
-    headline: (s) => `Local pre-Story test risk status: ${slot(s.status)}. No workflow gate changed.`,
+    headline: (s) => `Local pre-Story test risk status: ${slot(s.status)}. No test or publication gate changed.`,
     preserves: true
   },
   'precheck.risk-recorded': {
-    headline: (s) => `Recorded ${slot(s.status)} locally as ${slot(s.acceptanceSha256)}; this is not approval or a workflow waiver.`,
+    headline: (s) => `Recorded ${slot(s.status)} locally as ${slot(s.acceptanceSha256)}; Story start must verify it, and publication still requires passing tests.`,
     preserves: false
   },
   'sgos.reported': {

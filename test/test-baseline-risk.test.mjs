@@ -8,7 +8,8 @@ import test from 'node:test';
 
 import { recordSha256 } from '../src/records.mjs';
 import {
-  assessAcceptedTestFailure, assessPreStoryTestBaseline, createPreStoryTestRiskAcceptance,
+  assessAcceptedTestFailure, assessPreStoryRiskForStoryStart, assessPreStoryTestBaseline,
+  createPreStoryTestRiskAcceptance,
   listPreStoryTestRiskAcceptances, storePreStoryTestRiskAcceptance
 } from '../src/test-baseline-risk.mjs';
 
@@ -78,6 +79,49 @@ test('eligible baseline requires complete structured evidence and an explicit hu
   }), { code: 'PRE_STORY_TEST_RISK_INELIGIBLE' });
   assert.equal(accept(record).status, 'accepted-known-failures');
   assert.equal(assessAcceptedTestFailure(accept(record), record, current()).accepted, true);
+});
+
+test('Story-start exception is exact-base, host-bound, and expires without changing test verdict', () => {
+  const record = baseline();
+  const decision = accept(record);
+  assert.equal(assessPreStoryRiskForStoryStart(decision, record, {
+    baseCommit: record.sourceCommit, now: '2026-10-02T00:00:00.000Z'
+  }).accepted, true);
+  assert.equal(assessPreStoryRiskForStoryStart(decision, record, {
+    baseCommit: 'f'.repeat(40), now: '2026-10-02T00:00:00.000Z'
+  }).accepted, false);
+  assert.equal(assessPreStoryRiskForStoryStart(decision, record, {
+    baseCommit: record.sourceCommit, now: '2026-10-11T00:00:00.000Z'
+  }).accepted, false);
+  assert.equal(assessPreStoryRiskForStoryStart({ ...decision, actor: 'someone else' }, record, {
+    baseCommit: record.sourceCommit, now: '2026-10-02T00:00:00.000Z'
+  }).accepted, false);
+  assert.equal(record.status, 'failing-tests', 'risk acknowledgement never changes the test result');
+});
+
+test('Node TAP named failures can be acknowledged only when the complete set is observed', () => {
+  const record = baseline({
+    testTools: [{ ...baseline().testTools[0], adapter: 'node-tap' }],
+    testObservations: [{ ...baseline().testObservations[0], adapter: 'node-tap',
+      failingCases: [{ ...failedCase('known failing baseline'), className: null }] }]
+  });
+  assert.equal(assessPreStoryTestBaseline(record).eligible, true);
+  assert.equal(accept(record).status, 'accepted-known-failures');
+  const truncated = baseline({
+    testTools: record.testTools,
+    testObservations: [{ ...record.testObservations[0], failingCasesTruncated: true }]
+  });
+  assert.equal(assessPreStoryTestBaseline(truncated).eligible, false);
+});
+
+test('a failing test run below its required discovery count cannot be accepted', () => {
+  const record = baseline({
+    testTools: [{ ...baseline().testTools[0], minimumDiscovered: 11 }]
+  });
+  const assessment = assessPreStoryTestBaseline(record);
+  assert.equal(assessment.eligible, false);
+  assert.ok(assessment.reasons.includes('test-observation-incomplete:maven-tests'));
+  assert.throws(() => accept(record), { code: 'PRE_STORY_TEST_RISK_INELIGIBLE' });
 });
 
 test('new failure, increased skips, missing identity, changed command, and expiry block', () => {

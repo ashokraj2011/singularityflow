@@ -375,12 +375,12 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   assert.match(content, /git status --porcelain=v1 --untracked-files=all/);
   assert.match(content, /staged\/unstaged diffs and untracked content.*`workflow\.json`/);
   assert.match(content, /Verify code phase\/pinned scope; intent must be open\/current if present, else step 5 begins it/);
-  assert.match(content, /Allow owned in-phase `prepare-artifact`, `complete-artifact`, `repair-agent-brief-source`, `complete-code-delivery`; route others/);
+  assert.match(content, /Allow owned in-phase `prepare-artifact`, `complete-artifact`, `repair-agent-brief-source`, `complete-code-delivery`, and `repair-repository-test-runner` only when its sole blocker is `CODE_DELIVERY_TEST_COMMAND_REQUIRED`/);
   assert.match(content, /stop for protected\/unrelated\/unowned changes, other manual\/producer actions or `requiresRecovery: true`/i);
   assert.match(content, /generation\.intent\.consumed-changed.*\/sf-recover/s);
   assert.match(content, /generation\.intent\.consumed-changed.*never `\/sf-code` or waiver/);
   assert.match(content, /Initial template is baseline; stop on an unchanged fingerprint only after correction/);
-  assert.match(content, /resolve-code-delivery-test-policy.*config refresh does not change this Story's pin/);
+  assert.match(content, /resolve-code-delivery-test-policy.*config refresh affects future Stories only/);
   assert.match(content, /blocking finding code and source code.*remain unchanged.*stop this attempt/);
   assert.match(content, /In-scope application and test edits.*not a reason to clean or reset the worktree/);
   assert.doesNotMatch(content, /stop for manual\/unchanged\/other-producer recovery/);

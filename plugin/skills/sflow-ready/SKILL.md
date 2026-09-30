@@ -17,30 +17,28 @@ global tools, record secrets, or enter a Story worktree. Build, quality, applica
 end-to-end are forbidden unless `--full` and approved policy permit them.
 
 1. Require exact Git root/clean tree. Run `singularity-flow init --check --json`, then `singularity-flow precheck --quick --json`.
-   Report `testTools`, adapter, launcher availability. Missing runner is setup; `/sf-init` repairs
-   packaged assets without erasing customization.
-2. Select `dependency-test` unless `--full` is requested. Run `singularity-flow precheck --run --scope <SCOPE> --json` once for its plan only. Show base, manifest digest, locked dependencies or frozen restore,
-   test commands, structured test adapter, timeouts, omissions, scope, `planId`. Narrow scope
-   excludes build/start/end-to-end.
+   Report test tools, adapters, and launcher availability.
+2. Select `dependency-test` unless `--full` is requested. Run
+   `singularity-flow precheck --run --scope <SCOPE> --json` once for its plan only. Show base,
+   manifest digest, locked dependencies or frozen restore, test commands, structured test adapter,
+   timeouts, omissions, and `planId`. For blockers, do not confirm or repeat
+   the plan. Use `singularity-flow precheck --quick --json` to identify the native script,
+   package-manager ambiguity, or missing reporter; offer the smallest reviewed setup repair.
 3. Use `ask_user` to confirm the exact `planId`; otherwise stop with Copilot `/sf-ready` and Shell
    `singularity-flow precheck --run --scope <SCOPE> --confirm-plan <PLAN-ID> --json`. Execute once.
-4. Report results/Git-private receipt. On failure report separate baseline/hash: exact base/plan,
-   exit, report digest, testcase IDs. Missing reports stay unavailable. Never commit local
-   dependency directories, build output, test reports, or receipts.
-5. Classify: **local-only** package/cache restore; **committable setup** manifest/lock/wrapper,
-   runner/reporter, or headless unit config; **existing test failure** exact baseline and repair
-   before feature coding. An existing unit failure needs a separate Bug-fix Story if not setup;
-   never mask it. For an unchanged JUnit/Jest/Vitest baseline, offer
-   read-only `singularity-flow precheck --risk-status --json`. If the user explicitly chooses a
-   local acknowledgement, require exact baseline digest, reason, expiry (within 30 days)
-   with `singularity-flow precheck --accept-test-risk --confirm-baseline <SHA256> --reason <TEXT>
-   --expires <ISO-8601> --json`. This Git-private record is not authenticated approval and changes
-   no Story-start/publication gate. Failed is not passed; never silently skip tests or claim this
-   unblocks a workflow.
+4. Report receipt or failed baseline: exact base/plan, exit, report hash, failing testcase IDs.
+   Missing reports remain unavailable. Never commit local dependency directories, build output,
+   test reports, or receipts.
+5. Classify local cache repair, committable setup, or pre-existing failures. An existing unit failure
+   needs a separate Bug-fix Story if not setup. For eligible JUnit/Jest/Vitest/Node TAP baselines, inspect with
+   `singularity-flow precheck --risk-status --json`. Only on explicit choice record digest,
+   reason, and expiry (at most 30 days) via `singularity-flow precheck --accept-test-risk
+   --confirm-baseline <SHA256> --reason <TEXT> --expires <ISO-8601> --json`. Exact-base acceptance
+   may allow Story creation, never marks tests passed or waives later publication checks.
 6. Without `--repair`, stop. With it, ask before committable setup, create
    `sflow/readiness/<PLAN-DIGEST-PREFIX>`, edit only confirmed paths, and show full diff.
 7. After explicit diff approval, rerun and commit only the reviewed paths. Do not push or
-   merge unless separately requested. A commit changes the base, so obtain a new `planId`,
-   confirmation, and receipt before relying on readiness again.
+   merge unless separately requested. A commit changes the base; obtain a new `planId`,
+   confirmation, and receipt.
 8. Report the commit/blockers and handoffs: Copilot `/sf-start`; Shell
    `singularity-flow start <WORK-ID>`. A Git refusal retains the setup branch and creates no Story.

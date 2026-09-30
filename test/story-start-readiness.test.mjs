@@ -63,6 +63,31 @@ function facts(definition, overrides = {}) {
   };
 }
 
+function acceptedFailedTests(baseCommit = BASE_COMMIT) {
+  const now = Date.now();
+  const sha = (letter) => `sha256:${letter.repeat(64)}`;
+  return {
+    status: 'accepted-known-failures', scope: 'dependency-test', sourceCommit: baseCommit,
+    baselineSha256: sha('3'), sourceManifestSha256: sha('4'), planId: sha('5'),
+    riskAssessment: { eligible: true, planCurrent: true, reasons: [] },
+    riskAcceptance: {
+      status: 'accepted-known-failures', baselineSha256: sha('3'),
+      acceptanceSha256: sha('6'), sourceCommit: baseCommit,
+      acceptedAt: new Date(now - 60_000).toISOString(),
+      expiresAt: new Date(now + 86_400_000).toISOString()
+    },
+    structuredTestContract: { status: 'available', commands: [{
+      id: 'unit', adapter: 'junit-xml', minimumDiscovered: 1
+    }] },
+    testObservations: [{ commandId: 'unit', adapter: 'junit-xml', status: 'available',
+      counts: { discovered: 2, passed: 1, failed: 1, skipped: 0 } }],
+    commandResults: [
+      { id: 'install', purpose: 'dependency', status: 'pass' },
+      { id: 'unit', purpose: 'test', status: 'failed' }
+    ]
+  };
+}
+
 test('Story-start readiness has a deterministic receipt for equivalent facts', async () => {
   const definition = await shippedDefinition();
   const firstFacts = facts(definition);
@@ -156,6 +181,46 @@ test('an enforced pre-Story repository receipt must match the exact selected bas
   assert.ok(ready.checks.some((entry) =>
     entry.code === 'STORY_REPOSITORY_READINESS_VALID'));
   assert.notEqual(ready.receipt.readinessSha256, missing.receipt.readinessSha256);
+});
+
+test('an accepted exact-base failure permits Story start as a warning but cannot waive full readiness', async () => {
+  const definition = await shippedDefinition();
+  definition.repositoryReadiness = {
+    requiredBeforeStory: true, dependencyHydration: 'required',
+    build: 'off', applicationStart: 'off', structuredTests: 'required'
+  };
+  const accepted = acceptedFailedTests();
+  const ready = inspectStoryStartReadiness(facts(definition, {
+    repositoryReadiness: accepted
+  }));
+  assert.equal(ready.ready, true);
+  assert.equal(ready.status, 'ready-with-warnings');
+  assert.equal(ready.checks.find((entry) => entry.id === 'repository-execution').code,
+    'STORY_PRE_EXISTING_TEST_FAILURES_ACCEPTED');
+  assert.notEqual(ready.receipt.readinessSha256,
+    inspectStoryStartReadiness(facts(definition, {
+      repositoryReadiness: { ...accepted,
+        riskAcceptance: { ...accepted.riskAcceptance,
+          acceptanceSha256: `sha256:${'7'.repeat(64)}` } }
+    })).receipt.readinessSha256);
+
+  for (const rejected of [
+    { ...accepted, sourceCommit: 'c'.repeat(40) },
+    { ...accepted, riskAcceptance: null },
+    { ...accepted, commandResults: [{ id: 'unit', purpose: 'test', status: 'failed' }] },
+    { ...accepted, structuredTestContract: { status: 'missing', commands: [] } },
+    { ...accepted, structuredTestContract: { status: 'available', commands: [{
+      id: 'unit', adapter: 'junit-xml', minimumDiscovered: 3
+    }] } },
+    { ...accepted, testObservations: [] }
+  ]) assert.equal(inspectStoryStartReadiness(facts(definition, {
+    repositoryReadiness: rejected
+  })).ready, false);
+  const full = structuredClone(definition);
+  full.repositoryReadiness.build = 'required';
+  assert.equal(inspectStoryStartReadiness(facts(full, {
+    repositoryReadiness: accepted
+  })).ready, false);
 });
 
 test('repository readiness remediation selects full scope for enabled build or start proof', async () => {

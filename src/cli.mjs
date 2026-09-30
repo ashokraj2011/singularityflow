@@ -2369,6 +2369,7 @@ export async function startCommand(positionals, options) {
         interactive: !optionBoolean(options, 'json') && !optionBoolean(options, 'yes') && !receiptToken,
         remote,
         defaultBranch: config?.defaultBaseBranch ?? applicationDefault,
+        stateBranch: config?.ledger?.branch,
         capabilityId: optionString(options, 'capability'),
         configurationSnapshot: approvedConfigurationSnapshot,
         // Legacy intake must choose a base before it can know which branch-local capability map is
@@ -14140,6 +14141,7 @@ async function workspaceCommand(positionals, options) {
         observedHeads: originHeads,
         remote: definition.git?.remote ?? 'origin',
         defaultBranch: definition.defaultBaseBranch,
+        stateBranch: definition.ledger?.branch,
         capabilityId: optionString(options, 'capability'),
         configurationSnapshot: approvedConfigurationSnapshot,
         // With no shared configuration authority, the exact base chosen later in this request is
@@ -14155,6 +14157,7 @@ async function workspaceCommand(positionals, options) {
           interactive: false,
           remote: definition.git?.remote ?? 'origin',
           defaultBranch: definition.defaultBaseBranch,
+          stateBranch: definition.ledger?.branch,
           capabilityId: optionString(options, 'capability'),
           configurationSnapshot: approvedConfigurationSnapshot,
           ...(catalog ? { catalog } : {})

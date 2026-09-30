@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   baseBranchRecord, baseRefusalReport, branchChoices, capabilityRepositories,
-  parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
+  isStoryBaseBranch, parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
 } from '../src/capability-branches.mjs';
 
 const WORKSPACE = {
@@ -57,6 +57,30 @@ test('the choices put branches everyone publishes first, and name who lacks the 
   // A partial branch stays on the list: choosing it and being told what is missing is a reasonable
   // next step, and hiding it would make the refusal the first mention of it.
   assert.deepEqual(choices.at(-1).missingFrom, ['audit-sink', 'notifications']);
+});
+
+test('Story base choices exclude framework configuration and state refs', () => {
+  const published = {
+    application: ['main', 'release/24.3', 'state', 'audit-state', 'sflow/config',
+      'sflow/config-history/0123456789abcdef', 'sflow/config-change/capability/map-12345678']
+  };
+  assert.deepEqual(branchChoices(published, { stateBranch: 'audit-state' })
+    .map((choice) => choice.branch), ['main', 'release/24.3']);
+  assert.ok(published.application.includes('sflow/config'), 'the raw remote inventory remains complete');
+  assert.equal(isStoryBaseBranch('feature/customer-search'), true);
+  assert.equal(isStoryBaseBranch('sflow/config-history/0123456789abcdef'), false);
+});
+
+test('explicit framework Story bases are refused, including repository overrides', () => {
+  const repositories = { application: ['main', 'state', 'audit-state', 'sflow/config'] };
+  for (const selection of [
+    parseBaseSelection(['sflow/config']),
+    parseBaseSelection(['main', 'application=sflow/config']),
+    parseBaseSelection(['audit-state'])
+  ]) {
+    assert.throws(() => resolveCapabilityBase({ repositories, selection, stateBranch: 'audit-state' }),
+      (error) => error.code === 'STORY_BASE_INVALID' && /cannot be a Story base/.test(error.message));
+  }
 });
 
 test('--from-branch takes one branch for all, and repository=branch for one', () => {

@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveLifecycleCapability } from '../capability-context.mjs';
+import { isStoryBaseBranch } from '../capability-branches.mjs';
 import { storyBaseCatalog } from '../capability-start.mjs';
 import { previewChangeFlightPlan, readChangeFlightPlan } from '../change-flight-plan.mjs';
 import { loadDefinition, resolveWorkType } from '../config.mjs';
@@ -495,6 +496,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   const catalog = options.baseCatalog ?? await storyBaseCatalog(root, {
     remote,
     defaultBranch: definition.defaultBaseBranch,
+    stateBranch: definition.ledger?.branch,
     capabilityId: capability?.id,
     configurationSnapshot: configurationReadSnapshot(root)
   });
@@ -511,6 +513,12 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     throw new SingularityFlowError(`Auto Work ID '${workId}' does not match ${definition.idPattern}.`, { code: 'AUTO_PLAN_INVALID' });
   }
   const baseBranch = String(options.fromBranch ?? definition.defaultBaseBranch).trim();
+  if (!isStoryBaseBranch(baseBranch, { stateBranch: definition.ledger?.branch })) {
+    throw new SingularityFlowError(
+      `Branch '${baseBranch}' is reserved for Singularity Flow configuration or state and cannot be an Auto Story base.`,
+      { code: 'AUTO_BASE_INVALID' }
+    );
+  }
   const missing = Object.entries(catalog.published).filter(([, branches]) => !branches.includes(baseBranch)).map(([id]) => id);
   if (missing.length) throw new SingularityFlowError(`Base branch '${baseBranch}' is not published by: ${missing.join(', ')}.`, {
     code: 'AUTO_BASE_INVALID'

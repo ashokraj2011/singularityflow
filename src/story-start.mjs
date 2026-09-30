@@ -355,6 +355,7 @@ export async function startStory(root, {
       interactive: false,
       remote,
       defaultBranch: initialDefinition.defaultBaseBranch,
+      stateBranch: initialDefinition.ledger?.branch,
       capabilityId,
       configurationSnapshot: approvedConfigurationSnapshot,
       // A legacy interactive caller may choose its base only after this read-only inventory. Do

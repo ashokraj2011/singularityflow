@@ -218,6 +218,17 @@ test('a reviewed configuration proposal retains the complete approved skill pack
       confirm: proposal.commit, acknowledgeUnprotected: true
     });
     assert.equal(activation.activated, true);
+    assert.equal(activation.proposalCleanup.status, 'deleted');
+    assert.equal(run('git', [
+      '--git-dir', item.remote, 'show-ref', '--verify', '--quiet',
+      `refs/heads/${proposal.branch}`
+    ], { allowFailure: true }).status, 1);
+    const repeated = await activateWorkflowConfigurationProposal(item.story, proposal.branch, {
+      confirm: proposal.commit
+    });
+    assert.equal(repeated.activated, true);
+    assert.equal(repeated.alreadyMerged, true);
+    assert.equal(repeated.proposalCleanup.status, 'already-absent');
     const snapshot = await loadStoryConfigurationSnapshot({
       remote: item.remote, branch: 'sflow/config', commit: activation.targetCommit,
       source: 'configuration'
@@ -582,6 +593,7 @@ const result = spawnSync(${JSON.stringify(realGit)}, args, {
 process.exit(result.status == null ? 1 : result.status);
 `);
     await chmod(wrapper, 0o755);
+    run('git', ['--git-dir', item.remote, 'config', 'receive.denyDeletes', 'true']);
     const activated = spawnSync(process.execPath, [
       cli, 'workflow', 'activate', result.branch, '--confirm', result.commit,
       '--acknowledge-unprotected', '--json'
@@ -597,6 +609,11 @@ process.exit(result.status == null ? 1 : result.status);
     assert.equal(activation.activated, true);
     assert.equal(activation.mergeEvidence, 'direct-exact-lease');
     assert.equal(activation.protection.enforced, false);
+    assert.equal(activation.proposalCleanup.status, 'retained');
+    assert.equal(activation.proposalCleanup.reason, 'deletion-refused');
+    assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse',
+      `refs/heads/${result.branch}`]).stdout.trim(), result.commit,
+    'a cleanup refusal leaves the approved activation successful and the exact proposal intact');
     assert.notEqual(activation.targetCommit, item.approved);
     const pushes = (await readFile(pushLog, 'utf8')).trim().split('\n').map(JSON.parse);
     const authorityPush = pushes.find((args) =>

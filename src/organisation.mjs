@@ -85,6 +85,7 @@ import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { gitIsAncestor } from './git-ancestry.mjs';
+import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {
   isRetiredPackagedAsset, RETIRED_PACKAGED_ASSET_SHA256
 } from './packaged-asset-history.mjs';
@@ -7358,6 +7359,13 @@ export async function activateCapabilityProposal(url, branch, {
         const nextAction = projectionPending || portabilityPending
           ? { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' }
           : null;
+        const proposalCleanup = projectionPending || portabilityPending
+          ? { branch: proposalBranch, proposalCommit, status: 'retained',
+              reason: 'activation-follow-up-pending' }
+          : await cleanupActivatedConfigurationProposal(
+            remote, proposalBranch, proposalCommit, currentConfigurationCommit,
+            { proofRoot: root, env, remoteSession: session }
+          );
         return {
           ...activated,
           status: projectionPending ? 'activation-complete-projection-pending'
@@ -7365,6 +7373,7 @@ export async function activateCapabilityProposal(url, branch, {
             : projection.published || projection.branch ? 'activated' : 'activated-without-projection',
           projection: projectionPending ? { ...projection, pending: true, nextAction } : projection,
           portability,
+          proposalCleanup,
           nextAction
         };
       } catch (error) {
@@ -7379,6 +7388,8 @@ export async function activateCapabilityProposal(url, branch, {
             nextAction
           },
           portability: { status: 'pending', portable: false, outcomes: [], failures: [] },
+          proposalCleanup: { branch: proposalBranch, proposalCommit, status: 'retained',
+            reason: 'activation-follow-up-pending' },
           nextAction
         };
       }

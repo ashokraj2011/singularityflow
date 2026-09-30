@@ -529,6 +529,29 @@ test('non-interactive Story start requires an explicit base before mutation', as
     { allowFailure: true }).status, 1);
 });
 
+test('Story start refuses the configured state branch as an explicit base before mutation', async () => {
+  const { root } = await repository();
+  const definitionFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
+  definition.ledger.branch = 'audit-state';
+  await writeFile(definitionFile, YAML.stringify(definition));
+  git(root, 'add', definitionFile);
+  git(root, 'commit', '-m', 'Configure a named state branch');
+  git(root, 'push', 'origin', 'main');
+  git(root, 'push', 'origin', 'HEAD:refs/heads/audit-state');
+  const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
+
+  const refused = flow(root, [
+    'start', 'STORY-STATE-BASE', '--json', '--from-branch', 'audit-state',
+    '--work-type', 'feature', '--title', 'Invalid base', '--description', 'Must refuse.'
+  ], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /Branch 'audit-state'.*cannot be a Story base/);
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-STATE-BASE').stdout.trim(), '');
+});
+
 test('workspace branch preflight proves the exact destination without creating it', async () => {
   const { root } = await repository();
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();

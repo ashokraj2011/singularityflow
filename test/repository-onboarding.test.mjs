@@ -2015,10 +2015,21 @@ test('a setup proposal is visible, reviewable, and activates only its exact revi
     const activated = JSON.parse(cliActivation.stdout);
     assert.equal(activated.activated, true);
     assert.equal(activated.targetCommit, applied.proposal.commit);
+    assert.equal(activated.proposalCleanup.status, 'deleted');
+    assert.equal(run('git', [
+      'show-ref', '--verify', '--quiet', `refs/heads/${applied.proposal.branch}`
+    ], { cwd: fixture.remote, allowFailure: true }).status, 1);
     const repeated = await activateRepositoryOnboardingProposal(
       fixture.remote, applied.proposal.branch, { confirm: applied.proposal.commit }
     );
     assert.equal(repeated.alreadyMerged, true);
+    assert.equal(repeated.proposalCleanup.status, 'already-absent');
+    const repeatedCli = run(process.execPath, [
+      path.resolve('bin/singularity-flow.mjs'), 'capability', 'setup-activate',
+      applied.proposal.branch, '--lead', fixture.remote,
+      '--confirm', applied.proposal.commit
+    ], { cwd: process.cwd() });
+    assert.match(repeatedCli.stdout, /setup: activated/);
     const recreatePlan = await inspectRepositoryOnboarding(fixture.remote, {
       mode: 'recreate'
     });
@@ -2243,6 +2254,11 @@ test('an externally merged setup proposal is recognized without another direct p
     );
     assert.equal(result.alreadyMerged, true);
     assert.equal(result.activated, true);
+    assert.equal(result.proposalCleanup.status, 'deleted');
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet',
+      `refs/heads/${applied.proposal.branch}`], {
+      cwd: fixture.remote, allowFailure: true
+    }).status, 1);
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
@@ -2354,8 +2370,8 @@ test('a pre-existing onboarding review ref is preserved and never adopted or ove
     run('git', ['update-ref', `refs/heads/${branch}`, sourceCommit], { cwd: fixture.remote });
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.proposalBranch, branch);
-    assert.equal(plan.observedRefs[`refs/heads/${branch}`], null,
-      'normal fresh setup does not pay an extra network probe for its fallback ref');
+    assert.equal(plan.observedRefs[`refs/heads/${branch}`], sourceCommit,
+      'the initial remote inventory records an already advertised fallback ref');
     let proposalPushes = 0;
     const protectedConfiguration = async (args, options) => {
       if (args[0] === 'push' && args.at(-1)?.endsWith(':refs/heads/sflow/config')) {
@@ -2381,8 +2397,8 @@ test('a pre-existing onboarding review ref is preserved and never adopted or ove
     assert.equal(result.proposal.conflict, true);
     assert.equal(result.review.recovery.action, 'resolve-proposal-conflict');
     assert.notEqual(result.proposal.candidateCommit, sourceCommit);
-    assert.equal(proposalPushes, 1,
-      'the exact create lease detects the pre-existing review ref without overwriting it');
+    assert.equal(proposalPushes, 0,
+      'the advertised existing review ref is refused before attempting another proposal push');
     assert.equal(run('git', ['rev-parse', `refs/heads/${branch}`], {
       cwd: fixture.remote
     }).stdout.trim(), sourceCommit);

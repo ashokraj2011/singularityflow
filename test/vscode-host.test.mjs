@@ -7226,7 +7226,8 @@ test('capability review merges its exact commit with one acknowledged action', a
     if (argv[1] === 'activate') return { result: {
       status: 'activated', activated: true, targetBranch: 'sflow/config',
       targetCommit: proposalCommit, proposalCommit, alreadyMerged: false,
-      projection: { published: true, branch: 'state', commit: proposalCommit }
+      projection: { published: true, branch: 'state', commit: proposalCommit },
+      proposalCleanup: { status: 'deleted' }
     }, error: null };
     throw new Error(`Unexpected command: ${argv.join(' ')}`);
   }, undefined, 'new-service');
@@ -7241,6 +7242,7 @@ test('capability review merges its exact commit with one acknowledged action', a
     'a webview message cannot open workspace creation before the engine confirms activation');
   await panel.post({ type: 'activate' });
   await until(() => panel.webview.html.includes('Capability activated.') ? panel.webview.html : null);
+  assert.match(panel.webview.html, /completed review branch was retired from the remote/);
   assert.match(panel.webview.html, /data-action="create-workspace"/);
   assert.doesNotMatch(panel.webview.html, /data-action="activate"/,
     'the completion screen has a next step instead of another merge action');

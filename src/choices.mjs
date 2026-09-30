@@ -123,6 +123,7 @@ async function choiceSets(root, definition, action, workflow = null) {
     const catalog = await storyBaseCatalog(root, {
       remote: definition.git?.remote ?? 'origin',
       defaultBranch: definition.defaultBaseBranch ?? 'main',
+      stateBranch: definition.ledger?.branch,
       configurationSnapshot,
       // The receipt records a base choice first. In legacy repositories the exact capability map
       // can be loaded only from that selected base, so this initial remote inventory is provisional

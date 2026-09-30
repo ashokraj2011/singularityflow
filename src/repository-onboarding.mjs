@@ -44,6 +44,9 @@ import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
+import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
+import { executeGitQuery } from './git-query.mjs';
 import { BUILD_INFO } from './build-info.mjs';
 import {
   forgetLeadRepository, listLeadRepositoryRegistryRecords, rememberLeadRepository
@@ -3352,9 +3355,48 @@ export async function activateRepositoryOnboardingProposal(remote, requestedBran
 } = {}) {
   const repository = await repositoryInputRemote(canonicalRepositoryLocator(remote), env);
   const branch = setupProposalBranch(requestedBranch);
-  const reviewed = await inspectRepositoryOnboardingProposal(repository, branch, {
-    env, runRemoteCommand, cleanupQueueRoot, includeDiff: false
-  });
+  let reviewed;
+  try {
+    reviewed = await inspectRepositoryOnboardingProposal(repository, branch, {
+      env, runRemoteCommand, cleanupQueueRoot, includeDiff: false
+    });
+  } catch (error) {
+    // Review providers may delete the source branch after merge, and successful SFlow activation
+    // now does the same. A repeated exact activation is a read-only success only when the named
+    // commit remains in the current approved ancestry.
+    if (error?.code !== 'REPOSITORY_ONBOARDING_PROPOSAL_NOT_FOUND'
+        || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(String(confirm ?? ''))) throw error;
+    const gitEnv = enterpriseGitEnvironment(env);
+    const session = new GitRemoteSession({ env: gitEnv, runAsyncCommand: runRemoteCommand });
+    const observed = await session.observeAsync(repository, {
+      refs: [`refs/heads/${branch}`, CONFIGURATION_REF], includeHead: false, refresh: true
+    });
+    const targetCommit = observed.ok ? observed.refs.get(CONFIGURATION_REF) ?? null : null;
+    if (!targetCommit || observed.refs.has(`refs/heads/${branch}`)) throw error;
+    const transport = frozenRemoteTransport(repository, { env: gitEnv });
+    const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-setup-activation-recheck-'));
+    try {
+      const cloned = await runRemoteCommand([
+        'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+        '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
+      ], { operation: 'remote-configuration', env: transport.env });
+      if (cloned.status !== 0) throw error;
+      const localHead = executeGitQuery(scratch, 'repository.head', {}, {
+        env: transport.env
+      });
+      if (localHead !== targetCommit
+          || !gitCommitObjectExists(scratch, confirm, { env: transport.env })
+          || !gitIsAncestor(scratch, confirm, targetCommit, { env: transport.env })) throw error;
+      return {
+        remote: sanitizeRemote(repository), branch,
+        proposalCommit: confirm, targetBranch: CONFIGURATION_BRANCH, targetCommit,
+        status: 'activated', activated: true, alreadyMerged: true,
+        merged: true, valid: true, changedFiles: [], diff: null, diffDeferred: true,
+        proposalCleanup: { branch, proposalCommit: confirm, status: 'already-absent' },
+        nextAction: onboardingCommand(repository)
+      };
+    } finally { await removeTemporaryTree(scratch); }
+  }
   if (String(confirm ?? '').trim() !== reviewed.proposalCommit) throw new SingularityFlowError(
     `Confirmation must be the full current setup proposal commit '${reviewed.proposalCommit}'. Nothing was changed.`, {
       code: 'REPOSITORY_ONBOARDING_PROPOSAL_CONFIRMATION_MISMATCH',
@@ -3367,10 +3409,16 @@ export async function activateRepositoryOnboardingProposal(remote, requestedBran
       details: { proposal: reviewed }
     }
   );
-  if (reviewed.merged) return {
-    ...reviewed, status: 'activated', activated: true, alreadyMerged: true,
-    nextAction: onboardingCommand(repository)
-  };
+  if (reviewed.merged) {
+    const proposalCleanup = await cleanupActivatedConfigurationProposal(
+      repository, branch, reviewed.proposalCommit, reviewed.targetCommit,
+      { env, runRemoteCommand }
+    );
+    return {
+      ...reviewed, status: 'activated', activated: true, alreadyMerged: true,
+      proposalCleanup, nextAction: onboardingCommand(repository)
+    };
+  }
   if (!acknowledgeUnprotected) {
     const nextAction = setupProposalCommand(
       'setup-activate', repository, branch, reviewed.proposalCommit, true
@@ -3426,10 +3474,16 @@ export async function activateRepositoryOnboardingProposal(remote, requestedBran
       refs: [targetRef], includeHead: false, refresh: true
     });
     const current = after.ok ? after.refs.get(targetRef) ?? null : null;
-    if (current === reviewed.proposalCommit) return {
-      ...reviewed, status: 'activated', activated: true, alreadyMerged: false,
-      targetCommit: current, nextAction: onboardingCommand(repository)
-    };
+    if (current === reviewed.proposalCommit) {
+      const proposalCleanup = await cleanupActivatedConfigurationProposal(
+        repository, branch, reviewed.proposalCommit, current,
+        { proofRoot: checkout.scratch, env, remoteSession: session, runRemoteCommand }
+      );
+      return {
+        ...reviewed, status: 'activated', activated: true, alreadyMerged: false,
+        targetCommit: current, proposalCleanup, nextAction: onboardingCommand(repository)
+      };
+    }
     if (current) {
       // A review platform may install a merge commit while our exact direct update is in flight.
       // The target SHA alone is not merge evidence; prove ancestry and proposal validity again.
@@ -3439,10 +3493,16 @@ export async function activateRepositoryOnboardingProposal(remote, requestedBran
         });
         if (concurrent.valid && concurrent.merged
             && concurrent.proposalCommit === reviewed.proposalCommit
-            && concurrent.targetCommit === current) return {
-          ...concurrent, status: 'activated', activated: true, alreadyMerged: true,
-          nextAction: onboardingCommand(repository)
-        };
+            && concurrent.targetCommit === current) {
+          const proposalCleanup = await cleanupActivatedConfigurationProposal(
+            repository, branch, concurrent.proposalCommit, current,
+            { env, remoteSession: session, runRemoteCommand }
+          );
+          return {
+            ...concurrent, status: 'activated', activated: true, alreadyMerged: true,
+            proposalCleanup, nextAction: onboardingCommand(repository)
+          };
+        }
       } catch { /* Preserve the classified push result when reconciliation is unavailable. */ }
     }
     const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;

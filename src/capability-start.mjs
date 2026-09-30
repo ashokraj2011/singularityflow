@@ -21,8 +21,9 @@ import { realpath } from 'node:fs/promises';
 import YAML from 'yaml';
 
 import {
-  baseBranchRecord, baseRefusalReport, branchChoices, capabilityRepositories,
-  parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
+  assertStoryBaseSelection, baseBranchRecord, baseRefusalReport, branchChoices,
+  capabilityRepositories, isStoryBaseBranch, parseBaseSelection, parseRemoteHeads,
+  resolveCapabilityBase
 } from './capability-branches.mjs';
 import {
   assertClean, branch as currentBranch, checkout, exactRemoteBranchObservationAsync, publicationPushOutcome,
@@ -487,10 +488,12 @@ async function storyRepositoryPlan(root, {
 }
 
 export async function storyBaseCatalog(root, options = {}) {
+  const stateBranch = options.stateBranch ?? options.configurationSnapshot?.definition?.ledger?.branch ?? 'state';
   const plan = await storyRepositoryPlan(root, options);
   if (plan.identityFailure) {
     return {
       ...plan,
+      stateBranch,
       published: { [plan.repositoryId]: [] },
       unreachable: [plan.identityFailure],
       choices: []
@@ -499,7 +502,10 @@ export async function storyBaseCatalog(root, options = {}) {
   const { published, unreachable } = await publishedBranchesAsync(plan.repositories, {
     observed: options.observedHeads ?? null
   });
-  return { ...plan, published, unreachable, choices: branchChoices(published) };
+  return {
+    ...plan, stateBranch, published, unreachable,
+    choices: branchChoices(published, { stateBranch })
+  };
 }
 
 /**
@@ -546,19 +552,28 @@ export async function storyBaseForRepository(root, {
   interactive = true,
   remote = 'origin',
   defaultBranch = 'main',
+  stateBranch = null,
   capabilityId = null,
   configurationSnapshot = null,
   deferCapabilityAuthority = false,
   catalog: suppliedCatalog = null
 } = {}) {
+  const selectedStateBranch = stateBranch ?? configurationSnapshot?.definition?.ledger?.branch
+    ?? suppliedCatalog?.stateBranch ?? 'state';
+  let selection = parseBaseSelection(values);
+  assertStoryBaseSelection(selection, { stateBranch: selectedStateBranch });
   // `workspace branches --preflight-story` has already paid for an exact remote inventory so it can
   // render the choices alongside the result. Reusing those immutable bytes inside the same command
   // avoids asking every capability remote the identical question twice. Mutation-time Story start
   // still obtains its own fresh catalog and re-fetches every selected ref before changing a checkout.
-  let selection = parseBaseSelection(values);
   let catalog;
   if (suppliedCatalog) {
-    catalog = suppliedCatalog;
+    catalog = {
+      ...suppliedCatalog,
+      choices: suppliedCatalog.choices.filter((choice) => isStoryBaseBranch(
+        choice.branch, { stateBranch: selectedStateBranch }
+      ))
+    };
   } else if (values.length) {
     // An explicit base is a decision, not a request for a branch catalog. Build the repository set
     // from the verified workspace/configuration snapshot and let preflight's exact prune fetch prove
@@ -582,15 +597,17 @@ export async function storyBaseForRepository(root, {
       }));
       catalog = {
         ...plan,
+        stateBranch: selectedStateBranch,
         published: assumed,
         unreachable: [],
-        choices: branchChoices(assumed),
+        choices: branchChoices(assumed, { stateBranch: selectedStateBranch }),
         selectionProof: 'preflight-fetch-required'
       };
     }
   } else {
     catalog = await storyBaseCatalog(root, {
-      remote, defaultBranch, capabilityId, configurationSnapshot, deferCapabilityAuthority
+      remote, defaultBranch, stateBranch: selectedStateBranch, capabilityId,
+      configurationSnapshot, deferCapabilityAuthority
     });
   }
   if (catalog.unreachable.length) {
@@ -622,7 +639,8 @@ export async function storyBaseForRepository(root, {
   const resolution = resolveCapabilityBase({
     repositories: catalog.published,
     selection,
-    defaults
+    defaults,
+    stateBranch: selectedStateBranch
   });
   if (!resolution.usable) {
     throw new SingularityFlowError(
@@ -656,6 +674,9 @@ export async function storyBaseForRepository(root, {
 export async function planCapabilityBase(workspace, capability, options = {}, {
   values = [], interactive = true
 } = {}) {
+  let selection = parseBaseSelection(values);
+  const stateBranch = options.stateBranch ?? 'state';
+  assertStoryBaseSelection(selection, { stateBranch });
   const repositories = capabilityRepositories(workspace, capability);
   const { published, unreachable } = await publishedBranchesAsync(repositories);
   if (unreachable.length) {
@@ -667,15 +688,14 @@ export async function planCapabilityBase(workspace, capability, options = {}, {
     );
   }
 
-  let selection = parseBaseSelection(values);
-  const choices = branchChoices(published);
+  const choices = branchChoices(published, { stateBranch });
   if (!selection.all && !Object.keys(selection.overrides).length && interactive) {
     const chosen = await askForBaseBranch(choices, { capability, repositoryCount: repositories.length });
     if (chosen) selection = parseBaseSelection([chosen]);
   }
 
   const defaults = Object.fromEntries(repositories.map((repository) => [repository.id, repository.defaultBranch]));
-  const resolution = resolveCapabilityBase({ repositories: published, selection, defaults });
+  const resolution = resolveCapabilityBase({ repositories: published, selection, defaults, stateBranch });
   if (!resolution.usable) {
     throw new SingularityFlowError(baseRefusalReport(resolution, { capability }), { code: 'CAPABILITY_BRANCH_REFUSED' });
   }

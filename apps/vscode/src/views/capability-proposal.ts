@@ -36,6 +36,7 @@ interface ActivationResult {
   audit?: { recorded?: boolean; eventId?: string; sequence?: number; ledgerCommit?: string };
   failure?: { code?: string; classification?: string; retryable?: boolean; message?: string };
   externalAction?: { action: string; sourceBranch: string; targetBranch: string; proposalCommit: string } | null;
+  proposalCleanup?: { status?: 'deleted' | 'already-absent' | 'retained'; reason?: string } | null;
   nextAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
   preserved?: string[];
 }
@@ -76,6 +77,12 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     : `This proposal changes ${proposal.changedFiles.length} ${proposal.changedFiles.length === 1 ? 'file' : 'files'} on ${proposal.targetBranch}. Check the changed files before merging this exact commit.`;
   const projection = activated?.projection;
   const activationComplete = capabilityActivationSucceeded(activated);
+  const cleanup = activated?.proposalCleanup;
+  const cleanupNotice = !cleanup ? '' : cleanup.status === 'deleted'
+    ? '<p>The completed review branch was retired from the remote.</p>'
+    : cleanup.status === 'already-absent'
+      ? '<p>The completed review branch was already absent.</p>'
+      : `<p>The review branch remains available for recovery${cleanup.reason ? ` (${escape(cleanup.reason)})` : ''}.</p>`;
   // The engine proves repairability against the exact mismatching Agent Markdown bytes at the
   // reviewed Git ref. Never infer that safety boundary from human-readable error text.
   const packagedRepairAvailable = !proposal.merged && proposal.repairable === true;
@@ -85,7 +92,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     )}</p><p>${escape(projection?.published
       ? `Projection published to ${projection.branch}@${projection.commit?.slice(0, 12)}.`
       : projection?.branch ? `${projection.branch} was already current.`
-        : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${activated.audit?.eventId
+      : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${cleanupNotice}${activated.audit?.eventId
           ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
           : ''}${activated.nextAction?.command
             ? commandGuidanceHtml(activated.nextAction, { shellLabel: 'Recovery — Shell', copilotLabel: 'Recovery — Copilot' }) : ''}

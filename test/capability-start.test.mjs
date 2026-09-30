@@ -8,7 +8,7 @@ import YAML from 'yaml';
 import {
   capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
   preflightWorldModelAuthorityRefreshes, publishedBranchesAsync, prepareCapabilityRepositories,
-  storyBaseForRepository
+  storyBaseCatalog, storyBaseForRepository
 } from '../src/capability-start.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
@@ -70,6 +70,34 @@ test('published branches come from the remote, and drive the resolution', async 
   const refused = resolveCapabilityBase({ repositories: published, selection: parseBaseSelection(['release/24.3']) });
   assert.equal(refused.usable, false);
   assert.deepEqual(refused.missing.map((entry) => entry.repository), ['audit-sink']);
+});
+
+test('Story base catalog offers only application branches but retains every published head', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-story-bases-'));
+  const repositoryEntry = await repository(base, 'application', [
+    'main', 'release/24.3', 'state', 'audit-state', 'sflow/config',
+    'sflow/config-history/0123456789abcdef',
+    'sflow/config-change/capability/map-12345678'
+  ]);
+  const catalog = await storyBaseCatalog(path.join(base, repositoryEntry.path), {
+    stateBranch: 'audit-state'
+  });
+  assert.deepEqual(catalog.choices.map((choice) => choice.branch), ['main', 'release/24.3']);
+  assert.ok(catalog.published.application.includes('sflow/config-history/0123456789abcdef'));
+  assert.ok(catalog.published.application.includes('audit-state'));
+});
+
+test('explicit framework bases are refused before repository inspection', async () => {
+  for (const [values, stateBranch] of [
+    [['sflow/config-history/0123456789abcdef'], null],
+    [['main', 'application=sflow/config-change/capability/map-12345678'], null],
+    [['audit-state'], 'audit-state']
+  ]) {
+    await assert.rejects(
+      storyBaseForRepository('/path/without/a/repository', { values, stateBranch, interactive: false }),
+      (error) => error.code === 'STORY_BASE_INVALID' && /cannot be a Story base/.test(error.message)
+    );
+  }
 });
 
 test('an unreachable remote is reported, never treated as a repository with no branches', async () => {

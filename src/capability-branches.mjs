@@ -60,6 +60,24 @@ export function parseRemoteHeads(output) {
     .filter(Boolean))].sort();
 }
 
+/** Framework-owned branches carry configuration or state, never application Story bases. */
+export function isStoryBaseBranch(branch, { stateBranch = 'state' } = {}) {
+  return typeof branch === 'string' && branch.length > 0
+    && branch !== 'state' && branch !== stateBranch && !branch.startsWith('sflow/');
+}
+
+/** Refuse an explicit framework base before fetching or changing any repository. */
+export function assertStoryBaseSelection(selection, { stateBranch = 'state' } = {}) {
+  for (const branch of [selection?.all, ...Object.values(selection?.overrides ?? {})]) {
+    if (branch != null && !isStoryBaseBranch(branch, { stateBranch })) {
+      throw new SingularityFlowError(
+        `Branch '${branch}' is reserved for Singularity Flow configuration or state and cannot be a Story base. Choose an application branch.`,
+        { code: 'STORY_BASE_INVALID' }
+      );
+    }
+  }
+}
+
 /**
  * The branches on offer, most widely published first.
  *
@@ -68,13 +86,14 @@ export function parseRemoteHeads(output) {
  * still listed, because choosing it and being told which two are missing is a reasonable next step
  * and hiding it would make the refusal message the first the reader hears of it.
  */
-export function branchChoices(repositories) {
+export function branchChoices(repositories, { stateBranch = 'state' } = {}) {
   const total = Object.keys(repositories).length;
   const counts = new Map();
   for (const branches of Object.values(repositories)) {
     for (const name of new Set(branches)) counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return [...counts.entries()]
+    .filter(([branch]) => isStoryBaseBranch(branch, { stateBranch }))
     .map(([branch, present]) => Object.freeze({
       branch,
       present,
@@ -122,11 +141,12 @@ export function parseBaseSelection(values = []) {
  * Always returns a complete answer rather than throwing on the first problem: a reader who has to
  * re-run the command once per missing repository learns the shape of their capability the slow way.
  */
-export function resolveCapabilityBase({ repositories, selection, defaults = {} } = {}) {
+export function resolveCapabilityBase({ repositories, selection, defaults = {}, stateBranch = 'state' } = {}) {
   if (!repositories || !Object.keys(repositories).length) {
     throw new SingularityFlowError('Resolving a base branch needs at least one repository.', { code: 'CAPABILITY_BRANCH_INVALID' });
   }
   const { all, overrides } = selection ?? { all: null, overrides: {} };
+  assertStoryBaseSelection(selection, { stateBranch });
 
   /** An override naming a repository outside the capability is a typo, and a silent one. */
   const unknown = Object.keys(overrides).filter((id) => !(id in repositories)).sort();
@@ -141,6 +161,7 @@ export function resolveCapabilityBase({ repositories, selection, defaults = {} }
       missing.push({ repository: id, requested: null, published: [...published].sort(), reason: 'no base branch' });
       continue;
     }
+    assertStoryBaseSelection({ all: requested }, { stateBranch });
     if (published.includes(requested)) {
       resolved[id] = { branch: requested, source: overrides[id] ? 'override' : all ? 'requested' : 'default' };
       continue;

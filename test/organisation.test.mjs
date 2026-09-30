@@ -2297,7 +2297,7 @@ test('a longer capability identifier is not mistaken for the same-ID proposal hi
   assert.equal((await listCapabilityProposals(org.platform)).length, 2);
 });
 
-test('a proven merged mapping ref remains auditable without blocking remapping after approved removal', async () => {
+test('a cleaned merged mapping remains approved without blocking remapping after removal', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   await mapAndMerge(org.platform, {
@@ -2310,6 +2310,7 @@ test('a proven merged mapping ref remains auditable without blocking remapping a
     confirm: original.commit, acknowledgeUnprotected: true
   });
   assert.equal(originalActivation.status, 'activated');
+  assert.equal(originalActivation.proposalCleanup.status, 'deleted');
 
   const removal = await editCapabilityInOrganisation(
     org.platform, 'calculator', {}, { mode: 'remove' }
@@ -2326,21 +2327,21 @@ test('a proven merged mapping ref remains auditable without blocking remapping a
   });
   assert.notEqual(remapped.branch, original.branch,
     'the new proposal is bound to the approved removal revision, not the historical base');
-  assert.equal(run('git', ['show-ref', '--verify', `refs/heads/${original.branch}`], {
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${original.branch}`], {
     cwd: org.platform, allowFailure: true
-  }).status, 0, 'the merged review ref remains auditable');
+  }).status, 1, 'the merged review ref is retired after approved ancestry is proven');
 
   const pending = await listCapabilityProposals(org.platform);
   assert.deepEqual(pending.map((proposal) => proposal.branch), [remapped.branch],
-    'only the new proposal is pending; the retained merged ref is history');
+    'only the new proposal is pending; approved commits retain history');
   const refsBeforeRetry = proposalRefs(org.platform);
   await assert.rejects(() => mapCapability(org.platform, {
     capabilityId: 'calculator', name: 'Calculator v2', kind: 'collection'
   }), (error) => {
     assert.equal(error.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS');
     assert.deepEqual(error.details.proposals.map((proposal) => proposal.branch), [remapped.branch]);
-    assert.ok(error.details.historicalMergedProposals.some((proposal) =>
-      proposal.branch === original.branch && proposal.status === 'merged'));
+    assert.ok(!error.details.historicalMergedProposals.some((proposal) =>
+      proposal.branch === original.branch), 'retired review refs are not exposed as active proposals');
     return true;
   });
   assert.deepEqual(proposalRefs(org.platform), refsBeforeRetry,
@@ -2882,6 +2883,9 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
     'activating governed configuration never writes the application default branch');
   assert.equal(activated.projection.published, true);
   assert.equal(activated.audit.recorded, true);
+  assert.equal(activated.proposalCleanup.status, 'deleted');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet',
+    `refs/heads/${proposed.branch}`], { cwd: org.platform, allowFailure: true }).status, 1);
   assert.equal(activated.audit.eventType, 'capability-configuration-activated');
   assert.equal(activated.protection.enforced, false);
   const activationEntryPath = run('git', [
@@ -2921,8 +2925,13 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
       && !file.startsWith('singularity/ledger/')).sort());
   assert.deepEqual(await listCapabilityProposals(org.platform), []);
   const history = await listCapabilityProposals(org.platform, { includeMerged: true });
-  assert.equal(history[0].merged, true);
-  assert.match(history[0].diff, /calculator/, 'an activated proposal retains a reviewable exact diff');
+  assert.deepEqual(history, [], 'the approved merge and ledger retain history after review-ref cleanup');
+  const repeated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit
+  });
+  assert.equal(repeated.activated, true);
+  assert.equal(repeated.alreadyMerged, true);
+  assert.equal(repeated.proposalCleanup.status, 'already-absent');
 });
 
 test('review repairs an exact historical agent/MCP mismatch on the proposal branch before activation', async () => {
@@ -4258,7 +4267,7 @@ function activationEvents(remote, proposalCommit) {
   ], { cwd: remote }).stdout)).filter((entry) => entry.subject?.workId === `capability-proposal:${proposalCommit}`);
 }
 
-test('activation publishes its audit and state projection in one atomic push', async () => {
+test('activation publishes its audit and state projection atomically, then retires its proposal', async () => {
   const { org, proposed, stateBefore } = await activationFixture();
   const pushes = await recordPushes(org.platform);
   const timer = commandTimer('capability-activate-atomic', { commandClass: 'mutation' });
@@ -4270,19 +4279,23 @@ test('activation publishes its audit and state projection in one atomic push', a
   assert.equal(activated.audit.recorded, true);
   assert.equal(activated.audit.duplicate, false);
   assert.equal(activated.projection.published, true);
+  assert.equal(activated.proposalCleanup.status, 'deleted');
   // Authority and prior-audit observations, the checkout clone and its two fetches, the decision
-  // push, and one observation on each side of the single publication.
+  // push, publication, and exact leased proposal retirement. Cleanup adds two observations and
+  // one push but does not change the atomic audit/state publication transaction.
   assert.deepEqual({
     clone: counters['git.remote.command.clone'], fetch: counters['git.remote.command.fetch'],
     push: counters['git.remote.command.push'], advertisements: counters['git.remote.command.ls-remote']
-  }, { clone: 1, fetch: 2, push: 2, advertisements: 4 });
+  }, { clone: 1, fetch: 2, push: 3, advertisements: 6 });
   const merge = activated.targetCommit;
   const history = `refs/heads/sflow/config-history/${merge}`;
-  const [configurationPush, publication, ...rest] = await pushes();
+  const [configurationPush, publication, cleanupPush, ...rest] = await pushes();
   assert.deepEqual(configurationPush, ['refs/heads/sflow/config']);
-  assert.deepEqual(rest, [], 'the audit, pin, history and mirror moved in one push');
+  assert.deepEqual(rest, [], 'there was one publication transaction and one cleanup transaction');
   assert.ok(publication.includes('refs/heads/state') && publication.includes(history));
   assert.ok(publication.some((ref) => ref.startsWith('refs/singularity/pins/organisation/')));
+  assert.ok(cleanupPush.includes(`refs/heads/${proposed.branch}`),
+    'the later cleanup transaction only retires the exact completed proposal');
 
   // Exactly the sequential shape: the mirror commit sits on the audit commit, which sits on the
   // state tip the activation observed.
@@ -4326,8 +4339,10 @@ exit 0
   });
   assert.equal(activated.status, 'activated');
   assert.equal(activated.projection.published, true);
+  assert.equal(activated.proposalCleanup.status, 'deleted');
   const counts = (await readFile(log, 'utf8')).trim().split('\n').map(Number);
-  assert.deepEqual(counts, [1, 3, 1, 1, 1, 1], 'one refused transaction, then the sequential pushes');
+  assert.deepEqual(counts, [1, 3, 1, 1, 1, 1, 1],
+    'one refused publication, sequential recovery, then a separate proposal cleanup');
   assert.equal(activationEvents(org.platform, proposed.commit).length, 1);
   assert.equal(run('git', ['rev-parse', 'state'], { cwd: org.platform }).stdout.trim(),
     activated.projection.commit);

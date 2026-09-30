@@ -69,6 +69,11 @@ A Story branch is created from the selected application or capability base. It s
 Later updates to `sflow/config` affect future Stories only. They cannot silently change
 an active Story's pinned workflow.
 
+New Story base choices exclude internal `sflow/*` branches and the configured state
+branch. Explicitly naming one of those branches as a Story base is also rejected.
+The refs remain available for configuration, proof, and diagnostics; hiding them
+from Story intake does not delete them from the remote.
+
 The Story branch is normally the source branch for the application's pull request. It
 must not be reconstructed from the state ledger or from a local session file.
 
@@ -113,9 +118,18 @@ activated on this branch directly.
 Each history branch is an immutable pointer to one exact approved `sflow/config`
 commit. The full commit SHA is part of the branch name.
 
+State publication retains a history branch for each distinct approved configuration
+commit it uses. Publishing the same commit again reuses its existing ref, while
+successive approved changes add new refs. This is why a repository with a long
+configuration history can show many `sflow/config-history/*` branches.
+
 These refs keep older approved configuration fetchable after `sflow/config` advances
 and protect it from remote object garbage collection. A history branch for SHA A may
 only point to SHA A. It is not a new configuration proposal and should not be merged.
+State mirrors record the exact history branch they used, and historical policy reads
+fetch that branch by name. SFlow therefore does not automatically delete these refs.
+Pruning them would require a versioned history-authority migration that updates all
+readers and preserves older work across workspaces and machines.
 
 ## Review and onboarding branches
 
@@ -129,6 +143,12 @@ application default branch.
 
 After the proposal is reviewed, it may be merged through the repository's normal
 pull-request controls. It is not the shared configuration authority itself.
+
+### `sflow/config-change/onboarding/*`
+
+These branches hold reviewed repository setup proposals, including create, restore,
+migrate, and recreate plans. They are proposals for the approved configuration
+authority and are excluded from Story base choices.
 
 ### `sflow/config-change/capability/*`
 
@@ -145,6 +165,17 @@ proposal commit, and updates the state projection. They never modify `main`.
 These branches contain proposed workflow, phase, artifact-template, prompt, agent,
 or related configuration changes. They target `sflow/config`, not a selected Story's
 pinned copy and not the application default branch.
+
+After a completed capability, onboarding, or workflow activation, SFlow may remove
+the specific proposal branch it activated when a fresh remote check proves that
+the exact proposal commit is an ancestor of the approved commit. Removal uses an
+exact commit lease and retains the approved commit through either the current
+`sflow/config` ref or its immutable history ref. A squash-only approval, an
+unverified authority, or an incomplete activation leaves the proposal branch
+in place for review or recovery. This cleanup does not sweep older or unrelated
+proposals. For a pre-existing merged proposal, rerunning its exact activation
+rechecks ancestry and attempts the same guarded retirement; do not bulk-delete
+review refs by branch-name pattern.
 
 ### `sflow/config-refresh/*`
 
@@ -240,10 +271,10 @@ must not be used as a way to bypass a blocker.
 | Branch family | Normal deletion rule |
 |---|---|
 | `sflow/govern/*` | Remove only after the proposal is merged, intentionally declined, or superseded. |
-| `sflow/config-change/*` | Remove only after activation/merge is complete or after the guarded discard command proves the exact stale proposal commit. |
+| `sflow/config-change/*` | A completed activation may remove its exact proposal branch when approved ancestry and the remote commit lease are verified. Squash-only, pending, or unproven proposals remain; guarded discard is available for a proven stale proposal. |
 | `sflow/config-refresh/*` | Remove after the reviewed configuration is merged and refresh reports the repository current. |
 | Story or Initiative branches | Follow normal repository retention after completion/merge. Until then, the branch is the lifecycle authority. |
-| `sflow/config-history/*` | Retain. These refs preserve exact configuration revisions used by historical work. |
+| `sflow/config-history/*` | Retain. Automatic pruning requires a versioned history-authority migration; current state mirrors and historical reads depend on the exact ref. |
 | `sflow/config` | Do not delete casually. Re-creating it creates a new authority history and can make existing proposals unrelated. |
 | Configured state branch | Do not treat it as a cache. Some projections can be rebuilt, but append-only proof and authority lineage may not be recoverable. |
 
@@ -311,4 +342,3 @@ See also:
 - [Existing-workspace configuration refresh](../README-REFRESH-EXISTING-WORKSPACES.md)
 - [Capability-map Git robustness plan](CAPABILITY-MAP-GIT-ROBUSTNESS-PLAN.md)
 - [World-Model Builder v4](WORLD-MODEL-BUILDER-V4.md)
-

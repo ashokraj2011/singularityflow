@@ -27,6 +27,7 @@ import {
 } from './git-enterprise-environment.mjs';
 import { gitCommitIdentity, exactConfigurationProposalGitTree } from './git.mjs';
 import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
+import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,
   frozenRemoteTransport, redactDiagnosticText, remoteFingerprint, sanitizeRemote
@@ -463,6 +464,7 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
       ? gitIsAncestor(scratch, proposalCommit, 'HEAD', { env: transport.env })
       : false;
     return {
+      remote: sanitizeRemote(remote),
       branch,
       proposalCommit,
       targetBranch: CONFIGURATION_BRANCH,
@@ -485,7 +487,8 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
 export async function activateWorkflowConfigurationProposal(root, branch, {
   confirm = null, acknowledgeUnprotected = false
 } = {}) {
-  return withWorkflowProposalCheckout(root, branch, async (
+  try {
+    return await withWorkflowProposalCheckout(root, branch, async (
     scratch, remote, proposalBranch, ref, transport
   ) => {
     const reviewed = inspectWorkflowProposalCheckout(scratch, remote, proposalBranch, ref, {
@@ -631,15 +634,39 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         };
       }
     }
+    const proposalCleanup = await cleanupActivatedConfigurationProposal(
+      remote, proposalBranch, reviewed.proposalCommit, targetCommit,
+      { proofRoot: scratch, env: transport.env, remoteSession: transport.session }
+    );
     return {
       status: 'activated', activated: true, alreadyMerged,
       remote: sanitizeRemote(remote), branch: proposalBranch,
       proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
       targetCommit, changedFiles: reviewed.changedFiles, workflows: reviewed.workflows,
-      mergeEvidence, protection,
+      mergeEvidence, protection, proposalCleanup,
       nextAction: 'singularity-flow workspace refresh-configuration'
     };
-  });
+    });
+  } catch (error) {
+    if (!['WORKFLOW_PROPOSAL_UNAVAILABLE', 'REMOTE_BRANCH_NOT_FOUND'].includes(error?.code)
+        || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(String(confirm ?? ''))) throw error;
+    // A review provider, or successful activation, may have removed the source ref. Its absence
+    // can be reconciled only when the exact confirmed commit is still in approved ancestry.
+    let status;
+    try { status = await configurationProposalCommitStatus(root, branch, confirm); }
+    catch { throw error; }
+    if (!status.merged || status.branchStatus !== 'absent') throw error;
+    return {
+      status: 'activated', activated: true, alreadyMerged: true,
+      remote: status.remote, branch: status.branch, proposalCommit: status.proposalCommit,
+      targetBranch: CONFIGURATION_BRANCH, targetCommit: status.targetCommit,
+      changedFiles: [], workflows: [], mergeEvidence: 'commit-ancestry',
+      protection: { enforced: null, detail: 'the confirmed proposal is in approved ancestry' },
+      proposalCleanup: { branch: status.branch, proposalCommit: status.proposalCommit,
+        status: 'already-absent' },
+      nextAction: 'singularity-flow workspace refresh-configuration'
+    };
+  }
 }
 
 function safeSlug(value) {

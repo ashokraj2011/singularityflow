@@ -89,11 +89,16 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
     'src/source-review-lifecycle.mjs',
     'src/source-review-policy.mjs',
     'src/skp-amendment-plan.mjs',
+    'src/repository-readiness-evidence.mjs',
+    'src/story-test-readiness-document.mjs',
+    'src/test-baseline-risk.mjs',
     'src/wel-readiness-foundation.mjs',
     'src/wel-test-lifecycle.mjs',
     'schemas/revision-runner-artifact-admission.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',
     'schemas/wel-test-lifecycle.schema.json',
+    'schemas/repository-test-baseline.schema.json',
+    'schemas/preexisting-test-risk-acceptance.schema.json',
     'plugin/agents/sflow-source-reviewer.agent.md',
     'plugin/skills/sflow-review-source/SKILL.md'
   ]) {
@@ -193,6 +198,9 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'safe-command-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'phase-preparation-guidance.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'skp-amendment-plan.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'repository-readiness-evidence.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'story-test-readiness-document.mjs'), '// fixture\n'),
+    writeFile(path.join(repository, 'src', 'test-baseline-risk.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'gal-async-read.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'revision', 'approved-runner-boundary.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'revision', 'approved-runner-contract.mjs'), '// fixture\n'),
@@ -216,6 +224,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
       repository, 'schemas', 'story-world-model-history-pin.schema.json'
     ), '{}\n'),
     writeFile(path.join(repository, 'schemas', 'skill-version-adoption-decision.schema.json'), '{}\n'),
+    writeFile(path.join(repository, 'schemas', 'repository-test-baseline.schema.json'), '{}\n'),
+    writeFile(path.join(repository, 'schemas', 'preexisting-test-risk-acceptance.schema.json'), '{}\n'),
     ...VSIX_REQUIRED_CLI_RUNTIME
       .filter((relative) => relative.startsWith('schemas/revision-')
         || relative.startsWith('schemas/wel-'))
@@ -251,6 +261,9 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
   runGit(['add', '.gitignore', 'bin/tool.mjs', 'src/build-info.mjs',
     'src/safe-command-guidance.mjs', 'src/phase-preparation-guidance.mjs',
     'src/skp-amendment-plan.mjs',
+    'src/repository-readiness-evidence.mjs',
+    'src/story-test-readiness-document.mjs',
+    'src/test-baseline-risk.mjs',
     'src/gal-async-read.mjs',
     'src/revision/approved-runner-boundary.mjs',
     'src/revision/approved-runner-contract.mjs',
@@ -270,6 +283,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',
+    'schemas/repository-test-baseline.schema.json',
+    'schemas/preexisting-test-risk-acceptance.schema.json',
     ...VSIX_REQUIRED_CLI_RUNTIME.filter((relative) => relative.startsWith('schemas/revision-')
       || relative.startsWith('schemas/wel-')),
     'plugin/agents/sflow-source-reviewer.agent.md',

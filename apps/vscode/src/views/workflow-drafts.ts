@@ -4,7 +4,8 @@ import path from 'node:path';
 import { terminalCommand } from '../cli/runner.ts';
 import { commandGuidance } from '../copilot-command.ts';
 import { registerMessageRouter } from './messages.ts';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import { SharedWorkflowDraftController, workflowDraftCopilotContextIssue, type WorkflowDraftRunner } from './workflow-drafts-model.ts';
 import { withWorkflowDraftInputFile } from './workflow-drafts-input.ts';
 import { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT, workflowDraftDurabilityLabel, workflowDraftRecoveryLabel } from './workflow-drafts-page.ts';
@@ -108,9 +109,13 @@ class SharedWorkflowDraftsPanel {
       'recovery-restore': handle, 'recovery-compare': handle, 'recovery-discard': handle, 'recovery-refresh': handle,
       'recovery-inspect-locks': handle, 'recovery-repair-lock': handle
     });
-    panel.webview.onDidReceiveMessage((raw: unknown) => { void Promise.resolve(router.route(raw)).catch((error) => {
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const navigation = navigationTarget(raw);
+      if (navigation) return void navigateTo(navigation);
+      void Promise.resolve(router.route(raw)).catch((error) => {
       this.controller.view.error = error instanceof Error ? error.message : String(error); this.render();
-    }); }, null, this.disposables);
+      });
+    }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render(); void this.controller.initialize();
   }
@@ -131,7 +136,7 @@ class SharedWorkflowDraftsPanel {
     if (this.disposed) return;
     const token = nonce();
     this.panel.webview.html = page('Shared Workflow Drafts', sharedWorkflowDraftsHtml(this.controller.view),
-      contentSecurityPolicy(this.panel.webview, token), token, SHARED_WORKFLOW_DRAFTS_SCRIPT, { nav: false });
+      contentSecurityPolicy(this.panel.webview, token), token, SHARED_WORKFLOW_DRAFTS_SCRIPT);
   }
   static async show(context: vscode.ExtensionContext, runner: WorkflowDraftRunner, root: string): Promise<void> {
     const current = this.current;

@@ -105,7 +105,7 @@ skills:
   sflow-capability-protect: { class: interactive, executionBoundary: repository }
   sflow-capability-doctor: { class: echo, executionBoundary: organisation }
   sflow-capability-map: { class: interactive, executionBoundary: organisation }
-  sflow-code: { class: generative, maximumTokenOverride: 1020, exception: 'Code-phase recovery and publication-time test diagnosis must preserve safe current-phase repair without bypassing evidence, and generated public code must carry doc comments.' }
+  sflow-code: { class: generative, maximumTokenOverride: 1120, exception: 'Code-phase recovery and publication-time test diagnosis must preserve safe current-phase repair without bypassing evidence, and generated public code must carry doc comments.' }
   sflow-code-docs: { class: generative }
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation, executionBoundary: repository }

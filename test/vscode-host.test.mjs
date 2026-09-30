@@ -2399,6 +2399,11 @@ test('starter Story approval does not ask the six legacy specification-quality q
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
   definition.approvalSecurity = { profile: 'poc' };
+  // This test isolates the approval form. The starter now requires an independent source-grounded
+  // review before Submit; that gate has its own lifecycle tests and is not the legacy checklist.
+  definition.workTypes['spec-driven-standard'].sourceReview = {
+    mode: 'off', phases: [], reviewerAgent: null
+  };
   for (const authority of Object.values(definition.approvalAuthorities ?? {})) {
     authority.allowAnyGitIdentity = true;
   }
@@ -2428,13 +2433,21 @@ test('starter Story approval does not ask the six legacy specification-quality q
     '- **Given** a principal and annual rate',
     '  **When** the analyst requests the finance calculation',
     '  **Then** the result contains the deterministic calculated amount.', '',
+    '## Failure and empty states', '',
+    'A missing principal or rate produces a validation result without calculating an amount. A calculation failure produces an error without a partial amount.', '',
+    '## Permissions', '',
+    'Only an analyst with access to the approved account may request the calculation; other users receive an authorization result.', '',
     '## Boundary conditions', '',
     'A negative principal is rejected before calculation; equal valid inputs produce the same rounded amount.', '',
     '## Requirements', '',
     '- The system calculates the amount from principal and annual rate. [CFA:REQ-001]',
     '- The system rejects a negative principal with a validation result. [CFA:REQ-002]', '',
     '## Non-functional requirements', '',
-    '- The same inputs must always produce the same rounded result. [CFA:NFR-001]', ''
+    '- The same inputs must always produce the same rounded result. [CFA:NFR-001]', '',
+    '## Assumptions', '',
+    'The account-access decision has already been made before a calculation request reaches this feature.', '',
+    '## Out of scope', '',
+    'Changing account access or persisting calculation history is not part of this Story.', ''
   ].join('\n'));
   for (const args of [
     ['artifact', 'scan', '--phase', 'specification'],

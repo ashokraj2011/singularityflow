@@ -337,6 +337,8 @@ export async function startStory(root, {
   let publicationAuthority = null;
   let legacyCapabilityEvidence = null;
   let startReadiness = null;
+  let repositoryReadiness = null;
+  let readinessRepositories = [];
   let startJournal = null;
   let configurationSnapshot = null;
   let workflow = null;
@@ -509,7 +511,7 @@ export async function startStory(root, {
     if (afterPublicationPreflight) {
       await afterPublicationPreflight({ authority: publicationAuthority });
     }
-    const readinessRepositories = capabilityPreflight?.map((entry) => ({
+    readinessRepositories = capabilityPreflight?.map((entry) => ({
       id: entry.repository,
       baseBranch: entry.baseBranch,
       baseCommit: entry.baseCommit,
@@ -522,7 +524,7 @@ export async function startStory(root, {
       destinationRef: `refs/heads/${id}`,
       publishRequired
     }];
-    const repositoryReadiness = await collectRepositoryReadinessEvidence(
+    repositoryReadiness = await collectRepositoryReadinessEvidence(
       capabilityPreflight?.map((entry) => ({
         id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
       })) ?? [{ id: 'lifecycle', root, baseCommit }],
@@ -749,7 +751,9 @@ export async function startStory(root, {
         // Keep the verified operation snapshot alive through pre-accept WMP activation. The Story
         // aggregate and workflow snapshot do not exist yet, so the normal lifecycle pin proof is
         // intentionally unavailable at this exact boundary.
-        approvedConfigurationSnapshot
+        approvedConfigurationSnapshot,
+        repositoryReadiness,
+        readinessRepositories
       });
       if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);
       if (auto) await pinAcceptedAutoPlan(root, definition, workflow, auto);

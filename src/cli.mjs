@@ -248,7 +248,7 @@ import {
 import {
   assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
 } from './story-start-readiness.mjs';
-import { collectRepositoryReadinessEvidence } from './repository-readiness-evidence.mjs';
+import { collectRepositoryReadinessEvidence, preflightTestReadiness } from './repository-readiness-evidence.mjs';
 import { hydrateRepositoryDependencies } from './initialization/runtime-readiness.mjs';
 import {
   loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext,
@@ -3164,6 +3164,8 @@ export async function startCommand(positionals, options) {
           agent: selectedAgent.agent,
           resolved: resolvedWorkType,
           approvedConfigurationSnapshot,
+          repositoryReadiness,
+          readinessRepositories,
           capabilityId: workflowCapabilityId,
           // Always carry the verified catalog digest across the preflight/creation boundary. The
           // creation guard applies it only when resolution selected a capability, including one
@@ -14687,6 +14689,9 @@ async function workspaceCommand(positionals, options) {
             publishRequired: entry.publishRequired
           })),
           readiness,
+          testReadiness: preflightTestReadiness(repositories.map((entry) => ({
+            id: entry.repository, baseCommit: entry.baseCommit
+          })), repositoryReadiness),
           ...(optionBoolean(options, 'mint-intake-receipt') ? {
             intakeReceipt: await intakeReceiptForPreflight(root, {
               passed: readiness.ready === true, storyId, workType: preflightWorkType,

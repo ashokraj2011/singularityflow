@@ -17,7 +17,7 @@ import {
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload,
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice,
-  type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
+  type PreflightTestReadiness, type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
 import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
@@ -147,12 +147,13 @@ function storyWorkflowCatalog(catalog: EngineStoryWorkflowCatalog | undefined): 
 
 function emptyStoryPreflight(): Pick<IntakeForm,
   'basePreflightPassed' | 'basePreflightChecking' | 'basePreflightReason'
-  | 'basePreflightWarnings' | 'basePreflightRefreshRecommended'> {
+  | 'basePreflightWarnings' | 'baseTestReadiness' | 'basePreflightRefreshRecommended'> {
   return {
     basePreflightPassed: false,
     basePreflightChecking: false,
     basePreflightReason: null,
     basePreflightWarnings: [],
+    baseTestReadiness: null,
     basePreflightRefreshRecommended: false
   };
 }
@@ -1060,6 +1061,7 @@ export class IntakePanel {
       const result = await this.client.run<{
         preflight?: {
           passed?: boolean; readiness?: StoryStartReadinessResult;
+          testReadiness?: PreflightTestReadiness;
           intakeReceipt?: { issued?: boolean; id?: string; expiresAt?: string; reason?: string };
         };
         intake?: EngineStoryWorkflowCatalog;
@@ -1099,6 +1101,7 @@ export class IntakePanel {
               ? 'Story-start readiness did not return a passing result.'
               : 'The engine did not return Story-start readiness. Reload or update Singularity Flow before retrying.'),
           basePreflightWarnings: warnings,
+          baseTestReadiness: result.preflight?.testReadiness ?? null,
           basePreflightRefreshRecommended: refreshRecommended
         }, { background: true });
         return;
@@ -1112,6 +1115,7 @@ export class IntakePanel {
         } : {}),
         basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null,
         basePreflightWarnings: warnings,
+        baseTestReadiness: result.preflight?.testReadiness ?? null,
         basePreflightRefreshRecommended: refreshRecommended
       }, { background: true });
       const receipt = result.preflight?.intakeReceipt;
@@ -1124,7 +1128,7 @@ export class IntakePanel {
       this.update({
         basePreflightPassed: false, basePreflightChecking: false,
         basePreflightReason: (error as Error).message,
-        basePreflightWarnings: [], basePreflightRefreshRecommended: false
+        basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false
       }, { background: true });
     } finally {
       if (this.preflightController === controller) this.preflightController = null;

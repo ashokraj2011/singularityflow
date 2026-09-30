@@ -8,6 +8,7 @@ import { gitCommonDir, identity } from '../git.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { resolvePlatformProcess } from '../platform-process.mjs';
+import { inferRepositoryTestCommands } from '../delivery-evidence.mjs';
 import { captureSmartInitSnapshot } from './source-snapshot.mjs';
 import { readLatestSmartInitActivation } from './recovery.mjs';
 
@@ -22,9 +23,9 @@ async function regularFile(file, { executable = false } = {}) {
   } catch { return false; }
 }
 
-async function pathExecutable(name, environment = process.env) {
+async function pathExecutable(name, environment = process.env, cwd = process.cwd()) {
   if (process.platform === 'win32') {
-    try { return Boolean(resolvePlatformProcess(name, [], { environment })); } catch { return false; }
+    try { return Boolean(resolvePlatformProcess(name, [], { environment, cwd })); } catch { return false; }
   }
   const systemExecutable = async (file) => {
     try {
@@ -34,7 +35,7 @@ async function pathExecutable(name, environment = process.env) {
       return true;
     } catch { return false; }
   };
-  if (name.includes('/')) return systemExecutable(name);
+  if (name.includes('/') || name.includes('\\')) return systemExecutable(path.resolve(cwd, name));
   for (const directory of String(environment.PATH ?? '').split(path.delimiter).filter(Boolean)) {
     if (await systemExecutable(path.join(directory, name))) return true;
   }
@@ -59,7 +60,7 @@ async function commandAvailability(root, command) {
     const available = (await Promise.all(candidates.map((name) => regularFile(path.join(cwd, name), { executable: process.platform !== 'win32' })))).some(Boolean);
     return { status: available ? 'pass' : 'unavailable', reason: available ? 'repository-wrapper' : 'wrapper-missing' };
   }
-  return { status: await pathExecutable(launcher) ? 'pass' : 'unavailable', reason: 'path-metadata' };
+  return { status: await pathExecutable(launcher, process.env, cwd) ? 'pass' : 'unavailable', reason: 'path-metadata' };
 }
 
 function verifySelfHash(record, field) {
@@ -164,6 +165,56 @@ export async function smartInitPrecheck(root) {
     const result = await commandAvailability(root, command);
     checks.push({ id: 'command-availability', status: result.status, subject: command.id, reason: result.reason });
   }
+  // Test discovery is a source inspection. It runs no package script and changes no repository
+  // bytes, so operators can see the actual test adapter before selecting a Story workflow.
+  const testTools = [];
+  try {
+    const unit = await inferRepositoryTestCommands(root, { unitOnly: true });
+    let full = []; let fullError = null;
+    try { full = await inferRepositoryTestCommands(root, { unitOnly: false }); }
+    catch (error) { fullError = error?.code ?? 'test-inference-failed'; }
+    const discovered = new Map();
+    for (const [scope, commands] of [['dependency-test', unit], ['full', full]]) {
+      for (const command of commands) {
+        const key = JSON.stringify([command.id, command.argv, command.workingDirectory]);
+        const existing = discovered.get(key);
+        if (existing) existing.scopes.push(scope);
+        else discovered.set(key, { command, scopes: [scope] });
+      }
+    }
+    for (const { command, scopes } of discovered.values()) {
+      const availability = await commandAvailability(root, {
+        workingDirectory: command.workingDirectory,
+        launcher: command.argv[0]
+      });
+      testTools.push({
+        commandId: command.id,
+        workingDirectory: command.workingDirectory,
+        launcher: command.argv[0],
+        adapter: command.result.adapter,
+        source: 'repository-manifest',
+        scopes,
+        availability: availability.status,
+        reason: availability.reason
+      });
+    }
+    checks.push({
+      id: 'test-tool-discovery', status: unit.length ? 'pass' : 'unavailable',
+      subject: unit.length ? unit.map((command) => command.id).join(', ') : 'repository-manifest',
+      reason: unit.length ? 'structured-unit-test-command-found' : 'structured-unit-test-command-missing'
+    });
+    if (fullError) checks.push({
+      id: 'test-tool-full-discovery', status: 'unavailable', subject: 'repository-manifest',
+      reason: fullError
+    });
+    for (const tool of testTools) checks.push({
+      id: 'test-tool-availability', status: tool.availability,
+      subject: tool.commandId, reason: tool.reason
+    });
+  } catch (error) {
+    checks.push({ id: 'test-tool-discovery', status: 'unavailable', subject: 'repository-manifest',
+      reason: error?.code ?? 'test-inference-failed' });
+  }
   try {
     const actor = identity(root, { offline: true });
     checks.push({ id: 'git-identity', status: actor.email ? 'pass' : 'unavailable', subject: actor.email ? 'configured-local' : 'missing-email' });
@@ -177,7 +228,7 @@ export async function smartInitPrecheck(root) {
     activationReceiptSha256: receiptSource?.record?.receiptSha256 ?? null,
     configurationSha256: workflowBytes ? sha(workflowBytes) : null,
     checks: checks.map((entry) => ({ ...entry, evidenceSha256: `sha256:${recordSha256(entry)}` })),
-    proofReadiness: readiness, status, observedAt: new Date().toISOString()
+    proofReadiness: readiness, testTools, status, observedAt: new Date().toISOString()
   };
   return { ...core, receiptSha256: `sha256:${recordSha256(core)}` };
 }

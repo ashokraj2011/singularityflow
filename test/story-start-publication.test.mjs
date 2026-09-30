@@ -569,6 +569,13 @@ test('workspace branch preflight proves the exact destination without creating i
   assert.equal(result.preflight.readiness.resultType, 'story-start-readiness');
   assert.equal(result.preflight.readiness.ready, true);
   assert.equal(result.preflight.readiness.workType, 'feature');
+  assert.equal(result.preflight.testReadiness.schemaVersion, 1);
+  assert.equal(result.preflight.testReadiness.repositories[0].repository,
+    result.preflight.repositories[0].repository);
+  assert.equal(result.preflight.testReadiness.repositories[0].baseCommit,
+    result.preflight.repositories[0].baseCommit);
+  assert.equal(result.preflight.testReadiness.repositories[0].disposition, 'not-verified',
+    'an unverified pre-Story test run must not appear green in Start Work');
   assert.equal(result.preflight.readiness.upgrade.safeToApply, false);
   assert.equal(result.preflight.readiness.upgrade.shell,
     'singularity-flow workspace reinitialize --dry-run --json');

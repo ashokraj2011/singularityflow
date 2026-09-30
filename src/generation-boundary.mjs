@@ -2,13 +2,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { buildRepositoryChangeSet } from './repository-change-set.mjs';
+import {
+  buildRepositoryChangeSet, changeSetPaths, evaluateProtectedPaths, evaluateSourceBoundary
+} from './repository-change-set.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import {
   persistGenerationPublicationRecord, publishedGenerationCommit
 } from './generation-publication-store.mjs';
 import { beginTelemetryCapture } from './telemetry.mjs';
+import { isTestAutomationPath } from './source-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
 
@@ -101,10 +104,53 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
   );
   const existing = applicationChangeSet.entries;
   const dirtyPolicy = workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block';
+  const changedPaths = changeSetPaths(applicationChangeSet, { bothEndpoints: true });
+  const protectedGuards = [
+    ...(config.governance?.protectedPaths ?? []),
+    ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+  ];
+  const protectedPaths = [...new Set(evaluateProtectedPaths(applicationChangeSet, protectedGuards)
+    .violations.map((item) => item.path))].sort();
+  const outsideSourceBoundaryPaths = [...new Set(evaluateSourceBoundary(
+    applicationChangeSet, phase.sourceBoundary ?? 'unrestricted', {
+      phaseId: phase.id, allowedPath: isTestAutomationPath
+    }
+  ).violations.map((item) => item.path))].sort();
+  const dirtyDetails = {
+    baselineCommit,
+    generation,
+    changedPaths,
+    changeSetDigest: applicationChangeSet.digest,
+    dirtyStartPolicy: dirtyPolicy,
+    boundary: previousGenerationCommit ? 'since-previous-generation' : 'before-first-generation',
+    classification: {
+      preBoundaryPaths: previousGenerationCommit ? [] : changedPaths,
+      boundedRolloverPaths: previousGenerationCommit ? changedPaths : [],
+      protectedPaths,
+      outsideSourceBoundaryPaths
+    }
+  };
+  const initialAdoptionBlocked = !previousGenerationCommit
+    && dirtyPolicy !== 'allow-explicit-adoption';
+  if (existing.length && (protectedPaths.length || outsideSourceBoundaryPaths.length)) {
+    throw new SingularityFlowError(
+      `Code changed outside the phase's allowed source scope before generation begin. `
+      + `Preserve and review the ${changedPaths.length} changed path(s), restore protected or out-of-boundary paths to the governed baseline, then retry generation begin.`,
+      { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
+    );
+  }
   if (existing.length && !adoptExisting) {
+    if (initialAdoptionBlocked) {
+      throw new SingularityFlowError(
+        `Code already changed before the first generation began (${changedPaths.length} path(s)). `
+        + 'This Story policy blocks adoption. Review and preserve the listed changes outside this Story checkout, '
+        + 'return the checkout to its governed baseline, then begin generation and reapply the reviewed changes.',
+        { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
+      );
+    }
     throw new SingularityFlowError(
       `Code already changed before generation begin. Re-run with --adopt-existing --confirm ${applicationChangeSet.digest} only after reviewing the full application change set.`,
-      { code: 'GENERATION_DIRTY_START' }
+      { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
     );
   }
   if (adoptExisting) {
@@ -112,11 +158,16 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     // A later generation is different: its baseline is the exact prior generated commit and the
     // contributor confirms the digest of only the post-publication delta. Permit that bounded
     // rollover so a failed submit can be repaired without weakening initial dirty-start policy.
-    if (!previousGenerationCommit && dirtyPolicy !== 'allow-explicit-adoption') {
-      throw new SingularityFlowError('This Story policy does not permit adoption of existing source changes.', { code: 'GENERATION_DIRTY_START' });
+    if (initialAdoptionBlocked) {
+      throw new SingularityFlowError(
+        'This Story policy blocks adoption of changes made before the first generation. Review and preserve the listed changes outside this Story checkout, return the checkout to its governed baseline, then begin generation and reapply the reviewed changes.',
+        { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
+      );
     }
     if (!confirm || confirm !== applicationChangeSet.digest) {
-      throw new SingularityFlowError(`Adoption confirmation must equal the current application change-set digest ${applicationChangeSet.digest}.`, { code: 'GENERATION_DIRTY_START' });
+      throw new SingularityFlowError(`Adoption confirmation must equal the current application change-set digest ${applicationChangeSet.digest}.`, {
+        code: 'GENERATION_DIRTY_START', details: dirtyDetails
+      });
     }
   }
   const telemetry = await beginTelemetryCapture(root, workflow, phase);

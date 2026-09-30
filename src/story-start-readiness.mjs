@@ -18,11 +18,10 @@ import { VERSION } from './version.mjs';
 export const STORY_START_READINESS_FORMAT_VERSION = 1;
 
 export function requiredRepositoryReadinessScope(definition = {}) {
-  const policy = {
-    ...(definition?.repositoryReadiness ?? {}),
-    ...(definition?.initialization?.proof?.preStory ?? {})
-  };
-  return (policy.build ?? 'off') !== 'off' || (policy.applicationStart ?? 'off') !== 'off'
+  const policies = [definition?.repositoryReadiness, definition?.initialization?.proof?.preStory]
+    .filter(Boolean);
+  return policies.some((policy) => (policy.build ?? 'off') !== 'off'
+    || (policy.applicationStart ?? 'off') !== 'off')
     ? 'full'
     : 'dependency-test';
 }
@@ -149,11 +148,24 @@ export function inspectStoryStartReadiness({
     ));
   }
 
+  const readinessPolicies = [definition?.repositoryReadiness, definition?.initialization?.proof?.preStory]
+    .filter(Boolean);
+  // The compatibility block cannot weaken a requirement from the canonical block. Keep the
+  // strongest requirement for each check while repositories migrate between the two shapes.
   const repositoryReadinessPolicy = {
-    ...(definition?.repositoryReadiness ?? {}),
-    ...(definition?.initialization?.proof?.preStory ?? {})
+    dependencyHydration: readinessPolicies.some((policy) => policy.dependencyHydration === 'required')
+      ? 'required' : 'off',
+    build: readinessPolicies.some((policy) => policy.build === 'required') ? 'required' : 'off',
+    applicationStart: readinessPolicies.some((policy) => policy.applicationStart === 'required')
+      ? 'required' : 'off',
+    structuredTests: readinessPolicies.some((policy) => policy.structuredTests === 'required')
+      ? 'required'
+      : readinessPolicies.some((policy) => policy.structuredTests === 'required-for-code')
+        ? 'required-for-code' : 'off'
   };
-  const repositoryReadinessRequired = repositoryReadinessPolicy.requiredBeforeStory === true;
+  // A legacy block must not silently turn off an explicit canonical requirement (or vice versa).
+  const repositoryReadinessRequired = definition?.repositoryReadiness?.requiredBeforeStory === true
+    || definition?.initialization?.proof?.preStory?.requiredBeforeStory === true;
   const readinessScope = requiredRepositoryReadinessScope(definition);
   if (repositoryReadinessRequired) {
     const receipts = repositoryReadiness?.repositories

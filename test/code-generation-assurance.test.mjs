@@ -519,6 +519,39 @@ test('Angular Karma tests are inferred and their bounded terminal summary is str
   }), null, 'a leftover Karma plugin does not prove the test builder emits Karma output');
 });
 
+test('direct Playwright scripts infer a structured browser run without hidden installation', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-playwright-inference-'));
+  const module = { root: '.', system: 'node', manifest: 'package.json' };
+  const writeManifest = async (script, dependencies = { '@playwright/test': '^1.0.0' }) => {
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({
+      scripts: { test: script }, devDependencies: dependencies
+    }));
+  };
+  await writeManifest('playwright test');
+  const direct = await inferModuleTestCommand(root, module);
+  assert.deepEqual(direct.argv, ['npm', 'test', '--', '--reporter=json']);
+  assert.equal(direct.id, 'playwright-tests');
+  assert.deepEqual(direct.result, {
+    adapter: 'playwright-json', path: '.sflow/results/playwright-tests.json', minimumDiscovered: 1
+  });
+  assert.equal(await inferModuleTestCommand(root, module, { unitOnly: true }), null,
+    'dependency-test readiness must not run a browser suite as a unit test');
+
+  await writeManifest('npx --no-install playwright test --config=playwright.config.ts');
+  assert.equal((await inferModuleTestCommand(root, module)).result.adapter, 'playwright-json');
+  for (const unsafe of [
+    'npx playwright test', 'playwright test --list', 'playwright test --ui',
+    'playwright test --pass-with-no-tests', 'playwright test && echo done',
+    'npm run browser', 'playwright test\nnode other.js'
+  ]) {
+    await writeManifest(unsafe);
+    assert.equal(await inferModuleTestCommand(root, module), null, unsafe);
+  }
+  await writeManifest('playwright test', {});
+  assert.equal(await inferModuleTestCommand(root, module), null,
+    'a script without a declared local Playwright package is not a safe runner');
+});
+
 test('composed npm test scripts preserve the exact top-level command when Node TAP is nested', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-composed-node-'));
   await writeFile(path.join(root, 'package.json'), JSON.stringify({
@@ -880,8 +913,55 @@ test('generation begin is idempotent and refuses source mutated before its bound
   const dirtyPhase = { id: 'implementation', generation: 0, generationPolicy: { task: 'code' }, sourceBoundary: 'unrestricted' };
   await assert.rejects(
     () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, dirtyPhase, { persist: false }),
-    (error) => error.code === 'GENERATION_DIRTY_START' && /--adopt-existing/.test(error.message)
+    (error) => {
+      assert.equal(error.code, 'GENERATION_DIRTY_START');
+      assert.match(error.message, /policy blocks adoption/);
+      assert.doesNotMatch(error.message, /--adopt-existing/);
+      assert.deepEqual(error.details.changedPaths, ['src/payment.js']);
+      assert.deepEqual(error.details.classification.preBoundaryPaths, ['src/payment.js']);
+      return true;
+    }
   );
+  await assert.rejects(
+    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, dirtyPhase, {
+      adoptExisting: true, confirm: 'sha256:incorrect', persist: false
+    }),
+    (error) => error.code === 'GENERATION_DIRTY_START'
+      && /policy blocks adoption/.test(error.message)
+      && error.details.changeSetDigest.startsWith('sha256:')
+  );
+});
+
+test('dirty generation begin identifies protected and out-of-boundary paths for review', async () => {
+  const root = await repository('dirty-scope');
+  const baseline = git(root, ['rev-parse', 'HEAD']);
+  const phase = {
+    id: 'browser-tests', generation: 0, generationPolicy: { task: 'code' },
+    sourceBoundary: 'test-automation'
+  };
+  const workflow = {
+    workItem: { id: 'CGA-SCOPE' },
+    workIntervals: { current: { phaseId: phase.id, status: 'open', sourceBaseCommit: baseline } },
+    resolution: { codeDelivery: { generationBoundary: { dirtyStart: 'block' } } }
+  };
+  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = false;\n');
+  await assert.rejects(() => beginCodeGeneration(root, {
+    workItemRoot: 'singularity/work-items',
+    governance: { protectedPaths: ['src'] }
+  }, workflow, phase, { persist: false }), (error) => {
+    assert.equal(error.code, 'GENERATION_DIRTY_START');
+    assert.deepEqual(error.details.classification.protectedPaths, ['src/payment.js']);
+    assert.deepEqual(error.details.classification.outsideSourceBoundaryPaths, ['src/payment.js']);
+    assert.equal(phase.generationIntent, undefined);
+    return true;
+  });
+  await assert.rejects(() => beginCodeGeneration(root, {
+    workItemRoot: 'singularity/work-items',
+    governance: { protectedPaths: ['src'] }
+  }, workflow, phase, {
+    adoptExisting: true, confirm: 'sha256:incorrect', persist: false
+  }), (error) => error.code === 'GENERATION_DIRTY_START'
+    && /outside the phase's allowed source scope/.test(error.message));
 });
 
 test('a generation-looking commit message cannot establish the prior generation boundary', async () => {

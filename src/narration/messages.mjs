@@ -137,6 +137,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Repository readiness passed ${slot(s.commands, '0')} command(s) for ${slot(s.commit)}.`,
     preserves: false
   },
+  'precheck.risk-reported': {
+    headline: (s) => `Local pre-Story test risk status: ${slot(s.status)}. No workflow gate changed.`,
+    preserves: true
+  },
+  'precheck.risk-recorded': {
+    headline: (s) => `Recorded ${slot(s.status)} locally as ${slot(s.acceptanceSha256)}; this is not approval or a workflow waiver.`,
+    preserves: false
+  },
   'sgos.reported': {
     headline: (s) => slot(s.summary, 'Singularity Flow governed execution result is ready.'),
     preserves: true

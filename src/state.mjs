@@ -10,6 +10,7 @@ import {
   writeBytes, writeJson, writeText
 } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
+import { storyTestReadinessDocument } from './story-test-readiness-document.mjs';
 import {
   branch, changedFiles, commitIsAncestor, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, untrackedFiles
@@ -827,6 +828,8 @@ export async function createWorkflow(root, config, {
   canonicalBranch = id, workType, agent, resolved, capabilityId = null,
   capabilityMapSha256 = null,
   referenceRepositories = [],
+  repositoryReadiness = null,
+  readinessRepositories = [],
   executionOrigin = null,
   worldModelAuthorityRefreshes = {},
   approvedConfigurationSnapshot = null
@@ -1084,7 +1087,16 @@ export async function createWorkflow(root, config, {
   });
   await writeJson(sourcePath(root, config, id), source);
   await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  if (repositoryReadiness && readinessRepositories.length) {
+    await writeJson(
+      path.join(workDir(root, config, id), 'context/repository-test-readiness.json'),
+      storyTestReadinessDocument(id, readinessRepositories, repositoryReadiness, {
+        required: config.repositoryReadiness?.requiredBeforeStory === true
+          || config.initialization?.proof?.preStory?.requiredBeforeStory === true
+      })
+    );
+  }
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n${repositoryReadiness && readinessRepositories.length ? '- [context/repository-test-readiness.json](./context/repository-test-readiness.json) — pinned pre-code test tools and existing-failure disposition\n' : ''}${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: phases[0]?.id,
     itemDirectory: workDir(root, config, id),
@@ -3718,6 +3730,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     );
     const commandRoot = commandTarget.absolute;
     let restoreTransientResult = null;
+    let structuredResultTarget = null;
     if (policy.kind === 'test' && policy.result?.path) {
       const resultTarget = path.resolve(commandRoot, policy.result.path);
       // `secureRepositoryPath` resolves macOS' /var -> /private/var alias. Compare the result to the
@@ -3745,6 +3758,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       // configured structured-result path is disposable command output, so remove it before the
       // process starts. Anything parsed afterwards must have been created by this invocation.
       await rm(resultTarget, { recursive: true, force: true });
+      structuredResultTarget = resultTarget;
     }
     // A CLI invoked from Node's own test runner inherits NODE_TEST_CONTEXT. Passing that private
     // harness marker to a nested `node --test` process makes Node treat the required repository
@@ -3753,6 +3767,17 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // test-runner control marker.
     const commandEnvironment = { ...process.env };
     delete commandEnvironment.NODE_TEST_CONTEXT;
+    if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
+        && structuredResultTarget) {
+      // The JSON reporter otherwise writes to stdout. Bind its report to the exact secured,
+      // freshly cleared path that the delivery parser will inspect, on every host platform.
+      for (const key of Object.keys(commandEnvironment)) {
+        if (key.toLocaleUpperCase('en-US') === 'PLAYWRIGHT_JSON_OUTPUT_FILE') {
+          delete commandEnvironment[key];
+        }
+      }
+      commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
+    }
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
         cwd: commandRoot,

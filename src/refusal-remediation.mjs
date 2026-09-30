@@ -405,11 +405,14 @@ const KNOWN = Object.freeze({
       'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json', 'remediation')
   ],
   CODE_DELIVERY_TEST_COMMAND_REQUIRED: () => [
-    step('review-approved-test-policy',
-      'Do not add a test wrapper or edit protected workflow files in the active Story. Review the approved workflow test policy and use Configuration Center outside the Story if a native runner is not yet supported.',
-      'singularity-flow workflow validate --json', 'configuration'),
-    step('review-workflow-authoring',
-      'Review how governed workflow configuration is proposed for future Stories without changing a pinned Story snapshot.',
+    step('inspect-runtime-test-support',
+      'This Story keeps its pinned test policy. Check the installed Singularity Flow build; a build with deterministic support for this repository runner can be used to recheck the current phase.',
+      'singularity-flow product status --json', 'diagnostic', '/sf-product'),
+    step('stop-unchanged-test-policy',
+      'If this build cannot resolve the runner, stop this publication attempt. Refreshing sflow/config changes future Stories only. A governed same-Story amendment feature or a new Story under corrected policy would be required; no same-Story amendment command is currently available. Do not retry against the same blocker.',
+      null, 'external-prerequisite'),
+    step('review-future-test-policy',
+      'Review how approved test policy is proposed for future Stories.',
       'singularity-flow explain workflow-authoring', 'help')
   ],
   CHANGE_SET_POLICY_VIOLATION: (_argv, error) => error?.details?.violationKind === 'protected-process-path'
@@ -542,7 +545,12 @@ function requiredTestExecutionForRefusal(error) {
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
-  const phaseContext = phaseRemediationContext(argv, error);
+  const pinnedTestPolicyBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+  const rawPhaseContext = phaseRemediationContext(argv, error);
+  const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
+    ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
+      retryCommand: null, retrySkill: null })
+    : rawPhaseContext;
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
     `producer-${index + 1}`, 'Follow the recovery action supplied by the refusing operation.', command.command,
@@ -567,7 +575,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
-  const ordered = skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+  const ordered = pinnedTestPolicyBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
@@ -581,6 +589,8 @@ export function refusalRemediationPlan(error, argv = []) {
   const steps = deduplicate(ordered);
   const retryLabel = skillHostBlocked
     ? 'Do not retry generation, publication, submission or approval until the approved live host controls and exact delivery owner are implemented and qualified. Diagnostics cannot enable execution.'
+    : pinnedTestPolicyBlocked
+    ? 'Do not retry publication until the runtime gains native support or the current Story test policy changes through reviewed authority; refreshing sflow/config alone cannot change this Story.'
     : phaseContext?.turn === 'new-turn'
     ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
     : code === 'CLARIFICATION_MODE_OFF'
@@ -642,6 +652,8 @@ export function renderRefusalPlan(plan) {
     lines.push(
       plan.context.strategy === 'external-host-prerequisite'
         ? `  Scope: phase ${plan.context.phaseId} — external host prerequisite; do not rewrite Story evidence or bypass the gate.`
+        : plan.context.strategy === 'pinned-test-policy-prerequisite'
+          ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; stop unchanged retries until runtime support or reviewed Story authority changes.`
         : `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`
     );
     if (plan.context.turn === 'new-turn') {

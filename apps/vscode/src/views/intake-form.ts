@@ -238,6 +238,8 @@ export interface IntakeForm {
   basePreflightReason: string | null;
   /** Non-blocking Story-start readiness findings returned by the governed engine. */
   basePreflightWarnings: string[];
+  /** Display-only test tools/results from the exact selected-base preflight. */
+  baseTestReadiness: PreflightTestReadiness | null;
   /** Whether the readiness result points at repository configuration as the repair surface. */
   basePreflightRefreshRecommended: boolean;
   inFlight: InFlight[];
@@ -271,6 +273,27 @@ export interface BaseBranchChoice {
   missingFrom: string[];
 }
 
+/** Display-only exact-base test evidence returned by Story preflight. Never authorizes Start. */
+export interface PreflightTestReadiness {
+  schemaVersion: 1;
+  repositories: Array<{
+    repository: string;
+    baseCommit: string | null;
+    status: string;
+    scope: string | null;
+    testToolStatus: string;
+    disposition: 'no-observed-pre-story-failures' | 'no-test-tool-selected' | 'not-verified';
+    tools: Array<{
+      id: string;
+      launcher: string | null;
+      adapter: string | null;
+      status: string;
+      counts: { discovered: number | null; passed: number | null; failed: number | null;
+        skipped: number | null } | null;
+    }>;
+  }>;
+}
+
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
@@ -281,7 +304,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   storyDocumentStore: 'git', storyDocumentPhases: null,
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
-  basePreflightWarnings: [], basePreflightRefreshRecommended: false,
+  basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false,
   workflowReason: null, workflowCatalogReason: null, catalogStatus: 'fresh',
   jiraConfigured: false, jiraReason: null,
   githubConfigured: true, githubReason: null, inFlight: [], approvalAuthorityMissing: false, busy: false,
@@ -752,6 +775,30 @@ function profileHtml(form: IntakeForm): string {
  * branch. The panel filters out partial capability branches before rendering, so every radio button
  * represents a base that all required repositories can actually use.
  */
+function preflightTestReadinessHtml(readiness: PreflightTestReadiness | null): string {
+  if (!readiness?.repositories.length) return '';
+  return `<div class="notice" role="status"><strong>Pre-code test tools and existing results</strong>
+    <p class="meta">Read from the selected base on this machine. These results do not waive any Story or phase gate.</p>
+    ${readiness.repositories.map((repository) => {
+      const disposition = repository.disposition === 'no-observed-pre-story-failures'
+        ? 'The selected test run had no observed failures; any skipped tests are listed above.'
+        : repository.disposition === 'no-test-tool-selected'
+          ? 'No structured test tool was selected; existing tests are not verified.'
+          : 'Existing test failures are not verified. Run /sf-ready, repair failures, or review an exact failure baseline before coding.';
+      return `<div class="readiness-repository"><p><strong>${escape(repository.repository)}</strong>
+        · receipt ${escape(repository.status)} · test tool ${escape(repository.testToolStatus)}
+        · base ${escape(repository.baseCommit?.slice(0, 12) ?? 'unknown')}</p>
+        ${repository.tools.length ? `<ul>${repository.tools.map((tool) => `<li>
+          ${escape(tool.id)} · ${escape(tool.launcher ?? 'unknown launcher')} · ${escape(tool.adapter ?? 'no structured adapter')}
+          ${tool.counts ? `· ${escape(tool.counts.passed ?? '?')} passed, ${escape(tool.counts.failed ?? '?')} failed,
+            ${escape(tool.counts.skipped ?? '?')} skipped of ${escape(tool.counts.discovered ?? '?')} discovered`
+            : `· ${escape(tool.status === 'not-observed' ? 'not run or no current observation' : tool.status)}`}
+        </li>`).join('')}</ul>` : '<p class="meta">No test tool is verified for this base.</p>'}
+        <p class="meta">${escape(disposition)}</p></div>`;
+    }).join('')}
+  </div>`;
+}
+
 function baseBranchHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
   if (workflowCatalogCoversBranchFailure(form)) {
@@ -795,6 +842,7 @@ function baseBranchHtml(form: IntakeForm): string {
       <strong>Ready with advisory information</strong>
       <ul>${form.basePreflightWarnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>
     </div>` : ''}
+    ${preflightTestReadinessHtml(form.baseTestReadiness)}
     ${form.basePreflightRefreshRecommended ? `<p><button type="button" class="secondary" data-workflow-refresh>
       Refresh or reinitialize repository configuration</button></p>` : ''}
   </section>`;

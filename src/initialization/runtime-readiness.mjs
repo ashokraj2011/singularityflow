@@ -7,11 +7,15 @@ import {
 import path from 'node:path';
 
 import { inferRepositoryTestCommands } from '../delivery-evidence.mjs';
+import { nodeTapCounts, parseTestResult } from '../code-delivery-tests.mjs';
 import { gitCommonDir, head } from '../git.mjs';
 import { resolvePlatformProcess } from '../platform-process.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
-import { signalProcessTree, SingularityFlowError, run } from '../util.mjs';
+import {
+  ensureSecureRepositoryDirectory, secureRepositoryPath,
+  signalProcessTree, SingularityFlowError, run
+} from '../util.mjs';
 import { runSmartInitDetectors } from './detectors.mjs';
 import { captureSmartInitSnapshot } from './source-snapshot.mjs';
 
@@ -32,11 +36,13 @@ const MAX_ARGV_BYTES = 24 * 1024;
 const MAX_UNTRACKED_FILES = 10_000;
 const MAX_UNTRACKED_BYTES = 128 * 1024 * 1024;
 const MAX_TIMEOUT_MS = 30 * 60_000;
+const MAX_CAPTURED_TEST_OUTPUT_BYTES = 16 * 1024 * 1024;
 const RECEIPT_FAMILY = 'repository-readiness-receipt';
 const RECEIPT_SCHEMA_VERSION = currentSchemaVersion(RECEIPT_FAMILY);
 const RESULT_REASONS = new Set([
   'aborted', 'launch-survived', 'non-zero-exit', 'process-tree-not-quiescent',
-  'start-exited-before-survival', 'timeout'
+  'start-exited-before-survival', 'structured-result-unavailable',
+  'structured-test-failed', 'timeout'
 ]);
 
 function readinessScope(value = 'full') {
@@ -70,8 +76,9 @@ function nullList(value) {
   return String(value ?? '').split('\0').filter(Boolean).sort((left, right) => left.localeCompare(right, 'en'));
 }
 
-function gitOutput(root, args, code, message) {
+function gitOutput(root, args, code, message, { allowFailure = false } = {}) {
   const result = run('git', args, { cwd: root, allowFailure: true });
+  if (allowFailure) return result;
   if (result.status !== 0) throw new SingularityFlowError(message, { code });
   return result.stdout;
 }
@@ -95,6 +102,26 @@ function assertCleanTrackedTree(root) {
   }
 }
 
+async function assertTrackedSourceInputs(root, generatedReportPaths = []) {
+  const generated = new Set(generatedReportPaths);
+  const allUntracked = nullList(gitOutput(root, ['ls-files', '--others', '--exclude-standard', '-z'],
+    'REPOSITORY_READINESS_GIT_FAILED', 'Repository readiness could not inspect untracked paths.'));
+  for (const relative of allUntracked.filter((candidate) => generated.has(candidate))) {
+    const target = await secureRepositoryPath(root, relative, { label: 'Generated readiness report' });
+    const info = await lstat(target.absolute).catch(() => null);
+    if (!info?.isFile() || info.isSymbolicLink() || info.size > MAX_CAPTURED_TEST_OUTPUT_BYTES) {
+      throw new SingularityFlowError('A generated readiness report path is not a bounded regular file.', {
+        code: 'REPOSITORY_READINESS_UNTRACKED_SOURCE', details: { path: relative }
+      });
+    }
+  }
+  const untracked = allUntracked.filter((relative) => !generated.has(relative));
+  if (untracked.length) throw new SingularityFlowError(
+    `Repository readiness requires source inputs from the selected Git base; ${untracked.length} untracked path(s) were found. Commit or remove them before planning: ${untracked.slice(0, 20).join(', ')}.`,
+    { code: 'REPOSITORY_READINESS_UNTRACKED_SOURCE', details: { paths: untracked } }
+  );
+}
+
 async function fileDigest(file) {
   return await new Promise((resolve, reject) => {
     const hash = createHash('sha256');
@@ -105,9 +132,11 @@ async function fileDigest(file) {
   });
 }
 
-async function untrackedFingerprint(root) {
+async function untrackedFingerprint(root, excludedPaths = []) {
+  const excluded = new Set(excludedPaths);
   const files = nullList(gitOutput(root, ['ls-files', '--others', '--exclude-standard', '-z'],
-    'REPOSITORY_READINESS_GIT_FAILED', 'Repository readiness could not inspect untracked paths.'));
+    'REPOSITORY_READINESS_GIT_FAILED', 'Repository readiness could not inspect untracked paths.'))
+    .filter((relative) => !excluded.has(relative));
   if (files.length > MAX_UNTRACKED_FILES) {
     throw new SingularityFlowError(
       `Repository readiness found ${files.length} untracked files; the bound is ${MAX_UNTRACKED_FILES}.`,
@@ -139,18 +168,20 @@ async function untrackedFingerprint(root) {
   return { count: entries.length, bytes, digest: digest(entries) };
 }
 
-async function captureWorkingTreeBaseline(root) {
+async function captureWorkingTreeBaseline(root, { generatedReportPaths = [] } = {}) {
   assertCleanTrackedTree(root);
+  await assertTrackedSourceInputs(root, generatedReportPaths);
   return {
     commit: head(root),
-    untracked: await untrackedFingerprint(root)
+    generatedReportPaths,
+    untracked: await untrackedFingerprint(root, generatedReportPaths)
   };
 }
 
 async function assertWorkingTreeUnchanged(root, baseline) {
   const currentCommit = head(root);
   const changed = trackedChanges(root);
-  const untracked = await untrackedFingerprint(root);
+  const untracked = await untrackedFingerprint(root, baseline.generatedReportPaths);
   if (currentCommit !== baseline.commit || changed.length || untracked.digest !== baseline.untracked.digest) {
     throw new SingularityFlowError(
       'Repository readiness command changed repository source bytes; no passing receipt was written.',
@@ -221,6 +252,11 @@ function normalizedCommand(command, purpose, source, options = {}) {
     mode: purpose === 'start' ? 'launch-survival' : 'completion',
     timeoutMs,
     source
+  };
+  if (purpose === 'test' && command.result?.adapter) normalized.result = {
+    adapter: command.result.adapter,
+    path: command.result.path,
+    minimumDiscovered: command.result.minimumDiscovered ?? null
   };
   if (purpose === 'start') normalized.survivalMs = Math.min(
     positiveBoundedInteger(options.startSurvivalMs, DEFAULT_START_SURVIVAL_MS, timeoutMs - 1),
@@ -324,10 +360,27 @@ function deduplicateCommands(commands) {
 function publicStructuredTest(command) {
   return {
     id: command.id,
+    // Bind a future accepted-failure comparison to the same executable and arguments. A display
+    // label or launcher alone is not enough: flags may select a different suite or skip failures.
+    argvSha256: sha256Bytes(Buffer.from(JSON.stringify(command.argv))),
     workingDirectory: safeRelativeDirectory(command.workingDirectory),
     affectedRoots: [...(command.affectedRoots ?? [])].map(safeRelativeDirectory).sort(),
-    adapter: command.result?.adapter ?? null
+    launcher: command.argv?.[0] ?? null,
+    adapter: command.result?.adapter ?? null,
+    reportPath: command.result?.path ?? null,
+    minimumDiscovered: command.result?.minimumDiscovered ?? null
   };
+}
+
+function generatedReadinessReportPaths(commands) {
+  return commands.filter((command) => command.purpose === 'test'
+    && command.result?.adapter && command.result?.path)
+    .map((command) => path.posix.normalize(path.posix.join(
+      command.workingDirectory === '.' ? '' : command.workingDirectory,
+      command.result.path
+    )))
+    .filter((relative) => /(?:^|\/)\.sflow\/results\/[^/]+\.(?:json|jsonl|xml|tap|txt)$/u.test(relative))
+    .sort();
 }
 
 /**
@@ -380,6 +433,27 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
     ...manifestFallbackCommands,
     ...testCommands
   ]);
+  let otherScopeReports = [];
+  if (scope === 'dependency-test') {
+    try {
+      // A prior full readiness run may have left a browser JSON report. It is still tool output,
+      // even though the narrow unit-only plan does not select that browser command. Reconstruct
+      // its exact path from the same tracked manifest; never exempt the results directory.
+      const fullTests = await (options.inferTestCommands ?? inferRepositoryTestCommands)(root, {
+        unitOnly: false
+      });
+      otherScopeReports = generatedReadinessReportPaths(fullTests.map((command) => ({
+        purpose: 'test', workingDirectory: command.workingDirectory, result: command.result
+      })));
+    } catch { /* Unavailable full inference grants no report-path exemption. */ }
+  }
+  // Tool-owned structured reports from an earlier run are not source. Their exact output paths are
+  // known only after command inference, so exclude only those paths; every other untracked input
+  // still fails closed before a plan can be confirmed or executed.
+  const generatedReportPaths = [...new Set([
+    ...generatedReadinessReportPaths(commands), ...otherScopeReports
+  ])].sort();
+  await assertTrackedSourceInputs(root, generatedReportPaths);
   if (commands.length > MAX_COMMANDS) throw new SingularityFlowError(
     `Repository readiness selected ${commands.length} commands; the bound is ${MAX_COMMANDS}.`,
     { code: 'REPOSITORY_READINESS_COMMAND_BOUND', details: { observed: commands.length, bound: MAX_COMMANDS } }
@@ -419,6 +493,8 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
     schemaVersion: 1,
     kind: 'repository-readiness-plan',
     scope,
+    sourceTrackedOnly: true,
+    generatedReportPaths,
     sourceCommit: snapshot.subject.baseCommit,
     sourceManifestSha256: snapshot.sourceManifestSha256,
     repositoryFingerprint: snapshot.subject.repositoryFingerprint,
@@ -490,6 +566,7 @@ async function defaultRunCommand(command, {
   const started = now();
   const stdout = { hash: createHash('sha256'), bytes: 0 };
   const stderr = { hash: createHash('sha256'), bytes: 0 };
+  const testOutput = { chunks: [], bytes: 0, overflow: false };
   const cwd = path.resolve(root, command.workingDirectory);
   const relative = path.relative(root, cwd);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -498,6 +575,47 @@ async function defaultRunCommand(command, {
     });
   }
   const childEnvironment = { ...environment, CI: '1', GIT_TERMINAL_PROMPT: '0' };
+  // A readiness test launched by the CLI is its own test process. Inheriting Node's internal
+  // parent test-harness marker suppresses TAP summaries for nested `node --test` invocations.
+  for (const key of Object.keys(childEnvironment)) {
+    if (key.toUpperCase() === 'NODE_TEST_CONTEXT') delete childEnvironment[key];
+  }
+  if (command.purpose === 'test' && command.result?.adapter === 'playwright-json') {
+    const relativeReport = path.posix.normalize(path.posix.join(
+      command.workingDirectory === '.' ? '' : command.workingDirectory,
+      command.result.path
+    ));
+    if (!/(?:^|\/)\.sflow\/results\/[^/]+\.json$/u.test(relativeReport)) {
+      throw new SingularityFlowError('Playwright readiness report path is not an exact generated JSON path.', {
+        code: 'REPOSITORY_READINESS_COMMAND_INVALID'
+      });
+    }
+    const tracking = gitOutput(root, ['ls-files', '--error-unmatch', '--', relativeReport],
+      'REPOSITORY_READINESS_GIT_FAILED', 'Could not inspect Playwright report tracking.',
+      { allowFailure: true });
+    if (![0, 1].includes(tracking.status)) throw new SingularityFlowError(
+      'Could not inspect Playwright report tracking.', {
+        code: 'REPOSITORY_READINESS_GIT_FAILED'
+      }
+    );
+    if (tracking.status === 0) {
+      throw new SingularityFlowError('Playwright readiness report path is tracked source.', {
+        code: 'REPOSITORY_READINESS_COMMAND_INVALID', details: { path: relativeReport }
+      });
+    }
+    await ensureSecureRepositoryDirectory(root, path.posix.dirname(relativeReport), {
+      label: 'Playwright readiness report directory'
+    });
+    const report = await secureRepositoryPath(root, relativeReport, {
+      label: 'Playwright readiness report'
+    });
+    for (const key of Object.keys(childEnvironment)) {
+      if (key.toLocaleUpperCase('en-US') === 'PLAYWRIGHT_JSON_OUTPUT_FILE') delete childEnvironment[key];
+    }
+    // A prior result, including one written less than a second ago, cannot stand in for this run.
+    await rm(report.absolute, { force: true });
+    childEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = report.absolute;
+  }
   // On Windows, a bare CreateProcess/cmd launch can select an executable or batch shim from the
   // repository cwd before PATH. Resolve the reviewed logical argv to one absolute, validated
   // platform launch before entering the repository-controlled working directory. This also gives
@@ -530,7 +648,9 @@ async function defaultRunCommand(command, {
       stdoutBytes: stdout.bytes,
       stderrBytes: stderr.bytes,
       stdoutSha256: streamDigest(stdout),
-      stderrSha256: streamDigest(stderr)
+      stderrSha256: streamDigest(stderr),
+      capturedTestOutput: command.purpose === 'test' && !testOutput.overflow
+        ? Buffer.concat(testOutput.chunks, testOutput.bytes) : null
     });
     const finish = (result) => {
       if (settled) return;
@@ -567,7 +687,15 @@ async function defaultRunCommand(command, {
       reject(error);
       return;
     }
-    child.stdout?.on('data', (chunk) => appendDigest(stdout, chunk));
+    child.stdout?.on('data', (chunk) => {
+      appendDigest(stdout, chunk);
+      if (command.purpose !== 'test' || testOutput.overflow) return;
+      testOutput.bytes += chunk.length;
+      if (testOutput.bytes > MAX_CAPTURED_TEST_OUTPUT_BYTES) {
+        testOutput.overflow = true;
+        testOutput.chunks = [];
+      } else testOutput.chunks.push(Buffer.from(chunk));
+    });
     child.stderr?.on('data', (chunk) => appendDigest(stderr, chunk));
     child.once('error', (error) => {
       if (settled) return;
@@ -618,6 +746,167 @@ function receiptFile(root, commit, platform = process.platform, arch = process.a
   return path.join(receiptDirectory(root), `${String(commit).toLowerCase()}-${safeId(platform)}-${safeId(arch)}${suffix}.json`);
 }
 
+function testBaselineFile(root, commit, platform = process.platform, arch = process.arch, scope = 'full') {
+  const receipt = receiptFile(root, commit, platform, arch, scope);
+  return receipt.replace(/\.json$/u, '.test-baseline.json');
+}
+
+async function writeTestBaseline(root, baseline) {
+  const directory = receiptDirectory(root);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const target = testBaselineFile(root, baseline.sourceCommit, baseline.platform, baseline.arch, baseline.scope);
+  const temporary = path.join(directory, `.${path.basename(target)}.${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, `${JSON.stringify(baseline, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    await rename(temporary, target);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {});
+  }
+  return target;
+}
+
+function sanitizedTestObservation(command, parsed) {
+  const occurrences = parsed.testcaseObservation?.occurrences ?? [];
+  const failed = occurrences.filter((entry) => entry.outcome === 'failed');
+  const maxCases = 100;
+  const display = (value) => typeof value === 'string'
+    ? value.replace(/[\x00-\x1f\x7f]/gu, ' ').slice(0, 256) : null;
+  return {
+    commandId: command.id,
+    adapter: parsed.adapter,
+    status: 'available',
+    counts: parsed.tests,
+    report: {
+      sha256: parsed.result.sha256,
+      bytes: parsed.result.bytes,
+      files: (parsed.result.files ?? []).map((entry) => ({ sha256: entry.sha256, bytes: entry.bytes }))
+    },
+    failingCases: failed.slice(0, maxCases).map((entry) => ({
+      suite: display(entry.suite), className: display(entry.className),
+      name: display(entry.name), fullName: display(entry.fullName),
+      ancestorTitles: Array.isArray(entry.ancestorTitles)
+        ? entry.ancestorTitles.slice(0, 16).map(display) : [],
+      identityStatus: entry.identityStatus
+    })),
+    failingCasesTruncated: failed.length > maxCases
+  };
+}
+
+function passingStructuredTestObservation(observation, minimumDiscovered = 1) {
+  const counts = observation?.counts;
+  return observation?.status === 'available'
+    && Number.isSafeInteger(counts?.discovered) && counts.discovered >= minimumDiscovered
+    && Number.isSafeInteger(counts?.passed) && counts.passed >= 1
+    && Number.isSafeInteger(counts?.failed) && counts.failed === 0
+    && Number.isSafeInteger(counts?.skipped) && counts.skipped >= 0
+    && counts.passed + counts.skipped === counts.discovered
+    && /^sha256:[a-f0-9]{64}$/u.test(observation?.report?.sha256 ?? '');
+}
+
+function receiptHasPassingStructuredTests(receipt) {
+  const tools = receipt?.structuredTestContract?.commands ?? [];
+  const results = receipt?.commandResults;
+  const observations = receipt?.testObservations;
+  if (!Array.isArray(tools) || !Array.isArray(results) || !Array.isArray(observations)
+      || results.some((entry) => entry.status !== 'pass')) return false;
+  if (receipt.structuredTestContract?.requiredForCode && tools.length === 0) return false;
+  const testResults = results.filter((entry) => entry.purpose === 'test');
+  if (testResults.length !== tools.length || observations.length !== tools.length) return false;
+  const ids = new Set();
+  for (const tool of tools) {
+    if (ids.has(tool.id)) return false;
+    ids.add(tool.id);
+    const matchingResult = testResults.filter((entry) => entry.id === tool.id);
+    const matchingObservation = observations.filter((entry) => entry.commandId === tool.id);
+    if (matchingResult.length !== 1 || matchingObservation.length !== 1
+        || matchingObservation[0].adapter !== tool.adapter
+        || !passingStructuredTestObservation(matchingObservation[0], tool.minimumDiscovered ?? 1)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function inferredTestsForPlan(plan, command) {
+  if (command.source !== 'structured-test-inference') return null;
+  const declared = plan.structuredTestContract.commands.find((entry) => entry.id === command.id
+    && entry.workingDirectory === command.workingDirectory);
+  if (!declared?.adapter || !declared.reportPath) return null;
+  return {
+    id: command.id, kind: 'test', argv: command.argv,
+    workingDirectory: command.workingDirectory,
+    affectedRoots: declared.affectedRoots,
+    modelPolicy: 'never',
+    result: {
+      adapter: declared.adapter, path: declared.reportPath,
+      minimumDiscovered: declared.minimumDiscovered
+    }
+  };
+}
+
+async function observeTestResult(root, command, startedAt, processResult) {
+  try {
+    const parsed = await parseTestResult(root, command, { startedAt });
+    return sanitizedTestObservation(command, parsed);
+  } catch (error) {
+    if (command.result?.adapter === 'node-tap' && Buffer.isBuffer(processResult?.capturedTestOutput)
+        && sha256Bytes(processResult.capturedTestOutput) === processResult.stdoutSha256
+        && processResult.capturedTestOutput.length === processResult.stdoutBytes) {
+      try {
+        const output = processResult.capturedTestOutput.toString('utf8');
+        const counts = nodeTapCounts(output);
+        const failingCases = [...output.matchAll(/^\s*not ok\s+\d+\s+-\s+([^\r\n]+)/gmu)]
+          .slice(0, 100).map((match) => ({
+            suite: null, className: null, name: match[1].replace(/[\x00-\x1f\x7f]/gu, ' ').slice(0, 256),
+            fullName: null, ancestorTitles: [], identityStatus: 'observed-name-only'
+          }));
+        return {
+          commandId: command.id, adapter: 'node-tap', status: 'available', counts,
+          report: {
+            sha256: processResult.stdoutSha256,
+            bytes: processResult.stdoutBytes,
+            files: [], source: 'bounded-stdout'
+          },
+          failingCases, failingCasesTruncated: counts.failed > failingCases.length
+        };
+      } catch { /* Preserve the structured-report reason below. */ }
+    }
+    return {
+      commandId: command.id,
+      adapter: command.result?.adapter ?? null,
+      status: 'unavailable',
+      reason: error?.code ?? 'CODE_TEST_RESULT_REQUIRED'
+    };
+  }
+}
+
+/** The most recent confirmed pre-Story failure is evidence, never a passing readiness receipt. */
+export async function loadRepositoryTestBaseline(root, {
+  commit = head(root), platform = process.platform, arch = process.arch, scope = 'dependency-test'
+} = {}) {
+  const file = testBaselineFile(root, commit, platform, arch, scope);
+  try {
+    const baseline = readRecord('repository-test-baseline', await readFile(file, 'utf8')).record;
+    const core = structuredClone(baseline);
+    const supplied = core.baselineSha256;
+    delete core.baselineSha256;
+    if (baseline.kind !== 'repository-test-baseline'
+        || baseline.sourceCommit !== commit || baseline.platform !== platform
+        || baseline.arch !== arch || baseline.scope !== scope || supplied !== digest(core)) {
+      throw new SingularityFlowError('Pre-Story test baseline failed its integrity check.', {
+        code: 'REPOSITORY_TEST_BASELINE_INVALID', details: { file }
+      });
+    }
+    return { baseline, file };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    if (error instanceof SingularityFlowError) throw error;
+    throw new SingularityFlowError('Pre-Story test baseline is unreadable.', {
+      code: 'REPOSITORY_TEST_BASELINE_INVALID', cause: error, details: { file }
+    });
+  }
+}
+
 async function writeReceipt(root, receipt) {
   const directory = receiptDirectory(root);
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -658,13 +947,59 @@ export async function executeRepositoryReadinessPlan(root, {
       { code: 'REPOSITORY_READINESS_PLAN_BLOCKED', details: { blockers: plan.blockers } }
     );
   }
-  const baseline = await captureWorkingTreeBaseline(root);
+  const baseline = await captureWorkingTreeBaseline(root, {
+    generatedReportPaths: plan.generatedReportPaths
+  });
   if (baseline.commit !== plan.sourceCommit) throw new SingularityFlowError(
     'Repository HEAD changed after the readiness plan was created.',
     { code: 'REPOSITORY_READINESS_STALE_PLAN' }
   );
   const results = [];
+  const testObservations = [];
+  let firstFailedTest = null;
+  const failWithBaseline = async (failedCommand, failedResult) => {
+    const confirmedTestFailures = testObservations.some((entry) =>
+      entry.status === 'available' && entry.counts.failed > 0);
+    const core = {
+      schemaVersion: currentSchemaVersion('repository-test-baseline'),
+      kind: 'repository-test-baseline',
+      scope: plan.scope,
+      sourceTrackedOnly: true,
+      status: failedCommand.purpose === 'test'
+        ? confirmedTestFailures ? 'failing-tests' : 'test-command-failed'
+        : testObservations.length ? 'blocked-after-tests' : 'blocked-before-tests',
+      sourceCommit: plan.sourceCommit,
+      sourceManifestSha256: plan.sourceManifestSha256,
+      repositoryFingerprint: plan.repositoryFingerprint,
+      platform: plan.platform,
+      arch: plan.arch,
+      planId: plan.planId,
+      workingTree: baseline.untracked,
+      testTools: plan.structuredTestContract.commands,
+      commandResults: results,
+      testObservations,
+      failedCommandId: failedCommand.id,
+      recordedAt: new Date(now()).toISOString()
+    };
+    const testBaseline = { ...core, baselineSha256: digest(core) };
+    const baselineFile = await writeTestBaseline(root, testBaseline);
+    throw new SingularityFlowError(
+      `Repository readiness command '${failedCommand.id}' failed.`,
+      {
+        code: 'REPOSITORY_READINESS_COMMAND_FAILED',
+        details: {
+          commandId: failedCommand.id, purpose: failedCommand.purpose, result: failedResult,
+          failedCommandIds: results.filter((entry) => entry.status !== 'pass').map((entry) => entry.id),
+          baselineFile, baselineSha256: testBaseline.baselineSha256,
+          testObservations
+        }
+      }
+    );
+  };
   for (const command of plan.commands) {
+    // A known, structured test failure must not hide the rest of the existing test suite. Run
+    // the remaining selected test commands, but never launch later application-start checks.
+    if (firstFailedTest && command.purpose !== 'test') break;
     if (signal?.aborted) throw new SingularityFlowError('Repository readiness was cancelled.', {
       code: 'REPOSITORY_READINESS_CANCELLED'
     });
@@ -673,6 +1008,7 @@ export async function executeRepositoryReadinessPlan(root, {
     signal?.addEventListener?.('abort', externalAbort, { once: true });
     const timer = setTimeoutFn(() => controller.abort('timeout'), command.timeoutMs);
     let result;
+    const startedAt = new Date(now()).toISOString();
     try {
       result = await runCommand(command, {
         root, signal: controller.signal, environment, platform: plan.platform,
@@ -687,23 +1023,40 @@ export async function executeRepositoryReadinessPlan(root, {
       clearTimeoutFn(timer);
       signal?.removeEventListener?.('abort', externalAbort);
     }
-    const record = sanitizedCommandResult(command, result);
+    const structured = command.purpose === 'test' ? inferredTestsForPlan(plan, command) : null;
+    const observation = command.purpose === 'test'
+      ? structured
+        ? await observeTestResult(root, structured, startedAt, result)
+        : { commandId: command.id, status: 'unavailable', adapter: null,
+          reason: 'unregistered-structured-test-command' }
+      : null;
+    if (observation) testObservations.push(observation);
+    const structuredFailure = command.purpose === 'test'
+      && !passingStructuredTestObservation(observation, command.result?.minimumDiscovered ?? 1);
+    const record = sanitizedCommandResult(command, structuredFailure && result.status === 'pass'
+      ? { ...result, status: 'failed', reason: observation?.status === 'unavailable'
+        ? 'structured-result-unavailable' : 'structured-test-failed' }
+      : result);
     results.push(record);
     await assertWorkingTreeUnchanged(root, baseline);
-    if (record.status !== 'pass') throw new SingularityFlowError(
-      `Repository readiness command '${command.id}' failed.`,
-      {
-        code: 'REPOSITORY_READINESS_COMMAND_FAILED',
-        details: { commandId: command.id, purpose: command.purpose, result: record }
+    if (record.status !== 'pass') {
+      if (command.purpose === 'test' && record.reason === 'non-zero-exit'
+          && observation?.status === 'available' && observation.counts.failed > 0) {
+        firstFailedTest ??= { command, record };
+        continue;
       }
-    );
+      await failWithBaseline(firstFailedTest?.command ?? command,
+        firstFailedTest?.record ?? record);
+    }
   }
+  if (firstFailedTest) await failWithBaseline(firstFailedTest.command, firstFailedTest.record);
   await assertWorkingTreeUnchanged(root, baseline);
   const completedAt = new Date(now()).toISOString();
   const core = {
     schemaVersion: RECEIPT_SCHEMA_VERSION,
     kind: 'repository-readiness-receipt',
     scope: plan.scope,
+    sourceTrackedOnly: true,
     status: 'pass',
     sourceCommit: plan.sourceCommit,
     sourceManifestSha256: plan.sourceManifestSha256,
@@ -713,6 +1066,7 @@ export async function executeRepositoryReadinessPlan(root, {
     planId: plan.planId,
     executionPolicy: plan.executionPolicy,
     structuredTestContract: plan.structuredTestContract,
+    testObservations,
     commandResults: results,
     completedAt
   };
@@ -726,7 +1080,9 @@ function receiptIntegrity(receipt) {
   const core = structuredClone(receipt);
   const supplied = core.receiptSha256;
   delete core.receiptSha256;
-  return supplied === digest(core);
+  return supplied === digest(core)
+    && receipt.sourceTrackedOnly === true
+    && receiptHasPassingStructuredTests(receipt);
 }
 
 function planIdMatchesReceipt(plan, receipt) {

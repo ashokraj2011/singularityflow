@@ -750,7 +750,11 @@ export async function inferRepositoryTestCommands(root, { unitOnly = false } = {
       maven: 'maven-tests', gradle: 'gradle-tests', go: 'go-tests', rust: 'cargo-tests',
       python: 'python-tests', node: 'node-tests'
     };
-    return command ? [{ ...command, id: legacyRootIds[system] ?? command.id }] : [];
+    return command ? [{
+      ...command,
+      id: command.result?.adapter === 'playwright-json'
+        ? command.id : legacyRootIds[system] ?? command.id
+    }] : [];
   };
   if (await regular('mvnw') || await regular('pom.xml')) return inferred('maven', 'pom.xml');
   if (await regular('gradlew') || await regular('build.gradle') || await regular('build.gradle.kts')) {
@@ -763,13 +767,21 @@ export async function inferRepositoryTestCommands(root, { unitOnly = false } = {
   }
   if (await regular('package.json')) {
     const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-    const candidates = unitOnly ? ['test:unit', 'unit', 'test'] : ['test'];
+    const candidates = unitOnly ? ['test:unit', 'unit', 'test']
+      : ['test', 'test:e2e', 'test:playwright', 'e2e'];
+    const commands = [];
     for (const nodeScript of candidates) {
       const script = String(manifest.scripts?.[nodeScript] ?? '').trim();
       if (!script || /no test specified/i.test(script)) continue;
-      const commands = await inferred('node', 'package.json', { nodeScript });
-      if (commands.length) return commands;
+      const found = await inferred('node', 'package.json', { nodeScript });
+      if (!found.length) continue;
+      if (unitOnly) return found;
+      if (nodeScript === 'test' || found[0].result?.adapter === 'playwright-json') {
+        commands.push(...found);
+      }
+      if (found[0].result?.adapter === 'playwright-json') break;
     }
+    if (commands.length) return commands;
   }
   return [];
 }
@@ -801,8 +813,23 @@ export async function resolveDeliveryQualityCommands(root, phase) {
     if (moduleCoveredByConfiguredTest(module.root)) continue;
     const command = await inferModuleTestCommand(root, module);
     if (command) inferred.push(command);
+    if (module.system === 'node' && command?.result?.adapter !== 'playwright-json') {
+      // A Node unit script is not evidence that newly authored browser tests ran. Add one
+      // unambiguous direct Playwright script when the module declares it separately.
+      for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
+        const browserCommand = await inferModuleTestCommand(root, module, { nodeScript });
+        if (browserCommand?.result?.adapter === 'playwright-json') {
+          inferred.push(browserCommand);
+          break;
+        }
+      }
+    }
   }
-  if (!inferred.length && !configuredTests.length) inferred.push(...await inferRepositoryTestCommands(root));
+  // A recognized changed module with no supported runner must not borrow an unrelated root
+  // manifest's passing tests as its own execution evidence.
+  if (!inferred.length && !configuredTests.length && !modules.size) {
+    inferred.push(...await inferRepositoryTestCommands(root));
+  }
   if (!inferred.length && !configuredTests.length) {
     const tests = phase.deliveryEvidence?.testPaths ?? [];
     if (tests.length && tests.every((candidate) => /\.(?:c|m)?js$/i.test(candidate))) {

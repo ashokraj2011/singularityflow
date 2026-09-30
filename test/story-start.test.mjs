@@ -886,6 +886,14 @@ test('programmatic Story start uses publication policy from the exact selected l
 
   assert.equal(created.readiness.base.repositories[0].publishRequired, true);
   assert.equal(created.publication.pushed, true);
+  const testReadiness = JSON.parse(await readFile(path.join(
+    root, 'singularity/work-items/WORK-BASE-POLICY/context/repository-test-readiness.json'
+  ), 'utf8'));
+  assert.equal(testReadiness.workId, 'WORK-BASE-POLICY');
+  assert.equal(testReadiness.repositories[0].sourceCommit,
+    created.readiness.base.repositories[0].baseCommit);
+  assert.equal(testReadiness.repositories[0].existingFailureDisposition,
+    'repair-or-verify-before-code');
   assert.match(run('git', [
     'ls-remote', 'origin', 'refs/heads/WORK-BASE-POLICY'
   ], root).stdout, /^[0-9a-f]{40}\s+refs\/heads\/WORK-BASE-POLICY$/m);

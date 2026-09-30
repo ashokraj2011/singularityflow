@@ -136,7 +136,12 @@ async function codeFixture(name, {
   git(root, 'config', 'user.name', ACTOR.name);
   git(root, 'config', 'user.email', ACTOR.email);
   const angularProfile = ['angular-karma', 'angular-unsupported'].includes(testProfile);
-  await writeFile(path.join(root, 'package.json'), `${JSON.stringify(angularProfile ? {
+  const playwrightProfile = testProfile === 'playwright-inferred';
+  await writeFile(path.join(root, 'package.json'), `${JSON.stringify(playwrightProfile ? {
+    name: 'delivery-fixture', private: true,
+    scripts: { test: 'playwright test' },
+    devDependencies: { '@playwright/test': '^1.0.0' }
+  } : angularProfile ? {
     name: 'delivery-fixture', private: true,
     scripts: { test: 'ng test' },
     ...(testProfile === 'angular-karma' ? { devDependencies: { karma: '6.4.0' } } : {})
@@ -174,6 +179,31 @@ async function codeFixture(name, {
     await chmod(posixRunner, 0o755);
     await writeFile(path.join(binDirectory, 'ng.cmd'), '@node "%~dp0\\ng-runner.mjs" %*\r\n');
   }
+  if (playwrightProfile) {
+    await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.sflow/results/\n');
+    const binDirectory = path.join(root, 'node_modules', '.bin');
+    await mkdir(binDirectory, { recursive: true });
+    const fakeRunner = path.join(binDirectory, 'playwright-runner.mjs');
+    await writeFile(fakeRunner, [
+      "import { writeFileSync } from 'node:fs';",
+      "if (!process.argv.includes('--reporter=json')) process.exit(31);",
+      "if (!process.env.PLAYWRIGHT_JSON_OUTPUT_FILE) process.exit(32);",
+      "writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE, JSON.stringify({",
+      "  suites: [{ specs: [{ tests: [{ status: 'expected', results: [{ status: 'passed' }] }] }] }],",
+      "  stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 }",
+      "}));",
+      ''
+    ].join('\n'));
+    const posixRunner = path.join(binDirectory, 'playwright');
+    await writeFile(posixRunner, [
+      '#!/usr/bin/env node',
+      "import './playwright-runner.mjs';",
+      ''
+    ].join('\n'));
+    await chmod(posixRunner, 0o755);
+    await writeFile(path.join(binDirectory, 'playwright.cmd'),
+      '@node "%~dp0\\playwright-runner.mjs" %*\r\n');
+  }
   if (trackedResult) {
     await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
     await writeFile(path.join(root, '.sflow', 'results', 'unit.json'),
@@ -202,7 +232,7 @@ async function codeFixture(name, {
     inputs: [],
     clarification: { ...implementation.clarification, mode: 'off' },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] },
-    qualityCommands: angularProfile || testProfile === 'maven' ? [] : [{
+    qualityCommands: angularProfile || playwrightProfile || testProfile === 'maven' ? [] : [{
       id: 'fixture-tests', kind: 'test',
       argv: [process.execPath, 'test-runner.mjs',
         ...(testProfile === 'configured-secret' ? ['--token', 'hidden-configured-secret'] : [])],
@@ -1535,6 +1565,23 @@ test('recovery reports an unsupported native test runner before publication is a
     entry.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED');
   assert.ok(blocker, 'recovery hid the unsupported structured-test runner until publication');
   assert.match(blocker.details.message, /Do not edit protected workflow configuration/);
+  assert.deepEqual(blocker.details.recoveryBoundary, {
+    kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
+    retryRequiresChangedRuntimeOrPolicy: true
+  });
+  const action = plan.actions.find((entry) =>
+    entry.id === 'resolve-code-delivery-test-policy:implementation');
+  assert.equal(action?.mode, 'manual');
+  assert.equal(action?.command, 'singularity-flow product status --json');
+  assert.equal(action?.skill, '/sf-product');
+  assert.equal(safeCommandGuidance(action)?.copilotCommand, '/sf-product');
+  assert.match(action.detail, /refreshing sflow\/config affects future Stories only/);
+  assert.doesNotMatch(action.detail, /refresh it, then resume this same phase/);
+  const unchanged = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  assert.equal(unchanged.planId, plan.planId, 'unchanged prerequisites changed the recovery plan');
+  assert.equal(unchanged.actions.some((entry) => entry.automatic), false);
   assert.equal(context.phase.generation, 0);
   assert.equal(context.phase.generationIntent.status, 'open');
 });
@@ -1557,7 +1604,9 @@ test('prepublish keeps a complete code draft red when its repository test contra
   assert.equal(checked.readiness.knownRecoveryBlockers, false);
   assert.equal(checked.commands.publish, null);
   assert.ok(checked.findings.some((finding) => finding.details?.sourceCode === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'));
-  assert.equal(checked.correction.skill, '/sf-workflows');
+  assert.equal(checked.correction.skill, '/sf-product');
+  assert.equal(checked.commands.next, 'singularity-flow product status --json');
+  assert.equal(checked.correction.sameTurn, false);
   assert.equal(checked.mutates, false);
 });
 
@@ -1646,6 +1695,40 @@ test('Angular Karma publication infers tests, captures stdout, and leaves protec
   await assert.rejects(() => readFile(resultPath), (error) => error.code === 'ENOENT',
     'submission left inferred Karma transport output in the worktree');
   assert.equal(git(context.root, 'diff', '--', 'singularity/workflow.yml'), '');
+});
+
+test('Playwright publication infers a report and submission reads fresh governed JSON', async (t) => {
+  const context = await codeFixture('playwright-inference', { testProfile: 'playwright-inferred' });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const protectedWorkflow = path.join(context.root, 'singularity', 'workflow.yml');
+  const protectedBefore = await readFile(protectedWorkflow, 'utf8');
+  await mkdir(path.join(context.root, 'src', 'app'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.ts'),
+    'export const filter = (values) => values.filter(Boolean);\n');
+  await writeFile(path.join(context.root, 'src', 'app', 'filter.component.spec.ts'),
+    '/** @ac:DELIVERY-1:AC-001 */\nexport const covered = true;\n');
+
+  const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+    session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }
+  });
+  assert.equal(checked.status, 'ready', JSON.stringify(checked.findings));
+  assert.deepEqual(checked.testExecution.commands.map((command) => command.result.adapter),
+    ['playwright-json']);
+  assert.equal(checked.testExecution.status, 'not-run');
+
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  assert.equal(context.phase.generation, 1);
+  assert.deepEqual(context.phase.qualityCommands, []);
+  await inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
+  ));
+  const execution = context.phase.deliveryEvidence.testExecutions[0];
+  const receipt = JSON.parse(await readFile(path.join(context.root, execution.receiptPath), 'utf8'));
+  assert.equal(receipt.adapter, 'playwright-json');
+  assert.deepEqual(receipt.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.equal(await readFile(protectedWorkflow, 'utf8'), protectedBefore);
 });
 
 test('a code phase publishes source and acceptance-mapped tests with a delivery receipt', async () => {

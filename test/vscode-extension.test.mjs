@@ -5967,6 +5967,35 @@ test('Story-start readiness distinguishes blocking findings from non-blocking ad
   assert.doesNotMatch(gitOnly, /data-workflow-refresh/);
 });
 
+test('Story intake shows exact-base pre-code test evidence without changing Start authorization', () => {
+  const baseTestReadiness = { schemaVersion: 1, repositories: [
+    { repository: 'app', baseCommit: 'a'.repeat(40), status: 'pass',
+      scope: 'dependency-test', testToolStatus: 'available',
+      disposition: 'no-observed-pre-story-failures', tools: [{
+        id: 'unit-tests', launcher: 'mvn', adapter: 'junit-xml', status: 'available',
+        counts: { discovered: 12, passed: 11, failed: 0, skipped: 1 }
+      }] },
+    { repository: 'reference', baseCommit: 'b'.repeat(40), status: 'missing',
+      scope: null, testToolStatus: 'not-checked', disposition: 'not-verified', tools: [] }
+  ] };
+  const ready = intakeHtml(intake({
+    shape: 'story', tracker: 'none', id: 'PRE-TEST', title: 'Test tools',
+    description: 'Review the exact baseline before code.', baseTestReadiness
+  }));
+  assert.match(ready, /Pre-code test tools and existing results/);
+  assert.match(ready, /unit-tests · mvn · junit-xml/);
+  assert.match(ready, /11 passed, 0 failed/);
+  assert.match(ready, /reference.*receipt missing/s);
+  assert.match(ready, /Existing test failures are not verified/);
+  const blocked = intake({
+    shape: 'story', tracker: 'none', id: 'PRE-TEST', title: 'Test tools',
+    description: 'Review the exact baseline before code.', baseTestReadiness,
+    basePreflightPassed: false, basePreflightReason: 'Required readiness receipt is missing.'
+  });
+  assert.match(intakeHtml(blocked), /<button type="button" data-submit="start" disabled>/);
+  assert.match(intakeProblems(blocked).join(' '), /Required readiness receipt is missing/);
+});
+
 test('Story intake carries explicit read-only repository URLs and branches without making them delivery repos', () => {
   const form = intake({
     shape: 'story', tracker: 'none', id: 'spark-rules', title: 'PySpark rule engine',

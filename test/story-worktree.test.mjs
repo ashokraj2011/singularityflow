@@ -8,7 +8,7 @@ import test from 'node:test';
 import YAML from 'yaml';
 import {
   prepareStoryWorktree, rollbackFailedStoryWorktree, rollbackStoryWorktree, samePlatformPath,
-  storyWorktreePath
+  storyWorktreeChanges, storyWorktreePath
 } from '../src/story-worktree.mjs';
 import { gitCommonDir } from '../src/git.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
@@ -58,6 +58,9 @@ async function repository(t, {
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
   definition.git.publish = 'off';
   definition.workItemRoot = workItemRoot;
+  // Most cases here exercise worktree isolation, not the separate repository-readiness gate.
+  // The readiness-specific cases below opt back in explicitly.
+  definition.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(definitionFile, YAML.stringify(definition));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-q', '-m', 'initialize'], root);
@@ -126,6 +129,71 @@ test('a dirty prior checkout cannot block a new Story and is never mutated', asy
     worktree, 'singularity/work-items/ISO-STORY-1/workflow.json'
   ), 'utf8')).workItem.id, 'ISO-STORY-1');
   assert.equal(result.data.worktree.isolated, true);
+});
+
+test('failed-start rollback retains tracked, untracked, and ignored checkout changes', async (t) => {
+  const { root } = await repository(t);
+  const prepared = await prepareStoryWorktree(root, 'ISO-DIRTY-ROLLBACK', { base: 'main' });
+  const worktree = prepared.repositoryPath;
+  await writeFile(path.join(worktree, 'README.md'), 'changed after launch\n');
+  await writeFile(path.join(worktree, 'untracked work.txt'), 'keep this work\n');
+  await writeFile(path.join(root, '.git/info/exclude'), 'ignored-recovery.txt\n');
+  await writeFile(path.join(worktree, 'ignored-recovery.txt'), 'keep ignored work\n');
+
+  const inspected = storyWorktreeChanges(worktree);
+  assert.equal(inspected.clean, false);
+  assert.deepEqual(inspected.changedPaths, [
+    'README.md', 'ignored-recovery.txt', 'untracked work.txt'
+  ]);
+  assert.ok(inspected.entries.some((entry) => entry.status === 'ignored'));
+
+  const recovered = rollbackStoryWorktree(prepared);
+  assert.equal(recovered.removed, false);
+  assert.equal(recovered.retained, true);
+  assert.equal(recovered.reason, 'worktree-changes');
+  assert.deepEqual(recovered.changedPaths, inspected.changedPaths);
+  assert.equal(await readFile(path.join(worktree, 'README.md'), 'utf8'), 'changed after launch\n');
+  assert.equal(await readFile(path.join(worktree, 'untracked work.txt'), 'utf8'), 'keep this work\n');
+  assert.equal(await readFile(path.join(worktree, 'ignored-recovery.txt'), 'utf8'), 'keep ignored work\n');
+  assert.equal(git(worktree, ['branch', '--show-current']), prepared.stagingBranch);
+
+  const original = new SingularityFlowError('Story start failed.', { code: 'START_FAILED' });
+  assert.throws(() => rollbackFailedStoryWorktree(prepared, original, root, {
+    changeDirectory() {}
+  }), (error) => {
+    assert.equal(error.code, 'START_FAILED');
+    assert.deepEqual(error.details.changedPaths, inspected.changedPaths);
+    assert.match(error.message, /Review git status there, preserve those changes/);
+    return true;
+  });
+});
+
+test('failed-start rollback retains a branch with a unique commit', async (t) => {
+  const { root } = await repository(t);
+  const prepared = await prepareStoryWorktree(root, 'ISO-UNPUBLISHED-COMMIT', { base: 'main' });
+  await writeFile(path.join(prepared.repositoryPath, 'private-progress.txt'), 'committed work\n');
+  run('git', ['add', 'private-progress.txt'], prepared.repositoryPath);
+  run('git', ['commit', '-qm', 'keep unique progress'], prepared.repositoryPath);
+  const uniqueHead = git(prepared.repositoryPath, ['rev-parse', 'HEAD']);
+
+  const recovered = rollbackStoryWorktree(prepared);
+  assert.equal(recovered.removed, true);
+  assert.deepEqual(recovered.cleanupPending, [prepared.stagingBranch]);
+  assert.equal(git(root, ['rev-parse', prepared.stagingBranch]), uniqueHead);
+});
+
+test('clean failed-start rollback removes its unchanged launch branch after source checkout moves', async (t) => {
+  const { root } = await repository(t);
+  const prepared = await prepareStoryWorktree(root, 'ISO-MOVED-SOURCE', { base: 'main' });
+  run('git', ['switch', '--orphan', 'unrelated-source'], root);
+  run('git', ['commit', '--allow-empty', '-qm', 'independent source head'], root);
+
+  const recovered = rollbackStoryWorktree(prepared);
+  assert.equal(recovered.removed, true);
+  assert.deepEqual(recovered.cleanupPending, []);
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${prepared.stagingBranch}`
+  ], root, { allowFailure: true }).status, 1);
 });
 
 test('resume reuses the managed Story worktree without switching or cleaning the launch clone', async (t) => {
@@ -559,6 +627,15 @@ test('a receipt-authorized Story worktree hydrates its locked local dependencies
   assert.equal(await readFile(path.join(
     result.data.repositoryPath, 'node_modules', 'readiness-hydrated'
   ), 'utf8'), 'ok');
+  const testReadiness = JSON.parse(await readFile(path.join(
+    result.data.repositoryPath,
+    'singularity/work-items/ISO-HYDRATED-1/context/repository-test-readiness.json'
+  ), 'utf8'));
+  assert.equal(testReadiness.kind, 'story-test-readiness');
+  assert.equal(testReadiness.required, true);
+  assert.equal(testReadiness.repositories[0].status, 'pass');
+  assert.equal(testReadiness.repositories[0].testTools[0].adapter, 'node-tap');
+  assert.equal(testReadiness.repositories[0].existingFailureDisposition, 'no-observed-pre-story-failures');
   assert.equal(git(result.data.repositoryPath, ['status', '--porcelain']), '');
 });
 

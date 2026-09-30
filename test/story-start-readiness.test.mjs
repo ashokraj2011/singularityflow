@@ -178,6 +178,29 @@ test('repository readiness remediation selects full scope for enabled build or s
   });
 });
 
+test('a legacy readiness block cannot disable the canonical pre-Story gate or narrow its scope', async () => {
+  const definition = await shippedDefinition();
+  definition.repositoryReadiness.requiredBeforeStory = true;
+  definition.repositoryReadiness.build = 'required';
+  definition.initialization = { proof: { preStory: {
+    requiredBeforeStory: false, build: 'off', applicationStart: 'off'
+  } } };
+  const result = inspectStoryStartReadiness(facts(definition, { repositoryReadiness: null }));
+  assert.equal(result.repositoryExecution.required, true);
+  assert.equal(result.repositoryExecution.scope, 'full');
+  assert.equal(result.ready, false);
+  assert.ok(result.blockers.some((entry) => entry.id === 'repository-execution'));
+
+  const incomplete = inspectStoryStartReadiness(facts(definition, {
+    repositoryReadiness: {
+      status: 'pass', sourceHead: BASE_COMMIT,
+      receiptSha256: `sha256:${'7'.repeat(64)}`,
+      commandResults: [{ purpose: 'test', status: 'pass' }]
+    }
+  }));
+  assert.equal(incomplete.ready, false, 'legacy build:off must not accept a receipt without required build proof');
+});
+
 test('legacy when-detected build policy retains full-scope readiness', async () => {
   const definition = await shippedDefinition();
   definition.repositoryReadiness = {

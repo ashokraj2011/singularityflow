@@ -352,8 +352,14 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
     { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED', details: { phase: 'implementation' } }
   ), ['phase', 'publish', 'implementation']);
   assert.equal(missing.steps[0].command,
-    'singularity-flow workflow validate --json');
-  assert.match(missing.steps[0].label, /Do not add a test wrapper or edit protected workflow files/);
+    'singularity-flow product status --json');
+  assert.equal(missing.steps[0].skill, '/sf-product');
+  assert.equal(missing.steps[1].command, null);
+  assert.match(missing.steps[1].label, /Refreshing sflow\/config changes future Stories only/);
+  assert.match(missing.retry.label, /Do not retry publication until the runtime gains native support/);
+  assert.equal(missing.context.strategy, 'pinned-test-policy-prerequisite');
+  assert.equal(missing.retry.command, null);
+  assert.doesNotMatch(JSON.stringify(missing), /workflow validate|refresh it, then resume this same phase/);
 
   const protectedPath = refusalRemediationPlan(Object.assign(
     new Error('Generation cannot modify protected process paths.'),

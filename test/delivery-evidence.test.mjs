@@ -83,6 +83,45 @@ test('repository-native Maven and Node tests are inferred without a model', asyn
   ]);
 });
 
+test('full readiness and code delivery discover direct Playwright alongside Node unit tests', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-playwright-quality-'));
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'node --test', 'test:e2e': 'playwright test' },
+    devDependencies: { '@playwright/test': '^1.0.0' }
+  }));
+  const full = await inferRepositoryTestCommands(root);
+  assert.deepEqual(full.map((entry) => [entry.id, entry.result.adapter]), [
+    ['node-tests', 'node-tap'], ['playwright-tests', 'playwright-json']
+  ]);
+  assert.deepEqual((await inferRepositoryTestCommands(root, { unitOnly: true }))
+    .map((entry) => entry.result.adapter), ['node-tap']);
+  const phase = {
+    writeScope: 'source-and-artifact', generationPolicy: { task: 'code' },
+    requiredArtifact: { kind: 'implementation-summary' }, qualityCommands: [],
+    deliveryEvidence: {
+      sourcePaths: ['src/web.ts'], testPaths: ['tests/web.spec.ts']
+    }
+  };
+  assert.deepEqual((await resolveDeliveryQualityCommands(root, phase))
+    .map((entry) => entry.result.adapter), ['node-tap', 'playwright-json']);
+});
+
+test('an unsupported nested test module cannot borrow unrelated root Maven evidence', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-nested-runner-quality-'));
+  await writeFile(path.join(root, 'pom.xml'), '<project/>\n');
+  await mkdir(path.join(root, 'web'), { recursive: true });
+  await writeFile(path.join(root, 'web', 'package.json'), JSON.stringify({
+    scripts: { test: 'npx playwright test' },
+    devDependencies: { '@playwright/test': '^1.0.0' }
+  }));
+  const commands = await resolveDeliveryQualityCommands(root, {
+    writeScope: 'source-and-artifact', generationPolicy: { task: 'code' },
+    requiredArtifact: { kind: 'implementation-summary' }, qualityCommands: [],
+    deliveryEvidence: { sourcePaths: ['web/src/ui.ts'], testPaths: ['web/tests/ui.spec.ts'] }
+  });
+  assert.deepEqual(commands, []);
+});
+
 test('configured structured tests suppress duplicate inference for their covered module', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-angular-configured-quality-'));
   await writeFile(path.join(root, 'package.json'), JSON.stringify({

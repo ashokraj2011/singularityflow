@@ -1878,20 +1878,30 @@ const PAGES = Object.freeze({
       'implicit repository capability, wrapper or PATH metadata, and declared proof readiness.',
       'It never executes a verifier, build, package-manager script, or model.',
       '`--run` first returns an effect-free exact-argv plan. Only the current plan digest executes',
-      'bounded commands and writes a hash-only, Git-private receipt for the exact base.'
+      'bounded commands and writes a hash-only, Git-private receipt for the exact base.',
+      'A failed structured test run can retain a separate Git-private baseline. `--risk-status`',
+      'inspects it without changing any gate. `--accept-test-risk` records an explicit, expiring',
+      'human decision only for complete JUnit/Jest/Vitest baselines. This is not a passing test',
+      'receipt and does not by itself authorize Story start or phase publication.'
     ],
     options: [
       ['--quick', 'Run metadata-only readiness inspection. Incompatible with --run.'],
       ['--run', 'Preview repository commands, or execute them with the exact --confirm-plan digest.'],
       ['--scope dependency-test|full', 'Default: dependency-test, for locked packages and existing unit tests only. Full also includes build, quality, and startup when approved policy requires them.'],
       ['--confirm-plan SHA256', 'Execute only the freshly recomputed readiness plan with this exact digest.'],
+      ['--risk-status', 'Show the exact current failed-test baseline and existing Git-private risk decisions.'],
+      ['--accept-test-risk', 'Record a human decision for an eligible exact pre-Story test baseline; does not bypass a gate.'],
+      ['--confirm-baseline SHA256', 'Confirm the baseline digest displayed by --risk-status.'],
+      ['--reason TEXT', 'Explain why the pre-existing failures are accepted for review.'],
+      ['--expires ISO-8601', 'Set a decision expiry no later than 30 days after acceptance.'],
       ['--json', 'Return a structured CommandResult containing the precheck receipt.']
     ],
     examples: [
       ['singularity-flow precheck --quick --json', 'Inspect activated initialization law without executing repository commands.'],
       ['singularity-flow precheck --run --scope dependency-test --json', 'Preview only locked dependency restore and existing structured unit tests.'],
       ['singularity-flow precheck --run --scope dependency-test --confirm-plan sha256:<PLAN> --json', 'Run the exact narrow plan and record its separately scoped Git-private receipt.'],
-      ['singularity-flow precheck --run --scope full --json', 'Preview the broader compatibility profile, also available in Copilot as /sf-ready --full.']
+      ['singularity-flow precheck --run --scope full --json', 'Preview the broader compatibility profile, also available in Copilot as /sf-ready --full.'],
+      ['singularity-flow precheck --risk-status --json', 'Inspect a failed test baseline and whether an explicit decision can be recorded.']
     ],
     seeAlso: ['init', 'doctor', 'configuration']
   },

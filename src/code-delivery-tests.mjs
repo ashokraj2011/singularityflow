@@ -229,6 +229,21 @@ function angularKarmaReachableFromPackageScripts(manifest, scriptName = 'test') 
     && /^ng(?:\.cmd)?[ \t]+test(?:[ \t]+[-A-Za-z0-9_./:=]+)*[ \t]*$/i.test(script);
 }
 
+function directPlaywrightScript(manifest, scriptName = 'test') {
+  const dependencies = {
+    ...(manifest.dependencies ?? {}),
+    ...(manifest.devDependencies ?? {}),
+    ...(manifest.peerDependencies ?? {})
+  };
+  if (!Object.hasOwn(dependencies, '@playwright/test')
+      && !Object.hasOwn(dependencies, 'playwright')) return false;
+  const script = String(manifest.scripts?.[scriptName] ?? '').trim();
+  // npm/pnpm/yarn append arguments to a direct script. Shell composition, variable expansion,
+  // redirection, and interactive/list-only modes do not provide trustworthy execution evidence.
+  if (!script || /[\r\n;&|<>`$'"\\]/u.test(script)) return false;
+  return /^(?:playwright|npx --no-install playwright) test(?: --config(?:=[A-Za-z0-9_./-]+| [A-Za-z0-9_./-]+))?$/u.test(script);
+}
+
 export async function inferModuleTestCommand(root, module, {
   platform = process.platform,
   nodeScript = 'test',
@@ -289,6 +304,15 @@ export async function inferModuleTestCommand(root, module, {
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'karma-text', path: `${resultBase}.karma.txt`, minimumDiscovered: 1 }
       };
+      if (!unitOnly && directPlaywrightScript(manifest, nodeScript)) {
+        const playwrightResult = '.sflow/results/playwright-tests.json';
+        return {
+          id: module.root === '.' ? 'playwright-tests' : `${module.root}-playwright-tests`,
+          kind: 'test', argv: [...testArgv, '--reporter=json'],
+          workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
+          result: { adapter: 'playwright-json', path: playwrightResult, minimumDiscovered: 1 }
+        };
+      }
       // Preserve the exact top-level repository test command. Following only explicit package
       // script references lets a composite `npm test` expose nested `node --test` evidence while
       // its exit status still covers every later stage (for example Playwright).
@@ -836,7 +860,7 @@ export function replayLocalJavascriptJsonObservation(rawReports, adapter) {
   };
 }
 
-function nodeTapCounts(value) {
+export function nodeTapCounts(value) {
   const summaries = [];
   let summary = Object.create(null);
   for (const line of String(value).split(/\r?\n/)) {

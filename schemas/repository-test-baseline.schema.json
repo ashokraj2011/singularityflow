@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/repository-test-baseline.schema.json",
+  "title": "Pre-Story repository test baseline",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "scope", "status", "sourceTrackedOnly", "sourceCommit", "sourceManifestSha256",
+    "repositoryFingerprint", "platform", "arch", "planId", "workingTree", "testTools",
+    "commandResults", "testObservations", "failedCommandId", "recordedAt", "baselineSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "repository-test-baseline" },
+    "scope": { "enum": ["dependency-test", "full"] },
+    "sourceTrackedOnly": { "const": true },
+    "status": { "enum": ["failing-tests", "test-command-failed", "blocked-before-tests", "blocked-after-tests"] },
+    "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "sourceManifestSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "repositoryFingerprint": { "type": "string" },
+    "platform": { "type": "string" },
+    "arch": { "type": "string" },
+    "planId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "workingTree": { "type": "object" },
+    "testTools": { "type": "array", "items": { "type": "object" } },
+    "commandResults": { "type": "array", "items": { "type": "object" } },
+    "testObservations": { "type": "array", "items": { "type": "object" } },
+    "failedCommandId": { "type": "string" },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "baselineSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

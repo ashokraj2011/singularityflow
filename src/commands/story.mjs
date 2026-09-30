@@ -88,6 +88,10 @@ import {
 import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { collectRepositoryReadinessEvidence } from '../repository-readiness-evidence.mjs';
+import {
+  assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
+} from '../story-start-readiness.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { recordSha256 } from '../records.mjs';
 import { verifyWorkflowSnapshot, workflowSnapshotDrift } from '../workflow-snapshots.mjs';
@@ -589,6 +593,28 @@ export async function storyFetchCommand(positionals, options) {
       throw new SingularityFlowError(`Approved Story plan pins workflow '${workType}', but repository '${repositoryId}' does not configure it.`);
     }
     const resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
+    const readinessBase = seed.story.baseCommit;
+    const readinessRequired = config.repositoryReadiness?.requiredBeforeStory === true
+      || config.initialization?.proof?.preStory?.requiredBeforeStory === true;
+    if (readinessRequired && !/^[a-f0-9]{40,64}$/u.test(readinessBase ?? '')) {
+      throw new SingularityFlowError('Governed Jira Story seed has no exact base commit for test readiness.', {
+        code: 'STORY_REPOSITORY_READINESS_REQUIRED'
+      });
+    }
+    const readinessRepositories = readinessBase ? [{
+      id: 'lifecycle', baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
+      baseCommit: readinessBase, destinationRef: `refs/heads/${storyKey}`,
+      publishRequired: true
+    }] : [];
+    const repositoryReadiness = readinessBase ? await collectRepositoryReadinessEvidence([{
+      id: 'lifecycle', root: target, baseCommit: readinessBase
+    }], { scope: requiredRepositoryReadinessScope(config) }) : null;
+    if (readinessRequired) assertStoryStartReady(inspectStoryStartReadiness({
+      workId: storyKey, definition: config, workType,
+      baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
+      repositories: readinessRepositories, repositoryReadiness,
+      surface: 'shell'
+    }));
     const agent = await activatePhaseAgent(
       target, config, storyKey, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
     );
@@ -607,9 +633,12 @@ export async function storyFetchCommand(positionals, options) {
         requiredChecks: seed.story.requiredChecks
       },
       baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
+      baseCommit: readinessBase ?? null,
       workType,
       agent: agent.agent,
       resolved: resolvedWorkType,
+      repositoryReadiness,
+      readinessRepositories,
       // Keep both the selected/inferred ID and the exact retained map identity from the preflight
       // which ran before sibling movement. Workflow creation refuses if either authority changed.
       capabilityId: capabilityPreflight.capabilityId,

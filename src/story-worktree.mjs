@@ -12,6 +12,7 @@ import path from 'node:path';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
 import { gitCommonDir, refExists, remoteNames } from './git.mjs';
+import { parsePorcelainV2Status } from './git-status-detail.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
@@ -235,7 +236,7 @@ export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {})
       schemaVersion: 1, workId: id, sourceRepository: path.resolve(root), repositoryPath: registered.path,
       stagingBranch: stagingBranches.includes(registered.branch) || provenOlderStage
         ? registered.branch : stagingBranch,
-      created: false, resumed: true, preparedAt: nowIso()
+      created: false, resumed: true, initialHead: registered.head, preparedAt: nowIso()
     };
   }
   const stagingExists = stagingBranches.some((candidate) => run('git', [
@@ -259,7 +260,9 @@ export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {})
   }
   return {
     schemaVersion: 1, workId: id, sourceRepository: path.resolve(root), repositoryPath: target,
-    stagingBranch, created: true, resumed: false, preparedAt: nowIso()
+    stagingBranch, created: true, resumed: false,
+    initialHead: run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: target }).stdout.trim(),
+    preparedAt: nowIso()
   };
 }
 
@@ -297,6 +300,40 @@ function durableStoryWorkflowOnBranch(root, id) {
   ], { cwd: root, allowFailure: true }).status === 0;
 }
 
+/** Inspect every visible worktree change, including ignored files, before rollback. */
+export function storyWorktreeChanges(repositoryPath) {
+  const head = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: repositoryPath }).stdout.trim();
+  const objectFormat = head.length === 40 ? 'sha1' : head.length === 64 ? 'sha256' : null;
+  if (!objectFormat) {
+    throw new SingularityFlowError('Story worktree commit format could not be verified for recovery.', {
+      code: 'STORY_WORKTREE_RECOVERY_REQUIRED'
+    });
+  }
+  const status = run('git', [
+    'status', '--porcelain=v2', '-z', '--untracked-files=all', '--ignored=matching',
+    '--ignore-submodules=none'
+  ], { cwd: repositoryPath, encoding: 'buffer' });
+  let parsed;
+  try {
+    parsed = parsePorcelainV2Status(status.stdout, {
+      objectFormat, untracked: 'all', includeIgnored: true
+    });
+  } catch (error) {
+    throw new SingularityFlowError(`Story worktree changes could not be verified: ${error.message}`, {
+      code: 'STORY_WORKTREE_RECOVERY_REQUIRED', cause: error
+    });
+  }
+  return {
+    clean: parsed.entries.length === 0,
+    changedPaths: [...new Set(parsed.entries.flatMap((entry) => [
+      entry.path.display, entry.sourcePath?.display
+    ]).filter(Boolean))].sort(),
+    entries: parsed.entries.map((entry) => ({
+      status: entry.type, path: entry.path, sourcePath: entry.sourcePath ?? null
+    }))
+  };
+}
+
 /**
  * Roll back only an unpublished launch. A durable workflow or remote Story ref is never removed;
  * the recovery path returns its exact worktree path instead.
@@ -324,7 +361,16 @@ export function rollbackStoryWorktree(prepared) {
       }
     );
   }
-  const removed = run('git', ['worktree', 'remove', '--force', '--', prepared.repositoryPath], {
+  const changes = storyWorktreeChanges(prepared.repositoryPath);
+  if (!changes.clean) {
+    return {
+      removed: false, retained: true, repositoryPath: prepared.repositoryPath,
+      reason: 'worktree-changes', changedPaths: changes.changedPaths,
+      changedEntries: changes.entries
+    };
+  }
+  // Git performs its own final dirty check, closing the gap between our read and removal.
+  const removed = run('git', ['worktree', 'remove', '--', prepared.repositoryPath], {
     cwd: root, allowFailure: true
   });
   if (removed.status !== 0 && !/not a working tree|does not exist/i.test(removed.stderr || removed.stdout)) {
@@ -333,10 +379,28 @@ export function rollbackStoryWorktree(prepared) {
       { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }
     );
   }
-  for (const branch of [id, prepared.stagingBranch]) {
-    run('git', ['branch', '-D', '--', branch], { cwd: root, allowFailure: true });
+  const cleanupPending = [];
+  for (const branch of new Set([id, prepared.stagingBranch].filter(Boolean))) {
+    const branchRef = `refs/heads/${branch}`;
+    const branchHead = run('git', ['rev-parse', '--verify', branchRef], {
+      cwd: root, allowFailure: true
+    }).stdout.trim();
+    // A branch created for this launch and still at its initial commit contains no new Story
+    // commit. Delete that exact ref even when the source checkout has switched elsewhere.
+    const unchangedNewBranch = prepared.created === true && branchHead
+      && branchHead === prepared.initialHead;
+    const deleted = unchangedNewBranch
+      ? run('git', ['update-ref', '-d', branchRef, branchHead], { cwd: root, allowFailure: true })
+      // A pre-existing branch or changed ref needs Git's merged-commit protection.
+      : run('git', ['branch', '-d', '--', branch], { cwd: root, allowFailure: true });
+    if (deleted.status !== 0 && run('git', [
+      'show-ref', '--verify', '--quiet', branchRef
+    ], { cwd: root, allowFailure: true }).status === 0) cleanupPending.push(branch);
   }
-  return { removed: true, retained: false, repositoryPath: prepared.repositoryPath };
+  return {
+    removed: true, retained: false, repositoryPath: prepared.repositoryPath,
+    cleanupPending
+  };
 }
 
 function failureRecord(error) {
@@ -388,11 +452,27 @@ export function rollbackFailedStoryWorktree(
     );
   }
   if (recovery.retained) {
+    const dirty = recovery.reason === 'worktree-changes';
+    const changedPaths = dirty ? recovery.changedPaths : [];
     throw new SingularityFlowError(
-      `${originalError.message}\nThe governed Story state was retained at ${recovery.repositoryPath}; open that folder and run singularity-flow doctor.`,
+      `${originalError.message}\n${dirty
+        ? `The isolated checkout contains ${changedPaths.length} changed path(s) and was retained at ${recovery.repositoryPath}. Review git status there, preserve those changes, and retry Story start.`
+        : `The governed Story state was retained at ${recovery.repositoryPath}; open that folder and run singularity-flow doctor.`}`,
       {
         code: originalError.code ?? 'STORY_WORKTREE_RECOVERY_REQUIRED',
-        details: { repositoryPath: recovery.repositoryPath },
+        details: { repositoryPath: recovery.repositoryPath, ...(dirty ? {
+          reason: recovery.reason, changedPaths, changedEntries: recovery.changedEntries
+        } : {}) },
+        cause: originalError
+      }
+    );
+  }
+  if (recovery.cleanupPending?.length) {
+    throw new SingularityFlowError(
+      `${originalError.message}\nThe isolated checkout was removed, but its branch ${recovery.cleanupPending.join(', ')} contains commits Git would not discard. Review the retained branch before retrying Story start.`,
+      {
+        code: 'STORY_WORKTREE_RECOVERY_REQUIRED',
+        details: { repositoryPath: recovery.repositoryPath, retainedBranches: recovery.cleanupPending },
         cause: originalError
       }
     );

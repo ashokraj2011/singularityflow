@@ -322,7 +322,7 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(code, /publication deterministically infers supported structured runners/i);
   assert.match(code, /Never edit `singularity\/workflow\.yml`/);
   assert.match(code, /(?:never.*or|or) add a one-off test-result wrapper merely to satisfy publication/i);
-  assert.match(code, /approved configuration authority outside the active Story/);
+  assert.match(code, /approved configuration changes affect future Stories only/);
 });
 
 test('code and verification skills place qualified trace tags in the intended file class', async () => {
@@ -380,6 +380,9 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   assert.match(content, /generation\.intent\.consumed-changed.*\/sf-recover/s);
   assert.match(content, /generation\.intent\.consumed-changed.*never `\/sf-code` or waiver/);
   assert.match(content, /Initial template is baseline; stop on an unchanged fingerprint only after correction/);
+  assert.match(content, /resolve-code-delivery-test-policy.*config refresh does not change this Story's pin/);
+  assert.match(content, /blocking finding code and source code.*remain unchanged.*stop this attempt/);
+  assert.match(content, /In-scope application and test edits.*not a reason to clean or reset the worktree/);
   assert.doesNotMatch(content, /stop for manual\/unchanged\/other-producer recovery/);
 });
 

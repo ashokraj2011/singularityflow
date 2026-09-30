@@ -2350,6 +2350,10 @@ const families = [
   // host creates a distinct receipt instead of mutating prior evidence.
   family({ id: 'repository-readiness-receipt', currentVersion: 1, immutable: true,
     paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+\.json$/] }),
+  family({ id: 'repository-test-baseline', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+(?:-dependency-test)?\.test-baseline\.json$/] }),
+  family({ id: 'preexisting-test-risk-acceptance', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/singularity-flow\/repository-readiness\/test-risk-acceptances\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/] }),
   family({
     id: 'session-registry', currentVersion: 2,
     steps: [migration(1, 2, identity(2))],

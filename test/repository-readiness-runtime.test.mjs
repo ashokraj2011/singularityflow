@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,10 +10,14 @@ import {
   executeRepositoryReadinessPlan,
   hydrateRepositoryDependencies,
   inspectRepositoryReadinessReceipt,
+  loadRepositoryTestBaseline,
   loadRepositoryReadinessReceipt,
   resolveRepositoryReadinessCommandLaunch
 } from '../src/initialization/runtime-readiness.mjs';
+import { smartInitPrecheck } from '../src/initialization/precheck.mjs';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
+import { recordSha256 } from '../src/records.mjs';
+import { assessPreStoryTestBaseline } from '../src/test-baseline-risk.mjs';
 import { run } from '../src/util.mjs';
 
 async function repository() {
@@ -38,6 +43,8 @@ async function repository() {
     packages: { '': { name: manifest.name, version: manifest.version } }
   }, null, 2)}\n`);
   await writeFile(path.join(root, 'server.mjs'), 'setInterval(() => {}, 1000);\n');
+  await writeFile(path.join(root, 'smoke.test.mjs'),
+    'import test from "node:test"; test("repository smoke", () => {});\n');
   await writeFile(path.join(root, '.gitignore'), 'node_modules/\n');
   run('git', ['init', '-q'], { cwd: root });
   run('git', ['config', 'user.name', 'Readiness Test'], { cwd: root });
@@ -65,9 +72,12 @@ async function repositoryWithoutDependencies() {
 }
 
 function passingResult(overrides = {}) {
+  const tap = Buffer.from('# tests 1\n# pass 1\n# fail 0\n# skipped 0\n');
   return {
     status: 'pass', exitCode: 0, signal: null, reason: null, durationMs: 2,
-    stdoutBytes: 0, stderrBytes: 0, stdoutSha256: null, stderrSha256: null,
+    stdoutBytes: tap.length, stderrBytes: 0,
+    stdoutSha256: `sha256:${createHash('sha256').update(tap).digest('hex')}`,
+    stderrSha256: null, capturedTestOutput: tap,
     ...overrides
   };
 }
@@ -91,6 +101,253 @@ test('repository readiness builds one deterministic, purpose-ordered shell-free 
       assert.ok(Array.isArray(command.argv));
       assert.equal(command.argv.some((argument) => /(?:&&|\|\||;)/u.test(argument)), false);
     }
+  });
+});
+
+test('quick precheck identifies the repository test tool without executing it', async () => {
+  await withRepository(async (root) => {
+    const precheck = await smartInitPrecheck(root);
+    assert.deepEqual(precheck.testTools.map((tool) => ({
+      commandId: tool.commandId,
+      launcher: tool.launcher,
+      adapter: tool.adapter,
+      availability: tool.availability
+    })), [{ commandId: 'node-tests', launcher: 'npm', adapter: 'node-tap', availability: 'pass' }]);
+    assert.equal(precheck.checks.find((entry) => entry.id === 'test-tool-discovery').status, 'pass');
+  });
+});
+
+test('quick precheck shows browser tests only in the full readiness scope', async () => {
+  await withRepository(async (root) => {
+    const manifestFile = path.join(root, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+    manifest.scripts['test:e2e'] = 'playwright test';
+    manifest.devDependencies = { '@playwright/test': '1.0.0' };
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    const precheck = await smartInitPrecheck(root);
+    assert.deepEqual(precheck.testTools.map((tool) => [tool.commandId, tool.adapter, tool.scopes]), [
+      ['node-tests', 'node-tap', ['dependency-test', 'full']],
+      ['playwright-tests', 'playwright-json', ['full']]
+    ]);
+  });
+});
+
+test('a narrow readiness run tolerates only the exact report left by an earlier full browser run', async () => {
+  await withRepository(async (root) => {
+    const manifestFile = path.join(root, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+    manifest.scripts['test:e2e'] = 'playwright test';
+    manifest.devDependencies = { '@playwright/test': '1.0.0' };
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    run('git', ['add', 'package.json'], { cwd: root });
+    run('git', ['commit', '-qm', 'declare browser suite'], { cwd: root });
+    await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+    await writeFile(path.join(root, '.sflow', 'results', 'playwright-tests.json'), 'old report');
+
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    assert.ok(plan.generatedReportPaths.includes('.sflow/results/playwright-tests.json'));
+    assert.equal(plan.commands.some((command) => command.result?.adapter === 'playwright-json'), false);
+    const executed = await executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: plan.planId,
+      runCommand: async () => passingResult()
+    });
+    assert.equal(executed.receipt.status, 'pass');
+    await writeFile(path.join(root, '.sflow', 'results', 'unselected.json'), 'not tool output');
+    await assert.rejects(() => buildRepositoryReadinessPlan(root, { scope: 'dependency-test' }),
+      (error) => error.code === 'REPOSITORY_READINESS_UNTRACKED_SOURCE');
+  });
+});
+
+test('generated report allowance rejects a symlink to repository source', {
+  skip: process.platform === 'win32' ? 'symlink creation may require Windows developer mode' : false
+}, async () => {
+  await withRepository(async (root) => {
+    const manifestFile = path.join(root, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+    manifest.scripts['test:e2e'] = 'playwright test';
+    manifest.devDependencies = { '@playwright/test': '1.0.0' };
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    run('git', ['add', 'package.json'], { cwd: root });
+    run('git', ['commit', '-qm', 'declare browser suite'], { cwd: root });
+    await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+    await symlink(manifestFile, path.join(root, '.sflow', 'results', 'playwright-tests.json'));
+    await assert.rejects(() => buildRepositoryReadinessPlan(root, { scope: 'full' }),
+      (error) => ['REPOSITORY_PATH_UNSAFE', 'REPOSITORY_READINESS_UNTRACKED_SOURCE'].includes(error.code));
+  });
+});
+
+test('a confirmed failed test writes a provenance-bound baseline with fresh failing cases', async () => {
+  await withRepository(async (root) => {
+    await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.sflow/\n');
+    run('git', ['add', '.gitignore'], { cwd: root });
+    run('git', ['commit', '-qm', 'ignore local test reports'], { cwd: root });
+    const inferTestCommands = async () => [{
+      id: 'jest-unit', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.',
+      affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'jest-json', path: '.sflow/results/node-tests.json', minimumDiscovered: 1 }
+    }];
+    const options = { scope: 'dependency-test', inferTestCommands };
+    const plan = await buildRepositoryReadinessPlan(root, options);
+    let failure;
+    try {
+      await executeRepositoryReadinessPlan(root, {
+        ...options, confirmation: plan.planId,
+        runCommand: async (command) => {
+          if (command.purpose !== 'test') return passingResult();
+          await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+          await writeFile(path.join(root, '.sflow', 'results', 'node-tests.json'), JSON.stringify({
+            numTotalTests: 2, numPassedTests: 1, numFailedTests: 1, numPendingTests: 0,
+            testResults: [{ assertionResults: [
+              { title: 'old broken case', fullName: 'suite old broken case', ancestorTitles: ['suite'], status: 'failed' },
+              { title: 'working case', fullName: 'suite working case', ancestorTitles: ['suite'], status: 'passed' }
+            ] }]
+          }));
+          return passingResult({ status: 'failed', exitCode: 1, reason: 'non-zero-exit' });
+        }
+      });
+    } catch (error) { failure = error; }
+    assert.equal(failure?.code, 'REPOSITORY_READINESS_COMMAND_FAILED');
+    assert.match(failure.details.baselineSha256, /^sha256:[a-f0-9]{64}$/u);
+    const loaded = await loadRepositoryTestBaseline(root, { scope: 'dependency-test' });
+    assert.equal(loaded.file, failure.details.baselineFile);
+    assert.equal(loaded.baseline.status, 'failing-tests');
+    assert.equal(loaded.baseline.sourceCommit, plan.sourceCommit);
+    assert.equal(loaded.baseline.planId, plan.planId);
+    assert.deepEqual(loaded.baseline.testObservations[0].counts, {
+      discovered: 2, passed: 1, failed: 1, skipped: 0
+    });
+    assert.equal(loaded.baseline.testObservations[0].failingCases[0].fullName,
+      'suite old broken case');
+    assert.equal(loaded.baseline.testObservations[0].failingCases[0].identityStatus,
+      'observed-name-only');
+    assert.equal(await loadRepositoryReadinessReceipt(root, { scope: 'dependency-test' }), null);
+    assert.doesNotMatch(await readFile(loaded.file, 'utf8'), /assertionResults|working case/u);
+    const edited = JSON.parse(await readFile(loaded.file, 'utf8'));
+    edited.testObservations[0].counts.failed = 0;
+    await writeFile(loaded.file, `${JSON.stringify(edited)}\n`);
+    await assert.rejects(
+      () => loadRepositoryTestBaseline(root, { scope: 'dependency-test' }),
+      (error) => error.code === 'REPOSITORY_TEST_BASELINE_INVALID'
+    );
+  });
+});
+
+test('a failing unit command does not hide other pre-existing test failures', async () => {
+  await withRepository(async (root) => {
+    const inferTestCommands = async () => ['unit-a', 'unit-b'].map((id) => ({
+      id, kind: 'test', argv: ['npm', 'run', id], workingDirectory: '.',
+      affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'jest-json', path: `.sflow/results/${id}.json`, minimumDiscovered: 1 }
+    }));
+    const options = { scope: 'dependency-test', inferTestCommands };
+    const plan = await buildRepositoryReadinessPlan(root, options);
+    const ran = [];
+    await assert.rejects(() => executeRepositoryReadinessPlan(root, {
+      ...options, confirmation: plan.planId,
+      runCommand: async (command) => {
+        ran.push(command.id);
+        if (command.purpose !== 'test') return passingResult();
+        await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+        await writeFile(path.join(root, '.sflow', 'results', `${command.id}.json`), JSON.stringify({
+          numTotalTests: 1, numPassedTests: 0, numFailedTests: 1, numPendingTests: 0,
+          testResults: [{ assertionResults: [{ title: `known ${command.id}`,
+            fullName: `suite known ${command.id}`, ancestorTitles: ['suite'], status: 'failed' }] }]
+        }));
+        return passingResult({ status: 'failed', exitCode: 1, reason: 'non-zero-exit' });
+      }
+    }), (error) => error.code === 'REPOSITORY_READINESS_COMMAND_FAILED'
+      && error.details.failedCommandIds.length === 2);
+    assert.deepEqual(ran.filter((id) => id.startsWith('unit-')), ['unit-a', 'unit-b']);
+    const loaded = await loadRepositoryTestBaseline(root, { scope: 'dependency-test' });
+    assert.deepEqual(loaded.baseline.testObservations.map((entry) => entry.commandId), ['unit-a', 'unit-b']);
+    assert.equal(assessPreStoryTestBaseline(loaded.baseline).eligible, true);
+  });
+});
+
+test('the built-in runner records existing Node TAP failures before Story coding', async () => {
+  await withRepository(async (root) => {
+    await mkdir(path.join(root, 'test'), { recursive: true });
+    await writeFile(path.join(root, 'test', 'existing.test.mjs'), [
+      "import test from 'node:test';",
+      "test('known failing baseline', () => { throw new Error('pre-existing failure'); });",
+      ''
+    ].join('\n'));
+    const manifestFile = path.join(root, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+    manifest.scripts.test = 'node --test --test-reporter=tap test/existing.test.mjs';
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    run('git', ['add', 'test/existing.test.mjs', 'package.json'], { cwd: root });
+    run('git', ['commit', '-qm', 'record existing test'], { cwd: root });
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    assert.deepEqual(plan.commands.filter((command) => command.purpose === 'test')
+      .map((command) => command.argv), [['npm', 'test']]);
+    const cleanNodeTestEnvironment = Object.fromEntries(Object.entries(process.env)
+      .filter(([name]) => !name.startsWith('NODE_TEST_')));
+    await assert.rejects(
+      () => executeRepositoryReadinessPlan(root, {
+        scope: 'dependency-test', confirmation: plan.planId,
+        environment: cleanNodeTestEnvironment
+      }),
+      (error) => error.code === 'REPOSITORY_READINESS_COMMAND_FAILED'
+        && error.details.purpose === 'test'
+    );
+    const loaded = await loadRepositoryTestBaseline(root, { scope: 'dependency-test' });
+    assert.equal(loaded.baseline.status, 'failing-tests');
+    const observation = loaded.baseline.testObservations[0];
+    assert.equal(observation.adapter, 'node-tap');
+    assert.equal(observation.status, 'available');
+    assert.equal(observation.counts.failed, 1);
+    assert.equal(observation.failingCases[0].name, 'known failing baseline');
+    assert.equal(observation.report.source, 'bounded-stdout');
+    assert.doesNotMatch(await readFile(loaded.file, 'utf8'), /pre-existing failure/u);
+  });
+});
+
+test('Playwright readiness binds a fresh JSON report and excludes only that generated file from source drift', async () => {
+  await withRepository(async (root) => {
+    await writeFile(path.join(root, 'fake-playwright.mjs'), [
+      "import { existsSync, mkdirSync, writeFileSync } from 'node:fs';",
+      "import path from 'node:path';",
+      "const report = process.env.PLAYWRIGHT_JSON_OUTPUT_FILE;",
+      "if (!report || !report.startsWith(process.cwd()) || existsSync(report)) process.exit(2);",
+      "mkdirSync(path.dirname(report), { recursive: true });",
+      "writeFileSync(report, JSON.stringify({ suites: [{ specs: [{ tests: [{ status: 'unexpected', results: [{ status: 'failed' }] }] }] }], stats: { expected: 0, unexpected: 1, flaky: 0, skipped: 0 } }));",
+      'process.exit(1);',
+      ''
+    ].join('\n'));
+    // A repository need not ignore SFlow's generated output for the next plan to remain usable.
+    await writeFile(path.join(root, '.gitignore'), 'node_modules/\n');
+    run('git', ['add', 'fake-playwright.mjs', '.gitignore'], { cwd: root });
+    run('git', ['commit', '-qm', 'add fake browser runner'], { cwd: root });
+    await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+    await writeFile(path.join(root, '.sflow', 'results', 'playwright-tests.json'), 'stale');
+    const inferTestCommands = async () => [{
+      id: 'playwright-tests', kind: 'test', argv: ['node', 'fake-playwright.mjs'],
+      workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'playwright-json', path: '.sflow/results/playwright-tests.json', minimumDiscovered: 1 }
+    }];
+    const options = { scope: 'dependency-test', inferTestCommands };
+    const plan = await buildRepositoryReadinessPlan(root, options);
+    await assert.rejects(
+      () => executeRepositoryReadinessPlan(root, {
+        ...options, confirmation: plan.planId,
+        environment: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: '/tmp/stale-report.json' }
+      }),
+      (error) => error.code === 'REPOSITORY_READINESS_COMMAND_FAILED'
+        && error.details.commandId === 'playwright-tests'
+    );
+    const loaded = await loadRepositoryTestBaseline(root, { scope: 'dependency-test' });
+    assert.equal(loaded.baseline.status, 'failing-tests');
+    assert.deepEqual(loaded.baseline.testObservations[0].counts, {
+      discovered: 1, passed: 0, failed: 1, skipped: 0
+    });
+    assert.equal(loaded.baseline.testObservations[0].report.files.length, 1);
+    assert.equal(loaded.baseline.commandResults.at(-1).exitCode, 1);
+    const repeat = await buildRepositoryReadinessPlan(root, options);
+    assert.equal(repeat.planId, plan.planId);
+    await writeFile(path.join(root, 'unreviewed-source.mjs'), 'export default true;\n');
+    await assert.rejects(() => buildRepositoryReadinessPlan(root, options), (error) =>
+      error.code === 'REPOSITORY_READINESS_UNTRACKED_SOURCE');
   });
 });
 
@@ -358,6 +615,58 @@ test('successful readiness writes and validates a Git-private receipt bound to H
   });
 });
 
+test('zero exit without a fresh structured test result records failure, never a passing receipt', async () => {
+  await withRepository(async (root) => {
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    await assert.rejects(() => executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: plan.planId,
+      runCommand: async () => passingResult({
+        capturedTestOutput: null, stdoutBytes: 0, stdoutSha256: null
+      })
+    }), (error) => error.code === 'REPOSITORY_READINESS_COMMAND_FAILED'
+      && error.details.result.reason === 'structured-result-unavailable');
+    assert.equal(await loadRepositoryReadinessReceipt(root, { scope: 'dependency-test' }), null);
+    const baseline = await loadRepositoryTestBaseline(root, { scope: 'dependency-test' });
+    assert.equal(baseline.baseline.status, 'test-command-failed');
+    assert.equal(baseline.baseline.testObservations[0].status, 'unavailable');
+  });
+});
+
+test('a hash-valid legacy receipt without structured test proof is rejected on read', async () => {
+  await withRepository(async (root) => {
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    const saved = await executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: plan.planId,
+      runCommand: async () => passingResult()
+    });
+    const core = { ...saved.receipt, testObservations: [] };
+    delete core.receiptSha256;
+    const forged = { ...core, receiptSha256: `sha256:${recordSha256(core)}` };
+    await writeFile(saved.file, `${JSON.stringify(forged, null, 2)}\n`);
+    await assert.rejects(() => loadRepositoryReadinessReceipt(root, {
+      scope: 'dependency-test'
+    }), { code: 'REPOSITORY_READINESS_RECEIPT_INVALID' });
+  });
+});
+
+test('a hash-valid old receipt without tracked-source provenance is rejected on read', async () => {
+  await withRepository(async (root) => {
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    const saved = await executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: plan.planId,
+      runCommand: async () => passingResult()
+    });
+    const core = { ...saved.receipt };
+    delete core.receiptSha256;
+    delete core.sourceTrackedOnly;
+    const forged = { ...core, receiptSha256: `sha256:${recordSha256(core)}` };
+    await writeFile(saved.file, `${JSON.stringify(forged, null, 2)}\n`);
+    await assert.rejects(() => loadRepositoryReadinessReceipt(root, {
+      scope: 'dependency-test'
+    }), { code: 'REPOSITORY_READINESS_RECEIPT_INVALID' });
+  });
+});
+
 test('dependency-test readiness writes a separate scoped receipt without replacing full evidence', async () => {
   await withRepository(async (root) => {
     const runCommand = async () => passingResult();
@@ -437,6 +746,18 @@ test('readiness refuses a dirty tracked tree before planning or execution', asyn
       (error) => error.code === 'REPOSITORY_READINESS_TRACKED_DIRTY'
         && error.details.changedPaths.includes('server.mjs')
     );
+  });
+});
+
+test('readiness rejects untracked detector or test source before planning', async () => {
+  await withRepository(async (root) => {
+    await writeFile(path.join(root, 'new.test.mjs'),
+      'import test from "node:test"; test("untracked", () => {});\n');
+    await assert.rejects(() => buildRepositoryReadinessPlan(root, {
+      scope: 'dependency-test'
+    }), (error) => error.code === 'REPOSITORY_READINESS_UNTRACKED_SOURCE'
+      && error.details.paths.includes('new.test.mjs'));
+    assert.equal(await loadRepositoryReadinessReceipt(root, { scope: 'dependency-test' }), null);
   });
 });
 
@@ -536,7 +857,7 @@ test('required hydration refuses an exact passing plan with no dependency comman
   }
 });
 
-test('hydration refuses a plan whose source manifest changed after the readiness receipt', async () => {
+test('hydration refuses an untracked source candidate after the readiness receipt', async () => {
   await withRepository(async (root) => {
     const plan = await buildRepositoryReadinessPlan(root);
     await executeRepositoryReadinessPlan(root, {
@@ -548,8 +869,8 @@ test('hydration refuses a plan whose source manifest changed after the readiness
       () => hydrateRepositoryDependencies(root, {
         runCommand: async () => assert.fail('stale plan must not run dependency commands')
       }),
-      (error) => error.code === 'REPOSITORY_READINESS_HYDRATION_STALE'
-        && error.details.sourceManifestMatches === false
+      (error) => error.code === 'REPOSITORY_READINESS_UNTRACKED_SOURCE'
+        && error.details.paths.includes('yarn.lock')
     );
   });
 });

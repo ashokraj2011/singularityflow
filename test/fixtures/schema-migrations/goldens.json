@@ -7,6 +7,8 @@
   "configuration-origin-map": [{ "schemaVersion": 1 }],
   "smart-init-precheck-receipt": [{ "schemaVersion": 1 }],
   "repository-readiness-receipt": [{ "schemaVersion": 1 }],
+  "repository-test-baseline": [{ "schemaVersion": 1 }],
+  "preexisting-test-risk-acceptance": [{ "schemaVersion": 1 }],
   "effective-capability-resolution": [{ "schemaVersion": 1 }],
   "capability-authority-link": [{ "schemaVersion": 1 }],
   "capability-authority-cache-entry": [

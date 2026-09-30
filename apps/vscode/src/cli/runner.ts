@@ -83,7 +83,7 @@ function displayBoundedRedactionInput(source: string): string {
 // A parity test compares it with util.mjs so a new engine boolean cannot silently shift a receipt.
 export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local',
-  'accept-bundled-conflicts', 'accept-partial', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
+  'accept-bundled-conflicts', 'accept-partial', 'accept-test-risk', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence',
   'diagnose-only', 'diagnostics', 'disclose-provider-results', 'draft-stdin', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
@@ -91,7 +91,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
-  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'review-only', 'set', 'sign', 'solo',
+  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'review-only', 'risk-status', 'set', 'sign', 'solo',
   'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief'
 ]);

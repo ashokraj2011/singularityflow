@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/preexisting-test-risk-acceptance.schema.json",
+  "title": "Explicit pre-Story test risk acceptance",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "status", "baselineSha256", "sourceCommit",
+    "sourceManifestSha256", "planId", "platform", "arch", "scope", "commands",
+    "actor", "reason", "acceptedAt", "expiresAt", "acceptanceSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "preexisting-test-risk-acceptance" },
+    "status": { "const": "accepted-known-failures" },
+    "baselineSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "sourceManifestSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "planId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "platform": { "type": "string", "minLength": 1 },
+    "arch": { "type": "string", "minLength": 1 },
+    "scope": { "const": "dependency-test" },
+    "commands": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["commandId", "argvSha256", "adapter", "workingDirectory", "affectedRoots", "counts", "failedIds"],
+        "properties": {
+          "commandId": { "type": "string", "minLength": 1 },
+          "argvSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "adapter": { "enum": ["junit-xml", "jest-json", "vitest-json"] },
+          "workingDirectory": { "type": "string" },
+          "affectedRoots": { "type": "array", "items": { "type": "string" } },
+          "counts": {
+            "type": "object",
+            "required": ["discovered", "passed", "failed", "skipped"],
+            "properties": {
+              "discovered": { "type": "integer", "minimum": 0 },
+              "passed": { "type": "integer", "minimum": 0 },
+              "failed": { "type": "integer", "minimum": 0 },
+              "skipped": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "failedIds": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "actor": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "reason": { "type": "string", "minLength": 15, "maxLength": 2000 },
+    "acceptedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "acceptanceSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

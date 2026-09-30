@@ -280,22 +280,37 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
           code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
           phase: phase.id, generation: Number(phase.generation) + 1,
           path: null, line: null, value: null,
-          details: { sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}) }
+          details: {
+            sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),
+            ...(configurationDependency ? {
+              recoveryBoundary: {
+                kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
+                retryRequiresChangedRuntimeOrPolicy: true
+              }
+            } : {})
+          }
         });
         actions.push(action({
           id: configurationDependency
-            ? `repair-code-delivery-configuration:${phase.id}`
+            ? `resolve-code-delivery-test-policy:${phase.id}`
             : `complete-code-delivery:${phase.id}`,
+          mode: configurationDependency ? 'manual' : 'guided',
           detail: configurationDependency
-            ? `${error.message} The current phase remains in progress. Repair approved configuration outside the Story, refresh it, then resume this same phase; do not edit its pinned workflow snapshot.`
+            ? error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'
+              ? `${error.message} This Story's test policy is pinned; refreshing sflow/config affects future Stories only. A Singularity Flow build that supports this repository's native runner can be installed and this phase rechecked without changing the Story pin. If no such build exists, this phase remains blocked; a governed same-Story amendment feature or a new Story under corrected policy would be required. No same-Story amendment command is currently available. Do not repeat publication against the unchanged blocker.`
+              : `${error.message} This Story's configured test command is pinned; refreshing sflow/config affects future Stories only. This phase remains blocked; a governed same-Story amendment feature or a new Story under corrected policy would be required. No same-Story amendment command is currently available. Do not repeat publication against the unchanged blocker.`
             : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
-          // Never point recovery back to itself. Configuration deficiencies have a separate
-          // authority boundary; incomplete source/test work returns to the engine-selected code
-          // producer while preserving this phase and its prior publications.
+          // A configuration refresh cannot change this Story's pin. Missing native support can
+          // be resolved by a new runtime; malformed pinned commands need separate authority.
+          // Neither route authorizes a repeated publication attempt against unchanged inputs.
           command: configurationDependency
-            ? 'singularity-flow workflow validate --json'
+            ? error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED'
+              ? 'singularity-flow product status --json'
+              : null
             : `singularity-flow phase show ${phase.id} --json`,
-          skill: configurationDependency ? '/sf-workflows' : '/sf-code'
+          skill: configurationDependency
+            ? error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' ? '/sf-product' : null
+            : '/sf-code'
         }));
       }
     }

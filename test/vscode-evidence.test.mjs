@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceTargets, expandEpicEvidenceDirectory, validateEvidenceUrl
+  evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceTargets, expandEpicEvidenceDirectory,
+  suggestedEvidenceName, validateEvidenceName, validateEvidenceUrl
 } = await import(path.join(packageRoot, 'apps/vscode/src/evidence.ts'));
 
 test('evidence targets use the governed Story and Epic identities from the snapshot', () => {
@@ -22,12 +23,28 @@ test('evidence targets use the governed Story and Epic identities from the snaps
 
 test('Story evidence keeps multi-file and Figma-folder uploads in one governed command', () => {
   const target = { kind: 'story', id: 'MOB-123', label: 'Story MOB-123' };
-  assert.deepEqual(evidenceCommands(target, { kind: 'files', paths: ['/tmp/a.pdf', '/tmp/b.png'] }), [
-    ['documents', 'upload', '/tmp/a.pdf', '/tmp/b.png']
+  assert.deepEqual(evidenceCommands(target, {
+    kind: 'files', paths: ['/tmp/a.pdf', '/tmp/b.png'], names: ['Payment brief', 'Checkout screen']
+  }), [
+    ['documents', 'upload', '/tmp/a.pdf', '/tmp/b.png', '--name', 'Payment brief', '--name', 'Checkout screen']
   ]);
-  assert.deepEqual(evidenceCommands(target, { kind: 'figma-export', paths: ['/tmp/figma'] }), [
-    ['documents', 'upload', '/tmp/figma', '--kind', 'figma-export']
+  assert.deepEqual(evidenceCommands(target, { kind: 'figma-export', paths: ['/tmp/figma'], names: ['Checkout export'] }), [
+    ['documents', 'upload', '/tmp/figma', '--name', 'Checkout export', '--kind', 'figma-export']
   ]);
+  assert.deepEqual(evidenceCommands(target, {
+    kind: 'url', url: 'https://www.figma.com/design/abc', label: 'Checkout design'
+  }), [['documents', 'upload', '--url', 'https://www.figma.com/design/abc', '--name', 'Checkout design']],
+  'a Story link is named by the label the person gave it');
+});
+
+test('Story document names are required, bounded, descriptive and unique in the Story', () => {
+  assert.equal(validateEvidenceName('Payment brief'), null);
+  assert.equal(validateEvidenceName('   '), 'A name is required.');
+  assert.equal(validateEvidenceName('x'.repeat(121)), 'Use at most 120 characters.');
+  assert.equal(validateEvidenceName('doc-012'), 'That looks like a document ID. Use a descriptive name.');
+  assert.equal(validateEvidenceName(' payment   BRIEF', ['Payment brief']), 'Another document in this Story already has that name.');
+  assert.equal(suggestedEvidenceName('/tmp/checkout_flow-v2.pdf'), 'checkout flow v2');
+  assert.equal(suggestedEvidenceName('/tmp/figma-export'), 'figma export');
 });
 
 test('Epic evidence is pinned one deterministic file at a time and links retain their label', () => {

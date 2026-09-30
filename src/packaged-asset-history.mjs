@@ -68,6 +68,10 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/release.md': Object.freeze([
     'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f'
   ]),
+  // Before Story documents needed a name, the import instruction had no --name.
+  'singularity/templates/figma-mobile/design-intake.md': Object.freeze([
+    'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453'
+  ]),
   '.github/agents/architect.agent.md': Object.freeze([
     '0c8630b4f5d3bf2bbdabc4f67f4619caa7e537a566111cef40440c6c7abce016',
     '188198ceb7da73ef10814aaea2426dea127442f199fa16939f84a95415547ee5',
@@ -253,7 +257,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/feature/requirements.md': '32016db8ed6fadd6596e7dc702647cff95cdee1a203b38395d7ba5626dd8134e',
   'singularity/templates/figma-mobile/component-mapping.md': 'cdea8a1e3defa73ade72bdaaac162ecd9b8b43817aa319d7e712e2de2eb296a3',
   'singularity/templates/figma-mobile/conformance.md': 'f96e5271156d2dadca7cbf5687599724c4e47e328db6635ccf46b4adacaac147',
-  'singularity/templates/figma-mobile/design-intake.md': 'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453',
+  'singularity/templates/figma-mobile/design-intake.md': '5cb9495b64189d9f73d6aae23201197d7634cbf46d03176544badfc7683518ef',
   'singularity/templates/figma-mobile/design-inventory.md': '822ea61a75a25ec5a6b42dd887c842d5126233b36f7f0fc875402f9a43125079',
   'singularity/templates/figma-mobile/implementation.md': '69b5b75886dcc41da4e3063c7ceb6ff805251f98dd40ee41b2bf5de660dc74da',
   'singularity/templates/figma-mobile/mobile-spec.md': '18c583c10c597c595cd0be9c11ddf16e92a0b85147efcd4fd3fb1a9bbd96fc44',

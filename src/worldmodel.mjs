@@ -4520,7 +4520,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
         rendered.text
       ].join('\n')
     : '';
-  const evidence = await renderActiveStoryEvidence(root, definition, workflow);
+  const evidence = await renderActiveStoryEvidence(root, definition, workflow, { phaseId: phase.id });
   return {
     contract,
     inputs,

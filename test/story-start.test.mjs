@@ -328,7 +328,7 @@ test('Story document publication refuses captured bytes replaced after preflight
   t.after(() => rm(sourceDirectory, { recursive: true, force: true }));
   const source = path.join(sourceDirectory, 'brief.md');
   await writeFile(source, '# Bound intake evidence\n');
-  const capture = await preflightInitialStoryDocuments([{ files: [source] }], {
+  const capture = await preflightInitialStoryDocuments([{ files: [source], names: ['Bound brief'] }], {
     repositoryRoot: root
   });
   t.after(() => capture.dispose());
@@ -381,7 +381,8 @@ test('Story start refuses document storage excluded by Git ignore policy', async
       }),
       workType: 'feature',
       baseBranch: 'main',
-      files: [source]
+      files: [source],
+      documentNames: ['Reviewed evidence']
     }),
     (error) => error?.code === 'STORY_DOCUMENT_GIT_IGNORED'
   );
@@ -410,7 +411,8 @@ test('Story start sanitizes a .git source name and commits the evidence blob', a
     }),
     workType: 'feature',
     baseBranch: 'main',
-    files: [source]
+    files: [source],
+    documentNames: ['Dot git evidence']
   });
 
   assert.equal(created.documents.length, 1);
@@ -462,6 +464,8 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
     baseBranch: 'main',
     files: [sourceFile],
     urls: ['https://example.com/export-reference'],
+    documentNames: ['Export brief'],
+    urlNames: ['Export reference'],
     ...forbiddenDependencies,
     gitReadMode: 'shadow',
     onGitShadowComparison(value) { gitShadowObservations.push(value); },
@@ -569,6 +573,7 @@ test('Story opening refuses and rolls back a manifest or blob changed after stat
         workType: 'feature',
         baseBranch: 'main',
         files: [sourceFile],
+        documentNames: ['Opening brief'],
         publicationFault: async (stage, { envelope }) => {
           if (stage !== 'after-state-write') return;
           assert.match(envelope.payload.documentSetSha256, /^sha256:[a-f0-9]{64}$/u);
@@ -658,7 +663,7 @@ test('desktop Story intake freezes documents before mutation and a retry cannot 
   await assert.rejects(
     () => startStory(root, {
       id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main',
-      urls: ['file:///tmp/not-a-governed-url']
+      urls: ['file:///tmp/not-a-governed-url'], urlNames: ['Not governed']
     }),
     /Document URL must use http:\/\/ or https:\/\//
   );
@@ -667,7 +672,7 @@ test('desktop Story intake freezes documents before mutation and a retry cannot 
 
   await assert.rejects(
     () => startStory(root, {
-      id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main', files: [sourceFile]
+      id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main', files: [sourceFile], documentNames: ['Intake brief']
     }),
     /Document path is not a regular file or directory/
   );
@@ -686,7 +691,7 @@ test('desktop Story intake freezes documents before mutation and a retry cannot 
   await writeFile(sourceFile, capturedBytes);
   const created = await startStory(root, {
     id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main',
-    files: [sourceFile], urls: [referenceUrl],
+    files: [sourceFile], urls: [referenceUrl], documentNames: ['Intake brief'], urlNames: ['Reference'],
     afterPublicationPreflight: async () => {
       await writeFile(sourceFile, '# Mutated after preflight\nThese bytes must not enter the Story.\n');
     }
@@ -697,7 +702,7 @@ test('desktop Story intake freezes documents before mutation and a retry cannot 
   await rm(sourceFile);
   const resumed = await startStory(root, {
     id: 'WORK-DOC-PREFLIGHT', source, workType: 'feature', baseBranch: 'main',
-    files: [sourceFile], urls: [referenceUrl]
+    files: [sourceFile], urls: [referenceUrl], documentNames: ['Intake brief'], urlNames: ['Reference']
   });
   assert.equal(resumed.resumed, true, 'an already durable Story resumes without rereading old inputs');
   const manifest = JSON.parse(await readFile(

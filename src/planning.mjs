@@ -296,8 +296,8 @@ async function existingText(file) {
   return await exists(file) ? await readFile(file, 'utf8') : '';
 }
 
-async function workItemSupportingDocuments(root, definition, workflow) {
-  const evidence = await renderActiveStoryEvidence(root, definition, workflow);
+async function workItemSupportingDocuments(root, definition, workflow, phaseId) {
+  const evidence = await renderActiveStoryEvidence(root, definition, workflow, { phaseId });
   const sources = evidence.entries.map((entry) => entry.type === 'url'
     ? { kind: 'external-reference', evidenceId: entry.id, path: entry.url, sha256: null, bytes: null }
     : { kind: 'uploaded-document', evidenceId: entry.id, path: entry.path, sha256: entry.sha256, bytes: entry.bytes, mimeType: entry.mimeType, packageId: entry.packageId });
@@ -607,7 +607,7 @@ async function workItemPlanningParts(root, definition, {
     root, workflow, phase, session?.workId === id ? { ...session, agent } : null,
     { record: false, itemDirectory, executionContext }
   );
-  const supportingDocuments = await workItemSupportingDocuments(root, definition, workflow);
+  const supportingDocuments = await workItemSupportingDocuments(root, definition, workflow, phase.id);
   const storyPath = path.join(itemDirectory, 'USER-STORY.md');
   const story = await existingText(storyPath);
   const current = await existingText(target);

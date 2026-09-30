@@ -1528,12 +1528,15 @@ List, inspect, or add documents:
 
 ```bash
 singularity-flow documents list WORK-123
+singularity-flow documents list WORK-123 --phase design
 singularity-flow documents view DOC-001 --work-id WORK-123
-singularity-flow documents upload ./brief.pdf ./wireframe.png
-singularity-flow documents upload ./figma-export --kind figma-export
+singularity-flow documents view "Payment brief" --work-id WORK-123
+singularity-flow documents upload ./brief.pdf ./wireframe.png --name "Payment brief" --name "Checkout wireframe"
+singularity-flow documents upload ./figma-export --kind figma-export --name "Checkout export" --phases design,implementation
 singularity-flow documents upload \
   --url https://www.figma.com/design/example \
-  --label "Checkout design"
+  --name "Checkout design"
+singularity-flow documents scope "Payment brief" --phases requirements,design --reason "Design owns the flow now" --dry-run
 singularity-flow documents detach DOC-001 --reason "Superseded evidence"
 singularity-flow documents detach DOC-002 --scope package --reason "Replace the Figma package"
 singularity-flow documents list --all
@@ -3515,10 +3518,12 @@ singularity-flow tokens status [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--
 singularity-flow tokens report [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--packet CTX-ID] [--json]
 singularity-flow tokens report --today [--json]
 singularity-flow copilot [--mode interactive|plan] [--repository ID] [--story ID] [--host cli|vscode-terminal|intellij-terminal] [--dry-run]
-singularity-flow documents list [WORK-ID] [--active|--all] [--json]
-singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--all]
-singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL]
-singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
+singularity-flow documents list [WORK-ID] [--phase PHASE] [--active|--all] [--json]
+singularity-flow documents view <DOCUMENT-ID|NAME|PATH> [--work-id ID] [--all]
+singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...|all] [--json]
+singularity-flow documents upload --url URL --name TEXT [--phases PHASE,...|all] [--json]
+singularity-flow documents scope <DOCUMENT-ID|NAME> --phases PHASE,...|all --reason TEXT [--scope file|package] [--dry-run] [--yes]
+singularity-flow documents detach <DOCUMENT-ID|NAME> [--scope file|package] --reason TEXT [--yes]
 singularity-flow revision activation [--json]
 singularity-flow revision capabilities [--json]
 singularity-flow revision status [--json]

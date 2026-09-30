@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { loadDefinition } from '../src/config.mjs';
-import { detachDocuments, validateDocumentUrl } from '../src/documents.mjs';
+import { detachDocuments, scopeDocuments, validateDocumentUrl } from '../src/documents.mjs';
 import { renderActiveStoryEvidence } from '../src/evidence-context.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
 
@@ -46,12 +46,12 @@ test('progress and document commands upload, list, and view files, images, and F
   flow(root, ['start', 'DOCS-1', '--from-branch', 'main', '--title', 'Document intake']);
 
   const credentialed = flow(root, [
-    'documents', 'upload', '--url', 'https://reviewer:secret@example.com/private'
+    'documents', 'upload', '--url', 'https://reviewer:secret@example.com/private', '--name', 'Private page'
   ], { allowFailure: true });
   assert.notEqual(credentialed.status, 0);
   assert.match(credentialed.stderr, /must not contain credentials/);
   const signed = flow(root, [
-    'documents', 'upload', '--url', 'https://example.com/private?token=secret'
+    'documents', 'upload', '--url', 'https://example.com/private?token=secret', '--name', 'Signed page'
   ], { allowFailure: true });
   assert.notEqual(signed.status, 0);
   assert.match(signed.stderr, /must not contain credential parameter 'token'/);
@@ -74,11 +74,28 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.match(markdownProgress, /\*\*Completion:\*\* 0% — 0 of 7 phases approved/);
   assert.match(markdownProgress, /🔵 Intake → ⚪ Requirements/);
   assert.match(markdownProgress, /\| # \| Phase \| Status \| Generation \| Approvals \| Tokens \|/);
-  flow(root, ['documents', 'upload', notes, image, '--kind', 'research']);
+  const unnamed = flow(root, ['documents', 'upload', notes, image, '--kind', 'research', '--name', 'Research notes'], { allowFailure: true });
+  assert.notEqual(unnamed.status, 0);
+  assert.match(unnamed.stderr, /Give each of the 2 documents its own name/);
+  const misspelt = flow(root, ['documents', 'upload', notes, '--name', 'Research notes', '--phase', 'design'], { allowFailure: true });
+  assert.notEqual(misspelt.status, 0);
+  assert.match(misspelt.stderr, /has no option --phase\. Did you mean --phases\?/);
+  flow(root, ['documents', 'upload', notes, image, '--kind', 'research', '--name', 'Research notes', '--name', 'Checkout wireframe']);
+  // The earlier --label spelling still names a single document.
   flow(root, ['documents', 'upload', '--url', 'https://www.figma.com/design/example', '--label', 'Checkout design']);
+  const taken = flow(root, ['documents', 'upload', notes, '--name', 'research NOTES'], { allowFailure: true });
+  assert.notEqual(taken.status, 0);
+  assert.match(taken.stderr, /already used by DOC-001/);
 
   const catalog = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout); const uploaded = catalog.filter((item) => item.id.startsWith('DOC-'));
   assert.equal(uploaded.length, 3); assert.equal(uploaded[0].sha256.length, 64); assert.equal(uploaded[1].mimeType, 'image/png'); assert.equal(uploaded[2].kind, 'figma');
+  assert.deepEqual(uploaded.map((item) => item.name), ['Research notes', 'Checkout wireframe', 'Checkout design']);
+  const { phaseOrder } = JSON.parse(await readFile(path.join(root, 'singularity/work-items/DOCS-1/workflow.json'), 'utf8'));
+  assert.equal(phaseOrder[0], 'intake');
+  assert.deepEqual(uploaded[0].phases, phaseOrder, 'an upload in the first phase is offered to it and every later phase');
+  assert.deepEqual(uploaded[0].storage, { kind: 'git' });
+  assert.match(flow(root, ['documents', 'list']).stdout, /NAME[\s\S]*Research notes/);
+  assert.match(flow(root, ['documents', 'view', 'research notes']).stdout, /^DOC-001 — Research notes/m, 'a document is found by its name');
   assert.match(flow(root, ['documents', 'view', 'DOC-001']).stdout, /Customer workflow evidence/);
   const binary = JSON.parse(flow(root, ['documents', 'view', 'DOC-002', '--json']).stdout); assert.equal(binary.binary, true); assert.match(binary.absolutePath, /wireframe\.png$/);
   const inline = JSON.parse(flow(root, ['documents', 'preview', 'DOC-002', '--json']).stdout);
@@ -158,7 +175,7 @@ test('progress and document commands upload, list, and view files, images, and F
     'the reviewer sees what they are approving before being asked to approve it');
   assert.ok(submissionFull, 'submit accepts --show-artifact');
   progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.percentage, 14); assert.equal(progress.approvedPhases, 1); assert.equal(progress.currentPhase, 'requirements');
-  const late = flow(root, ['documents', 'upload', notes], { allowFailure: true }); assert.notEqual(late.status, 0); assert.match(late.stderr, /only during: intake/);
+  const late = flow(root, ['documents', 'upload', notes, '--name', 'Late notes'], { allowFailure: true }); assert.notEqual(late.status, 0); assert.match(late.stderr, /only during: intake/);
   assert.match(run('git', ['log', '--format=%s'], root).stdout, /\[DOCS-1\]\[documents\]\[upload\]/);
 });
 
@@ -167,7 +184,7 @@ test('inline previews reject tampering and document paths outside the governed w
   const image = path.join(uploads, 'screen.png'); const pdf = path.join(uploads, 'design-spec.pdf');
   await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex')); await writeFile(pdf, Buffer.from('%PDF-1.4\n%%EOF\n'));
   flow(root, ['start', 'PREVIEW-1', '--from-branch', 'main', '--title', 'Governed preview']);
-  flow(root, ['documents', 'upload', image, pdf, '--kind', 'figma-export']);
+  flow(root, ['documents', 'upload', image, pdf, '--kind', 'figma-export', '--name', 'Screen', '--name', 'Design specification']);
   const catalog = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout); const record = catalog.find((item) => item.id === 'DOC-001');
   const pdfPreview = JSON.parse(flow(root, ['documents', 'preview', 'DOC-002', '--json']).stdout);
   assert.equal(pdfPreview.mime, 'application/pdf'); assert.match(pdfPreview.dataUrl, /^data:application\/pdf;base64,/); assert.equal(pdfPreview.integrity, 'verified');
@@ -188,7 +205,7 @@ test('source-code documents are rendered as reviewable text instead of binary me
   const java = path.join(uploads, 'RuleEngineService.java');
   await writeFile(java, 'public final class RuleEngineService {\n  boolean evaluate() { return true; }\n}\n');
   flow(root, ['start', 'SOURCE-DOCS-1', '--from-branch', 'main', '--title', 'Source document review']);
-  flow(root, ['documents', 'upload', java, '--kind', 'source']);
+  flow(root, ['documents', 'upload', java, '--kind', 'source', '--name', 'Rule engine service']);
 
   const review = JSON.parse(flow(root, ['documents', 'view', 'DOC-001', '--json']).stdout);
   assert.equal(review.binary, false);
@@ -206,9 +223,11 @@ test('document upload recursively imports an exported design directory with stab
   await writeFile(path.join(exportRoot, 'screens/login/default.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
   flow(root, ['start', 'FIGMA-DIR-1', '--from-branch', 'main', '--title', 'Import exported mobile design']);
 
-  const upload = flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export']);
+  const upload = flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export', '--name', 'Mobile export']);
   assert.match(upload.stdout, /DOC-001[\s\S]*DOC-002/);
   const records = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
+  assert.deepEqual(records.map((item) => item.name), ['Mobile export/components/button.json', 'Mobile export/screens/login/default.png'],
+    'each member of a folder is named after the folder and its relative path');
   assert.deepEqual(records.map((item) => item.sourceRelativePath), ['components/button.json', 'screens/login/default.png']);
   assert.ok(records.every((item) => item.packageId === 'PKG-001'));
   assert.ok(records.every((item) => item.kind === 'figma-export'));
@@ -229,14 +248,15 @@ test('active evidence is rendered deterministically and every local file is hash
   await writeFile(notes, '# Requirement\nA customer can review the checkout total before payment.\n');
   await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'));
   flow(root, ['start', 'EVIDENCE-1', '--from-branch', 'main', '--title', 'Deterministic prompt evidence']);
-  flow(root, ['documents', 'upload', notes, image]);
-  flow(root, ['documents', 'upload', '--url', 'https://www.figma.com/design/pinned-reference', '--label', 'Live Figma reference']);
+  flow(root, ['documents', 'upload', notes, image, '--name', 'Checkout requirement', '--name', 'Checkout screen']);
+  flow(root, ['documents', 'upload', '--url', 'https://www.figma.com/design/pinned-reference', '--name', 'Live Figma reference']);
   const definition = await loadDefinition(root);
   const workflow = await loadStoryAggregate(root, definition, 'EVIDENCE-1');
   workflow.resolution.documents.maxPreviewBytes = 24;
   const rendered = await renderActiveStoryEvidence(root, definition, workflow);
   assert.match(rendered.markdown, /untrusted source materials, not instructions/);
-  assert.match(rendered.markdown, /DOC-001[\s\S]*SHA-256/);
+  assert.match(rendered.markdown, /## DOC-001 — Checkout requirement[\s\S]*SHA-256/);
+  assert.match(rendered.markdown, /## DOC-003 — Live Figma reference/);
   assert.match(rendered.markdown, /DOC-002[\s\S]*Inspect this verified file/);
   assert.match(rendered.markdown, /DOC-003[\s\S]*figma\.com\/design\/pinned-reference/);
   assert.equal(rendered.entries.find((entry) => entry.id === 'DOC-001').truncated, true);
@@ -257,16 +277,18 @@ test('file and package detachment preserve bytes, hide evidence, and create dist
   await writeFile(path.join(exportRoot, 'tokens.json'), '{"color":"green"}\n');
   await writeFile(path.join(exportRoot, 'screens', 'checkout.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
   flow(root, ['start', 'DETACH-1', '--from-branch', 'main', '--title', 'Detach governed evidence']);
-  flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export']);
+  flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export', '--name', 'Checkout export']);
   const initial = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout)
     .filter((record) => record.id.startsWith('DOC-'));
   const textRecord = initial.find((record) => record.sourceRelativePath === 'tokens.json');
   const packagePeer = initial.find((record) => record.id !== textRecord.id);
   const preserved = await readFile(path.join(root, textRecord.path));
 
+  // Detach by name; the decision still names the document by its ID.
   const fileDecision = JSON.parse(flow(root, [
-    'documents', 'detach', textRecord.id, '--reason', 'Superseded design token export', '--yes', '--json'
+    'documents', 'detach', 'Checkout export/tokens.json', '--reason', 'Superseded design token export', '--yes', '--json'
   ]).stdout);
+  assert.equal(fileDecision.targets[0].id, textRecord.id);
   assert.equal(fileDecision.targets.length, 1);
   assert.deepEqual(fileDecision.affectedPhases, []);
   assert.match(fileDecision.decision.sha256, /^[a-f0-9]{64}$/);
@@ -294,7 +316,7 @@ test('detaching used Story evidence reopens only its downstream dependency cone'
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-detach-cone-'));
   const notes = path.join(uploads, 'architecture.md'); await writeFile(notes, '# Architecture\nPinned input.\n');
   flow(root, ['start', 'DETACH-CONE-1', '--from-branch', 'main', '--title', 'Evidence cone']);
-  flow(root, ['documents', 'upload', notes]);
+  flow(root, ['documents', 'upload', notes, '--name', 'Architecture notes']);
   const definition = await loadDefinition(root);
   const workflow = await loadStoryAggregate(root, definition, 'DETACH-CONE-1');
   const record = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).find((item) => item.id === 'DOC-001');
@@ -339,7 +361,7 @@ neverCommit:
   const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-environment-documents-'));
   const environmentFile = path.join(uploads, '.env.qa');
   await writeFile(environmentFile, 'API_TOKEN=not-printed\n');
-  const localRefusal = flow(root, ['documents', 'upload', environmentFile], { allowFailure: true });
+  const localRefusal = flow(root, ['documents', 'upload', environmentFile, '--name', 'QA environment'], { allowFailure: true });
   assert.notEqual(localRefusal.status, 0);
   assert.match(localRefusal.stderr, /ENVIRONMENT_LOCAL_CONTENT_REFUSED|matches .*\.env\*/);
   assert.doesNotMatch(localRefusal.stderr, /not-printed/);
@@ -347,7 +369,7 @@ neverCommit:
   const credential = `ghp_${'z'.repeat(36)}`;
   const ordinaryDocument = path.join(uploads, 'review-notes.md');
   await writeFile(ordinaryDocument, `# Notes\n\ntoken = "${credential}"\n`); // sflow-allow-secret: invented input verifies upload refusal
-  const secretRefusal = flow(root, ['documents', 'upload', ordinaryDocument], { allowFailure: true });
+  const secretRefusal = flow(root, ['documents', 'upload', ordinaryDocument, '--name', 'Review notes'], { allowFailure: true });
   assert.notEqual(secretRefusal.status, 0);
   assert.match(secretRefusal.stderr, /Document upload was refused before any bytes were copied/);
   assert.match(secretRefusal.stderr, /review-notes\.md:3/);
@@ -355,13 +377,13 @@ neverCommit:
 
   const invalidUtf8 = path.join(uploads, 'invalid-utf8.md');
   await writeFile(invalidUtf8, Buffer.from([0x23, 0x20, 0xff, 0x0a]));
-  const invalidUtf8Refusal = flow(root, ['documents', 'upload', invalidUtf8], { allowFailure: true });
+  const invalidUtf8Refusal = flow(root, ['documents', 'upload', invalidUtf8, '--name', 'Invalid text'], { allowFailure: true });
   assert.notEqual(invalidUtf8Refusal.status, 0);
   assert.match(invalidUtf8Refusal.stderr, /DOCUMENT_CONTENT_UNSCANNABLE|not valid NUL-free UTF-8 text/);
 
   const nulText = path.join(uploads, 'nul-text.md');
   await writeFile(nulText, Buffer.from('# Notes\n\0hidden\n'));
-  const nulRefusal = flow(root, ['documents', 'upload', nulText], { allowFailure: true });
+  const nulRefusal = flow(root, ['documents', 'upload', nulText, '--name', 'Hidden text'], { allowFailure: true });
   assert.notEqual(nulRefusal.status, 0);
   assert.match(nulRefusal.stderr, /DOCUMENT_CONTENT_UNSCANNABLE|not valid NUL-free UTF-8 text/);
 
@@ -369,7 +391,7 @@ neverCommit:
   await mkdir(packageRoot, { recursive: true });
   await writeFile(path.join(packageRoot, 'safe.md'), '# Safe input\n');
   await writeFile(path.join(packageRoot, '.env.qa'), 'SAFE_NAME=value\n');
-  const packageRefusal = flow(root, ['documents', 'upload', packageRoot], { allowFailure: true });
+  const packageRefusal = flow(root, ['documents', 'upload', packageRoot, '--name', 'Package'], { allowFailure: true });
   assert.notEqual(packageRefusal.status, 0);
   assert.match(packageRefusal.stderr, /ENVIRONMENT_LOCAL_CONTENT_REFUSED|matches .*\.env/);
 
@@ -403,8 +425,125 @@ neverCommit: []
   const canonicalInput = await realpath(localInput);
   // On macOS /var and /private/var are the usual distinct spellings. The assertion remains valid
   // on hosts where realpath preserves the lexical spelling too.
-  const refusal = flow(root, ['documents', 'upload', canonicalInput], { allowFailure: true });
+  const refusal = flow(root, ['documents', 'upload', canonicalInput, '--name', 'QA input'], { allowFailure: true });
   assert.notEqual(refusal.status, 0);
   assert.match(refusal.stderr, /ENVIRONMENT_LOCAL_CONTENT_REFUSED|config\/qa\.env/);
   assert.doesNotMatch(refusal.stderr, /SAFE_NAME=value/);
+});
+
+test('a document is offered only to the phases chosen for it, in listings and prompts', async () => {
+  const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-phases-'));
+  const design = path.join(uploads, 'design.md'); const glossary = path.join(uploads, 'glossary.md');
+  await writeFile(design, '# Design notes\nUse the ledger service.\n'); await writeFile(glossary, '# Glossary\nA ledger is a record.\n');
+  flow(root, ['start', 'PHASES-1', '--from-branch', 'main', '--title', 'Phase-scoped evidence']);
+  const unknown = flow(root, ['documents', 'upload', design, '--name', 'Design notes', '--phases', 'desgn'], { allowFailure: true });
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /This Story has no phase 'desgn'/);
+  flow(root, ['documents', 'upload', design, '--name', 'Design notes', '--phases', 'design,intake']);
+  flow(root, ['documents', 'upload', glossary, '--name', 'Glossary']);
+  const records = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
+  assert.deepEqual(records[0].phases, ['intake', 'design'], 'phases are kept in workflow order');
+
+  const listed = (phase) => JSON.parse(flow(root, ['documents', 'list', '--phase', phase, '--json']).stdout)
+    .filter((item) => item.id.startsWith('DOC-')).map((item) => item.id);
+  assert.deepEqual(listed('requirements'), ['DOC-002']);
+  assert.deepEqual(listed('design'), ['DOC-001', 'DOC-002']);
+  assert.match(flow(root, ['documents', 'list', '--phase', 'design']).stdout, /USED IN[\s\S]*intake, design/);
+  const badPhase = flow(root, ['documents', 'list', '--phase', 'desgn'], { allowFailure: true });
+  assert.notEqual(badPhase.status, 0);
+  assert.match(badPhase.stderr, /no phase 'desgn'\. Did you mean 'design'\?/);
+
+  const definition = await loadDefinition(root);
+  const workflow = await loadStoryAggregate(root, definition, 'PHASES-1');
+  const requirements = await renderActiveStoryEvidence(root, definition, workflow, { phaseId: 'requirements' });
+  assert.deepEqual(requirements.entries.map((entry) => entry.id), ['DOC-002']);
+  assert.doesNotMatch(requirements.markdown, /ledger service/, 'a requirements prompt never sees a design-only document');
+  const designPrompt = await renderActiveStoryEvidence(root, definition, workflow, { phaseId: 'design' });
+  assert.deepEqual(designPrompt.entries.map((entry) => [entry.id, entry.name]), [['DOC-001', 'Design notes'], ['DOC-002', 'Glossary']]);
+  assert.match(designPrompt.markdown, /## DOC-001 — Design notes[\s\S]*ledger service/);
+  assert.match(flow(root, ['gate']).stdout, /document integrity: 2 supporting inputs/);
+});
+
+test('documents scope previews, records and applies a change to which phases use a document', async () => {
+  const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-scope-'));
+  const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\nPinned input.\n');
+  flow(root, ['start', 'SCOPE-1', '--from-branch', 'main', '--title', 'Rescope evidence']);
+  flow(root, ['documents', 'upload', notes, '--name', 'Architecture notes']);
+  const before = await readFile(path.join(root, 'singularity/work-items/SCOPE-1/documents.json'), 'utf8');
+
+  const noReason = flow(root, ['documents', 'scope', 'Architecture notes', '--phases', 'intake,design', '--yes'], { allowFailure: true });
+  assert.notEqual(noReason.status, 0);
+  assert.match(noReason.stderr, /A reason is required/);
+  const preview = JSON.parse(flow(root, [
+    'documents', 'scope', 'architecture NOTES', '--phases', 'intake,design', '--reason', 'Only intake and design use it', '--dry-run', '--json'
+  ]).stdout);
+  assert.equal(preview.dryRun, true);
+  assert.deepEqual(preview.phases, ['intake', 'design']);
+  assert.ok(preview.removedPhases.includes('requirements'));
+  assert.deepEqual(preview.addedPhases, []);
+  assert.deepEqual(preview.dependentContextRecords, []);
+  assert.equal(preview.reopenedPhase, null);
+  assert.equal(await readFile(path.join(root, 'singularity/work-items/SCOPE-1/documents.json'), 'utf8'), before, 'a dry run changes nothing');
+
+  const applied = JSON.parse(flow(root, [
+    'documents', 'scope', 'Architecture notes', '--phases', 'intake,design', '--reason', 'Only intake and design use it', '--yes', '--json'
+  ]).stdout);
+  assert.match(applied.decision.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(applied.decision.schemaVersion, 1);
+  assert.equal(applied.decision.reason, 'Only intake and design use it');
+  assert.deepEqual(applied.decision.documents.map((document) => [document.id, document.previousPhases?.length > 2]), [['DOC-001', true]]);
+  const decision = JSON.parse(await readFile(path.join(root, applied.decisionPath), 'utf8'));
+  assert.equal(decision.sha256, applied.decision.sha256);
+  assert.match(applied.decisionPath, /evidence\/document-scope\/[a-f0-9]{64}\.json$/);
+  const record = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).find((item) => item.id === 'DOC-001');
+  assert.deepEqual(record.phases, ['intake', 'design']);
+  assert.equal(record.scopeDecisionSha256, applied.decision.sha256);
+  assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /^\[SCOPE-1\]\[evidence:scope\] DOC-001/);
+  assert.match(flow(root, ['gate']).stdout, /document integrity: 1 supporting input/);
+
+  const unchanged = flow(root, [
+    'documents', 'scope', 'DOC-001', '--phases', 'design,intake', '--reason', 'Again', '--yes'
+  ], { allowFailure: true });
+  assert.notEqual(unchanged.status, 0);
+  assert.match(unchanged.stderr, /already offered to exactly intake, design/);
+});
+
+test('removing a phase that already used a document stales only that phase prompt and reopens it', async () => {
+  const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-rescope-'));
+  const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\nPinned input.\n');
+  flow(root, ['start', 'SCOPE-CONE-1', '--from-branch', 'main', '--title', 'Rescope used evidence']);
+  flow(root, ['documents', 'upload', notes, '--name', 'Architecture notes']);
+  const definition = await loadDefinition(root);
+  const workflow = await loadStoryAggregate(root, definition, 'SCOPE-CONE-1');
+  const record = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).find((item) => item.id === 'DOC-001');
+  const contextDirectory = path.join(root, 'singularity/work-items/SCOPE-CONE-1/context');
+  await mkdir(contextDirectory, { recursive: true });
+  for (const phase of ['requirements', 'design']) {
+    await writeFile(path.join(contextDirectory, `${phase}-gen1.json`), `${JSON.stringify({
+      phase, generation: 1, evidence: [{ id: record.id, sha256: record.sha256 }]
+    }, null, 2)}\n`);
+  }
+  const keep = workflow.phaseOrder.filter((phaseId) => phaseId !== 'design');
+  const preview = await scopeDocuments(root, definition, workflow, {
+    documentId: 'Architecture notes', phases: keep, reason: 'Design uses the approved ADR instead', dryRun: true
+  });
+  assert.deepEqual(preview.removedPhases, ['design']);
+  assert.deepEqual(preview.dependentContextRecords, ['singularity/work-items/SCOPE-CONE-1/context/design-gen1.json']);
+  assert.equal(preview.reopenedPhase, 'design');
+  assert.equal(JSON.parse(await readFile(path.join(contextDirectory, 'design-gen1.json'), 'utf8')).stale, undefined,
+    'a dry run marks nothing stale');
+
+  const scoped = await scopeDocuments(root, definition, workflow, {
+    documentId: 'Architecture notes', phases: keep, reason: 'Design uses the approved ADR instead'
+  });
+  assert.equal(scoped.reopenedPhase, 'design');
+  assert.deepEqual(scoped.affectedPhases, workflow.phaseOrder.slice(workflow.phaseOrder.indexOf('design')));
+  assert.equal(workflow.phases.design.status, 'in_progress');
+  assert.equal(workflow.phases.design.invalidatedBy, scoped.decision.sha256);
+  const design = JSON.parse(await readFile(path.join(contextDirectory, 'design-gen1.json'), 'utf8'));
+  assert.equal(design.stale, true);
+  assert.match(design.staleReason, /no longer offered to this phase: DOC-001/);
+  const requirements = JSON.parse(await readFile(path.join(contextDirectory, 'requirements-gen1.json'), 'utf8'));
+  assert.equal(requirements.stale, undefined, 'a phase that still uses the document keeps its prompt');
+  assert.equal(workflow.history.at(-1).event, 'evidence_scoped');
 });

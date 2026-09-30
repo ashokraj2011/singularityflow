@@ -18,8 +18,10 @@ function documentRecords(value, baseDirectory) {
     if (!item || typeof item !== 'object') throw new SingularityFlowError(`Manual story document ${index + 1} must be a path, URL, or object.`);
     const candidate = item.path ?? item.url ?? item.value;
     if (typeof candidate !== 'string' || !candidate.trim()) throw new SingularityFlowError(`Manual story document ${index + 1} requires path or url.`);
-    if (/^https?:\/\//i.test(candidate)) return { type: 'url', url: candidate, label: item.label ?? null, kind: item.kind ?? null };
-    return { type: 'file', path: path.resolve(baseDirectory, candidate), label: item.label ?? null, kind: item.kind ?? null };
+    // `name` is the document's name; `label`, its earlier spelling, still names a single document.
+    const described = { name: item.name ?? null, label: item.label ?? null, kind: item.kind ?? null, phases: item.phases ?? null };
+    if (/^https?:\/\//i.test(candidate)) return { type: 'url', url: candidate, ...described };
+    return { type: 'file', path: path.resolve(baseDirectory, candidate), ...described };
   });
 }
 
@@ -105,7 +107,10 @@ export async function promptManualStory(id) {
     while (true) {
       const candidate = (await io.question(`Document ${documents.length + 1}: `)).trim();
       if (!candidate) break;
-      documents.push(...documentRecords(candidate, process.cwd()));
+      // Every Story document needs its own name; ask until one is given.
+      let name = '';
+      while (!name) name = (await io.question(`Name for document ${documents.length + 1}: `)).trim();
+      documents.push(...documentRecords({ value: candidate, name }, process.cwd()));
     }
     return { source, documents };
   } finally {

@@ -9,7 +9,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const {
   EMPTY_INTAKE_FORM, INTAKE_SCRIPT, MAX_STORY_ATTACHMENT_SLOTS,
-  MIN_STORY_ATTACHMENT_SLOTS, intakeCommand, intakeHtml, mergeStoryAttachments
+  MIN_STORY_ATTACHMENT_SLOTS, intakeCommand, intakeHtml, mergeStoryAttachments,
+  storyAttachmentNameProblems, suggestedStoryDocumentName
 } = await import(source('intake-form.ts'));
 
 const story = (overrides = {}) => ({
@@ -54,6 +55,30 @@ test('selected Story documents are escaped, replaceable, and clearable', () => {
   assert.doesNotMatch(html, /secret-folder/, 'the local source path stays out of webview markup');
   assert.match(html, /data-attachment-pick="0">Replace file/);
   assert.match(html, /data-attachment-clear="0">Clear/);
+  assert.match(html, /data-attachment-name="0" value="&lt;design&gt;"/,
+    'a document saved before names existed is offered its file name, escaped');
+});
+
+test('every selected Story document needs its own name before Story start is offered', () => {
+  const choices = {
+    storyWorkflows: [{ id: 'feature', label: 'Feature', description: '', phases: ['intake'] }],
+    workType: 'feature', baseBranch: 'main', basePreflightPassed: true
+  };
+  const named = (names) => story({ ...choices, storyAttachments: names.map((name, index) => ({
+    sourcePath: `/source/${index}.md`, displayName: `${index}.md`, name
+  })) });
+  assert.deepEqual(storyAttachmentNameProblems(named(['Payment brief', 'Checkout design']).storyAttachments), []);
+  assert.match(storyAttachmentNameProblems(named(['Payment brief', '   ']).storyAttachments).join('\n'),
+    /Give Document 2 \(1\.md\) a name/);
+  assert.match(storyAttachmentNameProblems(named(['Payment brief', 'payment  BRIEF ']).storyAttachments).join('\n'),
+    /Document 1 and Document 2 have the same name/);
+  assert.match(storyAttachmentNameProblems(named(['DOC-004']).storyAttachments).join('\n'), /looks like a document ID/);
+  assert.match(storyAttachmentNameProblems(named(['x'.repeat(121)]).storyAttachments).join('\n'), /longer than 120 characters/);
+  assert.match(intakeHtml(named(['Payment brief', 'payment brief'])), /data-submit="start" disabled/);
+  assert.doesNotMatch(intakeHtml(named(['Payment brief', 'Checkout design'])), /have the same name/);
+  assert.equal(suggestedStoryDocumentName('/drafts/payment_retry-brief.md'), 'payment retry brief');
+  assert.match(INTAKE_SCRIPT, /type: 'attachmentNameDraft',\s*index: Number\(event\.target\.dataset\.attachmentName\)/);
+  assert.match(INTAKE_SCRIPT, /type: 'attachmentName',\s*index: Number\(el\.dataset\.attachmentName\)/);
 });
 
 test('attachment merging reports overflow and normalized duplicates without losing slots', () => {
@@ -108,9 +133,12 @@ test('the attachment webview contract reports intent and never supplies a filesy
 
 test('all Story start variants carry the four selected documents in slot order', () => {
   const storyAttachments = Array.from({ length: 4 }, (_, index) => ({
-    sourcePath: `/source/document-${index + 1}.md`, displayName: `document-${index + 1}.md`
+    sourcePath: `/source/document-${index + 1}.md`, displayName: `document-${index + 1}.md`,
+    name: `  Source   document ${index + 1} `
   }));
-  const expected = storyAttachments.flatMap((entry) => ['--document', entry.sourcePath]);
+  const expected = storyAttachments.flatMap((entry, index) => [
+    '--document', entry.sourcePath, '--document-name', `Source document ${index + 1}`
+  ]);
   const choices = {
     storyWorkflows: [{ id: 'feature', label: 'Feature', description: '', phases: ['intake'] }],
     workType: 'feature', baseBranch: 'main', basePreflightPassed: true
@@ -152,8 +180,8 @@ test('manual Story enhancement is review-only and exposes progress and errors', 
 test('the intake host owns file selection and bounds the attachment list', async () => {
   const panel = await readFile(source('intake-panel.ts'), 'utf8');
   for (const message of [
-    'attachmentPick', 'attachmentsPick', 'attachmentClear', 'enhanceDescription',
-    'enhanceApply', 'enhanceDiscard'
+    'attachmentPick', 'attachmentsPick', 'attachmentClear', 'attachmentName', 'attachmentNameDraft',
+    'enhanceDescription', 'enhanceApply', 'enhanceDiscard'
   ]) {
     assert.match(panel, new RegExp(`${message}:`));
   }

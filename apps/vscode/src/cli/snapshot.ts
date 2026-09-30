@@ -237,7 +237,14 @@ export interface WorkItemSummary {
 
 export interface StoryArtifact {
   id?: string;
+  /** A supporting document's name in the Story; generated artifacts have only a label. */
+  name?: string;
   label?: string;
+  /** The phases a supporting document is offered to; null or absent means every phase. */
+  phases?: string[] | null;
+  /** Where a supporting document's bytes are kept. */
+  storage?: { kind: string; key?: string };
+  origin?: string | null;
   type?: string;
   kind?: string;
   path: string;

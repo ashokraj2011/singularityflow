@@ -4,10 +4,13 @@ import { documentCatalog, viewDocument } from './documents.mjs';
  * Render active Story evidence once for every governed prompt consumer. Evidence is explicitly
  * untrusted source material: it can inform the requested artifact but cannot change the phase,
  * agent, security policy, or tool permissions.
+ *
+ * With `phaseId`, only documents offered to that phase are rendered; documents recorded before
+ * phase scope existed are offered to every phase, so their prompts are unchanged.
  */
-export async function renderActiveStoryEvidence(root, definition, workflow) {
+export async function renderActiveStoryEvidence(root, definition, workflow, { phaseId = null } = {}) {
   if (!workflow) return { markdown: '', entries: [], files: [], warnings: [] };
-  const records = (await documentCatalog(root, definition, workflow))
+  const records = (await documentCatalog(root, definition, workflow, { phaseId }))
     .filter((record) => ['file', 'url'].includes(record.type));
   if (!records.length) return { markdown: '', entries: [], files: [], warnings: [] };
   const lines = [
@@ -20,13 +23,13 @@ export async function renderActiveStoryEvidence(root, definition, workflow) {
   const files = [];
   for (const record of records) {
     if (record.type === 'url') {
-      lines.push(`## ${record.id} — ${record.label}`, '', `- External reference: ${record.url}`, `- Kind: ${record.kind ?? 'reference'}`, '', 'Do not fetch credentials or assume the live content is identical to a pinned export.', '');
-      entries.push({ id: record.id, type: 'url', url: record.url, sha256: null, kind: record.kind ?? 'reference' });
+      lines.push(`## ${record.id} — ${record.name ?? record.label}`, '', `- External reference: ${record.url}`, `- Kind: ${record.kind ?? 'reference'}`, '', 'Do not fetch credentials or assume the live content is identical to a pinned export.', '');
+      entries.push({ id: record.id, name: record.name ?? null, type: 'url', url: record.url, sha256: null, kind: record.kind ?? 'reference' });
       continue;
     }
     const viewed = await viewDocument(root, definition, workflow, record.id);
     lines.push(
-      `## ${record.id} — ${record.label}`,
+      `## ${record.id} — ${record.name ?? record.label}`,
       '',
       `- Repository path: \`${record.path}\``,
       `- MIME type: \`${record.mimeType}\``,
@@ -38,7 +41,7 @@ export async function renderActiveStoryEvidence(root, definition, workflow) {
     else lines.push(viewed.content.trim(), '');
     const injectedBytes = viewed.binary ? 0 : viewed.previewBytes;
     const truncated = viewed.binary ? false : viewed.truncated;
-    entries.push({ id: record.id, type: 'file', path: record.path, sha256: record.sha256, bytes: record.size, mimeType: record.mimeType, injectedBytes, truncated, packageId: record.packageId ?? null });
+    entries.push({ id: record.id, name: record.name ?? null, type: 'file', path: record.path, sha256: record.sha256, bytes: record.size, mimeType: record.mimeType, injectedBytes, truncated, packageId: record.packageId ?? null });
     files.push({
       path: record.path, sha256: record.sha256, bytes: record.size, injectedBytes,
       truncated, body: viewed.binary ? '' : viewed.content,

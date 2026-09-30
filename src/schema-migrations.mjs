@@ -1460,6 +1460,37 @@ function documentManifestV1ToV2(source) {
   return { ...source, schemaVersion: 2, packages: clone(source.packages ?? []) };
 }
 
+// Kept local so the registry stays self-contained; src/document-identity.mjs uses the same key.
+function documentNameKeyV3(name) {
+  return String(name ?? '').normalize('NFC').replace(/\s+/gu, ' ').trim().toLowerCase();
+}
+
+/**
+ * v3 gives every document a name, the phases it is offered to, and (for files) where its bytes are
+ * stored. A v2 document is named from its label, then its package-relative or source file name,
+ * then its URL or ID; a name already taken gains " (DOC-n)". `phases: null` keeps a v2 document
+ * offered to every phase, and a v2 file's bytes are in Git. Deterministic: the same v2 catalog
+ * always reads as the same v3 catalog.
+ */
+function documentManifestV2ToV3(source) {
+  const used = new Set();
+  const documents = (source.documents ?? []).map((record) => {
+    const base = String(record.name ?? record.label ?? record.sourceRelativePath ?? record.sourceName
+      ?? record.url ?? record.id ?? 'document').normalize('NFC').replace(/\s+/gu, ' ').trim() || String(record.id);
+    let name = base;
+    if (used.has(documentNameKeyV3(name))) name = `${base} (${record.id})`;
+    for (let attempt = 2; used.has(documentNameKeyV3(name)); attempt += 1) name = `${base} (${record.id} ${attempt})`;
+    used.add(documentNameKeyV3(name));
+    return {
+      ...clone(record),
+      name,
+      phases: Array.isArray(record.phases) ? clone(record.phases) : null,
+      ...(record.type === 'file' ? { storage: clone(record.storage ?? { kind: 'git' }) } : {})
+    };
+  });
+  return { ...clone(source), schemaVersion: 3, documents, packages: clone(source.packages ?? []) };
+}
+
 function knowledgeRecordV1ToV2(source) {
   const legacyClaim = {
     schemaVersion: 1,
@@ -2879,6 +2910,8 @@ const families = [
   family({ id: 'design-inventory-digest', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-inventory\/[^/]+\/digest\.json$/], immutable: true }),
   family({ id: 'evidence-detachment-decision', currentVersion: 1, paths: [/^singularity\/(?:work-items|initiatives)\/[^/]+\/(?:evidence|sources)\/detachments\/[^/]+\.json$/], immutable: true }),
   family({ id: 'document-package-manifest', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/inputs\/packages\/[^/]+\/manifest\.json$/], immutable: true }),
+  // A recorded change of the phases a Story document is offered to, bound into its lifecycle event.
+  family({ id: 'document-scope-decision', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/evidence\/document-scope\/[a-f0-9]{64}\.json$/], immutable: true }),
   family({ id: 'epic-completion-decision', currentVersion: 1, paths: [/^singularity\/initiatives\/[^/]+\/delivery\/records\/[^/]+\.json$/], immutable: true }),
   family({ id: 'github-review-evidence', currentVersion: 1, immutable: true }),
   family({ id: 'governed-reference', currentVersion: 1, paths: [/^singularity\/(?:work-items|initiatives)\/[^/]+\/context\/references\/[a-f0-9]{64}\.json$/], immutable: true }),
@@ -3248,8 +3281,8 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/approvals\/[^/]+\.json$/], immutable: true
   }),
   family({
-    id: 'document-manifest', currentVersion: 2,
-    steps: [migration(1, 2, documentManifestV1ToV2)],
+    id: 'document-manifest', currentVersion: 3,
+    steps: [migration(1, 2, documentManifestV1ToV2), migration(2, 3, documentManifestV2ToV3)],
     paths: [/^singularity\/work-items\/[^/]+\/documents\.json$/]
   }),
   family({ id: 'goal-state', currentVersion: 1, paths: [/^\$workspace\/\.singularity-flow\/goals\.json$/] }),

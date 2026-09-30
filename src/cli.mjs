@@ -22,7 +22,7 @@ import {
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { SingularityFlowError, commandExists, exists, gitHeadIsUnborn, gitReadOutput, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, commandExists, didYouMean, exists, gitHeadIsUnborn, gitReadOutput, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, isAncestor, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, removeCleanAttachStagingWorktree, repoRoot, validBranch } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from './session-story-discovery.mjs';
@@ -118,7 +118,8 @@ import {
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
-import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
+import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, scopeDocuments, viewDocument } from './documents.mjs';
+import { resolveDocumentRecord } from './document-identity.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import {
   assertClarificationRecordingAllowed, recordClarificationResponses, verifyClarificationRecord
@@ -242,7 +243,7 @@ import {
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from './story-start-journal.mjs';
 import {
-  preflightInitialStoryDocuments, stageInitialStoryDocuments
+  assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
 import {
   assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
@@ -1884,6 +1885,7 @@ export async function startCommand(positionals, options) {
   const acceptanceCriteria = optionString(options, 'acceptance-criteria');
   const explicitFiles = optionStrings(options, 'document');
   const explicitUrls = optionStrings(options, 'document-url');
+  const explicitDocumentInputs = startDocumentInputs(options, explicitFiles, explicitUrls);
   const referenceRequests = parseReferenceRepositoryOptions(
     optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
   );
@@ -2549,11 +2551,11 @@ export async function startCommand(positionals, options) {
       label: 'POC target URL'
     });
   }
-  documentCapture = await measureCommandSpan('start.documents', () => preflightInitialStoryDocuments([
-    ...(preloadedManual?.documents ?? []),
-    ...explicitFiles.map((candidate) => ({ type: 'file', path: candidate, label: null, kind: null })),
-    ...explicitUrls.map((url) => ({ type: 'url', url, label: null, kind: null }))
-  ], {
+  const initialDocumentInputs = [...(preloadedManual?.documents ?? []), ...explicitDocumentInputs];
+  assertStartDocuments(initialDocumentInputs, {
+    phaseOrder: deterministicPolicy.resolved?.phases?.map((phase) => phase.id) ?? null
+  });
+  documentCapture = await measureCommandSpan('start.documents', () => preflightInitialStoryDocuments(initialDocumentInputs, {
     repositoryRoot: root,
     maxFileBytes: deterministicPolicy.maximumFileBytes,
     allowedMimeTypes: deterministicPolicy.allowedMimeTypes
@@ -2818,6 +2820,10 @@ export async function startCommand(positionals, options) {
       retainedCapabilityMapBeforeEnrollment.capabilityId
     ).policy
     : legacyCapabilityEvidence?.capability?.policy ?? {};
+  // Names are unique across every Story-start document, and phases belong to the chosen work type.
+  assertStartDocuments([...documentCapture.inputs, ...laterDocuments], {
+    phaseOrder: resolvedWorkType.phases.map((phase) => phase.id)
+  });
   documentCapture = await measureCommandSpan('start.documents', () =>
     preflightInitialStoryDocuments(laterDocuments, {
     repositoryRoot: root,
@@ -4675,24 +4681,124 @@ async function nextCommand(options) {
   }
 }
 
+/**
+ * Story-start documents from `--document` and `--document-url`, each named by the matching
+ * `--document-name` or `--document-url-name` in the same order. `--document-phases` applies to
+ * all of them. A count mismatch is refused here; a missing name is refused by assertStartDocuments.
+ */
+function startDocumentInputs(options, files, urls) {
+  const fileNames = optionStrings(options, 'document-name');
+  const urlNames = optionStrings(options, 'document-url-name');
+  if (fileNames.length > files.length) {
+    throw new SingularityFlowError(`--document-name is given ${fileNames.length} times for ${files.length} --document input${files.length === 1 ? '' : 's'}. Give one name per --document, in the same order.`,
+      { code: 'DOCUMENT_NAME_REQUIRED' });
+  }
+  if (urlNames.length > urls.length) {
+    throw new SingularityFlowError(`--document-url-name is given ${urlNames.length} times for ${urls.length} --document-url input${urls.length === 1 ? '' : 's'}. Give one name per --document-url, in the same order.`,
+      { code: 'DOCUMENT_NAME_REQUIRED' });
+  }
+  const phaseValues = optionStrings(options, 'document-phases').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
+  const phases = phaseValues.length ? phaseValues : null;
+  return [
+    ...files.map((candidate, index) => ({ type: 'file', path: candidate, name: fileNames[index] ?? null, label: null, kind: null, phases })),
+    ...urls.map((url, index) => ({ type: 'url', url, name: urlNames[index] ?? null, label: null, kind: null, phases }))
+  ];
+}
+
+// Options every documents subcommand accepts. A near miss of anything else is refused below.
+const DOCUMENTS_COMMON_OPTIONS = Object.freeze(['json', 'verbose', 'work-id']);
+const DOCUMENTS_SUBCOMMAND_OPTIONS = Object.freeze({
+  list: ['active', 'all', 'phase'],
+  view: ['all'],
+  preview: [],
+  browse: ['provider', 'path'],
+  detach: ['reason', 'scope', 'yes'],
+  scope: ['phases', 'reason', 'scope', 'dry-run', 'yes'],
+  upload: ['url', 'name', 'label', 'kind', 'phases', 'confirm-override'],
+  add: ['url', 'name', 'label', 'kind', 'phases', 'confirm-override'],
+  fetch: ['provider', 'ref', 'name', 'filename', 'label', 'kind', 'phases', 'confirm-override']
+});
+
+/**
+ * Refuse an option that is a near miss of one this subcommand reads. `--phase specification` on an
+ * upload, silently ignored, would offer the document to the default phases instead: a governed
+ * mutation that did something other than what was typed. Options that are not close to any known
+ * one are left alone, because other layers of the CLI read their own.
+ */
+function refuseNearMissDocumentOptions(subcommand, options) {
+  const known = [...DOCUMENTS_COMMON_OPTIONS, ...(DOCUMENTS_SUBCOMMAND_OPTIONS[subcommand] ?? [])];
+  for (const key of Object.keys(options)) {
+    if (known.includes(key)) continue;
+    const nearest = nearestNames(key, known, { limit: 1 })[0];
+    if (nearest) {
+      throw new SingularityFlowError(`'documents ${subcommand}' has no option --${key}. Did you mean --${nearest}?`,
+        { code: 'UNKNOWN_OPTION', details: { command: `documents ${subcommand}`, option: key, suggestion: nearest } });
+    }
+  }
+}
+
+/** `--phases a,b --phases c` means a, b and c; nothing given means the default. */
+function documentPhasesOption(options) {
+  const values = optionStrings(options, 'phases').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
+  return values.length ? values : null;
+}
+
+/** The phases a document is offered to, as a reader wants them: "all phases", or the list. */
+function documentPhasesLabel(record, phaseOrder = []) {
+  if (!Array.isArray(record.phases)) return 'all phases';
+  if (phaseOrder.length && phaseOrder.every((phaseId) => record.phases.includes(phaseId))) return 'all phases';
+  return record.phases.join(', ');
+}
+
+function documentTitle(record) {
+  return `${record.id} — ${record.name ?? record.label ?? record.id}`;
+}
+
 async function documentsCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot();
+  refuseNearMissDocumentOptions(subcommand, options);
   if (subcommand === 'list') {
     if (optionBoolean(options, 'active') && optionBoolean(options, 'all')) throw new SingularityFlowError('Choose either --active or --all, not both.');
-    const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[2]);
-    const records = await documentCatalog(root, config, workflow, { includeDetached: optionBoolean(options, 'all') });
+    const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[2] ?? optionString(options, 'work-id'));
+    const phaseId = optionString(options, 'phase');
+    if (phaseId && !workflow.phaseOrder.includes(phaseId)) {
+      throw new SingularityFlowError(`This Story has no phase '${phaseId}'.${didYouMean(phaseId, workflow.phaseOrder)} Choose from ${workflow.phaseOrder.join(', ')}.`,
+        { code: 'DOCUMENT_PHASES_INVALID' });
+    }
+    const records = await documentCatalog(root, config, workflow, { includeDetached: optionBoolean(options, 'all'), phaseId });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(records, null, 2));
-    if (!records.length) return console.log('No documents found.');
-    return console.log(table(records.map((item) => ({ id: item.id, type: item.type, phase: item.phase ?? '', status: item.status ?? 'active', label: item.label, location: item.url ?? item.path ?? '', reason: item.detachReason ?? '' })), [
-      { key: 'id', label: 'ID' }, { key: 'type', label: 'TYPE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' }, { key: 'label', label: 'LABEL' }, { key: 'location', label: 'LOCATION', kind: 'path' }, { key: 'reason', label: 'DETACH REASON' }
-    ]));
+    if (!records.length) return console.log(phaseId ? `No documents are offered to ${phaseId}.` : 'No documents found.');
+    // Supporting documents carry a name and the phases that use them; generated and system
+    // documents do not, so each kind gets the columns that mean something for it.
+    const supporting = records.filter((item) => ['file', 'url'].includes(item.type));
+    const generated = records.filter((item) => !['file', 'url'].includes(item.type));
+    const sections = [];
+    if (supporting.length) {
+      sections.push(`Supporting documents${phaseId ? ` offered to ${phaseId}` : ''}\n${table(supporting.map((item) => ({
+        id: item.id, name: item.name ?? item.label ?? '', type: item.type, added: item.phase ?? '', status: item.status ?? 'active',
+        reason: item.detachReason ?? '', phases: documentPhasesLabel(item, workflow.phaseOrder), location: item.url ?? item.path ?? ''
+      })), [
+        { key: 'id', label: 'ID' }, { key: 'name', label: 'NAME' }, { key: 'type', label: 'TYPE' }, { key: 'added', label: 'ADDED IN' },
+        { key: 'status', label: 'STATUS' }, { key: 'reason', label: 'DETACH REASON' },
+        // Below the row and wrapped rather than truncated: a cut-off phase list reads as a different one.
+        { key: 'phases', label: 'USED IN', shrink: false }, { key: 'location', label: 'LOCATION', kind: 'path' }
+      ])}`);
+    }
+    if (generated.length) {
+      sections.push(`Workflow documents\n${table(generated.map((item) => ({ id: item.id, type: item.type, phase: item.phase ?? '', status: item.status ?? 'active', label: item.label, location: item.url ?? item.path ?? '' })), [
+        { key: 'id', label: 'ID' }, { key: 'type', label: 'TYPE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' }, { key: 'label', label: 'LABEL' }, { key: 'location', label: 'LOCATION', kind: 'path' }
+      ])}`);
+    }
+    return console.log(sections.join('\n\n'));
   }
   if (subcommand === 'view') {
-    const reference = requirePositional(positionals, 2, 'document ID or path');
+    const reference = requirePositional(positionals, 2, 'document ID, name or path');
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
     const result = await viewDocument(root, config, workflow, reference, { includeDetached: optionBoolean(options, 'all') });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`${result.record.id} — ${result.record.label}`); console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
+    console.log(documentTitle(result.record));
+    if (['file', 'url'].includes(result.record.type)) console.log(`Used in: ${documentPhasesLabel(result.record, workflow.phaseOrder)}`);
+    console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
     if (result.record.url) console.log(`URL: ${result.record.url}`);
     else console.log(`Path: ${result.absolutePath ?? pathForDisplay(root, result.record.path)}`);
     if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or local viewer.');
@@ -4701,20 +4807,20 @@ async function documentsCommand(positionals, options) {
   }
   if (subcommand === 'detach') {
     const config = await loadConfig(root);
-    const documentId = requirePositional(positionals, 2, 'document ID');
+    const reference = requirePositional(positionals, 2, 'document ID or name');
     const reason = optionString(options, 'reason');
     if (!reason?.trim()) throw new SingularityFlowError('Document detachment requires --reason "<reason>".');
     const scope = optionString(options, 'scope', 'file');
     const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
     const records = await documentCatalog(root, config, workflow, { includeDetached: true });
-    const selected = records.find((record) => record.id === documentId);
-    if (!selected) throw new SingularityFlowError(`Supporting document '${documentId}' was not found.`);
+    const selected = resolveDocumentRecord(records, reference);
+    const documentId = selected.id;
     const targets = scope === 'package' && selected.packageId
       ? records.filter((record) => record.packageId === selected.packageId && (record.status == null || ['active', 'pinned'].includes(record.status)))
       : [selected];
     const json = optionBoolean(options, 'json');
     if (!json) {
-      console.log(`Detach ${scope === 'package' ? `package ${selected.packageId} (${targets.length} files)` : `${selected.id} — ${selected.label}`}.`);
+      console.log(`Detach ${scope === 'package' ? `package ${selected.packageId} (${targets.length} files)` : documentTitle(selected)}.`);
       console.log('Committed bytes and audit history will be preserved. Future governed prompts will omit the evidence; dependent generated work and approvals may be invalidated.');
     }
     if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this governed evidence detachment.', documentId))) {
@@ -4748,11 +4854,11 @@ async function documentsCommand(positionals, options) {
     return;
   }
   if (subcommand === 'preview') {
-    const reference = requirePositional(positionals, 2, 'document ID or path');
+    const reference = requirePositional(positionals, 2, 'document ID, name or path');
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
     const result = await previewDocument(root, config, workflow, reference);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`${result.record.id} — ${result.record.label}`);
+    console.log(documentTitle(result.record));
     if (result.record.url) console.log(`URL: ${result.record.url}`);
     else if (result.previewable) console.log(`Governed inline preview verified at ${result.sha256}.`);
     else if (result.binary) console.log('This binary type requires its native viewer.');
@@ -4775,8 +4881,10 @@ async function documentsCommand(positionals, options) {
           records = await addDocuments(root, config, workflow, {
             files: positionals.slice(2),
             url: optionString(options, 'url'),
+            names: optionStrings(options, 'name'),
             label: optionString(options, 'label'),
-            kind: optionString(options, 'kind')
+            kind: optionString(options, 'kind'),
+            phases: documentPhasesOption(options)
           });
           return records;
         },
@@ -4788,7 +4896,8 @@ async function documentsCommand(positionals, options) {
         })
       }
     );
-    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result }, null, 2));
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
   }
   if (subcommand === 'browse') {
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
@@ -4817,8 +4926,10 @@ async function documentsCommand(positionals, options) {
             providerId: optionString(options, 'provider'),
             remoteRef: optionString(options, 'ref') ?? positionals[2],
             name: optionString(options, 'name'),
+            filename: optionString(options, 'filename'),
             label: optionString(options, 'label'),
-            kind: optionString(options, 'kind')
+            kind: optionString(options, 'kind'),
+            phases: documentPhasesOption(options)
           });
           return records;
         },
@@ -4831,11 +4942,73 @@ async function documentsCommand(positionals, options) {
         })
       }
     );
-    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path}`));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result }, null, 2));
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`));
     console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
     return;
   }
+  if (subcommand === 'scope') return documentsScopeCommand(root, positionals, options);
   throw new SingularityFlowError(`Unknown documents subcommand: ${subcommand}`);
+}
+
+/**
+ * `documents scope <ID|NAME> --phases A,B|all --reason "…"`: change which phases use a document.
+ * A dry run prints what the change would invalidate and changes nothing; otherwise the decision,
+ * catalog, stale prompt receipts and reopened phase are one commit.
+ */
+async function documentsScopeCommand(root, positionals, options) {
+  const config = await loadConfig(root);
+  const reference = requirePositional(positionals, 2, 'document ID or name');
+  const phases = documentPhasesOption(options);
+  const reason = optionString(options, 'reason');
+  const scope = optionString(options, 'scope', 'file');
+  const json = optionBoolean(options, 'json');
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const plan = await scopeDocuments(root, config, workflow, { documentId: reference, phases, scope, reason, dryRun: true });
+  const printPlan = () => {
+    for (const record of plan.documents) console.log(`${record.id} — ${record.name ?? record.id}: ${record.phases.join(', ')} → ${plan.phases.join(', ')}`);
+    if (plan.addedPhases.length) console.log(`Offered from now on to: ${plan.addedPhases.join(', ')}`);
+    if (plan.removedPhases.length) console.log(`No longer offered to: ${plan.removedPhases.join(', ')}`);
+    console.log(`Prompts that already used it and become stale: ${plan.dependentContextRecords.length ? plan.dependentContextRecords.join(', ') : 'none'}`);
+    console.log(`Phases invalidated: ${plan.affectedPhases.length ? plan.affectedPhases.join(', ') : 'none'}${plan.reopenedPhase ? ` (reopens ${plan.reopenedPhase})` : ''}`);
+    if (plan.pendingPrompt) console.log(`Already composed and not recomposed by this change: ${plan.pendingPrompt}`);
+  };
+  if (optionBoolean(options, 'dry-run')) {
+    if (json) return console.log(JSON.stringify(plan, null, 2));
+    printPlan();
+    console.log('Dry run: no state changed.');
+    return;
+  }
+  if (!json) printPlan();
+  const confirmation = plan.documents[0].id;
+  if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this change to which phases use the document.', confirmation))) {
+    console.log('No state changed.');
+    return;
+  }
+  let scoped;
+  const ids = plan.documents.map((record) => record.id).join(', ');
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: workflow.currentPhase, payload: { action: 'scoped', documentId: confirmation, scope, phases: plan.phases } },
+    `[${workflow.workItem.id}][evidence:scope] ${ids}`,
+    [],
+    { beforeStateWrite: async () => { scoped = await scopeDocuments(root, config, workflow, { documentId: confirmation, phases, scope, reason }); } }
+  );
+  const reloaded = await loadStoryAggregate(root, config, workflow.workItem.id);
+  const next = nextStepsSnapshot({
+    branch: branch(root),
+    workflow: reloaded,
+    publicationPending: await storyPublicationPending(root, config, reloaded.workItem.id)
+  });
+  const result = { ...scoped, publication, next };
+  if (json) return console.log(JSON.stringify(result, null, 2));
+  console.log(`Decision: ${scoped.decision.sha256}`);
+  console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
+  if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
+  if (scoped.reopenedPhase) console.log(`Reopened phase: ${scoped.reopenedPhase}`);
+  printCommandRoutes('singularity-flow nextsteps', { label: 'Continue' });
 }
 
 function pathForDisplay(root, relative) { return path.join(root, relative); }

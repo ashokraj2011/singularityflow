@@ -8,14 +8,20 @@ export type EvidenceTarget = {
   label: string;
 };
 
+/**
+ * What to attach. A Story document needs a name, one per path in order (a folder is one document
+ * package named once); an Epic source keeps its own labels, so `names` is ignored there.
+ */
 export type EvidenceInput =
-  | { kind: 'files' | 'figma-export'; paths: string[] }
+  | { kind: 'files' | 'figma-export'; paths: string[]; names?: string[] }
   | { kind: 'url'; url: string; label: string };
 
 export type EvidenceCatalogItem = {
   target: EvidenceTarget;
   id: string;
   label: string;
+  /** The phases a Story document is offered to; absent means every phase. */
+  phases?: string[];
   status: 'active' | 'detached';
   kind: string;
   path?: string;
@@ -43,7 +49,8 @@ export function evidenceCatalog(snapshot: RepositorySnapshot | null | undefined)
     for (const record of [...(snapshot.documents ?? []), ...(snapshot.detachedDocuments ?? [])].filter(isStoryEvidence)) {
       if (!record.id) continue;
       items.push({
-        target, id: record.id, label: record.label ?? record.id,
+        target, id: record.id, label: record.name ?? record.label ?? record.id,
+        ...(Array.isArray(record.phases) ? { phases: record.phases } : {}),
         status: record.status === 'detached' ? 'detached' : 'active',
         kind: record.kind ?? record.type ?? 'evidence', path: record.path, url: record.url,
         mimeType: record.mimeType, sha256: record.sha256 ?? undefined, packageId: record.packageId,
@@ -96,12 +103,13 @@ export function evidenceTargets(snapshot: RepositorySnapshot | null | undefined)
 export function evidenceCommands(target: EvidenceTarget, input: EvidenceInput): string[][] {
   if (input.kind === 'url') {
     return target.kind === 'story'
-      ? [['documents', 'upload', '--url', input.url, '--label', input.label]]
+      ? [['documents', 'upload', '--url', input.url, '--name', input.label]]
       : [['epic', 'sources', 'add', '--epic', target.id, '--url', input.url, '--label', input.label]];
   }
   if (target.kind === 'story') {
     return [[
       'documents', 'upload', ...input.paths,
+      ...(input.names ?? []).flatMap((name) => ['--name', name]),
       ...(input.kind === 'figma-export' ? ['--kind', 'figma-export'] : [])
     ]];
   }
@@ -111,6 +119,30 @@ export function evidenceCommands(target: EvidenceTarget, input: EvidenceInput): 
     'epic', 'sources', 'add', '--epic', target.id, '--provider', 'local', '--file', file,
     ...(input.kind === 'figma-export' ? ['--label', `Figma export · ${path.basename(file)}`] : [])
   ]);
+}
+
+/**
+ * Why a Story document name cannot be used, or null. The engine enforces the same rules; checking
+ * here lets the input box say so before anything runs. `taken` holds the names already in the
+ * Story (detached documents included) and those chosen earlier in this attach.
+ */
+export function validateEvidenceName(value: string, taken: Iterable<string> = []): string | null {
+  const name = value.normalize('NFC').replace(/\s+/gu, ' ').trim();
+  if (!name) return 'A name is required.';
+  if (name.length > 120) return 'Use at most 120 characters.';
+  if (/[\u0000-\u001f\u007f]/u.test(name)) return 'Remove the control character.';
+  if (/^(?:DOC|PKG)-\d+$/iu.test(name)) return 'That looks like a document ID. Use a descriptive name.';
+  const key = name.toLowerCase();
+  for (const existing of taken) {
+    if (existing.normalize('NFC').replace(/\s+/gu, ' ').trim().toLowerCase() === key) return 'Another document in this Story already has that name.';
+  }
+  return null;
+}
+
+/** A first suggestion for a document's name: its file or folder name without the extension. */
+export function suggestedEvidenceName(file: string): string {
+  const stem = path.basename(file).replace(/\.[^.]+$/u, '').replace(/[_-]+/gu, ' ').replace(/\s+/gu, ' ').trim();
+  return (stem || path.basename(file)).slice(0, 120);
 }
 
 export function validateEvidenceUrl(value: string, figmaOnly = false): string | null {

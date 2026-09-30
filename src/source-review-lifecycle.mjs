@@ -7,6 +7,7 @@ import { recordSha256 } from './records.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { documentOfferedToPhase } from './document-identity.mjs';
 import { extractSourceText, isTextualSource } from './source-text.mjs';
 import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
@@ -104,7 +105,11 @@ function creationStoryText(root, base, relative) {
   return captured.stdout;
 }
 
-async function storySources(root, config, workflow) {
+/**
+ * The Story text and the pinned attachments offered to `phaseId`. A document recorded before
+ * phase scope existed is offered to every phase, so bindings of existing reviews do not change.
+ */
+async function storySources(root, config, workflow, phaseId) {
   const base = itemRelative(config, workflow.workItem.id);
   const source = await checkedFile(root, `${base}/source.json`, 'Story source', workflow.resolution?.sourceSha256 ?? null);
   const storyRelative = `${base}/USER-STORY.md`;
@@ -127,7 +132,7 @@ async function storySources(root, config, workflow) {
   if (catalog.workId !== workflow.workItem.id || !Array.isArray(catalog.documents)) throw new SingularityFlowError('Story document catalog is malformed.', {
     code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE'
   });
-  for (const document of catalog.documents.filter((entry) => entry?.status !== 'detached')) {
+  for (const document of catalog.documents.filter((entry) => entry?.status !== 'detached' && documentOfferedToPhase(entry, phaseId))) {
     if (document.type !== 'file' || !document.path || !SHA256.test(String(document.sha256 ?? ''))) {
       throw new SingularityFlowError(`Attachment '${document.id ?? 'unknown'}' has no pinned reviewable file bytes.`, {
         code: 'SOURCE_REVIEW_INPUT_UNREADABLE'
@@ -186,7 +191,7 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
       { code: 'SOURCE_REVIEW_AGENT_NOT_PINNED' }
     );
   }
-  const sources = await storySources(root, config, workflow);
+  const sources = await storySources(root, config, workflow, phaseId);
   const artifact = await phaseArtifact(root, config, workflow, phaseId);
   const upstreamSpec = phaseId === 'planning'
     ? await (async () => {

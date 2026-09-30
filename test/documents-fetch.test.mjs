@@ -84,9 +84,15 @@ test('documents fetch materializes OneDrive bytes into the work item with provid
   assert.deepEqual(browse.entries.map((entry) => entry.name), ['summary-spec.md', 'designs']);
   assert.equal(browse.entries[1].folder, true);
 
-  const [record] = await fetchRemoteDocument(root, config, workflow, { providerId: 'onedrive', remoteRef: 'item-1', runtime });
+  await assert.rejects(
+    () => fetchRemoteDocument(root, config, workflow, { providerId: 'onedrive', remoteRef: 'item-1', runtime }),
+    (error) => error?.code === 'DOCUMENT_NAME_REQUIRED',
+    'a fetched document needs a name before anything is downloaded'
+  );
+  const [record] = await fetchRemoteDocument(root, config, workflow, { providerId: 'onedrive', remoteRef: 'item-1', name: 'Summary specification', runtime });
   assert.equal(record.type, 'file');
-  assert.equal(record.sourceName, 'summary-spec.md');
+  assert.equal(record.name, 'Summary specification', 'the name is the document name');
+  assert.equal(record.sourceName, 'summary-spec.md', 'the stored file keeps the provider file name');
   assert.equal(record.mimeType, 'text/markdown');
   assert.equal(record.sha256.length, 64);
   assert.equal(record.remote.source, 'sharepoint');
@@ -119,7 +125,7 @@ test('documents fetch rejects an unknown provider', async () => {
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, 'DOCS-9');
   await assert.rejects(
-    () => fetchRemoteDocument(root, config, workflow, { providerId: 'nope', remoteRef: 'item-1', runtime: {} }),
+    () => fetchRemoteDocument(root, config, workflow, { providerId: 'nope', remoteRef: 'item-1', name: 'Unknown provider document', runtime: {} }),
     /Unknown or unconfigured storage provider/
   );
 });
@@ -162,7 +168,7 @@ test('documents fetch refuses environment-local names, secrets, and unscannable 
       };
       await assert.rejects(
         () => fetchRemoteDocument(root, config, workflow, {
-          providerId: 'onedrive', remoteRef: 'item-1',
+          providerId: 'onedrive', remoteRef: 'item-1', name: 'Fetched notes',
           runtime: { fetchImpl, token: 'fake-graph-token' }
         }),
         (error) => {

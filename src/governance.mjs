@@ -32,6 +32,7 @@ import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
+import { documentNameKey } from './document-identity.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { classifyStoryGateFailures } from './gate-recovery.mjs';
@@ -156,8 +157,18 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       || (document.origin === 'story-start' && document.phase === workflow.phaseOrder?.[0])
       || overrides.some((override) => override.requestedPhase === document.phase
         && String(override.at ?? '') <= String(document.addedAt ?? ''));
+    const names = new Map();
     for (const document of manifest.documents ?? []) {
       if (seen.has(document.id)) errors.push(`duplicate document ID: ${document.id}`); seen.add(document.id);
+      // Every lookup, prompt and citation resolves a document by its name, detached ones included.
+      const nameKey = typeof document.name === 'string' && document.name.trim() ? documentNameKey(document.name) : null;
+      if (!nameKey) errors.push(`${document.id} has no document name`);
+      else if (names.has(nameKey)) errors.push(`${document.id} reuses the document name of ${names.get(nameKey)}`);
+      else names.set(nameKey, document.id);
+      if (document.phases != null && (!Array.isArray(document.phases) || !document.phases.length
+          || document.phases.some((phaseId) => !(workflow.phaseOrder ?? []).includes(phaseId)))) {
+        errors.push(`${document.id} is offered to phases this Story does not have`);
+      }
       if (!admitted(document)) errors.push(`${document.id} was uploaded outside the immutable document phase policy`);
       if (!document.addedBy || !document.agent) errors.push(`${document.id} is missing actor or agent attribution`);
       if (document.type === 'file') {

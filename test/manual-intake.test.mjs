@@ -13,7 +13,7 @@ import { loadStoryAggregate } from '../src/state-stores.mjs';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-function run(command, args, cwd) {
+function run(command, args, cwd, { allowFailure = false } = {}) {
   const env = {
     ...process.env,
     NODE_ENV: 'test',
@@ -21,11 +21,11 @@ function run(command, args, cwd) {
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' })
   };
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
-  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  if (result.status !== 0 && !allowFailure) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
 }
 
-function flow(root, args) { return run(process.execPath, [bin, ...args], root); }
+function flow(root, args, options) { return run(process.execPath, [bin, ...args], root, options); }
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-manual-intake-'));
@@ -72,12 +72,22 @@ test('manual story intake commits complete details and every supplied document w
     ]
   }));
 
-  flow(root, [
+  const unnamed = flow(root, [
     'start', 'WORK-123', '--story-file', path.join(intake, 'story.yml'),
     '--from-branch', 'main',
     '--document', path.join(intake, 'extra.txt'),
-    '--document', path.join(intake, 'constraints.markdown'),
-    '--document-url', 'https://example.com/context'
+    '--document', path.join(intake, 'constraints.markdown'), '--document-name', 'Stakeholder notes',
+    '--document-url', 'https://example.com/context', '--document-url-name', 'Context page'
+  ], { allowFailure: true });
+  assert.notEqual(unnamed.status, 0);
+  assert.match(unnamed.stderr, /Story document '.*constraints\.markdown' needs a name/);
+  assert.equal(run('git', ['branch', '--list', 'WORK-123'], root).stdout.trim(), '', 'a missing name refuses before the Story exists');
+  flow(root, [
+    'start', 'WORK-123', '--story-file', path.join(intake, 'story.yml'),
+    '--from-branch', 'main',
+    '--document', path.join(intake, 'extra.txt'), '--document-name', 'Stakeholder notes',
+    '--document', path.join(intake, 'constraints.markdown'), '--document-name', 'Approved invoice fields',
+    '--document-url', 'https://example.com/context', '--document-url-name', 'Context page'
   ]);
 
   const workRoot = path.join(root, 'singularity/work-items/WORK-123');
@@ -104,6 +114,9 @@ test('manual story intake commits complete details and every supplied document w
   assert.equal(catalog.documents[3].sourceName, 'constraints.markdown');
   assert.equal(catalog.documents[3].mimeType, 'text/markdown');
   assert.equal(catalog.documents[4].url, 'https://example.com/context');
+  assert.deepEqual(catalog.documents.map((record) => record.name),
+    ['Research brief', 'Invoice design', 'Stakeholder notes', 'Approved invoice fields', 'Context page'],
+    'a story-file label still names its document; command-line documents take --document-name and --document-url-name in order');
 
   // Repeated --document operands are not presentation-only filenames. Each exact byte sequence is
   // copied into the canonical Story input tree and included in the same opening Git commit.
@@ -159,7 +172,7 @@ test('Story intake honors a larger selected work-type document limit before chec
 
   flow(root, [
     'start', 'WORK-DOCUMENT-OVERRIDE', '--from-branch', 'main', '--work-type', 'feature',
-    '--title', 'Use the feature evidence ceiling', '--document', evidence
+    '--title', 'Use the feature evidence ceiling', '--document', evidence, '--document-name', 'Feature evidence'
   ]);
 
   const catalog = JSON.parse(await readFile(
@@ -186,7 +199,7 @@ test('CLI Story intake refuses bad document inputs before Story creation and ret
     bin, 'start', 'WORK-PREFLIGHT-CLI', '--story-file', storyFile,
     '--from-branch', 'main', '--work-type', 'feature',
     // Deliberately unreachable: URL evidence is validated locally and recorded, never fetched.
-    '--document-url', 'https://127.0.0.1:1/reference'
+    '--document-url', 'https://127.0.0.1:1/reference', '--document-url-name', 'Reference service'
   ];
   const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   const refused = spawnSync(process.execPath, argv, {

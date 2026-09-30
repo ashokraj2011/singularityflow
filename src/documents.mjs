@@ -7,7 +7,11 @@ import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, run, snapshot, writeJson, writeText } from './util.mjs';
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
 import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
-import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { currentSchemaVersion, familyForStoredPath, readRecord } from './schema-migrations.mjs';
+import {
+  DOCUMENT_MEMBER_NAME_MAXIMUM_LENGTH, assertAvailableDocumentNames, assignDocumentNames,
+  documentOfferedToPhase, normalizeDocumentPhases, resolveDocumentRecord, validateDocumentName
+} from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
 import {
   loadEnvironmentDeclarationSync, matchEnvironmentLocalPath
@@ -313,35 +317,42 @@ export function evidenceIsActive(record) {
   return record?.status !== 'detached';
 }
 
-async function contextJsonFiles(directory) {
-  if (!(await exists(directory))) return [];
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await contextJsonFiles(absolute));
-    else if (entry.isFile() && entry.name.endsWith('.json')) files.push(absolute);
-  }
-  return files.sort();
-}
-
-async function storyEvidenceDependencies(root, config, workflow, targets) {
+/**
+ * The prompt receipts that cite any of these documents, and the phases they belong to. Read-only.
+ *
+ * Only prompt receipts (`context/<phase>-gen<N>.json`) record which evidence a generation was
+ * composed from. The scan used to rewrite any JSON under `context/` that mentioned a document,
+ * which included hash-sealed source-review records and immutable agent audits; those are no
+ * longer even read. `phases` limits the search to receipts of those phases.
+ */
+async function findEvidenceDependencies(root, config, workflow, targets, { phases = null } = {}) {
   const needles = new Set(targets.flatMap((record) => [record.id, record.sha256, record.path, record.url].filter(Boolean)));
-  const itemRoot = workDir(root, config, workflow.workItem.id);
-  const phases = new Set();
-  const records = [];
-  for (const file of await contextJsonFiles(path.join(itemRoot, 'context'))) {
+  const directory = path.join(workDir(root, config, workflow.workItem.id), 'context');
+  const found = [];
+  const phaseIds = new Set();
+  if (!(await exists(directory))) return { phases: [], records: [], files: [] };
+  const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const absolute = path.join(directory, entry.name);
+    const relative = posix(path.relative(root, absolute));
+    const family = familyForStoredPath(relative, { workItemRoot: config.workItemRoot ?? 'singularity/work-items' });
+    if (family?.id !== 'prompt-injection') continue;
     let parsed;
-    try { parsed = JSON.parse(await readFile(file, 'utf8')); } catch { continue; }
+    try { parsed = JSON.parse(await readFile(absolute, 'utf8')); } catch { continue; }
+    if (phases && !phases.includes(parsed.phase)) continue;
     const serialized = JSON.stringify(parsed);
     if (![...needles].some((needle) => serialized.includes(needle))) continue;
-    if (parsed.phase && workflow.phases?.[parsed.phase]) phases.add(parsed.phase);
-    parsed.stale = true;
-    parsed.staleReason = `Supporting evidence detached: ${targets.map((item) => item.id).join(', ')}`;
-    parsed.staleAt = nowIso();
-    await writeJson(file, parsed);
-    records.push(posix(path.relative(root, file)));
+    if (parsed.phase && workflow.phases?.[parsed.phase]) phaseIds.add(parsed.phase);
+    found.push({ absolute, relative, parsed });
   }
-  return { phases: [...phases], records };
+  return { phases: [...phaseIds], records: found.map((item) => item.relative), files: found };
+}
+
+async function markEvidenceDependenciesStale(dependencies, reason, at) {
+  for (const { absolute, parsed } of dependencies.files) {
+    await writeJson(absolute, { ...parsed, stale: true, staleReason: reason, staleAt: at });
+  }
 }
 
 function storyCone(workflow, phases) {
@@ -352,14 +363,14 @@ function storyCone(workflow, phases) {
   return { affectedPhases, reopenedPhase: workflow.phaseOrder[earliest], earliest };
 }
 
-function invalidateStoryCone(workflow, cone, decisionSha256, timestamp) {
+function invalidateStoryCone(workflow, cone, decisionSha256, timestamp, reason = 'supporting-evidence-detached') {
   if (cone.earliest < 0) return cone;
   const { earliest, affectedPhases, reopenedPhase } = cone;
   for (let index = earliest; index < workflow.phaseOrder.length; index += 1) {
     const phase = workflow.phases[workflow.phaseOrder[index]];
     for (const approval of phase.approvals ?? []) if (!approval.invalidatedAt) {
       approval.invalidatedAt = timestamp;
-      approval.invalidationReason = 'supporting-evidence-detached';
+      approval.invalidationReason = reason;
       approval.invalidatedBy = decisionSha256;
     }
     phase.status = index === earliest ? 'in_progress' : 'not_started';
@@ -386,16 +397,16 @@ export async function detachDocuments(root, config, workflow, {
   if (!comment) throw new SingularityFlowError('A detachment reason is required.');
   if (!['file', 'package'].includes(scope)) throw new SingularityFlowError("Document detach --scope must be 'file' or 'package'.");
   const manifest = await loadManifest(root, config, workflow);
-  const selected = manifest.documents.find((record) => record.id === documentId);
-  if (!selected) throw new SingularityFlowError(`Supporting document '${documentId}' was not found.`);
-  if (!evidenceIsActive(selected)) throw new SingularityFlowError(`Supporting document '${documentId}' is already detached.`);
+  const selected = resolveDocumentRecord(manifest.documents, documentId);
+  if (!evidenceIsActive(selected)) throw new SingularityFlowError(`Supporting document '${selected.id}' is already detached.`);
   if (scope === 'package' && !selected.packageId) throw new SingularityFlowError(`Document '${documentId}' is not a Figma or directory package member.`);
   const targets = scope === 'package'
     ? manifest.documents.filter((record) => record.packageId === selected.packageId && evidenceIsActive(record))
     : [selected];
   const session = await loadSession(root);
   const timestamp = nowIso();
-  const dependencies = await storyEvidenceDependencies(root, config, workflow, targets);
+  const dependencies = await findEvidenceDependencies(root, config, workflow, targets);
+  await markEvidenceDependenciesStale(dependencies, `Supporting evidence detached: ${targets.map((item) => item.id).join(', ')}`, timestamp);
   const cone = storyCone(workflow, dependencies.phases);
   const decisionBase = {
     schemaVersion: currentSchemaVersion('evidence-detachment-decision'),
@@ -444,6 +455,105 @@ export async function detachDocuments(root, config, workflow, {
     targets,
     affectedPhases: invalidation.affectedPhases,
     reopenedPhase: invalidation.reopenedPhase
+  };
+}
+
+/**
+ * Change which phases a supporting document is offered to. The caller runs this inside
+ * commitAndPublish.beforeStateWrite, like detach, so catalog, decision, state, commit and push are
+ * one publication.
+ *
+ * Adding a phase changes only what later compositions include. Removing a phase whose prompt
+ * already used the document makes that prompt stale and reopens the earliest such phase, so no
+ * approval keeps resting on evidence the phase may no longer use. `dryRun` reports all of that and
+ * changes nothing.
+ */
+export async function scopeDocuments(root, config, workflow, {
+  documentId, phases, scope = 'file', reason, dryRun = false
+} = {}) {
+  const comment = String(reason ?? '').trim();
+  if (!comment) throw new SingularityFlowError('A reason is required to change which phases use a document.');
+  if (!['file', 'package'].includes(scope)) throw new SingularityFlowError("Document scope --scope must be 'file' or 'package'.");
+  const requested = Array.isArray(phases) ? phases : String(phases ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+  if (!requested.length) {
+    throw new SingularityFlowError('Name the phases the document is offered to, for example --phases specification,planning, or all.',
+      { code: 'DOCUMENT_PHASES_INVALID' });
+  }
+  const next = normalizeDocumentPhases(requested, workflow);
+  const manifest = await loadManifest(root, config, workflow);
+  const selected = resolveDocumentRecord(manifest.documents, documentId);
+  if (!evidenceIsActive(selected)) throw new SingularityFlowError(`Supporting document '${selected.id}' is detached; its phases no longer matter.`);
+  if (scope === 'package' && !selected.packageId) throw new SingularityFlowError(`Document '${selected.id}' is not a Figma or directory package member.`);
+  const targets = scope === 'package'
+    ? manifest.documents.filter((record) => record.packageId === selected.packageId && evidenceIsActive(record))
+    : [selected];
+  const offered = (record) => (Array.isArray(record.phases) ? record.phases : [...workflow.phaseOrder]);
+  const removedPhases = workflow.phaseOrder.filter((phaseId) => targets.some((record) => offered(record).includes(phaseId)) && !next.includes(phaseId));
+  const addedPhases = next.filter((phaseId) => targets.some((record) => !offered(record).includes(phaseId)));
+  if (!removedPhases.length && !addedPhases.length) {
+    throw new SingularityFlowError(`${targets.map((record) => record.id).join(', ')} ${targets.length === 1 ? 'is' : 'are'} already offered to exactly ${next.join(', ')}.`,
+      { code: 'DOCUMENT_SCOPE_UNCHANGED' });
+  }
+  const dependencies = removedPhases.length
+    ? await findEvidenceDependencies(root, config, workflow, targets, { phases: removedPhases })
+    : { phases: [], records: [], files: [] };
+  const cone = storyCone(workflow, dependencies.phases);
+  // A prompt already composed for the next generation of the current phase is reused as it is, so
+  // it does not reflect this change until that generation is recomposed.
+  const currentPhase = workflow.phases?.[workflow.currentPhase];
+  const pendingPromptPath = currentPhase
+    ? path.join(workDir(root, config, workflow.workItem.id), 'context', `${workflow.currentPhase}-gen${Number(currentPhase.generation ?? 0) + 1}.json`)
+    : null;
+  const pendingPrompt = pendingPromptPath && await exists(pendingPromptPath) ? posix(path.relative(root, pendingPromptPath)) : null;
+  const plan = {
+    documents: targets.map((record) => ({ id: record.id, name: record.name ?? null, phases: offered(record) })),
+    phases: next, removedPhases, addedPhases,
+    dependentContextRecords: dependencies.records,
+    affectedPhases: cone.affectedPhases, reopenedPhase: cone.reopenedPhase, pendingPrompt
+  };
+  if (dryRun) return { ...plan, dryRun: true };
+  const session = await loadSession(root);
+  const timestamp = nowIso();
+  const decisionBase = {
+    schemaVersion: currentSchemaVersion('document-scope-decision'),
+    type: 'document-scope',
+    subject: { kind: 'story', id: workflow.workItem.id },
+    target: { documentId: selected.id, packageId: selected.packageId ?? null, scope },
+    documents: targets.map((record) => ({
+      id: record.id, name: record.name ?? null, sha256: record.sha256 ?? null, path: record.path ?? null,
+      url: record.url ?? null, previousPhases: Array.isArray(record.phases) ? [...record.phases] : null
+    })),
+    phases: [...next], removedPhases, addedPhases,
+    reason: comment, actor: session.actor, agent: session.agent ?? null, at: timestamp,
+    dependentContextRecords: dependencies.records,
+    affectedPhases: cone.affectedPhases, reopenedPhase: cone.reopenedPhase
+  };
+  const decisionSha256 = createHash('sha256').update(JSON.stringify(decisionBase)).digest('hex');
+  decisionBase.sha256 = decisionSha256;
+  const ids = targets.map((record) => record.id).join(', ');
+  await markEvidenceDependenciesStale(dependencies, `Supporting evidence no longer offered to this phase: ${ids}`, timestamp);
+  const invalidation = invalidateStoryCone(workflow, cone, decisionSha256, timestamp, 'supporting-evidence-rescoped');
+  for (const record of targets) Object.assign(record, { phases: [...next], scopeDecisionSha256: decisionSha256 });
+  const decisionFile = path.join(workDir(root, config, workflow.workItem.id), 'evidence', 'document-scope', `${decisionSha256}.json`);
+  await writeJson(decisionFile, decisionBase);
+  manifest.updatedAt = timestamp;
+  await writeJson(manifestPath(root, config, workflow), manifest);
+  workflow.documents = documentCounters(manifest, timestamp);
+  workflow.history.push({
+    at: timestamp,
+    actor: session.actor.login ?? session.actor.email ?? session.actor.name,
+    agent: session.agent,
+    event: 'evidence_scoped',
+    phase: invalidation.reopenedPhase ?? workflow.currentPhase,
+    detail: `${ids} offered to ${next.join(', ')}: ${comment}`
+  });
+  return {
+    ...plan,
+    decision: decisionBase,
+    decisionPath: posix(path.relative(root, decisionFile)),
+    targets,
+    affectedPhases: invalidation.affectedPhases ?? [],
+    reopenedPhase: invalidation.reopenedPhase ?? null
   };
 }
 
@@ -614,7 +724,8 @@ async function governedDocumentPath(root, config, workflow, record) {
 }
 
 export async function addDocuments(root, config, workflow, {
-  files = [], url = null, label = null, kind = null, frozenEvidence = null, origin = null
+  files = [], url = null, names = [], label = null, kind = null, phases = null,
+  frozenEvidence = null, origin = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'upload documents');
   const phase = await assertPhaseSequence(root, workflow, 'upload documents');
@@ -626,26 +737,43 @@ export async function addDocuments(root, config, workflow, {
   if (!atCreation) await enforceDocumentPhase(root, workflow, config, phase, 'upload documents');
   const policy = documentPolicy(workflow, config);
   if (!files.length && !url) throw new SingularityFlowError('Provide one or more files or --url <https-url>.');
+  // Names and phases are settled before any byte is read, so a missing or clashing name costs
+  // nothing. One name per top-level input: each file or folder, then the URL.
+  const assignedNames = assignDocumentNames(files.length + (url ? 1 : 0), { names, label });
+  const offeredPhases = normalizeDocumentPhases(phases, workflow, { fromPhase: phase.id });
   const verifiedUrl = url ? validateDocumentUrl(url) : null;
+  const urlName = verifiedUrl ? assignedNames[files.length] : null;
   const resourceBudget = createStoryDocumentBudget();
   if (verifiedUrl) admitStoryDocumentResource(resourceBudget, {
     depth: 0, size: 0, label: 'URL reference'
   });
   const fileInputs = [];
-  for (const candidate of files) {
+  for (const [index, candidate] of files.entries()) {
+    const documentName = assignedNames[index];
     const source = path.resolve(candidate); const info = await stat(source).catch(() => null);
     if (info?.isFile()) {
       admitStoryDocumentResource(resourceBudget, { depth: 0, size: info.size, label: source });
-      fileInputs.push({ source, info, packageName: null, packageSource: null, sourceRelativePath: null });
+      fileInputs.push({ source, info, packageName: null, packageSource: null, sourceRelativePath: null, documentName });
     }
     else if (info?.isDirectory()) {
       const expanded = await directoryFiles(
         source, safeName(source), [], source, resourceBudget, 0
       );
       if (!expanded.length) throw new SingularityFlowError(`Document directory contains no regular files: ${candidate}`);
-      fileInputs.push(...expanded);
+      // A folder is named once; each member is "<folder name>/<path inside the folder>".
+      fileInputs.push(...expanded.map((entry) => ({
+        ...entry,
+        packageDisplayName: documentName,
+        documentName: validateDocumentName(`${documentName}/${entry.sourceRelativePath}`, {
+          maximumLength: DOCUMENT_MEMBER_NAME_MAXIMUM_LENGTH
+        })
+      })));
     } else throw new SingularityFlowError(`Document path is not a regular file or directory: ${candidate}`);
   }
+  const manifest = await loadManifest(root, config, workflow);
+  assertAvailableDocumentNames(manifest.documents, [
+    ...fileInputs.map((input) => input.documentName), ...(urlName ? [urlName] : [])
+  ]);
   const frozenBySource = frozenEvidence == null ? null : frozenEvidenceMap(frozenEvidence);
   if (frozenBySource) {
     const capturedSources = fileInputs.map((input) => path.resolve(input.source));
@@ -657,7 +785,6 @@ export async function addDocuments(root, config, workflow, {
       );
     }
   }
-  if (label && fileInputs.length + (verifiedUrl ? 1 : 0) > 1) throw new SingularityFlowError('--label can be used only when uploading one document.');
   for (const input of fileInputs) {
     if (input.info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${input.source}`);
     assertCapabilityMime(workflow, mimeType(input.source), input.source);
@@ -674,13 +801,13 @@ export async function addDocuments(root, config, workflow, {
     capturedBySource.set(path.resolve(input.source), captured);
   }
   const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active governed-agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
-  const manifest = await loadManifest(root, config, workflow); const added = [];
+  const added = [];
   const packageMap = new Map();
   for (const input of fileInputs.filter((item) => item.packageSource)) if (!packageMap.has(input.packageSource)) {
-    const record = { id: nextPackageId([...manifest.packages, ...packageMap.values()]), name: input.packageName, sourceName: path.basename(input.packageSource), phase: phase.id, importedAt: nowIso(), importedBy: session.actor, agent: session.agent };
+    const record = { id: nextPackageId([...manifest.packages, ...packageMap.values()]), name: input.packageDisplayName ?? input.packageName, sourceName: path.basename(input.packageSource), phase: phase.id, importedAt: nowIso(), importedBy: session.actor, agent: session.agent };
     packageMap.set(input.packageSource, record); manifest.packages.push(record);
   }
-  for (const { source, packageName, packageSource, sourceRelativePath } of fileInputs) {
+  for (const { source, packageName, packageSource, sourceRelativePath, documentName } of fileInputs) {
     const id = nextId(manifest.documents); const filename = safeName(source);
     // Preserve the review-friendly package hierarchy while sanitizing every component. In
     // particular, a literal `.git` component disappears from `git add`, and DOS device names make a
@@ -706,18 +833,18 @@ export async function addDocuments(root, config, workflow, {
         { code: 'STORY_DOCUMENT_CHANGED' }
       );
     }
-    const record = { id, type: 'file', label: label ?? sourceRelativePath ?? filename, kind: kind ?? (packageName ? 'directory-import' : 'reference'), sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
+    const record = { id, type: 'file', name: documentName, label: documentName, kind: kind ?? (packageName ? 'directory-import' : 'reference'), storage: { kind: 'git' }, sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
     if (packageName) { record.sourcePackage = packageName; record.packageId = packageMap.get(packageSource).id; record.sourceRelativePath = sourceRelativePath; }
     manifest.documents.push(record); added.push(record);
   }
   if (verifiedUrl) {
-    const id = nextId(manifest.documents); const record = { id, type: 'url', label: label ?? verifiedUrl, kind: kind ?? (/figma\.com/i.test(verifiedUrl) ? 'figma' : 'reference'), url: verifiedUrl, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
+    const id = nextId(manifest.documents); const record = { id, type: 'url', name: urlName, label: urlName, kind: kind ?? (/figma\.com/i.test(verifiedUrl) ? 'figma' : 'reference'), url: verifiedUrl, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
     manifest.documents.push(record); added.push(record);
   }
   for (const packageRecord of packageMap.values()) await writePackageIndexes(root, config, workflow, manifest, packageRecord);
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
   workflow.documents = documentCounters(manifest, manifest.updatedAt);
-  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: added.map((item) => item.id).join(', ') });
+  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: added.map((item) => `${item.id} (${item.name})`).join(', ') });
   await saveStoryDraft(root, config, workflow); return added;
 }
 
@@ -733,19 +860,26 @@ function resolveStorageProvider(config, providerId, workflow = null) {
 // S3, …) and materialize its bytes into the work item, exactly like an uploaded local file. The
 // bytes land in inputs/DOC-nnn/, so the document remains Git-transferable — a resumed checkout on
 // another machine has the content, not just a link. The caller commits/pushes the result.
-export async function fetchRemoteDocument(root, config, workflow, { providerId = null, remoteRef = null, name = null, label = null, kind = null, runtime = {} } = {}) {
+export async function fetchRemoteDocument(root, config, workflow, {
+  providerId = null, remoteRef = null, name = null, filename: requestedFilename = null,
+  label = null, kind = null, phases = null, runtime = {}
+} = {}) {
   await assertNoPendingPublication(root, config, workflow, 'fetch documents');
   const phase = await assertPhaseSequence(root, workflow, 'fetch documents');
   await enforceDocumentPhase(root, workflow, config, phase, 'fetch documents');
   const policy = documentPolicy(workflow, config);
   if (!remoteRef) throw new SingularityFlowError('Provide a provider item ID or path to fetch (documents fetch --ref <id>).');
+  // `name` is the document's name, like an upload's; the stored file name comes from the provider.
+  const [documentName] = assignDocumentNames(1, { names: name == null ? [] : [name], label });
+  const offeredPhases = normalizeDocumentPhases(phases, workflow, { fromPhase: phase.id });
+  assertAvailableDocumentNames((await loadManifest(root, config, workflow)).documents, [documentName]);
   const { selectedId, provider } = resolveStorageProvider(config, providerId, workflow);
   const session = await loadSession(root);
   if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active governed-agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
   const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
   const reference = { objectId: remoteRef, url: /^https?:\/\//i.test(remoteRef) ? remoteRef : undefined };
   let headMeta = null;
-  if ((!name || !label) && typeof adapter.head === 'function') {
+  if (typeof adapter.head === 'function') {
     try { headMeta = await adapter.head(reference); } catch { headMeta = null; }
   }
   const maxBytes = policy.maxFileBytes ?? 26214400;
@@ -753,7 +887,7 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   if (!result?.bytes) throw new SingularityFlowError(`Provider '${selectedId}' returned no bytes for '${remoteRef}'.`);
   const fetchedBytes = Buffer.from(result.bytes);
   if (fetchedBytes.length > maxBytes) throw new SingularityFlowError(`Fetched document exceeds the ${maxBytes} byte limit: ${remoteRef}`);
-  const filename = safeName(name ?? headMeta?.name ?? label ?? String(remoteRef));
+  const filename = safeName(requestedFilename ?? headMeta?.name ?? String(remoteRef));
   assertCapabilityMime(workflow, result.mimeType ?? headMeta?.mimeType ?? mimeType(filename), remoteRef);
   const environmentDeclaration = loadEnvironmentDeclarationSync(root, { optional: true });
   const input = {
@@ -761,7 +895,7 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
     packageSource: null, sourceRelativePath: null
   };
   await assertDocumentInputNotEnvironmentLocal(root, environmentDeclaration, input, workflow, config, {
-    additionalCandidates: [name, headMeta?.name, remoteRef],
+    additionalCandidates: [requestedFilename, headMeta?.name, remoteRef],
     sourceIsLocalPath: false
   });
   assertDocumentInputContainsNoSecret(input, { bytes: fetchedBytes });
@@ -771,15 +905,15 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, fetchedBytes);
   const fileSnapshot = await snapshot(destination);
   const record = {
-    id, type: 'file', label: label ?? headMeta?.name ?? filename, kind: kind ?? 'provider-fetch', sourceName: filename,
+    id, type: 'file', name: documentName, label: documentName, kind: kind ?? 'provider-fetch', storage: { kind: 'git' }, sourceName: filename,
     path: posix(relative), mimeType: result.mimeType ?? headMeta?.mimeType ?? mimeType(filename),
-    size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent,
+    size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent,
     remote: { source: provider.type, providerId: selectedId, objectId: result.objectId ?? reference.objectId ?? String(remoteRef), version: result.version ?? headMeta?.version ?? null, ref: String(remoteRef) }
   };
   manifest.documents.push(record);
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
   workflow.documents = documentCounters(manifest, manifest.updatedAt);
-  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: `${id} ← ${provider.type}:${selectedId}` });
+  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: `${id} (${documentName}) ← ${provider.type}:${selectedId}` });
   await saveStoryDraft(root, config, workflow); return [record];
 }
 
@@ -796,9 +930,12 @@ async function systemDocument(root, config, workflow, id, label, relative) {
   const info = await snapshot(absolute); return { id, type: 'system', label, kind: 'workflow', path: posix(path.relative(root, absolute)), mimeType: mimeType(relative), size: info.size, sha256: info.sha256, phase: null };
 }
 
-export async function documentCatalog(root, config, workflow, { includeDetached = false } = {}) {
+export async function documentCatalog(root, config, workflow, { includeDetached = false, phaseId = null } = {}) {
   const manifest = await loadManifest(root, config, workflow);
-  const records = manifest.documents.filter((record) => includeDetached || evidenceIsActive(record));
+  // A phase filter narrows the supporting documents to those offered to that phase; system
+  // documents and phase artifacts are listed as before.
+  const records = manifest.documents.filter((record) => (includeDetached || evidenceIsActive(record))
+    && (phaseId == null || documentOfferedToPhase(record, phaseId)));
   for (const packageRecord of manifest.packages ?? []) {
     if (!includeDetached && !evidenceIsActive(packageRecord)) continue;
     for (const [suffix, label, kind, filePath, type] of [['INVENTORY', `${packageRecord.name} inventory`, 'package-inventory', packageRecord.inventoryPath, 'text/markdown'], ['GALLERY', `${packageRecord.name} gallery`, 'package-gallery', packageRecord.galleryPath, 'text/html'], ['MANIFEST', `${packageRecord.name} manifest`, 'package-manifest', packageRecord.manifestPath, 'application/json']]) {
@@ -856,14 +993,9 @@ export async function documentCatalog(root, config, workflow, { includeDetached 
 }
 
 export async function viewDocument(root, config, workflow, reference, { includeDetached = false } = {}) {
-  const records = await documentCatalog(root, config, workflow, { includeDetached }); const normalized = reference.toLowerCase();
-  const matches = records.filter((item) => item.id.toLowerCase() === normalized
-    || item.path?.toLowerCase() === normalized
-    || path.basename(item.path ?? '').toLowerCase() === normalized
-    || (item.aliases ?? []).some((alias) => alias.toLowerCase() === normalized));
-  if (!matches.length) throw new SingularityFlowError(`Document '${reference}' was not found. Run singularity-flow documents list.`);
-  if (matches.length > 1) throw new SingularityFlowError(`Document reference '${reference}' is ambiguous; use its document ID.`);
-  const record = matches[0]; if (record.type === 'url') return { record, content: null, binary: false };
+  const records = await documentCatalog(root, config, workflow, { includeDetached });
+  // An ID or alias first, then a document name, then a path or file name.
+  const record = resolveDocumentRecord(records, reference); if (record.type === 'url') return { record, content: null, binary: false };
   const extension = path.extname(record.path).toLowerCase(); const binary = !TEXT_EXTENSIONS.has(extension) && !record.mimeType.startsWith('text/');
   const absolute = await governedDocumentPath(root, config, workflow, record);
   const current = await snapshot(absolute);

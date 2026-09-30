@@ -70,7 +70,7 @@ async function catalog(root, workId) {
 function documentGateErrors(root) {
   const gate = flow(root, ['gate'], { allowFailure: true });
   const output = `${gate.stdout}\n${gate.stderr}`;
-  return output.split('\n').filter((line) => /uploaded outside|document count differs|documents\.json is missing/.test(line));
+  return output.split('\n').filter((line) => /uploaded outside|document count differs|documents\.json is missing|document name|offered to phases/.test(line));
 }
 
 test('a spec-driven Story takes documents at start and in its first phase without a terminal', async () => {
@@ -78,10 +78,11 @@ test('a spec-driven Story takes documents at start and in its first phase withou
   const start = await brief('payment brief.md', '# Payment brief\nRetry a failed payment once.\n');
   flow(root, ['start', 'SPEC-DOC-1', '--from-branch', 'main', '--work-type', 'spec-driven-standard',
     '--title', 'Retry a failed payment', '--description', 'Let an operator retry a failed payment.',
-    '--document', start]);
+    '--document', start, '--document-name', 'Payment brief']);
   const opened = await catalog(root, 'SPEC-DOC-1');
   assert.equal(opened.documents.length, 1);
   assert.equal(opened.documents[0].phase, 'specification');
+  assert.equal(opened.documents[0].name, 'Payment brief');
   assert.equal(opened.documents[0].origin, 'story-start', 'the opening record says where the document came from');
 
   const definition = await loadDefinition(root);
@@ -91,7 +92,7 @@ test('a spec-driven Story takes documents at start and in its first phase withou
     'an empty list falls back to the first phase');
 
   const later = await brief('provider notes.md', '# Provider notes\nThe provider returns 409 on a duplicate.\n');
-  flow(root, ['documents', 'upload', later]);
+  flow(root, ['documents', 'upload', later, '--name', 'Provider notes']);
   const uploaded = await catalog(root, 'SPEC-DOC-1');
   assert.deepEqual(uploaded.documents.map((record) => record.id), ['DOC-001', 'DOC-002']);
   assert.equal(uploaded.documents[1].origin, undefined, 'only Story creation records an origin');
@@ -101,20 +102,20 @@ test('a spec-driven Story takes documents at start and in its first phase withou
 test('a deliberately narrowed upload list is kept, but documents given at Story start are admitted', async () => {
   const root = await repository((config) => { config.documents.allowedPhases = ['requirements']; });
   const start = await brief('customer brief.md', '# Customer brief\nExport orders as CSV.\n');
-  flow(root, ['start', 'NARROW-1', '--from-branch', 'main', '--title', 'Export orders', '--document', start]);
+  flow(root, ['start', 'NARROW-1', '--from-branch', 'main', '--title', 'Export orders', '--document', start, '--document-name', 'Customer brief']);
   const opened = await catalog(root, 'NARROW-1');
   assert.equal(opened.documents[0].phase, 'intake');
   assert.equal(opened.documents[0].origin, 'story-start');
 
   const later = await brief('late notes.md', '# Late notes\n');
-  const refused = flow(root, ['documents', 'upload', later], { allowFailure: true });
+  const refused = flow(root, ['documents', 'upload', later, '--name', 'Late notes'], { allowFailure: true });
   assert.notEqual(refused.status, 0, 'an upload during intake is still outside the configured list');
   assert.match(refused.stderr, /only during: requirements/);
   assert.equal((await catalog(root, 'NARROW-1')).documents.length, 1);
   assert.deepEqual(documentGateErrors(root), [], 'the Story-start document is part of the opening record');
 
   // A confirmed override is audited on the workflow; the gate accepts what it admitted.
-  flow(root, ['documents', 'upload', later, '--confirm-override', 'continue:documentPhase']);
+  flow(root, ['documents', 'upload', later, '--name', 'Late notes', '--confirm-override', 'continue:documentPhase']);
   assert.equal((await catalog(root, 'NARROW-1')).documents.length, 2);
   assert.deepEqual(documentGateErrors(root), []);
 });
@@ -122,10 +123,10 @@ test('a deliberately narrowed upload list is kept, but documents given at Story 
 test('the gate counts active and total documents after a detach, and still reads older counters', async () => {
   const root = await repository((config) => { config.documents.allowedPhases = ['intake']; });
   flow(root, ['start', 'COUNT-1', '--from-branch', 'main', '--title', 'Count documents']);
-  flow(root, ['documents', 'upload', await brief('first.md', '# First\n')]);
+  flow(root, ['documents', 'upload', await brief('first.md', '# First\n'), '--name', 'First brief']);
   flow(root, ['documents', 'detach', 'DOC-001', '--reason', 'Superseded by a newer brief', '--yes']);
   assert.deepEqual(documentGateErrors(root), [], 'a detach alone no longer breaks the count');
-  flow(root, ['documents', 'upload', await brief('second.md', '# Second\n')]);
+  flow(root, ['documents', 'upload', await brief('second.md', '# Second\n'), '--name', 'Second brief']);
   assert.deepEqual(documentGateErrors(root), []);
 
   const workflowPath = path.join(root, 'singularity/work-items/COUNT-1/workflow.json');

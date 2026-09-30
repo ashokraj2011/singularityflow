@@ -2,7 +2,7 @@
 name: sflow-documents
 description: Attach, list, view, and governably detach Singularity Flow supporting documents, images, Figma packages, and external design links while preserving audit history.
 disable-model-invocation: true
-argument-hint: "list [WORK-ID] | view <DOCUMENT-ID> [--work-id ID] | upload <PATH...> | detach <DOCUMENT-ID> --reason TEXT | epic sources ... --epic EPIC-ID"
+argument-hint: "list [WORK-ID] [--phase PHASE] | view <ID|NAME> [--work-id ID] | upload <PATH...> --name TEXT... | scope <ID|NAME> --phases PHASE,... | detach <ID|NAME> --reason TEXT | epic sources ... --epic EPIC-ID"
 
 ---
 # Manage supporting documents
@@ -14,11 +14,12 @@ argument-hint: "list [WORK-ID] | view <DOCUMENT-ID> [--work-id ID] | upload <PAT
 
 Stop on `Out of sequence`; show soft warnings for human choice. Use the catalog, not arbitrary copies. Explicit Work ID supports Story reads. Story upload/detach has no `--work-id`, so attach that Story first; never target an ambient branch. Epic sources require `--epic`, not a Story session. `/sf-upload` is the short upload route.
 
-- List active uploaded inputs and generated phase documents with `singularity-flow documents list [WORK-ID] --active`. Use `--all` only when the user asks for detached history.
+- List active uploaded inputs and generated phase documents with `singularity-flow documents list [WORK-ID] --active`; add `--phase <PHASE>` for what one phase's prompts use. Use `--all` only when the user asks for detached history.
 - For an Epic, list active sources with `singularity-flow epic sources list --epic <EPIC-ID> --active`; use `--all` only for detached history.
-- View text with `singularity-flow documents view <DOCUMENT-ID> --work-id <WORK-ID>`, or omit the selector for the attached Story. Open binary formats from the returned absolute path.
-- For the verified attached Story, use `singularity-flow documents upload <PATH...>`; directories retain relative paths and files are hashed, attributed, committed, and pushed.
-- Record a Figma or other external reference with `singularity-flow documents upload --url <https-url> --label "<name>"`.
+- View text with `singularity-flow documents view <DOCUMENT-ID|NAME> --work-id <WORK-ID>`, or omit the selector for the attached Story. Open binary formats from the returned absolute path.
+- For the verified attached Story, use `singularity-flow documents upload <PATH...> --name "<NAME>"` with one user-given, Story-unique `--name` per path in order, and `--phases <PHASE,...|all>` only when the user limits its phases (default: current phase onward). Directories retain relative paths; files are hashed, attributed, committed, and pushed.
+- Record a Figma or other external reference with `singularity-flow documents upload --url <https-url> --name "<name>"`.
+- To change which phases use a document, preview `singularity-flow documents scope <ID|NAME> --phases <PHASE,...|all> --reason "<reason>" --dry-run`, show the stale prompts and reopened phase, then after explicit confirmation rerun without `--dry-run` with `--yes`.
 - Respect phase/size policy; never download URLs implicitly. Report and cite stable document IDs.
 
 To detach evidence:

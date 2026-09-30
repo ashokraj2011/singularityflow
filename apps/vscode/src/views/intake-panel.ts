@@ -14,7 +14,7 @@ import { integerField, registerMessageRouter, stringField, type InboundMessage }
 import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT,
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
-  storyPreflightCommand, storyWorkflowSelection,
+  storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload,
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice,
   type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
@@ -729,6 +729,10 @@ export class IntakePanel {
       if (index !== null) return this.pickStoryAttachments(index);
     },
     attachmentsPick: () => this.pickStoryAttachments(null),
+    // Typing keeps the caret: record the name without redrawing. A committed change redraws so
+    // the Start button reflects whether every document now has its own name.
+    attachmentNameDraft: (message) => this.renameStoryAttachment(message, false),
+    attachmentName: (message) => this.renameStoryAttachment(message, true),
     attachmentClear: (message) => {
       const index = this.attachmentIndex(message);
       if (index === null) return;
@@ -907,7 +911,8 @@ export class IntakePanel {
     if (!selected?.length || this.disposed) return;
     const drafts: StoryAttachmentDraft[] = selected.map((uri) => ({
       sourcePath: uri.fsPath,
-      displayName: path.basename(uri.fsPath)
+      displayName: path.basename(uri.fsPath),
+      name: suggestedStoryDocumentName(uri.fsPath)
     })).filter((entry) => Boolean(entry.sourcePath && entry.displayName));
     if (!drafts.length) return;
 
@@ -920,6 +925,16 @@ export class IntakePanel {
       void vscode.window.showWarningMessage(messages.join(' '));
     }
     this.update({ storyAttachments: merged.attachments, enhanceError: null, error: null });
+  }
+
+  private renameStoryAttachment(message: InboundMessage, render: boolean): void {
+    const index = this.attachmentIndex(message);
+    const value = typeof message.value === 'string' ? message.value.slice(0, 512) : null;
+    const current = index === null ? null : this.form.storyAttachments[index];
+    if (index === null || value === null || !current) return;
+    const storyAttachments = this.form.storyAttachments.map((entry, slot) => slot === index && entry ? { ...entry, name: value } : entry);
+    if (render) this.update({ storyAttachments, error: null });
+    else this.form.storyAttachments = storyAttachments;
   }
 
   private replaceReference(index: number, entry: ReferenceRepositoryDraft, render = true, background = false): void {

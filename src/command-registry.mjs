@@ -247,7 +247,7 @@ const WORKFLOW_AUTHOR_MUTATION_ACTIONS = Object.freeze(['create', 'save', 'delet
 const WORKFLOW_AUTHOR_ACTIONS = Object.freeze([...WORKFLOW_AUTHOR_READ_ACTIONS, ...WORKFLOW_AUTHOR_MUTATION_ACTIONS]);
 const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author']);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse']);
-const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'upload', 'add', 'fetch']);
+const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'upload', 'add', 'fetch']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
 const REVISION_ATTACHMENT_ACTIONS = Object.freeze([
   'capabilities', 'preview', 'register', 'list', 'status', 'remove-preview', 'remove'

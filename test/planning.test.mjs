@@ -70,7 +70,7 @@ test('story planning creates a private immutable context pack and promotes only 
   run(root, process.execPath, [bin, 'start', 'PLAN-101', '--from-branch', 'main', '--title', 'Plan customer onboarding']);
   const requirement = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-business-input-')), 'requirements.md');
   await writeFile(requirement, '# Business requirement\n\nSupport an auditable, low-friction onboarding journey.\n');
-  run(root, process.execPath, [bin, 'documents', 'upload', requirement]);
+  run(root, process.execPath, [bin, 'documents', 'upload', requirement, '--name', 'Onboarding requirement']);
   const before = git(root, ['rev-parse', 'HEAD']);
   const context = await createPlanningContext(root, {
     scope: 'work-item',

@@ -1529,7 +1529,7 @@ test('invalid Story evidence refuses before automatic identity enrollment is pub
     'start', 'ISO-MISSING-DOCUMENT-1', '--isolated-worktree', '--json', '--from-branch', 'main',
     '--work-type', 'quick-fix', '--title', 'Refuse missing evidence',
     '--description', 'Validate all evidence before publishing automatic enrollment.',
-    '--document', missing
+    '--document', missing, '--document-name', 'Reviewed evidence'
   ], root, {
     allowFailure: true,
     env: { SINGULARITY_FLOW_TEST_IDENTITY: 'Previously Unknown User' }
@@ -1637,7 +1637,7 @@ test('a capability-disallowed Story document cannot publish automatic identity e
     '--work-type', 'quick-fix', '--capability', 'product',
     '--title', 'Refuse disallowed evidence',
     '--description', 'Capability document policy must be enforced before shared enrollment.',
-    '--document', disallowed
+    '--document', disallowed, '--document-name', 'Disallowed screenshot'
   ], root, {
     allowFailure: true,
     env: { SINGULARITY_FLOW_TEST_IDENTITY: 'Previously Unknown User' }

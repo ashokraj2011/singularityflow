@@ -53,6 +53,47 @@ export interface StoryAttachmentDraft {
   /** Host-resolved path. The webview can display it, but can never supply or edit it. */
   sourcePath: string;
   displayName: string;
+  /** The document's name in the Story, which every later lookup, prompt and citation uses. */
+  name: string;
+}
+
+/** The longest document name the engine accepts. */
+export const STORY_DOCUMENT_NAME_MAXIMUM_LENGTH = 120;
+
+/** A first suggestion for a document's name: its file name without the extension, spaced out. */
+export function suggestedStoryDocumentName(fileName: string): string {
+  const stem = path.basename(fileName).replace(/\.[^.]+$/u, '');
+  const spaced = stem.replace(/[_-]+/gu, ' ').replace(/\s+/gu, ' ').trim();
+  return (spaced || path.basename(fileName)).slice(0, STORY_DOCUMENT_NAME_MAXIMUM_LENGTH);
+}
+
+/** A slot's name; a draft saved before names existed takes the suggestion for its file. */
+export function storyAttachmentName(entry: StoryAttachmentDraft): string {
+  return typeof entry.name === 'string' ? entry.name : suggestedStoryDocumentName(entry.displayName || entry.sourcePath);
+}
+
+/**
+ * What is wrong with the names given to the selected Story documents, in the engine's own terms:
+ * every document needs a name, no longer than 120 characters, not shaped like a document ID, and
+ * different from the others ignoring case and spacing.
+ */
+export function storyAttachmentNameProblems(attachments: Array<StoryAttachmentDraft | null>): string[] {
+  const problems: string[] = [];
+  const seen = new Map<string, number>();
+  attachments.forEach((entry, index) => {
+    if (!entry) return;
+    const name = storyAttachmentName(entry).normalize('NFC').replace(/\s+/gu, ' ').trim();
+    const label = `Document ${index + 1}`;
+    if (!name) { problems.push(`Give ${label} (${entry.displayName}) a name.`); return; }
+    if (name.length > STORY_DOCUMENT_NAME_MAXIMUM_LENGTH) problems.push(`${label}'s name is longer than ${STORY_DOCUMENT_NAME_MAXIMUM_LENGTH} characters.`);
+    if (/^(?:DOC|PKG)-\d+$/iu.test(name)) problems.push(`${label}'s name looks like a document ID; use a descriptive name.`);
+    if (/[\u0000-\u001f\u007f]/u.test(name)) problems.push(`${label}'s name contains a control character.`);
+    const key = name.toLowerCase();
+    const earlier = seen.get(key);
+    if (earlier !== undefined) problems.push(`Document ${earlier + 1} and ${label} have the same name; give each its own.`);
+    else seen.set(key, index);
+  });
+  return problems;
 }
 
 /** Four visible slots make the expected 3–4 document intake possible without extra setup. */
@@ -366,6 +407,7 @@ export function intakeProblems(form: IntakeForm): string[] {
         } catch { problems.push('Enter an absolute authorized URL for the POC target.'); }
       }
     }
+    problems.push(...storyAttachmentNameProblems(form.storyAttachments));
     if (!form.baseBranch) {
       problems.push(form.baseBranchReason
         ?? (form.baseBranchChoices.length
@@ -428,7 +470,7 @@ export function intakeCommand(form: IntakeForm): string[] {
       '--reference-branch', `${entry.id}=${entry.branch}`]);
   const target = form.workType === 'poc-workflow' ? ['--target-url', form.targetUrl.trim()] : [];
   const attachments = form.storyAttachments.flatMap((entry) =>
-    entry ? ['--document', entry.sourcePath] : []);
+    entry ? ['--document', entry.sourcePath, '--document-name', storyAttachmentName(entry).replace(/\s+/gu, ' ').trim()] : []);
   const isolated = ['--isolated-worktree'];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
     ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
@@ -919,7 +961,11 @@ function storyAttachmentsHtml(form: IntakeForm): string {
           <strong>Document ${index + 1}</strong>
           ${entry ? '<span class="pill ok">Selected</span>' : '<span class="pill">Empty</span>'}
         </div>
-        ${entry ? `<p><strong>${escape(entry.displayName)}</strong></p>`
+        ${entry ? `<p><strong>${escape(entry.displayName)}</strong></p>
+        <label>Name in the Story
+          <input type="text" data-attachment-name="${index}" value="${escape(storyAttachmentName(entry))}"
+            maxlength="${STORY_DOCUMENT_NAME_MAXIMUM_LENGTH}" aria-label="Name for document ${index + 1}">
+        </label>`
     : '<p class="muted">No document selected.</p>'}
         <p class="card-foot">
           <button type="button" class="secondary" data-attachment-pick="${index}">${entry ? 'Replace file' : 'Choose file'}</button>
@@ -930,7 +976,8 @@ function storyAttachmentsHtml(form: IntakeForm): string {
     <p class="card-foot">
       <button type="button" class="secondary" data-attachments-pick${selectedCount >= MAX_STORY_ATTACHMENT_SLOTS ? ' disabled' : ''}>Choose documents…</button>
     </p>
-    <p class="muted">Four slots are available. File paths come from VS Code's native picker and
+    <p class="muted">Four slots are available. Each document needs its own name; prompts, reviews
+      and citations refer to it by that name. File paths come from VS Code's native picker and
       cannot be typed or posted by webview content.</p>
   </section>`;
 }
@@ -1090,12 +1137,16 @@ export const INTAKE_SCRIPT = `
     if (el.dataset?.baseBranch) return vscode.postMessage({ type: 'baseBranch', value: el.dataset.baseBranch });
     if (el.dataset?.referenceField) return vscode.postMessage({ type: 'referenceField',
       index: Number(el.dataset.referenceIndex), field: el.dataset.referenceField, value: el.value });
+    if (el.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentName',
+      index: Number(el.dataset.attachmentName), value: el.value });
     if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
   });
   document.addEventListener('input', (event) => {
     if (event.target.dataset?.referenceField) return vscode.postMessage({ type: 'referenceDraft',
       index: Number(event.target.dataset.referenceIndex), field: event.target.dataset.referenceField,
       value: event.target.value });
+    if (event.target.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentNameDraft',
+      index: Number(event.target.dataset.attachmentName), value: event.target.value });
     const field = event.target.dataset?.field;
     if (['title', 'description', 'acceptanceCriteria'].includes(field)) {
       document.querySelector('[data-enhancement-proposal]')?.remove();
@@ -1116,7 +1167,8 @@ export const INTAKE_SCRIPT = `
   const intakeFocusKey = (el) => !el || !el.dataset ? null
     : el.dataset.field ? 'field:' + el.dataset.field
       : el.dataset.referenceField ? 'reference:' + el.dataset.referenceIndex + ':' + el.dataset.referenceField
-        : null;
+        : el.dataset.attachmentName !== undefined ? 'attachment:' + el.dataset.attachmentName
+          : null;
   const saveIntakeView = () => {
     if (intakeUnloading || !vscode.setState) return;
     const el = document.activeElement;
@@ -1141,7 +1193,8 @@ export const INTAKE_SCRIPT = `
     if (!saved.key) return;
     const parts = String(saved.key).split(':');
     const selector = parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
-      : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
+      : parts[0] === 'attachment' ? '[data-attachment-name="' + parts[1] + '"]'
+        : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
     const el = document.querySelector(selector);
     if (!el || typeof el.focus !== 'function' || el.disabled) return;
     el.focus({ preventScroll: true });

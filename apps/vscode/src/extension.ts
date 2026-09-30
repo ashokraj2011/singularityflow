@@ -92,7 +92,7 @@ import {
 } from './views/navigation-trees.ts';
 import { SecureCredentials } from './credentials.ts';
 import {
-  evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceTargets,
+  evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceTargets, suggestedEvidenceName, validateEvidenceName,
   expandEpicEvidenceDirectory, validateEvidenceUrl,
   type EvidenceCatalogItem, type EvidenceTarget
 } from './evidence.ts';
@@ -5843,6 +5843,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }], { title: `Attach evidence to ${target.label}`, placeHolder: 'Choose the source type' });
     if (!source) return;
 
+    // A Story document needs its own name. Ask once per file or folder, suggesting the file name
+    // and refusing a name the Story already uses, detached documents included.
+    const storyNames = target.kind === 'story'
+      ? evidenceCatalog(store.current.snapshot).filter((item) => item.target.kind === 'story').map((item) => item.label)
+      : [];
+    const askNames = async (paths: string[]): Promise<string[] | null> => {
+      if (target?.kind !== 'story') return [];
+      const chosen: string[] = [];
+      for (const [index, file] of paths.entries()) {
+        const name = await vscode.window.showInputBox({
+          title: paths.length > 1 ? `Name document ${index + 1} of ${paths.length}` : 'Name this document',
+          prompt: `How reviewers and prompts will refer to ${path.basename(file)} in ${target.label}.`,
+          value: suggestedEvidenceName(file),
+          ignoreFocusOut: true,
+          validateInput: (value) => validateEvidenceName(value, [...storyNames, ...chosen])
+        });
+        if (!name?.trim()) return null;
+        chosen.push(name.replace(/\s+/gu, ' ').trim());
+      }
+      return chosen;
+    };
     let input: Parameters<typeof evidenceCommands>[1] | null = null;
     if (source.value === 'files') {
       const picked = await vscode.window.showOpenDialog({
@@ -5857,7 +5878,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       });
       if (!picked?.length) return;
-      input = { kind: 'files', paths: picked.map((entry) => entry.fsPath) };
+      const paths = picked.map((entry) => entry.fsPath);
+      const names = await askNames(paths);
+      if (!names) return;
+      input = { kind: 'files', paths, names };
     } else if (source.value === 'figma-export') {
       const picked = await vscode.window.showOpenDialog({
         title: `Attach a Figma export folder to ${target.label}`,
@@ -5874,7 +5898,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showWarningMessage('The selected Figma export folder contains no files. Nothing was attached.');
         return;
       }
-      input = { kind: 'figma-export', paths };
+      const names = await askNames(target.kind === 'story' ? paths : []);
+      if (!names) return;
+      input = { kind: 'figma-export', paths, names };
     } else {
       const figmaOnly = source.value === 'figma-link';
       const url = await vscode.window.showInputBox({
@@ -5886,20 +5912,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       if (!url) return;
       const label = await vscode.window.showInputBox({
-        title: 'Evidence label',
+        title: target.kind === 'story' ? 'Name this document' : 'Evidence label',
         value: figmaOnly ? 'Figma design' : '',
         prompt: 'Use a name reviewers will recognize.',
         ignoreFocusOut: true,
-        validateInput: (value) => value.trim() ? null : 'A label is required.'
+        validateInput: (value) => target?.kind === 'story'
+          ? validateEvidenceName(value, storyNames)
+          : value.trim() ? null : 'A label is required.'
       });
       if (!label?.trim()) return;
       input = { kind: 'url', url: url.trim(), label: label.trim() };
     }
 
     const commands = evidenceCommands(target, input);
+    // Story documents are named by now, and the name is what the person will look for afterwards.
     const summary = input.kind === 'url'
       ? input.label
-      : `${input.paths.length} ${input.paths.length === 1 ? 'path' : 'paths'}`;
+      : input.names?.length
+        ? input.names.map((name) => `'${name}'`).join(', ')
+        : `${input.paths.length} ${input.paths.length === 1 ? 'path' : 'paths'}`;
     const confirmation = await vscode.window.showInformationMessage(
       `Attach ${summary} to ${target.label}? The governed record will be committed and pushed.`,
       { modal: true }, 'Attach evidence');

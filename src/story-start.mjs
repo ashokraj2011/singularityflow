@@ -52,7 +52,7 @@ import {
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from './story-start-journal.mjs';
 import {
-  preflightInitialStoryDocuments, stageInitialStoryDocuments
+  assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments
 } from './story-start-documents.mjs';
 import {
   assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope
@@ -234,6 +234,10 @@ export async function startStory(root, {
   targetUrl = null,
   files = [],
   urls = [],
+  // One name per file, then one per URL, in order; phases apply to every Story-start document.
+  documentNames = [],
+  urlNames = [],
+  documentPhases = null,
   expectedBaseCommit = null,
   flightPlan = null,
   auto = null,
@@ -404,9 +408,8 @@ export async function startStory(root, {
     const retainedCapabilityMap = validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
       capabilityId: selectedCapabilityId
     });
-    const resolvedDocumentPolicy = assertPlannedClaimsReady(
-      resolveWorkType(initialDefinition, workType)
-    ).documents ?? initialDefinition.documents ?? {};
+    const resolvedStartWorkType = assertPlannedClaimsReady(resolveWorkType(initialDefinition, workType));
+    const resolvedDocumentPolicy = resolvedStartWorkType.documents ?? initialDefinition.documents ?? {};
     const capabilityPolicy = retainedCapabilityMap?.definition && retainedCapabilityMap.capabilityId
       ? resolveEffectiveCapabilityPolicy(
         retainedCapabilityMap.definition, retainedCapabilityMap.capabilityId
@@ -416,10 +419,12 @@ export async function startStory(root, {
       resolvedDocumentPolicy.maxFileBytes ?? 26214400,
       capabilityPolicy.maxDocumentBytes ?? Number.MAX_SAFE_INTEGER
     );
-    documentCapture = await preflightInitialStoryDocuments([
-      ...(files.length ? [{ files }] : []),
-      ...urls.map((url) => ({ url }))
-    ], {
+    const startDocumentInputs = [
+      ...(files.length ? [{ files, names: documentNames, phases: documentPhases }] : []),
+      ...urls.map((url, index) => ({ url, name: urlNames[index] ?? null, phases: documentPhases }))
+    ];
+    assertStartDocuments(startDocumentInputs, { phaseOrder: resolvedStartWorkType.phases.map((phase) => phase.id) });
+    documentCapture = await preflightInitialStoryDocuments(startDocumentInputs, {
       repositoryRoot: root,
       maxFileBytes,
       allowedMimeTypes: Object.hasOwn(capabilityPolicy, 'allowedMimeTypes')

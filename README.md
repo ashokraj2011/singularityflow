@@ -1866,11 +1866,11 @@ exists, VS Code fetches and resumes it instead of creating a duplicate.
 singularity-flow start WORK-123 \
   --from-branch main \
   --story-file ./manual-story.yml \
-  --document ./additional-context.pdf \
-  --document-url https://www.figma.com/design/example
+  --document ./additional-context.pdf --document-name "Additional context" \
+  --document-url https://www.figma.com/design/example --document-url-name "Checkout design"
 ```
 
-`--document` and `--document-url` may be repeated. A story file may also declare a `documents` list containing paths, URLs, optional labels, and kinds. Relative document paths are resolved from the story file's directory. The command copies each file to `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`, records its SHA-256 and metadata in `documents.json`, and creates and pushes those exact bytes together with `source.json`, a readable `USER-STORY.md`, and the workflow state in the opening governed commit. Intake and later phase prompts receive this active hash-verified evidence, so another laptop does not need the original local path. It still asks the contributor to choose the workflow template; the phase agent is automatic interactively.
+`--document` and `--document-url` may be repeated; every document needs its own name, given by the `--document-name` or `--document-url-name` that follows it, in the same order. `--document-phases PHASE,...|all` limits which phases use them (default: every phase). A story file may also declare a `documents` list containing paths or URLs, each with a `name` (an existing `label` still names it), and optional `kind` and `phases`. Relative document paths are resolved from the story file's directory. The command copies each file to `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`, records its SHA-256 and metadata in `documents.json`, and creates and pushes those exact bytes together with `source.json`, a readable `USER-STORY.md`, and the workflow state in the opening governed commit. Intake and later phase prompts receive this active hash-verified evidence, so another laptop does not need the original local path. It still asks the contributor to choose the workflow template; the phase agent is automatic interactively.
 
 The model-assisted wording operation is also available directly. Its schema-versioned JSON draft
 contains `title`, `description`, `acceptanceCriteria`, and an `attachments` path array; the result is
@@ -1986,11 +1986,11 @@ Durations include nights and weekends; they are not business-hours or developer-
 
 ## Supporting documents and designs
 
-Supporting inputs are managed under `singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Uploads are allowed only in the phases configured by `documents.allowedPhases`, narrowed to the work type's own phases; the starter profile allows intake, requirements, design, implementation-spec and the corresponding bugfix phases. A work type whose phases share no name with that list (spec-driven-standard starts at specification) accepts uploads in its first phase. Documents given when a Story is started are always accepted as part of its opening record.
+Supporting inputs are managed under `singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Every document has a name, unique in its Story ignoring case (detached documents keep theirs), which lists, prompts, reviews and every command that takes a document accept as well as its `DOC-nnn` ID. Every document is also offered to a set of phases: by default the phase it was added in and every later one. Only those phases' prompts and source reviews include it; `documents list --phase PHASE` shows what one phase uses, and `documents scope` changes the set with a recorded decision. Uploads are allowed only in the phases configured by `documents.allowedPhases`, narrowed to the work type's own phases; the starter profile allows intake, requirements, design, implementation-spec and the corresponding bugfix phases. A work type whose phases share no name with that list (spec-driven-standard starts at specification) accepts uploads in its first phase. Documents given when a Story is started are always accepted as part of its opening record.
 
 In VS Code, open **Singularity Flow → Lifecycle → Attach evidence & designs**. The same action works for the selected Story or Epic and offers:
 
-- Multiple files, including images, PDFs, Markdown, Office documents, and design assets.
+- Multiple files, including images, PDFs, Markdown, Office documents, and design assets. A Story asks for a name for each file, suggesting its file name.
 - A complete Figma export folder. Story uploads preserve it as one governed package; Epic intake pins its regular files in deterministic order.
 - A Figma design URL or another HTTPS reference. Links are recorded without following them and no Figma credential is stored.
 
@@ -1999,19 +1999,26 @@ The target is always shown before the write. Singularity Flow then uses the exis
 GitHub Copilot CLI can also load the bundled experimental Documents extension. Enable experimental features with `/experimental on`, start a fresh session, then use `/documents` for a searchable canvas or `/documents view PHASE-DESIGN` to open a specific artifact. The extension embeds a fresh document snapshot directly in the canvas; run `/documents` again after generating or uploading files to reload it. Hosts without canvas rendering automatically fall back to terminal output. Copilot currently does not allow plugins to add another built-in home tab, so the canvas is the supported tab-like document browser.
 
 ```bash
-# Local documents, screenshots, PDFs, .fig files, or other binary files
-singularity-flow documents upload ./brief.pdf ./checkout-wireframe.png
+# Local documents, screenshots, PDFs, .fig files, or other binary files: one --name per file, in order
+singularity-flow documents upload ./brief.pdf ./checkout-wireframe.png \
+  --name "Payment brief" --name "Checkout wireframe"
 
-# Complete exported design package; imported recursively in stable path order
-singularity-flow documents upload ./figma-export --kind figma-export
+# Complete exported design package, imported recursively in stable path order; members are
+# named "<name>/<relative path>". --phases limits which phases use it.
+singularity-flow documents upload ./figma-export --kind figma-export --name "Checkout export" --phases design,implementation
 
 # External Figma or design link (recorded, not downloaded)
 singularity-flow documents upload \
   --url https://www.figma.com/design/example \
-  --label "Checkout design"
+  --name "Checkout design"
 
 singularity-flow documents list
-singularity-flow documents view DOC-001
+singularity-flow documents list --phase design
+singularity-flow documents view "Payment brief"
+
+# Change which phases use a document: preview, then apply with a reason
+singularity-flow documents scope "Payment brief" --phases requirements,design --reason "Design owns the flow now" --dry-run
+singularity-flow documents scope "Payment brief" --phases requirements,design --reason "Design owns the flow now"
 
 # Stop future prompts from using evidence without deleting its audited bytes
 singularity-flow documents detach DOC-001 --reason "Superseded by the approved design"
@@ -2024,6 +2031,10 @@ singularity-flow epic sources list --epic MOB-100 --all
 ```
 
 Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME type, original filename, phase, human actor, and governed agent. Directory imports preserve the package name and relative source path for every discovered regular file; symbolic links are rejected. Upload creates and pushes one atomic work-item commit. Text evidence is embedded in governed Copilot prompts up to the pinned preview-byte limit. Images, PDFs, `.fig`, and other binaries contribute a verified repository path, MIME type, byte count, and SHA-256 so Copilot can inspect them with its file/image tools without base64 token inflation. Live Figma links remain external references and are never fetched automatically.
+
+Changing a document's phases is an atomic commit/push decision too. It requires a reason and records a hash-addressed decision under `evidence/document-scope/`. Adding a phase affects only prompts composed afterwards. Removing a phase whose prompt already used the document marks that prompt stale and reopens the earliest such phase, so no approval keeps resting on evidence its phase no longer uses; `--dry-run` shows all of that first.
+
+Names and phases arrived with version 3 of the document catalog. An older catalog reads as version 3: each document takes its label or file name (a duplicate gains ` (DOC-n)`), and is offered to every phase, so existing prompts and reviews do not change. Builds that know only version 2 refuse a version 3 catalog, so everyone on a team should upgrade before anyone adds a named document.
 
 Detachment is also an atomic commit/push decision. It requires a reason, retains the governed bytes and an append-only hash-addressed decision record, excludes the evidence from later prompts, and reopens only phases whose recorded compositions depended on it. Default catalogs show active evidence; `--all` includes detached history, actor, and reason. VS Code exposes the same operations under **Lifecycle → Manage evidence & designs**, including file-level and complete-package Figma detachment.
 
@@ -2815,10 +2826,11 @@ evidence workflow.
 | `singularity-flow mcp design-sources status` | Verify and display the exact approved design-source set used by downstream prompts. |
 | `singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID>` | Explicitly promote a reviewed candidate, reopen capture, invalidate downstream approvals, and pin it for the next generation. |
 | `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
-| `singularity-flow documents list [ID] [--active\|--all]` | List active uploaded inputs and generated documents, or include detached evidence history. |
-| `singularity-flow documents view <ID> [--all]` | Display active text content or return the path/URL for a binary/external document; `--all` permits audited detached evidence. |
-| `singularity-flow documents upload <FILE-OR-DIRECTORY...>` | Recursively copy, hash, catalog, commit, and push supporting evidence during configured initial phases. |
-| `singularity-flow documents detach <ID> [--scope file\|package] --reason TEXT` | Preserve Story evidence bytes, audit the decision, exclude future prompts, and invalidate only dependent phases. |
+| `singularity-flow documents list [ID] [--phase PHASE] [--active\|--all]` | List active uploaded inputs and generated documents, only those one phase uses, or include detached evidence history. |
+| `singularity-flow documents view <ID\|NAME> [--all]` | Display active text content or return the path/URL for a binary/external document; `--all` permits audited detached evidence. |
+| `singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...\|all]` | Recursively copy, hash, catalog, commit, and push named supporting evidence during configured initial phases. |
+| `singularity-flow documents scope <ID\|NAME> --phases PHASE,...\|all --reason TEXT [--dry-run]` | Change which phases use a document, audit the decision, and reopen only a phase whose prompt already used it. |
+| `singularity-flow documents detach <ID\|NAME> [--scope file\|package] --reason TEXT` | Preserve Story evidence bytes, audit the decision, exclude future prompts, and invalidate only dependent phases. |
 | `singularity-flow epic sources list --epic <ID> [--active\|--all]` | List active Epic sources or include detached history. |
 | `singularity-flow epic sources detach <ID> --epic <ID> --reason TEXT` | Govern and publish an Epic-source detachment with dependency-scoped invalidation. |
 | `singularity-flow jira pull <ID>` | Read and normalize one Jira issue using configured REST credentials. |

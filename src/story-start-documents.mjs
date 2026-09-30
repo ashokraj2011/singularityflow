@@ -15,6 +15,7 @@ import { commitAndPublish } from './state-stores.mjs';
 import { gitCommonDir } from './git.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
+import { assertAvailableDocumentNames, assignDocumentNames, normalizeDocumentPhases } from './document-identity.mjs';
 
 const DEFAULT_MAX_DOCUMENT_BYTES = 26214400;
 const DEFAULT_CAPTURE_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -497,6 +498,44 @@ export async function preflightInitialStoryDocuments(inputs = [], {
   }
 }
 
+function inputSources(input) {
+  const files = input?.files ?? (input?.type === 'file' ? [input.path] : []);
+  const url = input?.url ?? (input?.type === 'url' ? input.value ?? null : null);
+  return { files: Array.isArray(files) ? files : [], url };
+}
+
+function inputNames(input) {
+  return input?.names ?? (input?.name != null ? [input.name] : []);
+}
+
+/**
+ * Check the names and phases of every Story-start document before anything is captured, enrolled
+ * or published. Every document needs its own name; without this check a missing name would be
+ * found only inside the opening publication, after automatic enrollment may already have pushed.
+ * Phases are checked against `phaseOrder` when the work type is already known.
+ */
+export function assertStartDocuments(inputs = [], { phaseOrder = null } = {}) {
+  const names = [];
+  for (const input of inputs) {
+    const { files, url } = inputSources(input);
+    const source = url ?? files[0] ?? 'document';
+    try {
+      names.push(...assignDocumentNames(files.length + (url != null ? 1 : 0), { names: inputNames(input), label: input?.label ?? null }));
+    } catch (error) {
+      if (error?.code !== 'DOCUMENT_NAME_REQUIRED') throw error;
+      throw new SingularityFlowError(
+        `Story document '${source}' needs a name. Pass --document-name "…" once per --document and --document-url-name "…" once per --document-url, in the same order, or give it a name in the story file.`,
+        { code: 'DOCUMENT_NAME_REQUIRED' }
+      );
+    }
+    if (phaseOrder && input?.phases != null) {
+      normalizeDocumentPhases(input.phases, { phaseOrder, currentPhase: phaseOrder[0] }, { fromPhase: phaseOrder[0] });
+    }
+  }
+  assertAvailableDocumentNames([], names);
+  return names;
+}
+
 /**
  * Publish every document supplied at Story birth in one governed transaction.
  *
@@ -556,8 +595,10 @@ export async function stageInitialStoryDocuments(root, config, workflow, {
     records.push(...await addDocuments(root, config, workflow, {
       files: input.files ?? (input.type === 'file' ? [input.path] : []),
       url: input.url ?? null,
+      names: inputNames(input),
       label: input.label ?? null,
       kind: input.kind ?? null,
+      phases: input.phases ?? null,
       frozenEvidence,
       // Only Story creation freezes its documents first, so only it may admit them outside the
       // upload window as part of the opening record.

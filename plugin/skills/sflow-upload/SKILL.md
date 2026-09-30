@@ -2,7 +2,7 @@
 name: sflow-upload
 description: Attach, inspect, list, or governably detach files, folders, images, PDFs, Figma exports, notes, and HTTPS references for an Epic or Story.
 disable-model-invocation: true
-argument-hint: "attach <PATH...> [--epic EPIC-ID] | list [OWNER-ID] | view <ID> [--work-id WORK-ID] | detach <ID> --reason TEXT [--epic EPIC-ID]"
+argument-hint: "attach <PATH...> [--epic EPIC-ID] | list [OWNER-ID] | view <ID|NAME> [--work-id WORK-ID] | detach <ID|NAME> --reason TEXT [--epic EPIC-ID]"
 
 ---
 
@@ -15,28 +15,28 @@ argument-hint: "attach <PATH...> [--epic EPIC-ID] | list [OWNER-ID] | view <ID> 
 
 REV feedback: use `/sf-revision-attachments`; ordinary upload cannot bypass its importer.
 
-1. Use explicit `--epic` for an Epic. Story reads may use their documented Work-ID form. Story attach and detach do not support `--work-id`: require `singularity-flow session current --json` to identify the exact attached Story, or ask the user to attach it first. Never append an unsupported selector.
+1. Use explicit `--epic` for an Epic. Story attach/detach has no `--work-id`: identify the attached Story with `singularity-flow session current --json`, or ask the user to attach it first. Never append an unsupported selector.
 2. Resolve the action; show owner and target before mutation.
 3. For an Epic:
    - Use `singularity-flow epic sources add --epic <EPIC-KEY> --file <PATH>` once per file; expand directories in deterministic order.
    - Record authored text with `singularity-flow epic sources note --epic <EPIC-KEY> --text-file <PATH>`.
    - Record an HTTPS reference with `singularity-flow epic sources add --epic <EPIC-KEY> --url <URL> --label "<LABEL>"`.
    - Add `--provider`, `--mime`, or `--label` only when provided or required by repository policy.
-4. For the verified attached Story:
-   - Upload files or complete export directories with `singularity-flow documents upload <PATH...>`.
-   - Record an HTTPS reference with `singularity-flow documents upload --url <URL> --label "<LABEL>"`.
+4. For the verified attached Story, ask the user for a unique name per path or URL:
+   - Upload files or complete export directories with `singularity-flow documents upload <PATH...> --name "<NAME>"` (one `--name` per path, in order), plus `--phases <PHASE,...|all>` only if the user limits its phases.
+   - Record an HTTPS reference with `singularity-flow documents upload --url <URL> --name "<NAME>"`.
 5. Respect phase, provider, size, and sequence gates; leave soft warnings to the user.
-6. Never expose credentials, follow a URL implicitly, invent a MIME type when detection is available, or bypass the managed catalog.
+6. Never expose credentials, follow a URL implicitly, invent a MIME type, or bypass the managed catalog.
 7. Report each stable source/document ID, SHA-256, size, path/provider, commit, push result, and next `/sf-*` command.
 
 For detachment:
 
-1. List active evidence and show the exact ID, label, hash, path/URL, package, and affected phases.
-2. If it belongs to a Figma or other package, ask whether to detach this file or the complete package. Never choose package scope automatically.
-3. Require a reason and explain the consequences: committed bytes remain for audit, future Copilot prompts omit the evidence, and only its dependency cone is invalidated.
+1. List active evidence and show the exact ID, name, hash, path/URL, package, and affected phases.
+2. If it belongs to a package, ask whether to detach this file or the complete package; never choose automatically.
+3. Require a reason and explain: committed bytes remain for audit, future Copilot prompts omit the evidence, and only its dependency cone is invalidated.
 4. Require explicit human confirmation. Do not self-confirm.
 5. Only after confirmation, for a Story run `singularity-flow documents detach <DOCUMENT-ID> --reason "<reason>" --yes`, adding `--scope package` only when selected.
 6. Only after confirmation, for an Epic run `singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason "<reason>" --yes`. `--yes` conveys the reviewed decision to the noninteractive CLI; never add it before confirmation.
-7. Report the CLI decision, commit, publication status, invalidated phases and reopened phase, and next `/sf-*` action.
+7. Report the CLI decision, commit, publication status, invalidated and reopened phases, and next `/sf-*` action.
 
 Use `singularity-flow documents list --all` or `singularity-flow epic sources list --epic <EPIC-ID> --all` only to inspect detached history. Never delete or directly alter governed evidence bytes.

@@ -6,7 +6,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
-import { inferRepositoryTestCommands } from '../delivery-evidence.mjs';
+import { inferRepositoryTestCommands } from '../repository-test-command-inference.mjs';
 import { nodeTapCounts, parseTestResult } from '../code-delivery-tests.mjs';
 import { gitCommonDir, head } from '../git.mjs';
 import { resolvePlatformProcess } from '../platform-process.mjs';

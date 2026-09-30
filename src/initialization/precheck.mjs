@@ -8,7 +8,7 @@ import { gitCommonDir, identity } from '../git.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { resolvePlatformProcess } from '../platform-process.mjs';
-import { inferRepositoryTestCommands } from '../delivery-evidence.mjs';
+import { inferRepositoryTestCommands } from '../repository-test-command-inference.mjs';
 import { captureSmartInitSnapshot } from './source-snapshot.mjs';
 import { readLatestSmartInitActivation } from './recovery.mjs';
 

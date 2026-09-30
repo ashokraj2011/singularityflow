@@ -34,7 +34,9 @@ async function staticClosure(entries) {
     if (visited.has(absolute)) return;
     visited.add(absolute);
     const source = await readFile(absolute, 'utf8');
-    for (const match of source.matchAll(/(?:import|export)\s+(?:[^'";]+?\s+from\s+)?['"](\.[^'"]+)['"]/g)) {
+    // Follow actual static declarations, not fixture strings such as `"import ..."` embedded in
+    // modules reached by the smart-init closure.
+    for (const match of source.matchAll(/^\s*(?:import|export)\s+(?:[^'";]+?\s+from\s+)?['"](\.[^'"]+)['"]/gm)) {
       const candidate = path.resolve(path.dirname(absolute), match[1]);
       await walk(path.extname(candidate) ? candidate : `${candidate}.mjs`);
     }

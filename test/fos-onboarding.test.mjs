@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   bootstrapFosAuthority, FOS_LOCAL_BOOTSTRAP_POLICY_ID,
@@ -17,7 +18,7 @@ import { proposeConfigurationChange } from '../src/configuration-proposal.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { createRepoContext } from '../src/repo-context.mjs';
 
-const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
+const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
 function git(args, cwd) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();

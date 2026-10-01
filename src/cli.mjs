@@ -36,7 +36,7 @@ import {
 import { validatePortableWorkId } from './work-id.mjs';
 import { settleStoryStartReadWave } from './story-start-read-wave.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
+import { actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import {
   generationSkillForPhase, phaseRequiresCodeDelivery, workflowCodeGeneration
 } from './code-delivery-policy.mjs';
@@ -278,6 +278,10 @@ import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
 import { action as narrationAction, commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
+import {
+  decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, parseDecisionAssignments,
+  recordedDecisionValues, resolveDecisionChoice, storyDecisionView
+} from './workflow-decisions.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import {
@@ -7260,6 +7264,25 @@ async function runSubmitCommand(positionals, options, submitContext) {
   const initialPhaseId = requestedPhase ?? workflow.currentPhase;
   const initialPhase = workflow.phases[initialPhaseId];
   if (!initialPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${initialPhaseId ?? ''}'. Provide a phase ID.`);
+  // Checked before telemetry reconciliation or the publication unit opens, so a mistyped value is
+  // refused with nothing written. The transition records the same values again.
+  const decisionValues = parseDecisionAssignments(optionStrings(options, 'decision'));
+  const fedDecision = decisionFedBy(workflow, initialPhase.id);
+  if (initialPhase.status !== 'awaiting_approval') {
+    if (!fedDecision && Object.keys(decisionValues).length) {
+      throw new SingularityFlowError(`Phase '${initialPhase.id}' feeds no decision that records values; submit it without --decision.`,
+        { code: 'DECISION_INPUT_UNKNOWN' });
+    }
+    if (fedDecision && Object.keys(decisionValues).length) normalizeDecisionInputValues(fedDecision, decisionValues);
+    else if (fedDecision && !recordedDecisionValues(initialPhase, fedDecision)) {
+      throw new SingularityFlowError(
+        `Decision '${fedDecision.label}' after '${initialPhase.id}' reads values this submission must record. Submit with ${decisionInputsHint(fedDecision)}.`,
+        { code: 'DECISION_INPUTS_MISSING', details: { decision: fedDecision.id, inputs: fedDecision.inputs } }
+      );
+    }
+  } else if (Object.keys(decisionValues).length) {
+    console.warn(`Phase '${initialPhase.id}' is already submitted; the decision values recorded then stand. Request changes to record different ones.`);
+  }
   // Submission is an idempotent boundary. A retry can come from Copilot replaying an action after
   // the first command succeeded, or from a person not seeing the prior terminal result. Letting the
   // ordinary soft phase-status gate handle it opens the publication journal and subject lock before
@@ -7407,6 +7430,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
           runChecks: !optionBoolean(options, 'skip-checks'),
           architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
           persist: false,
+          decisionValues,
           ...(deterministicSubmission ? { actor: actionActor(root), agent: null } : {}),
           ...(requested.id === 'convergence'
             ? { confirmation: convergenceConfirmation }
@@ -8118,6 +8142,170 @@ async function rejectCommand(positionals, options) {
   }), { postState: workflow });
 }
 
+/**
+ * `decision show` and `decision choose`: read a Story's decisions, and record a person's choice at
+ * one that is waiting.
+ *
+ * Choosing follows `reopen`: the actor's authority is a pure function of the pinned groups and the
+ * current Git identity, so it is resolved and the choice checked before the publication unit opens,
+ * and the transition itself runs inside it.
+ */
+async function decisionCommand(positionals, options) {
+  const action = positionals[1] ?? 'show';
+  if (action === 'show') return decisionShowCommand(positionals, options);
+  if (action === 'choose') return decisionChooseCommand(positionals, options);
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show or decision choose.`,
+    { code: 'COMMAND_UNKNOWN' });
+}
+
+function printDecisionView(view) {
+  if (!view.decisions.length) {
+    console.log(`Story ${view.workId} has no decisions; its phases run in order.`);
+    return;
+  }
+  console.log(`Decisions in ${view.workId}:`);
+  for (const decision of view.decisions) {
+    const rounds = decision.maxRounds ? ` · round ${decision.rounds} of ${decision.maxRounds} used` : '';
+    console.log(`  After ${decision.afterLabel} — ${decision.label} (${decision.kind}${rounds})`);
+    for (const route of decision.routes) {
+      const where = route.reach === 'backward' ? `back to ${route.toLabel}`
+        : route.reach === 'end' ? 'finish the Story' : route.toLabel;
+      const skips = route.skips.length ? ` (skips ${route.skips.join(', ')})` : '';
+      const rule = decision.mode === 'ask' ? '' : route.rule ? `when ${route.rule} ` : 'otherwise ';
+      console.log(`    • ${route.label}: ${rule}→ ${where}${skips}`);
+    }
+  }
+  if (view.pending) {
+    const why = view.pending.reason === 'limit' ? ` — all ${view.pending.maxRounds} rounds are used` : '';
+    console.log(`\nWaiting for a decision: '${view.pending.label}' after ${view.pending.afterLabel}${why}.`);
+    console.log(`  Decided by: ${view.pending.by.join(', ')}`);
+    for (const option of view.pending.options) {
+      const where = option.reach === 'backward' ? `back to ${option.toLabel}`
+        : option.reach === 'end' ? 'finish the Story' : option.toLabel;
+      console.log(`    ${option.id} — ${option.label} → ${where}${option.skips.length ? ` (skips ${option.skips.join(', ')})` : ''}`);
+    }
+    if (view.pending.anyStep) console.log('    or any step with --to <PHASE|end>');
+    console.log(`  Choose: singularity-flow decision choose ${view.workId} --option <ID> --reason "<why>" --expected ${view.pending.key}`);
+  } else if (view.ahead?.hint) {
+    const recorded = view.ahead.recorded
+      ? `Recorded: ${Object.entries(view.ahead.recorded).map(([name, value]) => `${name}=${value}`).join(', ')}.`
+      : `Record at submission: singularity-flow submit ${view.ahead.after} ${view.ahead.hint}`;
+    console.log(`\nNext decision: '${view.ahead.label}' after ${view.ahead.after}. ${recorded}`);
+    if (view.ahead.projection) console.log(`  ${view.ahead.projection.text}`);
+  } else if (view.ahead) {
+    console.log(`\nNext decision: '${view.ahead.label}' after ${view.ahead.after}; a person chooses once it is approved.`);
+  }
+  for (const entry of view.skipped) {
+    console.log(`Skipped: ${entry.label}${entry.by ? ` (decision '${entry.by.decision}', route '${entry.by.route}')` : ''}.`);
+  }
+}
+
+async function decisionShowCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? undefined;
+  const { workflow } = await loadAcceptedStoryExecution(root, requestedId);
+  const view = storyDecisionView(workflow);
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify(view, null, 2));
+    return;
+  }
+  printDecisionView(view);
+}
+
+async function decisionChooseCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
+  let config = await loadConfig(root);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    await checkout(root, requestedId, {
+      base: config.defaultBaseBranch,
+      fetch: optionBoolean(options, 'fetch'),
+      existingOnly: true,
+      remote: config.git?.remote ?? 'origin'
+    });
+  }
+  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
+  config = accepted.definition;
+  const workflow = accepted.workflow;
+  const pending = workflow.pendingDecision ?? null;
+  if (!pending) {
+    throw new SingularityFlowError(
+      `Story ${workflow.workItem.id} is not waiting for a decision. See its decisions with singularity-flow decision show ${workflow.workItem.id}.`,
+      { code: 'DECISION_NOT_PENDING' }
+    );
+  }
+  const option = optionString(options, 'option') ?? null;
+  const to = optionString(options, 'to') ?? null;
+  const reason = optionString(options, 'reason') ?? '';
+  const expected = optionString(options, 'expected') ?? pending.key;
+  resolveDecisionChoice(workflow, pending, { option, to });
+  if (!reason.trim()) throw new SingularityFlowError('Say why with --reason; the decision log keeps it.', { code: 'DECISION_REASON_REQUIRED' });
+  const actor = actionActor(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const agent = loadedSession?.workId === workflow.workItem.id ? loadedSession.agent ?? null : null;
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: pending.by, requiredAuthorities: [], minimum: 1 },
+    actor
+  );
+  const after = workflow.phases[pending.after];
+  const { value: result, publication } = await transactStory(
+    root,
+    config,
+    workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE,
+      phaseId: pending.after,
+      generation: after?.generation ?? null,
+      actor,
+      agent,
+      authorityGroup: authority.authorityGroup,
+      payload: { decision: pending.decision, pendingKey: pending.key, option, to }
+    },
+    `[${workflow.workItem.id}][decision:${pending.decision}] ${option ?? `to ${to}`}`,
+    (aggregate) => decideStory(root, config, aggregate, {
+      option, to, reason, expectedKey: expected, channel: 'terminal', actor, agent
+    }),
+    {
+      eventFromResult: (transition) => ({
+        actor,
+        agent,
+        authorityGroup: transition.authority.authorityGroup,
+        identityAssurance: transition.authority.identityAssurance,
+        payload: {
+          decision: transition.outcome.decision,
+          route: transition.outcome.route,
+          kind: transition.outcome.kind,
+          target: transition.outcome.target ?? null,
+          pendingKey: transition.pendingKey
+        }
+      })
+    }
+  );
+  await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
+    const reloaded = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    return activateWorkItemSession(root, reloaded.config, reloaded.workflow);
+  });
+  const outcome = result.outcome;
+  const where = outcome.kind === 'loop' ? `back to ${workflow.phases[outcome.target]?.label ?? outcome.target}`
+    : outcome.kind === 'end' ? 'the end of the Story' : workflow.phases[outcome.target]?.label ?? outcome.target;
+  if (!optionBoolean(options, 'json')) {
+    console.log(`Decision '${pending.label}': ${outcome.routeLabel} → ${where}, chosen by ${actorKey(actor)} through ${authority.authorityGroup}.`);
+    if (outcome.skipped?.length) console.log(`Skipped: ${outcome.skipped.map((id) => workflow.phases[id]?.label ?? id).join(', ')}.`);
+    console.log(publication.pushed
+      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
+      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+    formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'decision.choose', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('decision.choose.succeeded', { decision: pending.decision, route: outcome.route, kind: outcome.kind, target: outcome.target ?? null }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, authorityGroup: authority.authorityGroup, skipped: outcome.skipped ?? [] }
+  }), { json: optionBoolean(options, 'json'), postState: workflow, restStateWhenIdle: workflow.status === 'complete' ? 'complete' : null });
+}
+
 async function reopenCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[1];
@@ -8169,7 +8357,7 @@ async function reopenCommand(positionals, options) {
   // completed Story has no current phase, so requiring `resume` here is an impossible recovery
   // loop: resume cannot select a phase agent for it. A matching session may contribute execution
   // context, but it is not authority for this human lifecycle decision.
-  const completionPhase = workflow.phases[workflow.phaseOrder.at(-1)];
+  const completionPhase = completionPhaseOf(workflow);
   const loadedSession = await loadSession(root, { required: false });
   const session = loadedSession?.workId === workflow.workItem.id ? loadedSession : null;
   const actor = actionActor(root);
@@ -17324,6 +17512,7 @@ async function dispatch(command, positionals, options) {
     submit: () => submitCommand(positionals, options),
     approve: () => approveCommand(positionals, options),
     reject: () => rejectCommand(positionals, options),
+    decision: () => decisionCommand(positionals, options),
     reopen: () => reopenCommand(positionals, options),
     cancel: () => cancelCommand(positionals, options),
     sync: () => syncCommand(positionals, options),

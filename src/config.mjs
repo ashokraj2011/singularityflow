@@ -56,6 +56,7 @@ import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
+import { normalizeDecisions } from './workflow-decisions.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './source-review-policy.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
@@ -2212,6 +2213,12 @@ export function resolveWorkType(definition, workTypeId) {
   const spec = ['opt-out', 'legacy-opt-out'].includes(plannedClaims.mode)
     ? { ...configuredSpec, acceptance: 'off' }
     : configuredSpec;
+  // Validated against the resolved phases: whether a rule may skip or loop depends on each phase's
+  // effective approval mode and inputs, which a per-workflow override can change.
+  const decisions = normalizeDecisions(workType.decisions, {
+    workTypeId, phases, plannedClaims,
+    approvalAuthorities: normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity)
+  });
   const sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
     workTypeId, phases: workType.phases
   });
@@ -2221,6 +2228,7 @@ export function resolveWorkType(definition, workTypeId) {
     id: workTypeId,
     label: workType.label,
     ...(reworkLoops.length ? { reworkLoops } : {}),
+    ...(decisions.length ? { decisions } : {}),
     auto: normalizeAutoWorkTypePolicy(workType.auto, `Work type '${workTypeId}' auto`, workType.phases),
     inputsMode: configuredInputsMode(definition),
     approvalSecurity: structuredClone(definition.approvalSecurity),
@@ -2330,6 +2338,9 @@ export async function snapshotResolution(root, definition, resolved) {
     sourceReview: structuredClone(resolved.sourceReview ?? { mode: 'off', phases: [], reviewerAgent: null }),
     plannedClaims: structuredClone(resolved.plannedClaims ?? null),
     ...(resolved.reworkLoops?.length ? { reworkLoops: structuredClone(resolved.reworkLoops) } : {}),
+    // Only when a workflow declares decisions, so every existing Story resolution and its policy
+    // digest stay byte-identical.
+    ...(resolved.decisions?.length ? { decisions: structuredClone(resolved.decisions) } : {}),
     codeDelivery: structuredClone(resolved.codeDelivery ?? normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {})),
     // Fault-repair is resolved per workflow just like code delivery. It must be pinned into the
     // Story snapshot; otherwise every later recovery gate silently falls back to product defaults.

@@ -9,6 +9,7 @@ import { withCommandResult } from './narration/emit.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { gitDir } from './git.mjs';
 import { phasePublicationCommand, phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { clearDecisionState } from './lifecycle-transitions.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -322,6 +323,7 @@ function switchCurrentPhase(workflow, phase, at) {
       candidate.submittedAt = null;
       candidate.approvedAt = null;
       candidate.approvedBy = null;
+      clearDecisionState(candidate);
       continue;
     }
     if (['in_progress', 'awaiting_approval'].includes(candidate.status) || index > targetIndex) {
@@ -329,9 +331,12 @@ function switchCurrentPhase(workflow, phase, at) {
       candidate.submittedAt = null;
       candidate.approvedAt = null;
       candidate.approvedBy = null;
+      clearDecisionState(candidate);
     }
     if (index >= targetIndex) candidate.approvals?.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = at; });
   }
+  // A deliberate jump supersedes any question that was waiting for a person.
+  delete workflow.pendingDecision;
   workflow.currentPhase = phase.id;
   workflow.status = 'in_progress';
 }

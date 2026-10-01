@@ -153,7 +153,11 @@ import {
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
-import { advanceCompletedPhase, nextPhaseAfterSkillAmendment, reopenPhaseRange } from './lifecycle-transitions.mjs';
+import { advanceCompletedPhase, clearDecisionState, nextPhaseAfterSkillAmendment, reopenPhaseRange } from './lifecycle-transitions.mjs';
+import {
+  assertChoiceKeepsDependencies, decisionFedBy, decisionInputsHint, decisionOutcome, describeOutcome,
+  normalizeDecisionInputValues, pendingDecisionRecord, recordedDecisionValues, resolveDecisionChoice
+} from './workflow-decisions.mjs';
 export { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
@@ -4129,7 +4133,7 @@ async function persistObservedTestReports(root, config, workflow, phase, command
 
 async function submitPhaseTransition(root, config, workflow, {
   phaseId, runChecks = true, persist = true, submissionContext = null,
-  architectureCandidateSnapshot = null, actor = null, agent = undefined
+  architectureCandidateSnapshot = null, actor = null, agent = undefined, decisionValues = null
 } = {}) {
   await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
@@ -4158,6 +4162,7 @@ async function submitPhaseTransition(root, config, workflow, {
       { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_SUBMIT' }
     );
   }
+  recordSubmittedDecisionInputs(workflow, phase, decisionValues, session.actor);
   // Repair legacy generations whose raw reporter output was registered as a phase artifact. The
   // normalized test-execution receipt is durable evidence; `.sflow/results/**` is disposable
   // command transport and commonly changes timestamps on every otherwise identical test run.
@@ -4616,7 +4621,9 @@ async function submitPhaseTransition(root, config, workflow, {
       baseline: final.baseline
     };
   }
-  const automaticUpcoming = nextPhaseAfterSkillAmendment(workflow, phase);
+  const automaticOutcome = phase.approvalPolicy.mode === 'none' || phase.approvalPolicy.mode === 'policy'
+    ? decisionOutcome(workflow, phase) : null;
+  const automaticUpcoming = upcomingAfterOutcome(workflow, phase, automaticOutcome);
   if (phaseRequiresCodeDelivery(automaticUpcoming)
       && (phase.approvalPolicy.mode === 'none' || phase.approvalPolicy.mode === 'policy')) {
     await assertPlannedSpecificationClaims(root, config, workflow, automaticUpcoming);
@@ -4659,7 +4666,9 @@ async function submitPhaseTransition(root, config, workflow, {
       actor: actorKey(session.actor),
       agent: session.agent
     });
-    const upcoming = advanceCompletedPhase(workflow, phase, phase.submittedAt);
+    const { upcoming, pending: automaticPending } = applyCompletionOutcome(workflow, phase, automaticOutcome, {
+      at: phase.submittedAt, actor: session.actor, agent: session.agent
+    });
     if (upcoming) {
       await ensureWorkIntervalBaseline(root, config, workflow, {
         phaseId: upcoming.id,
@@ -4680,8 +4689,8 @@ async function submitPhaseTransition(root, config, workflow, {
       reconciliationSha256: phase.workIntervalReconciliation?.reconciliationSha256 ?? null,
       changedPathsHash: waiver.changedPathsHash,
       predicates: waiver.predicates,
-      detail: `deterministic policy waiver${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}`
-    } : { at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_completed_without_approval', phase: phase.id, detail: `approval mode none${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` });
+      detail: `deterministic policy waiver${advanceDetail(workflow, automaticPending)}`
+    } : { at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_completed_without_approval', phase: phase.id, detail: `approval mode none${advanceDetail(workflow, automaticPending)}` });
   } else {
     phase.status = 'awaiting_approval';
     workflow.history.push({
@@ -5239,11 +5248,13 @@ export async function approvePhase(root, config, workflow, {
   }
   const prospectiveApprovals = [...phase.approvals, decision];
   const reached = approvalRequirementsMet(phase.approvalPolicy, prospectiveApprovals);
-  const upcomingForApproval = reached ? nextPhaseAfterSkillAmendment(workflow, phase) : null;
+  const approvalOutcome = reached ? decisionOutcome(workflow, phase) : null;
+  const upcomingForApproval = reached ? upcomingAfterOutcome(workflow, phase, approvalOutcome) : null;
   if (phaseRequiresCodeDelivery(upcomingForApproval)) {
     await assertPlannedSpecificationClaims(root, config, workflow, upcomingForApproval);
   }
   phase.approvals.push(decision);
+  let approvalPending = null;
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
     closeWorkInterval(workflow, {
@@ -5267,7 +5278,22 @@ export async function approvePhase(root, config, workflow, {
       };
     }
     if (resolved.length) decision.resolvedChangeRequests = resolved.map((request) => request.id);
-    const upcoming = advanceCompletedPhase(workflow, phase, decision.at);
+    let upcoming = null;
+
+    if (approvalOutcome?.kind === 'loop') {
+      // Going back is rework: the approved facts and the pinned rule chose it, and the approver
+      // saw that before approving. It reopens the range exactly as a rejection would.
+      await loopBackForDecision(root, config, workflow, phase, approvalOutcome, {
+        at: decision.at, actor: session.actor, agent: session.agent, channel: decision.channel,
+        authorityGroup: decision.authorityGroup, identityAssurance: decision.identityAssurance
+      });
+      logDecision(workflow, { outcome: approvalOutcome, at: decision.at, actor: session.actor, agent: session.agent });
+    } else {
+      ({ upcoming, pending: approvalPending } = applyCompletionOutcome(workflow, phase, approvalOutcome, {
+        at: decision.at, actor: session.actor, agent: session.agent
+      }));
+      await updateSkippedArtifactMetadata(root, config, workflow, approvalOutcome);
+    }
     if (upcoming) {
       // Gated with every other durable write here. Under `persist: false` the caller owns
       // persistence, and the publication unit's `phase-approved` branch writes this baseline inside
@@ -5280,9 +5306,12 @@ export async function approvePhase(root, config, workflow, {
         });
       }
     }
-    await markIntentAmendmentRevalidated(root, config, workflow, phase, decision.at, session.actor);
+    // A phase the decision sent back is not settled, so it cannot revalidate an amendment yet.
+    if (approvalOutcome?.kind !== 'loop') {
+      await markIntentAmendmentRevalidated(root, config, workflow, phase, decision.at, session.actor);
+    }
   }
-  workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
+  workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${approvalOutcome?.kind === 'loop' ? `; ${describeOutcome(workflow, approvalOutcome)}` : advanceDetail(workflow, approvalPending)}` : 'approval recorded' });
   if (persist) {
     // A partial threshold decision must not rewrite the artifact under review. Doing so made the
     // next reviewer see different bytes and invalidated the immutable submission packet even
@@ -5306,7 +5335,7 @@ export async function approvePhase(root, config, workflow, {
       complete: workflow.status === 'complete'
     })
     : null;
-  return { phase, next, approval: { approvedBy: key, ...decision }, reached, contextBoundary };
+  return { phase, next, approval: { approvedBy: key, ...decision }, reached, contextBoundary, decision: approvalOutcome ?? null };
 }
 
 async function registerApprovedSnapshot(root, config, workflow, phase) {
@@ -5667,6 +5696,252 @@ export async function previewTestingRepair(root, config, workflow) {
   return {
     ...plan,
     confirmation: `sha256:${createHash('sha256').update(canonicalJson(plan)).digest('hex')}`
+  };
+}
+
+/**
+ * The values a phase records for the decision after it, taken at submission so the reviewer
+ * approves exactly the facts the decision will read. A submitted phase cannot change them; a
+ * phase that is reopened records them again, because `reopenPhaseRange` clears them.
+ */
+function recordSubmittedDecisionInputs(workflow, phase, supplied, actor) {
+  const decision = decisionFedBy(workflow, phase.id);
+  const given = supplied && Object.keys(supplied).length ? supplied : null;
+  if (!decision) {
+    if (given) {
+      throw new SingularityFlowError(`Phase '${phase.id}' feeds no decision that records values; submit it without --decision.`,
+        { code: 'DECISION_INPUT_UNKNOWN' });
+    }
+    return null;
+  }
+  if (!given) {
+    if (recordedDecisionValues(phase, decision)) return phase.decisionInputs;
+    throw new SingularityFlowError(
+      `Decision '${decision.label}' after '${phase.id}' reads values this submission must record. Submit with ${decisionInputsHint(decision)}.`,
+      { code: 'DECISION_INPUTS_MISSING', details: { decision: decision.id, inputs: decision.inputs } }
+    );
+  }
+  phase.decisionInputs = {
+    schemaVersion: 1,
+    decision: decision.id,
+    values: normalizeDecisionInputValues(decision, given),
+    recordedAt: nowIso(),
+    recordedBy: actorKey(actor)
+  };
+  return phase.decisionInputs;
+}
+
+/** The phase a completion will start: the decision's target, or the linear successor. */
+function upcomingAfterOutcome(workflow, phase, outcome) {
+  if (!outcome || outcome.kind === 'next') return nextPhaseAfterSkillAmendment(workflow, phase);
+  return outcome.kind === 'forward' ? workflow.phases[outcome.target] ?? null : null;
+}
+
+function advanceDetail(workflow, pending) {
+  if (pending) return `; waiting for a decision: ${pending.label}`;
+  return workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete';
+}
+
+/** Append one routed, pending or chosen decision to the Story's log and history. */
+function logDecision(workflow, { outcome, at, actor, agent, pending = null, comment = null, authority = null }) {
+  workflow.decisionLog ??= [];
+  workflow.decisionLog.push({
+    decision: outcome.decision,
+    after: outcome.after,
+    kind: outcome.kind,
+    reason: outcome.reason ?? null,
+    route: outcome.route ?? null,
+    target: outcome.target ?? null,
+    skipped: [...(outcome.skipped ?? [])],
+    round: outcome.round ?? null,
+    values: outcome.values ?? null,
+    by: outcome.by ?? 'rule',
+    at,
+    actor: actor ? actorKey(actor) : null,
+    ...(authority ? { authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance } : {}),
+    ...(comment ? { comment } : {}),
+    ...(pending ? { pendingKey: pending.key } : {})
+  });
+  workflow.history.push({
+    at,
+    actor: actor ? actorKey(actor) : null,
+    agent: agent ?? null,
+    event: pending ? 'decision_pending' : outcome.by === 'person' ? 'decision_made' : 'decision_routed',
+    phase: outcome.after,
+    detail: `${describeOutcome(workflow, outcome)}${comment ? ` Reason: ${comment}` : ''}`
+  });
+}
+
+/**
+ * Apply a forward, finishing or pausing outcome after a phase completed. A loop never arrives
+ * here: only a phase a person signs off may send work back, and that goes through rework.
+ */
+function applyCompletionOutcome(workflow, phase, outcome, { at, actor, agent }) {
+  if (outcome?.kind === 'loop') {
+    throw new SingularityFlowError(`Decision '${outcome.label}' can send work back only when a person approves '${phase.id}'.`,
+      { code: 'LIFECYCLE_TRANSITION_INVALID' });
+  }
+  const pending = outcome?.kind === 'pause' ? pendingDecisionRecord(workflow, phase, outcome, { at }) : null;
+  const upcoming = advanceCompletedPhase(workflow, phase, at, pending ? { ...outcome, pending } : outcome);
+  if (outcome) logDecision(workflow, { outcome, at, actor, agent, pending });
+  return { upcoming, pending };
+}
+
+/** Skipped phases that already have an artifact from an earlier round say so in its metadata. */
+async function updateSkippedArtifactMetadata(root, config, workflow, outcome) {
+  for (const id of outcome?.skipped ?? []) {
+    if (workflow.phases[id]?.status === 'skipped') await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
+  }
+}
+
+/**
+ * Go back because a decision chose to: reopen the range exactly as a rejection does, with a change
+ * request that tells the reopened phase why. A rule's rounds are counted against its limit; a
+ * person may choose another round past it, and that round is counted too.
+ */
+async function loopBackForDecision(root, config, workflow, phase, outcome, {
+  at, actor, agent, channel = 'terminal', authorityGroup = null, identityAssurance = null, comment = null
+}) {
+  const targetId = outcome.target;
+  if (!workflow.phaseOrder.includes(targetId) || workflow.phaseOrder.indexOf(targetId) > workflow.phaseOrder.indexOf(phase.id)) {
+    throw new SingularityFlowError(`Decision '${outcome.label}' can only go back to '${phase.id}' or an earlier phase.`,
+      { code: 'LIFECYCLE_TRANSITION_INVALID' });
+  }
+  workflow.decisionRounds ??= {};
+  const rounds = workflow.decisionRounds[outcome.decision] ?? { count: 0 };
+  rounds.count += 1;
+  rounds.lastAt = at;
+  workflow.decisionRounds[outcome.decision] = rounds;
+  workflow.changeRequests ??= [];
+  const packet = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === phase.id && entry.generation === phase.generation);
+  const description = describeOutcome(workflow, { ...outcome, round: outcome.round ?? rounds.count });
+  const changeRequest = {
+    schemaVersion: 1,
+    id: `CR-${String(workflow.changeRequests.length + 1).padStart(3, '0')}`,
+    status: 'open',
+    sourcePhase: phase.id,
+    sourceGeneration: phase.generation,
+    targetPhase: targetId,
+    clauseIds: [],
+    // No forward checkpoint: a decision's loop is undone by deciding differently, not by rolling
+    // back to the moment before the rule applied.
+    decision: {
+      id: outcome.decision,
+      route: outcome.route ?? null,
+      round: outcome.round ?? rounds.count,
+      maxRounds: outcome.maxRounds ?? null,
+      values: outcome.values ?? null,
+      by: outcome.by ?? 'rule'
+    },
+    comment: comment ? `${description} ${comment}` : description,
+    requestedAt: at,
+    requestedBy: actor,
+    agent: agent ?? null,
+    channel,
+    authorityGroup,
+    identityAssurance,
+    sourceArtifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+    reviewPacketSha256: packet?.packetSha256 ?? null,
+    resolution: null
+  };
+  for (const id of reopenPhaseRange(workflow, {
+    targetId, at, actor: actorKey(actor), reason: changeRequest.comment
+  })) await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: targetId,
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
+  workflow.changeRequests.push(changeRequest);
+  return { changeRequest };
+}
+
+/**
+ * A person's choice at a decision that is waiting for one.
+ *
+ * Only members of the decision's groups may choose, with a reason, and only for the exact question
+ * they were shown (`expectedKey`). Moving on skips or finishes exactly as a rule would; going back
+ * is rework, recorded with a change request like any rejection.
+ */
+export async function decideStory(root, config, workflow, {
+  option = null, to = null, reason = '', expectedKey = null, channel = 'terminal',
+  actor = null, agent = undefined
+} = {}) {
+  await assertNoPendingPublication(root, config, workflow, 'decide');
+  const pending = workflow.pendingDecision ?? null;
+  if (!pending || workflow.status !== 'in_progress') {
+    throw new SingularityFlowError(`Story ${workflow.workItem.id} is not waiting for a decision.`, { code: 'DECISION_NOT_PENDING' });
+  }
+  if (expectedKey && expectedKey !== pending.key) {
+    throw new SingularityFlowError(
+      `The decision changed after it was shown (expected ${expectedKey}, now ${pending.key}). Review it again with singularity-flow decision show ${workflow.workItem.id}.`,
+      { code: 'DECISION_STALE', details: { expected: expectedKey, current: pending.key } }
+    );
+  }
+  const comment = String(reason ?? '').trim();
+  if (!comment) throw new SingularityFlowError('Say why with --reason; the decision log keeps it.', { code: 'DECISION_REASON_REQUIRED' });
+  const phase = workflow.phases[pending.after];
+  if (!phase || phase.status !== 'approved' || workflow.currentPhase !== phase.id) {
+    throw new SingularityFlowError(`Story ${workflow.workItem.id} records a decision after '${pending.after}', but that phase is not the approved current phase.`,
+      { code: 'DECISION_STATE_INVALID' });
+  }
+  const session = actor ? { actor, agent: agent ?? null } : await loadSession(root);
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: pending.by, requiredAuthorities: [], minimum: 1 },
+    session.actor
+  );
+  const { route, reach } = resolveDecisionChoice(workflow, pending, { option, to });
+  if (route.id === 'step') assertChoiceKeepsDependencies(workflow, pending, reach);
+  const at = nowIso();
+  const outcome = {
+    decision: pending.decision,
+    label: pending.label,
+    after: pending.after,
+    kind: reach.kind === 'backward' ? 'loop' : reach.kind,
+    route: route.id,
+    routeLabel: route.label,
+    target: reach.target,
+    skipped: reach.skipped,
+    values: pending.values ?? null,
+    maxRounds: pending.maxRounds ?? null,
+    by: 'person'
+  };
+  let upcoming = null;
+  if (outcome.kind === 'loop') {
+    outcome.round = (workflow.decisionRounds?.[pending.decision]?.count ?? 0) + 1;
+    delete workflow.pendingDecision;
+    await loopBackForDecision(root, config, workflow, phase, outcome, {
+      at, actor: session.actor, agent: session.agent, channel,
+      authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance,
+      comment: `Chosen by ${actorKey(session.actor)}: ${comment}`
+    });
+  } else {
+    const target = outcome.kind === 'forward' || outcome.kind === 'next' ? workflow.phases[reach.target] : null;
+    if (phaseRequiresCodeDelivery(target)) await assertPlannedSpecificationClaims(root, config, workflow, target);
+    upcoming = advanceCompletedPhase(workflow, phase, at, outcome.kind === 'next' ? null : outcome);
+    await updateSkippedArtifactMetadata(root, config, workflow, outcome);
+    if (upcoming) {
+      await ensureWorkIntervalBaseline(root, config, workflow, {
+        phaseId: upcoming.id,
+        itemDirectory: workDir(root, config, workflow.workItem.id),
+        itemRelative: workDirRelative(config, workflow.workItem.id)
+      });
+    }
+  }
+  logDecision(workflow, { outcome, at, actor: session.actor, agent: session.agent, comment, authority });
+  await saveWorkflow(root, config, workflow);
+  return {
+    outcome,
+    pendingKey: pending.key,
+    next: upcoming ?? (outcome.kind === 'loop' ? workflow.phases[outcome.target] : null),
+    authority,
+    contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
+      event: outcome.kind === 'loop' ? 'rejection' : undefined,
+      nextPhase: workflow.currentPhase ?? null,
+      complete: workflow.status === 'complete'
+    })
   };
 }
 
@@ -6402,7 +6677,8 @@ async function markIntentAmendmentRevalidated(root, config, workflow, phase, at,
   phase.intentAmendmentRevalidation.revalidatedAt = at;
   phase.intentAmendmentRevalidation.revalidatedBy = actor;
   summary.revalidatedPhases = [...new Set([...(summary.revalidatedPhases ?? []), phase.id])];
-  const required = workflow.phaseOrder.slice(workflow.phaseOrder.indexOf('specification') + 1);
+  const required = workflow.phaseOrder.slice(workflow.phaseOrder.indexOf('specification') + 1)
+    .filter((phaseId) => workflow.phases[phaseId]?.status !== 'skipped');
   if (required.every((phaseId) => summary.revalidatedPhases.includes(phaseId))) {
     summary.status = 'revalidated';
     summary.revalidatedAt = at;
@@ -6417,6 +6693,16 @@ async function markIntentAmendmentRevalidated(root, config, workflow, phase, at,
   await persistIntentAmendmentRecord(root, config, workflow, summary, record);
 }
 
+/**
+ * The phase that completed a Story: its last phase, unless a decision finished the Story early or
+ * skipped its tail, in which case the last phase that actually ran.
+ */
+export function completionPhaseOf(workflow) {
+  const id = [...workflow.phaseOrder].reverse().find((phaseId) => workflow.phases[phaseId]?.status !== 'skipped')
+    ?? workflow.phaseOrder.at(-1);
+  return workflow.phases[id];
+}
+
 export async function reopenWorkflow(root, config, workflow, {
   target, reason, channel = 'terminal', actionContext = null, gateRecovery = null,
   actor = null, agent = null
@@ -6425,7 +6711,7 @@ export async function reopenWorkflow(root, config, workflow, {
   if (workflow.status !== 'complete' || workflow.currentPhase != null) {
     throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not complete; use reject while a phase is awaiting approval.`);
   }
-  const completionPhase = workflow.phases[workflow.phaseOrder.at(-1)];
+  const completionPhase = completionPhaseOf(workflow);
   if (completionPhase.approvalPolicy.changeRequests?.reopenCompleted === false) {
     throw new SingularityFlowError(`Phase '${completionPhase.id}' policy does not allow completed work to be reopened.`);
   }
@@ -6491,6 +6777,7 @@ export async function reopenWorkflow(root, config, workflow, {
     affected.status = index === targetIndex ? 'in_progress' : 'not_started';
     affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
     affected.submissionArchitectureDecision = null;
+    clearDecisionState(affected);
     if (index === targetIndex) {
       affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = changeRequest.comment;
     }
@@ -6550,6 +6837,13 @@ function reworkScopePath(config, workflow, candidate, { untracked = false } = {}
 }
 
 function openReworkCheckpoint(workflow, changeRequestId = null) {
+  const newestOpen = (workflow.changeRequests ?? []).filter((request) => request.status === 'open').at(-1) ?? null;
+  if (newestOpen?.decision) {
+    throw new SingularityFlowError(
+      `The newest open rework, ${newestOpen.id}, was chosen by decision '${newestOpen.decision.id}'. It has no checkpoint to roll forward to; finish the round, or reject or reopen with a reason.`,
+      { code: 'REWORK_ROLL_FORWARD_DECISION', details: { changeRequest: newestOpen.id, decision: newestOpen.decision.id } }
+    );
+  }
   const candidates = (workflow.changeRequests ?? []).filter((request) =>
     request.status === 'open' && request.forwardCheckpoint);
   const latest = candidates.at(-1) ?? null;
@@ -6857,8 +7151,10 @@ export async function promoteDesignSource(root, config, workflow, {
     affected.status = index === targetIndex ? 'in_progress' : 'not_started';
     affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
     affected.submissionArchitectureDecision = null;
+    clearDecisionState(affected);
     await updateArtifactMetadata(root, config, workflow, affected);
   }
+  if (workflow.pendingDecision && workflow.phaseOrder.indexOf(workflow.pendingDecision.after) >= targetIndex) delete workflow.pendingDecision;
   const capture = workflow.phases[configured.capturePhase];
   capture.designSourceSelection = { ...(capture.designSourceSelection ?? {}), [candidate.fileKey]: candidate.candidateRecordId };
   workflow.currentPhase = configured.capturePhase;
@@ -6917,6 +7213,7 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
   phase.cancelledAt = timestamp;
   phase.cancelledBy = session.actor;
   phase.cancellationReason = comment;
+  delete workflow.pendingDecision;
   workflow.status = 'cancelled';
   workflow.currentPhase = null;
   workflow.cancellation = record;
@@ -8488,6 +8785,7 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
     if (['in_progress', 'awaiting_approval'].includes(phase.status)) activeCount += 1;
     if (phase.status === 'approved' && !(await exists(path.join(root, requiredRepoPath(config, workflow, phase))))) errors.push(`Approved artifact missing: ${requiredRepoPath(config, workflow, phase)}`);
   }
+  if (workflow.pendingDecision && workflow.status !== 'in_progress') errors.push(`A ${workflow.status} workflow cannot wait for a decision.`);
   if (workflow.status === 'complete') { if (workflow.currentPhase !== null) errors.push('Complete workflow must have currentPhase null.'); if (activeCount) errors.push('Complete workflow cannot have an active phase.'); }
   else if (workflow.status === 'cancelled') {
     if (workflow.currentPhase !== null) errors.push('Cancelled workflow must have currentPhase null.');
@@ -8495,6 +8793,14 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
     if (!workflow.cancellation?.reason?.trim()) errors.push('Cancelled workflow must record a cancellation reason.');
     if (!workflow.cancellation?.cancelledAt || !workflow.cancellation?.cancelledBy) errors.push('Cancelled workflow must record when and by whom it was cancelled.');
     if (!workflow.cancellation?.phase || workflow.phases[workflow.cancellation.phase]?.status !== 'cancelled') errors.push('Cancelled workflow must identify its cancelled phase.');
+  } else if (workflow.pendingDecision) {
+    // Waiting for a person: the phase before the decision is approved and stays current, and
+    // nothing is active until someone chooses what happens next.
+    if (workflow.currentPhase !== workflow.pendingDecision.after
+        || workflow.phases[workflow.pendingDecision.after]?.status !== 'approved') {
+      errors.push('A pending decision must follow the approved current phase.');
+    }
+    if (activeCount) errors.push(`A Story waiting for a decision cannot have an active phase; found ${activeCount}.`);
   } else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
   const active = currentPhase(workflow);
   if (strict && active && active.status === 'awaiting_approval') {

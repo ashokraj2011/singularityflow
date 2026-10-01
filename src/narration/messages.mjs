@@ -448,6 +448,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Cannot approve ${slot(s.phase, 'this phase')}.`,
     preserves: true
   },
+  'decision.choose.succeeded': {
+    headline: (s) => (s.kind === 'loop'
+      ? `Decision ${slot(s.decision)} chose ${slot(s.route)}; the Story goes back to ${slot(s.target)}.`
+      : s.target
+        ? `Decision ${slot(s.decision)} chose ${slot(s.route)}; the Story is now at ${slot(s.target)}.`
+        : `Decision ${slot(s.decision)} chose ${slot(s.route)}; the Story is complete.`),
+    preserves: false
+  },
   'reject.succeeded': {
     headline: (s) => `Requested changes to ${slot(s.phase)}; the Story is back at ${slot(s.target)}.`,
     preserves: false

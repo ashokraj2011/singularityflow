@@ -62,6 +62,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/document-replay.mjs',
   'src/story-epic-sources.mjs',
   'src/workflow-studio.mjs',
+  'src/workflow-decisions.mjs',
   'plugin/skills/sflow-code-docs/SKILL.md'
 ]);
 

@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'phase', 'product']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'phase', 'product', 'decision']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -116,7 +116,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
-  ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
+  ['approve'], ['reject'], ['decision'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['architecture'], ['revision'], ['revise'], ['hook'], ['bootstrap'], ['secrets'], ['env'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
@@ -250,6 +250,10 @@ const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WOR
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
+// A person's choice at a workflow decision is governed like approve and reject; reading one is not.
+const DECISION_READ_SUBCOMMANDS = Object.freeze(['show']);
+const DECISION_MUTATION_SUBCOMMANDS = Object.freeze(['choose']);
+const DECISION_SUBCOMMANDS = Object.freeze([...DECISION_READ_SUBCOMMANDS, ...DECISION_MUTATION_SUBCOMMANDS]);
 const REVISION_ATTACHMENT_ACTIONS = Object.freeze([
   'capabilities', 'preview', 'register', 'list', 'status', 'remove-preview', 'remove'
 ]);
@@ -411,6 +415,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
 
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
+  decision: DECISION_SUBCOMMANDS,
   telemetry: TELEMETRY_SUBCOMMANDS,
   visual: VISUAL_SUBCOMMANDS,
   mcp: MCP_SUBCOMMANDS,
@@ -610,6 +615,13 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
     return never(`workflow.${operationId}`, definition, 'mutation');
   }
   return unknownSubcommand('workflow', subcommand, WORKFLOW_SUBCOMMANDS);
+}
+
+function resolveDecisionOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'show';
+  if (DECISION_READ_SUBCOMMANDS.includes(subcommand)) return never(`decision.${subcommand}`, definition, 'read');
+  if (DECISION_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`decision.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('decision', subcommand, DECISION_SUBCOMMANDS);
 }
 
 function resolveDocumentsOperation(definition, positionals) {
@@ -1388,6 +1400,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
   if (definition.name === 'workflow') return resolveWorkflowCommandOperation(definition, positionals, options);
   if (definition.name === 'documents') return resolveDocumentsOperation(definition, positionals);
+  if (definition.name === 'decision') return resolveDecisionOperation(definition, positionals);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
   if (definition.name === 'explain') return resolveExplainOperation(definition, positionals, options);
   if (definition.name === 'comprehension') return resolveComprehensionOperation(definition, positionals);
@@ -1498,6 +1511,7 @@ export function operationCatalog() {
   const inputsDefinition = commandDefinition('inputs');
   const workflowDefinition = commandDefinition('workflow');
   const documentsDefinition = commandDefinition('documents');
+  const decisionDefinition = commandDefinition('decision');
   const specDefinition = commandDefinition('spec');
   const comprehensionDefinition = commandDefinition('comprehension');
   const explainDefinition = commandDefinition('explain');
@@ -1651,6 +1665,8 @@ export function operationCatalog() {
     never('workflow.install.preview', workflowDefinition, 'read'),
     ...DOCUMENTS_READ_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'read')),
     ...DOCUMENTS_MUTATION_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'mutation')),
+    ...DECISION_READ_SUBCOMMANDS.map((name) => never(`decision.${name}`, decisionDefinition, 'read')),
+    ...DECISION_MUTATION_SUBCOMMANDS.map((name) => never(`decision.${name}`, decisionDefinition, 'mutation')),
     never('spec.analyze', specDefinition, 'read'),
     optional('spec.analyze.assisted', 'spec.analyze', specDefinition),
     never('spec.index', specDefinition, 'mutation'),

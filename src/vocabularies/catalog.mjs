@@ -23,7 +23,7 @@ const observational = (value, description) => ({
 /** The sole owner of first-party Story, Initiative, ad hoc landing, and governed Goal members. */
 export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
   id: 'lifecycle-event-type',
-  version: 5,
+  version: 6,
   defaultClass: 'core-observational',
   entries: {
     BINDING: governing('binding', 'Binds a governed subject to its lifecycle identity and branch.'),
@@ -52,6 +52,10 @@ export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
     REWORK_ROLLED_FORWARD: {
       ...governing('rework-rolled-forward', 'Abandons a returned rework cone and restores its exact forward checkpoint.'),
       since: 3
+    },
+    DECISION_MADE: {
+      ...governing('decision-made', 'Records an authorized person\'s choice at a workflow decision.'),
+      since: 6
     },
     SEQUENCE_OVERRIDE: governing('sequence-override', 'Records an authorized workflow sequence override.'),
     EVIDENCE_RECORDED: observational('evidence-recorded', 'Records bounded evidence without independently advancing lifecycle authority.'),

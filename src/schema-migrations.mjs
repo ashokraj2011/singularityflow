@@ -2804,7 +2804,7 @@ const families = [
     ]
   }),
   family({
-    id: 'story-workflow', currentVersion: 11,
+    id: 'story-workflow', currentVersion: 12,
     steps: [
       migration(1, 2, storyWorkflowV1ToV2),
       migration(2, 3, identity(3)),
@@ -2820,7 +2820,10 @@ const families = [
       // v9 Story cannot gain an amendment or new WFA authority through read-side migration.
       migration(9, 10, identity(10)),
       // v11 registers audited summaries; historical rejected reviews gain no invented binding.
-      migration(10, 11, identity(11))
+      migration(10, 11, identity(11)),
+      // v12 registers workflow decisions: the `skipped` phase status, recorded decision inputs, a
+      // pending decision and its rounds and log. A v11 Story declared no decisions, so it reads as is.
+      migration(11, 12, identity(12))
     ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),

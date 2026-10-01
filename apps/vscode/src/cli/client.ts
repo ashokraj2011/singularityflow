@@ -331,6 +331,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   if (args[0] === 'documents') return ['list', 'browse'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'decision') return (args[1] ?? 'show') === 'show' ? 'read' : 'mutation';
   if (args[0] === 'workflow' && args[1] === 'author') {
     return ['list', 'read', 'show', 'history', 'op-status', 'preview', 'catalog'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
   }

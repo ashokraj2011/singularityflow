@@ -636,11 +636,14 @@ Usage:
   singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
   singularity-flow pr [WORK-ID] [--json] [--create] [--yes]
   singularity-flow submit [PHASE] [--work-id WORK-ID] [--phase PHASE] [--skip-checks] [--candidate-snapshot SHA256]
+    [--decision NAME=VALUE]...
   singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes] [--candidate-snapshot SHA256]
     [--article ID=satisfied|exception|not-applicable]... [--article-reason TEXT]... [--checklist FILE]
     [--witness-mapping SHA256=satisfied|exception|not-applicable]...
     [--witness-mapping-reason TEXT]... [--witness-mapping-expires YYYY-MM-DD]...
   singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE] [--clause ID]...
+  singularity-flow decision show [WORK-ID] [--json]
+  singularity-flow decision choose [WORK-ID] [--fetch] (--option ID | --to PHASE|end) --reason TEXT [--expected KEY] [--json]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]

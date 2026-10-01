@@ -3590,10 +3590,15 @@ singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]
 singularity-flow phase publish [PHASE] [--usage-json FILE]
 singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
 singularity-flow artifact scan [--phase PHASE]
-singularity-flow submit [PHASE] [--work-id WORK-ID] [--phase PHASE]
+singularity-flow submit [PHASE] [--work-id WORK-ID] [--phase PHASE] [--decision NAME=VALUE]...
 singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch]
 singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
 singularity-flow reject testing --to implementation --repair --reason TEXT [--confirm SHA256]
+singularity-flow decision show [WORK-ID] [--json]
+singularity-flow decision choose [WORK-ID] [--fetch] (--option ID | --to PHASE|end) --reason TEXT [--expected KEY]
+singularity-flow review-source context|status <specification|planning> [--json]
+singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
+singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
 singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow cancel WORK-ID --release [--apply --confirm WORK-ID] [--json]

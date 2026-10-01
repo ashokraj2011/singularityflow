@@ -226,8 +226,8 @@ export {
   validateWorkflow, workflowPath
 };
 export {
-  actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow,
-  CONFIG_PATH, createWorkflow, currentPhase, decideStorySkillVersion,
+  actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, completionPhaseOf,
+  CONFIG_PATH, createWorkflow, currentPhase, decideStory, decideStorySkillVersion,
   generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
   inspectRequiredArtifactRegistration, previewReworkRollForward, previewStorySkillVersionDecision,
   previewStorySkillVersionProposal, previewTestingRepair, promoteDesignSource,

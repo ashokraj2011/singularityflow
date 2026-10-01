@@ -1547,9 +1547,9 @@ singularity-flow epic sources list --epic MOB-100 --all
 
 Each uploaded file receives a stable ID, content hash, MIME type, actor, agent, and phase. Directories are imported recursively in deterministic relative-path order, with symbolic links rejected. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
 
-All governed prompt consumers use the same active-evidence renderer. Text is hash-verified and embedded only up to the configured preview limit. Binary evidence is hash-verified and delivered as repository path, MIME type, byte count, and SHA-256 with an instruction to use the host file/image/PDF tools. Evidence is explicitly labeled untrusted source material. Detached records are excluded from prompts and prompt-cache keys.
+All governed prompt consumers use the same active-evidence renderer. Text is hash-verified, fenced, and embedded only up to the configured preview limit per document and 48 KiB per prompt across its documents (`documents.maxPromptEvidenceBytes`). Binary evidence is hash-verified and delivered as repository path, MIME type, byte count, and SHA-256 with an instruction to use the host file/image/PDF tools. Evidence is explicitly labeled untrusted source material. Detached records are excluded from prompts and prompt-cache keys.
 
-Detaching requires a reason and exact confirmation. It never deletes bytes. Singularity Flow records an append-only decision, marks affected prompt compositions stale, reopens the earliest dependent phase, invalidates its downstream approval cone, commits, and pushes through the lifecycle publication transaction. Unrelated phases remain valid. Use `/sf-documents` or `/sf-upload` for the same attach/list/view/detach flow in Copilot, or **Lifecycle → Manage evidence & designs** in VS Code.
+Detaching requires a reason and exact confirmation. It never deletes bytes. Singularity Flow records an append-only decision, marks the prompt records of published work that used the document stale, reopens the earliest such phase up to the current one, invalidates its downstream approval cone, commits, and pushes through the lifecycle publication transaction. `--dry-run` previews exactly that. Unrelated phases remain valid. Use `/sf-documents` or `/sf-upload` for the same attach/list/view/detach flow in Copilot, or **Lifecycle → Manage evidence & designs** in VS Code.
 
 Revision feedback files use a separate staging command, not `documents upload`. In an active Story phase, `/sf-revision-attachments` previews a verifiable local text file, shows its original digest and extraction status, and registers it only after exact-plan confirmation. In VS Code, `@sflow /attachments` can preview one local file reference from the exact active Story worktree, but never registers it automatically. The host cannot supply original bytes for opaque chat uploads, so a chat-visible upload alone returns `REV_CHAT_ATTACHMENT_UNAVAILABLE`; save the same file locally and supply its path. Preview stages a short-lived private plan in Git's repository-local storage but changes no Story lifecycle state or Git ref. Registration does not run a REV loop, call a model, change approved intent, approve, or publish. PDF/image registration is disabled until approved malware scanning and validated parsing exist. Run `sflow explain revision-feedback-attachments` for the precise boundary.
 
@@ -3248,7 +3248,7 @@ singularity-flow local trust-export --story <LOC-ID> --signer <KEY-ID> --out <AB
 singularity-flow local review --story <LOC-ID> --candidate <SHA256> --signer <KEY-ID> [--json]
 singularity-flow local publish --story <LOC-ID> --candidate <SHA256> --signer <KEY-ID> [--destination <APPROVED-DIRECTORY>] [--format loc.zip.store.v1] [--json]
 singularity-flow local audit --bundle <ABSOLUTE-ARCHIVE> --trust-key <ABSOLUTE-PUBLIC-KEY-FILE> --signer <KEY-ID> --offline [--current-policy <ABSOLUTE-POLICY>] [--json]
-singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--json]
+singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--include-local-documents] [--json]
 singularity-flow reset-all [--yes]
 sf-reset-all [--yes]
 singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
@@ -3525,6 +3525,7 @@ singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phase
 singularity-flow documents upload --url URL --name TEXT [--phases PHASE,...|all] [--json]
 singularity-flow documents scope <DOCUMENT-ID|NAME> --phases PHASE,...|all --reason TEXT [--scope file|package] [--dry-run] [--yes]
 singularity-flow documents detach <DOCUMENT-ID|NAME> [--scope file|package] --reason TEXT [--dry-run] [--yes]
+singularity-flow documents store <DOCUMENT-ID|NAME> --store git [--json]
 singularity-flow revision activation [--json]
 singularity-flow revision capabilities [--json]
 singularity-flow revision status [--json]

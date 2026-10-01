@@ -37,6 +37,8 @@ export interface ProfileChoice {
   generatesCode?: boolean;
   /** Exact phase IDs classified as code-authoring phases by the engine. */
   codePhases?: string[];
+  /** Where its documents may be kept and the default; absent from older engines, meaning both, Git first. */
+  documentStorage?: { allowed: Array<'git' | 'local'>; default: 'git' | 'local' };
 }
 
 export interface ReferenceRepositoryDraft {
@@ -502,12 +504,13 @@ export function intakeCommand(form: IntakeForm): string[] {
       '--reference-branch', `${entry.id}=${entry.branch}`]);
   const target = form.workType === 'poc-workflow' ? ['--target-url', form.targetUrl.trim()] : [];
   const selected = form.storyAttachments.filter((entry): entry is StoryAttachmentDraft => Boolean(entry));
-  // Each document's storage and phases go once per --document, in the same order. When every
-  // document keeps the defaults (committed to Git, every phase) no flag is passed at all.
+  // Each document's storage and phases go once per --document, in the same order. Storage is always
+  // stated, so a repository whose policy defaults to this machine keeps a "Committed to Git" choice
+  // in Git; phases are passed only when one is narrowed.
+  const storage = storyDocumentStorage(form);
   const attachments = [
     ...selected.flatMap((entry) => ['--document', entry.sourcePath, '--document-name', storyAttachmentName(entry).replace(/\s+/gu, ' ').trim()]),
-    ...(selected.some((entry) => entry.store === 'local')
-      ? selected.flatMap((entry) => ['--document-store', entry.store === 'local' ? 'local' : 'git']) : []),
+    ...selected.flatMap((entry) => ['--document-store', entry.store ?? storage.default]),
     ...(selected.some((entry) => entry.phases?.length)
       ? selected.flatMap((entry) => ['--document-phases', entry.phases?.length ? entry.phases.join(',') : 'all']) : [])
   ];
@@ -1003,16 +1006,26 @@ function referenceRepositoriesHtml(form: IntakeForm): string {
   </section>`;
 }
 
+/** Where the chosen workflow lets Story documents be kept; both, Git first, when it does not say. */
+export function storyDocumentStorage(form: IntakeForm): { allowed: Array<'git' | 'local'>; default: 'git' | 'local' } {
+  return form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.documentStorage
+    ?? { allowed: ['git', 'local'], default: 'git' };
+}
+
 /** Where one staged document is kept and which phases use it. */
 function storyAttachmentOptionsHtml(form: IntakeForm, entry: StoryAttachmentDraft, index: number): string {
   const phases = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.phases ?? [];
   const chosen = entry.phases ?? phases;
-  const store = entry.store === 'local' ? 'local' : 'git';
+  const storage = storyDocumentStorage(form);
+  const store = entry.store ?? storage.default;
+  const labels = {
+    git: 'Committed to Git — everyone on the Story gets it',
+    local: 'On this machine only — Git records name, size and SHA-256'
+  };
   return `<div class="attachment-options">
       <label>Keep it
         <select data-attachment-store="${index}" aria-label="Where document ${index + 1} is kept">
-          <option value="git"${store === 'git' ? ' selected' : ''}>Committed to Git — everyone on the Story gets it</option>
-          <option value="local"${store === 'local' ? ' selected' : ''}>On this machine only — Git records name, size and SHA-256</option>
+          ${storage.allowed.map((kind) => `<option value="${kind}"${store === kind ? ' selected' : ''}>${labels[kind]}</option>`).join('')}
         </select>
       </label>
       ${phases.length ? `<fieldset class="attachment-phases"><legend>Used in phases</legend>

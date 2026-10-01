@@ -95,6 +95,7 @@ interface EngineStoryWorkflow {
   references?: 'off' | 'optional' | 'required';
   generatesCode?: boolean;
   codePhases?: string[];
+  documentStorage?: { allowed: Array<'git' | 'local'>; default: 'git' | 'local' };
 }
 
 interface EngineStoryWorkflowCatalog {
@@ -125,7 +126,7 @@ function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoic
     && entry.installed !== false).map((entry) => ({
     id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
     phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
-    generatesCode: entry.generatesCode, codePhases: entry.codePhases
+    generatesCode: entry.generatesCode, codePhases: entry.codePhases, documentStorage: entry.documentStorage
   }));
 }
 
@@ -140,7 +141,7 @@ function storyWorkflowCatalog(catalog: EngineStoryWorkflowCatalog | undefined): 
       entry.id && entry.governs === 'story' && entry.installed === false).map((entry) => ({
       id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
       phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
-      generatesCode: entry.generatesCode, codePhases: entry.codePhases
+      generatesCode: entry.generatesCode, codePhases: entry.codePhases, documentStorage: entry.documentStorage
     }))
   };
 }

@@ -202,6 +202,7 @@ Every public operation is classified before its implementation module is importe
 | documents.list | read | never | — | — |
 | documents.preview | read | never | — | — |
 | documents.scope | mutation | never | — | — |
+| documents.store | mutation | never | — | — |
 | documents.upload | mutation | never | — | — |
 | documents.view | read | never | — | — |
 | env.audit | read | never | — | — |

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,8 +77,9 @@ test('a document kept on this machine commits its identity only, and another clo
   assert.match(flow(root, ['documents', 'list']).stdout, /LOCATION: kept on this machine only/);
   assert.match(flow(root, ['documents', 'view', 'Salary bands']).stdout, /Band C starts at 91 000/);
 
-  // The bytes are in this clone's Git directory, owner-only, and in no commit or remote.
-  const stored = path.join(root, '.git', 'singularity-flow', 'local-documents', 'LOCAL-1', ...record.storage.key.split('/'));
+  // The bytes are in this clone's Git directory, beside (not inside) the runtime directory a
+  // factory reset removes, owner-only, and in no commit or remote.
+  const stored = path.join(root, '.git', 'singularity-flow-documents', 'LOCAL-1', ...record.storage.key.split('/'));
   assert.equal(await readFile(stored, 'utf8'), `# Salary bands\n${secretLine}\n`);
   assert.equal((await stat(stored)).mode & 0o777, 0o600);
   assert.equal((await stat(path.dirname(stored))).mode & 0o777, 0o700);
@@ -129,6 +130,59 @@ test('a document kept on this machine commits its identity only, and another clo
   assert.match(`${changedGate.stdout}${changedGate.stderr}`, /document integrity failed: DOC-001 \(kept on this machine/);
 });
 
+test('a document kept on this machine is committed to Git under the same ID by the machine that holds it', async () => {
+  const { root, remote } = await repository();
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-store-in-git-'));
+  const notes = path.join(uploads, 'rates.md'); await writeFile(notes, '# Rates\nStandard rate is 4.5%.\n');
+  flow(root, ['start', 'LOCAL-GIT-1', '--from-branch', 'main', '--title', 'Commit a local document']);
+  flow(root, ['documents', 'upload', notes, '--name', 'Rates', '--store', 'local']);
+  const [before] = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
+
+  // Another clone does not hold the bytes, so it cannot commit them; the refusal says who can.
+  const second = await mkdtemp(path.join(os.tmpdir(), 'sflow-store-second-'));
+  run('git', ['clone', '--quiet', remote, second], os.tmpdir());
+  run('git', ['config', 'user.name', 'Storage Tester'], second); run('git', ['config', 'user.email', 'storage@example.com'], second);
+  run('git', ['checkout', '--quiet', 'LOCAL-GIT-1'], second);
+  const elsewhere = flow(second, ['documents', 'store', 'DOC-001', '--store', 'git'], { allowFailure: true });
+  assert.notEqual(elsewhere.status, 0);
+  assert.match(elsewhere.stderr, /documents store DOC-001 --store git/);
+  assert.match(flow(second, ['documents', 'view', 'DOC-001', '--work-id', 'LOCAL-GIT-1'], { allowFailure: true }).stderr,
+    /ask them to commit it there with singularity-flow documents store DOC-001 --store git/);
+
+  const refusedLocal = flow(root, ['documents', 'store', 'Rates', '--store', 'local'], { allowFailure: true });
+  assert.match(refusedLocal.stderr, /cannot be moved to this machine/);
+  const stored = JSON.parse(flow(root, ['documents', 'store', 'Rates', '--store', 'git', '--json']).stdout);
+  assert.equal(stored.document.id, 'DOC-001');
+  assert.equal(stored.document.sha256, before.sha256);
+  assert.deepEqual(stored.document.storage, { kind: 'git' });
+  assert.equal(stored.document.path, 'singularity/work-items/LOCAL-GIT-1/inputs/DOC-001/rates.md');
+  assert.match(run('git', ['show', `HEAD:${stored.document.path}`], root).stdout, /Standard rate is 4\.5%/);
+  assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /\[LOCAL-GIT-1\]\[documents\]\[store\]/);
+  assert.match(flow(root, ['gate']).stdout, /document integrity: 1 supporting input/);
+  const again = flow(root, ['documents', 'store', 'DOC-001', '--store', 'git'], { allowFailure: true });
+  assert.match(again.stderr, /already committed to Git/);
+
+  run('git', ['pull', '--quiet', 'origin', 'LOCAL-GIT-1'], second);
+  assert.match(flow(second, ['documents', 'view', 'DOC-001', '--work-id', 'LOCAL-GIT-1']).stdout, /Standard rate is 4\.5%/);
+});
+
+test('a document an earlier build kept inside the runtime directory moves out the first time it is read', async () => {
+  const { root } = await repository();
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-legacy-local-document-'));
+  const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\nOnly here.\n');
+  flow(root, ['start', 'LOCAL-LEGACY-1', '--from-branch', 'main', '--title', 'Legacy local store']);
+  flow(root, ['documents', 'upload', notes, '--name', 'Notes', '--store', 'local']);
+  const store = path.join(root, '.git', 'singularity-flow-documents');
+  const legacy = path.join(root, '.git', 'singularity-flow', 'local-documents');
+  await mkdir(path.dirname(legacy), { recursive: true });
+  await rename(store, legacy);
+  assert.match(flow(root, ['documents', 'view', 'Notes']).stdout, /Only here\./);
+  const [record] = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
+  assert.equal(record.availability, 'available');
+  assert.equal(await readFile(path.join(store, 'LOCAL-LEGACY-1', ...record.storage.key.split('/')), 'utf8'), '# Notes\nOnly here.\n');
+  await assert.rejects(() => stat(legacy), (error) => error.code === 'ENOENT', 'the emptied legacy store is removed');
+});
+
 test('folders, links and a Git-only policy refuse machine-local storage; a local default applies', async () => {
   const { root } = await repository((config) => { config.documents.storage = { allowed: ['git'] }; });
   const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-refusals-'));
@@ -172,6 +226,81 @@ test('Story start keeps its documents on this machine with --document-store loca
   assert.equal(manifest.documents[0].origin, 'story-start');
   assert.doesNotMatch(run('git', ['log', '-p', '--all'], root).stdout, /Confidential pricing/);
   assert.match(flow(root, ['documents', 'view', 'Pricing brief']).stdout, /Confidential pricing/);
+});
+
+test('a story file\'s documents follow a single --document-store and --document-phases unless they set their own', async () => {
+  const { root } = await repository();
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-file-documents-'));
+  await writeFile(path.join(uploads, 'brief.md'), '# Brief\nPrivate pricing.\n');
+  await writeFile(path.join(uploads, 'glossary.md'), '# Glossary\nShared terms.\n');
+  const storyFile = path.join(uploads, 'story.yml');
+  await writeFile(storyFile, YAML.stringify({
+    title: 'Story file documents',
+    description: 'Documents listed in a story file follow the start options.',
+    acceptanceCriteria: ['Each document is kept where it was asked to be'],
+    documents: [
+      { path: 'brief.md', name: 'Pricing brief' },
+      { path: 'glossary.md', name: 'Glossary', store: 'git', phases: ['design'] }
+    ]
+  }));
+  flow(root, ['start', 'FILE-1', '--from-branch', 'main', '--story-file', storyFile,
+    '--document-store', 'local', '--document-phases', 'requirements,intake']);
+  const manifest = JSON.parse(await readFile(path.join(root, 'singularity/work-items/FILE-1/documents.json'), 'utf8'));
+  const byName = Object.fromEntries(manifest.documents.map((record) => [record.name, record]));
+  assert.equal(byName['Pricing brief'].storage.kind, 'local');
+  assert.deepEqual(byName['Pricing brief'].phases, ['intake', 'requirements']);
+  assert.equal(byName.Glossary.storage.kind, 'git', 'an entry\'s own store wins');
+  assert.deepEqual(byName.Glossary.phases, ['design']);
+  assert.doesNotMatch(run('git', ['log', '-p', '--all'], root).stdout, /Private pricing/);
+});
+
+test('Story start refuses a document at a path the environment declaration keeps local', async () => {
+  const { root } = await repository();
+  await writeFile(path.join(root, 'singularity', 'environments.yml'), `schemaVersion: 1
+environments:
+  qa:
+    requires:
+      - name: API_TOKEN
+        kind: secret
+    localFiles:
+      - config/qa.settings
+checks:
+  browser-tests:
+    environment: qa
+`);
+  run('git', ['add', 'singularity/environments.yml'], root);
+  run('git', ['commit', '-m', 'declare QA environment files'], root);
+  run('git', ['push'], root);
+  await mkdir(path.join(root, 'config'), { recursive: true });
+  await writeFile(path.join(root, 'config', 'qa.settings'), 'endpoint: https://qa.example.test\n');
+  const refused = flow(root, ['start', 'ENV-START-1', '--from-branch', 'main', '--title', 'Environment file at start',
+    '--document', path.join(root, 'config', 'qa.settings'), '--document-name', 'QA settings'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /'config\/qa\.settings' matches environments\.qa\.localFiles rule 'config\/qa\.settings'/);
+  assert.equal(run('git', ['branch', '--list', 'ENV-START-1'], root).stdout.trim(), '', 'refused before the Story exists');
+});
+
+test('an isolated start reads relative document and story-file paths from the checkout it was launched in', async () => {
+  const { root } = await repository();
+  // Untracked files make the launch checkout dirty, so the start continues in its own worktree.
+  await mkdir(path.join(root, 'docs'), { recursive: true });
+  await writeFile(path.join(root, 'docs', 'notes.md'), '# Notes\nGiven by a relative path.\n');
+  await writeFile(path.join(root, 'docs', 'brief.md'), '# Brief\nListed by a relative story file.\n');
+  await writeFile(path.join(root, 'docs', 'story.yml'), YAML.stringify({
+    title: 'Relative story file', description: 'Started from a dirty checkout.', acceptanceCriteria: ['Paths resolve where they were typed'],
+    documents: [{ path: 'brief.md', name: 'Brief' }]
+  }));
+  const explicit = flow(root, ['start', 'REL-1', '--from-branch', 'main', '--title', 'Relative document',
+    '--document', 'docs/notes.md', '--document-name', 'Notes']);
+  assert.match(explicit.stdout, /Isolated Story checkout: (.+)/);
+  const worktree = explicit.stdout.match(/Isolated Story checkout: (.+)/)[1].trim();
+  const [notes] = JSON.parse(await readFile(path.join(worktree, 'singularity/work-items/REL-1/documents.json'), 'utf8')).documents;
+  assert.equal(notes.name, 'Notes');
+  assert.match(await readFile(path.join(worktree, notes.path), 'utf8'), /Given by a relative path/);
+  const fromFile = flow(root, ['start', 'REL-2', '--from-branch', 'main', '--story-file', 'docs/story.yml']);
+  const fileWorktree = fromFile.stdout.match(/Isolated Story checkout: (.+)/)[1].trim();
+  const [brief] = JSON.parse(await readFile(path.join(fileWorktree, 'singularity/work-items/REL-2/documents.json'), 'utf8')).documents;
+  assert.equal(brief.name, 'Brief');
 });
 
 test('each Story-start document has its own phases and storage, and an image is kept like any file', async () => {

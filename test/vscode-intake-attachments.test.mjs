@@ -68,7 +68,18 @@ test('each Story start document carries its own storage and phases', () => {
   const brief = { sourcePath: '/source/brief.md', displayName: 'brief.md', name: 'Brief' };
   const mockup = { sourcePath: '/source/checkout.png', displayName: 'checkout.png', name: 'Checkout mockup' };
   const plain = intakeCommand(story({ ...choices, storyAttachments: [brief, mockup, null, null] }));
-  assert.ok(!plain.includes('--document-store') && !plain.includes('--document-phases'), 'Git and every phase are the defaults');
+  assert.deepEqual(plain.slice(plain.indexOf('--document-store')), ['--document-store', 'git', '--document-store', 'git'],
+    'storage is always stated; every phase is the default and needs no flag');
+  const localOnly = {
+    ...choices,
+    storyWorkflows: [{ ...choices.storyWorkflows[0], documentStorage: { allowed: ['local'], default: 'local' } }]
+  };
+  const policyCommand = intakeCommand(story({ ...localOnly, storyAttachments: [brief, null, null, null] }));
+  assert.deepEqual(policyCommand.slice(policyCommand.indexOf('--document-store')), ['--document-store', 'local'],
+    'an unchosen document follows the workflow\'s default storage');
+  const policyHtml = intakeHtml(story({ ...localOnly, storyAttachments: [brief, null, null, null] }));
+  assert.match(policyHtml, /<option value="local" selected>On this machine only/);
+  assert.doesNotMatch(policyHtml, /<option value="git"/, 'a storage the workflow does not allow is not offered');
   const each = intakeCommand(story({ ...choices, storyAttachments: [
     { ...brief, store: 'local', phases: ['specification', 'planning'] }, null, mockup, null
   ] }));
@@ -171,9 +182,12 @@ test('all Story start variants carry the four selected documents in slot order',
     sourcePath: `/source/document-${index + 1}.md`, displayName: `document-${index + 1}.md`,
     name: `  Source   document ${index + 1} `
   }));
-  const expected = storyAttachments.flatMap((entry, index) => [
-    '--document', entry.sourcePath, '--document-name', `Source document ${index + 1}`
-  ]);
+  const expected = [
+    ...storyAttachments.flatMap((entry, index) => [
+      '--document', entry.sourcePath, '--document-name', `Source document ${index + 1}`
+    ]),
+    ...storyAttachments.flatMap(() => ['--document-store', 'git'])
+  ];
   const choices = {
     storyWorkflows: [{ id: 'feature', label: 'Feature', description: '', phases: ['intake'] }],
     workType: 'feature', baseBranch: 'main', basePreflightPassed: true

@@ -126,11 +126,14 @@ export function evidenceCommands(target: EvidenceTarget, input: EvidenceInput): 
       : [['epic', 'sources', 'add', '--epic', target.id, '--url', input.url, '--label', input.label]];
   }
   if (target.kind === 'story') {
+    // Storage is always stated: a repository whose policy defaults to this machine must not turn a
+    // "Committed to Git" choice into a local copy. A folder (a Figma export) is always committed.
+    const store = input.kind === 'figma-export' ? 'git' : input.store ?? 'git';
     return [[
       'documents', 'upload', ...input.paths,
       ...(input.names ?? []).flatMap((name) => ['--name', name]),
       ...(input.kind === 'figma-export' ? ['--kind', 'figma-export'] : []),
-      ...(input.store === 'local' ? ['--store', 'local'] : []),
+      '--store', store,
       ...phaseArguments(input.phases)
     ]];
   }
@@ -159,6 +162,23 @@ export function evidenceScopeCommand(item: EvidenceCatalogItem, phases: string[]
 export function defaultEvidencePhases(phaseOrder: string[], currentPhase?: string | null): string[] {
   const start = currentPhase ? phaseOrder.indexOf(currentPhase) : 0;
   return phaseOrder.slice(Math.max(0, start));
+}
+
+/**
+ * Where a Story's documents may be kept, from its pinned document policy: the allowed choices in a
+ * stable order and the one used when nobody chooses. Mirrors the engine's documentStorageChoices.
+ */
+export function evidenceStorageChoices(policy: { storage?: { allowed?: unknown; default?: unknown } } | null | undefined): {
+  allowed: Array<'git' | 'local'>; default: 'git' | 'local';
+} {
+  const kinds: Array<'git' | 'local'> = ['git', 'local'];
+  const shared = kinds[0]!;
+  const configured = Array.isArray(policy?.storage?.allowed) ? policy!.storage!.allowed as unknown[] : [];
+  const allowed = configured.length ? kinds.filter((kind) => configured.includes(kind)) : kinds;
+  const usable = allowed.length ? allowed : kinds;
+  const fallback: 'git' | 'local' = usable.includes(shared) ? shared : usable[0]!;
+  const chosen = policy?.storage?.default;
+  return { allowed: usable, default: chosen === 'git' || chosen === 'local' ? (usable.includes(chosen) ? chosen : fallback) : fallback };
 }
 
 /** How a Story document's storage reads in a list. */

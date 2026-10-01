@@ -118,8 +118,9 @@ import {
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
-import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, viewDocument } from './documents.mjs';
+import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, viewDocument } from './documents.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
+import { documentStorageChoices } from './document-storage-policy.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import {
   assertClarificationRecordingAllowed, recordClarificationResponses, verifyClarificationRecord
@@ -680,6 +681,17 @@ function renderFactoryResetPlan(plan) {
   for (const item of plan.replace) console.log(`- ${item}`);
   console.log('\nPreserve:');
   for (const item of plan.preserve) console.log(`- ${item}`);
+  const machineOnly = plan.machineOnlyDocuments;
+  const listed = [...(machineOnly?.documents ?? []), ...(machineOnly?.unmoved ?? [])];
+  if (listed.length && !plan.completed) {
+    console.log(`\nMachine-only Story documents (${machineOnly.included ? 'deleted by this reset' : 'kept'}; this is the only copy of each):`);
+    for (const item of listed.slice(0, 20)) console.log(`- ${item}`);
+    if (listed.length > 20) console.log(`- and ${listed.length - 20} more`);
+  }
+  if (machineOnly?.unmoved?.length && !machineOnly.included && !plan.completed) {
+    console.log('\nAn earlier build kept these inside the runtime directory, so the reset will refuse until they are moved out:');
+    console.log('run singularity-flow documents list once, then preview again.');
+  }
   if (plan.customAgentRecoveries?.length) {
     console.log('\nInvalid custom agents preserved outside active discovery:');
     for (const item of plan.customAgentRecoveries) {
@@ -703,7 +715,8 @@ function renderFactoryResetPlan(plan) {
     const command = plan.operation === 'factory-reset-all'
       ? 'sflow reset-all --yes'
       : `singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)} `
-        + `--expect-scope-sha256 ${plan.resetScopeSha256}`;
+        + `--expect-scope-sha256 ${plan.resetScopeSha256}`
+        + `${plan.machineOnlyDocuments?.included ? ' --include-local-documents' : ''}`;
     printCommandRoutes(command);
   } else {
     for (const warning of plan.warnings ?? []) console.log(`\nWarning: ${warning}`);
@@ -725,13 +738,16 @@ async function factoryResetCommand(options) {
       + 'Nothing was removed. Preview again and copy the complete generated command.'
     );
   }
+  // Machine-only Story documents are kept unless this flag is on both the preview and the reset.
+  const includeLocalDocuments = optionBoolean(options, 'include-local-documents');
   const result = dryRun
-    ? await factoryResetPlan(root, { packageVersion: VERSION })
+    ? await factoryResetPlan(root, { packageVersion: VERSION, includeLocalDocuments })
     : await factoryResetRepository(root, {
       confirmation: optionString(options, 'confirm'),
       packageVersion: VERSION,
       allowDirty: optionBoolean(options, 'allow-dirty'),
-      expectedScopeSha256
+      expectedScopeSha256,
+      includeLocalDocuments
     });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else renderFactoryResetPlan(result);
@@ -1646,6 +1662,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   const {
     completeStoryWorktree, prepareStoryWorktree, rollbackFailedStoryWorktree
   } = await import('./story-worktree.mjs');
+  // The operator's file paths are relative to where the command ran, not to the Story worktree the
+  // start continues in after it changes directory.
+  const launchDirectory = process.cwd();
   // A public FOS lookup remains strictly bound to the worktree where it was reviewed. Seal the
   // source authority before Git creates or enters another worktree; only this controlled start
   // path may carry the already-verified snapshot across that boundary.
@@ -1811,6 +1830,10 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       childOptions[ISOLATED_STORY_INTAKE_HANDOFF] = Object.freeze({ proof: intakeProof, status: intake });
     }
     if (selectionHandoff) childOptions[ISOLATED_STORY_SELECTION_HANDOFF] = selectionHandoff;
+    if (optionStrings(options, 'document').length) {
+      childOptions.document = optionStrings(options, 'document').map((file) => path.resolve(launchDirectory, file));
+    }
+    if (optionString(options, 'story-file')) childOptions['story-file'] = path.resolve(launchDirectory, optionString(options, 'story-file'));
     process.chdir(prepared.repositoryPath);
     result = await startCommand(positionals, childOptions);
     completeStoryWorktree(prepared);
@@ -2559,13 +2582,14 @@ export async function startCommand(positionals, options) {
       label: 'POC target URL'
     });
   }
-  const initialDocumentInputs = [...(preloadedManual?.documents ?? []), ...explicitDocumentInputs];
+  const initialDocumentInputs = [...withStartDocumentDefaults(preloadedManual?.documents ?? [], options), ...explicitDocumentInputs];
   await assertStartDocuments(initialDocumentInputs, {
     phaseOrder: deterministicPolicy.resolved?.phases?.map((phase) => phase.id) ?? null,
     documentPolicy: deterministicPolicy.resolved?.documents ?? null
   });
   documentCapture = await measureCommandSpan('start.documents', () => preflightInitialStoryDocuments(initialDocumentInputs, {
     repositoryRoot: root,
+    launchRepository: optionString(options, 'story-launch-repository') ?? null,
     maxFileBytes: deterministicPolicy.maximumFileBytes,
     allowedMimeTypes: deterministicPolicy.allowedMimeTypes
   }));
@@ -2810,7 +2834,7 @@ export async function startCommand(positionals, options) {
         });
   // The first capture already owns the exact bytes for every non-interactive input. Only a later
   // interactive manual intake can add documents here; never read the first sources a second time.
-  const laterDocuments = preloadedManual ? [] : (manual?.documents ?? []);
+  const laterDocuments = preloadedManual ? [] : withStartDocumentDefaults(manual?.documents ?? [], options);
   let supportingDocuments = documentCapture.inputs;
   const workType = deterministicWorkType;
   const targetOrigin = normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
@@ -2837,6 +2861,7 @@ export async function startCommand(positionals, options) {
   documentCapture = await measureCommandSpan('start.documents', () =>
     preflightInitialStoryDocuments(laterDocuments, {
     repositoryRoot: root,
+    launchRepository: optionString(options, 'story-launch-repository') ?? null,
     priorCapture: documentCapture,
     maxFileBytes: Math.min(
       resolvedWorkType.documents?.maxFileBytes ?? 26214400,
@@ -4735,6 +4760,23 @@ function startDocumentInputs(options, files, urls) {
   ];
 }
 
+/**
+ * A --document-store or --document-phases given once is the default for documents a story file
+ * lists too, so `--story-file … --document-store local` keeps them on this machine as it says; an
+ * entry's own `store` or `phases` wins. Given once per --document, they belong to those files.
+ */
+function withStartDocumentDefaults(documents, options) {
+  const stores = optionStrings(options, 'document-store');
+  const phaseLists = optionStrings(options, 'document-phases').map(startDocumentPhaseList);
+  const store = stores.length === 1 ? stores[0] : null;
+  const phases = phaseLists.length === 1 ? phaseLists[0] : null;
+  return documents.map((document) => ({
+    ...document,
+    store: document.store ?? (document.type === 'url' ? null : store),
+    phases: document.phases ?? phases
+  }));
+}
+
 /** One value for every Story-start document, or one per document in the same order. */
 function perStartDocument(values, count, option, input) {
   if (values.length <= 1) return Array.from({ length: count }, () => values[0] ?? null);
@@ -4758,6 +4800,7 @@ const DOCUMENTS_SUBCOMMAND_OPTIONS = Object.freeze({
   browse: ['provider', 'path'],
   detach: ['reason', 'scope', 'dry-run', 'yes'],
   scope: ['phases', 'reason', 'scope', 'dry-run', 'yes'],
+  store: ['store'],
   upload: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
   add: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
   fetch: ['provider', 'ref', 'name', 'filename', 'label', 'kind', 'phases', 'store', 'confirm-override']
@@ -5042,6 +5085,32 @@ async function documentsCommand(positionals, options) {
     return;
   }
   if (subcommand === 'scope') return documentsScopeCommand(root, positionals, options);
+  if (subcommand === 'store') {
+    const reference = requirePositional(positionals, 2, 'document ID or name');
+    const destination = String(optionString(options, 'store') ?? '').trim().toLowerCase();
+    if (destination !== 'git') {
+      throw new SingularityFlowError(destination === 'local'
+        ? 'A committed document cannot be moved to this machine: its bytes are already in Git history.'
+        : 'Name where to keep it: documents store <ID|NAME> --store git commits a document kept on this machine.',
+      { code: 'DOCUMENT_STORAGE_INVALID' });
+    }
+    const config = await loadConfig(root);
+    const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+    refuseOtherStoryDocumentTarget(workflow, options);
+    let stored;
+    const publication = await commitAndPublish(
+      root, config, workflow,
+      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: workflow.currentPhase, payload: { action: 'stored', storage: 'git' } },
+      `[${workflow.workItem.id}][documents][store] ${reference} committed to Git`,
+      [],
+      { beforeStateWrite: async () => { stored = await storeDocumentInGit(root, config, workflow, { documentId: reference }); return [stored]; } }
+    );
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ document: stored, publication }, null, 2));
+    console.log(`${documentTitle(stored)} is committed to Git at ${stored.path}; its ID and SHA-256 are unchanged.`);
+    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
+    if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
+    return;
+  }
   throw new SingularityFlowError(`Unknown documents subcommand: ${subcommand}`);
 }
 
@@ -14545,7 +14614,9 @@ async function workspaceCommand(positionals, options) {
             id, label: workflow.label ?? id, description: workflow.description ?? '',
             phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
             governs: 'story', installed: true,
-            ...workflowCodeGeneration(resolveWorkType(definition, id))
+            ...workflowCodeGeneration(resolveWorkType(definition, id)),
+            // Where its documents may be kept, so Start Work offers only what the policy allows.
+            documentStorage: documentStorageChoices(resolveWorkType(definition, id).documents)
           })),
           // These are catalog entries, not executable choices. Keeping them in a separate field
           // prevents an editor from accidentally sending an unavailable ID to Story start while
@@ -14658,7 +14729,9 @@ async function workspaceCommand(positionals, options) {
                 id, label: workflow.label ?? id, description: workflow.description ?? '',
                 phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
                 governs: 'story', installed: true,
-                ...workflowCodeGeneration(resolveWorkType(definition, id))
+                ...workflowCodeGeneration(resolveWorkType(definition, id)),
+                // Where its documents may be kept, so Start Work offers only what the policy allows.
+                documentStorage: documentStorageChoices(resolveWorkType(definition, id).documents)
               })),
               availableStoryWorkflows: packagedCatalog.workflows
                 .filter((workflow) => workflow.installed === false)

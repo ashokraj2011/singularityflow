@@ -9,16 +9,33 @@ function fail(message, code, details) {
 }
 
 export const DOCUMENT_STORAGE_KINDS = Object.freeze(['git', 'local']);
+/** The storage used when a policy allows it and names no default: everyone on the Story gets the file. */
+const SHARED_STORAGE = DOCUMENT_STORAGE_KINDS[0];
 /** Destinations people ask for that have no implementation yet; refused by name, not as unknown. */
 const PLANNED_STORAGE_KINDS = Object.freeze(['onedrive', 'sharepoint', 'jira']);
 
 /**
- * The storage a new document uses: the one asked for, else the policy default, else Git. The
- * policy (`documents.storage: {allowed, default}`) may narrow what a Story accepts.
+ * What a document policy lets a person choose: the allowed storage, in a stable order, and the one
+ * used when they choose nothing (the policy default, else Git when allowed, else the only choice).
+ * Editors offer exactly these, so a choice they show is never one the CLI then refuses.
+ */
+export function documentStorageChoices(policy = {}) {
+  const configured = policy?.storage ?? {};
+  const allowed = Array.isArray(configured.allowed) && configured.allowed.length
+    ? DOCUMENT_STORAGE_KINDS.filter((kind) => configured.allowed.includes(kind))
+    : [...DOCUMENT_STORAGE_KINDS];
+  const fallback = allowed.includes(SHARED_STORAGE) ? SHARED_STORAGE : allowed[0];
+  return { allowed, default: allowed.includes(configured.default) ? configured.default : fallback };
+}
+
+/**
+ * The storage a new document uses: the one asked for, else the policy default, else Git (or the
+ * only storage the policy allows). The policy (`documents.storage: {allowed, default}`) may narrow
+ * what a Story accepts.
  */
 export function resolveDocumentStorage(requested, policy = {}) {
   const configured = policy?.storage ?? {};
-  const kind = String(requested ?? configured.default ?? 'git').trim().toLowerCase();
+  const kind = String(requested ?? documentStorageChoices(policy).default).trim().toLowerCase();
   if (PLANNED_STORAGE_KINDS.includes(kind)) {
     fail(`Keeping Story documents in ${kind} is not available yet. Use --store git to commit the document, or --store local to keep it on this machine only.`,
       'DOCUMENT_STORAGE_UNSUPPORTED', { storage: kind });

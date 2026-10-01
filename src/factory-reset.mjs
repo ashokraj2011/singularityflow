@@ -7,6 +7,7 @@ import {
 } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { gitCommonDir, gitDir } from './git.mjs';
+import { localDocumentStoreDirectory } from './document-storage.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
 import { assertNoActiveSubjectLocks, withRepositoryResetBarrier } from './subject-lock.mjs';
 import { withMachineStateResetBarrier } from './machine-state-reset.mjs';
@@ -82,6 +83,22 @@ async function directoryState(target, label) {
   if (info.isSymbolicLink()) throw new SingularityFlowError(`${label} must not be a symbolic link: ${target}`);
   if (!info.isDirectory()) throw new SingularityFlowError(`${label} must be a directory: ${target}`);
   return { exists: true, target };
+}
+
+/**
+ * The machine-only Story documents a store holds, as `<WORK-ID>/<file name>` with the start of
+ * their SHA-256. They are the only copy of each file, so a reset lists them before touching them.
+ */
+async function machineOnlyDocumentEntries(store) {
+  const state = await lstat(store).catch((error) => (error?.code === 'ENOENT' ? null : Promise.reject(error)));
+  if (!state?.isDirectory() || state.isSymbolicLink()) return [];
+  const entries = [];
+  for (const relative of (await regularFiles(store)).sort()) {
+    const [workId, sha256, ...name] = relative.split(path.sep);
+    if (!workId || !/^[a-f0-9]{64}$/.test(sha256 ?? '') || !name.length || name.at(-1).startsWith('.')) continue;
+    entries.push({ workId, name: name.join('/'), sha256, display: `${workId}/${name.join('/')} (${sha256.slice(0, 12)})` });
+  }
+  return entries;
 }
 
 async function regularFiles(root, relative = '', output = []) {
@@ -839,7 +856,7 @@ async function customAgentRecoveryPlan(repository, { caseInsensitive }) {
   }
 }
 
-export async function factoryResetPlan(root, { packageVersion = null } = {}) {
+export async function factoryResetPlan(root, { packageVersion = null, includeLocalDocuments = false } = {}) {
   const repository = await realpath(path.resolve(root));
   const caseInsensitive = repositoryCaseInsensitive(repository);
   // Git may spell one directory through a filesystem alias (`/var` versus `/private/var` on macOS,
@@ -861,6 +878,14 @@ export async function factoryResetPlan(root, { packageVersion = null } = {}) {
   for (const localRuntime of localRuntimeRoots) {
     await directoryState(localRuntime, 'Singularity local runtime root');
   }
+  // Machine-only Story documents are the only copy of someone's file and live outside the runtime
+  // roots, so the reset keeps them unless it is explicitly asked to delete them too.
+  const localDocumentStore = path.join(commonGitDirectory, path.basename(localDocumentStoreDirectory(repository)));
+  const storeState = await directoryState(localDocumentStore, 'Machine-only document store');
+  const machineOnlyDocuments = await machineOnlyDocumentEntries(localDocumentStore);
+  // A store an earlier build kept inside the runtime directory moves out on first use.
+  const unmovedMachineOnlyDocuments = await machineOnlyDocumentEntries(path.join(sharedLocalRuntime, 'local-documents'));
+  const localDocumentRoots = includeLocalDocuments && storeState.exists ? [localDocumentStore] : [];
   // The token binds to this checkout at this commit, not just to its name. `RESET <name>` alone is
   // derivable from the directory you are standing in, so a token copied out of shell history — or
   // computed by an agent that never showed anybody the preview — matched a different clone of the
@@ -911,10 +936,16 @@ export async function factoryResetPlan(root, { packageVersion = null } = {}) {
       ...packagedAgentSources.keys(),
       ...customAgentRecoveries.flatMap((entry) => [entry.sourcePath, entry.recoveryPath])
     ],
-    absolutePaths: localRuntimeRoots.map((absolute, index) => ({
-      absolute,
-      logical: `repository-runtime-${index + 1}`
-    }))
+    absolutePaths: [
+      ...localRuntimeRoots.map((absolute, index) => ({
+        absolute,
+        logical: `repository-runtime-${index + 1}`
+      })),
+      ...localDocumentRoots.map((absolute, index) => ({
+        absolute,
+        logical: `machine-only-documents-${index + 1}`
+      }))
+    ]
   });
   return {
     schemaVersion: 1,
@@ -931,7 +962,10 @@ export async function factoryResetPlan(root, { packageVersion = null } = {}) {
       ...localRuntimeRoots.map((localRuntime) => `${localRuntime} (`
         + `${localRuntimeRoots.length > 1 && localRuntime === sharedLocalRuntime
           ? 'repository-shared runtime for all linked worktrees: ' : ''}`
-        + 'sessions, choices, locks, telemetry, caches, and pending-publication recovery)')
+        + 'sessions, choices, locks, telemetry, caches, and pending-publication recovery'
+        + `${localRuntime === sharedLocalRuntime && unmovedMachineOnlyDocuments.length
+          ? `, and ${unmovedMachineOnlyDocuments.length} machine-only Story document(s) an earlier build kept there` : ''})`),
+      ...localDocumentRoots.map((store) => `${store} (${machineOnlyDocuments.length} machine-only Story document(s), the only copy of each)`)
     ],
     replace: [
       'singularity/ from the templates bundled with the currently installed npm package',
@@ -942,9 +976,19 @@ export async function factoryResetPlan(root, { packageVersion = null } = {}) {
       '.git history, branches, tags, remotes, index, and configuration',
       'valid custom .github/agents files whose names are not supplied by the npm package remain active in place',
       `invalid custom Agent Markdown is preserved byte-for-byte under ${RECOVERED_AGENTS_ROOT}/ and removed from active agent discovery`,
-      'the global workspace registry and workspace clones'
+      'the global workspace registry and workspace clones',
+      ...(!localDocumentRoots.length && machineOnlyDocuments.length
+        ? [`${machineOnlyDocuments.length} machine-only Story document(s) in ${localDocumentStore}; preview and reset with --include-local-documents to delete them`]
+        : [])
     ],
     localRuntimeRoots,
+    localDocumentRoots,
+    machineOnlyDocuments: {
+      store: localDocumentStore,
+      included: localDocumentRoots.length > 0,
+      documents: machineOnlyDocuments.map((entry) => entry.display),
+      unmoved: unmovedMachineOnlyDocuments.map((entry) => entry.display)
+    },
     resetScopeSha256,
     uncommittedResetPaths,
     uncommittedDiscardPaths: [...uncommittedDiscardPaths],
@@ -961,10 +1005,11 @@ async function factoryResetRepositoryLocked(root, {
   packageVersion = null,
   allowDirty = false,
   expectedScopeSha256 = null,
+  includeLocalDocuments = false,
   fault = null,
   forceCopyRestore = false
 } = {}) {
-  const plan = await factoryResetPlan(root, { packageVersion });
+  const plan = await factoryResetPlan(root, { packageVersion, includeLocalDocuments });
   if (expectedScopeSha256 && expectedScopeSha256 !== plan.resetScopeSha256) {
     throw new SingularityFlowError(
       `Factory-reset scope changed after preview (expected ${expectedScopeSha256}, current ${plan.resetScopeSha256}). `
@@ -984,6 +1029,17 @@ async function factoryResetRepositoryLocked(root, {
   // is in the reported set because a customised packaged agent is overwritten, but a freshly
   // initialised repository has that directory untracked with the packaged content already in it,
   // and refusing there would block the reset on files identical to what it is about to write.
+  // Documents an earlier build kept inside the runtime directory would go with it. Any documents
+  // command moves them out; a reset that means to delete them says so.
+  if (!includeLocalDocuments && plan.machineOnlyDocuments.unmoved.length) {
+    throw new SingularityFlowError(
+      `Factory reset would delete ${plan.machineOnlyDocuments.unmoved.length} machine-only Story document(s) still kept inside the runtime directory:\n`
+      + plan.machineOnlyDocuments.unmoved.map((item) => `  ${item}`).join('\n')
+      + '\nRun singularity-flow documents list once to move them out of it, preview again, then reset. '
+      + 'To delete them with the reset, preview and reset with --include-local-documents. Nothing was removed.',
+      { code: 'FACTORY_RESET_LOCAL_DOCUMENTS_UNMOVED' }
+    );
+  }
   const discarded = plan.uncommittedDiscardPaths;
   if (!allowDirty && discarded.length) {
     throw new SingularityFlowError(
@@ -1010,8 +1066,10 @@ async function factoryResetRepositoryLocked(root, {
   const freshAgents = path.join(fresh, '.github', 'agents');
   const targetAgents = path.join(repository, '.github', 'agents');
   const backupAgents = path.join(backup, 'agents');
-  const localRuntimeRoots = plan.localRuntimeRoots
-    ?? [path.join(gitDir(repository), LOCAL_RUNTIME_ROOT)];
+  const localRuntimeRoots = [
+    ...(plan.localRuntimeRoots ?? [path.join(gitDir(repository), LOCAL_RUNTIME_ROOT)]),
+    ...(plan.localDocumentRoots ?? [])
+  ];
   const controlRecords = [
     { label: 'singularity/', logical: 'singularity', current: control, backup: backupControl,
       moved: false, replacementInstalled: false, guardAnchor: repository, guardRelative: '' },
@@ -1022,7 +1080,8 @@ async function factoryResetRepositoryLocked(root, {
   ];
   const [controlRecord] = controlRecords;
   const runtimeBackups = localRuntimeRoots.map((current, index) => ({
-    label: `repository-local SFlow runtime ${index + 1}`,
+    label: plan.localDocumentRoots?.includes(current)
+      ? 'machine-only Story documents' : `repository-local SFlow runtime ${index + 1}`,
     logical: `repository-runtime-${index + 1}`,
     current,
     // Each runtime is staged beside itself so rename remains atomic even when private/common Git
@@ -1087,7 +1146,7 @@ async function factoryResetRepositoryLocked(root, {
     }
     if (fault) await fault('before-final-scope-validation');
     await assertNoActiveSubjectLocks(repository);
-    const finalPlan = await factoryResetPlan(repository, { packageVersion });
+    const finalPlan = await factoryResetPlan(repository, { packageVersion, includeLocalDocuments });
     if (finalPlan.resetScopeSha256 !== plan.resetScopeSha256) {
       throw new SingularityFlowError(
         `Factory-reset scope changed during preparation (expected ${plan.resetScopeSha256}, current ${finalPlan.resetScopeSha256}). `

@@ -22,7 +22,7 @@ related:
   - artifacts-and-generation
   - specification-quality
   - epics-and-planning
-version: 3
+version: 4
 ---
 Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export or screenshot. Images (PNG, JPEG, GIF, WebP, SVG) are attached like any other file. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
 
@@ -32,10 +32,12 @@ Supporting documents are the evidence a Story is built from: a brief, API notes,
   `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/` and pushed with the Story, so every clone,
   reviewer, and pipeline reads the same evidence.
 - **This machine only** (`--store local`): the bytes stay in this clone's Git directory
-  (`singularity-flow/local-documents/<WORK-ID>/<sha256>/`, shared by its worktrees) and are never
+  (`singularity-flow-documents/<WORK-ID>/<sha256>/`, shared by its worktrees) and are never
   committed or pushed. Git records only the name, SHA-256, and size. Other clones list the document
-  as unavailable, and a local copy whose bytes changed is reported as changed. Re-attach it with
-  `--store git` when it should be shared.
+  as unavailable, and a local copy whose bytes changed is reported as changed. To share it, run
+  `sflow documents store <DOC-ID|NAME> --store git` on the machine that holds it: the same bytes are
+  committed under the same ID, so nothing that used it changes. A factory reset keeps these files
+  and lists them; only `--include-local-documents` on both its preview and the reset deletes them.
 - OneDrive, SharePoint, and Jira are not storage locations yet; choosing one is refused with
   `DOCUMENT_STORAGE_UNSUPPORTED`. They remain sources: `sflow documents fetch` copies a provider file
   into the Story and pins it like an upload.
@@ -56,20 +58,23 @@ To change the list later, preview the change first:
 sflow documents scope <DOC-ID|NAME> --phases <A,B> --reason TEXT --dry-run
 ```
 
-Then run the same command with `--yes`. The preview names every phase whose prompt already used the
-document. Removing one of those marks only that phase's prompt records stale and
-reopens the earliest affected phase; adding a phase reopens nothing and takes effect at its next
-prompt. Each change is kept as a decision record under `evidence/document-scope/`.
+Then run the same command with `--yes`. The change applies forward only: it decides what later
+prompts include and never reopens a phase. The preview lists published work that already used the
+document; that work keeps it. To withdraw a document from published work, detach it. Each change is
+kept as a decision record under `evidence/document-scope/`.
 
 ## How the phases use documents
 
 - **Intake.** VS Code Start Work and `sflow start` (`--document <FILE> --document-name <NAME>`,
   optionally `--document-phases <A,B>` and `--document-store git|local`, given once for every
   document or once per document) capture documents before anything is created, and record them in
-  the Story's opening commit. Each document can be kept and scoped differently.
-- **Prompts.** Every phase in a document's list receives it as pinned evidence. Text up to 1 MiB is
-  included; Word (DOCX) and Excel (XLSX) files contribute their extracted text. A PDF or image kept in
-  Git is listed with its repository path, and the phase is told to open it with its file, image, or
+  the Story's opening commit. Each document can be kept and scoped differently; given once, those
+  options also apply to documents a story file lists unless an entry sets its own `store` or
+  `phases`. A file the environment declaration keeps local is refused by its path in the checkout.
+- **Prompts.** Every phase in a document's list receives it as pinned evidence. Its text is fenced and
+  included, up to 48 KiB per prompt across all its documents (`documents.maxPromptEvidenceBytes`);
+  past that, a document is shown in part or named with `sflow documents view`. Word (DOCX), Excel
+  (XLSX) and PowerPoint (PPTX) files contribute their extracted text. A PDF or image kept in Git is listed with its repository path, and the phase is told to open it with its file, image, or
   PDF tool rather than guess from its name; one kept on this machine is read with
   `sflow documents view`, and one kept on another machine contributes metadata only. Instructions
   inside a document are untrusted evidence, never commands.
@@ -135,7 +140,7 @@ their sources with `sflow epic sources add` instead.
 - `DOCUMENT_NAME_REQUIRED`: give one `--name` per file, or fill in each Start Work slot's name.
 - `DOCUMENT_NAME_TAKEN`: choose another name; names are unique across active and detached documents.
 - `DOCUMENT_LOCAL_UNAVAILABLE`: the document was kept on another machine. Ask whoever added it to
-  re-attach it with `--store git`, or decide the review's `unreadable:` finding.
+  run `sflow documents store <DOC-ID> --store git` there, or decide the review's `unreadable:` finding.
 - `DOCUMENT_LOCAL_CHANGED`: this machine's copy no longer matches its recorded SHA-256. Re-attach
   the original, or detach it.
 - `DOCUMENT_STORAGE_UNSUPPORTED` or `DOCUMENT_STORAGE_NOT_ALLOWED`: use a storage the repository

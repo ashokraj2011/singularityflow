@@ -93,7 +93,7 @@ import {
 import { SecureCredentials } from './credentials.ts';
 import {
   defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceDetachPreviewCommand,
-  evidenceScopeCommand, evidenceTargets, evidenceUsesLabel,
+  evidenceScopeCommand, evidenceStorageChoices, evidenceTargets, evidenceUsesLabel,
   suggestedEvidenceName, validateEvidenceName,
   expandEpicEvidenceDirectory, validateEvidenceUrl,
   type EvidenceCatalogItem, type EvidenceTarget
@@ -5905,14 +5905,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!names) return;
       let storage: 'git' | 'local' = 'git';
       if (target.kind === 'story') {
-        const choice = await vscode.window.showQuickPick([{
-          label: 'Commit to Git', description: 'Everyone working on this Story gets the file', value: 'git' as const
-        }, {
-          label: 'Keep on this machine only',
-          description: 'Git records its name, size and SHA-256; other machines cannot open it', value: 'local' as const
-        }], { title: paths.length > 1 ? 'Where should these files be kept?' : 'Where should this file be kept?', ignoreFocusOut: true });
-        if (!choice) return;
-        storage = choice.value;
+        // Offer only what this Story's document policy allows, its default first; one choice is no choice.
+        const policy = evidenceStorageChoices(
+          (store.current.snapshot?.workflow?.resolution as { documents?: { storage?: { allowed?: unknown; default?: unknown } } } | undefined)?.documents);
+        storage = policy.default;
+        if (policy.allowed.length > 1) {
+          const options = [{
+            label: 'Commit to Git', description: 'Everyone working on this Story gets the file', value: 'git' as const
+          }, {
+            label: 'Keep on this machine only',
+            description: 'Git records its name, size and SHA-256; other machines cannot open it', value: 'local' as const
+          }].sort((left, right) => Number(right.value === policy.default) - Number(left.value === policy.default));
+          const choice = await vscode.window.showQuickPick(options,
+            { title: paths.length > 1 ? 'Where should these files be kept?' : 'Where should this file be kept?', ignoreFocusOut: true });
+          if (!choice) return;
+          storage = choice.value;
+        }
       }
       const phases = await askPhases();
       if (phases === undefined) return;
@@ -5933,11 +5941,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showWarningMessage('The selected Figma export folder contains no files. Nothing was attached.');
         return;
       }
+      if (target.kind === 'story') {
+        const policy = evidenceStorageChoices(
+          (store.current.snapshot?.workflow?.resolution as { documents?: { storage?: { allowed?: unknown; default?: unknown } } } | undefined)?.documents);
+        if (!policy.allowed.some((kind) => kind === 'git')) {
+          void vscode.window.showWarningMessage('A Figma export folder is committed to Git, and this Story keeps documents on this machine only. Attach its files one by one instead. Nothing was attached.');
+          return;
+        }
+      }
       const names = await askNames(target.kind === 'story' ? paths : []);
       if (!names) return;
       const phases = await askPhases();
       if (phases === undefined) return;
-      input = { kind: 'figma-export', paths, names, phases };
+      input = { kind: 'figma-export', paths, names, store: 'git', phases };
     } else {
       const figmaOnly = source.value === 'figma-link';
       const url = await vscode.window.showInputBox({

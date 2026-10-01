@@ -6,10 +6,11 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import {
-  addDocuments, admitStoryDocumentResource, createStoryDocumentBudget,
+  addDocuments, admitStoryDocumentResource, assertStartDocumentNotEnvironmentLocal, createStoryDocumentBudget,
   documentMimeType, STORY_DOCUMENT_RESOURCE_LIMITS, validateDocumentUrl,
   verifyFrozenStoryDocumentEvidence
 } from './documents.mjs';
+import { loadEnvironmentDeclarationSync } from './environment-declaration.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { commitAndPublish } from './state-stores.mjs';
 import { gitCommonDir } from './git.mjs';
@@ -222,12 +223,13 @@ async function createStoryDocumentCapture(root) {
 
 async function captureRegularFile(source, destination, {
   maxFileBytes, allowedMimeTypes, evidence, displayPath, budget, depth,
-  beforeFileOpen = null
+  beforeFileOpen = null, assertSource = null
 }) {
   const info = await lstat(source, { bigint: true }).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink()) {
     throw new SingularityFlowError(`Document path is not a regular file or directory: ${displayPath}`);
   }
+  await assertSource?.(source);
   if (info.size > BigInt(maxFileBytes)) {
     throw new SingularityFlowError(`Document exceeds the ${maxFileBytes} byte limit: ${displayPath}`);
   }
@@ -366,7 +368,8 @@ export async function preflightInitialStoryDocuments(inputs = [], {
   allowedMimeTypes = null,
   priorCapture = null,
   beforeFileOpen = null,
-  beforeDirectoryRead = null
+  beforeDirectoryRead = null,
+  launchRepository = null
 } = {}) {
   if (!Number.isInteger(maxFileBytes) || maxFileBytes < 1) {
     throw new SingularityFlowError('Story document byte limit must be a positive integer.');
@@ -425,6 +428,16 @@ export async function preflightInitialStoryDocuments(inputs = [], {
     await verifyFrozenStoryDocumentEvidence(priorCapture.evidence);
     if (!inputs.length) return priorCapture;
   }
+  // An environment-local file is refused by the path it has in this repository, which the private
+  // capture below no longer carries. An isolated start runs in its own worktree, while the operator's
+  // paths name files in the checkout it was launched from, so both are checked.
+  const declaration = hasLocalFiles ? loadEnvironmentDeclarationSync(repositoryRoot, { optional: true }) : null;
+  const environmentRoots = [...new Set([repositoryRoot, launchRepository].filter(Boolean))];
+  const assertSource = declaration
+    ? async (source) => {
+      for (const base of environmentRoots) await assertStartDocumentNotEnvironmentLocal(base, declaration, source);
+    }
+    : null;
   const capture = hasLocalFiles ? await createStoryDocumentCapture(repositoryRoot) : null;
   const captureRoot = capture?.data ?? null;
   const prepared = priorCapture ? [...priorCapture.inputs] : [];
@@ -463,7 +476,7 @@ export async function preflightInitialStoryDocuments(inputs = [], {
           captureRoot, String(inputIndex), String(fileIndex), path.basename(source)
         );
         await captureDocumentPath(source, destination, {
-          maxFileBytes, allowedMimeTypes: allowlist, beforeFileOpen, beforeDirectoryRead, budget
+          maxFileBytes, allowedMimeTypes: allowlist, beforeFileOpen, beforeDirectoryRead, budget, assertSource
         }, evidence, candidate);
         capturedFiles.push(destination);
       }

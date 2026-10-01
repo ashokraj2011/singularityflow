@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceDetachPreviewCommand, evidenceScopeCommand,
-  evidenceStorageLabel, evidenceUsesLabel, evidenceTargets, expandEpicEvidenceDirectory,
+  evidenceStorageChoices, evidenceStorageLabel, evidenceUsesLabel, evidenceTargets, expandEpicEvidenceDirectory,
   suggestedEvidenceName, validateEvidenceName, validateEvidenceUrl
 } = await import(path.join(packageRoot, 'apps/vscode/src/evidence.ts'));
 
@@ -27,11 +27,11 @@ test('Story evidence keeps multi-file and Figma-folder uploads in one governed c
   assert.deepEqual(evidenceCommands(target, {
     kind: 'files', paths: ['/tmp/a.pdf', '/tmp/b.png'], names: ['Payment brief', 'Checkout screen']
   }), [
-    ['documents', 'upload', '/tmp/a.pdf', '/tmp/b.png', '--name', 'Payment brief', '--name', 'Checkout screen']
+    ['documents', 'upload', '/tmp/a.pdf', '/tmp/b.png', '--name', 'Payment brief', '--name', 'Checkout screen', '--store', 'git']
   ]);
-  assert.deepEqual(evidenceCommands(target, { kind: 'figma-export', paths: ['/tmp/figma'], names: ['Checkout export'] }), [
-    ['documents', 'upload', '/tmp/figma', '--name', 'Checkout export', '--kind', 'figma-export']
-  ]);
+  assert.deepEqual(evidenceCommands(target, { kind: 'figma-export', paths: ['/tmp/figma'], names: ['Checkout export'], store: 'local' }), [
+    ['documents', 'upload', '/tmp/figma', '--name', 'Checkout export', '--kind', 'figma-export', '--store', 'git']
+  ], 'a folder is always committed to Git');
   assert.deepEqual(evidenceCommands(target, {
     kind: 'url', url: 'https://www.figma.com/design/abc', label: 'Checkout design'
   }), [['documents', 'upload', '--url', 'https://www.figma.com/design/abc', '--name', 'Checkout design']],
@@ -44,7 +44,12 @@ test('Story attachments pass where the bytes are kept and which phases use them'
     kind: 'files', paths: ['/tmp/salary.xlsx'], names: ['Salary bands'], store: 'local', phases: ['specification', 'planning']
   }), [['documents', 'upload', '/tmp/salary.xlsx', '--name', 'Salary bands', '--store', 'local', '--phases', 'specification,planning']]);
   assert.deepEqual(evidenceCommands(target, { kind: 'files', paths: ['/tmp/a.md'], names: ['A'], store: 'git', phases: null }),
-    [['documents', 'upload', '/tmp/a.md', '--name', 'A']], 'Git and the default phases need no flags');
+    [['documents', 'upload', '/tmp/a.md', '--name', 'A', '--store', 'git']],
+    'storage is always stated, so a local default policy cannot keep a "Committed to Git" file on one machine');
+  assert.deepEqual(evidenceStorageChoices(null), { allowed: ['git', 'local'], default: 'git' });
+  assert.deepEqual(evidenceStorageChoices({ storage: { allowed: ['local', 'git'], default: 'local' } }), { allowed: ['git', 'local'], default: 'local' });
+  assert.deepEqual(evidenceStorageChoices({ storage: { allowed: ['local'] } }), { allowed: ['local'], default: 'local' });
+  assert.deepEqual(evidenceStorageChoices({ storage: { allowed: ['git'], default: 'local' } }), { allowed: ['git'], default: 'git' });
   assert.deepEqual(evidenceCommands(target, { kind: 'url', url: 'https://example.com/x', label: 'X', phases: ['design'] }),
     [['documents', 'upload', '--url', 'https://example.com/x', '--name', 'X', '--phases', 'design']]);
   const epic = { kind: 'epic', id: 'MOB-100', label: 'Epic MOB-100' };

@@ -151,6 +151,86 @@ test('a repository mutation started during factory reset is refused before it ch
   });
 });
 
+async function initializedRepository(prefix) {
+  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'application source remains\n');
+  command(process.execPath, [cli, 'init'], root);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'initial');
+  return root;
+}
+
+test('factory reset keeps machine-only Story documents unless the reviewed reset includes them', async () => {
+  const root = await initializedRepository('sflow-factory-reset-documents-');
+  const store = path.join(root, '.git', 'singularity-flow-documents');
+  const document = path.join(store, 'WORK-1', 'a'.repeat(64), 'salary-bands.md');
+  await mkdir(path.dirname(document), { recursive: true });
+  await writeFile(document, 'Band C starts at 91 000.\n');
+
+  const plan = JSON.parse(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--json'], root).stdout);
+  assert.deepEqual(plan.machineOnlyDocuments.documents, [`WORK-1/salary-bands.md (${'a'.repeat(12)})`]);
+  assert.equal(plan.machineOnlyDocuments.included, false);
+  assert.ok(plan.preserve.some((item) => /^1 machine-only Story document\(s\) in .*--include-local-documents/.test(item)));
+  assert.match(command(process.execPath, [cli, 'factory-reset', '--dry-run'], root).stdout,
+    /Machine-only Story documents \(kept; this is the only copy of each\):\n- WORK-1\/salary-bands\.md/);
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', plan.confirmation, '--expect-scope-sha256', plan.resetScopeSha256, '--allow-dirty'
+  ], root);
+  assert.equal(await readFile(document, 'utf8'), 'Band C starts at 91 000.\n');
+
+  // Deleting them is part of the reviewed scope: the flag changes the scope digest, and the apply
+  // command the preview prints carries it.
+  const kept = JSON.parse(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--json'], root).stdout);
+  const including = JSON.parse(command(process.execPath, [
+    cli, 'factory-reset', '--dry-run', '--include-local-documents', '--json'
+  ], root).stdout);
+  assert.equal(including.machineOnlyDocuments.included, true);
+  assert.notEqual(including.resetScopeSha256, kept.resetScopeSha256);
+  assert.ok(including.remove.some((item) => item.includes('machine-only Story document(s), the only copy of each')));
+  assert.match(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--include-local-documents'], root).stdout,
+    /--expect-scope-sha256 \S+ --include-local-documents/);
+  const mismatched = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', kept.confirmation, '--expect-scope-sha256', kept.resetScopeSha256,
+    '--allow-dirty', '--include-local-documents'
+  ], root, { ok: false });
+  assert.match(mismatched.stderr, /scope changed after preview/);
+  assert.equal(await readFile(document, 'utf8'), 'Band C starts at 91 000.\n');
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', including.confirmation, '--expect-scope-sha256', including.resetScopeSha256,
+    '--allow-dirty', '--include-local-documents'
+  ], root);
+  assert.equal(await missing(store), true);
+});
+
+test('factory reset refuses while an earlier build kept machine-only documents inside the runtime directory', async () => {
+  const root = await initializedRepository('sflow-factory-reset-legacy-documents-');
+  const legacy = path.join(root, '.git', 'singularity-flow', 'local-documents', 'WORK-2', 'b'.repeat(64), 'notes.md');
+  await mkdir(path.dirname(legacy), { recursive: true });
+  await writeFile(legacy, 'Only copy.\n');
+  const plan = JSON.parse(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--json'], root).stdout);
+  assert.deepEqual(plan.machineOnlyDocuments.unmoved, [`WORK-2/notes.md (${'b'.repeat(12)})`]);
+  const refused = command(process.execPath, [
+    cli, 'factory-reset', '--confirm', plan.confirmation, '--expect-scope-sha256', plan.resetScopeSha256, '--allow-dirty'
+  ], root, { ok: false });
+  assert.match(refused.stderr, /would delete 1 machine-only Story document\(s\) still kept inside the runtime directory/);
+  assert.equal(await readFile(legacy, 'utf8'), 'Only copy.\n', 'nothing was removed');
+
+  // What any documents command does the first time it reads the store.
+  const { migrateLegacyLocalDocumentStore } = await import('../src/document-storage.mjs');
+  assert.deepEqual(await migrateLegacyLocalDocumentStore(root), { moved: true });
+  const moved = path.join(root, '.git', 'singularity-flow-documents', 'WORK-2', 'b'.repeat(64), 'notes.md');
+  assert.equal(await readFile(moved, 'utf8'), 'Only copy.\n');
+  const again = JSON.parse(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--json'], root).stdout);
+  assert.deepEqual(again.machineOnlyDocuments.unmoved, []);
+  command(process.execPath, [
+    cli, 'factory-reset', '--confirm', again.confirmation, '--expect-scope-sha256', again.resetScopeSha256, '--allow-dirty'
+  ], root);
+  assert.equal(await readFile(moved, 'utf8'), 'Only copy.\n');
+});
+
 test('factory reset previews, requires exact confirmation, and restores npm defaults without touching source or history', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-factory-reset-'));
   git(root, 'init', '-b', 'main');

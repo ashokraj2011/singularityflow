@@ -661,6 +661,46 @@ export async function scopeDocuments(root, config, workflow, {
   };
 }
 
+/**
+ * Commit a document kept on this machine to Git under the same ID: the same bytes, so the same
+ * SHA-256, and nothing that used it is affected. Only the machine that holds the bytes can do this;
+ * elsewhere the read refuses and says where the document is. The caller runs this inside
+ * commitAndPublish.beforeStateWrite.
+ */
+export async function storeDocumentInGit(root, config, workflow, { documentId } = {}) {
+  assertStoryOpenForDocuments(workflow, 'moved');
+  const manifest = await loadManifest(root, config, workflow);
+  const record = resolveDocumentRecord(manifest.documents, documentId);
+  if (!evidenceIsActive(record)) throw new SingularityFlowError(`Supporting document '${record.id}' is detached; it is no longer kept anywhere new.`);
+  if (!isLocalDocument(record)) {
+    throw new SingularityFlowError(`Document '${record.id}' is already committed to Git.`, { code: 'DOCUMENT_ALREADY_IN_GIT' });
+  }
+  const { bytes } = await readLocalDocument(root, workflow.workItem.id, record);
+  const filename = safeName(record.sourceName ?? record.storage.key.split('/').at(-1));
+  // Committing makes the bytes everyone's, so they are checked as a Git upload would be.
+  assertDocumentInputContainsNoSecret({ source: filename }, { bytes });
+  const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', record.id, filename);
+  await ensureInputsStoredExactly(root, config, workflow);
+  const destination = path.join(root, relative);
+  await mkdir(path.dirname(destination), { recursive: true });
+  await writeFile(destination, bytes, { flag: 'wx' });
+  const session = await loadSession(root);
+  const timestamp = nowIso();
+  Object.assign(record, { storage: { kind: 'git' }, path: posix(relative), movedToGitAt: timestamp, movedToGitBy: session.actor });
+  manifest.updatedAt = timestamp;
+  await writeJson(manifestPath(root, config, workflow), manifest);
+  workflow.documents = documentCounters(manifest, timestamp);
+  workflow.history.push({
+    at: timestamp,
+    actor: session.actor.login ?? session.actor.email ?? session.actor.name,
+    agent: session.agent,
+    event: 'evidence_stored',
+    phase: workflow.currentPhase,
+    detail: `${record.id} committed to Git from this machine`
+  });
+  return record;
+}
+
 async function writePackageIndexes(root, config, workflow, manifest, packageRecord) {
   const records = manifest.documents.filter((item) => item.packageId === packageRecord.id);
   const extensions = {}; const hashes = new Map(); let totalBytes = 0;
@@ -771,19 +811,34 @@ async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, 
   ].filter(Boolean))];
   for (const candidate of candidates) {
     const match = matchEnvironmentLocalPath(declaration, candidate);
-    if (!match) continue;
-    const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
-    const owner = match.environmentId
-      ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
-    throw new SingularityFlowError(
-      `Document upload was refused: '${candidate}' matches ${owner} rule '${rule}'. `
-        + 'Environment-local files must remain in the machine-local binding and cannot become Story documents.',
-      {
-        code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED',
-        details: { path: candidate, rule }
-      }
-    );
+    if (match) throw environmentLocalRefusal(candidate, match);
   }
+}
+
+function environmentLocalRefusal(candidate, match) {
+  const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
+  const owner = match.environmentId
+    ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
+  return new SingularityFlowError(
+    `Document upload was refused: '${candidate}' matches ${owner} rule '${rule}'. `
+      + 'Environment-local files must remain in the machine-local binding and cannot become Story documents.',
+    {
+      code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED',
+      details: { path: candidate, rule }
+    }
+  );
+}
+
+/**
+ * Refuse a Story-start file whose path in this repository is environment-local. Story start reads
+ * each file into a private capture before it is recorded, so the upload check later sees only the
+ * capture's path; the path the operator gave is checked here, before any byte is read.
+ */
+export async function assertStartDocumentNotEnvironmentLocal(root, declaration, source) {
+  if (!declaration) return;
+  const relative = await repositoryRelativeSource(root, source);
+  const match = relative ? matchEnvironmentLocalPath(declaration, relative) : null;
+  if (match) throw environmentLocalRefusal(relative, match);
 }
 
 function assertDocumentInputContainsNoSecret(input, captured) {

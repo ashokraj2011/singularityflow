@@ -833,6 +833,12 @@ Usage:
   singularity-flow story test-policy confirm [--work-id ID] --phase PHASE --confirm PLAN-DIGEST
   singularity-flow story test-policy repair [--work-id ID] [--repository ID] [--plan] [--json]
   singularity-flow story test-policy repair [--work-id ID] [--repository ID] --run --confirm PLAN-DIGEST [--json]
+  singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] [--json]
+  singularity-flow story test-policy amend --reason TEXT [--work-id ID] [--phase PHASE] --apply --confirm PLAN-DIGEST [--json]
+    (current code phase before first publication only; live authorized terminal review; no tests are waived)
+  singularity-flow story test-policy attest [WORK-ID] [--json]
+  singularity-flow story test-policy attest [WORK-ID] --apply --confirm REVIEW-SHA256 [--json]
+    (restore review origin in a new checkout; exact retained reviewer; no Story or Git records change)
   singularity-flow story skill-version preview <SKILL-ID> --reason TEXT [--work-id ID] [--json]
   singularity-flow story skill-version propose <SKILL-ID> --reason TEXT [--work-id ID]
     [--confirm sha256:PREVIEW-DIGEST] [--json]   (without --confirm: read-only preview)

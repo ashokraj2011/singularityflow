@@ -13,11 +13,11 @@ related:
   - recovery
   - approvals
   - configuration
-version: 1
+version: 2
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
-The currently enabled production routes are bounded readiness repair and reviewed test selection. Production risk acceptance and same-Story policy amendment are not enabled by this pilot.
+The currently enabled production routes are bounded readiness repair, reviewed test selection, and a narrowly scoped prepublication test-command amendment. Production risk acceptance and arbitrary same-Story policy amendment are not enabled by this pilot.
 
 ## Purpose and prerequisites
 
@@ -65,6 +65,20 @@ Review the current repair checkpoint, both endpoints of every changed path, and 
 Execution uses the existing bounded readiness runner. Completion requires a complete passing receipt at the reviewed checkpoint, including a successful process and current structured report. A known original baseline must retain its complete testcase identities and execution contract; matching totals alone cannot prove retention. Missing, ambiguous or truncated identities, skipped formerly failing tests, nonzero process exit, missing reports, duplicate results or stale source cannot complete repair.
 
 The command records a passing assessment through the normal governed Story transaction, appending its raw receipt and checkpoint. It preserves the original baseline and source reference and records the repaired checkpoint as the feature-generation base. Initial baseline readiness is admission evidence only. It is not proof that the later feature candidate passed publication or submission tests. After a runtime-only repair, a fresh verified readiness result may legitimately qualify an unchanged source commit.
+
+### Correct a pinned test command before first publication
+
+An approved configuration correction does not automatically update an existing Story. When the current code-delivery phase has generated source and tests but has not published its first generation, inspect `singularity-flow story test-policy amend <WORK-ID> --reason "Explain the approved command correction" --json`. The command reads the newer approved configuration from the Story's original authority and previews its exact old/new test contracts. It does not run tests.
+
+This specific repair can also serve a Story with an accepted workflow-authority snapshot that did not opt into TRP. It does not add a Test and Recovery Agreement, narrow testing or enable risk acceptance; all existing obligations remain pinned.
+
+This bounded route requires generation zero, the original open generation intent, the existing source baseline, and an already structured `kind: test` contract. It cannot convert a legacy string command or infer a new test obligation. Commit only the intended application source and tests separately before review; the amendment does not stage application changes. An authored phase artifact may remain a draft. The amendment preserves its bytes, the application tree, the original generation intent and baseline, and every existing snapshot. It appends a workflow-authority revision and advances the validation epoch; it does not restart the Story or rewrite previous policy records.
+
+The reviewing human must satisfy both the original pinned phase authority and the newer approved configuration authority. The pilot supports one required human reviewer and unchanged approval policy and authority membership; it cannot grant itself authority, lower approval requirements or adopt unrelated workflow changes. Follow the exact returned `--apply --confirm <DIGEST>` action in a live terminal and review the displayed command difference. The digest selects the review; the flag alone is not approval. Changed source, draft, reason, authority or configuration requires a fresh preview and review.
+
+After the amendment commits, resume the existing generation's normal publication route. It must execute the corrected structured test command and produce fresh current evidence before publication succeeds. A command amendment is not a test pass, a failure waiver, phase approval or submission permission. This route is unavailable after the phase's first publication; arbitrary policy migration and post-publication epoch revalidation remain outside the pilot.
+
+The recorded policy closure travels with the Story, but its private human-review origin does not. On another checkout, or after local proof is lost, `TCA_AUTHORITY_ORIGIN_UNAVAILABLE` stops ordinary accepted-policy use. Inspect `singularity-flow story test-policy attest <WORK-ID> --json`; the original recorded reviewer may then use its returned `--apply --confirm <REVIEW-SHA256>` action in a live terminal to re-attest that exact review. Another reviewer cannot impersonate the original reviewer. This recovery restores only checkout-local proof: it changes no tracked Story, source or policy bytes, reruns no test and does not qualify evidence from another host. If the original reviewer is unavailable, this pilot has no substitute-reviewer recovery route.
 
 ## State and safety
 

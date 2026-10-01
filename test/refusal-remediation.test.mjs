@@ -416,8 +416,10 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
   ), ['phase', 'publish', 'implementation']);
   assert.equal(malformed.context.strategy, 'pinned-test-policy-prerequisite');
   assert.equal(malformed.steps[0].command, 'singularity-flow recover --json');
-  assert.equal(malformed.steps[1].command, null);
-  assert.match(malformed.steps[1].label, /No governed same-Story test-policy amendment/);
+  assert.equal(malformed.steps[1].command, 'singularity-flow explain test-recovery');
+  assert.match(malformed.steps[1].label, /Before the first code publication/);
+  assert.match(malformed.steps[1].label, /story test-policy amend --reason TEXT/);
+  assert.match(malformed.steps[1].label, /Published phases and unrelated policy changes are not supported/);
   assert.equal(malformed.retry.command, null);
 
   const protectedPath = refusalRemediationPlan(Object.assign(

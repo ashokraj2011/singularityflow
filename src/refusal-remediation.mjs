@@ -445,10 +445,33 @@ const KNOWN = Object.freeze({
       'Inspect the malformed configured test-command contract; do not print argv containing potential secrets.',
       'singularity-flow recover --json', 'diagnostic', '/sf-recover'),
     step('stop-unchanged-pinned-command',
-      'The current Story command is sealed in its accepted policy. Refreshing sflow/config affects future Stories only. No governed same-Story test-policy amendment is installed; do not edit the Story pin or retry publication against unchanged policy.',
-      null, 'external-prerequisite')
+      'The current Story command is sealed in its accepted policy. Before the first code publication, an authorized reviewer can adopt a corrected command from the original approved configuration authority using story test-policy amend --reason TEXT (preview first). Published phases and unrelated policy changes are not supported. Do not edit the Story pin or retry unchanged policy.',
+      'singularity-flow explain test-recovery', 'diagnostic')
   ],
   CODE_TEST_SUPPRESSED: (argv, error) => KNOWN.CODE_TEST_RESULT_REQUIRED(argv, error),
+  TCA_AUTHORITY_ORIGIN_UNAVAILABLE: () => [
+    step('inspect-test-command-review-origin',
+      'Inspect the immutable accepted test-command review. In a new checkout, its original reviewer can explicitly restore local review origin; no Story policy or Git record is rewritten.',
+      'singularity-flow story test-policy attest --json', 'diagnostic'),
+    step('review-test-command-recovery-boundary',
+      'Use the returned exact review digest in a direct terminal as the retained reviewer. Copied review JSON or a different Git identity cannot substitute for this confirmation.',
+      'singularity-flow explain test-recovery', 'diagnostic')
+  ],
+  TCA_PUBLICATION_PENDING: () => [
+    step('recover-test-command-publication',
+      'Recover the exact pending Story publication before requesting another amendment. Do not create duplicate review records.',
+      'singularity-flow recover --json', 'diagnostic', '/sf-recover')
+  ],
+  TCA_SOURCE_DRAFT_UNCOMMITTED: () => [
+    step('review-source-before-command-amendment',
+      'Review and commit only intended application source and tests, then preview the amendment again. Preserve unrelated edits and the phase artifact draft; do not reset, clean or blanket-stage the checkout.',
+      'singularity-flow explain test-recovery', 'diagnostic')
+  ],
+  TCA_PRIOR_PUBLICATION_UNSUPPORTED: () => [
+    step('preserve-published-test-evidence',
+      'This bounded command amendment cannot change already-published code. Preserve its receipts and use a separately reviewed supported recovery; do not clear its generation or repeat unchanged publication.',
+      'singularity-flow explain test-recovery', 'diagnostic')
+  ],
   CHANGE_SET_POLICY_VIOLATION: (_argv, error) => error?.details?.violationKind === 'protected-process-path'
     ? [
         step('restore-protected-story-paths',
@@ -589,7 +612,7 @@ export function refusalRemediationPlan(error, argv = []) {
     : repositoryRunnerBlocked
     ? 'Do not retry publication until an in-scope repository runner repair or updated runtime makes a structured test command available and prepublish is ready.'
     : pinnedTestPolicyBlocked
-    ? 'Do not retry publication until a governed same-Story test-policy amendment is available or the work continues in a new Story under corrected approved policy.'
+    ? 'Do not retry unchanged publication. Before the first code publication, preview a reviewed test-command amendment from corrected approved configuration; otherwise use a separately reviewed supported recovery route.'
     : phaseContext?.turn === 'new-turn'
     ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
     : requiredTestBlocked && requiredTestFailure?.retryCondition === 'runtime-changed'
@@ -660,7 +683,7 @@ export function renderRefusalPlan(plan) {
       plan.context.strategy === 'external-host-prerequisite'
         ? `  Scope: phase ${plan.context.phaseId} — external host prerequisite; do not rewrite Story evidence or bypass the gate.`
         : plan.context.strategy === 'pinned-test-policy-prerequisite'
-          ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; stop unchanged retries until runtime support or reviewed Story authority changes.`
+          ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; preview a test-command amendment before first publication, or stop until a supported reviewed recovery is available.`
         : `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`
     );
     if (plan.context.turn === 'new-turn') {

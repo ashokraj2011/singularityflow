@@ -17,6 +17,26 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'story.test-policy.origin-inspected': {
+    headline: (s) => `Local test-command review origin is ${slot(s.status)}. No Story policy changed and no test ran. Use --json for the exact immutable reviews.`,
+    preserves: true
+  },
+  'story.test-policy.origin-restored': {
+    headline: (s) => `Local test-command review origin is ${slot(s.status)}. Only local review evidence changed; Story policy, source and Git history remain unchanged.`,
+    preserves: false
+  },
+  'story.test-policy.amendment-planned': {
+    headline: (s) => `Story test-command amendment is ${slot(s.status)}. No Story policy changed and no test ran. Use --json for the reviewed candidate.`,
+    preserves: true
+  },
+  'story.test-policy.amendment-recorded': {
+    headline: (s) => `Story test-command amendment is ${slot(s.status)}. Fresh test evidence is still required before phase publication; no test failure was accepted.`,
+    preserves: false
+  },
+  'story.test-policy.amendment-unchanged': {
+    headline: (s) => `Story test-command amendment is ${slot(s.status)}. No Story policy changed and no test ran.`,
+    preserves: true
+  },
   'story.test-policy.selection-planned': {
     headline: (s) => `Story test selection is ${slot(s.status)}. No test ran or scope was confirmed. Use --json for the exact cohort and legal actions.`,
     preserves: true

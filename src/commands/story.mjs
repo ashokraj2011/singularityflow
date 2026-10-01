@@ -790,6 +790,14 @@ export async function storyCommand(positionals, options) {
   if (subcommand === 'skill-version') return storySkillVersionCommand(positionals, options, root);
   if (subcommand === 'test-policy') {
     const action = positionals[2] ?? 'show';
+    if (action === 'attest') {
+      const { run: runTestAttestation } = await import('./story-test-attestation.mjs');
+      return runTestAttestation(positionals.slice(3), { options, root });
+    }
+    if (action === 'amend') {
+      const { run: runTestAmendment } = await import('./story-test-amendment.mjs');
+      return runTestAmendment(positionals.slice(3), { options, root });
+    }
     if (action === 'repair') {
       const { run: runTestRepair } = await import('./story-test-repair.mjs');
       return runTestRepair(positionals.slice(3), { options, root });
@@ -807,7 +815,8 @@ export async function storyCommand(positionals, options) {
       schemaVersion: 1, resultType: 'story-test-policy', workId: workflow.workItem.id,
       enabled: Boolean(agreement), agreement,
       readiness: agreement ? workflow.testRecovery?.readiness ?? null : null,
-      supported: { readinessRepair: true, selectionPreview: true, riskActivation: false, policyAmendment: false },
+      supported: { readinessRepair: true, selectionPreview: true, riskActivation: false, policyAmendment: false,
+        prepublicationTestCommandAmendment: true },
       message: agreement
         ? 'Opt-in repair and selection pilot. No risk is accepted by this read.'
         : 'This Story retains its original test policy; it has not opted into the pilot.'

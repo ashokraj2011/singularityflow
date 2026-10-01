@@ -70,6 +70,7 @@ import {
 } from './delivery-evidence.mjs';
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
+import { prospectiveTestCommandAmendment, verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import {
   beginCodeGeneration, consumeGenerationIntent, persistGenerationPublicationRecord,
@@ -1305,7 +1306,8 @@ export async function loadWorkflow(root, config, id = undefined) {
     throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
   if (Number(workflow.workflowSnapshot?.revision ?? 1) > 1) {
-    await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
+    const verifiedAmendment = await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
+    await verifyAcceptedTestCommandAmendment(root, config, workflow, verifiedAmendment);
   }
   verifyRejectedSkillVersionReviews(root, config, workflow);
   return workflow;
@@ -1828,7 +1830,9 @@ export async function loadStoryTestRecoveryAgreement(root, config, workflow) {
     || pin.agreementPath !== `${workDirRelative(config, workflow.workItem.id)}/context/test-recovery/agreements/revision-${pin.revision}.json`) {
     throw new SingularityFlowError('The Story test-policy reference differs from its immutable workflow snapshot.', { code: 'TRP_AGREEMENT_REQUIRED' });
   }
-  const snapshot = await verifyWorkflowSnapshot(root, config, workflow);
+  const snapshot = await verifyWorkflowSnapshot(root, config, workflow, {
+    requireAccepted: Number(workflow.workflowSnapshot?.revision ?? 1) > 1
+  });
   if (snapshot.status !== 'ready' || snapshot.closure !== 'verified') {
     throw new SingularityFlowError('The Story workflow snapshot must verify before loading test policy.', { code: 'TRP_AGREEMENT_REQUIRED' });
   }
@@ -1986,6 +1990,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, {
   dryRun = false
 } = {}) {
+  await verifyAcceptedTestCommandAmendment(root, config, workflow);
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
@@ -3004,6 +3009,7 @@ export async function publishGeneration(root, config, workflow, {
   phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null,
   architectureCandidateSnapshot = null
 } = {}) {
+  await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
   await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
@@ -4364,7 +4370,8 @@ async function submitPhaseTransition(root, config, workflow, {
   phaseId, runChecks = true, persist = true, submissionContext = null,
   architectureCandidateSnapshot = null, actor = null, agent = undefined, decisionValues = null
 } = {}) {
-  await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
+  const verifiedAmendment = await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
+  await verifyAcceptedTestCommandAmendment(root, config, workflow, verifiedAmendment);
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const requestedPhase = workflow.phases?.[phaseId ?? workflow.currentPhase] ?? null;
   // Keep this guard in the domain transition as well as the CLI. Alternate hosts and future
@@ -7998,6 +8005,7 @@ async function verifyAcceptedSkillAmendmentRevalidation(root, config, workflow,
   }
   const approved = accepted.skillVersionAmendments?.filter((item) => item?.status === 'approved');
   if (!approved?.length) {
+    if (accepted.testCommandAmendments?.length) return verified;
     skillAmendmentFail('SKP_AMENDMENT_REVALIDATION_INVALID',
       'The accepted skill-version revision has no reviewed affected-phase record.');
   }
@@ -8032,6 +8040,7 @@ async function verifyAcceptedSkillAmendmentRevalidation(root, config, workflow,
         `Phase '${phaseId}' revalidation baseline differs from its accepted skill-version amendment.`);
     }
   }
+  return verified;
 }
 
 export async function decideStorySkillVersion(root, config, workflow, options = {}) {
@@ -8913,7 +8922,7 @@ export async function syncPublication(root, config, workflow, { fault = null } =
  */
 export async function validateWorkflow(root, config, workflow, { strict = false, offline = false } = {}) {
   const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
-  const prospective = PROSPECTIVE_SKILL_AMENDMENT.get(workflow);
+  const prospective = PROSPECTIVE_SKILL_AMENDMENT.get(workflow) ?? prospectiveTestCommandAmendment(workflow);
   const prospectiveValid = Boolean(prospective
     && canonicalJson(prospective.reference) === canonicalJson(workflow.workflowSnapshot)
     && prospective.policySha256 === resolutionPolicySha256(workflow.resolution));
@@ -8927,6 +8936,7 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
     if (amendedRevision && !prospectiveValid) {
       await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow,
         workflowSnapshotStatus);
+      await verifyAcceptedTestCommandAmendment(root, config, workflow, workflowSnapshotStatus);
     }
     if (workflowSnapshotStatus.enrolled) {
       const initial = initialWorkflowRecord(root, config, workflow.workItem.id);

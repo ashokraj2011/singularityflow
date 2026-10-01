@@ -23,11 +23,15 @@ const observational = (value, description) => ({
 /** The sole owner of first-party Story, Initiative, ad hoc landing, and governed Goal members. */
 export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
   id: 'lifecycle-event-type',
-  version: 7,
+  version: 8,
   defaultClass: 'core-observational',
   entries: {
     BINDING: governing('binding', 'Binds a governed subject to its lifecycle identity and branch.'),
     CONFIGURATION_CHANGED: governing('configuration-changed', 'Records an authoritative workflow configuration transition.'),
+    TEST_COMMAND_AMENDED: {
+      ...governing('test-command-amended', 'Adopts a reviewed approved test command before the first code publication, preserving prior evidence.'),
+      since: 8
+    },
     TEST_SELECTION_CONFIRMED: {
       ...governing('test-selection-confirmed', 'Confirms an exact Story test selection without accepting test failures.'),
       since: 7

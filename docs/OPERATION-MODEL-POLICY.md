@@ -596,6 +596,10 @@ Every public operation is classified before its implementation module is importe
 | story.start | mutation | never | — | — |
 | story.status | read | never | — | — |
 | story.submit | mutation | never | — | — |
+| story.test-policy.amend | mutation | never | — | — |
+| story.test-policy.amend.preview | read | never | — | — |
+| story.test-policy.attest | mutation | never | — | — |
+| story.test-policy.attest.preview | read | never | — | — |
 | story.test-policy.confirm | mutation | never | — | — |
 | story.test-policy.plan | read | never | — | — |
 | story.test-policy.repair | mutation | never | — | — |

@@ -335,7 +335,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
             detail: missingRepositoryRunner
               ? `${error.message} Inspect the affected module and, only within this phase's approved source scope, repair its repository-owned test script, manifest, or runner declaration so a supported structured command can be inferred. Preserve the Story pin and existing tests. Recheck recovery and prepublish after the repository change; do not retry publication against unchanged inputs. If the native runner cannot be supported by an in-scope repository change, a newer Singularity Flow runtime or a new Story under separately approved policy is required.`
               : invalidPinnedCommand
-                ? `${error.message} This Story's configured test command is pinned; refreshing sflow/config affects future Stories only. Do not replace or suppress the command in Story state. A governed same-Story test-policy amendment is not implemented, so this phase remains blocked until such an amendment exists or work is carried into a new Story under corrected approved policy. Do not repeat publication against the unchanged blocker.`
+                ? `${error.message} This Story's configured test command is pinned; refreshing sflow/config alone does not change it. Do not replace or suppress the command in Story state. ${Number(phase.generation) === 0 ? 'Before this phase’s first publication, an authorized reviewer can preview story test-policy amend --reason TEXT to adopt a corrected test command from the original approved configuration authority. It preserves code and prior phases and still requires fresh tests.' : 'This phase already has a publication; the bounded test-command amendment does not support it. Preserve its evidence and obtain a separately reviewed recovery route.'} Do not repeat publication against the unchanged blocker.`
                 : unsupportedRuntimeAdapter
                   ? `${error.message} This runtime cannot produce the required structured Rust test receipt. Use a supported registered adapter or a separately approved test policy; repeating /sf-code or publication against unchanged inputs cannot recover this phase.`
                   : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
@@ -344,7 +344,9 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
             command: configurationDependency
               ? missingRepositoryRunner
                 ? `singularity-flow phase show ${phase.id} --json`
-                : null
+                : invalidPinnedCommand && Number(phase.generation) === 0
+                  ? 'singularity-flow explain test-recovery'
+                  : null
               : `singularity-flow phase show ${phase.id} --json`,
             skill: configurationDependency
               ? missingRepositoryRunner ? '/sf-code' : null

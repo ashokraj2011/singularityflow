@@ -331,7 +331,8 @@ export function compilePromptSections(inputSections, policyValue = {}, options =
     const warnings = policy.mode === 'observe' && !originalFits
       ? [`Composed prompt is ${originalBytes} bytes (${originalTokens} estimated tokens), above profile ${profile.id}'s estimated ${maximumBytes}-byte prompt-text limit.`]
       : [];
-    return report(sections, [], original, warnings);
+    // Observe mode delivers the whole prompt, but the receipt must not call an oversized one compliant.
+    return report(sections, [], original, warnings, originalFits ? 'compliant' : 'over-budget-observed');
   }
 
   const mandatory = sections.filter((section) => section.mandatory);

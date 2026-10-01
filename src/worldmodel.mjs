@@ -20,7 +20,7 @@ import {
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
-import { injectAgentPrompt, readPromptGeneration, recordInjection } from './inject.mjs';
+import { injectAgentPrompt, readPromptGeneration, recordInjection, supersedePromptGeneration } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { heartbeat } from './style.mjs';
@@ -4564,6 +4564,24 @@ async function recordCompositionPromptAudit(root, {
   return audit;
 }
 
+/**
+ * How the documents a phase is offered now differ from those a pending prompt recorded, or null.
+ * A document is the same while its ID, bytes, storage and extracted text are; whether this
+ * machine holds a machine-local copy is not part of it.
+ */
+async function pendingEvidenceDrift(root, definition, workflow, phase, record) {
+  const current = (await renderActiveStoryEvidence(root, definition, workflow, { phaseId: phase.id })).entries;
+  const identity = (entry) => [entry.id, entry.sha256 ?? entry.url ?? '', entry.storage ?? 'git', entry.rendition?.sha256 ?? ''].join(' ');
+  const recorded = record?.supportingEvidence ?? [];
+  const before = new Set(recorded.map(identity));
+  const after = new Set(current.map(identity));
+  const added = current.filter((entry) => !before.has(identity(entry))).map((entry) => entry.id);
+  const removed = recorded.filter((entry) => !after.has(identity(entry))).map((entry) => entry.id);
+  if (!added.length && !removed.length) return null;
+  return [added.length ? `now offered ${added.join(', ')}` : null, removed.length ? `no longer offered ${removed.join(', ')}` : null]
+    .filter(Boolean).join('; ');
+}
+
 async function compose(root, options, {
   storyLockHeld = false,
   beforeFinalAuthorityCheck = null
@@ -4661,6 +4679,17 @@ async function compose(root, options, {
       console.error(
         `Prompt generation recovery: ${workflow.workItem.id}/${phase.id}/generation ${phase.generation + 1} has one interrupted persistence half; recomposing exact bytes before repair.`
       );
+    }
+    // A pending prompt is reused byte for byte, but not once the documents its phase is offered
+    // have changed: it would hand the author documents since detached, or miss ones since added.
+    const drift = existing ? await pendingEvidenceDrift(root, definition, workflow, phase, existing.record) : null;
+    if (drift && storyLockHeld && !renderOnly) {
+      const moved = await supersedePromptGeneration(root, workflow, phase, expectedPrompt,
+        `supporting documents changed: ${drift}`);
+      console.error(`Recomposing ${phase.id} generation ${phase.generation + 1}: its supporting documents changed (${drift}). The earlier prompt is kept in ${moved.directory}.`);
+      existing = null;
+    } else if (drift) {
+      console.error(`Warning: the prompt composed for ${phase.id} generation ${phase.generation + 1} predates a change to its supporting documents (${drift}). Run singularity-flow wm compose --phase ${phase.id} to recompose it.`);
     }
     if (existing) {
       const existingDeliveryLifecycle = workflow.resolution?.worldModelHistoryPin?.status === 'active'

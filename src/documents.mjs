@@ -13,6 +13,7 @@ import {
   documentOfferedToPhase, normalizeDocumentPhases, resolveDocumentRecord, validateDocumentName
 } from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
+import { exactFileAtObject, head } from './git.mjs';
 import {
   SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_RENDITION_SUFFIX, TEXT_SOURCE_EXTENSIONS, documentMimeType as mimeTypeForName,
   effectiveDocumentMimeType, extractSourceText, hasTextExtractor
@@ -154,6 +155,42 @@ function safeName(value) {
   }
   return candidate;
 }
+/**
+ * Store supporting documents byte for byte. Their SHA-256 is recorded at upload, so a Git checkout
+ * that rewrote line endings (core.autocrlf on Windows, for one) would make every later read of them
+ * fail verification. A nested .gitattributes keeps the rule with the Story it protects.
+ */
+async function ensureInputsStoredExactly(root, config, workflow) {
+  const file = path.join(workDir(root, config, workflow.workItem.id), 'inputs', '.gitattributes');
+  if (await exists(file)) return;
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, '# Supporting documents are stored byte for byte; their SHA-256 is recorded at upload.\n* -text\n', { flag: 'wx' }).catch((error) => {
+    if (error.code !== 'EEXIST') throw error;
+  });
+}
+
+/** The first line of a Git LFS pointer, which a checkout without git-lfs leaves in place of the bytes. */
+const GIT_LFS_POINTER = /^version https:\/\/git-lfs\.[^/\s]+\/spec\/v1\r?\n/u;
+
+/**
+ * The committed bytes of a document when this checkout's copy differs from them only by line
+ * endings. Any other difference is a changed document, and is still refused.
+ */
+function committedDocumentBytes(root, relative, expected, working) {
+  let committed = null;
+  try { committed = exactFileAtObject(root, head(root), relative, { maximumBytes: (expected.size ?? working.length) + 1 }); }
+  catch { return null; }
+  if (!committed || createHash('sha256').update(committed).digest('hex') !== expected.sha256) return null;
+  const strip = (bytes) => Buffer.from(bytes.filter((byte) => byte !== 0x0d));
+  return strip(committed).equals(strip(working)) ? committed : null;
+}
+
+/** A provider's generic type (application/octet-stream) must not hide what the file's extension says it is. */
+function fetchedMimeType(filename, providerType) {
+  const byName = mimeType(filename);
+  return byName !== 'application/octet-stream' ? byName : (providerType ?? byName);
+}
+
 function nextId(records) { return `DOC-${String(Math.max(0, ...records.map((item) => Number(item.id?.match(/^DOC-(\d+)$/)?.[1] ?? 0))) + 1).padStart(3, '0')}`; }
 function nextPackageId(records) { return `PKG-${String(Math.max(0, ...records.map((item) => Number(item.id?.match(/^PKG-(\d+)$/)?.[1] ?? 0))) + 1).padStart(3, '0')}`; }
 function escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); }
@@ -453,6 +490,18 @@ export async function detachDocuments(root, config, workflow, {
 }
 
 /**
+ * The receipt of a prompt already composed for the current phase's next generation, or null. It is
+ * recomposed the next time it is composed when the documents its phase is offered have changed.
+ */
+export async function pendingPromptRelative(root, config, workflow) {
+  const currentPhase = workflow.phases?.[workflow.currentPhase];
+  if (!currentPhase) return null;
+  const file = path.join(workDir(root, config, workflow.workItem.id), 'context',
+    `${workflow.currentPhase}-gen${Number(currentPhase.generation ?? 0) + 1}.json`);
+  return await exists(file) ? posix(path.relative(root, file)) : null;
+}
+
+/**
  * Change which phases a supporting document is offered to. The caller runs this inside
  * commitAndPublish.beforeStateWrite, like detach, so catalog, decision, state, commit and push are
  * one publication.
@@ -492,13 +541,7 @@ export async function scopeDocuments(root, config, workflow, {
     ? await findEvidenceDependencies(root, config, workflow, targets, { phases: removedPhases })
     : { phases: [], records: [], files: [] };
   const cone = storyCone(workflow, dependencies.phases);
-  // A prompt already composed for the next generation of the current phase is reused as it is, so
-  // it does not reflect this change until that generation is recomposed.
-  const currentPhase = workflow.phases?.[workflow.currentPhase];
-  const pendingPromptPath = currentPhase
-    ? path.join(workDir(root, config, workflow.workItem.id), 'context', `${workflow.currentPhase}-gen${Number(currentPhase.generation ?? 0) + 1}.json`)
-    : null;
-  const pendingPrompt = pendingPromptPath && await exists(pendingPromptPath) ? posix(path.relative(root, pendingPromptPath)) : null;
+  const pendingPrompt = await pendingPromptRelative(root, config, workflow);
   const plan = {
     documents: targets.map((record) => ({ id: record.id, name: record.name ?? null, phases: offered(record) })),
     phases: next, removedPhases, addedPhases,
@@ -855,6 +898,7 @@ export async function addDocuments(root, config, workflow, {
       `Story document capture is unavailable: ${source}`, { code: 'STORY_DOCUMENT_CHANGED' }
     );
     const destination = path.join(root, relative);
+    await ensureInputsStoredExactly(root, config, workflow);
     await mkdir(path.dirname(destination), { recursive: true });
     await writeFile(destination, captured.bytes, { flag: 'wx' });
     const fileSnapshot = await snapshot(destination);
@@ -940,16 +984,18 @@ export async function fetchRemoteDocument(root, config, workflow, {
     const { key } = await storeLocalDocument(root, workflow.workItem.id, { bytes: fetchedBytes, sha256: fetchedSha256, filename });
     record = {
       id, type: 'file', name: documentName, label: documentName, kind: kind ?? 'provider-fetch', storage: { kind: 'local', key }, sourceName: filename,
-      mimeType: result.mimeType ?? headMeta?.mimeType ?? mimeType(filename),
+      mimeType: fetchedMimeType(filename, result.mimeType ?? headMeta?.mimeType),
       size: fetchedBytes.length, sha256: fetchedSha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, remote
     };
   } else {
     const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, filename);
-    const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, fetchedBytes);
+    const destination = path.join(root, relative);
+    await ensureInputsStoredExactly(root, config, workflow);
+    await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, fetchedBytes);
     const fileSnapshot = await snapshot(destination);
     record = {
       id, type: 'file', name: documentName, label: documentName, kind: kind ?? 'provider-fetch', storage: { kind: 'git' }, sourceName: filename,
-      path: posix(relative), mimeType: result.mimeType ?? headMeta?.mimeType ?? mimeType(filename),
+      path: posix(relative), mimeType: fetchedMimeType(filename, result.mimeType ?? headMeta?.mimeType),
       size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, remote
     };
   }
@@ -1062,7 +1108,19 @@ export async function viewDocument(root, config, workflow, reference, { includeD
     current = await snapshot(absolute);
     if ((record.sha256 && current.sha256 !== record.sha256)
         || (record.size != null && current.size !== record.size)) {
-      throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`);
+      // A checkout that rewrote line endings still has the exact bytes in Git; read those.
+      const working = await readFile(absolute).catch(() => Buffer.alloc(0));
+      const committed = record.sha256 ? committedDocumentBytes(root, posix(record.path), record, working) : null;
+      if (committed) {
+        bytes = committed;
+        current = { sha256: record.sha256, size: committed.length };
+      } else {
+        if (GIT_LFS_POINTER.test(working.subarray(0, 200).toString('utf8'))) {
+          throw new SingularityFlowError(`Document '${record.id}' is a Git LFS pointer in this checkout, not its bytes. Run git lfs pull, then retry.`,
+            { code: 'DOCUMENT_LFS_POINTER', details: { documentId: record.id, path: record.path } });
+        }
+        throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`);
+      }
     }
   }
   if (binary) {

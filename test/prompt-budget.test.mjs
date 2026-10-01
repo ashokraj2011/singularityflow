@@ -50,6 +50,8 @@ test('observe reports a prompt budget overflow without changing transport bytes'
   assert.equal(result.text, `${source}\n`);
   assert.equal(result.overflow, true);
   assert.equal(result.warnings.length, 1);
+  assert.equal(result.compliance, 'over-budget-observed', 'a delivered oversized prompt is not called compliant');
+  assert.equal(compilePromptSections([{ id: 'optional', text: 'small' }], policy('observe')).compliance, 'compliant');
 });
 
 test('assist evicts lowest-priority optional sections and records their exact hashes', () => {

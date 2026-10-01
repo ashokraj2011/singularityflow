@@ -254,6 +254,7 @@
         "allowedPhases": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "maxFileBytes": { "type": "integer", "minimum": 1 },
         "maxPreviewBytes": { "type": "integer", "minimum": 1 },
+        "maxPromptEvidenceBytes": { "type": "integer", "minimum": 0, "description": "Inlined document text one phase prompt carries at most, across all of its documents; past it, documents are named with the command that reads them." },
         "storage": {
           "type": "object",
           "description": "Where supporting document bytes may be kept: git commits them; local keeps them on the machine that added them.",

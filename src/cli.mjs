@@ -118,8 +118,8 @@ import {
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
-import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, scopeDocuments, viewDocument } from './documents.mjs';
-import { resolveDocumentRecord } from './document-identity.mjs';
+import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, viewDocument } from './documents.mjs';
+import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import {
   assertClarificationRecordingAllowed, recordClarificationResponses, verifyClarificationRecord
@@ -4659,6 +4659,13 @@ async function nextCommand(options) {
     // false concurrency failure.
     workflow = await loadStoryAggregate(root, config, workflow.workItem.id);
     phase = workflow.phases[phase.id];
+  } else if (!deterministicConvergence
+      && (await documentCatalog(root, config, workflow, { phaseId: phase.id })).some((record) => ['file', 'url'].includes(record.type))) {
+    // Without world-model grounding there is no repository context to compose, but the phase is
+    // still offered supporting documents, and only the governed prompt delivers them to the author.
+    await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, evidence: phase.worldModel?.evidence === true });
+    workflow = await loadStoryAggregate(root, config, workflow.workItem.id);
+    phase = workflow.phases[phase.id];
   }
   const prepared = await prepareConfiguredPhase(root, config, workflow, phase);
   workflow = prepared.workflow;
@@ -4946,8 +4953,13 @@ async function documentsCommand(positionals, options) {
         })
       }
     );
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result }, null, 2));
-    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
+    // A prompt composed before this upload does not have the new documents yet; say when it will.
+    const pendingPrompt = records.some((record) => documentOfferedToPhase(record, workflow.currentPhase))
+      ? await pendingPromptRelative(root, config, workflow) : null;
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result, pendingPrompt }, null, 2));
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+    if (pendingPrompt) console.log(`The prompt already composed for ${workflow.currentPhase} (${pendingPrompt}) does not include ${records.length === 1 ? 'this document' : 'these documents'} yet; it is recomposed with them the next time it is composed (singularity-flow wm compose --phase ${workflow.currentPhase}).`);
+    return;
   }
   if (subcommand === 'browse') {
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));

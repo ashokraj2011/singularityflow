@@ -1,4 +1,4 @@
-import { lstat, open, readdir, readFile, realpath } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { constants as fsConstants, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -351,6 +351,28 @@ function promptGenerationLocation(root, workflow, phase, workDir) {
 
 function promptSha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/**
+ * Set a pending prompt pair aside so its generation can be composed again from changed inputs.
+ * Only the pair for the generation after the last published one is pending: no publication,
+ * approval or receipt has consumed it yet. The pair is kept in the Story under
+ * `context/superseded/` with the reason, so what was replaced stays visible.
+ */
+export async function supersedePromptGeneration(root, workflow, phase, { workDir }, reason) {
+  const location = promptGenerationLocation(root, workflow, phase, workDir);
+  const record = JSON.parse(await readFile(location.recordFile, 'utf8'));
+  const tag = /^[0-9a-f]{64}$/.test(record.renderedSha256 ?? '') ? record.renderedSha256.slice(0, 12) : 'unverified';
+  const base = path.join(workDir, 'context', 'superseded', `${phase.id}-gen${location.generation}-${tag}`);
+  let directory = base;
+  for (let attempt = 2; existsSync(directory); attempt += 1) directory = `${base}-${attempt}`;
+  await mkdir(directory, { recursive: true });
+  await rename(location.recordFile, path.join(directory, path.basename(location.recordFile)));
+  await rename(location.promptFile, path.join(directory, path.basename(location.promptFile)));
+  await writeFile(path.join(directory, 'reason.json'), `${JSON.stringify({
+    phase: phase.id, generation: location.generation, renderedSha256: record.renderedSha256 ?? null, reason
+  }, null, 2)}\n`);
+  return { directory: posix(path.relative(root, directory)) };
 }
 
 function promptGenerationFailure(message, code, details = {}) {

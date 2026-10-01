@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { documentCatalog } from '../documents.mjs';
 import { head } from '../git.mjs';
 import { recordSha256 } from '../records.mjs';
 import { sourceTreeHash } from '../state-stores.mjs';
@@ -132,7 +133,12 @@ export async function buildAutoPhaseContract(root, {
     ? unique(state.activeRepair.writeScope.map(normalizeScope)) : null;
   const artifactPath = relativeArtifactPath(definition, state, phase);
   const adopted = state.evidence?.adoption?.status === 'materialized';
-  const readScope = unique([...(repairReadScope ?? predictedScope), artifactPath]);
+  // The phase's Git-stored supporting documents are evidence its prompt names; the run may read them.
+  const documentScope = workflow?.workItem?.id
+    ? (await documentCatalog(root, definition, workflow, { phaseId: phase.id }))
+      .filter((record) => record.type === 'file' && record.path).map((record) => normalizeScope(record.path))
+    : [];
+  const readScope = unique([...(repairReadScope ?? predictedScope), artifactPath, ...documentScope]);
   const writeScope = unique([
     ...(adopted ? [] : (repairWriteScope ?? predictedScope)), artifactPath
   ]);

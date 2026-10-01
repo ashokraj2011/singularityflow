@@ -324,6 +324,14 @@ test('a changed pinned attachment is rejected', async (t) => {
     { code: 'SOURCE_REVIEW_SOURCE_CHANGED' });
 });
 
+test('a checkout that rewrote an attachment\'s line endings still reviews its committed bytes', async (t) => {
+  const { root, config, workflow } = await fixture(t);
+  await put(root, `${ITEM}/inputs/notes.md`, NOTES.replaceAll('\n', '\r\n'));
+  const packet = await sourceReviewContext(root, config, workflow, 'specification', '/tmp/report.json');
+  assert.equal(packet.sources[1].originalSha256, sha(Buffer.from(NOTES)));
+  assert.equal(packet.sources[1].text, NOTES);
+});
+
 test('only a committed independent report and committed human decision make review ready', async (t) => {
   const { root, config, workflow } = await fixture(t);
   const input = await sourceReviewInput(root, config, workflow, 'specification');

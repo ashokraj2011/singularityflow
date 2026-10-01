@@ -106,6 +106,12 @@ test('a document kept on this machine commits its identity only, and another clo
   const elsewhere = JSON.parse(flow(second, ['documents', 'list', 'LOCAL-1', '--json']).stdout).find((item) => item.id === 'DOC-001');
   assert.equal(elsewhere.availability, 'unavailable');
   assert.match(flow(second, ['documents', 'list', 'LOCAL-1']).stdout, /kept on another machine \(not available here\)/);
+  // Prompts are committed and reused, so the text for it is the same here as where it is held.
+  const secondDefinition = await loadDefinition(second);
+  const renderedElsewhere = await renderActiveStoryEvidence(second, secondDefinition,
+    await loadStoryAggregate(second, secondDefinition, 'LOCAL-1'));
+  assert.equal(renderedElsewhere.markdown, rendered.markdown);
+  assert.deepEqual(renderedElsewhere.entries, rendered.entries);
   const refused = flow(second, ['documents', 'view', 'DOC-001', '--work-id', 'LOCAL-1'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /kept only on the machine where Storage Tester added it/);

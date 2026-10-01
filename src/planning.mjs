@@ -626,9 +626,11 @@ async function workItemPlanningParts(root, definition, {
     structural.text,
     remote.text,
     story ? `## Work-item source\n\n<!-- path=${posix(path.relative(root, storyPath))} -->\n\n${story.trim()}` : '',
-    supportingDocuments.text,
     inputBlock,
-    current ? `## Current artifact draft\n\n<!-- path=${posix(path.relative(root, target))} -->\n\n${current.trim()}` : ''
+    current ? `## Current artifact draft\n\n<!-- path=${posix(path.relative(root, target))} -->\n\n${current.trim()}` : '',
+    // Last: the context is cut from the end at its byte limit, and supporting documents can be read
+    // again with documents view, while the approved inputs and the current draft cannot be lost.
+    supportingDocuments.text
   ].filter((section) => section?.trim()).join('\n\n');
   const agentProfile = definition.agents[agent];
   return {

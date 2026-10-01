@@ -57,7 +57,14 @@ async function checkedFile(root, relative, label, expectedSha256 = null, { maxBy
       code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE'
     });
   }
-  const bytes = await readFile(secured.absolute);
+  let bytes = await readFile(secured.absolute);
+  const committed = run('git', ['show', `HEAD:${relative}`], {
+    cwd: root, allowFailure: true, encoding: 'buffer'
+  });
+  // A checkout that rewrote line endings (core.autocrlf) differs from Git only in CR bytes; the
+  // committed bytes are the ones the catalog pinned, so review those.
+  if (committed.status === 0 && Buffer.isBuffer(committed.stdout) && !committed.stdout.equals(bytes)
+      && sameIgnoringLineEndings(committed.stdout, bytes)) bytes = committed.stdout;
   if (bytes.length > maxBytes) throw new SingularityFlowError(`${label} exceeds the review source byte limit.`, {
     code: 'SOURCE_REVIEW_INPUT_TOO_LARGE'
   });
@@ -65,15 +72,17 @@ async function checkedFile(root, relative, label, expectedSha256 = null, { maxBy
   if (expectedSha256 && digest !== expectedSha256) throw new SingularityFlowError(
     `${label} changed after its pinned SHA-256 was recorded: ${relative}`, { code: 'SOURCE_REVIEW_SOURCE_CHANGED' }
   );
-  const committed = run('git', ['show', `HEAD:${relative}`], {
-    cwd: root, allowFailure: true, encoding: 'buffer'
-  });
   if (committed.status !== 0 || !Buffer.isBuffer(committed.stdout)
       || !committed.stdout.equals(bytes)) throw new SingularityFlowError(
     `${label} is not present unchanged in the published Story commit: ${relative}`,
     { code: 'SOURCE_REVIEW_INPUT_UNPUBLISHED' }
   );
   return { bytes, sha256: digest, absolute: secured.absolute };
+}
+
+function sameIgnoringLineEndings(left, right) {
+  const strip = (bytes) => Buffer.from(bytes.filter((byte) => byte !== 0x0d));
+  return strip(left).equals(strip(right));
 }
 
 function utf8(bytes, label) {

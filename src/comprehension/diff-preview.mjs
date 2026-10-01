@@ -24,23 +24,31 @@ function result(changeSet, values) {
   });
 }
 
-function patchSections(patch, changeSet) {
+function patchSections(patch, entries) {
   const starts = [...patch.matchAll(/^diff --git /gmu)].map((match) => match.index);
-  const entries = changeSet.entries.filter((entry) => !entry.untracked);
   if (!starts.length || starts[0] !== 0 || starts.length !== entries.length) {
     return { status: 'unavailable', reason: 'file-section-count-mismatch', files: [] };
   }
-  const files = [];
-  for (const [index, entry] of entries.entries()) {
-    const patchStart = starts[index];
+  // Git orders sections by path, while the change set lists entries in its own order (an added
+  // file has no old path and sorts first), so each entry is matched to the section whose header
+  // names it. Every header must be distinct and every entry must claim exactly one section.
+  const sections = new Map();
+  for (const [index, patchStart] of starts.entries()) {
     const patchEnd = starts[index + 1] ?? patch.length;
     const block = patch.slice(patchStart, patchEnd);
+    const header = block.slice(0, block.indexOf('\n') < 0 ? block.length : block.indexOf('\n'));
+    if (sections.has(header)) return { status: 'unavailable', reason: 'file-section-identity-mismatch', files: [] };
+    sections.set(header, { patchStart, patchEnd, block });
+  }
+  const files = [];
+  for (const entry of entries) {
     const before = entry.oldPath ?? entry.newPath;
     const after = entry.newPath ?? entry.oldPath;
     const expectedHeader = `diff --git a/${before} b/${after}`;
-    if (block.slice(0, block.indexOf('\n') < 0 ? block.length : block.indexOf('\n')) !== expectedHeader) {
-      return { status: 'unavailable', reason: 'file-section-identity-mismatch', files: [] };
-    }
+    const section = sections.get(expectedHeader);
+    if (!section) return { status: 'unavailable', reason: 'file-section-identity-mismatch', files: [] };
+    sections.delete(expectedHeader);
+    const { patchStart, patchEnd, block } = section;
     const hunks = [...block.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@.*$/gmu)]
       .map((match) => ({
         header: match[0],
@@ -74,7 +82,10 @@ function patchSections(patch, changeSet) {
  */
 export function buildComprehensionDiffPreview(root, changeSet, {
   maximumBytes = CMP_DIFF_PREVIEW_LIMITS.maximumBytes,
-  contextLines = CMP_DIFF_PREVIEW_LIMITS.contextLines
+  contextLines = CMP_DIFF_PREVIEW_LIMITS.contextLines,
+  // Only the change regions at these repository paths, when given: a reader that needs a few files
+  // need not read, or hit the byte limit on, everything else the change touched.
+  paths = null
 } = {}) {
   const integrity = verifyRepositoryChangeSetIntegrity(changeSet);
   if (!integrity.valid) {
@@ -84,8 +95,15 @@ export function buildComprehensionDiffPreview(root, changeSet, {
       fileProjectionStatus: 'unavailable', fileProjectionReason: 'change-set-integrity-invalid', files: []
     });
   }
-  const trackedRegions = changeSet.entries.filter((entry) => !entry.untracked).length;
-  const omittedUntrackedRegions = changeSet.entries.length - trackedRegions;
+  const selected = Array.isArray(paths) ? new Set(paths) : null;
+  // A renamed file is selected by either of its paths, and both go to Git so it still pairs them.
+  const trackedEntries = changeSet.entries.filter((entry) => !entry.untracked
+    && (!selected || selected.has(entry.newPath) || selected.has(entry.oldPath)));
+  const trackedRegions = trackedEntries.length;
+  const omittedUntrackedRegions = changeSet.entries.length - changeSet.entries.filter((entry) => !entry.untracked).length;
+  const pathspecs = selected
+    ? [...new Set(trackedEntries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].map((relative) => `:(literal)${relative}`)
+    : [];
   if (!trackedRegions) {
     return result(changeSet, {
       status: changeSet.entries.length ? 'unavailable' : 'not-applicable',
@@ -105,7 +123,7 @@ export function buildComprehensionDiffPreview(root, changeSet, {
   const response = run('git', [
     '-c', 'core.quotePath=false', 'diff', '--patch', '--no-color', '--no-ext-diff', '--no-textconv',
     `--unified=${contextLines}`, '--find-renames', '--find-copies',
-    '--src-prefix=a/', '--dst-prefix=b/', changeSet.base.commit, '--'
+    '--src-prefix=a/', '--dst-prefix=b/', changeSet.base.commit, '--', ...pathspecs
   ], { cwd: root, allowFailure: true, maxBuffer: maximumBytes + 1 });
   if (response.status !== 0 || response.error) {
     return result(changeSet, {
@@ -124,7 +142,7 @@ export function buildComprehensionDiffPreview(root, changeSet, {
       fileProjectionStatus: 'unavailable', fileProjectionReason: 'preview-output-limit', files: []
     });
   }
-  const sections = patch ? patchSections(patch, changeSet) : {
+  const sections = patch ? patchSections(patch, trackedEntries) : {
     status: 'unavailable', reason: 'git-diff-empty', files: []
   };
   return result(changeSet, {

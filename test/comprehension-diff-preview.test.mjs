@@ -119,3 +119,27 @@ test('file-section identity remains exact for repository paths containing spaces
   const section = preview.patch.slice(preview.files[0].patchStart, preview.files[0].patchEnd);
   assert.match(section, /^diff --git a\/path with space\.txt b\/path with space\.txt/mu);
 });
+
+test('file sections pair with change entries by path, not by the order either lists them in', async () => {
+  const root = await repository();
+  // The change set lists the staged new file first (it has no old path); Git lists by path.
+  await writeFile(path.join(root, 'tracked.txt'), 'after\nshared\n');
+  await writeFile(path.join(root, 'zz-added.txt'), 'brand new\n');
+  git(root, 'add', 'zz-added.txt');
+  const changeSet = await buildRepositoryChangeSet(root, { baseCommit: 'HEAD' });
+  const tracked = changeSet.entries.filter((entry) => !entry.untracked);
+  assert.deepEqual(tracked.map((entry) => entry.newPath), ['zz-added.txt', 'tracked.txt']);
+
+  const preview = buildComprehensionDiffPreview(root, changeSet, { contextLines: 0 });
+  assert.equal(preview.fileProjectionStatus, 'available');
+  assert.deepEqual(preview.files.map((file) => file.pathAfter), ['zz-added.txt', 'tracked.txt']);
+  const modified = preview.files.find((file) => file.pathAfter === 'tracked.txt');
+  assert.match(preview.patch.slice(modified.patchStart, modified.patchEnd), /^diff --git a\/tracked\.txt b\/tracked\.txt\n/);
+
+  // A reader that needs one file diffs only that file.
+  const selected = buildComprehensionDiffPreview(root, changeSet, { contextLines: 0, paths: ['tracked.txt'] });
+  assert.equal(selected.fileProjectionStatus, 'available');
+  assert.equal(selected.trackedRegions, 1);
+  assert.deepEqual(selected.files.map((file) => file.pathAfter), ['tracked.txt']);
+  assert.doesNotMatch(selected.patch, /brand new/);
+});

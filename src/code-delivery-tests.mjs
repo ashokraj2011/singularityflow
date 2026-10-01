@@ -51,6 +51,13 @@ function normalized(candidate) {
   return posix(String(candidate ?? '')).replace(/^\.\//, '');
 }
 
+/** Whether a file's own name marks it as a test, in any directory: `_test.go`, `test_x.py`, `FooTest.java`. */
+export function isTestSourceName(candidate) {
+  const basename = path.posix.basename(normalized(candidate));
+  return TEST_SOURCE_EXTENSIONS.has(path.posix.extname(basename).toLowerCase())
+    && TEST_SOURCE_NAMES.some((pattern) => pattern.test(basename));
+}
+
 export function isAllowedTestAutomationPath(candidate) {
   return isTestAutomationPath(candidate);
 }

@@ -5400,6 +5400,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
           return;
         }
+        // Advisories never block: publish, and say what the documentation check found.
+        if (gate.advisories.length) {
+          output.appendLine(`\nDocumentation advisories for ${phaseId} (never block publication):`);
+          for (const advisory of gate.advisories) output.appendLine(`- ${advisory}`);
+          void vscode.window.showInformationMessage(
+            `Publishing ${phaseId}. Documentation: ${gate.advisories[0]}${gate.advisories.length > 1 ? ` (+${gate.advisories.length - 1} more)` : ''}`,
+            'Show advisories'
+          ).then((choice) => { if (choice === 'Show advisories') output.show(true); });
+        }
       } catch (error) {
         showRefusal(error, { headline: `Could not check ${phaseId} before publication` });
         return;

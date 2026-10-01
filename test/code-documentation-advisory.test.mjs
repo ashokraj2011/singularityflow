@@ -135,3 +135,29 @@ export function added(entry) { return entry; }
   assert.equal(draft.status, 'ready');
   assert.notEqual(draft.commands.publish, null, 'publication is still offered');
 });
+
+test('advisories still run when the generation also committed Story records, and skip tests and migrations', async (t) => {
+  const { root, phase, workflow, config } = await repository(t);
+  // Story records committed during the generation are added files, which the change set lists
+  // before the edited product file; Git lists them by path.
+  await put(root, 'singularity/work-items/DOCS-1/context/implementation-gen1.json', '{"phase":"implementation"}\n');
+  await put(root, 'pkg/ledger_test.go', 'package ledger\n\nfunc TestPost(t *testing.T) {}\n');
+  await put(root, 'db/migrate/001_create_ledger.rb', 'class CreateLedger\n  def change\n  end\nend\n');
+  await put(root, 'app/test_service.py', 'def test_serve():\n    pass\n');
+  git(root, 'add', '.');
+  git(root, 'commit', '-q', '-m', 'story records and tests');
+  await put(root, 'src/ledger.js', `/** Existing and documented. */
+export function documented() { return 1; }
+
+export function legacy() { return 2; }
+
+// @clause:DOCS-1:REQ-001
+export function added(entry) {
+  return entry;
+}
+`);
+  const { documentation, advisories } = await inspectCodeDocumentation(root, config, workflow, phase);
+  assert.equal(documentation.status, 'missing', `not unavailable: ${documentation.reason}`);
+  assert.deepEqual(advisories.map((entry) => `${entry.path}:${entry.value}`), ['src/ledger.js:added'],
+    'Go and Python tests and a migration are not product APIs');
+});

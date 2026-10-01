@@ -17,7 +17,7 @@ related:
   - manual-authorship
   - approvals
   - sequence-gates
-version: 8
+version: 9
 ---
 Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Approved upstream inputs are prepared with `sflow inputs [PHASE]`; supporting documents are added with `sflow documents upload <FILE> --name <NAME>` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it.
 
@@ -32,8 +32,11 @@ before asking the kernel to publish.
 While a code generation is open, `sflow phase draft-check <phase> --json` and
 `sflow phase prepublish <phase> --json` also return `advisories[]` and a `documentation` summary: every public function,
 method, or class the generation added or changed without a doc comment, in product source only
-(tests, generated and vendored files, and Story records are skipped). Advisories never block
-publication and never become findings. `/sf-code` writes doc comments as it implements;
+(tests by directory or file name, migrations, mocks, generated and vendored files, and Story records
+are skipped). A `// @clause:` or `// @ac:` tag line and decorators may sit between the doc comment and
+the declaration. When the change cannot be read, `documentation.status` is `unavailable` with its
+reason. VS Code shows the advisories when it publishes. Advisories never block publication and never
+become findings. `/sf-code` writes doc comments as it implements;
 `/sf-code-docs` adds any that are missing afterwards, changing comments only.
 
 If a prior generation was consumed and bytes now differ, run

@@ -13,6 +13,7 @@ import {
   changedDeclarations, documentationLanguage, publicDeclarations, unsupportedSourceLanguage
 } from './code-documentation.mjs';
 import { phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
+import { isTestSourceName } from './code-delivery-tests.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { posix } from './util.mjs';
@@ -23,6 +24,9 @@ export const CODE_DOCUMENTATION_LIMITS = Object.freeze({
   advisories: 50,
   diffBytes: 2 * 1024 * 1024
 });
+
+// Schema migrations, mocks and stubs are product-adjacent records, not APIs a caller reads.
+const MIGRATION_OR_DOUBLE = /(?:^|\/)(?:migrations?|migrate|alembic|mocks?|__mocks__|stubs?)\//iu;
 
 const GENERATED_OR_VENDORED = /(?:^|\/)(?:node_modules|vendor|third_party|third-party|dist|build|out|target|coverage|generated|__generated__|\.next)\/|\.min\.[cm]?js$|\.(?:pb|gen|generated)\.[a-z]+$|_pb2\.py$/iu;
 
@@ -39,7 +43,8 @@ function summary(status, values = {}) {
 
 function productSource(relative, itemRoot) {
   return !relative.startsWith('singularity/') && !relative.startsWith(`${itemRoot}/`)
-    && !relative.startsWith('.github/') && !isTestAutomationPath(relative) && !GENERATED_OR_VENDORED.test(relative);
+    && !relative.startsWith('.github/') && !isTestAutomationPath(relative) && !isTestSourceName(relative)
+    && !MIGRATION_OR_DOUBLE.test(relative) && !GENERATED_OR_VENDORED.test(relative);
 }
 
 /** Changed line numbers in the new version of each tracked file, from a zero-context patch. */
@@ -76,14 +81,19 @@ export async function inspectCodeDocumentation(root, config, workflow, phase) {
     if (!supported.length) {
       return { documentation: summary('not-applicable', { reason: 'no-product-source-changed', unsupportedFiles }), advisories: [] };
     }
-    const preview = supported.some((entry) => !entry.untracked)
-      ? buildComprehensionDiffPreview(root, changeSet, { contextLines: 0, maximumBytes: CODE_DOCUMENTATION_LIMITS.diffBytes })
+    const inspected = supported.slice(0, CODE_DOCUMENTATION_LIMITS.files);
+    // Only the inspected product files are diffed: Story records and other changes stay out of the
+    // patch and its byte limit.
+    const edited = inspected.filter((entry) => !entry.untracked && entry.status !== 'added');
+    const preview = edited.length
+      ? buildComprehensionDiffPreview(root, changeSet, {
+        contextLines: 0, maximumBytes: CODE_DOCUMENTATION_LIMITS.diffBytes, paths: edited.map((entry) => entry.newPath)
+      })
       : { status: 'not-applicable', files: [] };
-    if (supported.some((entry) => !entry.untracked) && preview.fileProjectionStatus !== 'available') {
+    if (edited.length && preview.fileProjectionStatus !== 'available') {
       return { documentation: summary('unavailable', { reason: preview.fileProjectionReason ?? preview.reason ?? 'diff-unavailable', unsupportedFiles }), advisories: [] };
     }
     const changedLines = changedLinesByPath(preview);
-    const inspected = supported.slice(0, CODE_DOCUMENTATION_LIMITS.files);
     const advisories = [];
     let declarations = 0;
     let inspectedFiles = 0;

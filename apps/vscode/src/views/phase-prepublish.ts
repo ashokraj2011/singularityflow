@@ -4,6 +4,8 @@ export interface PhasePrepublishDecision {
   headline: string;
   details: string[];
   skill: string | null;
+  /** Documentation advisories (and why the check could not run). Never part of readiness. */
+  advisories: string[];
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -33,8 +35,16 @@ export function phasePrepublishDecision(
       ready: false,
       headline: `Publication of ${expected.phaseId} stopped: the pre-publish check is unavailable or stale.`,
       details: ['Refresh the Story and rerun the phase check. No publication was attempted.'],
-      skill: null
+      skill: null,
+      advisories: []
     };
+  }
+  const advisories = (Array.isArray(projection.advisories) ? projection.advisories : []).slice(0, 10)
+    .map((advisory) => line(record(advisory)?.message))
+    .filter((message): message is string => Boolean(message));
+  const documentation = record(projection.documentation);
+  if (documentation?.status === 'unavailable') {
+    advisories.push(`The documentation check could not run (${line(documentation.reason, 80) ?? 'unknown reason'}); it never blocks publication.`);
   }
   const findings = Array.isArray(projection.findings) ? projection.findings : null;
   const commands = record(projection.commands);
@@ -52,7 +62,7 @@ export function phasePrepublishDecision(
       headline: testsPending
         ? `${expected.phaseId} is ready for a publication attempt; required tests run during publication.`
         : `${expected.phaseId} is ready to publish.`,
-      details: [], skill: null
+      details: [], skill: null, advisories
     };
   }
   const details = (findings ?? []).slice(0, 5)
@@ -70,6 +80,7 @@ export function phasePrepublishDecision(
     ready: false,
     headline: `Publication of ${expected.phaseId} stopped: correct this phase first.`,
     details,
-    skill: exactSkill
+    skill: exactSkill,
+    advisories
   };
 }

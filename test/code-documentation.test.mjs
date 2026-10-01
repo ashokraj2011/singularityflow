@@ -237,3 +237,46 @@ export function two() {
   assert.deepEqual(changedDeclarations(declarations, [3], 9).map((entry) => entry.name), ['one']);
   assert.deepEqual(changedDeclarations(declarations, [], 9), []);
 });
+
+test('traceability tag lines and decorators over several lines sit between a doc comment and its declaration', () => {
+  const script = `/**
+ * Settle one payment.
+ */
+// @clause:PAY-1:REQ-001
+export function settle(id) { return id; }
+
+/** Tags alone do not document. */
+// @clause:PAY-1:REQ-002 @ac:PAY-1:AC-002
+export function tagged(id) { return id; }
+
+// @clause:PAY-1:REQ-003
+export function undocumented(id) { return id; }
+
+/**
+ * A card that renders the ledger.
+ */
+@Component({
+  selector: 'ledger-card',
+  template: '<p>{{ total }}</p>'
+})
+export class LedgerCard {}
+`;
+  assert.deepEqual(summary(script, 'typescript'), [
+    'function:settle:doc', 'function:tagged:doc', 'function:undocumented:none', 'class:LedgerCard:doc'
+  ]);
+  const csharp = `public class Ledger
+{
+    /// <summary>Posts one entry.</summary>
+    // @clause:PAY-1:REQ-004
+    public void Post(string entry) { }
+}
+`;
+  assert.deepEqual(summary(csharp, 'csharp').filter((entry) => entry.startsWith('method')), ['method:Post:doc']);
+  const go = `// Settle settles one payment.
+// @clause:PAY-1:REQ-005
+func Settle(id string) string { return id }
+`;
+  assert.deepEqual(summary(go, 'go'), ['function:Settle:doc']);
+  // A minified line is not read for declarations at all.
+  assert.deepEqual(summary(`export function minified(){return 1}${';'.repeat(3000)}\n`, 'javascript'), []);
+});

@@ -6625,6 +6625,8 @@ async function phaseCommand(positionals, options) {
       for (const advisory of result.advisories.slice(0, 10)) console.log(`  · ${advisory.message}`);
       if (result.documentation.undocumented > 10) console.log(`  · …and ${result.documentation.undocumented - 10} more (--json lists up to 50).`);
       console.log(`Documentation: ${result.documentation.guidance}`);
+    } else if (result.documentation?.status === 'unavailable') {
+      console.log(`Documentation advisories: the check could not run (${result.documentation.reason ?? 'unknown reason'}); it never blocks publication.`);
     }
     if (result.status === 'correction-required') {
       console.log(`Correction: ${result.correction.guidance}`);

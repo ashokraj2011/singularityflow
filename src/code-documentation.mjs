@@ -84,7 +84,8 @@ function maskedSource(source, language) {
   return maskPolyglotNonCode(source, language);
 }
 
-const TAG_ONLY = /^@(?:clause|ac):\S+$/u;
+const TAG_ONLY = /^(?:@(?:clause|ac):\S+[\s,]*)+$/u;
+const MAX_DECLARATION_LINE = 2000;
 
 /** The text of a comment block once its markers are gone, and whether any of it documents. */
 function commentHasProse(lines) {
@@ -101,15 +102,50 @@ const DECORATOR = {
   csharp: /^\s*\[/u, rust: /^\s*#!?\[/u, php: /^\s*#\[/u
 };
 
+/** A comment line holding only traceability tags, which `/sf-code` puts directly above a declaration. */
+const TAG_LINE = /^(?:\/\/+|#+|\/\*+|\*)\s*(?:@(?:clause|ac):\S+[\s,]*)+(?:\*\/)?$/u;
+
+/**
+ * The first line of a decorator, annotation or attribute that ends on `end` and opens on an
+ * earlier line, or null. Bracket counting over at most 40 lines; an advisory heuristic, not a parser.
+ */
+function decoratorStart(lines, end, decorator) {
+  let balance = 0;
+  for (let line = end; line >= 0 && end - line < 40; line -= 1) {
+    for (const character of [...lines[line]].reverse()) {
+      if (')]}'.includes(character)) balance += 1;
+      else if ('([{'.includes(character)) balance -= 1;
+    }
+    if (decorator.test(lines[line])) return balance <= 0 && line < end ? line : null;
+    if (balance <= 0) return null;
+  }
+  return null;
+}
+
+/**
+ * The line above `index` where its doc comment would end: past traceability tag lines and every
+ * decorator, annotation or attribute, including one written over several lines.
+ */
+function aboveLeadIn(lines, index, language) {
+  const decorator = DECORATOR[language];
+  let cursor = index - 1;
+  while (cursor >= 0) {
+    const text = lines[cursor].trim();
+    if (TAG_LINE.test(text) || decorator?.test(lines[cursor])) { cursor -= 1; continue; }
+    const start = decorator && /[)\]}]\s*[,;]?$/u.test(text) ? decoratorStart(lines, cursor, decorator) : null;
+    if (start === null) break;
+    cursor = start - 1;
+  }
+  return cursor;
+}
+
 /**
  * The doc comment immediately above `index` (skipping decorators, annotations and attributes), in
  * the given style, or null. Blank lines break the association, as they do for every tool that reads
  * these comments.
  */
 function commentAbove(lines, index, language, style) {
-  let cursor = index - 1;
-  const decorator = DECORATOR[language];
-  while (cursor >= 0 && decorator?.test(lines[cursor])) cursor -= 1;
+  let cursor = aboveLeadIn(lines, index, language);
   if (cursor < 0) return null;
   const line = lines[cursor].trim();
   if (style === 'block' || style === 'block-or-slash') {
@@ -294,7 +330,10 @@ function rubyDeclarations(masked) {
 export function publicDeclarations(source, language) {
   if (!language) return [];
   const lines = String(source).split(/\r?\n/u);
-  const masked = maskedSource(source, language).split(/\r?\n/u);
+  // A declaration fits on a line of ordinary length; a longer one is minified or generated text,
+  // and leaving it out keeps the line patterns' work bounded whatever the file holds.
+  const masked = maskedSource(source, language).split(/\r?\n/u)
+    .map((line) => (line.length > MAX_DECLARATION_LINE ? '' : line));
   const found = language === 'javascript' || language === 'typescript' ? scriptDeclarations(masked)
     : language === 'python' ? pythonDeclarations(masked)
       : language === 'ruby' ? rubyDeclarations(masked)

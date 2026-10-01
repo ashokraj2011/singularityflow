@@ -98,3 +98,19 @@ test('the VS Code Publish route checks after saved buffers and before any mutati
   assert.match(route, /if \(choice === 'Show correction steps'\) output\.show\(true\)/);
   assert.match(route, /catch \(error\) \{\s*showRefusal\(error, \{ headline: `Could not check/);
 });
+
+test('documentation advisories ride along with a ready decision and never change it', () => {
+  const decision = phasePrepublishDecision({
+    ...ready,
+    documentation: { status: 'missing', undocumented: 1, blocking: false },
+    advisories: [{ code: 'code.documentation.missing', blocking: false, message: "Public function 'settle' in src/ledger.js:4 has no doc comment." }]
+  }, expected);
+  assert.equal(decision.ready, true);
+  assert.deepEqual(decision.advisories, ["Public function 'settle' in src/ledger.js:4 has no doc comment."]);
+  const unavailable = phasePrepublishDecision({
+    ...ready, documentation: { status: 'unavailable', reason: 'diff-unavailable', blocking: false }, advisories: []
+  }, expected);
+  assert.equal(unavailable.ready, true);
+  assert.deepEqual(unavailable.advisories, ['The documentation check could not run (diff-unavailable); it never blocks publication.']);
+  assert.deepEqual(phasePrepublishDecision(ready, expected).advisories, []);
+});

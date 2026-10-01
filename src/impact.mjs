@@ -572,7 +572,11 @@ function nativeMetricRecords(workflow, report, finalization) {
     'cached-input-tokens': cachedInputTokens,
     'total-tokens': totalTokens,
     'cost-usd': { value: report.cost, status: report.cost == null ? 'unavailable' : report.costStatus },
-    'first-pass-approval-rate': { value: report.phases.length ? report.phases.filter((phase) => phase.generations === 1 && phase.status === 'approved').length / report.phases.length : null },
+    // Phases a decision skipped never ran, so they are neither first-pass approvals nor misses.
+    'first-pass-approval-rate': { value: (() => {
+      const ran = report.phases.filter((phase) => phase.status !== 'skipped');
+      return ran.length ? ran.filter((phase) => phase.generations === 1 && phase.status === 'approved').length / ran.length : null;
+    })() },
     'required-check-pass-rate': { value: (() => {
       const checks = report.phases.flatMap((phase) => phase.checks);
       return checks.length ? checks.filter((check) => check.status === 'passed').length / checks.length : null;

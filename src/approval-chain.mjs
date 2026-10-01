@@ -65,6 +65,7 @@ function phaseDocuments(phase) {
 }
 
 function approvalState(phase, mode, received, minimum) {
+  if (phase.status === 'skipped') return 'skipped';
   if (mode === 'none') return 'not-required';
   if (mode === 'policy') return phase.status === 'approved' ? 'policy-approved' : 'policy-pending';
   if (received >= minimum && minimum > 0) return 'approved';
@@ -115,7 +116,7 @@ export function approvalChainSnapshot(workflow) {
         minimum,
         received: activeApprovals.length,
         remaining: Math.max(0, minimum - activeApprovals.length),
-        configurationBlocked: phase.status !== 'approved' && !capacity.attainable,
+        configurationBlocked: !['approved', 'skipped'].includes(phase.status) && !capacity.attainable,
         capacity: Object.freeze(capacity),
         authorities,
         approvedBy: Object.freeze(activeApprovals.map((entry) => Object.freeze({

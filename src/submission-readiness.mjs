@@ -5,6 +5,7 @@ import { phaseAuthoredReviewArtifacts } from './publication-preflight.mjs';
 import { changedFiles } from './git.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
+import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -29,7 +30,18 @@ function publicationIsRecorded(publication) {
 }
 
 function submitCommand(workflow, phase) {
-  return `singularity-flow submit ${phase.id} --work-id ${workflow.workItem.id}`;
+  return `singularity-flow submit ${phase.id} --work-id ${workflow.workItem.id}${decisionInputsNeeded(workflow, phase).length ? decisionSubmitArguments(workflow, phase.id) : ''}`;
+}
+
+/**
+ * The values a host must ask for before submitting: the decision after the phase reads them, and
+ * none were recorded this round. The command carries a placeholder per value for shells and
+ * Copilot; a host replaces them with what the person chose.
+ */
+function decisionInputsNeeded(workflow, phase) {
+  const decision = decisionFedBy(workflow, phase.id);
+  if (!decision || recordedDecisionValues(phase, decision)) return [];
+  return decision.inputs.map((input) => ({ ...input, decision: decision.id, decisionLabel: decision.label }));
 }
 
 function result(workflow, phase, overrides) {
@@ -168,6 +180,25 @@ export function submissionReadinessSnapshot(workflow, {
     reasonCode: 'PUBLICATION_SYNCHRONIZATION_REQUIRED'
   });
 
+  // A Story waiting for a person has nothing to submit; the decision is the next action.
+  if (workflow.pendingDecision) {
+    const pending = storyDecisionView(workflow).pending;
+    return result(workflow, phase, {
+      ...draft,
+      classification: 'decision-required',
+      command: `singularity-flow decision show ${workflow.workItem.id}`,
+      nextSkill: '/sf-approve',
+      reasonCode: 'DECISION_REQUIRED',
+      decision: {
+        key: pending.key, decision: pending.decision, label: pending.label, reason: pending.reason,
+        after: pending.after, by: pending.by, anyStep: pending.anyStep, round: pending.round, maxRounds: pending.maxRounds,
+        options: pending.options.map((option) => ({
+          id: option.id, label: option.label, to: option.to, toLabel: option.toLabel, reach: option.reach, skips: option.skips
+        }))
+      }
+    });
+  }
+
   if (phase.status === 'awaiting_approval') return result(workflow, phase, {
     ...draft,
     classification: 'already-submitted',
@@ -194,7 +225,8 @@ export function submissionReadinessSnapshot(workflow, {
           sequenceGate: 'freshGeneration',
           command: submitCommand(workflow, phase),
           nextSkill: '/sf-submit',
-          reasonCode: 'SOFT_SEQUENCE_CONFIRMATION_REQUIRED'
+          reasonCode: 'SOFT_SEQUENCE_CONFIRMATION_REQUIRED',
+          ...(decisionInputsNeeded(workflow, phase).length ? { decisionInputs: decisionInputsNeeded(workflow, phase) } : {})
         }
       : {
           classification: 'generation-required',
@@ -214,7 +246,8 @@ export function submissionReadinessSnapshot(workflow, {
           sequenceGate: 'generationCommit',
           command: submitCommand(workflow, phase),
           nextSkill: '/sf-submit',
-          reasonCode: 'SOFT_SEQUENCE_CONFIRMATION_REQUIRED'
+          reasonCode: 'SOFT_SEQUENCE_CONFIRMATION_REQUIRED',
+          ...(decisionInputsNeeded(workflow, phase).length ? { decisionInputs: decisionInputsNeeded(workflow, phase) } : {})
         }
       : {
           classification: Number(phase.generation ?? 0) < 1
@@ -250,13 +283,15 @@ export function submissionReadinessSnapshot(workflow, {
     });
   }
 
+  const decisionInputs = decisionInputsNeeded(workflow, phase);
   return result(workflow, phase, {
     ...draft,
     classification: 'ready-to-attempt',
     lifecycleReady: true,
     command: submitCommand(workflow, phase),
     nextSkill: '/sf-submit',
-    reasonCode: 'SUBMISSION_READY'
+    reasonCode: 'SUBMISSION_READY',
+    ...(decisionInputs.length ? { decisionInputs } : {})
   });
 }
 

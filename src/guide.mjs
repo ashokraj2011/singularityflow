@@ -3,6 +3,7 @@ import { copilotAction } from './copilot-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
+import { decisionSubmitArguments } from './workflow-decisions.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
 
@@ -13,6 +14,16 @@ function currentPhase(workflow) {
 function nextActions(workflow, phase) {
   if (workflow.status === 'cancelled') return [
     copilotAction({ skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' })
+  ];
+  // A Story waiting for a person moves only by their choice; the approved phase has nothing to submit.
+  const pending = workflow.pendingDecision;
+  if (pending) return [
+    copilotAction({ skill: '/sflow-approve', command: `singularity-flow decision show ${workflow.workItem.id}`, reason: `See what '${pending.label}' offers and who may choose.` }),
+    ...pending.options.map((option) => copilotAction({
+      skill: '/sflow-approve',
+      command: `singularity-flow decision choose ${workflow.workItem.id} --option ${option.id} --reason <reason> --expected ${pending.key}`,
+      reason: `Choose '${option.label}' for '${pending.label}'.`
+    }))
   ];
   if (!phase) return [
     copilotAction({ skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' })
@@ -40,7 +51,7 @@ function nextActions(workflow, phase) {
     })
   ];
   const submit = copilotAction({
-    skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}`,
+    skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
     reason: noApproval
       ? `Run configured checks, complete ${phase.id} without approval, and advance to the next phase.`
       : `Run configured checks and submit ${phase.id} for approval.`

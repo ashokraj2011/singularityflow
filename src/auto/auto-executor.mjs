@@ -1957,7 +1957,9 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       }
       const submittedPacket = [...(current.lineage?.submissions ?? [])].reverse().find((entry) =>
         entry.phase === phase.id && Number(entry.generation) === Number(completed.generation)) ?? null;
-      const waiting = completed.status === 'awaiting_approval';
+      // A decision waiting for a person is a human boundary exactly like an approval.
+      const waitingDecision = Boolean(current.pendingDecision);
+      const waiting = completed.status === 'awaiting_approval' || waitingDecision;
       const stopped = await mutateAutoExecutorState(root, flightId, (draft) => {
         draft.position = 'submitted';
         draft.commits = { ...(draft.commits ?? {}), submission: head(worktree) };
@@ -1987,9 +1989,11 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           ? 'completed' : waiting ? 'waiting-human' : 'running';
         draft.stopReason = submittedBoundary || completedBoundary
           ? 'requested-boundary-reached'
-          : waiting ? 'approval-required' : 'phase-decision-recorded';
+          : waiting ? (waitingDecision ? 'decision-required' : 'approval-required') : 'phase-decision-recorded';
         draft.nextAction = waiting && !submittedBoundary
-          ? `Review and decide phase '${phase.id}' through the normal human approval path.`
+          ? waitingDecision
+            ? `Choose what happens next for '${current.pendingDecision.label}' with singularity-flow decision choose.`
+            : `Review and decide phase '${phase.id}' through the normal human approval path.`
           : draft.status === 'running'
             ? 'Continue across the exact governed phase boundary.'
             : 'The ratified Auto endpoint was reached; inspect the governed Story.';

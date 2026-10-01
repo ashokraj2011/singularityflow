@@ -38,6 +38,7 @@ function embeddedInputContent(buffer, maxBytes) {
 }
 
 function inputMessage(consumer, entry) {
+  if (entry.status === 'skipped') return `${consumer.id} reads ${entry.phase}, which a decision skipped in this Story`;
   if (entry.status === 'missing') return `${consumer.id} requires approved input from ${entry.phase}; ${entry.path} is missing`;
   if (entry.status === 'unapproved') return `${consumer.id} requires approved input from ${entry.phase}; ${entry.phase} is ${entry.producerStatus}`;
   if (entry.status === 'hash_mismatch') return `${consumer.id} input from ${entry.phase} no longer matches its approved hash`;
@@ -114,7 +115,8 @@ export async function collectInputs(root, workflow, phase, {
     }
     const current = relativeArtifact ? await snapshot(path.join(itemDirectory, relativeArtifact)) : { exists: false, size: 0, sha256: null };
     let status = 'captured';
-    if (!current.exists) status = 'missing';
+    if (producer?.status === 'skipped') status = 'skipped';
+    else if (!current.exists) status = 'missing';
     else if (producer?.status !== 'approved' || registered?.status !== 'approved') status = 'unapproved';
     else if (!registered?.sha256 || registered.sha256 !== current.sha256) status = 'hash_mismatch';
 

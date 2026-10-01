@@ -349,6 +349,28 @@
               "additionalProperties": false
             }
           },
+          "decisions": {
+            "description": "Decisions after phases: branch (rules on recorded values), loop (back until a goal, at most maxRounds), or ask (a person chooses). See docs/topics/workflow-decisions.md.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "after", "kind", "label"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+                "after": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+                "kind": { "enum": ["branch", "loop", "ask"] },
+                "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+                "inputs": { "type": "array", "maxItems": 10, "items": { "type": "object" } },
+                "routes": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "object" } },
+                "goal": { "type": "object" },
+                "back": { "type": "string" },
+                "maxRounds": { "type": "integer", "minimum": 1, "maximum": 20 },
+                "by": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+                "anyStep": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            }
+          },
           "intelligence": { "$ref": "#/$defs/workTypeIntelligence" },
           "auto": { "$ref": "#/$defs/autoWorkTypePolicy" },
           "references": { "$ref": "#/$defs/referenceRepositoryPolicy" },

@@ -731,10 +731,11 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
 export async function finalizeStoryDelivery(root, config, workflow, { persist = true } = {}) {
   const incomplete = workflow.phaseOrder
     .map((phaseId) => workflow.phases[phaseId])
-    .filter((phase) => phase.status !== 'approved');
+    // A phase a decision skipped is settled; the Story finished without producing it.
+    .filter((phase) => !['approved', 'skipped'].includes(phase.status));
   if (workflow.currentPhase || incomplete.length) {
     throw new SingularityFlowError(
-      `Story '${workflow.workItem.id}' cannot be finalized: complete and approve every configured phase first. `
+      `Story '${workflow.workItem.id}' cannot be finalized: complete and approve every phase it runs first. `
       + `Incomplete: ${incomplete.map((phase) => `${phase.id}=${phase.status}`).join(', ') || workflow.currentPhase}.`
     );
   }

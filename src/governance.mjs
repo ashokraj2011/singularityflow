@@ -589,7 +589,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (terminal) {
-    for (const phaseId of workflow.phaseOrder) if (workflow.phases[phaseId]?.status !== 'approved') errors.push(`terminal: phase ${phaseId} is not approved`);
+    for (const phaseId of workflow.phaseOrder) {
+      const phase = workflow.phases[phaseId];
+      // A decision may skip a phase; the gate records it rather than treating it as unfinished.
+      if (phase?.status === 'skipped') {
+        passes.push(`skipped by decision: ${phaseId}${phase.skippedBy ? ` (${phase.skippedBy.decision} → ${phase.skippedBy.route})` : ''}`);
+      } else if (phase?.status !== 'approved') errors.push(`terminal: phase ${phaseId} is not approved`);
+    }
+    if (workflow.pendingDecision) errors.push(`terminal: the Story is waiting for a decision: ${workflow.pendingDecision.label}`);
     if (workflow.status !== 'complete' || currentPhase(workflow)) errors.push('terminal: workflow is not complete'); else passes.push('terminal lifecycle');
   }
   return { errors, warnings, passes, findings: classifyStoryGateFailures(workflow, errors) };

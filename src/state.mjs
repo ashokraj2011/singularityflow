@@ -153,12 +153,12 @@ import {
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
-import { advanceCompletedPhase, clearDecisionState, nextPhaseAfterSkillAmendment, reopenPhaseRange } from './lifecycle-transitions.mjs';
+import { advanceCompletedPhase, clearDecisionState, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange } from './lifecycle-transitions.mjs';
 import {
   assertChoiceKeepsDependencies, decisionFedBy, decisionInputsHint, decisionOutcome, describeOutcome,
   normalizeDecisionInputValues, pendingDecisionRecord, recordedDecisionValues, resolveDecisionChoice
 } from './workflow-decisions.mjs';
-export { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
+export { completionPhaseOf, nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
@@ -763,6 +763,9 @@ export function storyStatusMarkdown(workflow) {
       : []),
     `- Overall status: **${workflow.status}**`,
     `- Current phase: **${workflow.currentPhase ?? (workflow.status === 'cancelled' ? 'cancelled and archived' : 'complete')}**`,
+    ...(workflow.pendingDecision
+      ? [`- Waiting for a decision: **${workflow.pendingDecision.label}** — ${workflow.pendingDecision.by.join(', ')} choose${workflow.pendingDecision.reason === 'limit' ? ' (its rounds are used)' : ''}`]
+      : []),
     ...(workflow.cancellation ? [
       `- Cancelled during: **${workflow.cancellation.phase}**`,
       `- Cancellation reason: ${workflow.cancellation.reason}`,
@@ -6691,16 +6694,6 @@ async function markIntentAmendmentRevalidated(root, config, workflow, phase, at,
     record.revalidatedAt = summary.revalidatedAt;
   }
   await persistIntentAmendmentRecord(root, config, workflow, summary, record);
-}
-
-/**
- * The phase that completed a Story: its last phase, unless a decision finished the Story early or
- * skipped its tail, in which case the last phase that actually ran.
- */
-export function completionPhaseOf(workflow) {
-  const id = [...workflow.phaseOrder].reverse().find((phaseId) => workflow.phases[phaseId]?.status !== 'skipped')
-    ?? workflow.phaseOrder.at(-1);
-  return workflow.phases[id];
 }
 
 export async function reopenWorkflow(root, config, workflow, {

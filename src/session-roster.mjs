@@ -3,6 +3,9 @@ import { SingularityFlowError } from './util.mjs';
 const PHASE_STATUSES = Object.freeze([
   'not_started', 'in_progress', 'awaiting_approval', 'approved', 'cancelled'
 ]);
+// A phase a workflow decision passed over (Story state v12). Counted only when present, so a
+// roster of Stories without decisions keeps its exact shape.
+const KNOWN_PHASE_STATUSES = Object.freeze([...PHASE_STATUSES, 'skipped']);
 export const STORY_ROSTER_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -15,7 +18,7 @@ export function storyLifecycleProgress(workflow) {
   const phase = id && own(workflow?.phases, id) ? workflow.phases[id] : null;
   const current = Object.freeze({
     id,
-    status: own(phase, 'status') && PHASE_STATUSES.includes(phase.status) ? phase.status : null,
+    status: own(phase, 'status') && KNOWN_PHASE_STATUSES.includes(phase.status) ? phase.status : null,
     // Zero is the real initial generation; missing historical data must not become zero or one.
     generation: own(phase, 'generation') && Number.isSafeInteger(phase.generation) && phase.generation >= 0
       ? phase.generation : null
@@ -44,10 +47,10 @@ export function storyLifecycleProgress(workflow) {
     }
     const state = workflow.phases[phaseId];
     if ((own(state, 'id') && state.id !== phaseId) || !own(state, 'status')
-        || !PHASE_STATUSES.includes(state.status)) {
+        || !KNOWN_PHASE_STATUSES.includes(state.status)) {
       return unavailable('phase-state-invalid');
     }
-    statusCounts[state.status]++;
+    statusCounts[state.status] = (statusCounts[state.status] ?? 0) + 1;
   }
   return Object.freeze({
     schemaVersion: 1, available: true, approved: statusCounts.approved, total: order.length,

@@ -464,7 +464,8 @@ function lifecycleOutcome(workflow, phaseId) {
   const verification = failed ? 'failed'
     : checks.length && passed === checks.length ? 'passed'
       : checks.length ? 'partial'
-        : phase?.status === 'approved' ? 'passed' : 'not-run';
+        : phase?.status === 'approved' ? 'passed'
+          : phase?.status === 'skipped' ? 'skipped' : 'not-run';
   return {
     completed: workflow.status === 'complete' || phase?.status === 'approved',
     verification,

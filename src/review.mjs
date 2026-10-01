@@ -1,4 +1,5 @@
 import { recap } from './narration/recap.mjs';
+import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { branch } from './git.mjs';
@@ -102,7 +103,7 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   // then invalidate packets and the approvals bound to them. Narration explains the evidence; it
   // must never become part of what the evidence is.
   const narrative = recap(workflow, { locale: 'en-GB', timeZone: 'UTC', length: 'standard' });
-  const phase = requestedPhase ? workflow.phases[requestedPhase] : currentPhase(workflow) ?? workflow.phases[workflow.phaseOrder.at(-1)];
+  const phase = requestedPhase ? workflow.phases[requestedPhase] : currentPhase(workflow) ?? completionPhaseOf(workflow);
   if (!phase) throw new Error('Workflow has no phases to review.');
   if (requestedPhase && !workflow.phases[requestedPhase]) throw new Error(`Unknown phase '${requestedPhase}'.`);
   const itemRoot = workDir(root, config, workflow.workItem.id);

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { completionPhaseOf } from './lifecycle-transitions.mjs';
 
 import { canonicalJson } from './records.mjs';
 import { run } from './util.mjs';
@@ -82,11 +83,11 @@ function storyOwner(workflow, message) {
     return firstPhase(workflow, ['specification', 'implementation-spec', 'requirements', 'conformance']);
   }
   if (/\b(?:remote|published|publication)\b/i.test(message)) {
-    return workflow.currentPhase ?? workflow.phaseOrder.at(-1) ?? null;
+    return workflow.currentPhase ?? completionPhaseOf(workflow)?.id ?? null;
   }
   return workflow.currentPhase
-    ?? workflow.phaseOrder.find((id) => workflow.phases?.[id]?.status !== 'approved')
-    ?? workflow.phaseOrder.at(-1)
+    ?? workflow.phaseOrder.find((id) => !['approved', 'skipped'].includes(workflow.phases?.[id]?.status))
+    ?? completionPhaseOf(workflow)?.id
     ?? null;
 }
 
@@ -138,7 +139,7 @@ function storyRecovery(workflow, code, ownerPhase, path) {
 
   const complete = workflow.status === 'complete' && workflow.currentPhase == null;
   if (complete && ownerPhase) {
-    const completion = workflow.phases?.[workflow.phaseOrder.at(-1)];
+    const completion = completionPhaseOf(workflow);
     const allowed = completion?.approvalPolicy?.rejectTo ?? [completion?.id].filter(Boolean);
     if (allowed.includes(ownerPhase) && completion?.approvalPolicy?.changeRequests?.reopenCompleted !== false) {
       return {

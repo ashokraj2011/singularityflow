@@ -1,6 +1,8 @@
 /** Pure evidence-policy predicates. They interpret observations, never execute checks or mint receipts. */
 export function inputFindingSeverity(mode, optional, status) {
-  if (status === 'captured' || (optional && ['missing', 'unapproved'].includes(status))) return null;
+  // A decision may skip a producer only when every phase still reached reads it optionally, so a
+  // skipped optional input is expected; a required one is an error the decision should have refused.
+  if (status === 'captured' || (optional && ['missing', 'unapproved', 'skipped'].includes(status))) return null;
   return mode === 'enforce' ? 'error' : 'warning';
 }
 

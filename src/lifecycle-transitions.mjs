@@ -112,3 +112,13 @@ export function reopenPhaseRange(workflow, { targetId, at, actor, reason }) {
 export function clearDecisionState(phase) {
   delete phase.skippedAt; delete phase.skippedBy; delete phase.decisionInputs;
 }
+
+/**
+ * The phase that completed a Story: its last phase, unless a decision finished the Story early or
+ * skipped its tail, in which case the last phase that actually ran.
+ */
+export function completionPhaseOf(workflow) {
+  const id = [...(workflow.phaseOrder ?? [])].reverse().find((phaseId) => workflow.phases?.[phaseId]?.status !== 'skipped')
+    ?? workflow.phaseOrder?.at(-1);
+  return id ? workflow.phases?.[id] ?? null : null;
+}

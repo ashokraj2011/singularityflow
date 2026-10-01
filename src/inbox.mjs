@@ -47,6 +47,45 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
       validateDefinition(YAML.parse(fileAtRef(root, ref, WORKFLOW_PATH) ?? ''));
       const phaseId = workflow.currentPhase;
       const phase = phaseId ? workflow.phases?.[phaseId] : null;
+      const pending = workflow.pendingDecision;
+      if (pending && phase && pending.after === phaseId) {
+        // A workflow decision waiting for a person is as much a reviewer's work as an approval.
+        const minutes = waitingMinutes(pending.askedAt, now);
+        items.push({
+          kind: 'decision',
+          id: subject.id,
+          title: workflow.workItem?.title ?? subject.id,
+          workType: workflow.workItem?.workType ?? 'legacy',
+          phase: phaseId,
+          phaseLabel: phase.label ?? phaseId,
+          generation: phase.generation ?? 0,
+          status: 'decision-required',
+          decision: {
+            key: pending.key, decision: pending.decision, label: pending.label, reason: pending.reason,
+            anyStep: pending.anyStep === true,
+            options: (pending.options ?? []).map((option) => ({ id: option.id, label: option.label, to: option.to }))
+          },
+          approvalsReceived: 0,
+          approvalsRequired: 0,
+          approvalsRemaining: 0,
+          reviewerAuthorities: pending.by ?? [],
+          submittedAt: pending.askedAt ?? null,
+          submittedBy: null,
+          submittedAgent: null,
+          waitingMinutes: minutes,
+          waiting: waitingLabel(minutes),
+          artifact: null,
+          selfApprovalWarning: false,
+          remote,
+          commit: subject.location.commit ?? null,
+          commands: {
+            attach: `singularity-flow session attach ${subject.id}`,
+            review: `singularity-flow decision show ${subject.id}`,
+            choose: `singularity-flow decision choose ${subject.id} --fetch --option <OPTION> --reason <REASON> --expected ${pending.key}`
+          }
+        });
+        continue;
+      }
       if (!phase || phase.status !== 'awaiting_approval') continue;
       const approvals = activeApprovals(phase);
       const required = phase.approvalPolicy?.minimum ?? 1;
@@ -101,7 +140,7 @@ export function approvalInboxText(snapshot) {
     title: item.title,
     phase: item.phase,
     generation: item.generation,
-    approvals: `${item.approvalsReceived}/${item.approvalsRequired}`,
+    approvals: item.kind === 'decision' ? `decision: ${item.decision.label}` : `${item.approvalsReceived}/${item.approvalsRequired}`,
     waiting: item.waiting,
     authorities: item.reviewerAuthorities.join(', ') || 'any identified Git contributor',
     commit: item.commit?.slice(0, 8) ?? 'unknown'

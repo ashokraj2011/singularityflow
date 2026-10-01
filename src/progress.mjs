@@ -23,7 +23,9 @@ export function progressSnapshot(workflow) {
     };
   });
   const approved = phases.filter((phase) => phase.status === 'approved').length;
-  const percentage = total ? Math.round((approved / total) * 100) : 100;
+  // A phase a decision skipped is settled: the Story is done with it without producing it.
+  const skipped = phases.filter((phase) => phase.status === 'skipped').length;
+  const percentage = total ? Math.round(((approved + skipped) / total) * 100) : 100;
   return {
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
@@ -31,7 +33,11 @@ export function progressSnapshot(workflow) {
     currentPhase: workflow.currentPhase,
     currentPosition: workflow.currentPhase ? workflow.phaseOrder.indexOf(workflow.currentPhase) + 1 : total,
     approvedPhases: approved,
+    skippedPhases: skipped,
     totalPhases: total,
+    pendingDecision: workflow.pendingDecision
+      ? { label: workflow.pendingDecision.label, after: workflow.pendingDecision.after, reason: workflow.pendingDecision.reason }
+      : null,
     percentage,
     documents: workflow.documents?.count ?? 0,
     tokens: workflow.usage,
@@ -57,6 +63,8 @@ function phaseFlowAppearance(phase) {
       return { symbol: '○', description: 'PENDING' };
     case 'rejected':
       return { symbol: '↺', description: 'RETURNED FOR REWORK' };
+    case 'skipped':
+      return { symbol: '⤼', description: 'SKIPPED BY A DECISION' };
     default:
       return { symbol: '!', description: String(phase.status).replaceAll('_', ' ').toUpperCase() };
   }
@@ -74,7 +82,10 @@ export function progressFlow(progress) {
     if (index < progress.phases.length - 1) lines.push('  │', '  ▼');
   }
 
-  if (!progress.currentPhase && progress.approvedPhases === progress.totalPhases) {
+  if (progress.pendingDecision) {
+    lines.push('  │', `  ◇ WAITING FOR A DECISION: ${progress.pendingDecision.label}`);
+  }
+  if (!progress.currentPhase && progress.approvedPhases + (progress.skippedPhases ?? 0) === progress.totalPhases) {
     lines.push('  │', '  ▼', '  ✓ WORKFLOW COMPLETE');
   }
   return lines.join('\n');
@@ -90,6 +101,7 @@ function readableStatus(value) {
 
 function phaseMarker(phase, currentPhase) {
   if (phase.status === 'approved') return '✅';
+  if (phase.status === 'skipped') return '⏭️';
   if (phase.status === 'awaiting_approval') return '🟠';
   if (phase.status === 'rejected') return '🔁';
   if (phase.id === currentPhase || phase.status === 'in_progress') return '🔵';

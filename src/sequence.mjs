@@ -9,7 +9,7 @@ import { withCommandResult } from './narration/emit.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { gitDir } from './git.mjs';
 import { phasePublicationCommand, phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
-import { clearDecisionState } from './lifecycle-transitions.mjs';
+import { clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -42,6 +42,14 @@ export function phaseNeedsGeneration(workflow, phase) {
 export function sequenceGuidance(workflow) {
   const workId = workflow.workItem.id;
   const phase = activePhase(workflow);
+  const pending = workflow.pendingDecision;
+  if (pending) return {
+    summary: `Choose what happens next for '${pending.label}'${pending.reason === 'limit' ? '; its rounds are used' : ''}. Members of ${pending.by.join(', ')} decide.`,
+    actions: [
+      copilotAction({ skill: '/sflow-approve', command: `singularity-flow decision show ${workId}` }),
+      copilotAction({ skill: '/sflow-approve', command: `singularity-flow decision choose ${workId} --option <option> --reason <reason> --expected ${pending.key}` })
+    ]
+  };
   if (!phase) return {
     summary: 'The workflow is complete; no further lifecycle transition is normally allowed.',
     actions: [
@@ -361,8 +369,16 @@ export function evaluateSequence(workflow, {
   allowedStatuses = ['in_progress']
 } = {}) {
   const phase = activePhase(workflow);
+  // A Story waiting for a person moves only by that person's choice. The approved phase before the
+  // decision must not be reconciled back into progress by a soft status gate.
+  if (workflow.pendingDecision) {
+    return {
+      allowed: false, gate: 'decision', targetPhase: workflow.pendingDecision.after, invalid: true,
+      reason: `The Story is waiting for a decision: '${workflow.pendingDecision.label}'. Choose with singularity-flow decision choose ${workflow.workItem.id}.`
+    };
+  }
   if (!phase) {
-    const target = requestedPhase ? workflow.phases?.[requestedPhase] : workflow.phases?.[workflow.phaseOrder.at(-1)];
+    const target = requestedPhase ? workflow.phases?.[requestedPhase] : completionPhaseOf(workflow);
     return target
       ? { allowed: false, gate: 'completion', targetPhase: target.id, effect: 'switch', reason: `The completed workflow must be reopened at '${target.id}' to continue.` }
       : { allowed: false, gate: 'completion', targetPhase: requestedPhase, invalid: true, reason: 'No valid phase is available to reopen.' };

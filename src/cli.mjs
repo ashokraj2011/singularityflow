@@ -280,7 +280,7 @@ import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS
 import { action as narrationAction, commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
 import {
   decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, parseDecisionAssignments,
-  recordedDecisionValues, resolveDecisionChoice, storyDecisionView
+  recordedDecisionValues, resolveDecisionChoice, storyDecisionView, upcomingDecision
 } from './workflow-decisions.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
@@ -4571,7 +4571,11 @@ async function materializeWorldModelForNext(root, config, workflow, phase, optio
   let lookahead = null;
   if (policy.lookahead === 'next-phase') {
     const index = (workflow.phaseOrder ?? []).indexOf(phase.id);
-    const nextPhaseId = index >= 0 ? workflow.phaseOrder?.[index + 1] ?? null : null;
+    // After a decision the next phase is known only once its values are recorded.
+    const ahead = upcomingDecision(workflow, phase);
+    const nextPhaseId = ahead
+      ? (['next', 'forward'].includes(ahead.outcome?.kind) ? ahead.outcome.target : null)
+      : index >= 0 ? workflow.phaseOrder?.[index + 1] ?? null : null;
     if (nextPhaseId && workflow.phases?.[nextPhaseId]) {
       console.log(`Preparing configured next-phase grounding for '${nextPhaseId}'...`);
       await materializePhase(nextPhaseId);
@@ -4592,6 +4596,14 @@ async function nextCommand(options) {
     return syncCommand();
   }
   let phase = currentPhase(workflow);
+  if (workflow.pendingDecision) {
+    // A person chooses; `next` never answers a decision on their behalf.
+    printCommandRoutes(`singularity-flow decision show ${workflow.workItem.id}`, {
+      label: `Choose what happens next: '${workflow.pendingDecision.label}'`
+    });
+    console.log(`'${workflow.pendingDecision.label}' waits for a person to choose what happens next.`);
+    return decisionShowCommand(['decision', 'show', workflow.workItem.id], options);
+  }
   if (!phase) {
     printCommandRoutes('singularity-flow gate --terminal', { label: 'Run the final governance gate' });
     console.log('Run the governance gate for the completed workflow.');

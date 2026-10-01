@@ -103,8 +103,10 @@ export function milestoneReached(workflow, profile, verb) {
   return phases.every((id) => {
     const phase = workflow.phases?.[id];
     if (!phase) return false;
-    // `approved` and `complete` are both terminal for a phase; a phase the profile skipped is not.
-    return phase.status === 'approved' || phase.status === 'complete' || phase.status === 'completed';
+    // `approved` and `complete` are both terminal for a phase, and so is a phase a decision
+    // skipped: the Story moved past it. A phase the profile left out is still not.
+    return phase.status === 'approved' || phase.status === 'complete' || phase.status === 'completed'
+      || phase.status === 'skipped';
   });
 }
 

@@ -107,14 +107,26 @@ export async function verifyAutoFlightContinuation(root, state) {
     });
   }
   const currentHead = head(state.worktree);
+  // Auto never answers a workflow decision: the person in its approval groups does.
+  if (workflow.pendingDecision) {
+    throw new SingularityFlowError(
+      `The governed Story is waiting for a decision: '${workflow.pendingDecision.label}'. Choose with singularity-flow decision choose before Auto resumes.`,
+      { code: 'AUTO_HUMAN_DECISION_REQUIRED', details: { decision: workflow.pendingDecision.decision, after: workflow.pendingDecision.after } }
+    );
+  }
   let phaseTransition = null;
   if (workflow.currentPhase !== state.story.phase) {
     const rail = plan.story?.phaseRail ?? [];
     const previousIndex = rail.indexOf(state.story.phase);
     const nextIndex = workflow.currentPhase == null ? rail.length : rail.indexOf(workflow.currentPhase);
     const previousPhase = workflow.phases?.[state.story.phase];
-    const adjacent = previousIndex >= 0 && nextIndex === previousIndex + 1;
-    const terminal = workflow.currentPhase == null && previousIndex === rail.length - 1
+    // A phase a pinned decision skipped does not break adjacency: the Story moved forward past it
+    // under the policy the Plan was ratified against. Going back still needs a continuation Plan.
+    const skippedOnly = (ids) => ids.every((id) => workflow.phases?.[id]?.status === 'skipped');
+    const adjacent = previousIndex >= 0 && nextIndex > previousIndex
+      && skippedOnly(rail.slice(previousIndex + 1, nextIndex));
+    const terminal = workflow.currentPhase == null && previousIndex >= 0
+      && skippedOnly(rail.slice(previousIndex + 1))
       && ['complete', 'completed'].includes(workflow.status);
     if ((!adjacent && !terminal) || previousPhase?.status !== 'approved') {
       throw new SingularityFlowError(

@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+    "schemaVersion": { "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
     "workflowSnapshot": {
       "anyOf": [
         { "type": "null" },
@@ -191,6 +191,23 @@
       "additionalProperties": true
     },
     "currentPhase": { "type": ["string", "null"] },
+    "pendingDecision": {
+      "description": "A workflow decision waiting for a person; the phase it follows is approved and current.",
+      "type": "object",
+      "required": ["schemaVersion", "decision", "after", "reason", "key", "options"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "decision": { "type": "string" },
+        "label": { "type": "string" },
+        "after": { "type": "string" },
+        "reason": { "enum": ["ask", "limit"] },
+        "key": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+        "options": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
+    "decisionRounds": { "type": "object", "additionalProperties": { "type": "object", "properties": { "count": { "type": "integer", "minimum": 0 } } } },
+    "decisionLog": { "type": "array", "items": { "type": "object" } },
     "phaseOrder": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
     "phases": {
       "type": "object",
@@ -203,7 +220,26 @@
           "kind": { "const": "skill" },
           "skillBinding": { "$ref": "workflow-definition.schema.json#/$defs/skpSkillBinding" },
           "owner": { "type": ["string", "null"] },
-          "status": { "enum": ["not_started", "in_progress", "awaiting_approval", "approved", "cancelled"] },
+          "status": { "enum": ["not_started", "in_progress", "awaiting_approval", "approved", "skipped", "cancelled"] },
+          "skippedAt": { "type": "string" },
+          "skippedBy": {
+            "type": "object",
+            "required": ["decision", "route"],
+            "properties": { "decision": { "type": "string" }, "route": { "type": ["string", "null"] } },
+            "additionalProperties": false
+          },
+          "decisionInputs": {
+            "type": "object",
+            "required": ["schemaVersion", "decision", "values"],
+            "properties": {
+              "schemaVersion": { "const": 1 },
+              "decision": { "type": "string" },
+              "values": { "type": "object", "additionalProperties": { "type": ["string", "number"] } },
+              "recordedAt": { "type": "string" },
+              "recordedBy": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          },
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
           "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },
           "requiredArtifact": { "type": ["object", "null"] },

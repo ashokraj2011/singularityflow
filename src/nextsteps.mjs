@@ -5,6 +5,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
+import { decisionSubmitArguments, describeOutcome, upcomingDecision } from './workflow-decisions.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
@@ -38,6 +39,21 @@ function cancellationActions(workflow) {
 }
 
 function afterCompletionActions(workflow, phase, { withoutApproval = false } = {}) {
+  const when = withoutApproval ? `After ${phase.id} completes` : `After ${phase.id} is approved`;
+  const ahead = upcomingDecision(workflow, phase);
+  if (ahead) {
+    const { decision, outcome } = ahead;
+    if (!outcome || outcome.kind === 'pause') {
+      return [action('then', '/sflow-approve', `singularity-flow decision show ${workflow.workItem.id}`,
+        decision.mode === 'ask' || outcome?.kind === 'pause'
+          ? `${when}, a person chooses what happens next ('${decision.label}').`
+          : `${when}, '${decision.label}' chooses the next step from the values it records.`)];
+    }
+    if (outcome.kind === 'end' || !outcome.target) return completionActions(workflow.workItem.id, 'then');
+    const target = workflow.phases[outcome.target];
+    return [action('then', generationSkillForPhase(target), `singularity-flow prepare ${target.id}`,
+      `${when}, ${describeOutcome(workflow, outcome)}`)];
+  }
   const upcoming = nextPhase(workflow, phase.id);
   if (!upcoming) return completionActions(workflow.workItem.id, 'then');
   return [action(
@@ -66,6 +82,15 @@ export function workflowNextSteps(workflow, {
     )
   ];
   if (!phase) return workflow.status === 'cancelled' ? cancellationActions(workflow) : completionActions(workId);
+  const pending = workflow.pendingDecision;
+  if (pending) return [
+    action('now', '/sflow-approve', `singularity-flow decision show ${workId}`,
+      `'${pending.label}' waits for ${pending.by.join(', ')} to choose what happens next${pending.reason === 'limit' ? '; its rounds are used' : ''}.`),
+    ...pending.options.map((option, index) => action(index === 0 ? 'then' : 'alternative', '/sflow-approve',
+      `singularity-flow decision choose ${workId} --option ${option.id} --reason <reason> --expected ${pending.key}`,
+      `Choose '${option.label}'.`)),
+    action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.')
+  ];
 
   let immediate = workflowGuide(workflow).nextActions.map((item, index) => action(
     phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
@@ -137,7 +162,7 @@ export function workflowNextSteps(workflow, {
         'After deterministic publication, review every convergence disposition and explicitly confirm advancement before submission.'
       )
     : action(
-        'then', '/sflow-submit', `singularity-flow submit ${phase.id}`,
+        'then', '/sflow-submit', `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
         noApproval
           ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.`
           : `After publishing ${phase.id}, run its checks and submit it for approval.`

@@ -695,3 +695,23 @@ export function storyDecisionView(workflow) {
     log: [...(workflow?.decisionLog ?? [])]
   };
 }
+
+/** The submit arguments a phase needs for the decision after it, with a placeholder per value. */
+export function decisionSubmitArguments(workflow, phaseId) {
+  const decision = decisionFedBy(workflow, phaseId);
+  return decision ? decision.inputs.map((input) => ` --decision ${input.name}=<${input.name}>`).join('') : '';
+}
+
+/**
+ * Where completing a phase will lead under its decision, for guidance before it completes: the
+ * computed outcome when its values are recorded, otherwise only which decision chooses.
+ */
+export function upcomingDecision(workflow, phase) {
+  const decision = phase ? decisionAfter(workflow, phase.id) : null;
+  if (!decision) return null;
+  let outcome = null;
+  if (decision.mode === 'auto' && recordedDecisionValues(phase, decision)) {
+    try { outcome = decisionOutcome(workflow, phase); } catch { outcome = null; }
+  }
+  return { decision, outcome };
+}

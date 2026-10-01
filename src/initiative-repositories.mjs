@@ -975,7 +975,8 @@ function milestoneReached(workflow, phaseId) {
 }
 
 const CHILD_WORKFLOW_STATUSES = new Set(['in_progress', 'complete', 'cancelled']);
-const CHILD_PHASE_STATUSES = new Set(['not_started', 'in_progress', 'awaiting_approval', 'approved', 'cancelled']);
+// `skipped`: a phase a workflow decision passed over (Story state v12).
+const CHILD_PHASE_STATUSES = new Set(['not_started', 'in_progress', 'awaiting_approval', 'approved', 'skipped', 'cancelled']);
 
 function parseChildWorkflow(text, story) {
   const workId = story.workId ?? story.id;
@@ -1027,15 +1028,19 @@ function parseChildWorkflow(text, story) {
     }
   }
   if (workflow.status === 'complete') {
-    if (workflow.currentPhase != null || phaseOrder.some((phaseId) => workflow.phases[phaseId].status !== 'approved')) {
-      throw new SingularityFlowError(`Completed child workflow '${story.id}' must have no current phase and every phase approved.`);
+    if (workflow.currentPhase != null
+        || phaseOrder.some((phaseId) => !['approved', 'skipped'].includes(workflow.phases[phaseId].status))) {
+      throw new SingularityFlowError(`Completed child workflow '${story.id}' must have no current phase and every phase approved or skipped.`);
     }
   } else if (workflow.status === 'cancelled') {
     if (workflow.currentPhase != null || !workflow.cancellation?.phase
       || workflow.phases[workflow.cancellation.phase]?.status !== 'cancelled') {
       throw new SingularityFlowError(`Cancelled child workflow '${story.id}' must have no current phase and identify its cancelled phase.`);
     }
-  } else if (!phaseOrder.includes(workflow.currentPhase) || !['in_progress', 'awaiting_approval'].includes(workflow.phases[workflow.currentPhase].status)) {
+  } else if (!phaseOrder.includes(workflow.currentPhase)
+      || !(['in_progress', 'awaiting_approval'].includes(workflow.phases[workflow.currentPhase].status)
+        // Waiting for a person at a workflow decision: the phase before it is approved and current.
+        || (workflow.pendingDecision?.after === workflow.currentPhase && workflow.phases[workflow.currentPhase].status === 'approved'))) {
     throw new SingularityFlowError(`In-progress child workflow '${story.id}' has invalid current phase '${workflow.currentPhase ?? 'none'}'.`);
   }
   return { ...workflow, phaseOrder };
@@ -1219,7 +1224,9 @@ export async function syncInitiativeRepositories(root, initiativeId) {
     }
     const phaseOrder = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
     const approvedPhases = phaseOrder.filter((phaseId) => workflow?.phases?.[phaseId]?.status === 'approved');
-    const completedPhases = approvedPhases.length;
+    // A phase a decision skipped is settled for progress, though it is not an approval.
+    const completedPhases = approvedPhases.length
+      + phaseOrder.filter((phaseId) => workflow?.phases?.[phaseId]?.status === 'skipped').length;
     const current = {
       ...previous,
       ...story,

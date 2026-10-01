@@ -149,6 +149,14 @@ test('a branch skips a phase, a loop goes back and stops at its limit, and a per
   assert.equal(workflow.pendingDecision.decision, 'direction');
   assert.equal(workflow.pendingDecision.reason, 'ask');
   flow(root, ['validate'], { agent: 'product-owner' });
+  const next = JSON.parse(flow(root, ['nextsteps', '--json'], { agent: 'product-owner' }).stdout);
+  assert.match(next.actions[0].command, /^singularity-flow decision show DEC-1$/);
+  assert.ok(next.actions.some((entry) => /decision choose DEC-1 --option continue --reason <reason> --expected [a-f0-9]{16}/.test(entry.command)));
+  const blocked = flow(root, ['submit', 'requirements'], { agent: 'product-owner', allowFailure: true });
+  assert.notEqual(blocked.status, 0);
+  assert.match(blocked.stderr, /waiting for a decision: 'Where next\?'/);
+  const waiting = JSON.parse(flow(root, ['progress', '--json'], { agent: 'product-owner' }).stdout);
+  assert.equal(waiting.pendingDecision.label, 'Where next?');
   const shown = JSON.parse(flow(root, ['decision', 'show', '--json'], { agent: 'product-owner' }).stdout);
   assert.equal(shown.pending.key, workflow.pendingDecision.key);
   assert.deepEqual(shown.pending.options.map((option) => [option.id, option.reach]), [['continue', 'next'], ['again', 'backward'], ['stop', 'end']]);
@@ -206,6 +214,8 @@ test('a person can finish a Story early, and the finished Story reopens from the
   assert.equal(workflow.currentPhase, null);
   assert.deepEqual(['design', 'implementation-spec'].map((id) => workflow.phases[id].status), ['skipped', 'skipped']);
   flow(root, ['validate'], { agent: 'product-owner' });
+  const finished = JSON.parse(flow(root, ['progress', '--json'], { agent: 'product-owner' }).stdout);
+  assert.deepEqual([finished.approvedPhases, finished.skippedPhases, finished.percentage], [2, 2, 100]);
 
   flow(root, ['reopen', workId, '--to', 'requirements', '--reason', 'The scope came back'], { agent: 'product-owner' });
   workflow = await state(root, workId);

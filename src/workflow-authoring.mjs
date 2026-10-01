@@ -143,7 +143,7 @@ async function saveIn(file, document, store) {
  * a forward migration boundary. A resolvable inferred topology is pinned into YAML; an unresolved
  * one is refused with the same actionable error used by Story start.
  */
-function pinAuthoredStoryPlannedClaims(document, store, workflowId, { newlyCreated = false } = {}) {
+export function pinAuthoredStoryPlannedClaims(document, store, workflowId, { newlyCreated = false } = {}) {
   if (store.governs !== 'story') return null;
   let definition = validateDefinition(document.toJS());
   let resolved = resolveWorkType(definition, workflowId);

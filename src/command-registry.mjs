@@ -245,7 +245,8 @@ const WORKFLOW_MUTATION_SUBCOMMANDS = Object.freeze([
 const WORKFLOW_AUTHOR_READ_ACTIONS = Object.freeze(['list', 'read', 'history', 'op-status', 'show', 'preview', 'catalog', 'where-used']);
 const WORKFLOW_AUTHOR_MUTATION_ACTIONS = Object.freeze(['create', 'save', 'delete', 'submit']);
 const WORKFLOW_AUTHOR_ACTIONS = Object.freeze([...WORKFLOW_AUTHOR_READ_ACTIONS, ...WORKFLOW_AUTHOR_MUTATION_ACTIONS]);
-const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author']);
+const WORKFLOW_STUDIO_ACTIONS = Object.freeze(['show', 'apply']);
+const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio']);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
@@ -583,6 +584,16 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
     }
     return never(`workflow.author.${action}`, definition,
       WORKFLOW_AUTHOR_READ_ACTIONS.includes(action) ? 'read' : 'mutation');
+  }
+  if (subcommand === 'studio') {
+    const action = positionals[2] ?? 'show';
+    if (!WORKFLOW_STUDIO_ACTIONS.includes(action)) {
+      return unknownSubcommand('workflow studio', action, WORKFLOW_STUDIO_ACTIONS);
+    }
+    if (action === 'show') return never('workflow.studio.show', definition, 'read');
+    return optionBoolean(options, 'dry-run')
+      ? never('workflow.studio.preview', definition, 'read')
+      : never('workflow.studio.apply', definition, 'mutation');
   }
   if (WORKFLOW_READ_SUBCOMMANDS.includes(subcommand)) {
     return never(`workflow.${subcommand}`, definition, 'read');

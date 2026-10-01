@@ -905,7 +905,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
@@ -6930,6 +6930,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'add-capability') await vscode.commands.executeCommand('singularityFlow.addCapability');
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
+    else if (message.action === 'workflow-studio') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
     else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand(
       'singularityFlow.openSharedWorkflowDrafts', { repositoryPath: client.repository }
     );
@@ -7429,6 +7430,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) {
         showRefusal(error, { headline: `Could not return ${workflow.workItem.id} forward` });
       }
+    },
+    // Workflow Studio is the visual way in: workflows, steps, agents and approvals edited together
+    // and published as one change. The Designer stays for artifact templates and advanced policy.
+    'singularityFlow.openWorkflowStudio': async () => {
+      const { WorkflowStudioPanel } = lazyPanels();
+      WorkflowStudioPanel.show(client, output, {
+        refresh: refreshAfterKnownMutation,
+        reviewProposal: async () => { await vscode.commands.executeCommand('singularityFlow.openDesigner'); }
+      });
     },
     'singularityFlow.openDesigner': async () => {
       const { DesignerPanel } = lazyPanels();

@@ -419,6 +419,11 @@
         "icon": "$(organization)"
       },
       {
+        "command": "singularityFlow.openWorkflowStudio",
+        "title": "Singularity Flow: Workflow Studio",
+        "icon": "$(type-hierarchy)"
+      },
+      {
         "command": "singularityFlow.openDesigner",
         "title": "Singularity Flow: Workflow Designer",
         "icon": "$(symbol-structure)"

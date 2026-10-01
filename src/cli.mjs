@@ -9368,6 +9368,53 @@ async function workflowCommand(positionals, options) {
     return true;
   };
 
+  if (subcommand === 'studio') {
+    const { buildStudioModel, planStudioChangeSet, readStudioChangeSet } = await import('./workflow-studio.mjs');
+    const action = positionals[2] ?? 'show';
+    if (action === 'show') {
+      // The Studio edits what a proposal would edit: the approved configuration when one exists.
+      const model = await withApprovedConfigurationRead(root, (authority) => buildStudioModel(root, { authority }), { preferAuthority: true });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(model, null, 2));
+      console.log(`Workflow Studio: ${model.workflows.length} workflows, ${model.agents.length} agents, ${model.groups.length} approval groups.`);
+      for (const workflow of model.workflows) {
+        console.log(`  ${workflow.label} (${workflow.id}): ${workflow.steps.map((step) => `${step.label} [${step.agent ?? 'no agent'}]`).join(' \u2192 ')}`);
+      }
+      for (const problem of model.problems) console.log(`  Problem: ${problem.message}`);
+      console.log('Open it in VS Code with "Singularity Flow: Workflow Studio", or preview a change set with: singularity-flow workflow studio apply --change-set <file> --dry-run');
+      return;
+    }
+    if (action !== 'apply') throw new SingularityFlowError("workflow studio supports 'show' and 'apply'.", { code: 'STUDIO_ACTION_UNKNOWN' });
+    const source = optionString(options, 'change-set');
+    if (!source) throw new SingularityFlowError('Provide the change set: workflow studio apply --change-set <file|->.', { code: 'STUDIO_CHANGE_SET_REQUIRED' });
+    const changeSet = readStudioChangeSet(source === '-' ? await stdinText() : await readFile(path.resolve(source), 'utf8'));
+    const printStudioPlan = (plan) => {
+      for (const line of plan.summary) console.log(`  ${line}`);
+      for (const problem of plan.problems) console.log(`  Problem: ${problem.message}`);
+      for (const warning of plan.warnings) console.log(`  Warning: ${warning.message}`);
+      for (const file of plan.files) console.log(`  ${file.action === 'create' ? 'new' : 'changed'}: ${file.path}`);
+    };
+    if (optionBoolean(options, 'dry-run')) {
+      const plan = await withApprovedConfigurationRead(root, () => planStudioChangeSet(root, changeSet), { preferAuthority: true });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+      console.log(plan.valid ? `Workflow Studio preview: ${plan.files.length} file(s) would change.` : 'Workflow Studio preview: these changes cannot be applied yet.');
+      printStudioPlan(plan);
+      return;
+    }
+    const subject = String((changeSet.changes ?? []).map((change) => change?.id ?? change?.phase).find((id) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(id ?? ''))) ?? 'changes');
+    const result = await author({
+      operation: 'studio', subject,
+      message: `[configuration] workflow studio: ${(changeSet.changes ?? []).length} change(s) to ${subject}`,
+      expectedAuthority: expectedConfigurationAuthority(options),
+      mutate: (target) => planStudioChangeSet(target, changeSet, { write: true })
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (printProposal(result)) return;
+    console.log(`Workflow Studio applied ${result.written?.length ?? 0} file change(s).`);
+    printStudioPlan(result);
+    if (result.nextAction) printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
+    return;
+  }
+
   if (subcommand === 'export') {
     const requested = [...positionals.slice(2), ...optionStrings(options, 'workflow')]
       .flatMap((value) => String(value).split(','))

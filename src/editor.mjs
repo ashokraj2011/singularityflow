@@ -2057,6 +2057,17 @@ async function copyConfigurationSource(root, validationRoot, relative) {
 }
 
 async function validateConfigurationCandidate(root, relative, content, definition, portfolio) {
+  await validateConfigurationCandidates(root, [{ path: relative, content }], definition, portfolio);
+}
+
+/**
+ * Validate several configuration files as one candidate, the way a single save is validated.
+ *
+ * Some changes are only valid together: a new Story phase and the agent that defaults it, or a
+ * phase moving from one default agent to another. Each file alone fails the whole-catalog check,
+ * so the candidate is assembled first and checked once. Returns the candidate definition.
+ */
+export async function validateConfigurationCandidates(root, candidates, definition, portfolio) {
   const validationRoot = await mkdtemp(path.join(tmpdir(), 'singularity-flow-configuration-'));
   try {
     const sources = new Set([
@@ -2065,7 +2076,8 @@ async function validateConfigurationCandidate(root, relative, content, definitio
       definition.templatesRoot, portfolio?.templatesRoot, definition.agentPromptsRoot,
       REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents'
     ].filter(Boolean).map(posix));
-    if (relative === WORKFLOW_PATH || relative === PORTFOLIO_PATH) {
+    for (const { path: relative, content } of candidates) {
+      if (relative !== WORKFLOW_PATH && relative !== PORTFOLIO_PATH) continue;
       try {
         const candidate = YAML.parse(content) ?? {};
         for (const location of [candidate.templatesRoot, candidate.agentPromptsRoot, candidate.personaPromptsRoot]) {
@@ -2076,9 +2088,11 @@ async function validateConfigurationCandidate(root, relative, content, definitio
       }
     }
     for (const source of sources) await copyConfigurationSource(root, validationRoot, source);
-    const candidatePath = path.join(validationRoot, relative);
-    await mkdir(path.dirname(candidatePath), { recursive: true });
-    await writeText(candidatePath, content);
+    for (const { path: relative, content } of candidates) {
+      const candidatePath = path.join(validationRoot, relative);
+      await mkdir(path.dirname(candidatePath), { recursive: true });
+      await writeText(candidatePath, content);
+    }
 
     const updatedDefinition = await loadDefinition(validationRoot);
     assertWorkflowReadinessChanges(definition, updatedDefinition);
@@ -2093,6 +2107,7 @@ async function validateConfigurationCandidate(root, relative, content, definitio
     await discoverAgents(validationRoot);
     await loadAgentMappings(validationRoot);
     await validateEnvironmentConfiguration(validationRoot, updatedDefinition);
+    return updatedDefinition;
   } finally {
     await rm(validationRoot, { recursive: true, force: true });
   }

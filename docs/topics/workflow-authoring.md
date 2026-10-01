@@ -24,13 +24,50 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 33
+version: 34
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
 ## Purpose and prerequisites
 
 Use this topic when the current goal matches **workflow authoring**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+
+## Workflow Studio
+
+Workflow Studio is one screen for the whole lifecycle setup. A workflow is drawn as a board: each
+step shows the agent that drafts it and the approval group that signs it off. Everything is chosen
+from lists — the agent, what the step produces (a document, an analysis, code changes, or nothing),
+which earlier steps it reads, the approval group and how many approvals it needs, and which earlier
+step rejected work goes back to. Steps are added from the repository's step catalog or created new,
+and reordered by dragging or with the arrow buttons. A new workflow starts from one of the
+repository's workflows, from a packaged blueprint that is not installed yet, or blank.
+
+Agents are created from a role (analyst, product owner, architect, developer, tester, designer,
+reviewer, or blank): name, one-sentence description, tools, knowledge views and instructions. The
+shared operating rules every agent follows are added automatically. People are added to approval
+groups by email address or GitHub login.
+
+Every edit stays in the Studio until it is published. **Check changes** runs
+`singularity-flow workflow studio apply --change-set - --dry-run --json`: the engine applies the
+whole change set to a candidate copy of the configuration and validates it as a Configuration
+Center save would — workflow definition, agent catalog (exactly one default agent per step),
+templates, mappings and environment — and returns plain-language changes, problems, warnings and a
+diff of each file. **Publish** applies the same change set once: through one review proposal on the
+approved configuration (`--propose`, bound to the authority revision the Studio read), or, for a
+working-tree authority, as files to review and commit. Because the files land together, a new step
+and the agent that drafts it, or a step moving from one agent to another, can never be half-applied.
+
+A step's default agent is part of the agent's own file, so it applies to every workflow that uses
+the step; the Studio says so before you change it. **Use a copy in this workflow** creates a new
+step copied from the shared one, so one workflow can choose its own agent.
+
+From the shell, `singularity-flow workflow studio --json` prints the same model (workflows with
+the agent that actually drafts each step, the step catalog, agents, approval groups, blueprints and
+the `base` digest), and `singularity-flow workflow studio apply --change-set <FILE|-> [--dry-run]
+[--propose] --json` checks or applies a change set
+`{"schema":"sflow-studio-change-set@1","base":{…},"changes":[…]}`. Changes are
+`workflow.create|update|install`, `phase.create|update|agent`, `agent.create|update` and
+`group.create|update`; a stale `base` is refused with `STUDIO_BASE_CHANGED`.
 
 ## Use it from each surface
 
@@ -42,6 +79,8 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
   inspect a skill retained by the repository or workspace's verified approved configuration.
 - **Copilot:** `/sf-workflows`. Ask it to export, import, or copy the selected workflows; it must show
   the exact deterministic preview and stop for confirmation before an import or copy mutation.
+- **VS Code, visually:** open **Workflow Studio** (Command Palette **Singularity Flow: Workflow
+  Studio**, or **Configuration Center → Workflow Studio**). See *Workflow Studio* below.
 - **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. The Designer
   toolbar exposes **Export**, **Import**, and **Duplicate** alongside workflow editing. It previews
   phase contracts and exposes planned claims, code task, and approval groups. Lead-governed saves

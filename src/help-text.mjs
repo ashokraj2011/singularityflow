@@ -313,6 +313,8 @@ Usage:
   singularity-flow skill doctor <ID> --story WORK-ID --phase PHASE-ID [--source LOCAL-DIRECTORY] [--json]
                                                         inspect exact retained Story bytes; never adopts a newer source
   singularity-flow workflow skills-recipe <ID> --label TEXT --phases a,b,c [--planned-claims required --clause-phases CRITERIA --claim-owners CODE=PLAN] [--json]
+  singularity-flow workflow studio [show] [--json]
+  singularity-flow workflow studio apply --change-set FILE|- [--dry-run] [--propose] [--json]
                                                         read-only BYO/mixed recipe preview; no activation or host launch
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]
     [--loop from:to:maxAttempts[:resetOnPhase]]...  bounded reviewer-directed Story rework

@@ -334,6 +334,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'workflow' && args[1] === 'author') {
     return ['list', 'read', 'show', 'history', 'op-status', 'preview', 'catalog'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
   }
+  if (args[0] === 'workflow' && args[1] === 'studio') {
+    return (args[2] ?? 'show') === 'show' || enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+  }
   if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'phase') return ['show', 'draft-check', 'prepublish'].includes(args[1] ?? '')
     ? 'read' : 'mutation';

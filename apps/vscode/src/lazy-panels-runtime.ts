@@ -37,6 +37,7 @@ export { showGdpLocalRunnerReview } from './gdp-local-runner-review.ts';
 export { ReconciliationPanel } from './views/reconciliation.ts';
 export { DashboardPanel } from './views/dashboard.ts';
 export { DesignerPanel } from './views/designer.ts';
+export { WorkflowStudioPanel } from './views/workflow-studio.ts';
 export { InstructionDesignerPanel } from './views/instruction-designer.ts';
 export { WorkspaceLogsPanel } from './views/workspace-logs.ts';
 export { SpecificationTracePanel } from './views/specification-trace.ts';

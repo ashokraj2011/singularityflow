@@ -2705,12 +2705,37 @@ Conformance stores a source/test tree hash. Later code or test changes make the 
 
 ## Configuring workflows
 
+### Workflow Studio
+
+The easiest way to create and change workflows is **Workflow Studio** in VS Code (Command Palette **Singularity Flow: Workflow Studio**, or **Configuration Center → Workflow Studio**). It shows every workflow as a board: in each step an agent drafts the work and an approval group signs it off. You pick everything from lists:
+
+- start a workflow from one of yours or from a packaged blueprint, then add, remove and reorder steps;
+- choose the agent that drafts each step, what the step produces, which earlier steps it reads, who signs it off and how many approvals it needs, and where rejected work goes back to;
+- create an agent from a role (analyst, architect, developer, tester, designer, reviewer) without editing Markdown;
+- add people to approval groups.
+
+Edits collect as one set of changes. **Check changes** asks the engine to validate the whole resulting configuration — workflow, agents and templates together — and shows each file's diff; **Publish** writes them as one review proposal on the approved configuration (or, for a working-tree authority, as files to commit). Running Stories keep the workflow they started with.
+
+A step's default agent is shared by every workflow that uses the step. To give one workflow a different agent, use **Use a copy in this workflow**, which creates a separate step for it.
+
+The same change set is available from the shell:
+
+```bash
+singularity-flow workflow studio --json
+singularity-flow workflow studio apply --change-set changes.json --dry-run --json
+singularity-flow workflow studio apply --change-set changes.json --propose --json
+```
+
+A change set is `{"schema": "sflow-studio-change-set@1", "base": {...}, "changes": [...]}`, where each change is one of `workflow.create`, `workflow.update`, `workflow.install`, `phase.create`, `phase.update`, `phase.agent`, `agent.create`, `agent.update`, `group.create` and `group.update`. The `base` returned by `workflow studio --json` makes a stale change set refuse rather than overwrite a newer configuration.
+
+### Editing the definition
+
 Edit `singularity/workflow.yml` directly or use VS Code **Configuration**. The definition controls:
 
 - `workTypes`: phase sequences and profile overrides
 - `inputsMode`: off, warning/audit recording, or enforced approved-artifact dataflow
 - `phases`: artifact contracts, approved inputs, write scope, views, checks, and approvals
-- `agents`: prompt-only governed agents, views, and suggested phases
+- agents are not part of `workflow.yml`: each lives in `.github/agents/<id>.agent.md` and names the steps it may draft (`sflow-phases`) and the steps it drafts by default (`sflow-default-for`); every step has exactly one default agent
 - `approvalAuthorities`: real-human authority groups matched to Git/GitHub identity
 - repository agent Markdown and `singularity/agents.lock.yml`: optional trust-pinned remote prompt/template/output sources
 - `documents`: allowed upload phases and size limits

@@ -87,11 +87,11 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence',
   'diagnose-only', 'diagnostics', 'disclose-provider-results', 'draft-stdin', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
-  'include-existing', 'independent', 'isolated-worktree',
+  'include-existing', 'include-local-documents', 'independent', 'isolated-worktree',
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
-  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'resume', 'review-only', 'risk-status', 'set', 'sign', 'solo',
+  'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'review-only', 'risk-status', 'set', 'sign', 'solo',
   'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief'
 ]);
@@ -1038,6 +1038,23 @@ export class CliError extends Error {
     this.stderr = stderr;
     this.result = result;
   }
+}
+
+/**
+ * The soft sequence gate a refused command names and lets a person continue through, or null.
+ * A CliError's message is only the refusal's headline (the last "Singularity Flow error:" line);
+ * the override the engine tells you to add is on a later line of stderr, so the whole refusal is
+ * read. The gate is the one the headline names, and only a refusal that offers to continue
+ * through that same gate counts: an override merely mentioned elsewhere is not an offer.
+ */
+export function softSequenceGate(error: unknown): string | null {
+  if (!(error instanceof CliError)) return null;
+  const text = [error.message, error.stderr].filter(Boolean).join('\n');
+  const gate = text.match(/Soft sequence warning \[([A-Za-z]+)\]/)?.[1];
+  if (!gate) return null;
+  // Current engines name the exact override to add; older ones said a terminal was required.
+  return text.includes(`--confirm-override continue:${gate}`)
+    || /Soft gate confirmation requires an interactive terminal/.test(text) ? gate : null;
 }
 
 function terminalQuote(value: string, platform: NodeJS.Platform): string {

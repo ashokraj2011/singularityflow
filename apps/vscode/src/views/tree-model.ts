@@ -729,17 +729,28 @@ function storyGeneratedArtifacts(
   };
 }
 
-function storyEvidenceNode(workId: string, document: StoryArtifact, detached = false): TreeNode {
+/** Where a document kept on one machine is, as a row reads it; nothing for a committed one. */
+function evidenceStorageHint(document: StoryArtifact): string | null {
+  if (document.storage?.kind !== 'local') return null;
+  return document.availability === 'available' ? 'this machine only'
+    : document.availability === 'changed' ? 'changed on this machine' : 'on another machine';
+}
+
+export function storyEvidenceNode(workId: string, document: StoryArtifact, detached = false): TreeNode {
   const id = document.id ?? document.path;
+  const kind = document.mimeType ?? document.kind ?? 'evidence';
+  const storage = evidenceStorageHint(document);
   return {
     kind: 'source', id: `story-evidence:${workId}:${id}`,
-    label: document.label ?? id,
-    description: detached ? 'detached' : (document.mimeType ?? document.kind ?? 'evidence'),
+    label: document.name ?? document.label ?? id,
+    description: detached ? 'detached' : storage ? `${kind} · ${storage}` : kind,
     tooltip: detached
       ? `${document.detachReason ?? 'Detached'}${document.detachedAt ? `\n${document.detachedAt}` : ''}`
       : `${document.path ?? document.url ?? ''}\nsha256 ${document.sha256 ?? 'external reference'}`,
     icon: detached ? 'archive' : (document.mimeType?.startsWith('image/') ? 'visual' : 'references'),
-    ...(document.path ? { path: document.path } : {}),
+    // A link or a document kept on this machine has no repository path; it still opens the way the
+    // evidence manager opens it (the link in a browser, the verified local copy read-only).
+    ...(document.path ? { path: document.path } : detached ? {} : { runCommand: 'singularityFlow.openArtifact' }),
     readOnly: detached,
     contextValue: detached ? 'sflow.evidence.detached' : 'sflow.evidence.active',
     evidence: {

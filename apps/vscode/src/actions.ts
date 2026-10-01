@@ -13,7 +13,7 @@
  */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from './cli/client.ts';
-import { CliError, formatCliArgsForDisplay } from './cli/runner.ts';
+import { CliError, formatCliArgsForDisplay, softSequenceGate } from './cli/runner.ts';
 import { commandPlaceholders, fillPlaceholders, placeholderPrompt } from './commands.ts';
 import { showRefusal } from './views/result-panel.ts';
 import type {
@@ -27,6 +27,8 @@ export interface Confirmation {
   expected: string;
   /** What is being approved, in the reviewer's terms. */
   summary: string;
+  /** What typing it does, when it is not approving the current hash (a soft-gate override). */
+  consequence?: string;
 }
 
 /** An approval, which goes through a selection receipt rather than through plain flags. */
@@ -137,7 +139,7 @@ export interface ActionRequest {
 async function askConfirmation(confirmation: Confirmation): Promise<string | null> {
   const typed = await vscode.window.showInputBox({
     title: confirmation.summary,
-    prompt: `Type ${confirmation.expected} to confirm. This approves the exact current hash.`,
+    prompt: `Type ${confirmation.expected} to confirm. ${confirmation.consequence ?? 'This approves the exact current hash.'}`,
     placeHolder: confirmation.expected,
     ignoreFocusOut: true,
     validateInput: (value) => (value && value !== confirmation.expected
@@ -165,15 +167,6 @@ async function askSelfApproval(): Promise<boolean> {
 /** Whether the CLI refused because the actor generated what they are approving. */
 function isSelfApprovalRefusal(error: unknown): boolean {
   return error instanceof CliError && /--acknowledge-self-approval/.test(error.message);
-}
-
-export function softSequenceGate(error: unknown): string | null {
-  if (!(error instanceof CliError)) return null;
-  // Current engines name the exact override to add; older ones said a terminal was required.
-  const named = error.message.match(/--confirm-override continue:([A-Za-z]+)/)?.[1];
-  if (named) return named;
-  if (!/Soft gate confirmation requires an interactive terminal/.test(error.message)) return null;
-  return error.message.match(/Soft sequence warning \[([^\]]+)\]/)?.[1] ?? null;
 }
 
 function generationRolloverPhase(error: unknown, args: string[]): string | null {
@@ -256,7 +249,8 @@ export async function runGovernedAction(
       while (gate && !overrides.includes(`continue:${gate}`) && overrides.length < 4) {
         const confirmed = await askConfirmation({
           expected: `continue:${gate}`,
-          summary: `Continue through soft sequence gate '${gate}'`
+          summary: `Continue through soft sequence gate '${gate}'`,
+          consequence: 'The command runs anyway and the override is recorded with it.'
         });
         if (!confirmed) {
           void vscode.window.setStatusBarMessage('$(circle-slash) Sequence override declined; nothing changed.', 4_000);

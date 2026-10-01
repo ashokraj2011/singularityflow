@@ -46,6 +46,8 @@ async function repository(configure = () => {}) {
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
   configure(config);
+  // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.
+  config.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
   run('git', ['commit', '-m', 'initialize'], root);

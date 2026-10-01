@@ -22,9 +22,9 @@ related:
   - artifacts-and-generation
   - specification-quality
   - epics-and-planning
-version: 1
+version: 2
 ---
-Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
+Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export or screenshot. Images (PNG, JPEG, GIF, WebP, SVG) are attached like any other file. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
 
 ## Where a document is kept
 
@@ -64,12 +64,15 @@ prompt. Each change is kept as a decision record under `evidence/document-scope/
 ## How the phases use documents
 
 - **Intake.** VS Code Start Work and `sflow start` (`--document <FILE> --document-name <NAME>`,
-  optionally `--document-phases <A,B>` and `--document-store git|local`) capture documents before
-  anything is created, and record them in the Story's opening commit.
+  optionally `--document-phases <A,B>` and `--document-store git|local`, given once for every
+  document or once per document) capture documents before anything is created, and record them in
+  the Story's opening commit. Each document can be kept and scoped differently.
 - **Prompts.** Every phase in a document's list receives it as pinned evidence. Text up to 1 MiB is
-  included; Word (DOCX) and Excel (XLSX) files contribute their extracted text; PDFs, images, and
-  documents kept on another machine contribute metadata only. Instructions inside a document are
-  untrusted evidence, never commands.
+  included; Word (DOCX) and Excel (XLSX) files contribute their extracted text. A PDF or image kept in
+  Git is listed with its repository path, and the phase is told to open it with its file, image, or
+  PDF tool rather than guess from its name; one kept on this machine is read with
+  `sflow documents view`, and one kept on another machine contributes metadata only. Instructions
+  inside a document are untrusted evidence, never commands.
 - **Specification.** `/sf-specify` reads `sflow documents list --phase specification --json`, cites
   the documents it used in a `## Sources` section, and lists unreadable or unavailable ones as gaps.
 - **Source review.** `/sf-review-source` checks the Specification and Plan against the documents
@@ -96,8 +99,8 @@ their sources with `sflow epic sources add` instead.
   skills preserve the CLI result and ask before any governed mutation.
 - **VS Code:** attaching a file asks for its name, where to keep it (**Commit to Git** or **Keep on
   this machine only**), and its phases. The Evidence view shows each document's name, storage,
-  availability, and phases; **Phases…** previews a scope change before applying it. Start Work asks
-  for each document's name, then once for all of them where they are kept and which phases use them.
+  availability, and phases; **Phases…** previews a scope change before applying it. Start Work asks,
+  for each document or image, its name, where it is kept, and which phases use it.
 
 ## Guided workflow
 

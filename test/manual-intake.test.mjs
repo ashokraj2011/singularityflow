@@ -37,6 +37,8 @@ async function repository() {
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
+  // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.
+  config.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
   run('git', ['commit', '-m', 'initialize'], root);

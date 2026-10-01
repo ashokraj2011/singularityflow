@@ -1852,9 +1852,9 @@ Manual intake has the same durable state-transfer behavior as Jira intake. Put t
 
 In VS Code, choose **Lifecycle → Start intake** and leave **Create without
 Jira** selected. Enter a Work ID and title, use the larger description editor,
-and optionally choose as many as four local supporting documents, naming each
-one and choosing, once for all of them, where they are kept (committed to Git or
-on this machine only) and which phases use them. **Enhance
+and optionally choose as many as four local supporting documents or images,
+naming each one and choosing, for each, where it is kept (committed to Git or
+on this machine only) and which phases use it. **Enhance
 description** sends the bounded draft through private standard input to the
 configured model with tools disabled and puts its advisory proposal back into
 the editor beside the unchanged draft for review. **Apply proposal** replaces the
@@ -1872,7 +1872,7 @@ singularity-flow start WORK-123 \
   --document-url https://www.figma.com/design/example --document-url-name "Checkout design"
 ```
 
-`--document` and `--document-url` may be repeated; every document needs its own name, given by the `--document-name` or `--document-url-name` that follows it, in the same order. `--document-phases PHASE,...|all` limits which phases use them (default: every phase). A story file may also declare a `documents` list containing paths or URLs, each with a `name` (an existing `label` still names it), and optional `kind` and `phases`. Relative document paths are resolved from the story file's directory. The command copies each file to `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`, records its SHA-256 and metadata in `documents.json`, and creates and pushes those exact bytes together with `source.json`, a readable `USER-STORY.md`, and the workflow state in the opening governed commit. Intake and later phase prompts receive this active hash-verified evidence, so another laptop does not need the original local path. It still asks the contributor to choose the workflow template; the phase agent is automatic interactively.
+`--document` and `--document-url` may be repeated; every document needs its own name, given by the `--document-name` or `--document-url-name` that follows it, in the same order. `--document-phases PHASE,...|all` and `--document-store git|local` are given once for every document or once per `--document`, in the same order (`--document-url-phases` does the same for links); the defaults are every phase and Git. A story file may also declare a `documents` list containing paths or URLs, each with a `name` (an existing `label` still names it), and optional `kind` and `phases`. Relative document paths are resolved from the story file's directory. The command copies each file to `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`, records its SHA-256 and metadata in `documents.json`, and creates and pushes those exact bytes together with `source.json`, a readable `USER-STORY.md`, and the workflow state in the opening governed commit. Intake and later phase prompts receive this active hash-verified evidence, so another laptop does not need the original local path. It still asks the contributor to choose the workflow template; the phase agent is automatic interactively.
 
 The model-assisted wording operation is also available directly. Its schema-versioned JSON draft
 contains `title`, `description`, `acceptanceCriteria`, and an `attachments` path array; the result is

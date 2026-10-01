@@ -29,6 +29,8 @@ async function repository(configure = () => {}) {
   await writeFile(path.join(root, 'README.md'), '# Storage\n'); flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
+  // These fixtures exercise document storage, not the pre-Story test-readiness gate.
+  config.repositoryReadiness.requiredBeforeStory = false;
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
   configure(config);
@@ -164,4 +166,35 @@ test('Story start keeps its documents on this machine with --document-store loca
   assert.equal(manifest.documents[0].origin, 'story-start');
   assert.doesNotMatch(run('git', ['log', '-p', '--all'], root).stdout, /Confidential pricing/);
   assert.match(flow(root, ['documents', 'view', 'Pricing brief']).stdout, /Confidential pricing/);
+});
+
+test('each Story-start document has its own phases and storage, and an image is kept like any file', async () => {
+  const { root } = await repository();
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-per-document-start-'));
+  const brief = path.join(uploads, 'brief.md'); await writeFile(brief, '# Brief\nRetry a failed payment once.\n');
+  const mockup = path.join(uploads, 'checkout.png');
+  await writeFile(mockup, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+  const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\nKept private.\n');
+  const documents = ['--document', brief, '--document-name', 'Brief', '--document', mockup, '--document-name', 'Checkout mockup',
+    '--document', notes, '--document-name', 'Private notes'];
+  const refused = flow(root, ['start', 'EACH-1', '--from-branch', 'main', '--title', 'Per document', ...documents,
+    '--document-phases', 'intake', '--document-phases', 'design'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /--document-phases is given 2 times for 3 --document inputs\. Give it once for all of them, or once per --document, in the same order\./);
+  assert.equal(run('git', ['branch', '--list', 'EACH-1'], root).stdout.trim(), '', 'refused before the Story exists');
+
+  flow(root, ['start', 'EACH-1', '--from-branch', 'main', '--title', 'Per document', ...documents,
+    '--document-phases', 'requirements,intake', '--document-phases', 'all', '--document-phases', 'design',
+    '--document-store', 'git', '--document-store', 'git', '--document-store', 'local']);
+  const manifest = JSON.parse(await readFile(path.join(root, 'singularity/work-items/EACH-1/documents.json'), 'utf8'));
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/EACH-1/workflow.json'), 'utf8'));
+  const byName = Object.fromEntries(manifest.documents.map((record) => [record.name, record]));
+  assert.deepEqual(byName.Brief.phases, ['intake', 'requirements'], 'kept in workflow order');
+  assert.deepEqual(byName['Checkout mockup'].phases, workflow.phaseOrder);
+  assert.deepEqual(byName['Private notes'].phases, ['design']);
+  assert.deepEqual(manifest.documents.map((record) => record.storage.kind), ['git', 'git', 'local']);
+  assert.equal(byName['Checkout mockup'].mimeType, 'image/png');
+  assert.match(run('git', ['ls-files', 'singularity/work-items/EACH-1/inputs'], root).stdout, /checkout\.png/,
+    'the image is committed with the Story');
+  assert.doesNotMatch(run('git', ['log', '-p', '--all'], root).stdout, /Kept private/);
 });

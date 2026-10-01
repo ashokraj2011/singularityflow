@@ -4695,8 +4695,10 @@ async function nextCommand(options) {
 
 /**
  * Story-start documents from `--document` and `--document-url`, each named by the matching
- * `--document-name` or `--document-url-name` in the same order. `--document-phases` applies to
- * all of them. A count mismatch is refused here; a missing name is refused by assertStartDocuments.
+ * `--document-name` or `--document-url-name` in the same order. `--document-phases` and
+ * `--document-store` are given once for every file or once per `--document`, in the same order;
+ * `--document-url-phases` does the same for links, which otherwise follow a single
+ * `--document-phases`. A count mismatch is refused here; a missing name by assertStartDocuments.
  */
 function startDocumentInputs(options, files, urls) {
   const fileNames = optionStrings(options, 'document-name');
@@ -4709,14 +4711,35 @@ function startDocumentInputs(options, files, urls) {
     throw new SingularityFlowError(`--document-url-name is given ${urlNames.length} times for ${urls.length} --document-url input${urls.length === 1 ? '' : 's'}. Give one name per --document-url, in the same order.`,
       { code: 'DOCUMENT_NAME_REQUIRED' });
   }
-  const phaseValues = optionStrings(options, 'document-phases').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
-  const phases = phaseValues.length ? phaseValues : null;
+  const phaseLists = optionStrings(options, 'document-phases').map(startDocumentPhaseList);
+  const filePhases = perStartDocument(phaseLists, files.length, 'document-phases', 'document');
   // Where the files' bytes are kept; a link has none.
-  const store = optionString(options, 'document-store') ?? null;
+  const fileStores = perStartDocument(optionStrings(options, 'document-store'), files.length, 'document-store', 'document');
+  const urlPhaseLists = optionStrings(options, 'document-url-phases').map(startDocumentPhaseList);
+  const urlPhases = urlPhaseLists.length
+    ? perStartDocument(urlPhaseLists, urls.length, 'document-url-phases', 'document-url')
+    : urls.map(() => (phaseLists.length === 1 ? phaseLists[0] : null));
   return [
-    ...files.map((candidate, index) => ({ type: 'file', path: candidate, name: fileNames[index] ?? null, label: null, kind: null, phases, store })),
-    ...urls.map((url, index) => ({ type: 'url', url, name: urlNames[index] ?? null, label: null, kind: null, phases }))
+    ...files.map((candidate, index) => ({
+      type: 'file', path: candidate, name: fileNames[index] ?? null, label: null, kind: null,
+      phases: filePhases[index], store: fileStores[index]
+    })),
+    ...urls.map((url, index) => ({ type: 'url', url, name: urlNames[index] ?? null, label: null, kind: null, phases: urlPhases[index] }))
   ];
+}
+
+/** One value for every Story-start document, or one per document in the same order. */
+function perStartDocument(values, count, option, input) {
+  if (values.length <= 1) return Array.from({ length: count }, () => values[0] ?? null);
+  if (values.length === count) return values;
+  throw new SingularityFlowError(`--${option} is given ${values.length} times for ${count} --${input} input${count === 1 ? '' : 's'}. Give it once for all of them, or once per --${input}, in the same order.`,
+    { code: 'DOCUMENT_OPTION_COUNT', details: { option, given: values.length, documents: count } });
+}
+
+/** `specification,planning` or `all`; an empty value means the default phases. */
+function startDocumentPhaseList(value) {
+  const phases = String(value).split(',').map((item) => item.trim()).filter(Boolean);
+  return phases.length ? phases : null;
 }
 
 // Options every documents subcommand accepts. A near miss of anything else is refused below.

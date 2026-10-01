@@ -5894,7 +5894,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         canSelectFolders: false,
         canSelectMany: true,
         filters: {
-          'Evidence and designs': ['md', 'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'json', 'yaml', 'yml', 'csv', 'xlsx', 'docx', 'pptx'],
+          'Evidence and designs': ['md', 'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'json', 'yaml', 'yml', 'csv', 'xlsx', 'docx', 'pptx'],
           'All files': ['*']
         }
       });

@@ -4756,7 +4756,7 @@ const DOCUMENTS_SUBCOMMAND_OPTIONS = Object.freeze({
   view: ['all'],
   preview: [],
   browse: ['provider', 'path'],
-  detach: ['reason', 'scope', 'yes'],
+  detach: ['reason', 'scope', 'dry-run', 'yes'],
   scope: ['phases', 'reason', 'scope', 'dry-run', 'yes'],
   upload: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
   add: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
@@ -4779,6 +4779,25 @@ function refuseNearMissDocumentOptions(subcommand, options) {
         { code: 'UNKNOWN_OPTION', details: { command: `documents ${subcommand}`, option: key, suggestion: nearest } });
     }
   }
+}
+
+/**
+ * Documents are added on the Story's own branch, so a --work-id naming another Story is refused
+ * rather than ignored: the upload would otherwise land in whichever Story is checked out.
+ */
+function refuseOtherStoryDocumentTarget(workflow, options) {
+  const requested = optionString(options, 'work-id');
+  if (requested && requested !== workflow.workItem.id) {
+    throw new SingularityFlowError(
+      `--work-id ${requested} does not match the Story checked out here (${workflow.workItem.id}). Documents are added on a Story's own branch: check out ${requested} first, or drop --work-id.`,
+      { code: 'DOCUMENT_WORK_ID_MISMATCH', details: { requested, checkedOut: workflow.workItem.id } }
+    );
+  }
+}
+
+/** What a document change already reached: each phase's published generation, and how it used the document. */
+function documentUsesLabel(uses) {
+  return uses.length ? uses.map((use) => `${use.phase} generation ${use.generation} (${use.evidence.join(', ')})`).join('; ') : 'none';
 }
 
 /** `--phases a,b --phases c` means a, b and c; nothing given means the default. */
@@ -4865,7 +4884,8 @@ async function documentsCommand(positionals, options) {
     const config = await loadConfig(root);
     const reference = requirePositional(positionals, 2, 'document ID or name');
     const reason = optionString(options, 'reason');
-    if (!reason?.trim()) throw new SingularityFlowError('Document detachment requires --reason "<reason>".');
+    const dryRun = optionBoolean(options, 'dry-run');
+    if (!dryRun && !reason?.trim()) throw new SingularityFlowError('Document detachment requires --reason "<reason>".');
     const scope = optionString(options, 'scope', 'file');
     const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
     const records = await documentCatalog(root, config, workflow, { includeDetached: true });
@@ -4875,9 +4895,18 @@ async function documentsCommand(positionals, options) {
       ? records.filter((record) => record.packageId === selected.packageId && (record.status == null || ['active', 'pinned'].includes(record.status)))
       : [selected];
     const json = optionBoolean(options, 'json');
+    const plan = await detachDocuments(root, config, workflow, { documentId, scope, reason, dryRun: true });
+    if (dryRun && json) return console.log(JSON.stringify(plan, null, 2));
     if (!json) {
       console.log(`Detach ${scope === 'package' ? `package ${selected.packageId} (${targets.length} files)` : documentTitle(selected)}.`);
-      console.log('Committed bytes and audit history will be preserved. Future governed prompts will omit the evidence; dependent generated work and approvals may be invalidated.');
+      console.log('Committed bytes and audit history will be preserved. Future governed prompts will omit the evidence.');
+      console.log(`Published work that used it: ${documentUsesLabel(plan.usedBy)}`);
+      console.log(`Phases invalidated: ${plan.affectedPhases.length ? plan.affectedPhases.join(', ') : 'none'}${plan.reopenedPhase ? ` (reopens ${plan.reopenedPhase})` : ''}`);
+      if (plan.pendingPrompt) console.log(`Composed but not yet published, so recomposed without it the next time it is composed: ${plan.pendingPrompt}`);
+    }
+    if (dryRun) {
+      console.log('Dry run: no state changed.');
+      return;
     }
     if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this governed evidence detachment.', documentId))) {
       console.log('No state changed.');
@@ -4924,6 +4953,7 @@ async function documentsCommand(positionals, options) {
   if (['upload', 'add'].includes(subcommand)) {
     const config = await loadConfig(root);
     const workflow = await loadStoryAggregate(root, config);
+    refuseOtherStoryDocumentTarget(workflow, options);
     let records = [];
     const result = await commitAndPublish(
       root,
@@ -4974,6 +5004,7 @@ async function documentsCommand(positionals, options) {
   if (subcommand === 'fetch') {
     const config = await loadConfig(root);
     const workflow = await loadStoryAggregate(root, config);
+    refuseOtherStoryDocumentTarget(workflow, options);
     let records = [];
     const result = await commitAndPublish(
       root,
@@ -5032,9 +5063,10 @@ async function documentsScopeCommand(root, positionals, options) {
     for (const record of plan.documents) console.log(`${record.id} — ${record.name ?? record.id}: ${record.phases.join(', ')} → ${plan.phases.join(', ')}`);
     if (plan.addedPhases.length) console.log(`Offered from now on to: ${plan.addedPhases.join(', ')}`);
     if (plan.removedPhases.length) console.log(`No longer offered to: ${plan.removedPhases.join(', ')}`);
-    console.log(`Prompts that already used it and become stale: ${plan.dependentContextRecords.length ? plan.dependentContextRecords.join(', ') : 'none'}`);
-    console.log(`Phases invalidated: ${plan.affectedPhases.length ? plan.affectedPhases.join(', ') : 'none'}${plan.reopenedPhase ? ` (reopens ${plan.reopenedPhase})` : ''}`);
-    if (plan.pendingPrompt) console.log(`Already composed and not recomposed by this change: ${plan.pendingPrompt}`);
+    if (plan.usedBy.length) {
+      console.log(`Published work that already used it keeps it: ${documentUsesLabel(plan.usedBy)}. A scope change applies to later prompts only; detach the document to withdraw it from that work.`);
+    }
+    if (plan.pendingPrompt) console.log(`Composed but not yet published, so recomposed with this change the next time it is composed: ${plan.pendingPrompt}`);
   };
   if (optionBoolean(options, 'dry-run')) {
     if (json) return console.log(JSON.stringify(plan, null, 2));
@@ -5070,7 +5102,6 @@ async function documentsScopeCommand(root, positionals, options) {
   console.log(`Decision: ${scoped.decision.sha256}`);
   console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
   if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
-  if (scoped.reopenedPhase) console.log(`Reopened phase: ${scoped.reopenedPhase}`);
   printCommandRoutes('singularity-flow nextsteps', { label: 'Continue' });
 }
 

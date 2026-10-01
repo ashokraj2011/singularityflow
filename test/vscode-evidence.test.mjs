@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceScopeCommand,
-  evidenceStorageLabel, evidenceTargets, expandEpicEvidenceDirectory,
+  defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceDetachPreviewCommand, evidenceScopeCommand,
+  evidenceStorageLabel, evidenceUsesLabel, evidenceTargets, expandEpicEvidenceDirectory,
   suggestedEvidenceName, validateEvidenceName, validateEvidenceUrl
 } = await import(path.join(packageRoot, 'apps/vscode/src/evidence.ts'));
 
@@ -146,4 +146,12 @@ test('VS Code separates active and detached evidence and builds shell-free detac
   assert.deepEqual(evidenceDetachCommand(catalog.find((item) => item.id === 'SRC-A'), 'file', 'Withdrawn'), [
     'epic', 'sources', 'detach', 'SRC-A', '--epic', 'MOB-100', '--reason', 'Withdrawn', '--yes'
   ]);
+  // A Story detach is previewed first so the dialog can name what it reopens; Epic sources have no preview.
+  assert.deepEqual(evidenceDetachPreviewCommand(catalog.find((item) => item.id === 'DOC-001'), 'file'), [
+    'documents', 'detach', 'DOC-001', '--scope', 'file', '--dry-run', '--json'
+  ]);
+  assert.equal(evidenceDetachPreviewCommand(catalog.find((item) => item.id === 'SRC-A'), 'file'), null);
+  assert.equal(evidenceUsesLabel([{ phase: 'intake', generation: 1 }, { phase: 'design', generation: 2 }]),
+    'intake generation 1, design generation 2');
+  assert.equal(evidenceUsesLabel([]), null);
 });

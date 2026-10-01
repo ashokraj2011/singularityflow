@@ -348,36 +348,78 @@ export function evidenceIsActive(record) {
   return record?.status !== 'detached';
 }
 
+/** Whether a prompt receipt lists one of these document IDs among the evidence it was composed from. */
+function receiptCitesDocument(receipt, ids) {
+  return [receipt?.supportingEvidence, receipt?.evidence, receipt?.files].filter(Array.isArray)
+    .some((list) => list.some((entry) => ids.has(entry?.id) || ids.has(entry?.evidenceId)));
+}
+
+/** The document IDs an artifact cites under its `## Sources` heading. */
+function citedDocumentIds(markdown) {
+  const lines = String(markdown).split(/\r?\n/);
+  const start = lines.findIndex((line) => /^##\s+Sources\s*$/i.test(line.trim()));
+  if (start < 0) return [];
+  const end = lines.findIndex((line, index) => index > start && /^#{1,2}\s/.test(line));
+  return [...lines.slice(start + 1, end < 0 ? undefined : end).join('\n').matchAll(/\bDOC-\d+\b/g)].map((match) => match[0]);
+}
+
+/** A phase's latest published generation and when it was published, or null before its first. */
+function publishedGeneration(phase) {
+  const generation = Number(phase?.generation ?? 0);
+  if (!Number.isInteger(generation) || generation < 1) return null;
+  const authorship = (phase.authorship ?? []).filter((entry) => entry?.generation === generation).at(-1);
+  return { generation, publishedAt: authorship?.publishedAt ?? null };
+}
+
 /**
- * The prompt receipts that cite any of these documents, and the phases they belong to. Read-only.
+ * The phases whose latest published generation used any of these documents, and how that is known.
+ * A generation used a document when its prompt receipt lists the document's ID, when its artifact
+ * cites it under `## Sources`, or when the phase was offered the document and the generation was
+ * published after the document was added (the author could read it with documents view). A prompt
+ * composed but not yet published used nothing: it is recomposed when its documents change. Read-only.
  *
- * Only prompt receipts (`context/<phase>-gen<N>.json`) record which evidence a generation was
- * composed from. The scan used to rewrite any JSON under `context/` that mentioned a document,
- * which included hash-sealed source-review records and immutable agent audits; those are no
- * longer even read. `phases` limits the search to receipts of those phases.
+ * Only prompt receipts are ever returned for marking: hash-sealed review records and agent audits
+ * under `context/` are not read, so they cannot be rewritten.
  */
-async function findEvidenceDependencies(root, config, workflow, targets, { phases = null } = {}) {
-  const needles = new Set(targets.flatMap((record) => [record.id, record.sha256, record.path, record.url].filter(Boolean)));
-  const directory = path.join(workDir(root, config, workflow.workItem.id), 'context');
-  const found = [];
-  const phaseIds = new Set();
-  if (!(await exists(directory))) return { phases: [], records: [], files: [] };
-  const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-    const absolute = path.join(directory, entry.name);
-    const relative = posix(path.relative(root, absolute));
-    const family = familyForStoredPath(relative, { workItemRoot: config.workItemRoot ?? 'singularity/work-items' });
-    if (family?.id !== 'prompt-injection') continue;
-    let parsed;
-    try { parsed = JSON.parse(await readFile(absolute, 'utf8')); } catch { continue; }
-    if (phases && !phases.includes(parsed.phase)) continue;
-    const serialized = JSON.stringify(parsed);
-    if (![...needles].some((needle) => serialized.includes(needle))) continue;
-    if (parsed.phase && workflow.phases?.[parsed.phase]) phaseIds.add(parsed.phase);
-    found.push({ absolute, relative, parsed });
+async function findDocumentConsumers(root, config, workflow, targets) {
+  const ids = new Set(targets.map((record) => record.id));
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const uses = [];
+  const files = [];
+  for (const phaseId of workflow.phaseOrder ?? []) {
+    const phase = workflow.phases?.[phaseId];
+    const published = publishedGeneration(phase);
+    if (!published) continue;
+    const evidence = [];
+    const receiptPath = path.join(itemDirectory, 'context', `${phaseId}-gen${published.generation}.json`);
+    let receipt = null;
+    if (await exists(receiptPath)) {
+      try { receipt = JSON.parse(await readFile(receiptPath, 'utf8')); } catch { receipt = null; }
+    }
+    if (receipt && receiptCitesDocument(receipt, ids)) evidence.push('prompt');
+    const artifact = phase.requiredArtifact?.path ? path.join(itemDirectory, phase.requiredArtifact.path) : null;
+    if (artifact && await exists(artifact)
+        && citedDocumentIds(await readFile(artifact, 'utf8').catch(() => '')).some((id) => ids.has(id))) evidence.push('sources');
+    if (targets.some((record) => documentOfferedToPhase(record, phaseId)
+        && !(published.publishedAt && record.addedAt && published.publishedAt < record.addedAt))) evidence.push('offered');
+    if (!evidence.length) continue;
+    uses.push({ phase: phaseId, generation: published.generation, evidence });
+    if (evidence.includes('prompt')) files.push({ absolute: receiptPath, relative: posix(path.relative(root, receiptPath)), parsed: receipt });
   }
-  return { phases: [...phaseIds], records: found.map((item) => item.relative), files: found };
+  return { phases: uses.map((use) => use.phase), uses, records: files.map((item) => item.relative), files };
+}
+
+/** Documents of a cancelled or completed Story are part of its record and no longer change. */
+function assertStoryOpenForDocuments(workflow, action) {
+  const id = workflow.workItem.id;
+  if (workflow.status === 'cancelled') {
+    throw new SingularityFlowError(`Story '${id}' is cancelled and archived; its documents can no longer be ${action}.`,
+      { code: 'DOCUMENT_STORY_CLOSED', details: { workId: id, status: workflow.status } });
+  }
+  if (workflow.status === 'complete' || workflow.currentPhase == null) {
+    throw new SingularityFlowError(`Story '${id}' is complete; reopen it (singularity-flow reopen ${id} --to PHASE --reason TEXT) before its documents are ${action}.`,
+      { code: 'DOCUMENT_STORY_CLOSED', details: { workId: id, status: workflow.status ?? 'complete' } });
+  }
 }
 
 async function markEvidenceDependenciesStale(dependencies, reason, at) {
@@ -386,8 +428,15 @@ async function markEvidenceDependenciesStale(dependencies, reason, at) {
   }
 }
 
+/**
+ * What a change to documents reopens: the earliest phase, up to the current one, whose published
+ * work used them, and every phase after it. A later phase has no published work that stands (it is
+ * redone when the Story reaches it), so it reopens nothing and never moves the Story forward.
+ */
 function storyCone(workflow, phases) {
-  const indexes = phases.map((phaseId) => workflow.phaseOrder.indexOf(phaseId)).filter((index) => index >= 0);
+  const current = workflow.phaseOrder.indexOf(workflow.currentPhase);
+  const indexes = phases.map((phaseId) => workflow.phaseOrder.indexOf(phaseId))
+    .filter((index) => index >= 0 && index <= current);
   if (!indexes.length) return { affectedPhases: [], reopenedPhase: null, earliest: -1 };
   const earliest = Math.min(...indexes);
   const affectedPhases = workflow.phaseOrder.slice(earliest);
@@ -420,12 +469,17 @@ function invalidateStoryCone(workflow, cone, decisionSha256, timestamp, reason =
  * Detach supporting evidence without deleting its committed bytes. The caller runs this inside
  * commitAndPublish.beforeStateWrite so manifest, state, projections, decision, commit, and push are
  * one publication transaction.
+ *
+ * Work that used the document is invalidated: the earliest phase, up to the current one, whose
+ * published generation used it reopens. `dryRun` reports that, and the prompt still to be
+ * recomposed, and changes nothing.
  */
 export async function detachDocuments(root, config, workflow, {
-  documentId, scope = 'file', reason
+  documentId, scope = 'file', reason, dryRun = false
 } = {}) {
   const comment = String(reason ?? '').trim();
-  if (!comment) throw new SingularityFlowError('A detachment reason is required.');
+  if (!comment && !dryRun) throw new SingularityFlowError('A detachment reason is required.');
+  assertStoryOpenForDocuments(workflow, 'detached');
   if (!['file', 'package'].includes(scope)) throw new SingularityFlowError("Document detach --scope must be 'file' or 'package'.");
   const manifest = await loadManifest(root, config, workflow);
   const selected = resolveDocumentRecord(manifest.documents, documentId);
@@ -434,11 +488,24 @@ export async function detachDocuments(root, config, workflow, {
   const targets = scope === 'package'
     ? manifest.documents.filter((record) => record.packageId === selected.packageId && evidenceIsActive(record))
     : [selected];
+  const dependencies = await findDocumentConsumers(root, config, workflow, targets);
+  const cone = storyCone(workflow, dependencies.phases);
+  const pendingPrompt = targets.some((record) => documentOfferedToPhase(record, workflow.currentPhase))
+    ? await pendingPromptRelative(root, config, workflow) : null;
+  if (dryRun) {
+    return {
+      dryRun: true,
+      documents: targets.map((record) => ({ id: record.id, name: record.name ?? null })),
+      usedBy: dependencies.uses,
+      dependentContextRecords: dependencies.records,
+      affectedPhases: cone.affectedPhases,
+      reopenedPhase: cone.reopenedPhase,
+      pendingPrompt
+    };
+  }
   const session = await loadSession(root);
   const timestamp = nowIso();
-  const dependencies = await findEvidenceDependencies(root, config, workflow, targets);
   await markEvidenceDependenciesStale(dependencies, `Supporting evidence detached: ${targets.map((item) => item.id).join(', ')}`, timestamp);
-  const cone = storyCone(workflow, dependencies.phases);
   const decisionBase = {
     schemaVersion: currentSchemaVersion('evidence-detachment-decision'),
     type: 'evidence-detachment',
@@ -450,6 +517,7 @@ export async function detachDocuments(root, config, workflow, {
     agent: session.agent ?? null,
     at: timestamp,
     previousHash: selected.sha256 ?? createHash('sha256').update(String(selected.url ?? '')).digest('hex'),
+    usedBy: dependencies.uses,
     dependentContextRecords: dependencies.records,
     affectedPhases: cone.affectedPhases,
     reopenedPhase: cone.reopenedPhase
@@ -484,8 +552,10 @@ export async function detachDocuments(root, config, workflow, {
     decision: decisionBase,
     decisionPath: posix(path.relative(root, decisionFile)),
     targets,
+    usedBy: dependencies.uses,
     affectedPhases: invalidation.affectedPhases,
-    reopenedPhase: invalidation.reopenedPhase
+    reopenedPhase: invalidation.reopenedPhase,
+    pendingPrompt
   };
 }
 
@@ -506,10 +576,11 @@ export async function pendingPromptRelative(root, config, workflow) {
  * commitAndPublish.beforeStateWrite, like detach, so catalog, decision, state, commit and push are
  * one publication.
  *
- * Adding a phase changes only what later compositions include. Removing a phase whose prompt
- * already used the document makes that prompt stale and reopens the earliest such phase, so no
- * approval keeps resting on evidence the phase may no longer use. `dryRun` reports all of that and
- * changes nothing.
+ * The change applies forward only: it decides what later prompts include and never reopens a phase
+ * or stales its prompt. Work already published with the document keeps it, and is reported as
+ * `usedBy`; to withdraw the document from that work, detach it. A prompt composed but not yet
+ * published is recomposed with the new set the next time it is composed. `dryRun` reports all of
+ * that and changes nothing.
  */
 export async function scopeDocuments(root, config, workflow, {
   documentId, phases, scope = 'file', reason, dryRun = false
@@ -522,6 +593,7 @@ export async function scopeDocuments(root, config, workflow, {
     throw new SingularityFlowError('Name the phases the document is offered to, for example --phases specification,planning, or all.',
       { code: 'DOCUMENT_PHASES_INVALID' });
   }
+  assertStoryOpenForDocuments(workflow, 're-scoped');
   const next = normalizeDocumentPhases(requested, workflow);
   const manifest = await loadManifest(root, config, workflow);
   const selected = resolveDocumentRecord(manifest.documents, documentId);
@@ -537,16 +609,16 @@ export async function scopeDocuments(root, config, workflow, {
     throw new SingularityFlowError(`${targets.map((record) => record.id).join(', ')} ${targets.length === 1 ? 'is' : 'are'} already offered to exactly ${next.join(', ')}.`,
       { code: 'DOCUMENT_SCOPE_UNCHANGED' });
   }
-  const dependencies = removedPhases.length
-    ? await findEvidenceDependencies(root, config, workflow, targets, { phases: removedPhases })
-    : { phases: [], records: [], files: [] };
-  const cone = storyCone(workflow, dependencies.phases);
-  const pendingPrompt = await pendingPromptRelative(root, config, workflow);
+  const usedBy = removedPhases.length
+    ? (await findDocumentConsumers(root, config, workflow, targets)).uses.filter((use) => removedPhases.includes(use.phase))
+    : [];
+  const changesCurrent = [...removedPhases, ...addedPhases].includes(workflow.currentPhase);
+  const pendingPrompt = changesCurrent ? await pendingPromptRelative(root, config, workflow) : null;
+  // Kept for readers of earlier previews and decisions: a scope change reopens nothing.
   const plan = {
     documents: targets.map((record) => ({ id: record.id, name: record.name ?? null, phases: offered(record) })),
-    phases: next, removedPhases, addedPhases,
-    dependentContextRecords: dependencies.records,
-    affectedPhases: cone.affectedPhases, reopenedPhase: cone.reopenedPhase, pendingPrompt
+    phases: next, removedPhases, addedPhases, usedBy,
+    dependentContextRecords: [], affectedPhases: [], reopenedPhase: null, pendingPrompt
   };
   if (dryRun) return { ...plan, dryRun: true };
   const session = await loadSession(root);
@@ -560,16 +632,13 @@ export async function scopeDocuments(root, config, workflow, {
       id: record.id, name: record.name ?? null, sha256: record.sha256 ?? null, path: record.path ?? null,
       url: record.url ?? null, previousPhases: Array.isArray(record.phases) ? [...record.phases] : null
     })),
-    phases: [...next], removedPhases, addedPhases,
+    phases: [...next], removedPhases, addedPhases, usedBy,
     reason: comment, actor: session.actor, agent: session.agent ?? null, at: timestamp,
-    dependentContextRecords: dependencies.records,
-    affectedPhases: cone.affectedPhases, reopenedPhase: cone.reopenedPhase
+    dependentContextRecords: [], affectedPhases: [], reopenedPhase: null
   };
   const decisionSha256 = createHash('sha256').update(JSON.stringify(decisionBase)).digest('hex');
   decisionBase.sha256 = decisionSha256;
   const ids = targets.map((record) => record.id).join(', ');
-  await markEvidenceDependenciesStale(dependencies, `Supporting evidence no longer offered to this phase: ${ids}`, timestamp);
-  const invalidation = invalidateStoryCone(workflow, cone, decisionSha256, timestamp, 'supporting-evidence-rescoped');
   for (const record of targets) Object.assign(record, { phases: [...next], scopeDecisionSha256: decisionSha256 });
   const decisionFile = path.join(workDir(root, config, workflow.workItem.id), 'evidence', 'document-scope', `${decisionSha256}.json`);
   await writeJson(decisionFile, decisionBase);
@@ -581,16 +650,14 @@ export async function scopeDocuments(root, config, workflow, {
     actor: session.actor.login ?? session.actor.email ?? session.actor.name,
     agent: session.agent,
     event: 'evidence_scoped',
-    phase: invalidation.reopenedPhase ?? workflow.currentPhase,
+    phase: workflow.currentPhase,
     detail: `${ids} offered to ${next.join(', ')}: ${comment}`
   });
   return {
     ...plan,
     decision: decisionBase,
     decisionPath: posix(path.relative(root, decisionFile)),
-    targets,
-    affectedPhases: invalidation.affectedPhases ?? [],
-    reopenedPhase: invalidation.reopenedPhase ?? null
+    targets
   };
 }
 

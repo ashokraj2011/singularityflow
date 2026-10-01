@@ -2838,8 +2838,8 @@ evidence workflow.
 | `singularity-flow documents list [ID] [--phase PHASE] [--active\|--all]` | List active uploaded inputs and generated documents, only those one phase uses, or include detached evidence history. |
 | `singularity-flow documents view <ID\|NAME> [--all]` | Display active text content or return the path/URL for a binary/external document; `--all` permits audited detached evidence. |
 | `singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...\|all] [--store git\|local]` | Recursively copy, hash, catalog, commit, and push named supporting evidence during configured initial phases; `--store local` commits only its identity. |
-| `singularity-flow documents scope <ID\|NAME> --phases PHASE,...\|all --reason TEXT [--dry-run]` | Change which phases use a document, audit the decision, and reopen only a phase whose prompt already used it. |
-| `singularity-flow documents detach <ID\|NAME> [--scope file\|package] --reason TEXT` | Preserve Story evidence bytes, audit the decision, exclude future prompts, and invalidate only dependent phases. |
+| `singularity-flow documents scope <ID\|NAME> --phases PHASE,...\|all --reason TEXT [--dry-run]` | Change which phases later prompts offer a document to and audit the decision; work already published keeps it. |
+| `singularity-flow documents detach <ID\|NAME> [--scope file\|package] --reason TEXT [--dry-run]` | Preserve Story evidence bytes, audit the decision, exclude future prompts, and reopen the earliest reached phase whose published work used it; `--dry-run` previews that. |
 | `singularity-flow epic sources list --epic <ID> [--active\|--all]` | List active Epic sources or include detached history. |
 | `singularity-flow epic sources detach <ID> --epic <ID> --reason TEXT` | Govern and publish an Epic-source detachment with dependency-scoped invalidation. |
 | `singularity-flow jira pull <ID>` | Read and normalize one Jira issue using configured REST credentials. |

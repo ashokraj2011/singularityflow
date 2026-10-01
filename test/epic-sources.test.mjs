@@ -7,7 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
-import { detachEpicSource, jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, storageAdapter, verifyEpicSources } from '../src/epic-sources.mjs';
+import { detachEpicSource, jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, registerEpicTextSource, storageAdapter, verifyEpicSources } from '../src/epic-sources.mjs';
+import { composeInitiativeContext } from '../src/initiative-context.mjs';
 import {
   adoptEpicStory, completeEpicIntake, completeEpicPublication, prepareEpicStorySpecifications, splitEpicStory,
   updateEpicStory, verifyEpicPlanningPackage
@@ -546,7 +547,7 @@ test('a source whose name has spaces is pinned, not rejected', async () => {
   assert.ok(!registered.record.filename.includes(' '), 'the storage key must stay portable');
 });
 
-test('Epic source detachment is audited, hidden by default, and reopens its dependency cone', async () => {
+test('Epic source detachment is audited, hidden by default, and reopens the earliest reached phase that used it', async () => {
   const root = await repository();
   const content = Buffer.from('# Governed product brief\n');
   const fetchImpl = async (_url, init = {}) => response(content, { method: init.method ?? 'GET' });
@@ -556,24 +557,80 @@ test('Epic source detachment is audited, hidden by default, and reopens its depe
     mimeType: 'text/markdown', runtime: { fetchImpl }
   });
   const loaded = await loadInitiative(root, 'MOB-100');
+  const { initiative } = loaded;
+  // Requirements published generation 1 with the source, was approved, and the Epic moved on.
+  initiative.phases['epic-requirements'].generation = 1;
+  initiative.phases['epic-requirements'].status = 'approved';
+  initiative.currentPhase = 'epic-planning';
   const contextDirectory = path.join(root, 'singularity/initiatives/MOB-100/context');
-  await mkdir(contextDirectory, { recursive: true });
-  await writeFile(path.join(contextDirectory, 'requirements-gen1.json'), `${JSON.stringify({
-    phase: 'epic-requirements', sources: [{ sourceId: registered.record.sourceId, sha256: registered.record.sha256 }]
+  await mkdir(path.join(contextDirectory, 'reviews'), { recursive: true });
+  const source = { sourceId: registered.record.sourceId, sha256: registered.record.sha256 };
+  await writeFile(path.join(contextDirectory, 'prompt-context-epic-requirements-gen1.json'), `${JSON.stringify({
+    phase: 'epic-requirements', generation: 1, epicSources: [source]
   }, null, 2)}\n`);
-  const detached = await detachEpicSource(root, loaded.portfolio, loaded.initiative, {
+  // A sealed record that names the source is not a prompt receipt and is never rewritten.
+  const sealed = `${JSON.stringify({ reviewed: source, recordSha256: 'f'.repeat(64) }, null, 2)}\n`;
+  await writeFile(path.join(contextDirectory, 'reviews', 'source-review.json'), sealed);
+  const detached = await detachEpicSource(root, loaded.portfolio, initiative, {
     sourceId: registered.record.sourceId, reason: 'Product brief was withdrawn', agent: 'product-owner'
   });
   assert.equal(detached.reopenedPhase, 'epic-requirements');
+  assert.equal(initiative.currentPhase, 'epic-requirements');
+  assert.equal(initiative.phases['epic-planning'].status, 'not_started');
   assert.match(detached.decision.sha256, /^[a-f0-9]{64}$/);
   assert.equal((await listEpicSources(root, 'MOB-100')).manifest.sources.length, 0);
   const historical = (await listEpicSources(root, 'MOB-100', { includeDetached: true })).manifest.sources;
   assert.equal(historical.length, 1);
   assert.equal(historical[0].status, 'detached');
   assert.equal(historical[0].detachReason, 'Product brief was withdrawn');
-  const stale = JSON.parse(await readFile(path.join(contextDirectory, 'requirements-gen1.json'), 'utf8'));
+  const stale = JSON.parse(await readFile(path.join(contextDirectory, 'prompt-context-epic-requirements-gen1.json'), 'utf8'));
   assert.equal(stale.stale, true);
   assert.match(stale.staleReason, new RegExp(registered.record.sourceId));
+  assert.equal(await readFile(path.join(contextDirectory, 'reviews', 'source-review.json'), 'utf8'), sealed);
+});
+
+test('an Epic source that only a later phase was given never moves the Epic forward', async () => {
+  const root = await repository();
+  const content = Buffer.from('# Planning notes\n');
+  const fetchImpl = async (_url, init = {}) => response(content, { method: init.method ?? 'GET' });
+  const registered = await registerEpicSource(root, {
+    initiativeId: 'MOB-100', providerId: 'reference',
+    url: 'https://documents.example.com/planning-notes.md', label: 'Planning notes',
+    mimeType: 'text/markdown', runtime: { fetchImpl }
+  });
+  const loaded = await loadInitiative(root, 'MOB-100');
+  const { initiative } = loaded;
+  const before = initiative.currentPhase;
+  assert.notEqual(before, 'epic-planning');
+  // A planning prompt composed ahead of time, never published.
+  const contextDirectory = path.join(root, 'singularity/initiatives/MOB-100/context');
+  await mkdir(contextDirectory, { recursive: true });
+  const receipt = path.join(contextDirectory, 'prompt-context-epic-planning-gen1.json');
+  const receiptText = `${JSON.stringify({
+    phase: 'epic-planning', generation: 1, epicSources: [{ sourceId: registered.record.sourceId, sha256: registered.record.sha256 }]
+  }, null, 2)}\n`;
+  await writeFile(receipt, receiptText);
+  const detached = await detachEpicSource(root, loaded.portfolio, initiative, {
+    sourceId: registered.record.sourceId, reason: 'Notes were folded into the brief'
+  });
+  assert.equal(detached.reopenedPhase, null);
+  assert.deepEqual(detached.affectedPhases, []);
+  assert.equal(initiative.currentPhase, before);
+  assert.equal(initiative.phases['epic-planning'].status, 'not_started');
+  assert.equal(await readFile(receipt, 'utf8'), receiptText, 'an unpublished prompt is recomposed, not marked');
+});
+
+test('a composed Epic prompt is recomposed once the Epic\'s sources change, and reused while they do not', async () => {
+  const root = await repository();
+  const first = await composeInitiativeContext(root, 'MOB-100', 'epic-intake', { agent: 'product-owner' });
+  assert.equal(first.reused, undefined);
+  assert.equal((await composeInitiativeContext(root, 'MOB-100', 'epic-intake', { agent: 'product-owner' })).reused, true);
+  const note = await registerEpicTextSource(root, { initiativeId: 'MOB-100', text: 'Sign-in must support passkeys.', label: 'Workshop note' });
+  const recomposed = await composeInitiativeContext(root, 'MOB-100', 'epic-intake', { agent: 'product-owner' });
+  assert.equal(recomposed.reused, undefined);
+  assert.ok(recomposed.record.epicSources.some((source) => source.sourceId === note.record.sourceId));
+  assert.match(recomposed.rendered, new RegExp(`Pinned Epic source: ${note.record.sourceId}`));
+  assert.equal((await composeInitiativeContext(root, 'MOB-100', 'epic-intake', { agent: 'product-owner' })).reused, true);
 });
 
 test('Epic source detach CLI publishes one exact decision and supports active or historical listing', async () => {

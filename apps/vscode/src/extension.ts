@@ -92,7 +92,8 @@ import {
 } from './views/navigation-trees.ts';
 import { SecureCredentials } from './credentials.ts';
 import {
-  defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceScopeCommand, evidenceTargets,
+  defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceDetachPreviewCommand,
+  evidenceScopeCommand, evidenceTargets, evidenceUsesLabel,
   suggestedEvidenceName, validateEvidenceName,
   expandEpicEvidenceDirectory, validateEvidenceUrl,
   type EvidenceCatalogItem, type EvidenceTarget
@@ -6099,11 +6100,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     if (!reason?.trim()) return;
     const target = scope === 'package' ? `package ${item.packageId}` : `${item.id} — ${item.label}`;
+    // A Story detach is previewed by the CLI first, so the dialog names what it actually reopens.
+    let impact = 'Any phase and approval that depended on it will be invalidated and the earliest dependent phase reopened.';
+    const previewCommand = evidenceDetachPreviewCommand(item, scope);
+    if (previewCommand) {
+      try {
+        const preview = await client.run<{ usedBy?: Array<{ phase: string; generation: number }>; reopenedPhase?: string | null; pendingPrompt?: string | null }>(previewCommand);
+        const used = evidenceUsesLabel(preview.usedBy);
+        impact = [
+          used ? `Published work that used it: ${used}.` : 'No published work has used it.',
+          preview.reopenedPhase ? `Reopens ${preview.reopenedPhase}: its approvals and every later phase are invalidated.` : 'No phase reopens.',
+          preview.pendingPrompt ? 'The prompt already composed for the current phase is recomposed without it the next time.' : null
+        ].filter(Boolean).join('\n');
+      } catch (error) {
+        showRefusal(error, { headline: `Could not preview detaching ${target}` });
+        return;
+      }
+    }
     const confirmed = await vscode.window.showWarningMessage(
       `Detach ${target}?`,
       {
         modal: true,
-        detail: 'Committed bytes and audit history will be preserved. The evidence will be omitted from future Copilot prompts. Any phase and approval that depended on it will be invalidated and the earliest dependent phase reopened.'
+        detail: `Committed bytes and audit history will be preserved. The evidence will be omitted from future Copilot prompts.\n${impact}`
       },
       'Detach evidence'
     );
@@ -6157,7 +6175,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       validateInput: (value) => value.trim() ? null : 'A reason is required.'
     });
     if (!reason?.trim()) return;
-    let preview: { removedPhases?: string[]; addedPhases?: string[]; dependentContextRecords?: string[]; reopenedPhase?: string | null };
+    let preview: { removedPhases?: string[]; addedPhases?: string[]; usedBy?: Array<{ phase: string; generation: number }>; pendingPrompt?: string | null };
     try {
       preview = await client.run(evidenceScopeCommand(item, phases, reason.trim(), { dryRun: true }));
     } catch (error) {
@@ -6167,11 +6185,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const detail = [
       preview.removedPhases?.length ? `No longer used in: ${preview.removedPhases.join(', ')}.` : null,
       preview.addedPhases?.length ? `Used from now on in: ${preview.addedPhases.join(', ')}.` : null,
-      preview.dependentContextRecords?.length
-        ? `${preview.dependentContextRecords.length} prompt(s) that already used it become stale.`
-        : 'No prompt of a removed phase has used it.',
-      preview.reopenedPhase
-        ? `Reopens ${preview.reopenedPhase}: its approvals and every later phase are invalidated.` : null
+      evidenceUsesLabel(preview.usedBy)
+        ? `Already used by ${evidenceUsesLabel(preview.usedBy)}; that work keeps it. Only later prompts change; detach it to withdraw it from that work.`
+        : 'Only later prompts change; nothing is reopened.',
+      preview.pendingPrompt ? 'The prompt already composed for the current phase is recomposed with this change the next time.' : null
     ].filter(Boolean).join('\n');
     const confirmed = await vscode.window.showWarningMessage(
       `Change which phases use ${item.id} — ${item.label}?`, { modal: true, detail }, 'Change phases');

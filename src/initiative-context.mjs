@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { renderAgentSkills } from './agents.mjs';
-import { jiraSnapshotSource, verifyEpicSources } from './epic-sources.mjs';
+import { activeEpicSourceIdentities, jiraSnapshotSource, verifyEpicSources } from './epic-sources.mjs';
 import { loadDefinition } from './config.mjs';
 import {
   groundingMode
@@ -110,6 +110,23 @@ export { TEXT_RENDITION_SUFFIX };
 function isTextualMime(mimeType) {
   return String(mimeType).startsWith('text/')
     || ['application/json', 'application/yaml', 'application/xml'].includes(mimeType);
+}
+
+/**
+ * How the Epic's sources now differ from those a composed prompt was given, or null. A source that
+ * failed verification when the prompt was composed is named in its warnings rather than given, and
+ * does not count as added.
+ */
+async function epicSourceDrift(root, portfolio, initiative, record) {
+  if (initiative.resolution.profile !== 'epic-planning') return null;
+  const active = await activeEpicSourceIdentities(root, portfolio, initiative);
+  const given = new Map((record?.epicSources ?? []).map((source) => [source.sourceId, source.sha256 ?? null]));
+  const reported = (sourceId) => (record?.warnings ?? []).some((warning) => String(warning).startsWith(`Epic source ${sourceId} is `));
+  const withdrawn = [...given].filter(([sourceId, sha256]) => active.get(sourceId) !== sha256).map(([sourceId]) => sourceId);
+  const added = [...active.keys()].filter((sourceId) => !given.has(sourceId) && !reported(sourceId));
+  if (!withdrawn.length && !added.length) return null;
+  return [added.length ? `now has ${added.join(', ')}` : null, withdrawn.length ? `no longer has ${withdrawn.join(', ')}` : null]
+    .filter(Boolean).join('; ');
 }
 
 async function epicSourceSections(root, initiative, phase) {
@@ -404,7 +421,10 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     const verification = await verifyInitiativeContext(root, portfolio, initiative, phaseId, generation);
     const availabilityOnlyWarnings = verification.warnings.every((warning) =>
       warning.startsWith('initiative world-model grounding is unavailable or stale'));
-    if (verification.valid && availabilityOnlyWarnings
+    // A pending prompt is reused byte for byte only while it was given the Epic's current sources.
+    const drift = verification.valid ? await epicSourceDrift(root, portfolio, initiative, verification.record) : null;
+    if (drift) console.error(`Recomposing ${phaseId} generation ${generation}: the Epic's sources changed since it was composed (${drift}).`);
+    if (verification.valid && availabilityOnlyWarnings && !drift
         && verification.record?.agent === selectedAgent) {
       const prompt = await secureRepositoryPath(root, verification.record.promptPath, {
         label: `Governed initiative prompt for '${phaseId}'`,

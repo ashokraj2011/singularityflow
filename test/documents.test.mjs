@@ -314,29 +314,83 @@ test('file and package detachment preserve bytes, hide evidence, and create dist
   assert.match(run('git', ['log', '--format=%s'], root).stdout, /\[DETACH-1\]\[evidence:detach\]/);
 });
 
-test('detaching used Story evidence reopens only its downstream dependency cone', async () => {
+test('detaching evidence that only a later phase\'s unpublished prompt used reopens nothing, and IDs match exactly', async () => {
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-detach-cone-'));
   const notes = path.join(uploads, 'architecture.md'); await writeFile(notes, '# Architecture\nPinned input.\n');
+  const copy = path.join(uploads, 'architecture-copy.md'); await writeFile(copy, '# Architecture\nPinned input.\n');
   flow(root, ['start', 'DETACH-CONE-1', '--from-branch', 'main', '--title', 'Evidence cone']);
-  flow(root, ['documents', 'upload', notes, '--name', 'Architecture notes']);
+  flow(root, ['documents', 'upload', notes, '--name', 'Architecture notes', '--phases', 'intake']);
+  flow(root, ['documents', 'upload', copy, '--name', 'Architecture copy']);
   const definition = await loadDefinition(root);
   const workflow = await loadStoryAggregate(root, definition, 'DETACH-CONE-1');
-  const record = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).find((item) => item.id === 'DOC-001');
+  const [record, duplicate] = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
+  assert.equal(duplicate.sha256, record.sha256, 'the two documents have identical bytes');
   const contextDirectory = path.join(root, 'singularity/work-items/DETACH-CONE-1/context');
   await mkdir(contextDirectory, { recursive: true });
+  // A design prompt composed ahead of time (design has published nothing) with the original.
   await writeFile(path.join(contextDirectory, 'design-gen1.json'), `${JSON.stringify({
     phase: 'design', generation: 1, evidence: [{ id: record.id, sha256: record.sha256 }]
   }, null, 2)}\n`);
+  // Requirements published generation 1 from the copy only: same bytes, different document.
+  workflow.phases.requirements.generation = 1;
+  await writeFile(path.join(contextDirectory, 'requirements-gen1.json'), `${JSON.stringify({
+    phase: 'requirements', generation: 1, supportingEvidence: [{ id: duplicate.id, sha256: duplicate.sha256, path: duplicate.path }]
+  }, null, 2)}\n`);
+  const preview = await detachDocuments(root, definition, workflow, { documentId: record.id, dryRun: true });
+  assert.equal(preview.dryRun, true);
+  assert.deepEqual(preview.usedBy, []);
+  assert.equal(preview.reopenedPhase, null);
   const detached = await detachDocuments(root, definition, workflow, {
     documentId: record.id, reason: 'Architecture source withdrawn'
   });
-  assert.equal(detached.reopenedPhase, 'design');
-  assert.deepEqual(detached.affectedPhases, workflow.phaseOrder.slice(workflow.phaseOrder.indexOf('design')));
-  assert.equal(workflow.phases.requirements.status, 'not_started');
-  assert.equal(workflow.phases.design.status, 'in_progress');
-  const stale = JSON.parse(await readFile(path.join(contextDirectory, 'design-gen1.json'), 'utf8'));
-  assert.equal(stale.stale, true);
-  assert.match(stale.staleReason, /DOC-001/);
+  assert.equal(detached.reopenedPhase, null);
+  assert.deepEqual(detached.affectedPhases, []);
+  assert.equal(workflow.currentPhase, 'intake', 'a later phase never moves the Story forward');
+  assert.equal(workflow.phases.design.status, 'not_started');
+  for (const name of ['design-gen1.json', 'requirements-gen1.json']) {
+    assert.equal(JSON.parse(await readFile(path.join(contextDirectory, name), 'utf8')).stale, undefined, `${name} is not marked`);
+  }
+  // The copy, offered to requirements, is what that published generation used.
+  const copyPreview = await detachDocuments(root, definition, workflow, { documentId: duplicate.id, dryRun: true });
+  assert.deepEqual(copyPreview.usedBy, [{ phase: 'requirements', generation: 1, evidence: ['prompt', 'offered'] }]);
+});
+
+test('detaching a document that approved work used previews, then reopens that phase', async () => {
+  const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-detach-approved-'));
+  const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\nShow the ledger total before payment.\n');
+  flow(root, ['start', 'DETACH-USED-1', '--from-branch', 'main', '--title', 'Detach used evidence']);
+  flow(root, ['documents', 'upload', notes, '--name', 'Ledger notes']);
+  flow(root, ['wm', 'compose', '--phase', 'intake']);
+  const itemDirectory = path.join(root, 'singularity/work-items/DETACH-USED-1');
+  const state = JSON.parse(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8'));
+  const intake = path.join(itemDirectory, state.phases.intake.requiredArtifact.path);
+  await writeFile(intake, `${(await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.')}\n## Sources\n\n- DOC-001 — Ledger notes\n`);
+  flow(root, ['phase', 'publish', 'intake']);
+  flow(root, ['submit']);
+  flow(root, ['approve', '--yes']);
+  const otherStory = flow(root, ['documents', 'upload', notes, '--name', 'Elsewhere', '--work-id', 'OTHER-1'], { allowFailure: true });
+  assert.notEqual(otherStory.status, 0);
+  assert.match(otherStory.stderr, /--work-id OTHER-1 does not match the Story checked out here \(DETACH-USED-1\)/);
+
+  const before = await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8');
+  const preview = JSON.parse(flow(root, ['documents', 'detach', 'Ledger notes', '--dry-run', '--json']).stdout);
+  assert.deepEqual(preview.usedBy, [{ phase: 'intake', generation: 1, evidence: ['prompt', 'sources', 'offered'] }]);
+  assert.equal(preview.reopenedPhase, 'intake');
+  assert.deepEqual(preview.dependentContextRecords, ['singularity/work-items/DETACH-USED-1/context/intake-gen1.json']);
+  const readable = flow(root, ['documents', 'detach', 'DOC-001', '--dry-run']).stdout;
+  assert.match(readable, /Published work that used it: intake generation 1 \(prompt, sources, offered\)/);
+  assert.match(readable, /Phases invalidated: intake, requirements[^\n]*\(reopens intake\)/);
+  assert.match(readable, /Dry run: no state changed\./);
+  assert.equal(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8'), before, 'a dry run changes nothing');
+
+  const detached = JSON.parse(flow(root, ['documents', 'detach', 'DOC-001', '--reason', 'Wrong ledger notes', '--yes', '--json']).stdout);
+  assert.equal(detached.reopenedPhase, 'intake');
+  const after = JSON.parse(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8'));
+  assert.equal(after.currentPhase, 'intake');
+  assert.equal(after.phases.intake.status, 'in_progress');
+  assert.ok(after.phases.intake.approvals.every((approval) => approval.invalidatedBy === detached.decision.sha256));
+  const receipt = JSON.parse(await readFile(path.join(itemDirectory, 'context', 'intake-gen1.json'), 'utf8'));
+  assert.equal(receipt.stale, true);
 });
 
 test('document intake refuses environment-local paths and secret-bearing bytes before copying', async () => {
@@ -510,7 +564,7 @@ test('documents scope previews, records and applies a change to which phases use
   assert.match(unchanged.stderr, /already offered to exactly intake, design/);
 });
 
-test('removing a phase that already used a document stales only that phase prompt and reopens it', async () => {
+test('a scope change applies forward only: published work that used the document keeps it', async () => {
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-document-rescope-'));
   const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\nPinned input.\n');
   flow(root, ['start', 'SCOPE-CONE-1', '--from-branch', 'main', '--title', 'Rescope used evidence']);
@@ -520,34 +574,42 @@ test('removing a phase that already used a document stales only that phase promp
   const record = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).find((item) => item.id === 'DOC-001');
   const contextDirectory = path.join(root, 'singularity/work-items/SCOPE-CONE-1/context');
   await mkdir(contextDirectory, { recursive: true });
+  const receipts = {};
   for (const phase of ['requirements', 'design']) {
-    await writeFile(path.join(contextDirectory, `${phase}-gen1.json`), `${JSON.stringify({
-      phase, generation: 1, evidence: [{ id: record.id, sha256: record.sha256 }]
-    }, null, 2)}\n`);
+    workflow.phases[phase].generation = 1;
+    receipts[phase] = `${JSON.stringify({ phase, generation: 1, evidence: [{ id: record.id, sha256: record.sha256 }] }, null, 2)}\n`;
+    await writeFile(path.join(contextDirectory, `${phase}-gen1.json`), receipts[phase]);
   }
   const keep = workflow.phaseOrder.filter((phaseId) => phaseId !== 'design');
   const preview = await scopeDocuments(root, definition, workflow, {
     documentId: 'Architecture notes', phases: keep, reason: 'Design uses the approved ADR instead', dryRun: true
   });
   assert.deepEqual(preview.removedPhases, ['design']);
-  assert.deepEqual(preview.dependentContextRecords, ['singularity/work-items/SCOPE-CONE-1/context/design-gen1.json']);
-  assert.equal(preview.reopenedPhase, 'design');
-  assert.equal(JSON.parse(await readFile(path.join(contextDirectory, 'design-gen1.json'), 'utf8')).stale, undefined,
-    'a dry run marks nothing stale');
+  assert.deepEqual(preview.usedBy, [{ phase: 'design', generation: 1, evidence: ['prompt', 'offered'] }]);
+  assert.deepEqual(preview.dependentContextRecords, []);
+  assert.equal(preview.reopenedPhase, null);
 
   const scoped = await scopeDocuments(root, definition, workflow, {
     documentId: 'Architecture notes', phases: keep, reason: 'Design uses the approved ADR instead'
   });
-  assert.equal(scoped.reopenedPhase, 'design');
-  assert.deepEqual(scoped.affectedPhases, workflow.phaseOrder.slice(workflow.phaseOrder.indexOf('design')));
-  assert.equal(workflow.phases.design.status, 'in_progress');
-  assert.equal(workflow.phases.design.invalidatedBy, scoped.decision.sha256);
-  const design = JSON.parse(await readFile(path.join(contextDirectory, 'design-gen1.json'), 'utf8'));
-  assert.equal(design.stale, true);
-  assert.match(design.staleReason, /no longer offered to this phase: DOC-001/);
-  const requirements = JSON.parse(await readFile(path.join(contextDirectory, 'requirements-gen1.json'), 'utf8'));
-  assert.equal(requirements.stale, undefined, 'a phase that still uses the document keeps its prompt');
+  assert.equal(scoped.reopenedPhase, null);
+  assert.deepEqual(scoped.affectedPhases, []);
+  assert.deepEqual(scoped.decision.usedBy, preview.usedBy);
+  assert.equal(workflow.currentPhase, 'intake');
+  assert.equal(workflow.phases.design.status, 'not_started');
+  assert.equal(workflow.phases.design.invalidatedBy, undefined);
+  for (const phase of ['requirements', 'design']) {
+    assert.equal(await readFile(path.join(contextDirectory, `${phase}-gen1.json`), 'utf8'), receipts[phase], `${phase}'s prompt is untouched`);
+  }
   assert.equal(workflow.history.at(-1).event, 'evidence_scoped');
+
+  // A cancelled Story's documents are part of its record.
+  workflow.status = 'cancelled';
+  await assert.rejects(() => scopeDocuments(root, definition, workflow, {
+    documentId: 'Architecture notes', phases: ['intake'], reason: 'Too late'
+  }), (error) => error.code === 'DOCUMENT_STORY_CLOSED');
+  await assert.rejects(() => detachDocuments(root, definition, workflow, { documentId: 'DOC-001', reason: 'Too late' }),
+    (error) => error.code === 'DOCUMENT_STORY_CLOSED' && /cancelled and archived/.test(error.message));
 });
 
 test('a composed prompt not yet published is recomposed once the documents its phase is offered change', async () => {

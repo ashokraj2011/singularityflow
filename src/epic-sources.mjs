@@ -351,29 +351,42 @@ export function epicSourceIsActive(record) {
   return record?.status == null || ['active', 'pinned'].includes(record.status);
 }
 
-async function sourceContextFiles(directory) {
-  if (!(await exists(directory))) return [];
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await sourceContextFiles(absolute));
-    else if (entry.isFile() && entry.name.endsWith('.json')) files.push(absolute);
-  }
-  return files.sort();
+/**
+ * Each source an Epic prompt composed now would be given, by ID, with its pinned SHA-256: the active
+ * manifest entries and the Jira Epic snapshot.
+ */
+export async function activeEpicSourceIdentities(root, portfolio, initiative) {
+  const manifest = await readSourceManifest(root, portfolio, initiative.initiative.id);
+  const identities = new Map(manifest.sources.filter(epicSourceIsActive).map((source) => [source.sourceId, source.sha256 ?? null]));
+  const snapshot = jiraSnapshotSource(initiative);
+  if (snapshot) identities.set(snapshot.sourceId, snapshot.sha256);
+  return identities;
 }
 
+/**
+ * The Epic prompt receipts of published generations that were given this source, and their phases.
+ * Only those receipts are read and marked, matched by the exact source ID: hash-sealed records
+ * elsewhere under the Epic's context are never rewritten. A prompt composed but not yet published
+ * gave nothing to published work; it is recomposed without the source when it is next composed.
+ */
 async function epicSourceDependencies(root, portfolio, initiative, entry) {
   const initiativeRoot = await secureInitiativePath(root, portfolio, initiative.initiative.id, 'context', {
     label: `Epic '${initiative.initiative.id}' prompt context`
   });
-  const needles = [entry.sourceId, entry.sha256, entry.recordSha256, entry.recordPath].filter(Boolean);
   const phases = new Set();
   const records = [];
-  for (const file of await sourceContextFiles(initiativeRoot.absolute)) {
+  if (!(await exists(initiativeRoot.absolute))) return { phases: [], records };
+  const names = (await readdir(initiativeRoot.absolute, { withFileTypes: true }))
+    .filter((item) => item.isFile() && /^prompt-context-.+-gen\d+\.json$/.test(item.name)).map((item) => item.name).sort();
+  for (const name of names) {
+    const file = path.join(initiativeRoot.absolute, name);
     let parsed;
     try { parsed = JSON.parse(await readFile(file, 'utf8')); } catch { continue; }
-    if (!needles.some((needle) => JSON.stringify(parsed).includes(needle))) continue;
-    if (parsed.phase && initiative.phases?.[parsed.phase]) phases.add(parsed.phase);
+    const phase = initiative.phases?.[parsed.phase];
+    if (!phase || name !== `prompt-context-${parsed.phase}-gen${parsed.generation}.json`) continue;
+    if (!(Number(parsed.generation) <= Number(phase.generation ?? 0))) continue;
+    if (![...(parsed.epicSources ?? []), ...(parsed.sources ?? [])].some((source) => source?.sourceId === entry.sourceId)) continue;
+    phases.add(parsed.phase);
     parsed.stale = true;
     parsed.staleReason = `Epic source detached: ${entry.sourceId}`;
     parsed.staleAt = nowIso();
@@ -383,8 +396,17 @@ async function epicSourceDependencies(root, portfolio, initiative, entry) {
   return { phases: [...phases], records };
 }
 
+/**
+ * The earliest phase, up to the current one, whose published work used the source, and every phase
+ * after it. Once planning is complete every phase has been reached. A later phase never reopens:
+ * that would move the Epic forward past phases it has not finished.
+ */
 function initiativeSourceCone(initiative, phaseIds) {
-  const indexes = phaseIds.map((phaseId) => initiative.phaseOrder.indexOf(phaseId)).filter((index) => index >= 0);
+  const current = initiative.currentPhase == null
+    ? initiative.phaseOrder.length - 1
+    : initiative.phaseOrder.indexOf(initiative.currentPhase);
+  const indexes = phaseIds.map((phaseId) => initiative.phaseOrder.indexOf(phaseId))
+    .filter((index) => index >= 0 && index <= current);
   if (!indexes.length) return { affectedPhases: [], reopenedPhase: null, earliest: -1 };
   const earliest = Math.min(...indexes);
   return {

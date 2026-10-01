@@ -586,7 +586,7 @@ Usage:
   singularity-flow documents browse --provider ID [--path PATH] [--json]
   singularity-flow documents fetch <ITEM-ID> --provider ID --name TEXT [--filename FILE] [--phases PHASE,...|all] [--store git|local] [--json]
   singularity-flow documents scope <DOCUMENT-ID|NAME> --phases PHASE,...|all --reason TEXT [--scope file|package] [--dry-run] [--yes] [--json]
-  singularity-flow documents detach <DOCUMENT-ID|NAME> [--scope file|package] --reason TEXT [--yes]
+  singularity-flow documents detach <DOCUMENT-ID|NAME> [--scope file|package] --reason TEXT [--dry-run] [--yes]
   singularity-flow revision activation [--json]
   singularity-flow revision capabilities [--json]
   singularity-flow revision status [--json]

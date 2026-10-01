@@ -31,9 +31,9 @@ REV feedback: use `/sf-revision-attachments`; ordinary upload cannot bypass its 
 
 For detachment:
 
-1. List active evidence and show the exact ID, name, hash, path/URL, package, and affected phases.
+1. List active evidence and show the exact ID, name, hash, path/URL, package, and affected phases from `singularity-flow documents detach <ID> --dry-run`.
 2. If it belongs to a package, ask whether to detach this file or the complete package; never choose automatically.
-3. Require a reason and explain: committed bytes remain for audit, future Copilot prompts omit the evidence, and only its dependency cone is invalidated.
+3. Require a reason and explain: committed bytes remain for audit and future Copilot prompts omit the evidence.
 4. Require explicit human confirmation. Do not self-confirm.
 5. Only after confirmation, for a Story run `singularity-flow documents detach <DOCUMENT-ID> --reason "<reason>" --yes`, adding `--scope package` only when selected.
 6. Only after confirmation, for an Epic run `singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason "<reason>" --yes`. `--yes` conveys the reviewed decision to the noninteractive CLI; never add it before confirmation.

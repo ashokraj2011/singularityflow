@@ -22,7 +22,7 @@ related:
   - artifacts-and-generation
   - specification-quality
   - epics-and-planning
-version: 2
+version: 3
 ---
 Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export or screenshot. Images (PNG, JPEG, GIF, WebP, SVG) are attached like any other file. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
 
@@ -113,7 +113,8 @@ their sources with `sflow epic sources add` instead.
 5. When the work type pins source review, run `/sf-review-source` and decide any `unreadable:`
    findings.
 6. To change which phases use a document, preview `sflow documents scope` with `--dry-run`, then
-   apply it with `--yes`.
+   apply it with `--yes`. The change applies to later prompts only: work already published keeps
+   the document, and the preview lists it. A prompt composed but not yet published is recomposed.
 
 ## State and safety
 
@@ -122,8 +123,10 @@ their sources with `sflow epic sources add` instead.
 - Names are checked before anything is written: a missing, duplicate, or ID-shaped name is refused,
   and every file needs its own `--name`.
 - Detaching (`sflow documents detach <DOC-ID|NAME> --reason TEXT --yes`) keeps the record and its
-  name, stops offering the document to prompts, marks the prompt records that used it stale, and
-  reopens the earliest phase that used it.
+  name, and stops offering the document to prompts. A phase up to the current one whose published
+  work used it (its prompt listed it, its artifact cites it under `## Sources`, or it was offered the
+  document when it published) reopens, with every later phase; `--dry-run` previews exactly that.
+  A cancelled or completed Story's documents no longer change.
 - Nobody else can verify a document kept on this machine. Reviews record it as an unreadable
   finding, and publication refuses if its bytes are ever committed under `inputs/`.
 

@@ -91,6 +91,18 @@ export function evidenceDetachCommand(item: EvidenceCatalogItem, scope: 'file' |
     : ['epic', 'sources', 'detach', item.id, '--epic', item.target.id, '--reason', reason, '--yes'];
 }
 
+/** The dry run of a Story document detach: which published work used it and what reopens. Epics have none. */
+export function evidenceDetachPreviewCommand(item: EvidenceCatalogItem, scope: 'file' | 'package'): string[] | null {
+  return item.target.kind === 'story'
+    ? ['documents', 'detach', item.id, '--scope', scope, '--dry-run', '--json']
+    : null;
+}
+
+/** One line per published generation a document change reaches, as a person reads it. */
+export function evidenceUsesLabel(uses: Array<{ phase: string; generation: number }> | undefined): string | null {
+  return uses?.length ? uses.map((use) => `${use.phase} generation ${use.generation}`).join(', ') : null;
+}
+
 /** Resolve only governed subjects that are already present in the coherent repository snapshot. */
 export function evidenceTargets(snapshot: RepositorySnapshot | null | undefined): EvidenceTarget[] {
   if (!snapshot) return [];

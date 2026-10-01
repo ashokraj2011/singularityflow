@@ -359,11 +359,13 @@ export function unifiedDiff(before, after, file) {
 // The candidate
 
 // Imported agents exist before the steps that use them; imported templates before the steps that
-// name them; skills and generated sources are added to an agent's final instructions, after any
-// edit to them; removals see everything else first.
+// name them; a new workflow exists before the per-workflow settings of its steps (a duplicated
+// workflow carries its source's step settings, and they must land on the copy, not on the shared
+// step); skills and generated sources are added to an agent's final instructions, after any edit to
+// them; removals see everything else first.
 const RANK = Object.freeze({
   'marketplace.add': 0, 'marketplace.remove': 0, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
-  'import.template': 3.5, 'phase.create': 4, 'phase.update': 5, 'workflow.create': 6, 'workflow.update': 7,
+  'import.template': 3.5, 'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7,
   'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11
 });
 
@@ -990,6 +992,10 @@ class StudioCandidate {
     // other setting is the step's own and applies wherever the step is used.
     // A workflow that already overrides a field keeps owning it: writing the step's own value would
     // be shadowed by that override and change nothing.
+    // A named workflow must exist: setting a path under a missing one would silently create a stub.
+    if (workflow && !this.content.workTypes?.[requireId(workflow, 'A workflow ID')]) {
+      throw new SingularityFlowError(`There is no workflow '${workflow}' to change ${name} in.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
+    }
     const override = workflow ? ['workTypes', requireId(workflow, 'A workflow ID'), 'phaseOverrides', phaseId] : null;
     const scopeFor = (field) => (override && (shared || this.document.getIn([...override, field]) !== undefined) ? override : ['phases', phaseId]);
     const valueAt = (scope, field) => {
@@ -1037,18 +1043,35 @@ class StudioCandidate {
     this.summary.push(`${this.phaseLabel(phaseId)} is now drafted by ${this.agentLabel(agentId)}${previous ? ` (was ${this.agentLabel(previous)})` : ''}${users.length > 1 ? `, in all ${users.length} workflows that use it` : ''}.`);
   }
 
-  createWorkflow({ id, label, description, phases }) {
+  createWorkflow({ id, label, description, phases, copyOf = null }) {
     const workflowId = requireId(id, 'A workflow ID');
     if (this.content.workTypes?.[workflowId]) throw new SingularityFlowError(`A workflow called '${workflowId}' already exists.`, { code: 'STUDIO_WORKFLOW_EXISTS' });
     const name = requireLabel(label, 'The workflow');
     const ids = (phases ?? []).map((phase) => this.requirePhase(requireId(phase, 'A step ID')));
     if (!ids.length) throw new SingularityFlowError(`${name} needs at least one step.`, { code: 'STUDIO_WORKFLOW_EMPTY' });
     if (new Set(ids).size !== ids.length) throw new SingularityFlowError(`${name} lists a step more than once.`, { code: 'STUDIO_WORKFLOW_DUPLICATE' });
-    this.document.setIn(['workTypes', workflowId], this.document.createNode({
-      label: name, ...(description ? { description: String(description).trim() } : {}), phases: ids
-    }));
+    let node = { label: name, ...(description ? { description: String(description).trim() } : {}), phases: ids };
+    let copied = null;
+    if (copyOf != null) {
+      // A duplicate starts as the whole source workflow: per-step sign-off, inputs, templates,
+      // send-back rules, decisions and claims, not only the parts the Studio shows.
+      const sourceId = requireId(copyOf, 'The workflow to copy');
+      const source = this.content.workTypes?.[sourceId];
+      if (!source) throw new SingularityFlowError(`There is no workflow '${sourceId}' to copy.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
+      node = structuredClone(source);
+      node.label = name;
+      if (description) node.description = String(description).trim(); else delete node.description;
+      node.phases = ids;
+      for (const key of ['phaseOverrides', 'templateOverrides']) {
+        if (!node[key] || typeof node[key] !== 'object') continue;
+        for (const phaseId of Object.keys(node[key])) if (!ids.includes(phaseId)) delete node[key][phaseId];
+        if (!Object.keys(node[key]).length) delete node[key];
+      }
+      copied = source.label ?? sourceId;
+    }
+    this.document.setIn(['workTypes', workflowId], this.document.createNode(node));
     this.workflows.set(workflowId, { newlyCreated: true });
-    this.summary.push(`New workflow ${name}: ${ids.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
+    this.summary.push(`New workflow ${name}${copied ? `, a copy of ${copied}` : ''}: ${ids.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
   updateWorkflow({ id, label, description, phases, reworkLoops, decisions }) {

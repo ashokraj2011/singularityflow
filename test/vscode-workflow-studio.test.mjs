@@ -225,3 +225,48 @@ test('the host previews, browses and checks imports only through engine reads', 
   assert.match(host, /reference\.startsWith\('https:\/\/'\) \|\| reference\.startsWith\('market:'\) \|\| reference\.startsWith\('mcp:'\)/, 'only links, marketplace entries and MCP items are previewed');
   assert.doesNotMatch(host, /writeFile|fs\.promises/);
 });
+
+test('duplicating a workflow keeps its per-step settings on the copy and leaves the original and shared steps alone', async () => {
+  const YAML = (await import('yaml')).default;
+  const root = await repository();
+  const before = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  // Exactly what "Duplicate" then "Shape the steps" leaves in the draft.
+  const source = draft.workflows.feature;
+  draft.workflows['feature-copy'] = { ...JSON.parse(JSON.stringify(source)), id: 'feature-copy', label: 'Feature copy', isNew: true, installFrom: null, copyOf: 'feature' };
+  draft.steps['feature-copy'] = JSON.parse(JSON.stringify(draft.steps.feature));
+  let changeSet = logic.changeSetFrom(model, draft);
+  assert.deepEqual(changeSet.changes.map((change) => change.op), ['workflow.create'], 'an unedited copy is one change');
+  assert.equal(changeSet.changes[0].copyOf, 'feature');
+  assert.match(logic.describe(changeSet.changes[0], draft), /^New workflow Feature copy, a copy of Feature: /);
+  // Without copyOf (an older page), the per-step settings still land on the copy, never the shared step.
+  delete draft.workflows['feature-copy'].copyOf;
+  const legacy = logic.changeSetFrom(model, draft);
+  assert.ok(legacy.changes.some((change) => change.op === 'phase.update' && change.workflow === 'feature-copy'));
+  const legacyPlan = check(root, legacy);
+  assert.equal(legacyPlan.valid, true, JSON.stringify(legacyPlan.problems));
+  draft.workflows['feature-copy'].copyOf = 'feature';
+  changeSet = logic.changeSetFrom(model, draft);
+  const plan = check(root, changeSet);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  run(process.execPath, [bin, 'workflow', 'studio', 'apply', '--change-set', '-', '--json'], root, JSON.stringify(changeSet));
+  const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(after.workTypes['feature-copy'].phases, before.workTypes.feature.phases);
+  assert.deepEqual(after.workTypes.feature, before.workTypes.feature, 'the original workflow is unchanged');
+  assert.deepEqual(after.phases, before.phases, 'shared steps keep their own settings');
+  // The copy is the whole source workflow under its new name: sign-off details, inputs, templates,
+  // send-back rules and claims included.
+  const { label: copyLabel, ...copy } = after.workTypes['feature-copy'];
+  const { label: _label, description: _description, ...original } = before.workTypes.feature;
+  assert.equal(copyLabel, 'Feature copy');
+  assert.deepEqual(copy, original);
+});
+
+test('a step change for a workflow that does not exist is refused instead of creating one', async () => {
+  const root = await repository();
+  const plan = check(root, { schema: 'sflow-studio-change-set@1', changes: [{ op: 'phase.update', id: 'design', workflow: 'ghost', approval: 'none' }] });
+  assert.equal(plan.valid, false);
+  assert.equal(plan.problems[0].code, 'STUDIO_WORKFLOW_UNKNOWN');
+});

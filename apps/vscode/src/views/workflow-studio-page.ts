@@ -186,7 +186,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     });
     Object.keys(draft.workflows).forEach(function (id) {
       var workflow = draft.workflows[id]; var before = base.workflows[id];
-      if (workflow.isNew) { changes.push({ op: 'workflow.create', id: id, label: workflow.label, description: workflow.description, phases: workflow.phases }); }
+      // A duplicate is created from its source, which must still exist as it was loaded.
+      var copySource = workflow.isNew && workflow.copyOf && base.workflows[workflow.copyOf] && draft.workflows[workflow.copyOf] && !draft.workflows[workflow.copyOf].isNew ? workflow.copyOf : null;
+      if (workflow.isNew) { var create = { op: 'workflow.create', id: id, label: workflow.label, description: workflow.description, phases: workflow.phases }; if (copySource) create.copyOf = copySource; changes.push(create); }
       else if (before) {
         var patch = { op: 'workflow.update', id: id };
         if (before.label !== workflow.label) patch.label = workflow.label;
@@ -203,18 +205,21 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         if ((workflow.decisions || []).length) installed.decisions = workflow.decisions;
         if (Object.keys(installed).length > 2) changes.push(installed);
       }
-      if (workflow.isNew && (workflow.reworkLoops.length || (workflow.decisions || []).length)) {
+      if (workflow.isNew) {
+        // A copy already has its source's rules; only rules changed since copying are sent.
+        var sourceRules = copySource ? base.workflows[copySource] : { reworkLoops: [], decisions: [] };
         var follow = { op: 'workflow.update', id: id };
-        if (workflow.reworkLoops.length) follow.reworkLoops = workflow.reworkLoops;
-        if ((workflow.decisions || []).length) follow.decisions = workflow.decisions;
-        changes.push(follow);
+        if (!same(workflow.reworkLoops, sourceRules.reworkLoops || [])) follow.reworkLoops = workflow.reworkLoops;
+        if (!same(workflow.decisions || [], sourceRules.decisions || [])) follow.decisions = workflow.decisions || [];
+        if (Object.keys(follow).length > 2) changes.push(follow);
       }
       workflow.phases.forEach(function (phaseId) {
         var phase = draft.phases[phaseId];
         if (!phase || phase.isNew) return;
         var step = draft.steps[id] && draft.steps[id][phaseId];
         var reference = before && base.steps[id] && base.steps[id][phaseId] ? base.steps[id][phaseId]
-          : { approval: (base.phases[phaseId] || phase).approval, inputs: (base.phases[phaseId] || phase).inputs };
+          : copySource && base.steps[copySource] && base.steps[copySource][phaseId] ? base.steps[copySource][phaseId]
+            : { approval: (base.phases[phaseId] || phase).approval, inputs: (base.phases[phaseId] || phase).inputs };
         if (!step) return;
         var update = { op: 'phase.update', id: phaseId, workflow: id };
         if (!same(reference.approval, step.approval)) update.approval = approvalChange(step);
@@ -232,7 +237,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     function phaseName(id) { return (draft.phases[id] || {}).label || id; }
     function agentName(id) { return (draft.agents[id] || {}).label || id; }
     switch (change.op) {
-      case 'workflow.create': return 'New workflow ' + change.label + ': ' + change.phases.map(phaseName).join(' → ');
+      case 'workflow.create': return 'New workflow ' + change.label + (change.copyOf ? ', a copy of ' + ((draft.workflows[change.copyOf] || {}).label || change.copyOf) : '') + ': ' + change.phases.map(phaseName).join(' → ');
       case 'workflow.install': return 'Add the packaged ' + (((state.model && state.model.blueprints) || []).find(function (bp) { return bp.id === change.id; }) || { label: change.id }).label + ' workflow';
       case 'workflow.update': return (change.label || (draft.workflows[change.id] || {}).label || change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', phases: 'steps', reworkLoops: 'send-back rules', decisions: 'decisions' }[key] || key; }).join(', ') + ' changed';
       case 'phase.create': return 'New step ' + change.label + ', drafted by ' + agentName(change.agent);
@@ -515,8 +520,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       });
       if (id === choice.blueprint.id) { workflow.isNew = false; workflow.blueprintLabel = choice.blueprint.label; workflow.blueprintPhases = choice.blueprint.phases.slice(); }
     } else if (choice.key.indexOf('workflow:') === 0) {
-      workflow.reworkLoops = clone(state.draft.workflows[choice.key.slice(9)].reworkLoops);
-      workflow.decisions = clone(state.draft.workflows[choice.key.slice(9)].decisions || []);
+      workflow.copyOf = choice.key.slice(9);
+      workflow.reworkLoops = clone(state.draft.workflows[workflow.copyOf].reworkLoops);
+      workflow.decisions = clone(state.draft.workflows[workflow.copyOf].decisions || []);
     }
     state.draft.workflows[id] = workflow;
     state.draft.steps[id] = {};

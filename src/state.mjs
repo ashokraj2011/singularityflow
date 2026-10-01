@@ -4407,9 +4407,9 @@ async function submitPhaseTransition(root, config, workflow, {
       (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred']))
   }) : [];
   if (!codeDeliveryRequired) {
-    for (const check of phase.checks) await restoreTransientQualityResult(check, {
-      accepted: check.status === 'passed'
-    });
+    // These phases validate the process exit, not a fresh structured test receipt. An exit-zero
+    // command may emit no report at all, so it cannot authorize discarding a preserved report.
+    for (const check of phase.checks) await restoreTransientQualityResult(check);
   }
   const testExecutions = [];
   if (codeDeliveryRequired) {

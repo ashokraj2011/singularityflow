@@ -72,12 +72,13 @@ function flow(root, args, { allowFailure = false } = {}) {
   return result;
 }
 
-async function fixture(name) {
+async function fixture(name, { qualityCommands = [], ignoredReportPath = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-publication-preflight-${name}-`));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
   git(root, 'config', 'user.email', ACTOR.email);
   await writeFile(path.join(root, 'README.md'), '# Publication preflight\n');
+  if (ignoredReportPath) await writeFile(path.join(root, '.gitignore'), `${ignoredReportPath}\n`);
   await initializeDefinition(root);
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'initialize repository');
@@ -90,7 +91,8 @@ async function fixture(name) {
     ...resolved.phases[0],
     order: 0,
     clarification: { ...resolved.phases[0].clarification, mode: 'off' },
-    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['intake'] }
+    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['intake'] },
+    qualityCommands
   }];
   await setAgentSession(root, config, ACTOR, 'product-owner', 'PREFLIGHT-1', { phaseId: 'intake', source: 'test' });
   const workflow = await createWorkflow(root, config, {
@@ -1314,6 +1316,41 @@ test('submit repairs only a stale required-artifact registration and records a g
   assert.equal(repair.reason, 'managed-registration-stale');
   assert.ok(context.workflow.history.some((entry) =>
     entry.event === 'artifact_registration_repaired' && entry.phase === 'intake'));
+});
+
+test('non-code submission preserves an ignored native report when a passing command emits none', async (t) => {
+  const resultPath = 'target/legacy-test-result.json';
+  const priorReport = '{"run":"prior","tests":{"discovered":1,"passed":1,"failed":0,"skipped":0}}\n';
+  const context = await fixture('non-code-native-report-preservation', {
+    ignoredReportPath: resultPath,
+    qualityCommands: [{
+      id: 'fixture-tests', kind: 'test', argv: [process.execPath, '-e', 'process.exit(0)'],
+      workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'sflow-test-result-v1', path: resultPath, minimumDiscovered: 1 }
+    }]
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await writeFile(context.target, [
+    '# Intake', '',
+    '## Requested outcome', '',
+    'Preserve the existing native test report when the submission command emits no replacement.', '',
+    '## Scope and constraints', '',
+    'The test command exits successfully, but that exit alone does not attest any report bytes.', '',
+    '## Evidence', '',
+    'The ignored report predates this submission and remains unchanged after the command finishes.', ''
+  ].join('\n'));
+  await inContext(context.root, () => publishGoverned(
+    context.root, context.config, context.workflow, 'intake'
+  ));
+  await mkdir(path.join(context.root, 'target'), { recursive: true });
+  await writeFile(path.join(context.root, resultPath), priorReport);
+
+  await inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow,
+    { phaseId: 'intake', runChecks: true, persist: false }
+  ));
+  assert.equal(context.phase.status, 'approved');
+  assert.equal(await readFile(path.join(context.root, resultPath), 'utf8'), priorReport);
 });
 
 test('artifact scan cannot bless authored changes made after the immutable generation', async () => {

@@ -35,6 +35,8 @@ import {
 } from './story-intake-verification.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { settleStoryStartReadWave } from './story-start-read-wave.mjs';
+import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, previewTestRecoveryIntake,
+  testRecoveryChoices } from './test-recovery-intake.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import {
@@ -271,7 +273,7 @@ import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
-import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
+import { applyCapabilityPolicyToWorkResolution, validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
 import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, cancelCapabilityProposal, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, rebaseCapabilityProposal, repairCapabilityProposal, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
@@ -1863,6 +1865,15 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   return result;
 }
 
+function testRecoveryIntakePhases(definition, workType, snapshot, capabilityId, legacyCapabilityEvidence) {
+  const resolved = resolveWorkType(definition, workType);
+  const retained = validateConfigurationSnapshotCapabilities(snapshot, { capabilityId });
+  const capability = retained?.definition && retained.capabilityId
+    ? { id: retained.capabilityId, policy: resolveEffectiveCapabilityPolicy(retained.definition, retained.capabilityId).policy }
+    : legacyCapabilityEvidence?.capability ?? null;
+  return applyCapabilityPolicyToWorkResolution(resolved, capability).phases;
+}
+
 export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
@@ -2785,6 +2796,15 @@ export async function startCommand(positionals, options) {
     })) ?? [{ id: 'lifecycle', root, baseCommit: baseCommitAtStart }],
     { scope: requiredRepositoryReadinessScope(approvedConfigurationSnapshot?.definition ?? config) }
   ));
+  const testRecoveryPreview = previewTestRecoveryIntake({
+    definition: approvedConfigurationSnapshot?.definition ?? config, workId: id,
+    workType: deterministicWorkType, repositories: readinessRepositories, repositoryReadiness,
+    choices: testRecoveryChoices(options),
+    phaseDefinitions: testRecoveryIntakePhases(approvedConfigurationSnapshot?.definition ?? config,
+      deterministicWorkType, approvedConfigurationSnapshot, workflowCapabilityId, legacyCapabilityEvidence)
+  });
+  const testRecoveryPlan = confirmTestRecoveryIntake(testRecoveryPreview,
+    optionString(options, 'test-policy-confirm'), options);
   startReadiness = inspectStoryStartReadiness({
     workId: id,
     definition: approvedConfigurationSnapshot?.definition ?? config,
@@ -2797,6 +2817,7 @@ export async function startCommand(positionals, options) {
     publicationRequired: publishRequired,
     surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
   });
+  startReadiness = applyTestRecoveryAdmission(startReadiness, testRecoveryPlan);
   assertStoryStartReady(startReadiness);
 
   // Freeze every human/external intake choice and admit every document before the first shared
@@ -3014,6 +3035,7 @@ export async function startCommand(positionals, options) {
         publicationRequired: publishRequired,
         surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
       });
+      startReadiness = applyTestRecoveryAdmission(startReadiness, testRecoveryPlan);
       assertStoryStartReady(startReadiness);
     }
   }
@@ -3145,6 +3167,16 @@ export async function startCommand(positionals, options) {
     publicationRequired: publishRequired,
     surface: optionBoolean(options, 'json') ? 'machine' : 'shell'
   });
+  if (testRecoveryPlan) {
+    const finalTestRecoveryPreview = previewTestRecoveryIntake({
+      definition: config, workId: id, workType,
+      repositories: readinessRepositories, repositoryReadiness,
+      choices: testRecoveryChoices(options), phaseDefinitions: testRecoveryIntakePhases(config,
+        workType, approvedConfigurationSnapshot, workflowCapabilityId, legacyCapabilityEvidence)
+    });
+    confirmTestRecoveryIntake(finalTestRecoveryPreview, optionString(options, 'test-policy-confirm'), options);
+  }
+  startReadiness = applyTestRecoveryAdmission(startReadiness, testRecoveryPlan);
   assertStoryStartReady(startReadiness);
   await validateDeterministicStartPolicy(config, approvedConfigurationSnapshot, documentCapture.evidence);
   // A reference repository is a full checkout of its pinned tree: often the largest transfer in a start.
@@ -3205,6 +3237,7 @@ export async function startCommand(positionals, options) {
           approvedConfigurationSnapshot,
           repositoryReadiness,
           readinessRepositories,
+          testRecoveryPlan,
           capabilityId: workflowCapabilityId,
           // Always carry the verified catalog digest across the preflight/creation boundary. The
           // creation guard applies it only when resolution selected a capability, including one
@@ -15510,7 +15543,7 @@ async function workspaceCommand(positionals, options) {
           })),
           { scope: requiredRepositoryReadinessScope(definition) }
         );
-        const readiness = inspectStoryStartReadiness({
+        let readiness = inspectStoryStartReadiness({
           workId: storyId,
           definition,
           configurationSnapshot: approvedConfigurationSnapshot,
@@ -15528,6 +15561,15 @@ async function workspaceCommand(positionals, options) {
           publicationRequired: publishRequired,
           surface: 'vscode-preflight'
         });
+        const testRecovery = previewTestRecoveryIntake({
+          definition, workId: storyId, workType: preflightWorkType,
+          repositories: repositories.map(entry => ({ id: entry.repository, baseCommit: entry.baseCommit })),
+          repositoryReadiness, choices: testRecoveryChoices(options),
+          phaseDefinitions: definition.workTypes?.[preflightWorkType]
+            ? testRecoveryIntakePhases(definition, preflightWorkType,
+              approvedConfigurationSnapshot, selected.capability, legacyCapabilityEvidence) : []
+        });
+        readiness = applyTestRecoveryAdmission(readiness, testRecovery);
         const receiptReferences = optionBoolean(options, 'mint-intake-receipt')
           ? parseReferenceRepositoryOptions(
             optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
@@ -15546,6 +15588,7 @@ async function workspaceCommand(positionals, options) {
             publishRequired: entry.publishRequired
           })),
           readiness,
+          testRecovery,
           testReadiness: preflightTestReadiness(repositories.map((entry) => ({
             id: entry.repository, baseCommit: entry.baseCommit
           })), repositoryReadiness),

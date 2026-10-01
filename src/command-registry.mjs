@@ -352,8 +352,9 @@ const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'propose', 'deci
 const STORY_SKILL_VERSION_ACTIONS = Object.freeze(['status', 'preview', 'propose', 'decide']);
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
 const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 'inspect']);
+const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'plan', 'confirm', 'repair']);
 const STORY_SUBCOMMANDS = Object.freeze([
-  'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references',
+  'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy',
   ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
@@ -875,6 +876,15 @@ function resolveStoryOperation(definition, positionals, options) {
     const confirmed = Boolean(optionString(options, 'confirm'));
     const mutation = ['propose', 'decide'].includes(action) && confirmed;
     return never(`story.skill-version.${action}${['propose', 'decide'].includes(action) && !confirmed ? '.preview' : ''}`,
+      definition, mutation ? 'mutation' : 'read');
+  }
+  if (subcommand === 'test-policy') {
+    const action = positionals[2] ?? 'show';
+    if (!STORY_TEST_POLICY_ACTIONS.includes(action)) {
+      return unknownSubcommand('story test-policy', action, STORY_TEST_POLICY_ACTIONS, 'action');
+    }
+    const mutation = action === 'confirm' || (action === 'repair' && optionBoolean(options, 'run'));
+    return never(`story.test-policy.${action}${action === 'repair' && !mutation ? '.preview' : ''}`,
       definition, mutation ? 'mutation' : 'read');
   }
   return unknownSubcommand('story', subcommand, STORY_SUBCOMMANDS);
@@ -1831,6 +1841,9 @@ export function operationCatalog() {
     )),
     ...STORY_WORKFLOW_ACTIONS
       .map((name) => never(`story.workflow.${name}`, storyDefinition, 'read')),
+    ...['show', 'plan'].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'read')),
+    never('story.test-policy.repair.preview', storyDefinition, 'read'),
+    ...['confirm', 'repair'].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'mutation')),
     ...STORY_REFERENCE_ACTIONS
       .map((name) => never(`story.references.${name}`, storyDefinition,
         name === 'materialize' ? 'mutation' : 'read')),

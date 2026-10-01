@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/test-selection-manifest.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "test-selection-manifest"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "workId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "phaseId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validationEpoch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "workId",
+        "repositoryId",
+        "phaseId",
+        "generation",
+        "validationEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "issuer": {
+      "type": "object",
+      "properties": {
+        "principal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "principal",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "authorityRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "authorityRef",
+        "evidenceRefs"
+      ],
+      "additionalProperties": false
+    },
+    "agreementSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "requestedMode": {
+      "enum": [
+        "changed-and-affected",
+        "all-configured",
+        "not-applicable"
+      ]
+    },
+    "effectiveMode": {
+      "enum": [
+        "changed-and-affected",
+        "all-configured",
+        "not-applicable"
+      ]
+    },
+    "candidateDeltaSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "commandInventorySha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "commandSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "selectorSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "selectedTestIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "selectedSuites": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "inventoryTestIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "target",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "expansion": {
+      "enum": [
+        "none",
+        "module",
+        "full-suite"
+      ]
+    },
+    "fullSuiteEquivalent": {
+      "type": "boolean"
+    },
+    "confirmationSha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "exclusions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "testId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "baselineSha256": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "decisionSha256": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "testId",
+          "baselineSha256",
+          "decisionSha256"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "uncoveredAreas": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "impactComplete": {
+      "type": "boolean"
+    },
+    "recordSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "subject",
+    "createdAt",
+    "issuer",
+    "provenance",
+    "agreementSha256",
+    "requestedMode",
+    "effectiveMode",
+    "candidateDeltaSha256",
+    "commandInventorySha256",
+    "commandSha256",
+    "selectorSha256",
+    "selectedTestIds",
+    "selectedSuites",
+    "inventoryTestIds",
+    "reasons",
+    "expansion",
+    "fullSuiteEquivalent",
+    "confirmationSha256",
+    "exclusions",
+    "uncoveredAreas",
+    "impactComplete",
+    "recordSha256"
+  ],
+  "additionalProperties": false
+}

@@ -235,7 +235,12 @@ test('a confirmed failed test writes a provenance-bound baseline with fresh fail
     assert.equal(loaded.baseline.testObservations[0].failingCases[0].identityStatus,
       'observed-name-only');
     assert.equal(await loadRepositoryReadinessReceipt(root, { scope: 'dependency-test' }), null);
-    assert.doesNotMatch(await readFile(loaded.file, 'utf8'), /assertionResults|working case/u);
+    assert.doesNotMatch(await readFile(loaded.file, 'utf8'), /assertionResults/u);
+    assert.equal(loaded.baseline.testObservations[0].testIdentitiesComplete, true);
+    assert.equal(loaded.baseline.testObservations[0].semanticsBound, false);
+    assert.deepEqual(loaded.baseline.testObservations[0].testCases.map((entry) => [entry.name, entry.outcome]), [
+      ['old broken case', 'failed'], ['working case', 'passed']
+    ]);
     const edited = JSON.parse(await readFile(loaded.file, 'utf8'));
     edited.testObservations[0].counts.failed = 0;
     await writeFile(loaded.file, `${JSON.stringify(edited)}\n`);
@@ -313,6 +318,8 @@ test('the built-in runner records existing Node TAP failures before Story coding
     assert.equal(observation.counts.failed, 1);
     assert.equal(observation.failingCases[0].name, 'known failing baseline');
     assert.equal(observation.report.source, 'bounded-stdout');
+    assert.equal(observation.testIdentitiesComplete, true);
+    assert.equal(observation.testCases[0].outcome, 'failed');
     assert.doesNotMatch(await readFile(loaded.file, 'utf8'), /pre-existing failure/u);
   });
 });

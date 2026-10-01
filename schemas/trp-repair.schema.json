@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/phase-repair-receipt.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "phase-repair-receipt"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "workId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "phaseId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validationEpoch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "workId",
+        "repositoryId",
+        "phaseId",
+        "generation",
+        "validationEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "issuer": {
+      "type": "object",
+      "properties": {
+        "principal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "principal",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "authorityRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "authorityRef",
+        "evidenceRefs"
+      ],
+      "additionalProperties": false
+    },
+    "agreementSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "issueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "reviewedPlanSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "issueFingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "retryEvidenceSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "affectedPaths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "preservedRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "result": {
+      "enum": [
+        "repaired",
+        "failed",
+        "needs-review",
+        "external-prerequisite"
+      ]
+    },
+    "successorGeneration": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "observationRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "recordSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "subject",
+    "createdAt",
+    "issuer",
+    "provenance",
+    "agreementSha256",
+    "issueId",
+    "reviewedPlanSha256",
+    "attempt",
+    "issueFingerprint",
+    "retryEvidenceSha256",
+    "affectedPaths",
+    "preservedRefs",
+    "result",
+    "successorGeneration",
+    "observationRefs",
+    "recordSha256"
+  ],
+  "additionalProperties": false
+}

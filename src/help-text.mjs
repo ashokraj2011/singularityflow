@@ -92,6 +92,7 @@ Usage:
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
     [--isolated-worktree] [--intake-receipt ID]
+    [--test-baseline-disposition fix --test-execution-mode changed-and-affected|all-configured --test-baseline-scope reuse --test-policy-confirm PLAN-DIGEST]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
@@ -827,6 +828,11 @@ Usage:
   singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
   singularity-flow story intent-amendment acknowledge [AMD-ID]
   singularity-flow story skill-version status [--work-id ID] [--json]
+  singularity-flow story test-policy show [--work-id ID] [--json]
+  singularity-flow story test-policy plan [--work-id ID] [--phase PHASE] [--json]
+  singularity-flow story test-policy confirm [--work-id ID] --phase PHASE --confirm PLAN-DIGEST
+  singularity-flow story test-policy repair [--work-id ID] [--repository ID] [--plan] [--json]
+  singularity-flow story test-policy repair [--work-id ID] [--repository ID] --run --confirm PLAN-DIGEST [--json]
   singularity-flow story skill-version preview <SKILL-ID> --reason TEXT [--work-id ID] [--json]
   singularity-flow story skill-version propose <SKILL-ID> --reason TEXT [--work-id ID]
     [--confirm sha256:PREVIEW-DIGEST] [--json]   (without --confirm: read-only preview)

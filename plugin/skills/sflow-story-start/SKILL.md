@@ -12,7 +12,7 @@ argument-hint: "<JIRA-STORY-KEY>"
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Without a key, run `singularity-flow jira assigned --type Story --json` and ask the contributor to choose. Never infer it.
+1. No key: run `singularity-flow jira assigned --type Story --json`; ask the contributor to choose. Never infer it.
 2. Run `singularity-flow jira pull <STORY-KEY> --json`; show its details before mutation.
 3. Verify its Jira project routes to this repository or active workspace; otherwise switch first.
 4. Run `git status --short`; stop for unrelated changes.
@@ -29,4 +29,6 @@ argument-hint: "<JIRA-STORY-KEY>"
 9. Show world-model provenance and push status. If intelligence is unavailable, explain that `/sf-phase` records zero World-Model bytes and continues through ordinary repository access.
 10. Continue only when asked; offer `/sf-phase` and read-only `/sf-nextsteps`.
 
-The canonical branch is the exact Jira key. Jira intake pins the normalized issue snapshot in Git; it does not silently update Jira status or create an approval. Main, workspace, and Epic intake never require or warn about a world model.
+The canonical branch is the exact Jira key. Intake pins the issue snapshot in Git without updating Jira or approving. Main/workspace/Epic intake never requires or warns about a world model.
+
+TRP: read and follow `singularity-flow explain test-recovery`; returned legal actions only.

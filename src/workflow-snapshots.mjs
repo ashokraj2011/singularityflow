@@ -2301,6 +2301,13 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
       }
       previous = { reference: authority.workflow.workflowSnapshot, result: current };
     }
+    if (current?.policy?.testRecovery || workflow.resolution?.testRecovery || workflow.testRecovery) {
+      for (const key of ['testRecovery', 'testRecoveryAgreement', 'testRecoveryInitialReadiness', 'approvalAuthorities']) {
+        if (canonicalJson(current?.policy?.[key] ?? null) !== canonicalJson(workflow.resolution?.[key] ?? null)) {
+          fail(`Story test-policy field '${key}' differs from its accepted snapshot policy.`);
+        }
+      }
+    }
     if (!retainBytes) {
       const summary = { ...current };
       delete summary.manifest;
@@ -2489,6 +2496,16 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
       || canonicalJson(capturedPolicy) !== canonicalJson(compatibilityPolicy)
       || manifest.configFoldHash !== domainHash('wfa.fold.v1', capturedPolicy)) {
     fail('Workflow compatibility projection differs from its accepted snapshot policy.');
+  }
+  // The compatibility reader above intentionally tolerates historical in-memory defaults.
+  // TRP is new opt-in authority, not a compatibility default: a caller must not swap its
+  // delegation or agreement in memory while presenting an otherwise valid disk snapshot.
+  if (capturedPolicy.testRecovery || workflow.resolution?.testRecovery || workflow.testRecovery) {
+    for (const key of ['testRecovery', 'testRecoveryAgreement', 'testRecoveryInitialReadiness', 'approvalAuthorities']) {
+      if (canonicalJson(capturedPolicy[key] ?? null) !== canonicalJson(workflow.resolution?.[key] ?? null)) {
+        fail(`Story test-policy field '${key}' differs from its accepted snapshot policy.`);
+      }
+    }
   }
   if (!Array.isArray(manifest.assets)
       || manifest.assets.length > (storedVersion >= 2

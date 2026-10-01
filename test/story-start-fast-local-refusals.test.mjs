@@ -133,6 +133,6 @@ test('Story preflight defers a portable Unicode ID to the exact configured polic
     '--from-branch', 'main', '--work-type', 'feature'
   ], root).stdout);
   assert.equal(response.preflight.storyBranch, 'équipe-7');
-  assert.equal(response.preflight.passed, true);
+  assert.equal(response.preflight.passed, true, JSON.stringify(response.preflight));
   assert.equal(git('branch', '--show-current'), 'main');
 });

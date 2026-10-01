@@ -48,6 +48,7 @@ const PREFIXES = Object.freeze([
   ['story', 'story-lifecycle'],
   ['telemetry', 'telemetry-and-cost'],
   ['token', 'telemetry-and-cost'],
+  ['trp', 'test-recovery'],
   ['workspace', 'workspaces-and-sessions'],
   ['world-model', 'world-model'],
   ['wm', 'world-model']

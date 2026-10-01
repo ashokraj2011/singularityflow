@@ -788,6 +788,34 @@ export async function storyCommand(positionals, options) {
   }
   if (subcommand === 'return') return storyReturnCommand(positionals, options, root);
   if (subcommand === 'skill-version') return storySkillVersionCommand(positionals, options, root);
+  if (subcommand === 'test-policy') {
+    const action = positionals[2] ?? 'show';
+    if (action === 'repair') {
+      const { run: runTestRepair } = await import('./story-test-repair.mjs');
+      return runTestRepair(positionals.slice(3), { options, root });
+    }
+    if (action === 'plan' || action === 'confirm') {
+      const { storyTestSelectionCommand } = await import('./story-test-selection.mjs');
+      return storyTestSelectionCommand(positionals, options);
+    }
+    if (action !== 'show') throw new SingularityFlowError(`Unsupported test-policy action '${action}'.`);
+    const config = await loadConfig(root);
+    const workflow = await loadStoryAggregate(root, config, positionals[3] ?? optionString(options, 'work-id'));
+    const { loadStoryTestRecoveryAgreement } = await import('../state.mjs');
+    const agreement = await loadStoryTestRecoveryAgreement(root, config, workflow);
+    const result = {
+      schemaVersion: 1, resultType: 'story-test-policy', workId: workflow.workItem.id,
+      enabled: Boolean(agreement), agreement,
+      readiness: agreement ? workflow.testRecovery?.readiness ?? null : null,
+      supported: { readinessRepair: true, selectionPreview: true, riskActivation: false, policyAmendment: false },
+      message: agreement
+        ? 'Opt-in repair and selection pilot. No risk is accepted by this read.'
+        : 'This Story retains its original test policy; it has not opted into the pilot.'
+    };
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(result.message);
+    return result;
+  }
   if (subcommand === 'start') {
     const storyKey = requirePositional(positionals, 2, 'Jira Story key');
     return (await router()).startCommand(['start', storyKey], { ...options, jira: true });

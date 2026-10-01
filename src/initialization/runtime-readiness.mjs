@@ -769,6 +769,49 @@ async function writeTestBaseline(root, baseline) {
   return target;
 }
 
+/** Bounded complete-cohort projection; display names never imply exact source/assertion binding. */
+export function projectReadinessTestIdentities(commandId, adapter, occurrences, counts, { maxCases = 1_000 } = {}) {
+  if (!Number.isSafeInteger(maxCases) || maxCases < 1 || maxCases > 10_000) {
+    throw new SingularityFlowError('Readiness testcase projection requires a bounded positive limit.', {
+      code: 'REPOSITORY_READINESS_COMMAND_INVALID'
+    });
+  }
+  const display = (value) => typeof value === 'string'
+    ? value.replace(/[\x00-\x1f\x7f]/gu, ' ').slice(0, 256) : null;
+  let altered = false;
+  const cases = occurrences.slice(0, maxCases).map((entry) => {
+    const identity = {
+      suite: display(entry.suite), className: display(entry.className),
+      name: display(entry.name), fullName: display(entry.fullName),
+      ancestorTitles: Array.isArray(entry.ancestorTitles) ? entry.ancestorTitles.slice(0, 16).map(display) : []
+    };
+    for (const key of ['suite', 'className', 'name', 'fullName']) {
+      if (identity[key] !== (entry[key] ?? null)) altered = true;
+    }
+    if (JSON.stringify(identity.ancestorTitles) !== JSON.stringify(entry.ancestorTitles ?? [])) altered = true;
+    const key = adapter === 'junit-xml' ? [identity.className, identity.name]
+      : adapter === 'node-tap' ? [identity.name]
+        : [identity.fullName, identity.name, identity.ancestorTitles];
+    return {
+      id: digest({ commandId, adapter, identity: key }), ...identity,
+      identityStatus: entry.identityStatus, outcome: entry.outcome
+    };
+  });
+  const frequencies = new Map();
+  for (const entry of cases) frequencies.set(entry.id, (frequencies.get(entry.id) ?? 0) + 1);
+  for (const entry of cases) if (frequencies.get(entry.id) > 1) entry.identityStatus = 'ambiguous-display-identity';
+  const observedCounts = { discovered: cases.length, passed: 0, failed: 0, skipped: 0 };
+  for (const entry of cases) if (Object.hasOwn(observedCounts, entry.outcome) && entry.outcome !== 'discovered') observedCounts[entry.outcome] += 1;
+  const complete = !altered && occurrences.length <= maxCases && cases.length > 0
+    && cases.every((entry) => entry.identityStatus === 'observed-name-only' && entry.name)
+    && Object.entries(observedCounts).every(([key, value]) => value === counts?.[key]);
+  return {
+    testCases: cases, testCasesTruncated: occurrences.length > maxCases,
+    testIdentitiesComplete: Boolean(complete),
+    identityAssurance: 'observed-name-only', semanticsBound: false
+  };
+}
+
 function sanitizedTestObservation(command, parsed) {
   const occurrences = parsed.testcaseObservation?.occurrences ?? [];
   const failed = occurrences.filter((entry) => entry.outcome === 'failed');
@@ -783,7 +826,9 @@ function sanitizedTestObservation(command, parsed) {
     report: {
       sha256: parsed.result.sha256,
       bytes: parsed.result.bytes,
-      files: (parsed.result.files ?? []).map((entry) => ({ sha256: entry.sha256, bytes: entry.bytes }))
+      files: (parsed.result.files ?? []).map((entry) => ({
+        sourcePath: entry.sourcePath ?? null, sha256: entry.sha256, bytes: entry.bytes
+      }))
     },
     failingCases: failed.slice(0, maxCases).map((entry) => ({
       suite: display(entry.suite), className: display(entry.className),
@@ -792,7 +837,9 @@ function sanitizedTestObservation(command, parsed) {
         ? entry.ancestorTitles.slice(0, 16).map(display) : [],
       identityStatus: entry.identityStatus
     })),
-    failingCasesTruncated: failed.length > maxCases
+    failingCasesTruncated: failed.length > maxCases,
+    ...projectReadinessTestIdentities(command.id, parsed.adapter, occurrences, parsed.tests),
+    parser: parsed.testcaseObservation?.parser ?? null
   };
 }
 
@@ -859,6 +906,15 @@ async function observeTestResult(root, command, startedAt, processResult) {
       try {
         const output = processResult.capturedTestOutput.toString('utf8');
         const counts = nodeTapCounts(output);
+        // Capture every visible terminal case, including skips. Nested TAP aggregates or name
+        // collisions cannot establish complete identities and remain explicitly incomplete.
+        const occurrences = [...output.matchAll(/^\s*(not ok|ok)\s+\d+\s+-\s+([^\r\n]+)/gmu)]
+          .map((match) => {
+            const skip = /\s+#\s*(?:SKIP|TODO)(?:\s|$)/iu.test(match[2]);
+            return { suite: null, className: null, name: match[2].replace(/\s+#\s*(?:SKIP|TODO)(?:\s.*)?$/iu, ''),
+              fullName: null, ancestorTitles: [], identityStatus: 'observed-name-only',
+              outcome: skip ? 'skipped' : match[1] === 'not ok' ? 'failed' : 'passed' };
+          });
         const failingCases = [...output.matchAll(/^\s*not ok\s+\d+\s+-\s+([^\r\n]+)/gmu)]
           .slice(0, 100).map((match) => ({
             suite: null, className: null, name: match[1].replace(/[\x00-\x1f\x7f]/gu, ' ').slice(0, 256),
@@ -871,7 +927,9 @@ async function observeTestResult(root, command, startedAt, processResult) {
             bytes: processResult.stdoutBytes,
             files: [], source: 'bounded-stdout'
           },
-          failingCases, failingCasesTruncated: counts.failed > failingCases.length
+          failingCases, failingCasesTruncated: counts.failed > failingCases.length,
+          ...projectReadinessTestIdentities(command.id, 'node-tap', occurrences, counts),
+          parser: { id: 'sflow-bounded-stdout-tap-observer', version: 1 }
         };
       } catch { /* Preserve the structured-report reason below. */ }
     }

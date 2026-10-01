@@ -18,6 +18,10 @@ import { escape, icon } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
+import {
+  EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryHtml, testRecoveryProblems,
+  type TestRecoveryDraft
+} from './test-recovery-intake.ts';
 
 /** What is being started. The order is the order they nest in. */
 export type Shape = 'initiative' | 'epic' | 'story';
@@ -196,7 +200,7 @@ export interface InFlight {
   completed?: boolean;
 }
 
-export interface IntakeForm {
+export interface IntakeForm extends TestRecoveryDraft {
   /** The exact surface context this form will mutate. */
   targetWorkspace: string | null;
   targetRepository: string | null;
@@ -305,7 +309,10 @@ export interface PreflightTestReadiness {
     status: string;
     scope: string | null;
     testToolStatus: string;
-    disposition: 'no-observed-pre-story-failures' | 'no-test-tool-selected' | 'not-verified';
+    disposition: 'no-observed-pre-story-failures' | 'no-test-tool-selected' | 'not-verified'
+      | 'accepted-pre-existing-test-failures' | 'pre-existing-test-failures-require-decision';
+    baselineSha256?: string | null;
+    riskAcceptanceSha256?: string | null;
     tools: Array<{
       id: string;
       launcher: string | null;
@@ -318,6 +325,7 @@ export interface PreflightTestReadiness {
 }
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
+  ...EMPTY_TEST_RECOVERY_DRAFT,
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', targetUrl: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
@@ -384,6 +392,17 @@ export function intakeIdentifier(form: IntakeForm): string {
   return (form.tracker === 'jira' ? form.key : form.id).trim();
 }
 
+/** All user-controlled creation inputs; a confirmation never survives an edit to this tuple. */
+export function intakePlanInputKey(form: IntakeForm): string {
+  return JSON.stringify([
+    form.targetWorkspace, form.targetRepository, form.targetBranch, form.shape, form.tracker,
+    form.key, form.id, form.title, form.description, form.goal, form.acceptanceCriteria,
+    form.targetUrl, form.profile, form.workType, form.baseBranch,
+    form.referenceRepositories.map(({ id, repository, branch }) => [id, repository, branch]),
+    form.storyAttachments, form.testBaselineDisposition, form.testExecutionMode, form.testBaselineScope
+  ]);
+}
+
 /**
  * What still stands between this form and started work.
  *
@@ -429,6 +448,7 @@ export function intakeProblems(form: IntakeForm): string[] {
       + 'Add at least one person in People & approvals.');
   }
   if (form.shape === 'story') {
+    problems.push(...testRecoveryProblems(form));
     let references: ReferenceRepositoryEntry[] = [];
     try { references = referenceRepositoryEntries(form.referenceRepositories); } catch (error) {
       problems.push((error as Error).message);
@@ -536,7 +556,7 @@ export function intakeCommand(form: IntakeForm): string[] {
     ...(selected.some((entry) => storyAttachmentPhases(form, entry).phases?.length)
       ? selected.flatMap((entry) => ['--document-phases', storyAttachmentPhases(form, entry).phases?.join(',') ?? 'all']) : [])
   ];
-  const isolated = ['--isolated-worktree'];
+  const isolated = ['--isolated-worktree', ...testRecoveryArguments(form, true)];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
     ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
   if (form.tracker === 'github') {
@@ -574,7 +594,8 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
     'workspace', 'branches', '--json', '--intake', '--preflight-story', identifier,
     '--from-branch', form.baseBranch, '--selected-base-only',
     ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
-    ...references
+    ...references,
+    ...testRecoveryArguments(form)
   ];
 }
 
@@ -810,9 +831,13 @@ function preflightTestReadinessHtml(readiness: PreflightTestReadiness | null): s
     ${readiness.repositories.map((repository) => {
       const disposition = repository.disposition === 'no-observed-pre-story-failures'
         ? 'The selected test run had no observed failures; any skipped tests are listed above.'
+        : repository.disposition === 'accepted-pre-existing-test-failures'
+          ? 'Accepted pre-existing test failures — observed tests remain failed. This pre-Story decision does not by itself authorize later Story transitions.'
+        : repository.disposition === 'pre-existing-test-failures-require-decision'
+          ? 'Observed pre-existing test failures require repair or an eligible, authorized decision.'
         : repository.disposition === 'no-test-tool-selected'
           ? 'No structured test tool was selected; existing tests are not verified.'
-          : 'Existing test failures are not verified. Run /sf-ready, repair failures, or review an exact failure baseline before coding.';
+          : 'Existing failures unknown. Existing test failures are not verified. Run /sf-ready, repair failures, or review an exact failure baseline before coding.';
       return `<div class="readiness-repository"><p><strong>${escape(repository.repository)}</strong>
         · receipt ${escape(repository.status)} · test tool ${escape(repository.testToolStatus)}
         · base ${escape(repository.baseCommit?.slice(0, 12) ?? 'unknown')}</p>
@@ -1187,6 +1212,7 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
   ${storyAttachmentsHtml(form)}
   ${referenceRepositoriesHtml(form)}
   ${baseBranchHtml(form)}
+  ${form.shape === 'story' ? testRecoveryHtml(form) : ''}
   ${inFlightHtml(form)}
 
   <section>
@@ -1241,6 +1267,8 @@ export const INTAKE_SCRIPT = `
     if (discardEnhancement) return vscode.postMessage({ type: 'enhanceDiscard' });
     const workflowRefresh = event.target.closest('[data-workflow-refresh]');
     if (workflowRefresh) return vscode.postMessage({ type: 'workflowRefresh' });
+    const testRecoveryRefresh = event.target.closest('[data-test-recovery-refresh]');
+    if (testRecoveryRefresh) return vscode.postMessage({ type: 'testRecoveryRefresh' });
     const target = event.target.closest('[data-submit]');
     if (target) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
   });
@@ -1251,6 +1279,8 @@ export const INTAKE_SCRIPT = `
    */
   document.addEventListener('change', (event) => {
     const el = event.target;
+    if (el.dataset?.testRecoveryField) return vscode.postMessage({ type: 'testRecoveryChoice', field: el.dataset.testRecoveryField, value: el.value });
+    if (el.hasAttribute('data-test-recovery-confirm')) return vscode.postMessage({ type: 'testRecoveryConfirm', confirmed: el.checked, planDigest: el.dataset.testRecoveryConfirm });
     if (el.dataset?.shape) return vscode.postMessage({ type: 'shape', value: el.dataset.shape });
     if (el.dataset?.tracker) return vscode.postMessage({ type: 'tracker', value: el.dataset.tracker });
     if (el.dataset?.profile) return vscode.postMessage({ type: 'profile', value: el.dataset.profile });

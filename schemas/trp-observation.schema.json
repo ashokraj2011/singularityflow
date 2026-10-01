@@ -1,0 +1,414 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/phase-validation-observation.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "phase-validation-observation"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "workId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "phaseId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validationEpoch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "workId",
+        "repositoryId",
+        "phaseId",
+        "generation",
+        "validationEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "issuer": {
+      "type": "object",
+      "properties": {
+        "principal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "principal",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "authorityRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "authorityRef",
+        "evidenceRefs"
+      ],
+      "additionalProperties": false
+    },
+    "obligationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "agreementSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "selectionSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "sourceRevision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "sourceManifestSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "commandInventorySha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "commandSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "selectorSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "id",
+          "sha256"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "hostId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "arch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "runtimeSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "dependencySha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "runnerSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "adapterSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "configurationSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "externalDependenciesSha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "hostId",
+        "platform",
+        "arch",
+        "runtimeSha256",
+        "dependencySha256",
+        "runnerSha256",
+        "adapterSha256",
+        "configurationSha256",
+        "externalDependenciesSha256"
+      ],
+      "additionalProperties": false
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "processExitCode": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reportStatus": {
+      "enum": [
+        "current",
+        "missing",
+        "stale",
+        "invalid",
+        "not-required"
+      ]
+    },
+    "reportSha256s": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "expectedTestIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "skipped",
+              "not-run"
+            ]
+          },
+          "semanticsSha256": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "causeSha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "outcome",
+          "semanticsSha256",
+          "causeSha256"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "discovered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notRun": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "discovered",
+        "passed",
+        "failed",
+        "skipped",
+        "notRun"
+      ],
+      "additionalProperties": false
+    },
+    "identityCompleteness": {
+      "enum": [
+        "complete",
+        "incomplete",
+        "ambiguous"
+      ]
+    },
+    "observedOutcome": {
+      "enum": [
+        "passed",
+        "failed",
+        "not-run",
+        "unavailable",
+        "inconclusive",
+        "invalid-evidence"
+      ]
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 2048
+      },
+      "minItems": 0
+    },
+    "executionOrigin": {
+      "enum": [
+        "executed",
+        "reused"
+      ]
+    },
+    "recordSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "subject",
+    "createdAt",
+    "issuer",
+    "provenance",
+    "obligationId",
+    "agreementSha256",
+    "selectionSha256",
+    "sourceRevision",
+    "sourceManifestSha256",
+    "commandInventorySha256",
+    "commandSha256",
+    "selectorSha256",
+    "dependencies",
+    "environment",
+    "startedAt",
+    "completedAt",
+    "processExitCode",
+    "reportStatus",
+    "reportSha256s",
+    "expectedTestIds",
+    "cases",
+    "counts",
+    "identityCompleteness",
+    "observedOutcome",
+    "diagnostics",
+    "executionOrigin",
+    "recordSha256"
+  ],
+  "additionalProperties": false
+}

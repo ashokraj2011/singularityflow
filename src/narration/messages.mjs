@@ -17,6 +17,26 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'story.test-policy.selection-planned': {
+    headline: (s) => `Story test selection is ${slot(s.status)}. No test ran or scope was confirmed. Use --json for the exact cohort and legal actions.`,
+    preserves: true
+  },
+  'story.test-policy.selection-confirmed': {
+    headline: (s) => `Story test-scope confirmation is ${slot(s.status)}. No test ran and no test failure was accepted.`,
+    preserves: false
+  },
+  'story.test-policy.selection-unchanged': {
+    headline: (s) => `Story test-scope confirmation is ${slot(s.status)}. No Story evidence changed and no test ran.`,
+    preserves: true
+  },
+  'story.test-policy.repair-reported': {
+    headline: (s) => `Story readiness repair is ${slot(s.status)}. No readiness command ran or Story evidence changed. Use --json for the exact plan and legal actions.`,
+    preserves: true
+  },
+  'story.test-policy.repair-recorded': {
+    headline: (s) => `Story readiness repair is ${slot(s.status)}. Its passing baseline-admission evidence remains separate from feature-candidate test evidence.`,
+    preserves: false
+  },
   'skill.recipe-previewed': {
     headline: (s) => `Previewed candidate skill workflow ${slot(s.workflowId)}. No configuration was changed, approved, or activated; no skill ran.`,
     preserves: true

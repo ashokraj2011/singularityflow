@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/story-test-recovery-agreement.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "story-test-recovery-agreement"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "workId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        }
+      },
+      "required": [
+        "workId"
+      ],
+      "additionalProperties": false
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "issuer": {
+      "type": "object",
+      "properties": {
+        "principal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "principal",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "authorityRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "authorityRef",
+        "evidenceRefs"
+      ],
+      "additionalProperties": false
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parentRevision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "policyAuthoritySha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "confirmedPlanSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "repositories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "repositoryId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "codeBearing": {
+            "type": "boolean"
+          },
+          "baselineDisposition": {
+            "enum": [
+              "fix",
+              "accept-known-failures",
+              "unknown",
+              "not-applicable"
+            ]
+          },
+          "baselineScope": {
+            "enum": [
+              "targeted",
+              "all-configured",
+              "unknown",
+              "not-applicable"
+            ]
+          },
+          "baselineRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "execution": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "changed-and-affected",
+                  "all-configured",
+                  "not-applicable"
+                ]
+              },
+              "moduleExpansion": {
+                "enum": [
+                  "deny",
+                  "confirm",
+                  "allow"
+                ]
+              },
+              "fullSuiteExpansion": {
+                "enum": [
+                  "deny",
+                  "confirm",
+                  "allow"
+                ]
+              },
+              "knownFailureHandling": {
+                "enum": [
+                  "observe",
+                  "reviewed-exclusion"
+                ]
+              }
+            },
+            "required": [
+              "mode",
+              "moduleExpansion",
+              "fullSuiteExpansion",
+              "knownFailureHandling"
+            ],
+            "additionalProperties": false
+          },
+          "mandatoryObligations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                },
+                "kind": {
+                  "enum": [
+                    "test",
+                    "document",
+                    "quality"
+                  ]
+                },
+                "nonWaivable": {
+                  "type": "boolean"
+                },
+                "transitions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "minItems": 0,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "nonWaivable",
+                "transitions"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "riskDecisionRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "repositoryId",
+          "required",
+          "codeBearing",
+          "baselineDisposition",
+          "baselineScope",
+          "baselineRefs",
+          "execution",
+          "mandatoryObligations",
+          "riskDecisionRefs"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "repair": {
+      "type": "object",
+      "properties": {
+        "maxDistinctAutomaticAttempts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "maxDistinctAutomaticAttempts"
+      ],
+      "additionalProperties": false
+    },
+    "recordSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "subject",
+    "createdAt",
+    "issuer",
+    "provenance",
+    "revision",
+    "parentRevision",
+    "policyAuthoritySha256",
+    "confirmedPlanSha256",
+    "repositories",
+    "repair",
+    "recordSha256"
+  ],
+  "additionalProperties": false
+}

@@ -8,7 +8,7 @@ argument-hint: "[--repair] [--full]"
 # Make a repository ready before Story work
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Require explicit choices; preserve errors, exact results, and next actions.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -29,8 +29,9 @@ end-to-end are forbidden unless `--full` and approved policy permit them.
 4. Report receipt or failed baseline: exact base/plan, exit, report hash, failing testcase IDs.
    Missing reports remain unavailable. Never commit local dependency directories, build output,
    test reports, or receipts.
-5. Classify local cache repair, committable setup, or pre-existing failures. An existing unit failure
-   needs a separate Bug-fix Story if not setup. For eligible JUnit/Jest/Vitest/Node TAP baselines, inspect with
+5. Classify cache, setup, or existing failures. Use advertised TRP repair admission; feature coding
+   waits for every required repository. Otherwise an existing unit failure needs a separate Bug-fix Story if not setup.
+   For eligible JUnit/Jest/Vitest/Node TAP baselines, inspect with
    `singularity-flow precheck --risk-status --json`. Only on explicit choice record digest,
    reason, and expiry (at most 30 days) via `singularity-flow precheck --accept-test-risk
    --confirm-baseline <SHA256> --reason <TEXT> --expires <ISO-8601> --json`. Exact-base acceptance
@@ -42,3 +43,5 @@ end-to-end are forbidden unless `--full` and approved policy permit them.
    confirmation, and receipt.
 8. Report the commit/blockers and handoffs: Copilot `/sf-start`; Shell
    `singularity-flow start <WORK-ID>`. A Git refusal retains the setup branch and creates no Story.
+
+TRP: read and follow `singularity-flow explain test-recovery`; returned legal actions only.

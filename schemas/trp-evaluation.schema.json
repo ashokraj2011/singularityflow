@@ -1,0 +1,454 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/phase-gate-evaluation.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "phase-gate-evaluation"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "workId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "phaseId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validationEpoch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "workId",
+        "repositoryId",
+        "phaseId",
+        "generation",
+        "validationEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "issuer": {
+      "type": "object",
+      "properties": {
+        "principal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "principal",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "authorityRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "authorityRef",
+        "evidenceRefs"
+      ],
+      "additionalProperties": false
+    },
+    "evaluatorVersion": {
+      "const": "trp/1.0"
+    },
+    "agreementSha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "policyAuthoritySha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "mode": {
+      "enum": [
+        "current",
+        "historical"
+      ]
+    },
+    "inputSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "observationRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "decisionRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "requiredObligations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "causeFingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "category": {
+            "enum": [
+              "known-test-failure",
+              "reduced-coverage",
+              "nonessential-document",
+              "new-test-failure",
+              "validation-unavailable",
+              "provenance",
+              "identity",
+              "protected-path",
+              "source-safety",
+              "non-waivable",
+              "policy-integrity"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "noncritical",
+              "critical"
+            ]
+          },
+          "observationRef": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "obligationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "repairRoute": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "preservedState": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "riskEligible": {
+            "type": "boolean"
+          },
+          "riskReason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "id",
+          "causeFingerprint",
+          "category",
+          "severity",
+          "observationRef",
+          "obligationId",
+          "owner",
+          "repairRoute",
+          "preservedState",
+          "riskEligible",
+          "riskReason",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "dispositions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "obligationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "observationRef": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observedOutcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "not-run",
+              "unavailable",
+              "inconclusive",
+              "invalid-evidence"
+            ]
+          },
+          "disposition": {
+            "enum": [
+              "satisfied",
+              "repair-required",
+              "accepted-known-failures",
+              "accepted-risk",
+              "integrity-blocked"
+            ]
+          },
+          "decisionRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "issueIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "obligationId",
+          "observationRef",
+          "observedOutcome",
+          "disposition",
+          "decisionRefs",
+          "issueIds"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "remainingBlockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "supportedNextActions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "decisionDependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "decisionSha256": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "id",
+                "sha256"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "decisionSha256",
+          "dependencies"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "operationReadiness": {
+      "enum": [
+        "ready",
+        "needs-execution",
+        "needs-decision",
+        "needs-repair",
+        "blocked",
+        "publication-pending"
+      ]
+    },
+    "gateDecision": {
+      "enum": [
+        "allow",
+        "allow-with-risk",
+        "block"
+      ]
+    },
+    "normalApprovalRequired": {
+      "type": "boolean"
+    },
+    "recordSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "subject",
+    "createdAt",
+    "issuer",
+    "provenance",
+    "evaluatorVersion",
+    "agreementSha256",
+    "policyAuthoritySha256",
+    "operation",
+    "mode",
+    "inputSha256",
+    "observationRefs",
+    "decisionRefs",
+    "requiredObligations",
+    "issues",
+    "dispositions",
+    "remainingBlockers",
+    "supportedNextActions",
+    "decisionDependencies",
+    "operationReadiness",
+    "gateDecision",
+    "normalApprovalRequired",
+    "recordSha256"
+  ],
+  "additionalProperties": false
+}

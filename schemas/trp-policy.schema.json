@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/trp-policy.schema.json",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "authoritySha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "enabledRiskCategories": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "known-test-failure",
+          "reduced-coverage",
+          "nonessential-document",
+          "new-test-failure",
+          "validation-unavailable"
+        ]
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "maxRiskDays": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30
+    },
+    "allowEvidenceReuse": {
+      "type": "boolean"
+    },
+    "maxEvidenceAgeSeconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "requiredApproval": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "enabled",
+    "authoritySha256",
+    "enabledRiskCategories",
+    "maxRiskDays",
+    "allowEvidenceReuse",
+    "maxEvidenceAgeSeconds",
+    "requiredApproval"
+  ],
+  "additionalProperties": false
+}

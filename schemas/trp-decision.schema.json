@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/phase-risk-decision.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "phase-risk-decision"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "workId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "phaseId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validationEpoch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "workId",
+        "repositoryId",
+        "phaseId",
+        "generation",
+        "validationEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "issuer": {
+      "type": "object",
+      "properties": {
+        "principal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "principal",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "authorityRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "authorityRef",
+        "evidenceRefs"
+      ],
+      "additionalProperties": false
+    },
+    "agreementSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "policyAuthoritySha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "issueId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "category": {
+      "enum": [
+        "known-test-failure",
+        "reduced-coverage",
+        "nonessential-document",
+        "new-test-failure",
+        "validation-unavailable"
+      ]
+    },
+    "severity": {
+      "const": "noncritical"
+    },
+    "anchorObservationDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "obligationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "authorityRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "authorizationRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "confirmationSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 15,
+      "maxLength": 2000
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "followUpOwner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "remediationRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "applicability": {
+      "type": "object",
+      "properties": {
+        "carryForward": {
+          "type": "boolean"
+        },
+        "phaseIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "id",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "environmentSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "baselineSha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acceptedFailures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "testId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "semanticsSha256": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "causeSha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "testId",
+              "semanticsSha256",
+              "causeSha256"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "allowedTestIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "excludedTestIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "maxFailed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "commandSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "selectorSha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "maxObservationAgeSeconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "carryForward",
+        "phaseIds",
+        "dependencies",
+        "environmentSha256",
+        "baselineSha256",
+        "acceptedFailures",
+        "allowedTestIds",
+        "excludedTestIds",
+        "maxFailed",
+        "commandSha256",
+        "selectorSha256",
+        "maxObservationAgeSeconds"
+      ],
+      "additionalProperties": false
+    },
+    "recordSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "subject",
+    "createdAt",
+    "issuer",
+    "provenance",
+    "agreementSha256",
+    "policyAuthoritySha256",
+    "issueId",
+    "category",
+    "severity",
+    "anchorObservationDigest",
+    "obligationId",
+    "transitions",
+    "authorityRef",
+    "authorizationRef",
+    "confirmationSha256",
+    "reason",
+    "expiresAt",
+    "followUpOwner",
+    "remediationRef",
+    "applicability",
+    "recordSha256"
+  ],
+  "additionalProperties": false
+}

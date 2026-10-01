@@ -198,7 +198,8 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
   phaseId = workflow.currentPhase,
   itemDirectory,
   itemRelative,
-  sourceBaseCommit = head(root)
+  sourceBaseCommit = head(root),
+  baselineTag = null
 } = {}) {
   if (!phaseId) return null;
   const phase = activePhase(workflow, phaseId);
@@ -212,7 +213,10 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
     return existing;
   }
 
-  const relative = intervalRelative(itemRelative, phase.id, generation);
+  if (baselineTag !== null && !/^[a-z0-9][a-z0-9-]{0,95}$/u.test(baselineTag)) {
+    throw new SingularityFlowError('Work-interval baseline tag must be a bounded portable identifier.');
+  }
+  const relative = intervalRelative(itemRelative, baselineTag ? `${phase.id}-${baselineTag}` : phase.id, generation);
   const ordinal = (workflow.workIntervals.history?.length ?? 0) + 1;
   const intervalId = `INT-${phase.id}-G${generation}-${String(ordinal).padStart(3, '0')}`;
   const checks = requiredChecks(workflow);

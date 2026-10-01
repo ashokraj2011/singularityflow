@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/trp-authority-receipt.schema.json",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "trp-authority-receipt"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "workId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "phaseId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "validationEpoch": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "workId",
+            "repositoryId",
+            "phaseId",
+            "generation",
+            "validationEpoch"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "workId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            }
+          },
+          "required": [
+            "workId"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "issuer": {
+      "type": "object",
+      "properties": {
+        "principal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "principal",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "authorityRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "authorityRef",
+        "evidenceRefs"
+      ],
+      "additionalProperties": false
+    },
+    "authorizedRecordSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "policyAuthoritySha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "confirmationSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "capability": {
+      "enum": [
+        "trp-agreement",
+        "trp-risk-decision",
+        "trp-scope-confirmation"
+      ]
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "issuedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$"
+    },
+    "authorizationRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "authorityGroup": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "assurance": {
+      "const": "configured-local-review"
+    },
+    "reviewPlanSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "reviewActionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "actionAuthorizationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "questionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "answerReceipt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "actor": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "email": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "login": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "email",
+        "login"
+      ],
+      "additionalProperties": false
+    },
+    "recordSha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "subject",
+    "createdAt",
+    "issuer",
+    "provenance",
+    "authorizedRecordSha256",
+    "policyAuthoritySha256",
+    "confirmationSha256",
+    "capability",
+    "transitions",
+    "issuedAt",
+    "authorizationRef",
+    "authorityGroup",
+    "assurance",
+    "reviewPlanSha256",
+    "reviewActionId",
+    "actionAuthorizationId",
+    "questionId",
+    "answerReceipt",
+    "actor",
+    "recordSha256"
+  ],
+  "additionalProperties": false
+}

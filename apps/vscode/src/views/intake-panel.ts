@@ -12,7 +12,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT,
+  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload,
@@ -26,6 +26,10 @@ import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
 import type { BackgroundHold } from '../background-governor.ts';
+import {
+  testRecoveryCanConfirm, testRecoveryChoiceSupported, testRecoveryConfirmation, testRecoveryEnabled,
+  type PreflightTestRecovery
+} from './test-recovery-intake.ts';
 
 /** A background result waits this long after the last keystroke before it redraws the page. */
 const INTAKE_TYPING_QUIET_MS = 300;
@@ -148,14 +152,17 @@ function storyWorkflowCatalog(catalog: EngineStoryWorkflowCatalog | undefined): 
 
 function emptyStoryPreflight(): Pick<IntakeForm,
   'basePreflightPassed' | 'basePreflightChecking' | 'basePreflightReason'
-  | 'basePreflightWarnings' | 'baseTestReadiness' | 'basePreflightRefreshRecommended'> {
+  | 'basePreflightWarnings' | 'baseTestReadiness' | 'basePreflightRefreshRecommended'
+  | 'testRecovery' | 'testRecoveryConfirmedDigest'> {
   return {
     basePreflightPassed: false,
     basePreflightChecking: false,
     basePreflightReason: null,
     basePreflightWarnings: [],
     baseTestReadiness: null,
-    basePreflightRefreshRecommended: false
+    basePreflightRefreshRecommended: false,
+    testRecovery: null,
+    testRecoveryConfirmedDigest: null
   };
 }
 
@@ -365,12 +372,14 @@ export class IntakePanel {
    */
   private update(changes: Partial<IntakeForm>, { background = false }: { background?: boolean } = {}): void {
     if (this.disposed) return;
+    const previousPlan = intakePlanInputKey(this.form);
     this.form = {
       ...this.form,
       ...(Object.hasOwn(changes, 'error') && changes.error === null
         ? { recoveryCommand: null, recoveryRouteCommand: null } : {}),
       ...changes
     };
+    if (previousPlan !== intakePlanInputKey(this.form)) this.form.testRecoveryConfirmedDigest = null;
     if (background) this.scheduleRender();
     else this.renderNow();
   }
@@ -650,6 +659,30 @@ export class IntakePanel {
    * takes the caret with it; the committed value arrives again as `field`, and that one redraws.
    */
   private router = registerMessageRouter('singularityFlow.intake', {
+    testRecoveryChoice: (message) => {
+      if (this.form.busy) return;
+      const field = stringField(message, 'field');
+      const value = stringField(message, 'value');
+      if (!field || !value || !testRecoveryChoiceSupported(this.form, field, value)) return;
+      this.cancelBasePreflight();
+      this.preflightVersion += 1;
+      this.update({ [field]: value, testRecoveryConfirmedDigest: null, error: null } as Partial<IntakeForm>);
+      return this.preflightBaseBranch();
+    },
+    testRecoveryConfirm: (message) => {
+      if (this.form.busy || this.form.basePreflightChecking || !testRecoveryCanConfirm(this.form)) return;
+      // The page echoes the displayed digest to reject a delayed event from an older preview.
+      // The mutation's digest still comes only from this host's current engine response.
+      if (stringField(message, 'planDigest') !== this.form.testRecovery!.planDigest) return;
+      if (this.preflightKey !== JSON.stringify(storyPreflightCommand(this.form))) return;
+      this.update({ testRecoveryConfirmedDigest: testRecoveryConfirmation(
+        this.form, stringField(message, 'planDigest'), message.confirmed
+      ) });
+    },
+    testRecoveryRefresh: () => {
+      if (this.form.busy || !testRecoveryEnabled(this.form)) return;
+      return this.preflightBaseBranch();
+    },
     shape: (message) => {
       const shape = SHAPES.find((entry) => entry.id === stringField(message, 'value'));
       if (shape) {
@@ -779,6 +812,9 @@ export class IntakePanel {
         this.lastDraftAt = Date.now();
         if (['title', 'description', 'acceptanceCriteria'].includes(field)) {
           this.invalidateEnhancement();
+        }
+        if ((this.form as unknown as Record<string, string>)[field] !== value) {
+          this.form.testRecoveryConfirmedDigest = null;
         }
         (this.form as unknown as Record<string, string>)[field] = value;
         if (field === 'id' || field === 'key') {
@@ -1083,11 +1119,20 @@ export class IntakePanel {
         preflight?: {
           passed?: boolean; readiness?: StoryStartReadinessResult;
           testReadiness?: PreflightTestReadiness;
+          testRecovery?: PreflightTestRecovery;
           intakeReceipt?: { issued?: boolean; id?: string; expiresAt?: string; reason?: string };
         };
         intake?: EngineStoryWorkflowCatalog;
       }>(command, controller.signal);
       if (version !== this.preflightVersion) return;
+      const testRecovery = result.preflight?.testRecovery?.schemaVersion === 1
+        ? result.preflight.testRecovery : null;
+      // Capability discovery is read-only. Once advertised, request the explicit choice tuple
+      // before a confirmable plan can be shown. No tests are executed by this preview request.
+      if (testRecovery?.enabled === true && !command.includes('--test-baseline-disposition')) {
+        this.update({ testRecovery, testRecoveryConfirmedDigest: null }, { background: true });
+        return this.preflightBaseBranch();
+      }
       const readiness = result.preflight?.readiness;
       if (Array.isArray(result.intake?.storyWorkflows)) this.exactCatalogBase = base;
       // The selected remote base, not the launch checkout, owns a legacy workflow catalog. Replace
@@ -1123,6 +1168,7 @@ export class IntakePanel {
               : 'The engine did not return Story-start readiness. Reload or update Singularity Flow before retrying.'),
           basePreflightWarnings: warnings,
           baseTestReadiness: result.preflight?.testReadiness ?? null,
+          testRecovery,
           basePreflightRefreshRecommended: refreshRecommended
         }, { background: true });
         return;
@@ -1137,6 +1183,7 @@ export class IntakePanel {
         basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null,
         basePreflightWarnings: warnings,
         baseTestReadiness: result.preflight?.testReadiness ?? null,
+        testRecovery,
         basePreflightRefreshRecommended: refreshRecommended
       }, { background: true });
       const receipt = result.preflight?.intakeReceipt;

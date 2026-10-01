@@ -62,6 +62,7 @@ import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './source-review-policy.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
+import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import {
   assertCodeDeliveryConfiguration, normalizeCodeDeliveryPolicy, phaseRequiresCodeDelivery, pinCodeDeliveryTask
@@ -1013,6 +1014,9 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   definition.repositoryReadiness = normalizeRepositoryReadinessPolicy(
     definition.repositoryReadiness
   );
+  if (definition.testRecovery != null) {
+    definition.testRecovery = normalizeTestRecoveryPolicy(definition.testRecovery);
+  }
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   definition.tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
   if (definition.tokenEconomy.mode !== 'off'
@@ -1058,6 +1062,11 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   definition.ast = normalizeAstPolicy(definition.ast ?? {});
   definition.approvalSecurity = normalizeApprovalSecurity(definition.approvalSecurity);
   definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity);
+  for (const authority of definition.testRecovery?.riskAuthorities ?? []) {
+    if (!Object.hasOwn(definition.approvalAuthorities, authority)) {
+      throw new SingularityFlowError(`testRecovery references unknown approval authority '${authority}'.`);
+    }
+  }
   groundingMode(definition);
   if (definition.worldModel?.runner != null) throw new SingularityFlowError('worldModel.runner is not supported. Configure models.providers with a trusted executable and argument array.');
   for (const [field, label] of [
@@ -2263,6 +2272,7 @@ export function resolveWorkType(definition, workTypeId) {
     sourceReview,
     plannedClaims,
     codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
+    ...(definition.testRecovery ? { testRecovery: normalizeTestRecoveryPolicy(definition.testRecovery) } : {}),
     // Fault policy is pinned with the Story resolution so a repair requested for that Story cannot
     // acquire more authority merely because shared configuration changed later.
     faultRepair: normalizeFaultRepairPolicy(definition.faultRepair ?? {}),
@@ -2344,6 +2354,7 @@ export async function snapshotResolution(root, definition, resolved) {
     // digest stay byte-identical.
     ...(resolved.decisions?.length ? { decisions: structuredClone(resolved.decisions) } : {}),
     codeDelivery: structuredClone(resolved.codeDelivery ?? normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {})),
+    ...(resolved.testRecovery ? { testRecovery: structuredClone(resolved.testRecovery) } : {}),
     // Fault-repair is resolved per workflow just like code delivery. It must be pinned into the
     // Story snapshot; otherwise every later recovery gate silently falls back to product defaults.
     faultRepair: structuredClone(resolved.faultRepair ?? normalizeFaultRepairPolicy(definition.faultRepair ?? {})),

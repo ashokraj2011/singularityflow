@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/trp-readiness-checkpoint.schema.json",
+  "title": "Immutable readiness-repair checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "agreementSha256", "evidencePurpose", "repositories", "checkpointSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "agreementSha256": { "$ref": "#/$defs/digest" },
+    "evidencePurpose": { "const": "baseline-admission-only" },
+    "checkpointSha256": { "$ref": "#/$defs/digest" },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repositoryId", "status", "baseCommit", "originalBaseCommit", "featureBaseCommit", "receiptSha256", "sourceManifestSha256", "planId", "platform", "arch", "originalBaselineRefs", "repairedBaselineRefs"],
+        "properties": {
+          "repositoryId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+          "status": { "const": "pass" },
+          "baseCommit": { "$ref": "#/$defs/commit" },
+          "originalBaseCommit": { "$ref": "#/$defs/commit" },
+          "featureBaseCommit": { "$ref": "#/$defs/commit" },
+          "receiptSha256": { "$ref": "#/$defs/digest" },
+          "sourceManifestSha256": { "$ref": "#/$defs/digest" },
+          "planId": { "$ref": "#/$defs/digest" },
+          "platform": { "type": "string", "minLength": 1 },
+          "arch": { "type": "string", "minLength": 1 },
+          "originalBaselineRefs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
+          "repairedBaselineRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" }
+  }
+}

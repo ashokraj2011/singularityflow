@@ -2349,11 +2349,21 @@ const families = [
   // source commit, platform, architecture, and immutable command plan. New source or a different
   // host creates a distinct receipt instead of mutating prior evidence.
   family({ id: 'repository-readiness-receipt', currentVersion: 1, immutable: true,
-    paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+\.json$/] }),
+    paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+\.json$/,
+      /^singularity\/work-items\/[^/]+\/context\/test-recovery\/repair-evidence\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'repository-test-baseline', currentVersion: 1, immutable: true,
-    paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+(?:-dependency-test)?\.test-baseline\.json$/] }),
+    paths: [/^\$git\/singularity-flow\/repository-readiness\/[a-f0-9]{40,64}-[a-z0-9-]+-[a-z0-9-]+(?:-dependency-test)?\.test-baseline\.json$/,
+      /^singularity\/work-items\/[^/]+\/context\/test-recovery\/original-baselines\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'preexisting-test-risk-acceptance', currentVersion: 1, immutable: true,
     paths: [/^\$git\/singularity-flow\/repository-readiness\/test-risk-acceptances\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/] }),
+  ...[
+    ['story-test-recovery-agreement', 'agreements'], ['test-baseline-manifest', 'baselines'],
+    ['test-selection-manifest', 'selections'], ['phase-validation-observation', 'runs'],
+    ['phase-risk-decision', 'decisions'], ['phase-gate-evaluation', 'evaluations'],
+    ['story-test-policy-amendment', 'amendments'], ['phase-repair-receipt', 'repairs'],
+    ['trp-authority-receipt', 'authorizations'], ['trp-readiness-checkpoint', 'readiness-checkpoints']
+  ].map(([id, directory]) => family({ id, currentVersion: 1, immutable: true,
+    paths: [new RegExp(`^singularity/work-items/[^/]+/context/test-recovery/${directory}/[^/]+\\.json$`)] })),
   family({
     id: 'session-registry', currentVersion: 2,
     steps: [migration(1, 2, identity(2))],

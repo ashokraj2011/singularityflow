@@ -11,6 +11,12 @@ import {
 } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { storyTestReadinessDocument } from './story-test-readiness-document.mjs';
+import { initialTestRecoveryAgreement, normalizeTestRecoveryPolicy, previewTestRecoveryIntake } from './test-recovery-intake.mjs';
+import { appendTrpRecord, appendTrpOriginalBaseline, readTrpRecord, readTrpRepairEvidence, readTrpReadinessCheckpoint, readTrpOriginalBaseline } from './test-recovery-store.mjs';
+import { assertTrpFeatureAdmission, completeTrpReadinessRepair } from './test-recovery-repair.mjs';
+import { assertTrpRepairCohortRetained, inspectTrpRepairScope } from './test-recovery-repair-scope.mjs';
+import { trpDigest } from './test-recovery-policy.mjs';
+import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
   branch, changedFiles, commitIsAncestor, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, remoteContains, untrackedFiles
@@ -63,6 +69,7 @@ import {
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
+import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import {
   beginCodeGeneration, consumeGenerationIntent, persistGenerationPublicationRecord,
@@ -838,6 +845,7 @@ export async function createWorkflow(root, config, {
   referenceRepositories = [],
   repositoryReadiness = null,
   readinessRepositories = [],
+  testRecoveryPlan = null,
   executionOrigin = null,
   worldModelAuthorityRefreshes = {},
   approvedConfigurationSnapshot = null
@@ -874,6 +882,53 @@ export async function createWorkflow(root, config, {
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability
   );
+  // Caller-supplied preview JSON cannot enable TRP or weaken the approved Story policy.
+  // Rebuild its exact base/workflow/receipt binding before any Story files are written.
+  const trpDefinition = approvedConfigurationSnapshot?.definition ?? config;
+  const trpPolicy = normalizeTestRecoveryPolicy(trpDefinition.testRecovery);
+  if (trpPolicy) resolution.testRecovery = structuredClone(trpPolicy);
+  else delete resolution.testRecovery;
+  const freshTrpPlan = previewTestRecoveryIntake({ definition: trpDefinition, workId: id,
+    workType: selectedType, repositories: readinessRepositories, repositoryReadiness,
+    choices: testRecoveryPlan?.choices ?? {}, phaseDefinitions: resolution.phases });
+  if (freshTrpPlan.enabled && (!testRecoveryPlan || !freshTrpPlan.ready
+    || canonicalJson(freshTrpPlan) !== canonicalJson(testRecoveryPlan))) {
+    throw new SingularityFlowError('The exact Story test-policy preview must be explicitly confirmed and current before creation.',
+      { code: 'TRP_INTAKE_CONFIRMATION_REQUIRED', details: { testRecovery: freshTrpPlan } });
+  }
+  if (!freshTrpPlan.enabled && testRecoveryPlan != null) {
+    throw new SingularityFlowError('The approved workflow does not enable this Story test policy.', { code: 'TRP_NOT_ENABLED' });
+  }
+  const initialTrpRows = [];
+  const originalTrpBaselines = [];
+  if (freshTrpPlan.enabled) {
+    for (const selectedRepository of readinessRepositories) {
+      const repositoryId = selectedRepository.id ?? selectedRepository.repository;
+      const supplied = repositoryReadiness?.repositories?.[repositoryId];
+      let status = supplied?.sourceCommit === selectedRepository.baseCommit ? supplied.status : 'unknown';
+      if (status === 'pass') {
+        // This rollout can qualify this checkout only. Multi-repository proof requires
+        // each repository's resolved host boundary, never another repository's receipt.
+        const inspected = readinessRepositories.length === 1 ? await inspectRepositoryReadinessReceipt(root, {
+          commit: selectedRepository.baseCommit, scope: supplied.scope ?? 'dependency-test', recompute: false
+        }) : null;
+        if (inspected?.status !== 'pass' || inspected.receipt.receiptSha256 !== supplied.receiptSha256) {
+          throw new SingularityFlowError('Passing intake evidence is not qualified for this exact base and execution host. Refresh the readiness preview.',
+            { code: 'TRP_INTAKE_EVIDENCE_STALE', details: { repositoryId, baseCommit: selectedRepository.baseCommit } });
+        }
+      }
+      if (status === 'accepted-known-failures') status = 'failing-tests';
+      if (readinessRepositories.length === 1 && supplied?.baselineSha256) {
+        const loaded = await loadRepositoryTestBaseline(root, {
+          commit: selectedRepository.baseCommit, scope: supplied.scope ?? 'dependency-test'
+        });
+        if (loaded?.baseline?.baselineSha256 === supplied.baselineSha256) originalTrpBaselines.push(loaded.baseline);
+      }
+      initialTrpRows.push({ repositoryId, baseCommit: selectedRepository.baseCommit, status,
+        receiptSha256: supplied?.receiptSha256 ?? null, baselineSha256: supplied?.baselineSha256 ?? null,
+        scope: supplied?.scope ?? 'dependency-test' });
+    }
+  }
   const referenceMode = resolution.referenceRepositoryPolicy?.mode ?? 'optional';
   if (referenceMode === 'off' && referenceRepositories.length) {
     throw new SingularityFlowError(
@@ -1046,6 +1101,24 @@ export async function createWorkflow(root, config, {
     changeRequests: [],
     history: [{ at: createdAt, actor: actorKey(actor), agent: agent ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${currentBranch}` }]
   };
+  if (freshTrpPlan.enabled) {
+    const agreement = initialTestRecoveryAgreement(freshTrpPlan, {
+      workId: id, principal: String(actor.email ?? actor.login ?? actor.name), createdAt,
+      phaseIds: workflow.phaseOrder
+    });
+    const agreementPath = `${workDirRelative(config, id)}/context/test-recovery/agreements/revision-${agreement.revision}.json`;
+    const pin = { id: agreement.id, revision: agreement.revision,
+      agreementSha256: agreement.recordSha256, agreementPath, policyAuthoritySha256: agreement.policyAuthoritySha256 };
+    const readiness = { schemaVersion: 1, evidencePurpose: 'baseline-admission-only', repositories: initialTrpRows };
+    workflow.resolution.testRecoveryAgreement = structuredClone(pin);
+    workflow.resolution.testRecoveryInitialReadiness = structuredClone(readiness);
+    workflow.testRecovery = { schemaVersion: 1, ...pin, validationEpoch: 1,
+      confirmedPlanSha256: freshTrpPlan.planDigest, readiness: structuredClone(readiness), readinessHistory: [],
+      route: initialTrpRows.every((row) => row.status === 'pass') ? 'feature-coding' : 'readiness-repair' };
+    await ensureSecureRepositoryDirectory(root, workDirRelative(config, id), { label: 'Story test policy' });
+    await appendTrpRecord(workDir(root, config, id), agreement);
+    for (const baseline of originalTrpBaselines) await appendTrpOriginalBaseline(workDir(root, config, id), baseline);
+  }
   if (capability?.policy?.maxDocumentBytes) {
     workflow.resolution.documents.maxFileBytes = Math.min(
       workflow.resolution.documents.maxFileBytes ?? capability.policy.maxDocumentBytes,
@@ -1105,7 +1178,9 @@ export async function createWorkflow(root, config, {
     );
   }
   await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n${repositoryReadiness && readinessRepositories.length ? '- [context/repository-test-readiness.json](./context/repository-test-readiness.json) — pinned pre-code test tools and existing-failure disposition\n' : ''}${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
-  await ensureWorkIntervalBaseline(root, config, workflow, {
+  const firstPhaseNeedsReadinessRepair = workflow.testRecovery?.route === 'readiness-repair'
+    && phaseRequiresCodeDelivery(phases[0]);
+  if (!firstPhaseNeedsReadinessRepair) await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: phases[0]?.id,
     itemDirectory: workDir(root, config, id),
     itemRelative: workDirRelative(config, id)
@@ -1114,7 +1189,7 @@ export async function createWorkflow(root, config, {
   // Story activation may pin a selected skill package before the qualified host exists. Keep its
   // first phase at an honest generation-zero state; automatic preparation must not surface or run
   // untrusted package instructions through the legacy template/agent path.
-  if (phases[0]?.kind !== 'skill') await preparePhase(root, config, workflow, phases[0]?.id);
+  if (phases[0]?.kind !== 'skill' && !firstPhaseNeedsReadinessRepair) await preparePhase(root, config, workflow, phases[0]?.id);
   await saveWorkflow(root, config, workflow);
   return workflow;
 }
@@ -1742,6 +1817,142 @@ export async function preparePhase(root, config, workflow, requested = undefined
   return result.path;
 }
 
+/** Load an immutable agreement only through the Story's sealed effective-policy pin. */
+export async function loadStoryTestRecoveryAgreement(root, config, workflow) {
+  const pin = workflow.resolution?.testRecoveryAgreement;
+  if (!pin && !workflow.testRecovery && workflow.resolution?.testRecovery?.enabled !== true) return null;
+  if (!pin || !workflow.testRecovery || workflow.resolution?.testRecovery?.enabled !== true
+    || pin.agreementSha256 !== workflow.testRecovery.agreementSha256
+    || pin.agreementPath !== workflow.testRecovery.agreementPath
+    || pin.id !== workflow.testRecovery.id || pin.revision !== workflow.testRecovery.revision
+    || pin.agreementPath !== `${workDirRelative(config, workflow.workItem.id)}/context/test-recovery/agreements/revision-${pin.revision}.json`) {
+    throw new SingularityFlowError('The Story test-policy reference differs from its immutable workflow snapshot.', { code: 'TRP_AGREEMENT_REQUIRED' });
+  }
+  const snapshot = await verifyWorkflowSnapshot(root, config, workflow);
+  if (snapshot.status !== 'ready' || snapshot.closure !== 'verified') {
+    throw new SingularityFlowError('The Story workflow snapshot must verify before loading test policy.', { code: 'TRP_AGREEMENT_REQUIRED' });
+  }
+  const agreement = await readTrpRecord(workDir(root, config, workflow.workItem.id), {
+    kind: 'story-test-recovery-agreement', id: pin.id, revision: pin.revision, recordSha256: pin.agreementSha256
+  });
+  if (agreement.subject.workId !== workflow.workItem.id
+    || agreement.policyAuthoritySha256 !== pin.policyAuthoritySha256
+    || agreement.confirmedPlanSha256 !== workflow.testRecovery.confirmedPlanSha256) {
+    throw new SingularityFlowError('The agreement does not match the Story policy or confirmed creation plan.', { code: 'TRP_AGREEMENT_REQUIRED' });
+  }
+  return agreement;
+}
+
+/** Feature admission is independent of the later phase publication/test-evidence gates. */
+const testRecoveryEnrollmentByWorkflow = new WeakMap();
+
+function hasTestRecoveryPolicy(policy) {
+  return policy?.testRecovery?.enabled === true || policy?.testRecoveryAgreement != null
+    || policy?.testRecoveryInitialReadiness != null;
+}
+
+async function storyHasTestRecovery(root, config, workflow) {
+  if (workflow.testRecovery != null || hasTestRecoveryPolicy(workflow.resolution)) return true;
+  if (!workflow.workflowSnapshot) return false;
+  // Absent mutable fields cannot establish legacy status for an enrolled Story.
+  // Accepted CLI callers already carry the catalog's private verified capability;
+  // direct callers verify once. Only the enrollment fact is cached, scoped to this
+  // exact object, repository and immutable reference, never evidence or authority.
+  const identity = canonicalJson({ root: path.resolve(root), workId: workflow.workItem?.id,
+    snapshot: workflow.workflowSnapshot });
+  const retained = testRecoveryEnrollmentByWorkflow.get(workflow);
+  if (retained?.identity === identity) return retained.enabled;
+  const catalog = await resolveStoryExecutionCatalog(root, config, workflow);
+  const enabled = hasTestRecoveryPolicy(catalog.policy);
+  testRecoveryEnrollmentByWorkflow.set(workflow, { identity, enabled });
+  return enabled;
+}
+
+export async function assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase) {
+  if (!await storyHasTestRecovery(root, config, workflow)) return { enabled: false, featureCodingAllowed: true };
+  if (!phaseRequiresCodeDelivery(phase)) return { enabled: true, featureCodingAllowed: true, applicable: false };
+  const agreement = await loadStoryTestRecoveryAgreement(root, config, workflow);
+  const initial = workflow.resolution.testRecoveryInitialReadiness;
+  let readiness = workflow.testRecovery.readiness;
+  if (!initial || !Array.isArray(initial.repositories)) {
+    throw new SingularityFlowError('The initial readiness binding is absent from the Story snapshot.', { code: 'TRP_READINESS_EVIDENCE_REQUIRED' });
+  }
+  if (readiness?.checkpointSha256) {
+    const retainedCheckpoint = await readTrpReadinessCheckpoint(workDir(root, config, workflow.workItem.id), readiness.checkpointSha256);
+    const checkpointPath = `${workDirRelative(config, workflow.workItem.id)}/context/test-recovery/readiness-checkpoints/${readiness.checkpointSha256.slice(7)}.json`;
+    const committedCheckpoint = exactFileAtObject(root, head(root), checkpointPath);
+    if (canonicalJson(retainedCheckpoint) !== canonicalJson(readiness)
+      || !committedCheckpoint || committedCheckpoint.toString('utf8') !== canonicalJson(readiness)) {
+      throw new SingularityFlowError('The exact readiness checkpoint must be committed before feature admission.', { code: 'TRP_REPAIR_PUBLICATION_REQUIRED' });
+    }
+    const originals = Object.fromEntries(initial.repositories.map((row) => [row.repositoryId, row.baseCommit]));
+    const repairCommits = Object.fromEntries((readiness.repositories ?? []).map((row) => [row.repositoryId, row.featureBaseCommit]));
+    const retained = {};
+    for (const row of readiness.repositories ?? []) {
+      const workRoot = workDir(root, config, workflow.workItem.id);
+      const original = initial.repositories.find((candidate) => candidate.repositoryId === row.repositoryId);
+      retained[row.repositoryId] = await readTrpRepairEvidence(workRoot, row.receiptSha256);
+      const scope = inspectTrpRepairScope(root, { workflow, workRoot,
+        baseCommit: original?.baseCommit, repairCommit: row.featureBaseCommit });
+      if (scope.blockers.length) {
+        throw new SingularityFlowError('The repair checkpoint includes product or baseline-test edits outside the bounded repair scope.',
+          { code: 'TRP_REPAIR_SCOPE_UNAVAILABLE', details: { repositoryId: row.repositoryId, scope } });
+      }
+      const baseline = original?.baselineSha256 ? await readTrpOriginalBaseline(workRoot, original.baselineSha256) : null;
+      assertTrpRepairCohortRetained(baseline, retained[row.repositoryId]);
+    }
+    const expected = completeTrpReadinessRepair({ agreement, currentReadiness: { repositories: retained },
+      baseCommit: originals, repairCommit: repairCommits, originalReadiness: initial });
+    if (canonicalJson(expected) !== canonicalJson(readiness)) {
+      throw new SingularityFlowError('The readiness repair checkpoint no longer matches its exact retained evidence.', { code: 'TRP_REPAIR_EVIDENCE_INVALID' });
+    }
+  } else if (canonicalJson(readiness) !== canonicalJson(initial)) {
+    throw new SingularityFlowError('Initial readiness cannot be changed without a verified repair checkpoint.', { code: 'TRP_READINESS_EVIDENCE_REQUIRED' });
+  }
+  const qualifiedRows = [];
+  for (const row of readiness.repositories ?? []) {
+    if (row.status !== 'pass') { qualifiedRows.push(row); continue; }
+    const inspected = readiness.repositories.length === 1 ? await inspectRepositoryReadinessReceipt(root, {
+      commit: row.featureBaseCommit ?? row.baseCommit, scope: row.scope ?? 'dependency-test', recompute: false
+    }) : null;
+    qualifiedRows.push(inspected?.status === 'pass' && inspected.receipt.receiptSha256 === row.receiptSha256
+      ? row : { ...row, status: 'unavailable-on-current-host' });
+  }
+  const qualified = { ...workflow, workId: workflow.workItem.id,
+    testRecovery: { ...workflow.testRecovery, readiness: { ...readiness, repositories: qualifiedRows } } };
+  const admission = assertTrpFeatureAdmission(qualified, phase, { agreement });
+  return { ...admission, ...(readiness?.checkpointSha256 && qualifiedRows.length === 1 ? {
+    featureBaseCommit: qualifiedRows[0].featureBaseCommit, readinessCheckpointSha256: readiness.checkpointSha256
+  } : {}) };
+}
+
+/** Only verified repair admission can move an unopened first feature baseline. */
+async function ensureStoryFeatureWorkInterval(root, config, workflow, phase, admission) {
+  const options = { phaseId: phase.id, itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id) };
+  if (admission.featureBaseCommit && phaseRequiresCodeDelivery(phase)) {
+    const codePhases = Object.values(workflow.phases ?? {}).filter(phaseRequiresCodeDelivery);
+    const hasPublishedFeature = codePhases.some((candidate) => Number(candidate.generation ?? 0) > 0);
+    if (!hasPublishedFeature) {
+      const current = workflow.workIntervals?.current;
+      const samePhase = current?.phaseId === phase.id && current.status === 'open';
+      if (codePhases.some((candidate) => candidate.generationIntent)
+        && (!samePhase || current.sourceBaseCommit !== admission.featureBaseCommit)) {
+        throw new SingularityFlowError('A readiness repair cannot change an already-open feature generation boundary.',
+          { code: 'TRP_FEATURE_BASE_ALREADY_OPEN' });
+      }
+      options.sourceBaseCommit = admission.featureBaseCommit;
+      options.baselineTag = `trp-repair-${admission.readinessCheckpointSha256.slice(7, 39)}`;
+      if (samePhase && current.sourceBaseCommit !== admission.featureBaseCommit) {
+        // Keep the original file and history entry intact. The new baseline has a
+        // distinct path and ordinal, and is still checked by ordinary interval integrity.
+        workflow.workIntervals.current = null;
+      }
+    }
+  }
+  return ensureWorkIntervalBaseline(root, config, workflow, options);
+}
+
 function committedArtifactBaseline(root, relativePath) {
   const result = run('git', ['show', `HEAD:${relativePath}`], {
     cwd: root, allowFailure: true, maxBuffer: 16 * 1024 * 1024
@@ -1756,14 +1967,13 @@ export async function beginPhaseGeneration(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'begin code generation');
   const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
+  const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   assertSkillPhaseHostReady(workflow, phase, 'begin code generation for');
   if (!phaseRequiresCodeDelivery(phase)) {
     throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
   }
   await assertPlannedSpecificationClaims(root, config, workflow, phase);
-  const itemDirectory = workDir(root, config, workflow.workItem.id);
-  const itemRelative = workDirRelative(config, workflow.workItem.id);
-  await ensureWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory, itemRelative });
+  await ensureStoryFeatureWorkInterval(root, config, workflow, phase, testAdmission);
   const session = await loadSession(root, { required: false });
   return beginCodeGeneration(root, config, workflow, phase, {
     adoptExisting,
@@ -1778,6 +1988,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
 } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   if (!dryRun) assertSkillPhaseHostReady(workflow, phase, 'prepare');
   let references = [];
   if (!dryRun) {
@@ -1819,11 +2030,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     if (phaseRequiresCodeDelivery(phase)) {
       await assertPlannedSpecificationClaims(root, config, workflow, phase);
     }
-    await ensureWorkIntervalBaseline(root, config, workflow, {
-      phaseId: phase.id,
-      itemDirectory,
-      itemRelative
-    });
+    await ensureStoryFeatureWorkInterval(root, config, workflow, phase, testAdmission);
   }
   const targetRelative = posix(path.relative(root, path.join(itemDirectory, phase.requiredArtifact.path)));
   const securedTarget = await secureRepositoryPath(root, targetRelative, {
@@ -2799,6 +3006,7 @@ export async function publishGeneration(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
+  await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   assertSkillPhaseHostReady(workflow, phase, 'publish');
   // Deterministic generation is kernel-owned and deliberately carries no phase-agent session.
   // Its explicit authorship still binds the human Git identity that invoked the publication.
@@ -2898,10 +3106,23 @@ export async function publishGeneration(root, config, workflow, {
   // generation recovery for a failure the kernel could have detected earlier.
   if (deliveryPreflight) {
     await preflightCodeDeliveryTests(root, config, workflow, phase, deliveryPreflight);
+    const testedSelection = deliveryPreflight.trpSelection ?? null;
     // Tests are repository-owned programs and may generate or rewrite files. Rebind delivery
     // evidence after they finish so publication never commits bytes that were absent from the
     // preflight change set or retains hashes for bytes the test command changed.
     deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+    if (testedSelection) {
+      const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: deliveryPreflight });
+      const refreshed = await resolveTrpDeliverySelection(root, config, workflow, phase, deliveryPreflight, commands,
+        { previewOnly: true });
+      // The selector owns the semantic source/command binding. Its own generated
+      // manifest and volatile capture timestamps must not invalidate that binding.
+      if (!refreshed.preview?.ready || refreshed.preview.planDigest !== testedSelection.planDigest) {
+        throw new SingularityFlowError('The candidate changed after its approved test selection ran. Review the new selection before publication.',
+          { code: 'TRP_TEST_SELECTION_STALE' });
+      }
+      deliveryPreflight.trpSelection = testedSelection;
+    }
   }
   // Auto adds an exact constraint to the ordinary Story transaction; it never owns a second
   // publication path. Re-read the immutable Candidate after all preflight tests and before the
@@ -4027,7 +4248,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       { code: 'CODE_TEST_RESULT_REQUIRED' }
     );
   }
-  const commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence }))
+  let commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence }))
     .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
     .map((command, index) => ({
       ...normalizeRequiredTestCommand(command, index),
@@ -4049,6 +4270,11 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     }));
   if (!commands.length) {
     throw structuredTestCommandRequiredError(phase);
+  }
+  if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
+    const selection = await resolveTrpDeliverySelection(root, config, workflow, phase, deliveryEvidence, commands, { persist: true });
+    commands = selection.commands;
+    if (selection.reference) deliveryEvidence.trpSelection = selection.reference;
   }
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
@@ -4254,7 +4480,8 @@ async function submitPhaseTransition(root, config, workflow, {
   // submission because normal repository file access is the permanent fallback.
   await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
   const codeDeliveryRequired = phaseRequiresCodeDelivery(phase);
-  const deliveryCommands = await resolveDeliveryQualityCommands(root, phase);
+  let deliveryCommands = await resolveDeliveryQualityCommands(root, phase);
+  let trpSelection = null;
   let requiredTestCommands = [];
   if (codeDeliveryRequired) {
     if (workflow.resolution?.codeDelivery?.tests?.executionAssurance === 'testcase-exact') {
@@ -4299,6 +4526,15 @@ async function submitPhaseTransition(root, config, workflow, {
       }));
     if (!requiredTestCommands.length) {
       throw structuredTestCommandRequiredError(phase);
+    }
+    if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
+      trpSelection = await resolveTrpDeliverySelection(root, config, workflow, phase, evidence, [
+        ...deliveryCommands.filter((command) => !command || typeof command !== 'object' || Array.isArray(command) || command.kind !== 'test'),
+        ...requiredTestCommands
+      ], { persist: true });
+      deliveryCommands = trpSelection.commands;
+      requiredTestCommands = deliveryCommands.filter((command) => command?.kind === 'test');
+      if (trpSelection.reference) evidence.trpSelection = trpSelection.reference;
     }
   }
   // A Change Flight Plan is advisory until accepted, then becomes an exact scope binding. Compute
@@ -4412,7 +4648,8 @@ async function submitPhaseTransition(root, config, workflow, {
   phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow, deliveryCommands, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
     commandProvenance: new Map(deliveryCommands.map((command) => [command,
-      (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred']))
+      trpSelection && command?.kind === 'test' ? command.provenance
+        : (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred']))
   }) : [];
   if (!codeDeliveryRequired) {
     // These phases validate the process exit, not a fresh structured test receipt. An exit-zero

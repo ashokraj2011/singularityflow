@@ -3276,7 +3276,8 @@ export async function inspectRepositoryOnboardingProposal(remote, requestedBranc
   env = process.env, runRemoteCommand = runRemoteGitAsync,
   cleanupQueueRoot = null, includeDiff = true
 } = {}) {
-  const repository = await repositoryInputRemote(canonicalRepositoryLocator(remote), env);
+  const requestedRepository = canonicalRepositoryLocator(remote);
+  const repository = await repositoryInputRemote(requestedRepository, env);
   const branch = setupProposalBranch(requestedBranch);
   const gitEnv = enterpriseGitEnvironment(env);
   const session = new GitRemoteSession({ env: gitEnv, runAsyncCommand: runRemoteCommand });
@@ -3296,10 +3297,14 @@ export async function inspectRepositoryOnboardingProposal(remote, requestedBranc
       code: 'REPOSITORY_ONBOARDING_PROPOSAL_NOT_FOUND'
     }
   );
-  return inspectSetupProposalSnapshot(repository, branch, proposalCommit,
+  const inspected = await inspectSetupProposalSnapshot(repository, branch, proposalCommit,
     observed.refs.get(CONFIGURATION_REF) ?? null, {
       env: gitEnv, runRemoteCommand, cleanupQueueRoot, includeDiff
     });
+  // A local checkout is inspected through its origin, so `remote` names the origin. Bind the result
+  // to the exact repository the caller chose, as onboarding plans do, so a reviewer of a local
+  // checkout can tell this is the proposal they asked for.
+  return Object.freeze({ ...inspected, repository: repositoryBinding(repository, requestedRepository) });
 }
 
 /** Include onboarding review branches in their own explicit, bounded queue. */

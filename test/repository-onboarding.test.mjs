@@ -2001,6 +2001,20 @@ test('a setup proposal is visible, reviewable, and activates only its exact revi
     assert.equal(detail.proposalCommit, applied.proposal.commit);
     assert.ok(detail.changedFiles.some((file) =>
       file.paths.includes('singularity/workflow.yml')));
+    // A local checkout is inspected through its origin, and the result is bound to the exact
+    // checkout that was chosen, so a reviewer of a local folder can open its own proposal.
+    const checkout = path.join(fixture.base, 'application-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.base });
+    const local = await inspectRepositoryOnboardingProposal(checkout, applied.proposal.branch);
+    assert.equal(local.proposalCommit, applied.proposal.commit);
+    assert.equal(gitRepositoryComparisonKey(local.remote), gitRepositoryComparisonKey(fixture.remote));
+    assert.equal(local.repository.inputIdentity, `sha256:${createHash('sha256').update(checkout).digest('hex')}`);
+    assert.equal(detail.repository.inputIdentity, `sha256:${createHash('sha256').update(fixture.remote).digest('hex')}`);
+    const { setupProposalMatchesLead } = await import('../apps/vscode/src/views/setup-proposal-model.ts');
+    assert.equal(setupProposalMatchesLead(local, checkout), true, 'the panel accepts the checkout it asked about');
+    assert.equal(setupProposalMatchesLead(local, fixture.source), false, 'a different folder is refused');
+    assert.equal(setupProposalMatchesLead({ remote: local.remote }, checkout), false, 'without a binding, a folder never equals its origin URL');
+    assert.equal(setupProposalMatchesLead({ remote: local.remote }, fixture.remote), true);
     await assert.rejects(() => activateRepositoryOnboardingProposal(
       fixture.remote, applied.proposal.branch, { confirm: applied.proposal.commit }
     ), { code: 'REPOSITORY_ONBOARDING_CONFIGURATION_UNPROTECTED' });

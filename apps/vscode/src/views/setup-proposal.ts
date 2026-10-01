@@ -4,11 +4,13 @@ import {
   brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page
 } from './webview.ts';
 import { navigateTo } from './navigate.ts';
-import { sameGitRepository } from '../repository-refresh-model.ts';
+import { setupProposalMatchesLead } from './setup-proposal-model.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
 
 export interface SetupProposal {
   remote: string;
+  /** The exact repository input this result answers (a local checkout resolves to its origin). */
+  repository?: { url: string; identity: string; inputIdentity: string } | null;
   branch: string;
   targetBranch: 'sflow/config';
   targetCommit: string | null;
@@ -37,10 +39,10 @@ type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null; 
 const COMMIT = /^[0-9a-f]{40,64}$/i;
 const BRANCH = /^sflow\/config-change\/onboarding\/(?:create|restore|migrate|recreate)-[0-9a-f]{12}$/;
 
-function setupProposal(value: unknown, lead: string, branch: string): SetupProposal | null {
+export function setupProposal(value: unknown, lead: string, branch: string): SetupProposal | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<SetupProposal>;
-  if (typeof candidate.remote !== 'string' || !sameGitRepository(candidate.remote, lead)
+  if (!setupProposalMatchesLead(candidate, lead)
     || candidate.branch !== branch
     || candidate.targetBranch !== 'sflow/config'
     || typeof candidate.proposalCommit !== 'string' || !COMMIT.test(candidate.proposalCommit)

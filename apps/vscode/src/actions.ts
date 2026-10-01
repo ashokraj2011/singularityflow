@@ -167,8 +167,12 @@ function isSelfApprovalRefusal(error: unknown): boolean {
   return error instanceof CliError && /--acknowledge-self-approval/.test(error.message);
 }
 
-function softSequenceGate(error: unknown): string | null {
-  if (!(error instanceof CliError) || !/Soft gate confirmation requires an interactive terminal/.test(error.message)) return null;
+export function softSequenceGate(error: unknown): string | null {
+  if (!(error instanceof CliError)) return null;
+  // Current engines name the exact override to add; older ones said a terminal was required.
+  const named = error.message.match(/--confirm-override continue:([A-Za-z]+)/)?.[1];
+  if (named) return named;
+  if (!/Soft gate confirmation requires an interactive terminal/.test(error.message)) return null;
   return error.message.match(/Soft sequence warning \[([^\]]+)\]/)?.[1] ?? null;
 }
 
@@ -242,22 +246,32 @@ export async function runGovernedAction(
         return false;
       }
     }
-    const gate = softSequenceGate(error);
+    let gate = softSequenceGate(error);
     if (gate) {
-      const expected = `continue:${gate}`;
-      const confirmed = await askConfirmation({
-        expected,
-        summary: `Continue through soft sequence gate '${gate}'`
-      });
-      if (!confirmed) {
-        void vscode.window.setStatusBarMessage('$(circle-slash) Sequence override declined; nothing changed.', 4_000);
-        return false;
+      // One command can meet more than one soft gate (a phase awaiting approval, then a document's
+      // upload window). Confirm each in turn and keep every confirmation for the next attempt; a
+      // failure that is not a new gate is shown as it is, not the first refusal.
+      const overrides: string[] = [];
+      let failure: unknown = error;
+      while (gate && !overrides.includes(`continue:${gate}`) && overrides.length < 4) {
+        const confirmed = await askConfirmation({
+          expected: `continue:${gate}`,
+          summary: `Continue through soft sequence gate '${gate}'`
+        });
+        if (!confirmed) {
+          void vscode.window.setStatusBarMessage('$(circle-slash) Sequence override declined; nothing changed.', 4_000);
+          return false;
+        }
+        overrides.push(confirmed);
+        try { return await run([...args, ...overrides.flatMap((value) => ['--confirm-override', value])]); }
+        catch (retryError) {
+          failure = retryError;
+          gate = softSequenceGate(retryError);
+        }
       }
-      try { return await run([...args, '--confirm-override', confirmed]); }
-      catch (retryError) {
-        showRefusal(error);
-        return false;
-      }
+      output.appendLine(`  failed: ${(failure as Error).message}`);
+      showRefusal(failure);
+      return false;
     }
     // The engine refuses a self-approval rather than silently recording one. Ask, then retry with the
     // acknowledgement — the second attempt is a different, explicitly weaker act, and says so.
@@ -269,7 +283,8 @@ export async function runGovernedAction(
       try {
         return await run([...args, '--acknowledge-self-approval']);
       } catch (retryError) {
-        showRefusal(error);
+        output.appendLine(`  failed: ${(retryError as Error).message}`);
+        showRefusal(retryError);
         return false;
       }
     }

@@ -479,6 +479,17 @@ const KNOWN = Object.freeze({
         null, 'remediation')
     ];
   },
+  SEQUENCE_CONFIRMATION_REQUIRED: (_argv, error) => {
+    const gate = /^[A-Za-z]+$/.test(error?.details?.gate ?? '') ? error.details.gate : null;
+    return [step(
+      'confirm-soft-gate',
+      gate
+        ? `To continue past this soft gate, run the same command again with --confirm-override continue:${gate} added; the override is recorded. Otherwise take the Story's next step instead.`
+        : 'To continue past this soft gate, run the same command again in an interactive terminal and confirm; the override is recorded.',
+      null,
+      'remediation'
+    )];
+  },
   CLARIFICATION_MODE_OFF: (_argv, error) => {
     const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
       ? error.details.phase : null;
@@ -521,6 +532,8 @@ export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
   const repositoryRunnerBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+  // A soft gate names its own way through; generic help and diagnostics only bury it.
+  const softGateBlocked = code === 'SEQUENCE_CONFIRMATION_REQUIRED';
   const pinnedTestPolicyBlocked = ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(code)
     && error?.details?.configurationDependency === true;
   const requiredTestBlocked = /^CODE_TEST_[A-Z0-9_]+$/u.test(code)
@@ -555,7 +568,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
-  const ordered = repositoryRunnerBlocked || pinnedTestPolicyBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+  const ordered = repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
@@ -585,6 +598,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Retry only after the identified test, report, or source-mutation condition is repaired and the current phase is rechecked. Do not repeat an unchanged failing run.'
     : code === 'CLARIFICATION_MODE_OFF'
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
+    : softGateBlocked
+    ? 'Run it again with the override added, or take the Story\'s next step; repeating it unchanged is refused the same way.'
     : authoringIncomplete
       ? 'Retry the original command only after the author has corrected every finding and the same read-only prepublish check reports ready.'
       : 'Retry the original command only after the blocking condition is resolved.';

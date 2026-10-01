@@ -16,7 +16,7 @@
       "counts": {
         "command-run": 6
       },
-      "digest": "fef58903381c49813270fb6b1db21e89bed9f2a079828878d9b0fa619e3612e9"
+      "digest": "a0fed3643cf196f380fde0ecb8f9ac4c8d417ab5c8962da9d28a700e9b8a059c"
     },
     "apps/vscode/src/cli/runner.ts": {
       "counts": {

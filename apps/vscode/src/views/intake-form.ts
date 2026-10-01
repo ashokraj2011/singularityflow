@@ -74,6 +74,27 @@ export function suggestedStoryDocumentName(fileName: string): string {
 }
 
 /** A slot's name; a draft saved before names existed takes the suggestion for its file. */
+/**
+ * A staged document's phases as the chosen workflow can use them. A refreshed catalog or another
+ * base can drop a phase the person had chosen; that phase is left out rather than sent to a Story
+ * start that would refuse it after its worktree was built. `emptied` means none of its phases remain.
+ */
+export function storyAttachmentPhases(form: IntakeForm, entry: StoryAttachmentDraft): {
+  phases: string[] | null; dropped: string[]; emptied: boolean;
+} {
+  const available = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.phases ?? [];
+  if (!entry.phases?.length || !available.length) return { phases: entry.phases ?? null, dropped: [], emptied: false };
+  const kept = available.filter((phase) => entry.phases!.includes(phase));
+  const dropped = entry.phases.filter((phase) => !available.includes(phase));
+  return { phases: kept.length && kept.length < available.length ? kept : null, dropped, emptied: kept.length === 0 };
+}
+
+/** Where a staged document is kept, as the chosen workflow allows: its choice, else the default. */
+function storyAttachmentStore(form: IntakeForm, entry: StoryAttachmentDraft): 'git' | 'local' {
+  const storage = storyDocumentStorage(form);
+  return entry.store && storage.allowed.includes(entry.store) ? entry.store : storage.default;
+}
+
 export function storyAttachmentName(entry: StoryAttachmentDraft): string {
   return typeof entry.name === 'string' ? entry.name : suggestedStoryDocumentName(entry.displayName || entry.sourcePath);
 }
@@ -440,6 +461,8 @@ export function intakeProblems(form: IntakeForm): string[] {
     form.storyAttachments.forEach((entry, index) => {
       if (entry && Array.isArray(entry.phases) && !entry.phases.length) {
         problems.push(`Choose at least one phase that uses document ${index + 1} (${entry.displayName}).`);
+      } else if (entry && storyAttachmentPhases(form, entry).emptied) {
+        problems.push(`Document ${index + 1} (${entry.displayName}) was used only in phases this workflow does not have (${storyAttachmentPhases(form, entry).dropped.join(', ')}). Choose which phases use it.`);
       }
     });
     if (!form.baseBranch) {
@@ -506,13 +529,12 @@ export function intakeCommand(form: IntakeForm): string[] {
   const selected = form.storyAttachments.filter((entry): entry is StoryAttachmentDraft => Boolean(entry));
   // Each document's storage and phases go once per --document, in the same order. Storage is always
   // stated, so a repository whose policy defaults to this machine keeps a "Committed to Git" choice
-  // in Git; phases are passed only when one is narrowed.
-  const storage = storyDocumentStorage(form);
+  // in Git; phases are passed only when one is narrowed, and only phases the workflow has.
   const attachments = [
     ...selected.flatMap((entry) => ['--document', entry.sourcePath, '--document-name', storyAttachmentName(entry).replace(/\s+/gu, ' ').trim()]),
-    ...selected.flatMap((entry) => ['--document-store', entry.store ?? storage.default]),
-    ...(selected.some((entry) => entry.phases?.length)
-      ? selected.flatMap((entry) => ['--document-phases', entry.phases?.length ? entry.phases.join(',') : 'all']) : [])
+    ...selected.flatMap((entry) => ['--document-store', storyAttachmentStore(form, entry)]),
+    ...(selected.some((entry) => storyAttachmentPhases(form, entry).phases?.length)
+      ? selected.flatMap((entry) => ['--document-phases', storyAttachmentPhases(form, entry).phases?.join(',') ?? 'all']) : [])
   ];
   const isolated = ['--isolated-worktree'];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
@@ -1015,9 +1037,10 @@ export function storyDocumentStorage(form: IntakeForm): { allowed: Array<'git' |
 /** Where one staged document is kept and which phases use it. */
 function storyAttachmentOptionsHtml(form: IntakeForm, entry: StoryAttachmentDraft, index: number): string {
   const phases = form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.phases ?? [];
-  const chosen = entry.phases ?? phases;
+  const effective = storyAttachmentPhases(form, entry);
+  const chosen = effective.emptied ? [] : effective.phases ?? phases;
   const storage = storyDocumentStorage(form);
-  const store = entry.store ?? storage.default;
+  const store = storyAttachmentStore(form, entry);
   const labels = {
     git: 'Committed to Git — everyone on the Story gets it',
     local: 'On this machine only — Git records name, size and SHA-256'

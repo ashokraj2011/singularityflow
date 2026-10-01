@@ -702,3 +702,44 @@ test('documents are stored byte for byte, and a checkout that rewrote line endin
   assert.notEqual(pointer.status, 0);
   assert.match(pointer.stderr, /is a Git LFS pointer in this checkout, not its bytes\. Run git lfs pull/);
 });
+
+test('a late upload names each soft gate it needs, and passes with one --confirm-override per gate', async () => {
+  const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-late-upload-'));
+  const notes = path.join(uploads, 'late.md'); await writeFile(notes, '# Late\nA late note.\n');
+  flow(root, ['start', 'LATE-1', '--from-branch', 'main', '--title', 'Late upload']);
+  const itemDirectory = path.join(root, 'singularity/work-items/LATE-1');
+  const artifactOf = async (phase) => {
+    const state = JSON.parse(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8'));
+    return path.join(itemDirectory, state.phases[phase].requiredArtifact.path);
+  };
+  const intake = await artifactOf('intake');
+  await writeFile(intake, (await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
+  flow(root, ['phase', 'publish', 'intake']); flow(root, ['submit']); flow(root, ['approve', '--yes']);
+  flow(root, ['prepare', 'requirements']);
+  const requirements = await artifactOf('requirements');
+  let clause = 0;
+  await writeFile(requirements, (await readFile(requirements, 'utf8')).replace(/TODO[^\n]*/g,
+    () => `Requirement [APP:REQ-${String(++clause).padStart(3, '0')}]: the customer sees the ledger total before payment.`));
+  flow(root, ['phase', 'publish', 'requirements']); flow(root, ['submit']);
+
+  // Requirements awaits approval and documents are added only during intake: two soft gates.
+  const plain = flow(root, ['documents', 'upload', notes, '--name', 'Late note'], { allowFailure: true });
+  assert.equal(plain.status, 2);
+  assert.match(plain.stderr, /Soft sequence warning \[phaseStatus\]/);
+  assert.match(plain.stderr, /add --confirm-override continue:phaseStatus/);
+  assert.doesNotMatch(plain.stderr, /requires an interactive terminal\. Nothing/);
+  const first = flow(root, ['documents', 'upload', notes, '--name', 'Late note', '--confirm-override', 'continue:phaseStatus'], { allowFailure: true });
+  assert.equal(first.status, 2);
+  assert.match(first.stderr, /Soft sequence warning \[documentPhase\]/);
+  assert.match(first.stderr, /add --confirm-override continue:documentPhase/);
+  assert.doesNotMatch(first.stderr, /Required next action|singularity-flow prepare/,
+    'the Story\'s own next step is not offered as the way to add a document');
+  assert.equal(JSON.parse(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8')).phases.requirements.status,
+    'awaiting_approval', 'a refused attempt changes nothing');
+
+  flow(root, ['documents', 'upload', notes, '--name', 'Late note',
+    '--confirm-override', 'continue:phaseStatus', '--confirm-override', 'continue:documentPhase']);
+  const after = JSON.parse(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8'));
+  assert.deepEqual(after.sequenceOverrides.map((override) => override.gate), ['phaseStatus', 'documentPhase']);
+  assert.equal(after.phases.requirements.status, 'in_progress');
+});

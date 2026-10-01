@@ -6083,10 +6083,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absolute));
       return;
     }
+    // A supporting document is pinned by SHA-256: saving an edit would break that, so it opens
+    // locked for this session rather than as an ordinary file.
     await openArtifact(client.repository, {
       kind: 'source', id: `evidence:${item.target.kind}:${item.id}`,
-      label: item.label, path: item.path, readOnly: item.status === 'detached'
+      label: item.label, path: item.path
     });
+    await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession').then(undefined, () => undefined);
+    void vscode.window.setStatusBarMessage(`$(lock-small) ${item.id} is a supporting document pinned by SHA-256; it opens read-only.`, 6_000);
   };
 
   const detachEvidenceItem = async (item: EvidenceCatalogItem): Promise<void> => {
@@ -7150,8 +7154,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void refreshReadiness(true);
       void refreshWorkspaceLogsTree();
     },
+    // A supporting document in a tree opens the way the evidence manager opens it: an image or PDF in
+    // its viewer, an Office file as its extracted text, a text file read-only. Only artifacts go
+    // through the plain text editor, which has no way to show a binary file.
     'singularityFlow.openArtifact':
-      ((node?: TreeNode) => openArtifact(repository, node, cliPackageRoot)) as never,
+      ((node?: TreeNode) => {
+        const evidence = resolveEvidenceNode(node);
+        return evidence ? openEvidence(evidence) : openArtifact(repository, node, cliPackageRoot);
+      }) as never,
     'singularityFlow.runAction': runNode as never,
     'singularityFlow.prepareStoryPhase': ((node?: TreeNode) => runStoryPhase('prepare', node)) as never,
     'singularityFlow.publishStoryPhase': ((node?: TreeNode) => runStoryPhase('publish', node)) as never,

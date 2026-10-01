@@ -10,7 +10,7 @@ const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name)
 const {
   EMPTY_INTAKE_FORM, INTAKE_SCRIPT, MAX_STORY_ATTACHMENT_SLOTS,
   MIN_STORY_ATTACHMENT_SLOTS, intakeCommand, intakeHtml, mergeStoryAttachments,
-  storyAttachmentNameProblems, suggestedStoryDocumentName
+  storyAttachmentNameProblems, suggestedStoryDocumentName, intakeProblems
 } = await import(source('intake-form.ts'));
 
 const story = (overrides = {}) => ({
@@ -258,4 +258,27 @@ test('the intake host owns file selection and bounds the attachment list', async
   }));
   assert.match(full, /data-attachments-pick disabled/);
   assert.doesNotMatch(full, /data-attachment-add/);
+});
+
+test('a document keeps only the phases its workflow still has, and Start waits when none remain', () => {
+  const choices = {
+    storyWorkflows: [{ id: 'spec-driven-standard', label: 'Spec', description: '', phases: ['specification', 'planning', 'implementation'] }],
+    workType: 'spec-driven-standard', baseBranch: 'main', basePreflightPassed: true
+  };
+  // A refreshed catalog no longer has 'design', which the person had chosen with 'planning'.
+  const partly = { sourcePath: '/source/brief.md', displayName: 'brief.md', name: 'Brief', phases: ['design', 'planning'] };
+  const command = intakeCommand(story({ ...choices, storyAttachments: [partly, null, null, null] }));
+  assert.deepEqual(command.slice(command.indexOf('--document-phases')), ['--document-phases', 'planning'],
+    'a phase the workflow no longer has is never sent to Story start');
+  assert.ok(!intakeProblems(story({ ...choices, storyAttachments: [partly, null, null, null] }))
+    .some((problem) => /Document 1/.test(problem)));
+  assert.match(intakeHtml(story({ ...choices, storyAttachments: [partly, null, null, null] })),
+    /data-attachment-phase="0" data-phase="planning" checked/);
+
+  const gone = { ...partly, phases: ['design'] };
+  const problems = intakeProblems(story({ ...choices, storyAttachments: [gone, null, null, null] }));
+  assert.ok(problems.some((problem) => /Document 1 \(brief\.md\) was used only in phases this workflow does not have \(design\)\. Choose which phases use it\./.test(problem)),
+    'Start waits rather than widening the document to every phase');
+  assert.doesNotMatch(intakeHtml(story({ ...choices, storyAttachments: [gone, null, null, null] })), /data-phase="[a-z-]+" checked/,
+    'no phase is shown as chosen');
 });

@@ -73,7 +73,7 @@ import {
   repairPromptAudits, setPromptAudit, setPromptAuditRetention
 } from './prompt-audit.mjs';
 import { clearHelpMetrics, helpMetricsStatus, setHelpMetrics } from './help-metrics.mjs';
-import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
+import { assertPhaseSequence, sequenceConfirmationRequired, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import {
@@ -1999,6 +1999,7 @@ export async function startCommand(positionals, options) {
         { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
       );
     }
+    refuseStartDocumentsForExistingStory(id, explicitFiles, explicitUrls);
     const requested = await externalSource();
     const existingIdentity = workflowSourceIdentity(localStory.state);
     if (requested?.stableId && existingIdentity && requested.stableId !== existingIdentity) {
@@ -2201,6 +2202,7 @@ export async function startCommand(positionals, options) {
           { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
         );
       }
+      refuseStartDocumentsForExistingStory(id, explicitFiles, explicitUrls);
       const requested = await externalSource();
       const existingIdentity = workflowSourceIdentity(remoteStory.state);
       if (requested?.stableId && existingIdentity && requested.stableId !== existingIdentity) {
@@ -4723,6 +4725,18 @@ async function nextCommand(options) {
       });
     }
   }
+}
+
+/**
+ * Documents given to start belong to a new Story's opening record. Resuming a Story would drop them
+ * without a word, so it refuses and names the command that adds them to the Story that exists.
+ */
+function refuseStartDocumentsForExistingStory(id, files, urls) {
+  if (!files.length && !urls.length) return;
+  throw new SingularityFlowError(
+    `Story '${id}' already exists, so the ${files.length + urls.length} document(s) given here would not be added. Resume it without --document or --document-url, then add them with singularity-flow documents upload <FILE...> --name <NAME>... (or --url <URL> --name <NAME>). Nothing was changed.`,
+    { code: 'STORY_START_DOCUMENTS_STORY_EXISTS', details: { workId: id, documents: files.length + urls.length } }
+  );
 }
 
 /**
@@ -17179,11 +17193,17 @@ async function dispatch(command, positionals, options) {
     bootstrap: () => bootstrapCommand(positionals, options)
   });
   const invoke = () => handlers[canonicalCommand(command)]();
-  const override = optionString(options, 'confirm-override');
+  // One --confirm-override per soft gate, repeated or comma-separated: a phase awaiting approval can
+  // meet two gates in one command. A gate it does not name is refused with the exact value to add.
+  const overrides = new Set(optionStrings(options, 'confirm-override')
+    .flatMap((value) => String(value).split(',')).map((value) => value.trim()).filter(Boolean));
   try {
-    if (override) {
+    if (overrides.size) {
       return withConfirmationPort(
-        (_message, gate) => override === `continue:${gate}`,
+        (message, gate) => {
+          if (overrides.has(`continue:${gate}`)) return true;
+          throw sequenceConfirmationRequired(message, gate);
+        },
         invoke
       );
     }

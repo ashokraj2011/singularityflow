@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "ba301cd5a7d1e3a1da341477e2e8badddadd3ad8",
-  "topicCount": 70,
-  "contentSha256": "08a082da0266303179ace56d245cdc3e5b3ad5a8206cb8514fd54e6b6382cdab",
+  "sourceCommit": "74aed862617478eaeccbfa9a2f47afc56ab0d36f",
+  "topicCount": 71,
+  "contentSha256": "3cf6a6ae92bf4f168bdf69cd36b03707464fdc995556f64c83848563d793ba99",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -244,6 +244,14 @@
       "sha256": "42a1c7a2374394a4e5b529cb651b1d687585b30a504dd8de333b2571ad2a9837",
       "routingSha256": "01a02600f566bf118bcce46fa2556335513c19e32ac61e1c12a6d1e860ec6a0f",
       "file": "impact-framework.md"
+    },
+    {
+      "id": "importing-assets",
+      "title": "Importing skills, templates, and agents",
+      "version": 2,
+      "sha256": "eb9f66c4bca15db283d8abc6a741ae6979f6086399dbd53ed2a79cc629e1bf3e",
+      "routingSha256": "c927cd630b7c5f17205b1f1d182dc1f3e494aee50b138ff2b95216c9111b5a24",
+      "file": "importing-assets.md"
     },
     {
       "id": "inbox-and-review",

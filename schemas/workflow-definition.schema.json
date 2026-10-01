@@ -440,6 +440,21 @@
       "description": "Governed references to MCP servers configured by the Copilot or VS Code host. Credentials and transport details never belong here.",
       "additionalProperties": { "$ref": "#/$defs/mcpServer" }
     },
+    "marketplaces": {
+      "type": "object",
+      "description": "Catalogs this repository trusts for imported skills, templates and agents. Each names its HTTPS index and any further origins its files may come from; an index can never widen that.",
+      "propertyNames": { "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["index"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "index": { "type": "string", "pattern": "^https://" },
+          "allowedOrigins": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^https://[^/]+/?$" } }
+        },
+        "additionalProperties": false
+      }
+    },
     "ast": {
       "type": "object",
       "description": "Optional bounded structural intelligence. Compiler adapters are external to the kernel.",

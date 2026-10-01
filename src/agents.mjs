@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { lookup as dnsLookup } from 'node:dns/promises';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
-import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
-import { BlockList, isIP } from 'node:net';
 import YAML from 'yaml';
-import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
+import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeBytes, writeJson, writeText, SingularityFlowError } from './util.mjs';
+import {
+  DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES, fetchRemoteMarkdown, validatePublicHttpsUrl
+} from './remote-fetch.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -13,13 +13,16 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 import { BUILTIN_VIEW_IDS } from './world-model/registry/views.mjs';
 
+export { fetchRemoteMarkdown, isPublicRemoteAddress, resolvePublicRemoteHost } from './remote-fetch.mjs';
+
 export const AGENT_LOCK_PATH = 'singularity/agents.lock.yml';
 export const AGENT_MAPPING_PATH = 'singularity/agent-mappings.yml';
-const DEFAULT_MAX_BYTES = 1024 * 1024;
-const HARD_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_MAX_BYTES = DEFAULT_REMOTE_MAX_BYTES;
+const HARD_MAX_BYTES = HARD_REMOTE_MAX_BYTES;
 const TOKEN_PATTERN = /\{([^}]+)\}/g;
-const ALLOWED_TOKENS = new Set(['workId', 'workType', 'phase', 'generation']);
-const BLOCKED_REMOTE_ADDRESSES = new BlockList();
+const ALLOWED_TOKENS = Object.freeze(['workId', 'workType', 'phase', 'generation']);
+/** Where imported copies of agent dependencies live; only paths under it are accepted in the lock. */
+export const AGENT_VENDOR_ROOT = 'singularity/imports/agents';
 
 // Repository copies of packaged agents remain repository-owned files: their public scope,
 // editability, Story snapshot identity, and hashes must not change. Keep the stronger provenance
@@ -29,18 +32,6 @@ const BLOCKED_REMOTE_ADDRESSES = new BlockList();
 // validation.
 const EXACT_PACKAGED_REPOSITORY_AGENTS = new WeakSet();
 let packagedAgentIdentitiesPromise = null;
-
-for (const [network, prefix] of [
-  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
-  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
-  ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24],
-  ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]
-]) BLOCKED_REMOTE_ADDRESSES.addSubnet(network, prefix, 'ipv4');
-for (const [network, prefix] of [
-  ['::', 128], ['::1', 128], ['64:ff9b:1::', 48], ['100::', 64],
-  ['2001::', 23], ['2001:db8::', 32], ['fc00::', 7], ['fe80::', 10],
-  ['fec0::', 10], ['ff00::', 8]
-]) BLOCKED_REMOTE_ADDRESSES.addSubnet(network, prefix, 'ipv6');
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
 function idPattern(value) { return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value); }
@@ -71,95 +62,7 @@ function parseMaxBytes(value, label) {
 }
 function linkValue(value) { return value.match(/^\[[^\]]*\]\(([^)]+)\)$/)?.[1] ?? value; }
 function validateRemoteUrl(value, label, { dynamic = false } = {}) {
-  const tokens = [...value.matchAll(TOKEN_PATTERN)].map((match) => match[1]);
-  if (!dynamic && tokens.length) throw new SingularityFlowError(`${label} cannot contain template variables.`);
-  for (const token of tokens) if (!ALLOWED_TOKENS.has(token)) throw new SingularityFlowError(`${label} uses unsupported variable '{${token}}'.`);
-  const candidate = dynamic ? value.replace(TOKEN_PATTERN, 'value') : value;
-  let url;
-  try { url = new URL(candidate); } catch { throw new SingularityFlowError(`${label} must be a valid public HTTPS URL.`); }
-  if (url.protocol !== 'https:' || url.username || url.password) throw new SingularityFlowError(`${label} must be a public HTTPS URL without embedded credentials.`);
-  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')
-    || (isIP(host) && !isPublicRemoteAddress(host))) {
-    throw new SingularityFlowError(`${label} must use a public Internet host.`);
-  }
-  return value;
-}
-
-export function isPublicRemoteAddress(address) {
-  const family = isIP(address);
-  if (family === 6 && address.toLowerCase().startsWith('::ffff:')) return false;
-  return family !== 0 && !BLOCKED_REMOTE_ADDRESSES.check(address, family === 4 ? 'ipv4' : 'ipv6');
-}
-
-export async function resolvePublicRemoteHost(url, { lookupImpl = dnsLookup } = {}) {
-  const parsed = new URL(url);
-  const literal = parsed.hostname.replace(/^\[|\]$/g, '');
-  const literalFamily = isIP(literal);
-  const addresses = literalFamily
-    ? [{ address: literal, family: literalFamily }]
-    : await lookupImpl(parsed.hostname, { all: true, verbatim: true });
-  if (!addresses.length) throw new SingularityFlowError(`Remote Markdown host '${parsed.hostname}' did not resolve to an address.`);
-  const blocked = addresses.find((entry) => !isPublicRemoteAddress(entry.address));
-  if (blocked) {
-    throw new SingularityFlowError(
-      `Remote Markdown host '${parsed.hostname}' resolved to non-public address ${blocked.address}; request blocked.`
-    );
-  }
-  // Every returned address is checked, not merely the selected one. Pinning one
-  // validated result below prevents a second DNS lookup from rebinding the host.
-  return addresses[0];
-}
-
-function pinnedHttpsFetch(url, { signal, headers }, resolved, maxBytes) {
-  return new Promise((resolve, reject) => {
-    const request = httpsRequest(url, {
-      method: 'GET',
-      headers,
-      signal,
-      lookup: (_hostname, _options, callback) => callback(null, resolved.address, resolved.family)
-    }, (response) => {
-      const chunks = [];
-      let size = 0;
-      response.on('data', (chunk) => {
-        size += chunk.length;
-        if (size > maxBytes) {
-          response.destroy(new SingularityFlowError(`Remote Markdown ${url} exceeds its ${maxBytes} byte limit.`));
-          return;
-        }
-        chunks.push(chunk);
-      });
-      response.on('error', reject);
-      response.on('end', () => {
-        const bytes = Buffer.concat(chunks);
-        resolve({
-          ok: (response.statusCode ?? 0) >= 200 && (response.statusCode ?? 0) < 300,
-          status: response.statusCode ?? 0,
-          headers: { get: (name) => response.headers[String(name).toLowerCase()] ?? null },
-          arrayBuffer: async () => bytes
-        });
-      });
-    });
-    request.on('error', reject);
-    request.end();
-  });
-}
-
-async function resolveRemoteHostWithTimeout(url, lookupImpl, timeoutMs) {
-  let timeout;
-  try {
-    return await Promise.race([
-      resolvePublicRemoteHost(url, { lookupImpl }),
-      new Promise((_, reject) => {
-        timeout = setTimeout(() => reject(new SingularityFlowError(`DNS lookup for ${url} timed out.`)), timeoutMs);
-      })
-    ]);
-  } catch (error) {
-    if (error instanceof SingularityFlowError) throw error;
-    throw new SingularityFlowError(`Unable to resolve remote Markdown host for ${url}: ${error.message}`);
-  } finally {
-    clearTimeout(timeout);
-  }
+  return validatePublicHttpsUrl(value, label, { dynamic, allowedTokens: ALLOWED_TOKENS });
 }
 
 function parseAgentDocument(text, file) {
@@ -464,52 +367,6 @@ export async function findAgent(root, id) {
   return agent;
 }
 
-async function responseBody(response, maxBytes, label) {
-  if (!response.ok) throw new SingularityFlowError(`${label} returned HTTP ${response.status}.`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (!buffer.length) throw new SingularityFlowError(`${label} returned empty Markdown.`);
-  if (buffer.length > maxBytes) throw new SingularityFlowError(`${label} exceeds its ${maxBytes} byte limit.`);
-  let content;
-  try { content = new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch { throw new SingularityFlowError(`${label} is not valid UTF-8 Markdown.`); }
-  return { content, size: buffer.length, sha256: hash(buffer) };
-}
-
-export async function fetchRemoteMarkdown(url, {
-  maxBytes = DEFAULT_MAX_BYTES,
-  fetchImpl = globalThis.fetch,
-  timeoutMs = 30000,
-  lookupImpl = fetchImpl === globalThis.fetch ? dnsLookup : null
-} = {}) {
-  if (typeof fetchImpl !== 'function') throw new SingularityFlowError('This Node runtime does not provide HTTPS fetch support.');
-  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > HARD_MAX_BYTES) {
-    throw new SingularityFlowError(`Remote Markdown byte limit must be between 1 and ${HARD_MAX_BYTES}.`);
-  }
-  let current = validateRemoteUrl(url, 'Remote Markdown URL');
-  for (let redirects = 0; redirects <= 3; redirects += 1) {
-    const resolved = lookupImpl ? await resolveRemoteHostWithTimeout(current, lookupImpl, timeoutMs) : null;
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    let response;
-    try {
-      const requestOptions = { method: 'GET', redirect: 'manual', signal: controller.signal, headers: { accept: 'text/markdown,text/plain;q=0.9,*/*;q=0.1' } };
-      response = resolved && fetchImpl === globalThis.fetch
-        ? await pinnedHttpsFetch(current, requestOptions, resolved, maxBytes)
-        : await fetchImpl(current, requestOptions);
-    }
-    catch (error) { throw new SingularityFlowError(`Unable to fetch ${current}: ${error.name === 'AbortError' ? 'request timed out' : error.message}`); }
-    finally { clearTimeout(timeout); }
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      if (redirects === 3) throw new SingularityFlowError(`Remote Markdown URL exceeded 3 redirects: ${url}`);
-      const rawLocation = response.headers.get('location');
-      const location = Array.isArray(rawLocation) ? rawLocation[0] : rawLocation;
-      if (!location) throw new SingularityFlowError(`Remote Markdown redirect has no location: ${current}`);
-      current = validateRemoteUrl(new URL(location, current).toString(), 'Remote Markdown redirect');
-      continue;
-    }
-    return { ...(await responseBody(response, maxBytes, `Remote Markdown ${current}`)), url, resolvedUrl: current };
-  }
-  throw new SingularityFlowError(`Unable to fetch ${url}.`);
-}
-
 async function loadLock(root) {
   const file = path.join(root, AGENT_LOCK_PATH);
   if (!(await exists(file))) return { version: 1, agents: {} };
@@ -522,20 +379,55 @@ async function saveLock(root, lock) {
   await writeText(path.join(root, AGENT_LOCK_PATH), YAML.stringify(lock));
 }
 
+/**
+ * The imported copy of a locked dependency. It is configuration, so the secure resolver reads the
+ * approved configuration's copy when this process reads approved configuration; only paths under the
+ * agent vendor root are read, and never through a symbolic link.
+ */
+async function vendoredDependency(root, locked) {
+  const target = await secureRepositoryPath(root, portableVendoredPath(locked.vendored), {
+    label: 'Imported agent dependency', type: 'file'
+  });
+  if (!target.exists) return { exists: false, size: 0, sha256: null, absolute: null };
+  return { ...(await snapshot(target.absolute)), absolute: target.absolute };
+}
+
+export function portableVendoredPath(value) {
+  const relative = String(value ?? '');
+  if (!relative.startsWith(`${AGENT_VENDOR_ROOT}/`) || relative.includes('\\') || relative.includes('\0')
+      || path.posix.normalize(relative) !== relative || relative.split('/').includes('..')) {
+    throw new SingularityFlowError(`Imported agent dependency path '${relative}' must be a plain path under ${AGENT_VENDOR_ROOT}/.`, { code: 'AGENT_VENDORED_PATH_INVALID' });
+  }
+  return relative;
+}
+
 function cachePath(root, agentId, entry) {
   return repositoryGitPath(root, 'singularity-flow', 'agents', agentId, `${entry.type}-${entry.id}-${entry.sha256}.md`);
 }
 
-export async function resolveAgentLock(root, agent, { fetchImpl = globalThis.fetch } = {}) {
+export async function resolveAgentLock(root, agent, { fetchImpl = globalThis.fetch, existing = null } = {}) {
   const dependencies = [];
   for (const dependency of agent.dependencies) {
     if (dependency.type === 'generated') {
       dependencies.push({ ...dependency, urlTemplate: dependency.url, url: undefined, dynamic: true, sha256: null, size: null, resolvedUrl: null });
       continue;
     }
+    // An imported dependency's bytes were reviewed in the change that vendored them; re-fetching here
+    // would trust new bytes the vendored copy does not contain. It changes only by importing again.
+    const vendored = lockDependency(existing, dependency);
+    if (vendored?.vendored) {
+      if (vendored.url !== dependency.url) {
+        throw new SingularityFlowError(
+          `Agent '${agent.id}' ${dependency.type} '${dependency.id}' was imported from ${vendored.url}, but its row now names ${dependency.url}. Import the new source with singularity-flow import add instead of re-locking.`,
+          { code: 'AGENT_VENDORED_SOURCE_CHANGED' }
+        );
+      }
+      dependencies.push({ ...vendored });
+      continue;
+    }
     try {
       const fetched = await fetchRemoteMarkdown(dependency.url, { maxBytes: dependency.maxBytes, fetchImpl });
-      dependencies.push({ ...dependency, ...fetched, content: undefined });
+      dependencies.push({ ...dependency, sha256: fetched.sha256, size: fetched.size, resolvedUrl: fetched.resolvedUrl });
     } catch (error) {
       if (!dependency.optional) throw error;
       dependencies.push({ ...dependency, status: 'unavailable', error: error.message, sha256: null, size: null, resolvedUrl: null });
@@ -547,7 +439,7 @@ export async function resolveAgentLock(root, agent, { fetchImpl = globalThis.fet
 export async function lockAgent(root, agentId, { update = false, accepted = false, fetchImpl = globalThis.fetch, resolution: suppliedResolution = null } = {}) {
   const agent = await findAgent(root, agentId); const lock = await loadLock(root); const existing = lock.agents[agentId];
   if (existing && !update) throw new SingularityFlowError(`agent '${agentId}' is already locked. Use --update to review new remote hashes.`);
-  const resolution = suppliedResolution ?? await resolveAgentLock(root, agent, { fetchImpl });
+  const resolution = suppliedResolution ?? await resolveAgentLock(root, agent, { fetchImpl, existing });
   if (!accepted) return { agent, resolution, existing, written: false };
   lock.agents[agentId] = resolution; await saveLock(root, lock);
   return { agent, resolution, existing, written: true, path: AGENT_LOCK_PATH };
@@ -568,6 +460,15 @@ async function materializeLocked(root, agent, lockEntry, dependency, { fetchImpl
     if (dependency.optional) return { ...locked, status: 'unavailable', warning: locked.error ?? `Optional ${dependency.id} was unavailable when locked.` };
     throw new SingularityFlowError(`Required ${dependency.type} '${dependency.id}' has no locked hash.`);
   }
+  if (locked.vendored) {
+    const vendored = await vendoredDependency(root, locked);
+    if (vendored.sha256 === locked.sha256) return { ...locked, path: vendored.absolute, status: 'ready', cached: true };
+    const problem = vendored.exists
+      ? `Imported ${dependency.type} '${dependency.id}' at ${locked.vendored} does not match its locked hash ${locked.sha256.slice(0, 12)}.`
+      : `Imported ${dependency.type} '${dependency.id}' is missing from ${locked.vendored}.`;
+    if (dependency.optional) return { ...locked, status: 'unavailable', warning: problem };
+    throw new SingularityFlowError(`${problem} Restore the imported file or import it again.`, { code: 'AGENT_VENDORED_DEPENDENCY_MISMATCH' });
+  }
   const destination = cachePath(root, agent.id, locked);
   const cached = await snapshot(destination);
   if (cached.exists && cached.sha256 === locked.sha256) return { ...locked, path: destination, status: 'ready', cached: true };
@@ -578,7 +479,9 @@ async function materializeLocked(root, agent, lockEntry, dependency, { fetchImpl
     throw error;
   }
   if (fetched.sha256 !== locked.sha256) throw new SingularityFlowError(`Remote ${dependency.type} '${dependency.id}' changed (${locked.sha256.slice(0, 12)} → ${fetched.sha256.slice(0, 12)}). Update the agent lock deliberately.`);
-  await writeText(destination, fetched.content);
+  // The cache must hold the exact locked bytes: re-encoding the text (a missing final newline, a
+  // byte-order mark) would make the cached file differ from its lock forever.
+  await writeBytes(destination, fetched.bytes);
   return { ...locked, path: destination, status: 'ready', cached: false };
 }
 
@@ -606,7 +509,8 @@ export async function agentStatus(root, requestedAgent = null) {
     const dependencies = [];
     for (const dependency of agent.dependencies) {
       const locked = lockDependency(entry, dependency);
-      const cached = locked?.sha256 ? await snapshot(cachePath(root, agent.id, locked)) : { exists: dependency.type === 'generated', sha256: null };
+      const cached = locked?.vendored ? await vendoredDependency(root, locked)
+        : locked?.sha256 ? await snapshot(cachePath(root, agent.id, locked)) : { exists: dependency.type === 'generated', sha256: null };
       dependencies.push({ id: dependency.id, type: dependency.type, optional: dependency.optional, locked: Boolean(locked), sha256: locked?.sha256 ?? null, status: !entry ? 'unlocked' : sourceChanged ? 'stale-agent' : !locked ? 'missing-lock' : locked.status === 'unavailable' ? 'unavailable' : dependency.type === 'generated' || (cached.exists && cached.sha256 === locked.sha256) ? 'ready' : 'needs-sync' });
     }
     results.push({ id: agent.id, scope: agent.scope, source: agent.source, sourceSha256: agent.sha256, locked: Boolean(entry), sourceChanged, status: !agent.dependencies.length ? 'local-only' : !entry ? 'unlocked' : sourceChanged ? 'stale' : dependencies.every((item) => ['ready', 'unavailable'].includes(item.status)) ? 'ready' : 'needs-sync', dependencies });
@@ -732,7 +636,7 @@ export async function prepareRemoteOutputs(root, workflow, phase, session, {
     const url = expandUrl(dependency.url, workflow, phase);
     try {
       const fetched = await fetchRemoteMarkdown(url, { maxBytes: dependency.maxBytes, fetchImpl });
-      await writeText(target, fetched.content);
+      await writeBytes(target, fetched.bytes);
       const record = { schemaVersion: currentSchemaVersion('remote-agent-output'), workId: workflow.workItem.id, workType: workflow.workItem.workType, phase: phase.id, generation, agent: session.agent, resource: dependency.id, target: dependency.target, url, resolvedUrl: fetched.resolvedUrl, sourceSha256: fetched.sha256, renderedSha256: fetched.sha256, bytes: fetched.size, fetchedAt: nowIso() };
       await writeJson(recordFile, record); outputs.push(record);
     } catch (error) {

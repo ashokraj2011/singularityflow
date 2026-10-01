@@ -332,6 +332,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   if (args[0] === 'documents') return ['list', 'browse'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'decision') return (args[1] ?? 'show') === 'show' ? 'read' : 'mutation';
+  // A preview fetches and stages bytes and a check re-reads sources; neither changes governed state.
+  if (args[0] === 'import') return args[1] === 'preview' ? 'read' : 'mutation';
+  if (args[0] === 'imports') return ['list', 'check'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'marketplace') return ['list', 'browse'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'workflow' && args[1] === 'author') {
     return ['list', 'read', 'show', 'history', 'op-status', 'preview', 'catalog'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
   }
@@ -827,6 +831,7 @@ export class SingularityFlowClient {
     // real timeout still carries the complete terminal recovery command from the shared runner.
     if ((args[0] === 'workflow' && hasOption(args, 'propose'))
         || (args[0] === 'workflow' && args[1] === 'author')
+        || (['import', 'imports', 'marketplace'].includes(args[0] ?? '') && hasOption(args, 'propose'))
         || (args[0] === 'configuration' && args[1] === 'save' && hasOption(args, 'propose'))) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }

@@ -448,6 +448,30 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Cannot approve ${slot(s.phase, 'this phase')}.`,
     preserves: true
   },
+  'import.added': {
+    headline: (s) => (s.proposed
+      ? `Import of ${slot(s.kind)} ${slot(s.id)} published for review on ${slot(s.branch)}.`
+      : `Imported ${slot(s.kind)} ${slot(s.id)}: ${slot(s.files)} file change(s) written for review.`),
+    preserves: false
+  },
+  'import.removed': {
+    headline: (s) => (s.proposed
+      ? `Removal of import ${slot(s.key)} published for review on ${slot(s.branch)}.`
+      : `Removed import ${slot(s.key)}: ${slot(s.files)} file change(s) written for review.`),
+    preserves: false
+  },
+  'marketplace.added': {
+    headline: (s) => (s.proposed
+      ? `Trusting marketplace ${slot(s.id)} published for review on ${slot(s.branch)}.`
+      : `Marketplace ${slot(s.id)} is trusted: ${slot(s.files)} file change(s) written for review.`),
+    preserves: false
+  },
+  'marketplace.removed': {
+    headline: (s) => (s.proposed
+      ? `No longer trusting marketplace ${slot(s.id)}: published for review on ${slot(s.branch)}.`
+      : `Marketplace ${slot(s.id)} is no longer trusted: ${slot(s.files)} file change(s) written for review.`),
+    preserves: false
+  },
   'decision.choose.succeeded': {
     headline: (s) => (s.kind === 'loop'
       ? `Decision ${slot(s.decision)} chose ${slot(s.route)}; the Story goes back to ${slot(s.target)}.`

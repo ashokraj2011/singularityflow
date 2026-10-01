@@ -114,6 +114,7 @@ skills:
   sflow-docs: { class: echo, executionBoundary: machine }
   sflow-explain: { class: conversational }
   sflow-explain-code: { class: conversational, kernelModelPolicy: conditional }
+  sflow-import: { class: mutation, executionBoundary: repository }
   sflow-specify: { class: echo }
   sflow-plan: { class: echo }
   sflow-review-source: { class: review }

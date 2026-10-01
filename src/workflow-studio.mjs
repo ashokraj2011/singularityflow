@@ -13,10 +13,19 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { discoverAgents, parseAgentDependencies } from './agents.mjs';
+import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies } from './agents.mjs';
+import {
+  IMPORTS_LOCK_PATH, importLedgerKey, importedTemplateRelative, inspectImportContent, ledgerEntry,
+  loadImportsLedger, removeAgentTableRow, renderImportsLedger, requireSha256, resolveChangeSetImports,
+  textOf, upsertAgentTableRow, validateGeneratedSource, vendoredAgentResourcePath
+} from './asset-import.mjs';
+import { normalizeMarketplaces } from './marketplace.mjs';
+import { DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES } from './remote-fetch.mjs';
+import { importsStatus } from './asset-import.mjs';
+import { templateReferences } from './template-catalog.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
@@ -114,7 +123,12 @@ function agentView(agent) {
     scope: agent.scope, phases: [...(agent.phases ?? [])], defaultFor: [...(agent.defaultFor ?? [])],
     tools: [...(agent.tools ?? [])], views: [...(agent.worldModelViews ?? [])],
     path: agent.scope === 'repository' ? agent.source : null,
-    instructions: agent.prompt ?? ''
+    instructions: agent.prompt ?? '',
+    // Skills, templates and generated sources the agent's tables name, for the Library and its card.
+    resources: (agent.dependencies ?? []).map((dependency) => ({
+      id: dependency.id, type: dependency.type, url: dependency.url, optional: dependency.optional === true,
+      ...(dependency.type === 'generated' ? { phase: dependency.phase, target: dependency.target } : { phases: [...(dependency.phases ?? [])] })
+    }))
   };
 }
 
@@ -193,6 +207,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       approves: Object.entries(phases).filter(([, phase]) => approvalSummary(phase.approval).authorities.includes(id)).map(([phaseId]) => phaseId)
     })),
     security: { profile: security.profile, autoEnrollNewIdentities: security.autoEnrollNewIdentities },
+    marketplaces: Object.values(safeMarketplaces(raw.marketplaces, problems)).map((marketplace) => ({ ...marketplace, allowedOrigins: [...marketplace.allowedOrigins] })),
+    imports: await importsStatus(root).catch((error) => { problems.push({ code: error?.code ?? 'IMPORTS_LOCK_INVALID', message: error.message }); return []; }),
     blueprintPhases: Object.fromEntries(Object.entries(starter.phases).filter(([id]) => !phases[id]).map(([id, phase]) => {
       const approval = approvalSummary(phase.approval);
       return [id, {
@@ -324,14 +340,14 @@ export function preserveYamlFormatting(original, edited, options = YAML_OUTPUT) 
 /** A unified diff of two texts, trimmed to the changed region with three lines of context. */
 export function unifiedDiff(before, after, file) {
   const a = before ? before.split('\n') : [];
-  const b = after.split('\n');
+  const b = after == null ? [] : after.split('\n');
   const operations = lineOperations(a, b);
   const first = operations.findIndex(([kind]) => kind !== ' ');
   if (first < 0) return '';
   let last = operations.length - 1;
   while (last > first && operations[last][0] === ' ') last -= 1;
   const from = Math.max(0, first - 3); const to = Math.min(operations.length - 1, last + 3);
-  const lines = [`--- ${before == null ? '/dev/null' : `a/${file}`}`, `+++ b/${file}`, '@@',
+  const lines = [`--- ${before == null ? '/dev/null' : `a/${file}`}`, `+++ ${after == null ? '/dev/null' : `b/${file}`}`, '@@',
     ...operations.slice(from, to + 1).map(([kind, index]) => `${kind}${kind === '+' ? b[index] : a[index]}`)];
   return lines.length > MAX_DIFF_LINES ? [...lines.slice(0, MAX_DIFF_LINES), `… ${lines.length - MAX_DIFF_LINES} more lines`].join('\n') : lines.join('\n');
 }
@@ -339,9 +355,13 @@ export function unifiedDiff(before, after, file) {
 // ---------------------------------------------------------------------------------------------
 // The candidate
 
+// Imported agents exist before the steps that use them; imported templates before the steps that
+// name them; skills and generated sources are added to an agent's final instructions, after any
+// edit to them; removals see everything else first.
 const RANK = Object.freeze({
-  'group.create': 0, 'group.update': 1, 'agent.create': 2, 'workflow.install': 3, 'phase.create': 4,
-  'phase.update': 5, 'workflow.create': 6, 'workflow.update': 7, 'phase.agent': 8, 'agent.update': 9
+  'marketplace.add': 0, 'marketplace.remove': 0, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
+  'import.template': 3.5, 'phase.create': 4, 'phase.update': 5, 'workflow.create': 6, 'workflow.update': 7,
+  'phase.agent': 8, 'agent.update': 9, 'import.skill': 10, 'import.generated': 10, 'import.remove': 11
 });
 
 function requireId(value, label) {
@@ -376,6 +396,18 @@ class StudioCandidate {
     this.templates = new Map();
     this.summary = [];
     this.workflows = new Map();
+    // Imports: exact staged bytes by SHA-256, files to vendor (null removes one), the provenance
+    // ledger and the agent lock entries each changed agent needs.
+    this.staged = sources.imports ?? new Map();
+    this.vendored = new Map();
+    this.ledger = structuredClone(sources.ledger);
+    this.ledgerChanged = false;
+    this.lock = structuredClone(sources.agentLock);
+    this.lockChanged = false;
+    this.trusted = new Map();
+    this.untrusted = new Map();
+    this.removedAgents = new Set();
+    this.rendered = new Map();
   }
 
   get content() { return this.document.toJS() ?? {}; }
@@ -472,7 +504,272 @@ class StudioCandidate {
       case 'phase.agent': return this.assignAgent(change);
       case 'workflow.create': return this.createWorkflow(change);
       case 'workflow.update': return this.updateWorkflow(change);
+      case 'marketplace.add': return this.addMarketplace(change);
+      case 'marketplace.remove': return this.removeMarketplace(change);
+      case 'import.skill': return this.importSkill(change);
+      case 'import.template': return this.importTemplate(change);
+      case 'import.agent': return this.importAgent(change);
+      case 'import.generated': return this.importGenerated(change);
+      case 'import.remove': return this.removeImport(change);
       default: throw new SingularityFlowError(`Unknown Studio change '${change?.op}'.`, { code: 'STUDIO_CHANGE_UNKNOWN' });
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Imports
+
+  /** Previewed bytes for an import operation, checked again for the use it is added as. */
+  stagedContent(sha256, kind, { id = null, label } = {}) {
+    const staged = this.staged.get(requireSha256(sha256));
+    if (!staged) throw new SingularityFlowError('This import is no longer staged on this machine. Preview it again, then add it.', { code: 'STUDIO_IMPORT_NOT_STAGED' });
+    const text = textOf(staged.bytes);
+    const inspection = inspectImportContent(kind, text, { id, label: label ?? `The ${kind} from ${sourceText(staged.source)}` });
+    return { ...staged, text, inspection };
+  }
+
+  requirePhases(list, label = 'A step') {
+    if (list == null) return [];
+    if (!Array.isArray(list)) throw new SingularityFlowError(`${label} list must be a list of step IDs.`, { code: 'STUDIO_PHASE_UNKNOWN' });
+    return [...new Set(list.map((phase) => this.requirePhase(requireId(phase, label))))];
+  }
+
+  agentBody(agent) {
+    return agent.body != null ? agent.body : splitAgentText(agent.text ?? '---\n---\n', agent.id).body;
+  }
+
+  recordImport(kind, key, staged, target, extra = {}) {
+    this.ledger.imports[importLedgerKey(kind, key)] = ledgerEntry(kind, staged, target, extra);
+    this.ledgerChanged = true;
+  }
+
+  forgetImport(key) {
+    if (!this.ledger.imports[key]) return;
+    delete this.ledger.imports[key];
+    this.ledgerChanged = true;
+  }
+
+  trust(agentId, dependency) {
+    if (!this.trusted.has(agentId)) this.trusted.set(agentId, new Map());
+    this.trusted.get(agentId).set(`${dependency.type}:${dependency.id}`, dependency);
+  }
+
+  distrust(agentId, type, id) {
+    if (!this.untrusted.has(agentId)) this.untrusted.set(agentId, new Set());
+    this.untrusted.get(agentId).add(`${type}:${id}`);
+    this.trusted.get(agentId)?.delete(`${type}:${id}`);
+  }
+
+  importSkill({ agent: agentId, id, sha256, phases = [], optional = false, replace = false }) {
+    const agent = this.touch(this.requireAgent(requireId(agentId, 'An agent ID')));
+    const skillId = requireId(id, 'A skill ID');
+    const staged = this.stagedContent(sha256, 'skill', { id: skillId });
+    const url = sourceUrl(staged.source);
+    const steps = this.requirePhases(phases);
+    const maxBytes = Math.max(DEFAULT_REMOTE_MAX_BYTES, staged.size);
+    agent.body = upsertAgentTableRow(this.agentBody(agent), 'skill',
+      [skillId, url, steps.join(', ') || '*', optional ? 'yes' : 'no', String(maxBytes)], { replace });
+    const vendored = vendoredAgentResourcePath(agent.id, 'skill', skillId);
+    this.vendored.set(vendored, staged.bytes);
+    this.trust(agent.id, {
+      id: skillId, type: 'skill', url, optional: optional === true, maxBytes, phases: steps,
+      sha256: staged.sha256, size: staged.size, resolvedUrl: staged.source.resolvedUrl ?? url, vendored
+    });
+    this.recordImport('skill', { agent: agent.id, id: skillId }, staged, { agent: agent.id, id: skillId, phases: steps, path: vendored });
+    this.summary.push(`${agent.label} uses skill ${skillId} from ${sourceText(staged.source)}${steps.length ? ` in ${steps.map((step) => this.phaseLabel(step)).join(', ')}` : ' in every step it drafts'}.`);
+  }
+
+  importTemplate({ id, label, description, sha256, phases = [], replace = false }) {
+    const templateId = requireId(id, 'A template ID');
+    const staged = this.stagedContent(sha256, 'template', { id: templateId });
+    const key = importLedgerKey('template', { id: templateId });
+    if (this.content.templates?.[templateId]) {
+      if (!replace) throw new SingularityFlowError(`A template called '${templateId}' already exists. Replace it deliberately, or choose another ID.`, { code: 'STUDIO_TEMPLATE_EXISTS' });
+      if (!this.ledger.imports[key]) throw new SingularityFlowError(`Template '${templateId}' was written in this repository, not imported; import under another ID.`, { code: 'STUDIO_TEMPLATE_EXISTS' });
+    }
+    const name = label != null ? requireLabel(label, 'The template') : templateLabel(staged.inspection.details.headings[0], templateId);
+    const relative = importedTemplateRelative(templateId);
+    const file = posix(path.join(this.sources.templatesRoot, relative));
+    this.vendored.set(file, staged.bytes);
+    const entry = { path: relative, label: name };
+    const what = String(description ?? '').replace(/\s+/g, ' ').trim();
+    if (what) entry.description = what;
+    this.document.setIn(['templates', templateId], this.document.createNode(entry));
+    const steps = this.requirePhases(phases);
+    for (const step of steps) this.document.setIn(['phases', step, 'defaultTemplate'], `template:${templateId}`);
+    this.recordImport('template', { id: templateId }, staged, { id: templateId, path: file, phases: steps });
+    this.summary.push(`Template ${name} from ${sourceText(staged.source)}${steps.length ? `, used by ${steps.map((step) => this.phaseLabel(step)).join(', ')}` : ''}.`);
+  }
+
+  importAgent({ sha256, id = null, withoutDefaults = false, replace = false }) {
+    const staged = this.stagedContent(sha256, 'agent', { id: id == null ? null : requireId(id, 'An agent ID') });
+    const agentId = staged.inspection.id;
+    const key = importLedgerKey('agent', { id: agentId });
+    const existing = this.agents.get(agentId);
+    if (existing) {
+      if (!replace) throw new SingularityFlowError(`An agent called '${agentId}' already exists. Replace it deliberately, or import another agent.`, { code: 'STUDIO_AGENT_EXISTS' });
+      if (!this.ledger.imports[key]) throw new SingularityFlowError(`Agent '${agentId}' was written in this repository, not imported, so an import cannot replace it.`, { code: 'STUDIO_AGENT_EXISTS' });
+    }
+    let text = staged.text;
+    if (withoutDefaults) {
+      const { document, body } = splitAgentText(text, agentId);
+      document.deleteIn(['metadata', 'sflow-default-for']);
+      text = `---\n${document.toString(YAML_OUTPUT)}---\n${body}`;
+    }
+    const relative = existing?.relative ?? posix(path.join('.github', 'agents', `${agentId}.agent.md`));
+    const parsed = parseAgentDependencies(text, { source: relative });
+    this.agents.set(agentId, {
+      id: agentId, scope: 'repository', text, relative, fileName: path.basename(relative),
+      label: parsed.label, description: parsed.description, tools: [...parsed.tools], views: [...parsed.worldModelViews],
+      phases: [...parsed.phases], defaultFor: [...parsed.defaultFor], body: null, touched: false,
+      created: !existing, imported: true, previousText: existing?.text ?? null
+    });
+    const bytes = Buffer.from(text, 'utf8');
+    this.recordImport('agent', { id: agentId }, staged, { id: agentId, path: relative },
+      withoutDefaults ? { transforms: ['without-defaults'], fileSha256: sha256Of(bytes) } : {});
+    this.summary.push(`${existing ? 'Updated' : 'New'} agent ${parsed.label} from ${sourceText(staged.source)}${parsed.defaultFor.length ? `, drafting ${parsed.defaultFor.map((step) => this.phaseLabel(step)).join(', ')}` : ''}.`);
+  }
+
+  addMarketplace({ id, label, index, allowedOrigins = [] }) {
+    const marketplaceId = requireId(id, 'A marketplace ID');
+    if (this.content.marketplaces?.[marketplaceId]) {
+      throw new SingularityFlowError(`This repository already trusts a marketplace called '${marketplaceId}'.`, { code: 'STUDIO_MARKETPLACE_EXISTS' });
+    }
+    const marketplace = normalizeMarketplaces({ [marketplaceId]: { label: label ?? undefined, index, allowedOrigins } })[marketplaceId];
+    this.document.setIn(['marketplaces', marketplaceId], this.document.createNode({
+      label: marketplace.label, index: marketplace.index,
+      ...(marketplace.allowedOrigins.length ? { allowedOrigins: [...marketplace.allowedOrigins] } : {})
+    }));
+    this.summary.push(`This repository trusts marketplace ${marketplace.label} (${marketplace.index}).`);
+  }
+
+  removeMarketplace({ id }) {
+    const marketplaceId = requireId(id, 'A marketplace ID');
+    const existing = this.content.marketplaces?.[marketplaceId];
+    if (!existing) throw new SingularityFlowError(`This repository does not trust a marketplace called '${marketplaceId}'.`, { code: 'STUDIO_MARKETPLACE_UNKNOWN' });
+    this.document.deleteIn(['marketplaces', marketplaceId]);
+    if (!Object.keys(this.content.marketplaces ?? {}).length) this.document.deleteIn(['marketplaces']);
+    // Imports already taken from it stay: they are vendored, and the ledger still says where from.
+    this.summary.push(`Marketplace ${existing.label ?? marketplaceId} is no longer trusted; what was imported from it stays.`);
+  }
+
+  importGenerated({ agent: agentId, id, urlTemplate, phase, target, optional = false, maxBytes = DEFAULT_REMOTE_MAX_BYTES, replace = false, origin = null }) {
+    const agent = this.touch(this.requireAgent(requireId(agentId, 'An agent ID')));
+    const resourceId = requireId(id, 'A generated artifact ID');
+    const source = validateGeneratedSource({ urlTemplate, phase, target });
+    this.requirePhase(source.phase);
+    if (agent.phases.length && !agent.phases.includes(source.phase)) {
+      throw new SingularityFlowError(`${agent.label} does not draft ${this.phaseLabel(source.phase)}, so it would never fetch this artifact.`, { code: 'STUDIO_IMPORT_INVALID' });
+    }
+    const limit = Number(maxBytes);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > HARD_REMOTE_MAX_BYTES) {
+      throw new SingularityFlowError(`A generated artifact may be at most ${HARD_REMOTE_MAX_BYTES} bytes.`, { code: 'STUDIO_IMPORT_INVALID' });
+    }
+    agent.body = upsertAgentTableRow(this.agentBody(agent), 'generated',
+      [resourceId, source.urlTemplate, source.phase, source.target, optional ? 'yes' : 'no', String(limit)], { replace });
+    this.trust(agent.id, {
+      id: resourceId, type: 'generated', urlTemplate: source.urlTemplate, optional: optional === true, maxBytes: limit,
+      phase: source.phase, target: source.target, dynamic: true, sha256: null, size: null, resolvedUrl: null
+    });
+    const provenance = origin && typeof origin === 'object' && origin.marketplace
+      ? { kind: 'marketplace', marketplace: String(origin.marketplace), index: String(origin.index ?? ''), entry: String(origin.entry ?? resourceId), version: String(origin.version ?? ''), urlTemplate: source.urlTemplate }
+      : { kind: 'url', urlTemplate: source.urlTemplate };
+    this.recordImport('generated', { agent: agent.id, id: resourceId },
+      { source: provenance, sha256: null, size: null, fetchedAt: null },
+      { agent: agent.id, id: resourceId, phase: source.phase, path: source.target });
+    this.summary.push(`${agent.label} fetches ${source.target} for ${this.phaseLabel(source.phase)} from ${source.urlTemplate}.`);
+  }
+
+  removeImport({ key }) {
+    const entry = this.ledger.imports[String(key ?? '')];
+    if (!entry) throw new SingularityFlowError(`Nothing was imported as '${key}'. List imports with singularity-flow imports.`, { code: 'STUDIO_IMPORT_UNKNOWN' });
+    const target = entry.target ?? {};
+    if (entry.kind === 'skill' || entry.kind === 'generated') {
+      const agent = this.agents.get(target.agent);
+      if (agent) {
+        this.touch(agent);
+        const body = removeAgentTableRow(this.agentBody(agent), entry.kind, target.id);
+        if (body != null) agent.body = body;
+        this.distrust(agent.id, entry.kind, target.id);
+      }
+      if (entry.kind === 'skill' && target.path) this.vendored.set(target.path, null);
+      this.summary.push(`${agent?.label ?? target.agent} no longer uses ${entry.kind === 'skill' ? 'skill' : 'generated artifact'} ${target.id}.`);
+    } else if (entry.kind === 'template') {
+      const relative = importedTemplateRelative(target.id);
+      const references = templateReferences(this.content, relative);
+      if (references.length) {
+        throw new SingularityFlowError(`Template ${target.id} is still used by ${references.join(', ')}; choose other templates there first.`, { code: 'STUDIO_TEMPLATE_IN_USE' });
+      }
+      this.document.deleteIn(['templates', target.id]);
+      if (target.path) this.vendored.set(target.path, null);
+      this.summary.push(`Template ${target.id} removed.`);
+    } else if (entry.kind === 'agent') {
+      const agent = this.agents.get(target.id);
+      if (agent?.defaultFor.length) {
+        throw new SingularityFlowError(`${agent.label} still drafts ${agent.defaultFor.map((step) => this.phaseLabel(step)).join(', ')}; choose other agents for those steps first.`, { code: 'STUDIO_AGENT_IN_USE' });
+      }
+      const servers = Object.entries(this.content.mcpServers ?? {}).filter(([, server]) => (server?.agents ?? []).includes(target.id)).map(([serverId]) => serverId);
+      if (servers.length) {
+        throw new SingularityFlowError(`${agent?.label ?? target.id} is still assigned MCP server(s) ${servers.join(', ')}; unassign them first.`, { code: 'STUDIO_AGENT_IN_USE' });
+      }
+      if (agent) {
+        this.agents.delete(agent.id);
+        this.removedAgents.add(agent.relative);
+        if (this.lock.agents?.[agent.id]) { delete this.lock.agents[agent.id]; this.lockChanged = true; }
+      }
+      this.summary.push(`Agent ${agent?.label ?? target.id} removed.`);
+    } else {
+      throw new SingularityFlowError(`Imports of kind '${entry.kind}' cannot be removed here.`, { code: 'STUDIO_IMPORT_UNKNOWN' });
+    }
+    this.forgetImport(String(key));
+  }
+
+  /**
+   * Agent lock entries for every agent whose file changes. A changed file keeps working only when
+   * every remote resource it names is trusted: imported ones by the hash a person previewed, the
+   * rest by a current lock entry whose declaration is unchanged. An agent edited without imports
+   * and without a current lock keeps the old behaviour: its lock goes stale until someone locks it.
+   */
+  finalizeImports(problems) {
+    for (const agent of this.agents.values()) {
+      if (!agent.touched && !agent.imported) continue;
+      const text = agent.touched ? renderAgent(agent) : agent.text;
+      this.rendered.set(agent.id, text);
+      let parsed;
+      try { parsed = parseAgentDependencies(text, { source: agent.relative }); }
+      catch (error) {
+        problems.push({ code: error?.code ?? 'STUDIO_AGENT_INVALID', message: `${agent.label}: ${error.message}`, subject: { kind: 'agent', id: agent.id } });
+        continue;
+      }
+      const existing = this.lock.agents?.[agent.id] ?? null;
+      const current = existing && existing.sourceSha256 === this.sources.agentShas.get(agent.id) ? existing : null;
+      const trusted = this.trusted.get(agent.id) ?? new Map();
+      const changedTrust = trusted.size > 0 || (this.untrusted.get(agent.id)?.size ?? 0) > 0;
+      if (!parsed.dependencies.length) {
+        if (existing) { delete this.lock.agents[agent.id]; this.lockChanged = true; }
+        continue;
+      }
+      const dependencies = [];
+      const unresolved = [];
+      for (const dependency of parsed.dependencies) {
+        const imported = trusted.get(`${dependency.type}:${dependency.id}`);
+        if (imported) { dependencies.push(imported); continue; }
+        const locked = current?.dependencies?.find((entry) => entry.id === dependency.id && entry.type === dependency.type);
+        if (locked && sameDeclaration(locked, dependency)) { dependencies.push(locked); continue; }
+        unresolved.push(`${dependency.type} ${dependency.id}`);
+      }
+      if (unresolved.length) {
+        if (changedTrust) {
+          problems.push({
+            code: 'STUDIO_AGENT_LOCK_REQUIRED',
+            message: `${agent.label} also names remote ${unresolved.join(', ')}, which nobody has trusted yet. Run singularity-flow agents lock ${agent.id} first, then add the import.`,
+            subject: { kind: 'agent', id: agent.id }
+          });
+        }
+        continue;
+      }
+      this.lock.agents ??= {};
+      this.lock.agents[agent.id] = { source: agent.relative, sourceSha256: sha256(text), lockedAt: new Date().toISOString(), dependencies };
+      this.lockChanged = true;
     }
   }
 
@@ -772,21 +1069,44 @@ class StudioCandidate {
         ? { code: 'STUDIO_PHASE_AGENT_CONFLICT', message: `${this.phaseLabel(phaseId)} has ${defaults.length} default agents (${defaults.map((agent) => agent.label).join(', ')}); choose one.`, subject: { kind: 'phase', id: phaseId } }
         : { code: 'STUDIO_PHASE_AGENT_REQUIRED', message: `Choose the agent that drafts ${this.phaseLabel(phaseId)}.`, subject: { kind: 'phase', id: phaseId } });
     }
+    if (!problems.length) this.finalizeImports(problems);
   }
 
   async files() {
     const files = [];
-    const workflow = preserveYamlFormatting(this.sources.definitionText, this.document.toString(YAML_OUTPUT));
-    if (workflow !== this.sources.definitionText) files.push({ path: WORKFLOW_PATH, before: this.sources.definitionText, after: workflow });
+    // Only a change in content rewrites workflow.yml: re-serializing an untouched document can still
+    // re-wrap long lines, and a change set that only imports a skill must not touch the file at all.
+    if (JSON.stringify(this.document.toJS() ?? {}) !== JSON.stringify(this.sources.raw ?? {})) {
+      const workflow = preserveYamlFormatting(this.sources.definitionText, this.document.toString(YAML_OUTPUT));
+      if (workflow !== this.sources.definitionText) files.push({ path: WORKFLOW_PATH, before: this.sources.definitionText, after: workflow });
+    }
     for (const agent of this.agents.values()) {
-      if (!agent.touched) continue;
-      const before = agent.scope === 'repository' && agent.text && !agent.created ? agent.text : null;
-      files.push({ path: agent.relative, before, after: renderAgent(agent) });
+      if (!agent.touched && !agent.imported) continue;
+      const original = agent.imported ? agent.previousText : agent.text;
+      const before = agent.scope === 'repository' && original && !agent.created ? original : null;
+      files.push({ path: agent.relative, before, after: this.rendered.get(agent.id) ?? (agent.touched ? renderAgent(agent) : agent.text) });
+    }
+    for (const relative of this.removedAgents) {
+      const before = await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(() => null);
+      if (before != null) files.push({ path: relative, before, after: null });
     }
     for (const [relative, content] of this.templates) {
       files.push({ path: relative, before: null, after: typeof content === 'string' ? content : await readFile(content.copyFrom, 'utf8') });
     }
-    return files.filter((file) => file.before !== file.after);
+    for (const [relative, bytes] of this.vendored) {
+      const before = await readFile(path.join(this.sources.configRoot, relative)).catch(() => null);
+      if (bytes == null && before == null) continue;
+      files.push({ path: relative, before, after: bytes });
+    }
+    if (this.ledgerChanged) {
+      const after = Object.keys(this.ledger.imports).length ? renderImportsLedger(this.ledger) : null;
+      files.push({ path: IMPORTS_LOCK_PATH, before: this.sources.ledgerText, after });
+    }
+    if (this.lockChanged) {
+      const after = Object.keys(this.lock.agents ?? {}).length ? YAML.stringify(this.lock) : null;
+      files.push({ path: AGENT_LOCK_PATH, before: this.sources.agentLockText, after });
+    }
+    return files.filter((file) => !sameContent(file.before, file.after));
   }
 
   warnings() {
@@ -814,6 +1134,49 @@ function orderChanges(changes) {
     .map(({ change }) => change);
 }
 
+function safeMarketplaces(value, problems) {
+  try { return normalizeMarketplaces(value ?? {}); }
+  catch (error) { problems.push({ code: error?.code ?? 'MARKETPLACE_INVALID', message: error.message }); return {}; }
+}
+
+function sameContent(before, after) {
+  if (before == null || after == null) return before == null && after == null;
+  return Buffer.from(before).equals(Buffer.from(after));
+}
+
+function asText(content) { return content == null ? null : Buffer.isBuffer(content) ? content.toString('utf8') : content; }
+
+function sha256Of(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
+
+/** The link an import came from, as an agent table row names it. */
+function sourceUrl(source) {
+  const url = source?.url;
+  if (typeof url !== 'string' || !url.startsWith('https://')) {
+    throw new SingularityFlowError('Only content imported from a link can be added to an agent table today.', { code: 'STUDIO_IMPORT_INVALID' });
+  }
+  return url;
+}
+
+/** A readable name for an imported template: its first heading without per-Story values, or its ID. */
+function templateLabel(heading, id) {
+  const text = String(heading ?? '').replace(/^#+\s*/, '').replace(/\{\{[^{}]*\}\}/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const words = text || id.replace(/-/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function sourceText(source) {
+  if (source?.kind === 'marketplace') return `marketplace ${source.marketplace} (${source.entry} ${source.version})`;
+  return source?.url ?? source?.urlTemplate ?? 'its source';
+}
+
+/** Whether a lock entry still describes the same declared resource. */
+function sameDeclaration(locked, dependency) {
+  const url = dependency.type === 'generated' ? locked.urlTemplate : locked.url;
+  if (url !== dependency.url || Boolean(locked.optional) !== Boolean(dependency.optional) || locked.maxBytes !== dependency.maxBytes) return false;
+  if (dependency.type === 'generated') return locked.phase === dependency.phase && locked.target === dependency.target;
+  return JSON.stringify(locked.phases ?? []) === JSON.stringify(dependency.phases ?? []);
+}
+
 async function bundledAgents() {
   const directory = path.join(PACKAGE_ROOT, 'templates', 'agents');
   const agents = [];
@@ -826,15 +1189,24 @@ async function bundledAgents() {
   return agents;
 }
 
-async function loadSources(root) {
+async function loadSources(root, options = {}) {
   const configRoot = configurationReadRoot(root);
   const definitionText = await readFile(path.join(configRoot, WORKFLOW_PATH), 'utf8');
   const raw = YAML.parse(definitionText) ?? {};
   let definition = null;
   try { definition = await loadDefinition(root); } catch { definition = null; }
   const agents = (await discoverAgents(root)).filter((agent) => agent.scope !== 'plugin');
+  const ledgerText = await readFile(path.join(configRoot, IMPORTS_LOCK_PATH), 'utf8').catch(() => null);
+  const agentLockText = await readFile(path.join(configRoot, AGENT_LOCK_PATH), 'utf8').catch(() => null);
+  const agentLock = agentLockText ? YAML.parse(agentLockText) : { version: 1, agents: {} };
+  if (agentLock?.version !== 1 || !agentLock.agents || typeof agentLock.agents !== 'object') {
+    throw new SingularityFlowError(`${AGENT_LOCK_PATH} is invalid.`, { code: 'AGENT_LOCK_INVALID' });
+  }
   return {
     root, configRoot, definitionText, raw, definition, agents, bundledAgents: await bundledAgents(),
+    ledger: await loadImportsLedger(configRoot), ledgerText, agentLock, agentLockText,
+    agentShas: new Map(agents.map((agent) => [agent.id, agent.sha256])),
+    imports: options.imports ?? new Map(),
     templatesRoot: posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'),
     starter: await packagedDefinition(),
     portfolio: await loadPortfolio(root, { required: false }).catch(() => null)
@@ -846,11 +1218,24 @@ async function loadSources(root) {
  * written to `root` — call that only where the configuration really lives: a proposal clone, or a
  * local authority's working tree. Without it nothing is written.
  */
-export async function planStudioChangeSet(root, changeSet, { write = false } = {}) {
+export async function planStudioChangeSet(root, changeSet, { write = false, imports = null, fetchImpl = globalThis.fetch } = {}) {
   if (!changeSet || typeof changeSet !== 'object' || changeSet.schema !== STUDIO_CHANGE_SET_SCHEMA) {
     throw new SingularityFlowError(`A Studio change set must declare schema '${STUDIO_CHANGE_SET_SCHEMA}'.`, { code: 'STUDIO_CHANGE_SET_INVALID' });
   }
-  const sources = await loadSources(root);
+  // Imported bytes come from the checkout where they were previewed. A caller applying in a
+  // proposal clone resolves them first and passes them in.
+  let staged = imports;
+  if (!staged) {
+    try { staged = await resolveChangeSetImports(root, changeSet, { fetchImpl }); }
+    catch (error) {
+      if (!(error instanceof SingularityFlowError)) throw error;
+      return {
+        schemaVersion: 1, resultType: 'workflow-studio-plan', valid: false, changed: false,
+        problems: [{ code: error.code ?? 'STUDIO_IMPORT_INVALID', message: error.message }], warnings: [], summary: [], files: []
+      };
+    }
+  }
+  const sources = await loadSources(root, { imports: staged });
   const expected = changeSet.base?.workflowSha256;
   if (expected && expected !== sha256(sources.definitionText)) {
     throw new SingularityFlowError('The workflow configuration changed since Workflow Studio loaded it. Reload the Studio, review the newer configuration, and apply your changes again.', {
@@ -883,7 +1268,11 @@ export async function planStudioChangeSet(root, changeSet, { write = false } = {
     problems,
     warnings: problems.length ? [] : candidate.warnings(),
     summary: candidate.summary,
-    files: files.map((file) => ({ path: file.path, action: file.before == null ? 'create' : 'update', diff: unifiedDiff(file.before, file.after, file.path) }))
+    files: files.map((file) => ({
+      path: file.path,
+      action: file.before == null ? 'create' : file.after == null ? 'delete' : 'update',
+      diff: unifiedDiff(asText(file.before), asText(file.after), file.path)
+    }))
   };
   if (!write) return plan;
   if (!plan.valid) {
@@ -891,8 +1280,9 @@ export async function planStudioChangeSet(root, changeSet, { write = false } = {
   }
   for (const file of files) {
     const target = path.join(root, file.path);
+    if (file.after == null) { await rm(target, { force: true }); continue; }
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, file.after, 'utf8');
+    await writeFile(target, file.after);
   }
   return { ...plan, path: WORKFLOW_PATH, written: files.map((file) => file.path) };
 }
@@ -900,7 +1290,8 @@ export async function planStudioChangeSet(root, changeSet, { write = false } = {
 async function validateStudioCandidate(sources, files) {
   const { validateConfigurationCandidates } = await import('./editor.mjs');
   const definition = sources.definition ?? { templatesRoot: sources.templatesRoot };
-  await validateConfigurationCandidates(sources.configRoot, files.map((file) => ({ path: file.path, content: file.after })), definition, sources.portfolio);
+  await validateConfigurationCandidates(sources.configRoot, files.filter((file) => file.after != null)
+    .map((file) => ({ path: file.path, content: asText(file.after) })), definition, sources.portfolio);
 }
 
 export function readStudioChangeSet(text) {

@@ -286,6 +286,11 @@ Every public operation is classified before its implementation module is importe
 | impact.study.show | read | never | — | — |
 | impact.verify | read | never | — | — |
 | implement | read | never | — | — |
+| import.add | mutation | never | — | — |
+| import.preview | read | never | — | — |
+| imports.check | read | never | — | — |
+| imports.list | read | never | — | — |
+| imports.remove | mutation | never | — | — |
 | inbox | read | never | — | — |
 | init.legacy | mutation | never | — | — |
 | init.smart-detect.activate | mutation | never | — | — |
@@ -353,6 +358,10 @@ Every public operation is classified before its implementation module is importe
 | local.trust-export | mutation | never | — | — |
 | local.verify | mutation | never | — | — |
 | logs | read | never | — | — |
+| marketplace.add | mutation | never | — | — |
+| marketplace.browse | read | never | — | — |
+| marketplace.list | read | never | — | — |
+| marketplace.remove | mutation | never | — | — |
 | mcp.attest | mutation | never | — | — |
 | mcp.auth.clear | mutation | never | — | — |
 | mcp.auth.clear.preview | read | never | — | — |

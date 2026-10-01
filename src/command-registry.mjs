@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'phase', 'product', 'decision']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -114,7 +114,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['review-source'], ['workflow'], ['skill'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
-  ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
+  ['agents'], ['import'], ['imports'], ['marketplace'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
   ['approve'], ['reject'], ['decision'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
@@ -254,6 +254,16 @@ const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...D
 const DECISION_READ_SUBCOMMANDS = Object.freeze(['show']);
 const DECISION_MUTATION_SUBCOMMANDS = Object.freeze(['choose']);
 const DECISION_SUBCOMMANDS = Object.freeze([...DECISION_READ_SUBCOMMANDS, ...DECISION_MUTATION_SUBCOMMANDS]);
+// A preview fetches and stages bytes and a check re-reads sources: neither changes governed state.
+const IMPORT_READ_SUBCOMMANDS = Object.freeze(['preview']);
+const IMPORT_MUTATION_SUBCOMMANDS = Object.freeze(['add']);
+const IMPORT_SUBCOMMANDS = Object.freeze([...IMPORT_READ_SUBCOMMANDS, ...IMPORT_MUTATION_SUBCOMMANDS]);
+const IMPORTS_READ_SUBCOMMANDS = Object.freeze(['list', 'check']);
+const IMPORTS_MUTATION_SUBCOMMANDS = Object.freeze(['remove']);
+const IMPORTS_SUBCOMMANDS = Object.freeze([...IMPORTS_READ_SUBCOMMANDS, ...IMPORTS_MUTATION_SUBCOMMANDS]);
+const MARKETPLACE_READ_SUBCOMMANDS = Object.freeze(['list', 'browse']);
+const MARKETPLACE_MUTATION_SUBCOMMANDS = Object.freeze(['add', 'remove']);
+const MARKETPLACE_SUBCOMMANDS = Object.freeze([...MARKETPLACE_READ_SUBCOMMANDS, ...MARKETPLACE_MUTATION_SUBCOMMANDS]);
 const REVISION_ATTACHMENT_ACTIONS = Object.freeze([
   'capabilities', 'preview', 'register', 'list', 'status', 'remove-preview', 'remove'
 ]);
@@ -416,6 +426,9 @@ const SGOS_SUBCOMMANDS = Object.freeze({
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
   decision: DECISION_SUBCOMMANDS,
+  import: IMPORT_SUBCOMMANDS,
+  imports: IMPORTS_SUBCOMMANDS,
+  marketplace: MARKETPLACE_SUBCOMMANDS,
   telemetry: TELEMETRY_SUBCOMMANDS,
   visual: VISUAL_SUBCOMMANDS,
   mcp: MCP_SUBCOMMANDS,
@@ -622,6 +635,27 @@ function resolveDecisionOperation(definition, positionals) {
   if (DECISION_READ_SUBCOMMANDS.includes(subcommand)) return never(`decision.${subcommand}`, definition, 'read');
   if (DECISION_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`decision.${subcommand}`, definition, 'mutation');
   return unknownSubcommand('decision', subcommand, DECISION_SUBCOMMANDS);
+}
+
+function resolveImportOperation(definition, positionals) {
+  const subcommand = positionals[1];
+  if (IMPORT_READ_SUBCOMMANDS.includes(subcommand)) return never(`import.${subcommand}`, definition, 'read');
+  if (IMPORT_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`import.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('import', subcommand, IMPORT_SUBCOMMANDS);
+}
+
+function resolveImportsOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'list';
+  if (IMPORTS_READ_SUBCOMMANDS.includes(subcommand)) return never(`imports.${subcommand}`, definition, 'read');
+  if (IMPORTS_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`imports.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('imports', subcommand, IMPORTS_SUBCOMMANDS);
+}
+
+function resolveMarketplaceOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'list';
+  if (MARKETPLACE_READ_SUBCOMMANDS.includes(subcommand)) return never(`marketplace.${subcommand}`, definition, 'read');
+  if (MARKETPLACE_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`marketplace.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('marketplace', subcommand, MARKETPLACE_SUBCOMMANDS);
 }
 
 function resolveDocumentsOperation(definition, positionals) {
@@ -1401,6 +1435,9 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'workflow') return resolveWorkflowCommandOperation(definition, positionals, options);
   if (definition.name === 'documents') return resolveDocumentsOperation(definition, positionals);
   if (definition.name === 'decision') return resolveDecisionOperation(definition, positionals);
+  if (definition.name === 'import') return resolveImportOperation(definition, positionals);
+  if (definition.name === 'imports') return resolveImportsOperation(definition, positionals);
+  if (definition.name === 'marketplace') return resolveMarketplaceOperation(definition, positionals);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
   if (definition.name === 'explain') return resolveExplainOperation(definition, positionals, options);
   if (definition.name === 'comprehension') return resolveComprehensionOperation(definition, positionals);
@@ -1512,6 +1549,9 @@ export function operationCatalog() {
   const workflowDefinition = commandDefinition('workflow');
   const documentsDefinition = commandDefinition('documents');
   const decisionDefinition = commandDefinition('decision');
+  const importDefinition = commandDefinition('import');
+  const importsDefinition = commandDefinition('imports');
+  const marketplaceDefinition = commandDefinition('marketplace');
   const specDefinition = commandDefinition('spec');
   const comprehensionDefinition = commandDefinition('comprehension');
   const explainDefinition = commandDefinition('explain');
@@ -1667,6 +1707,12 @@ export function operationCatalog() {
     ...DOCUMENTS_MUTATION_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'mutation')),
     ...DECISION_READ_SUBCOMMANDS.map((name) => never(`decision.${name}`, decisionDefinition, 'read')),
     ...DECISION_MUTATION_SUBCOMMANDS.map((name) => never(`decision.${name}`, decisionDefinition, 'mutation')),
+    ...IMPORT_READ_SUBCOMMANDS.map((name) => never(`import.${name}`, importDefinition, 'read')),
+    ...IMPORT_MUTATION_SUBCOMMANDS.map((name) => never(`import.${name}`, importDefinition, 'mutation')),
+    ...IMPORTS_READ_SUBCOMMANDS.map((name) => never(`imports.${name}`, importsDefinition, 'read')),
+    ...IMPORTS_MUTATION_SUBCOMMANDS.map((name) => never(`imports.${name}`, importsDefinition, 'mutation')),
+    ...MARKETPLACE_READ_SUBCOMMANDS.map((name) => never(`marketplace.${name}`, marketplaceDefinition, 'read')),
+    ...MARKETPLACE_MUTATION_SUBCOMMANDS.map((name) => never(`marketplace.${name}`, marketplaceDefinition, 'mutation')),
     never('spec.analyze', specDefinition, 'read'),
     optional('spec.analyze.assisted', 'spec.analyze', specDefinition),
     never('spec.index', specDefinition, 'mutation'),

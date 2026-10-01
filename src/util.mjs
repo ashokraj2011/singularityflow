@@ -146,7 +146,9 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'yes',
   // Presentation flags introduced with the narration and output work. They are parsed here before
   // any command reads them, so they must be declared here too.
-  'verbose', 'show-artifact', 'brief', 'table'
+  'verbose', 'show-artifact', 'brief', 'table',
+  // Imports.
+  'without-defaults'
 ]));
 
 export function parseArgs(argv) {

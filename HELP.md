@@ -2618,6 +2618,42 @@ trust/cache status, and sync actions.
 
 First trust and every `--update` display hashes and require typing the exact pack name. The committed `singularity/agents.lock.yml` pins source-file and dependency hashes. Sync never updates trust: it verifies the lock, writes an atomic cache under `.git/singularity-flow/`, and records the active agent while preserving the selected governed agent. No authentication, cookies, or bearer tokens are sent.
 
+### Import skills, templates and agents from a link
+
+Instead of editing the tables and trusting them in a terminal, import from a link. Preview fetches the
+file once, checks it for the use you name (a skill, an artifact template or a whole agent), refuses web
+pages, secrets and unsupported template values, and stages the exact bytes. Adding names the SHA-256 you
+saw, so nothing unseen is ever added:
+
+```bash
+singularity-flow import preview https://example.org/skills/security-review/SKILL.md --as skill
+singularity-flow import add https://example.org/skills/security-review/SKILL.md --as skill --agent architect --phases design --sha256 <HASH> --propose
+singularity-flow import add https://example.org/templates/threat-model.md --as template --phases design --sha256 <HASH> --propose
+singularity-flow imports check
+```
+
+The bytes are copied into the configuration in the same reviewed change: a skill becomes a row in the
+agent's `## Remote skills` table, its `singularity/agents.lock.yml` entry, and a copy under
+`singularity/imports/agents/`; a template becomes `<templatesRoot>/imported/<id>.md` and a catalog entry.
+Stories, other machines and CI read those copies and never fetch them. `singularity/imports.lock.yml`
+records where each import came from; `imports check` re-reads the sources and prints the exact
+`import add … --replace` command for anything that changed. Workflow Studio offers the same imports.
+
+A repository can also trust marketplaces: catalogs that publish skills, templates, agents and
+generated-artifact sources in a `sflow-marketplace@1` index. Trust is configuration — the index URL and
+any further origins its files may come from — and an index cannot widen it. Every entry pins its file by
+SHA-256, so an import is checked against the index before it is vendored:
+
+```bash
+singularity-flow marketplace add acme --index https://catalog.example.org/sflow-marketplace.json --allowed-origin https://cdn.example.org --propose
+singularity-flow marketplace browse acme --kind skill
+singularity-flow import preview market:acme/a11y-review
+singularity-flow import add market:acme/a11y-review --as skill --agent architect --phases design --sha256 <HASH> --propose
+```
+
+An index is JSON: `{"format": "sflow-marketplace@1", "name": …, "publisher": …, "entries": [{"id", "kind": "skill"|"template"|"agent", "version", "label", "description", "url", "sha256", "bytes", "tags", "phases"} | {"id", "kind": "generated", "version", "urlTemplate", "phase", "target"}]}`.
+`imports check` reports newer versions with the exact update command.
+
 Remote skills are prompt context for the active agent, not global slash commands. Reference a remote artifact template explicitly with the existing storage syntax `agent:architecture/design-template`; it is copied into the work item and pinned before use. Dynamic generated output is fetched once per prospective generation and reused.
 
 ```bash
@@ -3476,6 +3512,18 @@ singularity-flow agents lock <PACK> [--update]
 singularity-flow agents sync <PACK>
 singularity-flow agents status [PACK]
 singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
+singularity-flow import preview <LINK|market:ID/ENTRY[@VERSION]> [--as skill|template|agent] [--id ID] [--max-bytes N]
+singularity-flow import add <LINK> --as skill --agent AGENT [--id ID] [--phases A,B] [--optional] --sha256 HASH [--replace] [--dry-run] [--propose]
+singularity-flow import add <LINK> --as template [--id ID] [--label TEXT] [--phases A,B] --sha256 HASH [--replace] [--dry-run] [--propose]
+singularity-flow import add <LINK> --as agent [--without-defaults] --sha256 HASH [--replace] [--dry-run] [--propose]
+singularity-flow import add --as generated --agent AGENT --id ID --url-template URL --phase PHASE --target artifacts/PHASE/FILE.md [--optional] [--dry-run] [--propose]
+singularity-flow imports [list]
+singularity-flow imports check
+singularity-flow imports remove <IMPORT> [--dry-run] [--propose]
+singularity-flow marketplace [list]
+singularity-flow marketplace browse <ID> [--kind KIND] [--search TEXT]
+singularity-flow marketplace add <ID> --index URL [--label TEXT] [--allowed-origin URL]... [--dry-run] [--propose]
+singularity-flow marketplace remove <ID> [--dry-run] [--propose]
 singularity-flow mcp list|status|doctor [--json]
 singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
 singularity-flow mcp probe <SERVER> --network [--json]

@@ -50,6 +50,7 @@ import { constitutionPolicy } from './constitution.mjs';
 import { assertModelTask } from './model-tasks.mjs';
 import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, resolveTemplate } from './template-catalog.mjs';
 import { normalizeMcpServers, normalizePhaseMcpPolicy, validateMcpAgentTools } from './mcp.mjs';
+import { normalizeMarketplaces } from './marketplace.mjs';
 import { isSpecificationDefinitionPhase, normalizeSpecPolicy, skillPhasePrimaryOutputRole } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
@@ -1039,6 +1040,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     phases: Object.keys(definition.phases)
   });
   validateMcpAgentTools(definition);
+  definition.marketplaces = normalizeMarketplaces(definition.marketplaces ?? {});
   // Preserve the difference between an explicitly configured ledger endpoint and the ledger
   // normalizer's defaults. Once `normalizeLedgerConfig` stamps `origin`, a later authority join can
   // no longer tell whether `worldModel.remote` or `git.remote` was supposed to supply the fallback.

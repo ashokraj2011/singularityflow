@@ -8162,6 +8162,277 @@ async function rejectCommand(positionals, options) {
  * current Git identity, so it is resolved and the choice checked before the publication unit opens,
  * and the transition itself runs inside it.
  */
+// ---------------------------------------------------------------------------------------------
+// Imports: skills, templates, agents and generated-artifact sources from a link
+
+function listOption(options, key) {
+  return optionStrings(options, key).flatMap((value) => String(value).split(',')).map((value) => value.trim()).filter(Boolean);
+}
+
+/** A readable ID from a link: the file name, or its folder for SKILL.md / README.md / index.md. */
+function importIdFromLink(link) {
+  let pathname = '';
+  try { pathname = new URL(link).pathname; } catch { return null; }
+  const parts = pathname.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
+  let name = (parts.at(-1) ?? '').replace(/\.agent\.md$|\.(?:md|markdown|txt)$/i, '');
+  if (/^(?:skill|readme|index)$/i.test(name) && parts.length > 1) name = parts.at(-2);
+  const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) ? id : null;
+}
+
+/** Apply a Studio change set the way `workflow studio apply` does: proposal or local authority. */
+async function applyImportChangeSet(root, changeSet, options, { subject, message }) {
+  const { planStudioChangeSet } = await import('./workflow-studio.mjs');
+  const { resolveChangeSetImports } = await import('./asset-import.mjs');
+  if (optionBoolean(options, 'dry-run')) {
+    return withApprovedConfigurationRead(root, () => planStudioChangeSet(root, changeSet), { preferAuthority: true });
+  }
+  // The previewed bytes are staged in this checkout; a proposal is built in a clone that has none.
+  const imports = await resolveChangeSetImports(root, changeSet);
+  const mutate = (target) => planStudioChangeSet(target, changeSet, { write: true, imports });
+  if (optionBoolean(options, 'propose')) {
+    return authorProposedOrLocalConfiguration(root, {
+      operation: 'studio', subject, message, mutate, expectedAuthority: expectedConfigurationAuthority(options)
+    });
+  }
+  assertLocalConfigurationAuthoringAllowed(root);
+  return mutate(root);
+}
+
+function printImportResult(result, { dryRun }) {
+  if (result.reviewRequired) {
+    console.log(`Configuration proposal published: ${result.branch}`);
+    console.log(`  ${result.files.join(', ')}`);
+    console.log(`  Approved ${result.baseBranch} and the current Story checkout were not changed.`);
+    printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
+    return;
+  }
+  if (dryRun) console.log(result.valid ? `Preview: ${result.files.length} file(s) would change.` : 'These changes cannot be applied yet.');
+  for (const line of result.summary ?? []) console.log(`  ${line}`);
+  for (const problem of result.problems ?? []) console.log(`  Problem: ${problem.message}`);
+  for (const warning of result.warnings ?? []) console.log(`  Warning: ${warning.message}`);
+  for (const file of result.files ?? []) console.log(`  ${file.action === 'create' ? 'new' : file.action === 'delete' ? 'removed' : 'changed'}: ${file.path}`);
+  if (result.nextAction) printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
+}
+
+function importAddCommandLine(reference, { as, agent, id, phases, sha256 }) {
+  return ['singularity-flow import add', JSON.stringify(reference), `--as ${as}`,
+    as === 'skill' ? `--agent ${agent ?? '<AGENT>'}` : null,
+    id ? `--id ${id}` : null,
+    phases?.length ? `--phases ${phases.join(',')}` : null,
+    `--sha256 ${sha256}`].filter(Boolean).join(' ');
+}
+
+function printImportPreview(preview, command) {
+  console.log(`Import preview: ${preview.as} from ${preview.reference}`);
+  console.log(`  SHA-256: ${preview.sha256} (${preview.bytes} bytes, fetched ${preview.fetchedAt})`);
+  if (preview.source?.resolvedUrl && preview.source.resolvedUrl !== preview.reference) console.log(`  Served from: ${preview.source.resolvedUrl}`);
+  if (preview.as !== preview.suggestedAs) console.log(`  It reads more like ${preview.suggestedAs === 'agent' ? 'an agent' : `a ${preview.suggestedAs}`}.`);
+  if (preview.id) console.log(`  ID: ${preview.id}`);
+  const details = preview.details ?? {};
+  if (details.description) console.log(`  Description: ${details.description}`);
+  if (details.tools) console.log(`  Tools: ${details.tools.join(', ') || 'none'}`);
+  if (details.defaultFor?.length) console.log(`  Drafts by default: ${details.defaultFor.join(', ')}`);
+  if (details.tokens) console.log(`  Values filled in per Story: ${details.tokens.join(', ') || 'none'}`);
+  for (const warning of preview.warnings ?? []) console.log(`  Warning: ${warning}`);
+  const lines = preview.text.split(/\r?\n/);
+  console.log('  --- content ---');
+  for (const line of lines.slice(0, 40)) console.log(`  ${line}`);
+  if (lines.length > 40 || preview.truncated) console.log(`  … ${preview.truncated ? 'more' : lines.length - 40} more line(s); the full text is what will be imported.`);
+  console.log('  ---------------');
+  console.log('Add exactly this content:');
+  console.log(`  ${command}`);
+}
+
+async function importCommand(positionals, options) {
+  const action = positionals[1];
+  const root = repoRoot();
+  const { previewImport } = await import('./asset-import.mjs');
+  const as = optionString(options, 'as');
+  const json = optionBoolean(options, 'json');
+  if (action === 'preview') {
+    const reference = requirePositional(positionals, 2, 'link to import');
+    const preview = await previewImport(root, reference, {
+      as, id: optionString(options, 'id'), maxBytes: optionNumber(options, 'max-bytes') ?? undefined
+    });
+    const command = importAddCommandLine(reference, {
+      as: preview.as, agent: optionString(options, 'agent'), id: preview.id ?? importIdFromLink(reference), sha256: preview.sha256
+    });
+    if (json) return console.log(JSON.stringify({ ...preview, addCommand: command }, null, 2));
+    return printImportPreview(preview, command);
+  }
+  if (action !== 'add') {
+    throw new SingularityFlowError(`Unknown import action '${action ?? 'none'}'. Use import preview <LINK> or import add <LINK> --as skill|template|agent|generated.`, { code: 'COMMAND_UNKNOWN' });
+  }
+  const { STUDIO_CHANGE_SET_SCHEMA } = await import('./workflow-studio.mjs');
+  const phases = listOption(options, 'phases');
+  let change;
+  if (as === 'generated') {
+    let entry = null; let origin = null;
+    if (positionals[2]?.startsWith('market:')) {
+      // A marketplace entry supplies the URL template, step and target; the person names the agent.
+      const { parseImportReference, resolveMarketplaceReference } = await import('./asset-import.mjs');
+      const resolved = await resolveMarketplaceReference(root, parseImportReference(positionals[2]));
+      if (resolved.entry.kind !== 'generated') {
+        throw new SingularityFlowError(`Marketplace entry '${resolved.entry.id}' is a ${resolved.entry.kind}; import it with --as ${resolved.entry.kind}.`, { code: 'IMPORT_KIND_INVALID' });
+      }
+      entry = resolved.entry;
+      origin = { marketplace: resolved.marketplace.id, index: resolved.marketplace.index, entry: entry.id, version: entry.version };
+    }
+    change = {
+      op: 'import.generated', agent: optionString(options, 'agent'), id: optionString(options, 'id') ?? entry?.id,
+      urlTemplate: optionString(options, 'url-template') ?? entry?.urlTemplate ?? positionals[2], phase: optionString(options, 'phase') ?? entry?.phase,
+      target: optionString(options, 'target') ?? entry?.target, optional: optionBoolean(options, 'optional'),
+      maxBytes: optionNumber(options, 'max-bytes') ?? undefined, replace: optionBoolean(options, 'replace'),
+      ...(origin ? { origin } : {})
+    };
+  } else {
+    if (!['skill', 'template', 'agent'].includes(as ?? '')) {
+      throw new SingularityFlowError('Say what to import it as: --as skill, --as template, --as agent, or --as generated.', { code: 'IMPORT_KIND_INVALID' });
+    }
+    const reference = requirePositional(positionals, 2, 'link to import');
+    const sha256 = optionString(options, 'sha256');
+    if (!sha256) {
+      // Nothing is added unseen: fetch and stage it, show it, and name the exact bytes to add.
+      const preview = await previewImport(root, reference, { as, id: optionString(options, 'id') });
+      const command = importAddCommandLine(reference, {
+        as, agent: optionString(options, 'agent'), id: optionString(options, 'id') ?? preview.id ?? importIdFromLink(reference), phases, sha256: preview.sha256
+      });
+      if (!json) printImportPreview(preview, command);
+      throw new SingularityFlowError(`Review the content first. To add exactly what was previewed, run: ${command}`, {
+        code: 'IMPORT_SHA256_REQUIRED', details: { sha256: preview.sha256, command }
+      });
+    }
+    const id = optionString(options, 'id') ?? (as === 'agent' ? null : importIdFromLink(reference));
+    if (as !== 'agent' && !id) throw new SingularityFlowError('Name the import with --id <kebab-case-id>.', { code: 'IMPORT_ID_INVALID' });
+    change = as === 'skill'
+      ? { op: 'import.skill', agent: optionString(options, 'agent'), id, source: reference, sha256, phases, optional: optionBoolean(options, 'optional'), replace: optionBoolean(options, 'replace') }
+      : as === 'template'
+        ? { op: 'import.template', id, label: optionString(options, 'label') ?? undefined, source: reference, sha256, phases, replace: optionBoolean(options, 'replace') }
+        : { op: 'import.agent', id: id ?? undefined, source: reference, sha256, withoutDefaults: optionBoolean(options, 'without-defaults'), replace: optionBoolean(options, 'replace') };
+  }
+  const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [change] };
+  const subject = String(change.id ?? change.agent ?? 'import');
+  const result = await applyImportChangeSet(root, changeSet, options, {
+    subject: /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(subject) ? subject : 'import',
+    message: `[configuration] import ${as}: ${subject}`
+  });
+  emitImportMutation(root, result, options, {
+    operation: 'import.add', messageId: 'import.added', slots: { kind: as, id: subject }
+  });
+}
+
+/** A dry run prints its plan; an applied import or removal is reported as a CommandResult. */
+function emitImportMutation(root, result, options, { operation, messageId, slots }) {
+  const json = optionBoolean(options, 'json');
+  if (optionBoolean(options, 'dry-run')) {
+    if (json) console.log(JSON.stringify(result, null, 2));
+    else printImportResult(result, { dryRun: true });
+    if (result.valid === false) process.exitCode = 1;
+    return;
+  }
+  if (!json) printImportResult(result, { dryRun: false });
+  const proposed = Boolean(result.reviewRequired);
+  // A written change is not finished until someone reviews and commits it; a proposal until it is
+  // activated. Say so instead of reporting that nothing is left to do.
+  const activate = typeof result.nextAction === 'string' ? result.nextAction : null;
+  emitCommandResult(commandResult({
+    operation: { id: operation, classification: 'mutation' },
+    subject: { kind: 'repository', id: path.basename(root) },
+    outcome: succeeded(messageId, { ...slots, proposed, branch: result.branch ?? null, files: result.written?.length ?? result.files?.length ?? 0 }),
+    effects: effects({ filesChanged: !proposed, publicationCreated: proposed, externalSystemsChanged: proposed }),
+    next: [proposed && activate
+      ? narrationAction({ id: `${operation}.activate`, label: 'After review, activate the configuration proposal', command: activate, kind: 'review' })
+      : narrationAction({ id: `${operation}.review`, label: 'Review what is imported, then commit the changed configuration files', command: 'singularity-flow imports', kind: 'review' })],
+    data: result
+  }), { json });
+}
+
+async function importsCommand(positionals, options) {
+  const action = positionals[1] ?? 'list';
+  const root = repoRoot();
+  const json = optionBoolean(options, 'json');
+  const { importsStatus, checkImportSources } = await import('./asset-import.mjs');
+  if (action === 'list') {
+    const rows = await withApprovedConfigurationRead(root, () => importsStatus(root), { preferAuthority: true });
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'imports', imports: rows }, null, 2));
+    if (!rows.length) return console.log('Nothing has been imported. Preview something with: singularity-flow import preview <LINK>');
+    console.log(table(rows.map((row) => ({ key: row.key, status: row.status, source: row.source })), [
+      { key: 'key', label: 'IMPORT' }, { key: 'status', label: 'STATUS' }, { key: 'source', label: 'SOURCE' }
+    ]));
+    return;
+  }
+  if (action === 'check') {
+    const rows = await withApprovedConfigurationRead(root, () => checkImportSources(root), { preferAuthority: true });
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'imports-check', imports: rows }, null, 2));
+    if (!rows.length) return console.log('Nothing has been imported.');
+    for (const row of rows) {
+      console.log(`${row.key}: ${row.status}${row.detail ? ` — ${row.detail}` : ''}`);
+      if (row.updateCommand) console.log(`  Review and update: ${row.updateCommand}`);
+    }
+    return;
+  }
+  if (action === 'remove') {
+    const key = requirePositional(positionals, 2, 'import to remove (see singularity-flow imports)');
+    const { STUDIO_CHANGE_SET_SCHEMA } = await import('./workflow-studio.mjs');
+    const result = await applyImportChangeSet(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [{ op: 'import.remove', key }] }, options, {
+      subject: key.split(/[:/]/).at(-1).replace(/[^a-z0-9-]/g, '') || 'import', message: `[configuration] remove import ${key}`
+    });
+    return emitImportMutation(root, result, options, { operation: 'imports.remove', messageId: 'import.removed', slots: { key } });
+  }
+  throw new SingularityFlowError(`Unknown imports action '${action}'. Use imports, imports check, or imports remove <IMPORT>.`, { code: 'COMMAND_UNKNOWN' });
+}
+
+async function marketplaceCommand(positionals, options) {
+  const action = positionals[1] ?? 'list';
+  const root = repoRoot();
+  const json = optionBoolean(options, 'json');
+  const { configuredMarketplaces, fetchMarketplaceIndex, marketplaceEntriesView, requireMarketplace } = await import('./marketplace.mjs');
+  if (action === 'list') {
+    const marketplaces = Object.values(await withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }));
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'marketplaces', marketplaces }, null, 2));
+    if (!marketplaces.length) return console.log('This repository trusts no marketplaces. Add one with: singularity-flow marketplace add <ID> --index <HTTPS-URL> --propose');
+    for (const marketplace of marketplaces) {
+      console.log(`${marketplace.id}: ${marketplace.label} — ${marketplace.index}${marketplace.allowedOrigins.length ? ` (also ${marketplace.allowedOrigins.join(', ')})` : ''}`);
+    }
+    return;
+  }
+  if (action === 'browse') {
+    const id = requirePositional(positionals, 2, 'marketplace ID');
+    const marketplace = requireMarketplace(await withApprovedConfigurationRead(root, () => configuredMarketplaces(root), { preferAuthority: true }), id);
+    const index = await fetchMarketplaceIndex(marketplace);
+    const entries = marketplaceEntriesView(index, { kind: optionString(options, 'kind'), search: optionString(options, 'search') });
+    if (json) {
+      return console.log(JSON.stringify({
+        schemaVersion: 1, resultType: 'marketplace-entries', marketplace: { ...marketplace, name: index.name, publisher: index.publisher, indexSha256: index.indexSha256 },
+        entries, ignored: index.ignored
+      }, null, 2));
+    }
+    console.log(`${index.name}${index.publisher ? ` by ${index.publisher}` : ''} (${marketplace.index}): ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`);
+    for (const entry of entries) {
+      console.log(`  ${entry.kind.padEnd(9)} ${entry.id}@${entry.version} — ${entry.label}${entry.importable ? '' : ' (not importable by this version)'}`);
+      if (entry.description) console.log(`            ${entry.description}`);
+    }
+    if (entries.some((entry) => entry.importable)) console.log(`Preview one with: singularity-flow import preview market:${marketplace.id}/<ENTRY>`);
+    return;
+  }
+  if (action === 'add' || action === 'remove') {
+    const id = requirePositional(positionals, 2, 'marketplace ID');
+    const { STUDIO_CHANGE_SET_SCHEMA } = await import('./workflow-studio.mjs');
+    const change = action === 'add'
+      ? { op: 'marketplace.add', id, label: optionString(options, 'label') ?? undefined, index: optionString(options, 'index'), allowedOrigins: listOption(options, 'allowed-origin') }
+      : { op: 'marketplace.remove', id };
+    const result = await applyImportChangeSet(root, { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [change] }, options, {
+      subject: /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) ? id : 'marketplace',
+      message: `[configuration] ${action === 'add' ? 'trust' : 'stop trusting'} marketplace ${id}`
+    });
+    return emitImportMutation(root, result, options, {
+      operation: `marketplace.${action}`, messageId: action === 'add' ? 'marketplace.added' : 'marketplace.removed', slots: { id }
+    });
+  }
+  throw new SingularityFlowError(`Unknown marketplace action '${action}'. Use marketplace list, browse <ID>, add <ID> --index <URL>, or remove <ID>.`, { code: 'COMMAND_UNKNOWN' });
+}
+
 async function decisionCommand(positionals, options) {
   const action = positionals[1] ?? 'show';
   if (action === 'show') return decisionShowCommand(positionals, options);
@@ -9591,7 +9862,7 @@ async function workflowCommand(positionals, options) {
       for (const line of plan.summary) console.log(`  ${line}`);
       for (const problem of plan.problems) console.log(`  Problem: ${problem.message}`);
       for (const warning of plan.warnings) console.log(`  Warning: ${warning.message}`);
-      for (const file of plan.files) console.log(`  ${file.action === 'create' ? 'new' : 'changed'}: ${file.path}`);
+      for (const file of plan.files) console.log(`  ${file.action === 'create' ? 'new' : file.action === 'delete' ? 'removed' : 'changed'}: ${file.path}`);
     };
     if (optionBoolean(options, 'dry-run')) {
       const plan = await withApprovedConfigurationRead(root, () => planStudioChangeSet(root, changeSet), { preferAuthority: true });
@@ -9601,11 +9872,14 @@ async function workflowCommand(positionals, options) {
       return;
     }
     const subject = String((changeSet.changes ?? []).map((change) => change?.id ?? change?.phase).find((id) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(id ?? ''))) ?? 'changes');
+    // Imported bytes were previewed and staged in this checkout; a proposal clone has none of them.
+    const { resolveChangeSetImports } = await import('./asset-import.mjs');
+    const imports = await resolveChangeSetImports(root, changeSet);
     const result = await author({
       operation: 'studio', subject,
       message: `[configuration] workflow studio: ${(changeSet.changes ?? []).length} change(s) to ${subject}`,
       expectedAuthority: expectedConfigurationAuthority(options),
-      mutate: (target) => planStudioChangeSet(target, changeSet, { write: true })
+      mutate: (target) => planStudioChangeSet(target, changeSet, { write: true, imports })
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (printProposal(result)) return;
@@ -17511,6 +17785,9 @@ async function dispatch(command, positionals, options) {
     proof: async () => (await import('./commands/proof.mjs')).run(argv, { positionals, options }),
     delivery: async () => (await import('./commands/delivery.mjs')).run(argv, { positionals, options }),
     'agents': () => agentsCommand(positionals, options),
+    import: () => importCommand(positionals, options),
+    imports: () => importsCommand(positionals, options),
+    marketplace: () => marketplaceCommand(positionals, options),
     mcp: () => mcpCommand(positionals, options),
     visual: () => visualCommand(positionals, options),
     documents: () => documentsCommand(positionals, options),

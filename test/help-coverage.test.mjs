@@ -67,7 +67,7 @@ test('canonical manuals require exact Epic confirmation for completion', async (
 
 test('every served topic is a surface-aware tutorial', async () => {
   const topics = await loadTopics();
-  assert.equal(topics.length, 70);
+  assert.equal(topics.length, 71);
   for (const topic of topics) {
     for (const section of requiredSections) {
       assert.match(topic.body, new RegExp(`^## ${section}$`, 'm'), `${topic.file} lacks ${section}`);

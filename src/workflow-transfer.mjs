@@ -999,7 +999,10 @@ function lockedAgentEntry(lock, agent) {
       fail(`Governed agent '${agent.id}' dependency '${dependency.id}' has a stale or invalid lock.`,
         'WORKFLOW_AGENT_LOCK_STALE');
     }
-    dependencies.push(clone(locked));
+    // An imported (vendored) copy lives in this repository's configuration, not in the bundle: the
+    // destination re-fetches the same URL and checks the same hash, as for any locked dependency.
+    const { vendored: _vendored, ...portable } = clone(locked);
+    dependencies.push(portable);
   }
   return {
     source: entry.source,

@@ -8,6 +8,7 @@
  */
 
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
 import {
   safeCommandGuidance, validateSafeSflowCommand
 } from './safe-command-guidance.mjs';
@@ -160,6 +161,24 @@ function phaseContainmentSteps(context) {
     ].filter(Boolean);
   }
   return [recover, show].filter(Boolean);
+}
+
+function requiredTestFailureSteps(argv, error) {
+  const context = phaseRemediationContext(argv, error);
+  const failure = requiredTestExecutionForRefusal(error)?.failure;
+  return [
+    step('recover-required-test',
+      'Inspect the refused phase and its saved test evidence before changing or retrying it.',
+      context?.recoveryCommand ?? 'singularity-flow recover --json',
+      'diagnostic', '/sf-recover'),
+    step('read-saved-test-log',
+      'Read the saved error log for the exact failed execution; do not reconstruct a secret-bearing configured command.',
+      'singularity-flow logs --level error --tail 20',
+      'diagnostic', '/sf-logs'),
+    step('repair-required-test',
+      failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
+      null, 'remediation')
+  ];
 }
 
 function skillHostPrerequisiteSteps(error, context) {
@@ -415,7 +434,13 @@ const KNOWN = Object.freeze({
       'After a real repository or runtime change, recheck the same phase. Do not retry publication against unchanged inputs.',
       `singularity-flow phase prepublish${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-code')
   ],
-  CODE_TEST_RESULT_REQUIRED: (_argv, error) => error?.details?.configurationDependency !== true ? [] : [
+  CODE_TEST_FAILED: (argv, error) => requiredTestFailureSteps(argv, error),
+  CODE_TEST_SKIPPED: (argv, error) => requiredTestFailureSteps(argv, error),
+  CODE_TEST_ZERO_DISCOVERED: (argv, error) => requiredTestFailureSteps(argv, error),
+  CODE_TEST_TIMEOUT: (argv, error) => requiredTestFailureSteps(argv, error),
+  QUALITY_COMMAND_SOURCE_MUTATION: (argv, error) => requiredTestFailureSteps(argv, error),
+  CODE_TEST_RESULT_REQUIRED: (argv, error) => error?.details?.configurationDependency !== true
+    ? requiredTestFailureSteps(argv, error) : [
     step('inspect-pinned-test-command',
       'Inspect the malformed configured test-command contract; do not print argv containing potential secrets.',
       'singularity-flow recover --json', 'diagnostic', '/sf-recover'),
@@ -492,71 +517,15 @@ function deduplicate(steps) {
   }).slice(0, 3);
 }
 
-const MAX_REQUIRED_TEST_DIAGNOSTIC_CHARS = 2000;
-const MAX_REQUIRED_TEST_ARGV = 128;
-
-function boundedRequiredTestText(value) {
-  const redacted = redactDiagnosticText(value ?? '');
-  return redacted.length <= MAX_REQUIRED_TEST_DIAGNOSTIC_CHARS
-    ? redacted
-    : `${redacted.slice(0, MAX_REQUIRED_TEST_DIAGNOSTIC_CHARS)}…[truncated]`;
-}
-
-function requiredTestExecutionForRefusal(error) {
-  if (!['CODE_TEST_FAILED', 'CODE_TEST_SKIPPED', 'CODE_TEST_ZERO_DISCOVERED',
-    'CODE_TEST_RESULT_REQUIRED'].includes(error?.code)) return null;
-  const execution = error?.details?.requiredTestExecution;
-  if (!execution || typeof execution !== 'object'
-      || typeof execution.commandId !== 'string' || typeof execution.cwd !== 'string'
-      || typeof execution.resultPath !== 'string') return null;
-  // Repository configuration can supply arbitrary argv values. Only commands assembled by the
-  // deterministic inference adapters have a safe command shape for public diagnostic replay.
-  const inferred = execution.provenance === 'inferred';
-  if (inferred && !Array.isArray(execution.argv)) return null;
-  let argvRedacted = false;
-  const argv = (inferred ? execution.argv : []).slice(0, MAX_REQUIRED_TEST_ARGV).map((argument, index) => {
-    const previous = String(execution.argv[index - 1] ?? '');
-    if (/^--?(?:password|passwd|token|secret|api[-_]?key|access[-_]?key|authorization|credential)$/iu.test(previous)) {
-      argvRedacted = true;
-      return '[REDACTED]';
-    }
-    const raw = String(argument);
-    const safe = boundedRequiredTestText(raw);
-    if (safe !== raw) argvRedacted = true;
-    return safe;
-  });
-  const stream = (name) => ({
-    text: boundedRequiredTestText(execution[name]?.text),
-    bytes: Number.isSafeInteger(execution[name]?.bytes) && execution[name].bytes >= 0
-      ? execution[name].bytes : 0,
-    truncated: execution[name]?.truncated === true
-      || String(execution[name]?.text ?? '').length > MAX_REQUIRED_TEST_DIAGNOSTIC_CHARS
-  });
-  return {
-    commandId: boundedRequiredTestText(execution.commandId),
-    argv: inferred ? argv : null,
-    argvWithheld: !inferred,
-    argvRedacted,
-    argvTruncated: inferred && execution.argv.length > MAX_REQUIRED_TEST_ARGV,
-    provenance: inferred ? 'inferred' : 'configured',
-    cwd: boundedRequiredTestText(execution.cwd),
-    workingDirectory: boundedRequiredTestText(execution.workingDirectory),
-    exitCode: Number.isInteger(execution.exitCode) ? execution.exitCode : null,
-    status: boundedRequiredTestText(execution.status),
-    resultPath: boundedRequiredTestText(execution.resultPath),
-    configuredResultPath: boundedRequiredTestText(execution.configuredResultPath),
-    resultAdapter: boundedRequiredTestText(execution.resultAdapter),
-    stdout: stream('stdout'),
-    stderr: stream('stderr')
-  };
-}
-
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
   const repositoryRunnerBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
   const pinnedTestPolicyBlocked = ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(code)
     && error?.details?.configurationDependency === true;
+  const requiredTestBlocked = /^CODE_TEST_[A-Z0-9_]+$/u.test(code)
+    || code === 'QUALITY_COMMAND_SOURCE_MUTATION';
+  const requiredTestFailure = requiredTestExecutionForRefusal(error)?.failure;
   const rawPhaseContext = phaseRemediationContext(argv, error);
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
@@ -591,9 +560,13 @@ export function refusalRemediationPlan(error, argv = []) {
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
       ? [...phaseSteps, ...known, ...nonDuplicateExplicit]
+      : requiredTestBlocked
+        ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
       : authoringIncomplete
         ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
         : [...nonDuplicateExplicit, ...known, ...phaseSteps]
+    : requiredTestBlocked
+      ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
     : authoringIncomplete
       ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
       : [...nonDuplicateExplicit, ...known, ...genericSteps(argv)];
@@ -606,6 +579,10 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Do not retry publication until a governed same-Story test-policy amendment is available or the work continues in a new Story under corrected approved policy.'
     : phaseContext?.turn === 'new-turn'
     ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
+    : requiredTestBlocked && requiredTestFailure?.retryCondition === 'runtime-changed'
+    ? 'Retry after the test runtime or dependency has actually changed; the same source may then be rechecked. Do not loop against an unchanged environment.'
+    : requiredTestBlocked
+    ? 'Retry only after the identified test, report, or source-mutation condition is repaired and the current phase is rechecked. Do not repeat an unchanged failing run.'
     : code === 'CLARIFICATION_MODE_OFF'
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
     : authoringIncomplete

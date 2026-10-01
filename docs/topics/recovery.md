@@ -20,7 +20,7 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 10
+version: 11
 ---
 Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
@@ -41,14 +41,15 @@ Use this topic when the current goal matches **recovery**. Start in a governed c
 3. Inspect the plan. Each blocker names its stable code, category, phase/generation, evidence path and line, and one bounded action.
 4. Follow the action's owning route when it is guided. Recovery never fabricates a requirement, implementation, test, clarification, or approval.
 5. For an automatic action, confirm the exact `planId`. The command recomputes repository HEAD and the worktree fingerprint and refuses a stale plan.
-6. Re-read recovery once after completion. Retry the original lifecycle command only when its fingerprint changed.
+6. Re-read recovery once after completion. Retry only after evidence shows the diagnosed blocking condition changed. For a missing interpreter or dependency, that evidence is the repaired runtime in the same command/cwd, not an unrelated edit to source just to change a hash.
 
 Every phase refusal uses the same containment rule. The current phase remains the repair boundary;
 published generations stay immutable, authored work is not discarded, and recovery never advances
 the lifecycle or rewrites history. A read-only phase recovery plan names the exact blocker and the
 owning producer (`/sf-phase`, `/sf-code`, or another configured route). Configuration defects are
 repaired through configuration authority while the Story stays paused in the same phase; the pinned
-Story snapshot is never hand-edited. An approval failure ends the approval-only turn. If reviewed
+Story snapshot is never hand-edited. A configuration refresh only changes future Stories: it is
+not a same-Story amendment of a malformed pinned test command. An approval failure ends the approval-only turn. If reviewed
 bytes must change, a new turn uses `/sf-reject` to choose an allowed repair target, followed by fresh
 authoring, submission, and approval.
 
@@ -96,8 +97,84 @@ the explicit path for it. Set `SINGULARITY_FLOW_TRANSITION_REPAIR=off` to switch
 - If a generation intent was already consumed and its bytes changed (for example, a requested README update after implementation publication), do not retry `/sf-code` or submit the old generation. Use `/sf-recover` or `singularity-flow recover <WORK-ID> --phase <phase> --json` to review the blocker, Git diff, and exact rollover action. Preview with `singularity-flow phase rollover <phase> --json`; execute only the returned `--confirm` command after confirming the changed paths are owned, in scope, and permitted by policy. Recheck recovery and the phase's code/test evidence before publishing the successor. The previous generation remains preserved.
 - If the prior publication commit cannot be authenticated, or the changed paths are protected, unrelated, or not owned by the current Story, do not treat a rollover or risk acceptance as a shortcut. Preserve the bytes, inspect `singularity-flow doctor --json` and the repository history, and repair the specific authority or scope problem first.
 - An accepted risk is not an integrity bypass. Where convergence reports an eligible observed deviation, a human can record `singularity-flow story adjudicate <ITEM-ID> --work-id <WORK-ID> --disposition accepted-deviation --reason <reason> --clause <CLAUSE-ID>`; the decision remains visible as a deviation and does not replace required code, tests, publication, or approval. A changed consumed generation, missing or forged evidence, protected-path violation, or unverifiable publication cannot be accepted away.
-- If the same blocker and `planId` return unchanged, stop. Repeating publish cannot change its preconditions.
+- If the same diagnosed condition is unchanged, stop. Repeating publish cannot change its preconditions. An environment-only repair can leave source hashes and the recovery `planId` unchanged; verify the repaired interpreter/dependency rather than requiring an artificial source edit.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+
+## Code/test gate recovery: diagnose before retrying
+
+`/sf-code` authors and publishes a generation; `/sf-submit` revalidates the published generation.
+These are separate gates. `draft-check: ready` and `prepublish: ready` only mean the currently
+inspectable conditions passed; neither claims that required tests have run successfully.
+
+Start with the selected Story checkout, not another workspace's terminal:
+
+```sh
+singularity-flow session current --json
+singularity-flow recover <WORK-ID> --phase <phase> --json
+singularity-flow phase prepublish <phase> --json
+```
+
+Recovery and prepublish expose `testExecution.commands` without executing tests, including after
+publication. Compare the interpreter, argv, working directory, report adapter and path with the
+manual test run. Inferred commands are shown directly; configured argv are withheld from generic
+diagnostics because they may contain credentials. Inspect those through their governed configuration
+source. IDs such as `.-python-tests` are identifiers, not executables.
+
+### Why a passing test report can accompany a failed gate
+
+Required tests need both a successful process exit and valid, sufficiently populated structured
+results. A report with 16 passing tests does not override exit code 1: it could precede a failing
+coverage threshold, teardown, second command stage, or be an old report from a different run.
+SFlow clears the declared result before execution and captures bounded diagnostics from that run
+before restoring transient output. A restored file in the checkout is not the current run's evidence.
+Failure reports are explicitly diagnostic-only (`gateEligible: false`), never receipts or approval.
+Existing native report files are backed up before clearing and restored on a failed/refused run;
+validated successful native runs retain their fresh output. Directory adapters clear only report
+files, not the entire directory. A native report path overlapping tracked repository content is
+refused before execution, rather than deleting source and discovering the conflict afterwards.
+
+Refusals and saved CLI logs retain a bounded/redacted `requiredTestExecution` projection:
+command identity, cwd, exit, stdout/stderr, report availability/counts, bounded failing test names
+where the adapter exposes them, failure classification and repair guidance. Arbitrary error
+details and configured argv are not logged. Existing logs cannot retrospectively recover output
+that an older build never saved.
+
+For Python inference SFlow uses a structurally valid module `.venv`, then repository `.venv`, before
+the normal system launcher. Windows uses `Scripts/python.exe`; macOS/Linux use `bin/python3` or
+`bin/python`. This avoids a manual run using the project's pytest while publication accidentally
+uses a system Python without pytest. It does not install dependencies, activate a shell environment,
+override an explicit pinned command, or guarantee pytest is installed in that environment.
+Inferred pytest runs disable Python bytecode and pytest cache writes, so passing tests do not
+create an unexpected `__pycache__` or `.pytest_cache` source change. Explicit configured commands
+keep their original arguments and remain the configuration owner's responsibility.
+
+### Choose the repair that matches the blocker
+
+| Finding | Repair and retry boundary |
+| --- | --- |
+| Missing launcher/dependency or wrong Python | Inspect exact runtime/cwd, restore approved dependencies with necessary authorization, prove the failure condition changed, retry. No source edit or rollover is needed if published bytes are unchanged. |
+| Untracked `.sflow/results/**` | Preserve it. Recovery treats these reserved generated outputs as disposable diagnostics, not unexpected source changes. Tracked/staged reports still require review. No `git clean`, reset or manual deletion is needed. |
+| Owned source/test/artifact draft in an open intent | Review scope and repair within that intent; rerun draft checks and prepublish. A dirty tree is expected while authoring. |
+| README/code/tests changed after publication | `/sf-recover` → review diff → preview `singularity-flow phase rollover <phase> --json` → human confirms exact digest → publish successor. Preserve the previous generation. |
+| Test process changes source | Preserve and review changes; tests must be observational. Repair the runner/source, using rollover if the generation was already consumed. Do not rerun repeatedly over mutated bytes. |
+| Nonzero exit with passing report | Inspect current run's stderr and remaining runner stages. Do not treat report counts as authority to waive the failed process. |
+| Missing/invalid/zero-test report | Correct the repository-owned reporter or runner declaration when in scope, then retry. Never fabricate a report or lower minimums to manufacture a pass. |
+| Malformed pinned test command | Configuration owner must repair the approved policy for future Stories. Refresh does not change this Story's pin. This build has no general same-Story test-policy amendment; preserve work and escalate explicitly rather than looping or claiming it is repaired. |
+| Divergence, protected/unowned paths, unverifiable publication | Preserve bytes and follow the exact diagnostic/owner action. These are not eligible for a blanket “accept risk” bypass. |
+
+Runtime repair can legitimately leave the code and artifact fingerprints unchanged. Skills compare
+the diagnosed condition and runtime evidence as well as source/check hashes, stop on an unchanged
+condition, and allow at most three distinct repairs per attempt. They never endlessly call publish,
+silently discard a dirty tree, or submit/approve from the recovery skill.
+
+### Scope and rollout
+
+The execution, report and recovery fixes apply to all phases using the shared code-delivery test
+gate, not only a workflow named `spec-driven-standard`. Existing Stories keep their pins and
+published generations. Install the updated CLI in each calling host and update Copilot skills;
+VS Code's bundled CLI also needs the rebuilt extension. A source commit alone does not update an
+already-installed extension. Use the read-only recovery commands above first; migration of Story
+state, resetting worktrees, deleting test reports, and resubmitting are not installation steps.
 
 ## Related topics
 

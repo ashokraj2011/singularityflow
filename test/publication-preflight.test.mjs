@@ -129,7 +129,8 @@ async function createSymlinkOrSkip(t, target, link) {
 }
 
 async function codeFixture(name, {
-  acceptance = true, trackedResult = false, intelligenceAst = null, testProfile = 'configured'
+  acceptance = true, trackedResult = false, intelligenceAst = null, testProfile = 'configured',
+  configuredResult = null, configuredProvenance = null, preexistingResult = null
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
   git(root, 'init', '-b', 'main');
@@ -209,6 +210,11 @@ async function codeFixture(name, {
     await writeFile(path.join(root, '.sflow', 'results', 'unit.json'),
       '{"run":"legacy","tests":{"discovered":1,"passed":1,"failed":0,"skipped":0}}\n');
   }
+  if (preexistingResult) {
+    const result = path.join(root, preexistingResult.path);
+    await mkdir(path.dirname(result), { recursive: true });
+    await writeFile(result, preexistingResult.bytes);
+  }
   await initializeDefinition(root);
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'initialize repository');
@@ -237,7 +243,10 @@ async function codeFixture(name, {
       argv: [process.execPath, 'test-runner.mjs',
         ...(testProfile === 'configured-secret' ? ['--token', 'hidden-configured-secret'] : [])],
       workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
-      result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/unit.json', minimumDiscovered: 1 }
+      ...(configuredProvenance ? { provenance: configuredProvenance } : {}),
+      result: configuredResult ?? {
+        adapter: 'sflow-test-result-v1', path: '.sflow/results/unit.json', minimumDiscovered: 1
+      }
     }]
   };
   // This fixture's approved requirements owner is part of the accepted execution policy. Older
@@ -1024,6 +1033,38 @@ test('recovery routes exact current-phase draft and preparation changes to revie
   assert.equal(plan.requiresRecovery, false, 'dirty authoring is not a lifecycle recovery gate');
 });
 
+test('recovery ignores only untracked structured test reports without deleting their bytes', async () => {
+  const { root, config, workflow, target } = await fixture('recovery-local-test-results');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'baseline Story draft');
+  const report = path.join(root, '.sflow', 'results', 'python-tests.xml');
+  await mkdir(path.dirname(report), { recursive: true });
+  await writeFile(report, '<testsuite tests="1" failures="0"/>\n');
+
+  const reportOnly = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  assert.equal(reportOnly.actions.some((entry) => entry.id === 'working-tree'), false);
+  assert.equal(await readFile(report, 'utf8'), '<testsuite tests="1" failures="0"/>\n');
+  assert.match(git(root, 'status', '--porcelain=v1', '--untracked-files=all'),
+    /\?\? \.sflow\/results\/python-tests\.xml/);
+  await writeFile(report, '<testsuite tests="2" failures="0"/>\n');
+  const rerun = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  assert.equal(rerun.planId, reportOnly.planId,
+    'rewriting a disposable untracked test report must not stale a reviewed recovery plan');
+
+  await writeFile(target, `${await readFile(target, 'utf8')}\nCurrent-phase authoring.\n`);
+  const withDraft = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  const authoring = withDraft.actions.find((entry) => entry.id === 'working-tree');
+  assert.equal(authoring.mode, 'guided');
+  assert.deepEqual(authoring.unexpectedPaths, []);
+  assert.deepEqual(authoring.disposableUntrackedPaths, ['.sflow/results/python-tests.xml']);
+
+  git(root, 'add', '.sflow/results/python-tests.xml');
+  const tracked = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  const review = tracked.actions.find((entry) => entry.id === 'working-tree');
+  assert.equal(review.mode, 'manual', 'staged result bytes must not be silently excluded');
+  assert.ok(review.unexpectedPaths.includes('.sflow/results/python-tests.xml'));
+});
+
 test('recovery keeps unrelated and protected paths manual even beside an exact phase draft', async () => {
   const { root, config, workflow, target } = await fixture('recovery-unrelated-worktree');
   git(root, 'add', '.');
@@ -1464,6 +1505,305 @@ test('failed required test execution reports bounded diagnostics before publicat
   assert.equal(context.phase.generationIntent.status, 'open');
 });
 
+test('a nonzero test process retains this run passing report counts but still fails the gate', async (t) => {
+  const context = await codeFixture('nonzero-with-passing-report');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('.sflow/results/unit.json', JSON.stringify({ tests: { discovered: 4, passed: 4, failed: 0, skipped: 0 } }));",
+    "process.stderr.write('later command stage failed\\n');",
+    'process.exit(23);', ''
+  ].join('\n'));
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_FAILED');
+    const execution = error.details.requiredTestExecution;
+    assert.equal(execution.exitCode, 23);
+    assert.equal(execution.report.status, 'observed');
+    assert.deepEqual(execution.report.tests,
+      { discovered: 4, passed: 4, failed: 0, skipped: 0 });
+    assert.equal(execution.failure.kind, 'process-failed-with-passing-report');
+    const publicRefusal = refusalEnvelope(error, ['phase', 'publish', 'implementation', '--json']);
+    assert.equal(publicRefusal.error.requiredTestExecution.report.tests.passed, 4);
+    return true;
+  });
+  assert.equal(context.phase.generation, 0);
+  assert.equal(context.phase.generationIntent.status, 'open');
+  assert.equal(context.phase.deliveryEvidence, undefined);
+});
+
+test('an old report is restored but never attributed to a run that emitted none', async (t) => {
+  const context = await codeFixture('previous-report-not-current', { trackedResult: true });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  const resultPath = path.join(context.root, '.sflow', 'results', 'unit.json');
+  const previousBytes = await readFile(resultPath, 'utf8');
+  await writeFile(path.join(context.root, 'test-runner.mjs'),
+    "process.stdout.write('no current report\\n');\n");
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_RESULT_REQUIRED');
+    const execution = error.details.requiredTestExecution;
+    assert.equal(execution.exitCode, 0);
+    assert.equal(execution.report.status, 'unavailable');
+    assert.equal(execution.report.tests, undefined);
+    assert.equal(execution.failure.kind, 'invalid-or-missing-report');
+    return true;
+  });
+  assert.equal(await readFile(resultPath, 'utf8'), previousBytes,
+    'refusal must restore the preexisting report byte-for-byte');
+  assert.equal(context.phase.generation, 0);
+});
+
+test('a tracked configured report outside SFlow results refuses before execution', async (t) => {
+  const resultPath = 'test-results/unit.json';
+  const previousBytes = '{"run":"previous","tests":{"discovered":1,"passed":1,"failed":0,"skipped":0}}\n';
+  const context = await codeFixture('configured-report-preservation', {
+    configuredResult: { adapter: 'sflow-test-result-v1', path: resultPath,
+      minimumDiscovered: 1 },
+    preexistingResult: { path: resultPath, bytes: previousBytes }
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'),
+    "import { writeFileSync } from 'node:fs';\nwriteFileSync('runner-started', 'yes');\n");
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_RESULT_REQUIRED',
+      'tracked report bytes outside the transient boundary must not be cleared');
+    return true;
+  });
+  assert.equal(await readFile(path.join(context.root, resultPath), 'utf8'), previousBytes);
+  await assert.rejects(() => readFile(path.join(context.root, 'runner-started')),
+    (error) => error.code === 'ENOENT');
+  assert.equal(context.phase.generation, 0);
+});
+
+test('a gitignored configured report outside SFlow results is restored after refusal', async (t) => {
+  const resultPath = 'test-results/unit.json';
+  const previousBytes = '{"run":"previous","tests":{"discovered":1,"passed":1,"failed":0,"skipped":0}}\n';
+  const context = await codeFixture('ignored-report-preservation', {
+    configuredResult: { adapter: 'sflow-test-result-v1', path: resultPath,
+      minimumDiscovered: 1 }
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, '.gitignore'), 'test-results/\n');
+  await mkdir(path.join(context.root, 'test-results'), { recursive: true });
+  await writeFile(path.join(context.root, resultPath), previousBytes);
+  await writeFile(path.join(context.root, 'test-runner.mjs'),
+    "process.stdout.write('no new report\\n');\n");
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_RESULT_REQUIRED');
+    assert.equal(error.details.requiredTestExecution.report.status, 'unavailable');
+    return true;
+  });
+  assert.equal(await readFile(path.join(context.root, resultPath), 'utf8'), previousBytes);
+  assert.equal(context.phase.generation, 0);
+});
+
+test('a runner symlink swap cannot overwrite an external sentinel during report restoration', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('Creating a symlink requires a Windows privilege not available on every test host.');
+    return;
+  }
+  const resultPath = 'test-results/unit.json';
+  const previousBytes = '{"run":"previous","tests":{"discovered":1,"passed":1,"failed":0,"skipped":0}}\n';
+  const external = await mkdtemp(path.join(os.tmpdir(), 'sflow-report-sentinel-'));
+  t.after(() => rm(external, { recursive: true, force: true }));
+  const sentinel = path.join(external, 'sentinel.json');
+  await writeFile(sentinel, '{"secret":"untouched"}\n');
+  const context = await codeFixture('report-symlink-swap', {
+    configuredResult: { adapter: 'sflow-test-result-v1', path: resultPath,
+      minimumDiscovered: 1 }
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, '.gitignore'), 'test-results/\n');
+  await mkdir(path.join(context.root, 'test-results'), { recursive: true });
+  await writeFile(path.join(context.root, resultPath), previousBytes);
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "import { symlinkSync } from 'node:fs';",
+    `symlinkSync(${JSON.stringify(sentinel)}, ${JSON.stringify(resultPath)});`,
+    'process.exit(23);', ''
+  ].join('\n'));
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )));
+  assert.equal(await readFile(path.join(context.root, resultPath), 'utf8'), previousBytes);
+  assert.equal(await readFile(sentinel, 'utf8'), '{"secret":"untouched"}\n');
+  assert.equal(context.phase.generation, 0);
+});
+
+test('a Maven-style report directory preserves prior XML while retaining new output', async (t) => {
+  const resultPath = 'target/surefire-reports';
+  const previousBytes = '<testsuite tests="1" failures="0"><testcase classname="Old" name="passes"/></testsuite>\n';
+  const context = await codeFixture('junit-directory-preservation', {
+    configuredResult: { adapter: 'junit-xml', path: resultPath,
+      minimumDiscovered: 1 }
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await mkdir(path.join(context.root, resultPath), { recursive: true });
+  await writeFile(path.join(context.root, resultPath, 'TEST-old.xml'), previousBytes);
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('target/surefire-reports/TEST-current.xml', '<testsuite tests=\"1\" failures=\"0\"><testcase classname=\"Current\" name=\"passes\"/></testsuite>\\n');",
+    "process.stderr.write('later stage failed\\n');",
+    'process.exit(23);', ''
+  ].join('\n'));
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_FAILED');
+    assert.equal(error.details.requiredTestExecution.report.status, 'observed');
+    return true;
+  });
+  assert.equal(await readFile(path.join(context.root, resultPath, 'TEST-old.xml'), 'utf8'),
+    previousBytes);
+  assert.match(await readFile(path.join(context.root, resultPath, 'TEST-current.xml'), 'utf8'),
+    /Current/);
+});
+
+test('a successful Maven-style result run keeps fresh XML and discards stale reports', async (t) => {
+  const resultPath = 'target/surefire-reports';
+  const previousBytes = '<testsuite tests="1" failures="0"><testcase classname="Old" name="passes"/></testsuite>\n';
+  const context = await codeFixture('junit-directory-success', {
+    configuredResult: { adapter: 'junit-xml', path: resultPath,
+      minimumDiscovered: 1 }
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await mkdir(path.join(context.root, resultPath), { recursive: true });
+  await writeFile(path.join(context.root, resultPath, 'TEST-old.xml'), previousBytes);
+  await writeFile(path.join(context.root, resultPath, 'notes.txt'), 'unrelated output\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('target/surefire-reports/TEST-current.xml', '<testsuite tests=\"1\" failures=\"0\"><testcase classname=\"Current\" name=\"passes\"/></testsuite>\\n');",
+    ''
+  ].join('\n'));
+
+  await inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  ));
+  assert.equal(context.phase.generation, 1);
+  await assert.rejects(readFile(path.join(context.root, resultPath, 'TEST-old.xml'), 'utf8'),
+    { code: 'ENOENT' });
+  assert.match(await readFile(path.join(context.root, resultPath, 'TEST-current.xml'), 'utf8'),
+    /Current/);
+  assert.equal(await readFile(path.join(context.root, resultPath, 'notes.txt'), 'utf8'),
+    'unrelated output\n');
+});
+
+test('JUnit failure diagnostics retain testcase identity while redacting token text', async (t) => {
+  const context = await codeFixture('junit-testcase-diagnostic', {
+    configuredResult: { adapter: 'junit-xml', path: '.sflow/results/python-tests.xml',
+      minimumDiscovered: 1 }
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('.sflow/results/python-tests.xml', '<testsuite tests=\"1\" failures=\"1\"><testcase classname=\"pkg.RuleTest\" name=\"rejects token=hidden-secret\"><failure message=\"assertion\"/></testcase></testsuite>\\n');",
+    ''
+  ].join('\n'));
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_FAILED');
+    const execution = error.details.requiredTestExecution;
+    assert.equal(execution.report.status, 'observed');
+    assert.equal(execution.report.tests.failed, 1);
+    assert.equal(execution.failure.kind, 'failed-tests');
+    assert.match(execution.report.failedTestcases[0].name, /pkg\.RuleTest::rejects/);
+    assert.doesNotMatch(JSON.stringify(refusalEnvelope(error,
+      ['phase', 'publish', 'implementation', '--json'])), /hidden-secret/);
+    return true;
+  });
+});
+
+test('test-induced source mutation retains bounded output and never publishes', async (t) => {
+  const context = await codeFixture('mutation-diagnostic', {
+    configuredProvenance: 'inferred'
+  });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "import { appendFileSync, writeFileSync } from 'node:fs';",
+    "process.stdout.write('mutating runner stdout\\n');",
+    "process.stderr.write('mutating runner stderr\\n');",
+    "appendFileSync('src/app.java', '// changed by test command\\n');",
+    "writeFileSync('.sflow/results/unit.json', JSON.stringify({ tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } }));",
+    ''
+  ].join('\n'));
+
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'QUALITY_COMMAND_SOURCE_MUTATION');
+    assert.equal(error.details.requiredTestExecution.stdout.text, 'mutating runner stdout');
+    assert.equal(error.details.requiredTestExecution.stderr.text, 'mutating runner stderr');
+    assert.equal(error.details.requiredTestExecution.failure.kind, 'source-mutation');
+    assert.equal(error.details.requiredTestExecution.report.status, 'observed');
+    assert.equal(error.details.requiredTestExecution.argvWithheld, true,
+      'a configured command cannot self-assert inferred provenance to expose argv');
+    assert.notEqual(error.details.beforeSha256, error.details.afterSha256);
+    return true;
+  });
+  assert.equal(context.phase.generation, 0);
+  assert.match(await readFile(path.join(context.root, 'src', 'app.java'), 'utf8'),
+    /changed by test command/);
+});
+
 test('missing structured report retains the successful process diagnostics', async (t) => {
   const context = await codeFixture('missing-result-diagnostic');
   t.after(() => rm(context.root, { recursive: true, force: true }));
@@ -1741,6 +2081,21 @@ test('Playwright publication infers a report and submission reads fresh governed
   ));
   assert.equal(context.phase.generation, 1);
   assert.deepEqual(context.phase.qualityCommands, []);
+  const publishedRecovery = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  assert.equal(publishedRecovery.requiresRecovery, false,
+    'an unchanged published generation is ready for submission, not lifecycle recovery');
+  assert.equal(publishedRecovery.testExecution.status, 'not-run');
+  assert.ok(publishedRecovery.testExecution.commands.some((entry) =>
+    entry.argvSource === 'inferred' && Array.isArray(entry.argv)
+      && entry.result.adapter === 'playwright-json'),
+  'published code must still expose its inferred test command without re-executing it');
+  const submit = publishedRecovery.actions.find((entry) =>
+    entry.id === 'submit-published-generation:implementation');
+  assert.equal(submit?.command, 'singularity-flow submit implementation --work-id DELIVERY-1');
+  assert.equal(submit?.skill, '/sf-submit');
+  assert.equal(safeCommandGuidance(submit)?.copilotCommand, '/sf-submit');
   await inContext(context.root, () => submitPhase(
     context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
   ));
@@ -2171,6 +2526,19 @@ test('an in-scope README edit after code publication routes through recovery, th
   assert.equal(safeCommandGuidance(rollover)?.copilotCommand, '/sf-recover');
   assert.equal(recovery.actions.find((entry) => entry.id === 'working-tree')?.mode, 'manual',
     'dirty README must still require explicit path review');
+  assert.equal(recovery.testExecution.status, 'not-run');
+  assert.ok(recovery.testExecution.commands.length > 0,
+    'a consumed published generation must retain a read-only required-test preview');
+  assert.ok(recovery.testExecution.commands.some((entry) =>
+    entry.argvSource === 'approved-configuration' && entry.argv === null),
+  'approved configured argv remains withheld after publication');
+  const prepublish = await phasePrepublish(context.root, context.config, context.workflow,
+    context.phase, { session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' } });
+  assert.equal(prepublish.testExecution.status, 'not-run');
+  assert.deepEqual(prepublish.testExecution.commands, recovery.testExecution.commands);
+  assert.equal(prepublish.commands.next,
+    'singularity-flow recover DELIVERY-1 --phase implementation --json');
+  assert.equal(prepublish.correction.skill, '/sf-recover');
 
   const preview = JSON.parse(flow(context.root, ['phase', 'rollover', 'implementation', '--json']).stdout);
   assert.equal(preview.mutates, false);

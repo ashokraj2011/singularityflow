@@ -1,4 +1,4 @@
-import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
@@ -71,6 +71,7 @@ import {
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
+import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
 import {
   ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog
 } from './environment-declaration.mjs';
@@ -3488,7 +3489,7 @@ function requiredTestExecutionDiagnostic(root, command, check) {
   };
 }
 
-function attachRequiredTestExecution(error, root, command, check) {
+async function attachRequiredTestExecution(error, root, command, check) {
   if (!(error instanceof SingularityFlowError) && !(error instanceof SyntaxError)) return error;
   const refusal = error instanceof SingularityFlowError
     ? error
@@ -3497,9 +3498,35 @@ function attachRequiredTestExecution(error, root, command, check) {
       + 'See error.requiredTestExecution in --json for the command and bounded output.',
       { code: 'CODE_TEST_RESULT_REQUIRED', cause: error }
     );
+  // Capture this invocation's report before transient output is restored. A report left in the
+  // checkout after refusal may belong to an earlier run and must never explain the current exit.
+  let report = { status: 'unavailable', reason: 'This invocation did not produce an isolated test report.' };
+  if (check?.resultIsolated) {
+    try {
+      const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+      report = {
+        status: 'observed', tests: parsed.tests,
+        sha256: parsed.result.sha256, bytes: parsed.result.bytes,
+        failedTestcases: (parsed.testcaseObservation?.occurrences ?? [])
+          .filter((entry) => entry.outcome === 'failed').slice(0, 20)
+          .map((entry) => ({
+            name: boundedQualityDiagnostic([entry.className, entry.name].filter(Boolean)
+              .map((part) => redactDiagnosticText(boundedQualityDiagnostic(part, 300))).join('::'), 300),
+            status: 'failed'
+          }))
+      };
+    } catch (reportError) {
+      report = { status: 'unavailable',
+        reason: redactDiagnosticText(boundedQualityDiagnostic(reportError.message, 500)) };
+    }
+  }
   refusal.details = {
     ...(refusal.details ?? {}),
-    requiredTestExecution: requiredTestExecutionDiagnostic(root, command, check)
+    requiredTestExecution: {
+      ...requiredTestExecutionDiagnostic(root, command, check),
+      report,
+      failure: classifyRequiredTestFailure(refusal.code, check, report)
+    }
   };
   if (refusal.code === 'CODE_TEST_FAILED') {
     const stage = /before publication/u.test(refusal.message) ? ' before publication' : '';
@@ -3514,44 +3541,184 @@ function attachRequiredTestExecution(error, root, command, check) {
 
 const transientQualityResultRestorers = new WeakMap();
 
-async function stageTransientQualityResult(root, commandRoot, resultPath) {
-  const absolute = path.resolve(commandRoot, resultPath);
-  const relative = repoRelative(root, absolute);
-  if (!isTransientTestResultPath(relative)) return null;
-  const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-result-'));
-  const backup = path.join(temporary, 'result');
-  let present = false;
-  try {
-    await lstat(absolute);
-    present = true;
-    await cp(absolute, backup, { recursive: true, preserveTimestamps: true });
-  } catch (error) {
-    if (error?.code !== 'ENOENT') {
-      await rm(temporary, { recursive: true, force: true }).catch(() => {});
-      throw error;
+async function qualityResultDirectoryFiles(absolute, adapter, depth = 0, state = { files: 0, bytes: 0 }, {
+  clearing = false
+} = {}) {
+  if (depth > 8) {
+    throw new SingularityFlowError('Structured test result directory exceeds depth 8.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const extension = adapter === 'dotnet-trx' ? /\.trx$/iu : /\.xml$/iu;
+  const files = [];
+  for (const entry of await readdir(absolute, { withFileTypes: true })) {
+    const target = path.join(absolute, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await qualityResultDirectoryFiles(target, adapter, depth + 1, state, { clearing }));
+    } else if (extension.test(entry.name)) {
+      // The parser never follows report symlinks. Do not clear one and then let a test command
+      // write through it to an unrelated target outside the configured result directory.
+      if (entry.isSymbolicLink() && !clearing) {
+        throw new SingularityFlowError(`Structured test result is a symlink: ${target}`, {
+          code: 'CODE_TEST_RESULT_REQUIRED'
+        });
+      }
+      if (entry.isSymbolicLink()) {
+        files.push(target);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const info = await lstat(target);
+      if (!clearing && (!info.isFile() || info.nlink !== 1 || info.size > 16 * 1024 * 1024)) {
+        throw new SingularityFlowError(`Structured test result cannot be safely staged: ${target}`, {
+          code: 'CODE_TEST_RESULT_REQUIRED'
+        });
+      }
+      state.files += 1;
+      state.bytes += info.size;
+      if (!clearing && (state.files > 1_000 || state.bytes > 64 * 1024 * 1024)) {
+        throw new SingularityFlowError('Structured test results exceed safe staging limits.', {
+          code: 'CODE_TEST_RESULT_REQUIRED'
+        });
+      }
+      files.push(target);
     }
   }
-  let restored = false;
-  return async () => {
-    if (restored) return;
-    restored = true;
-    try {
-      await rm(absolute, { recursive: true, force: true });
-      if (present) {
-        await mkdir(path.dirname(absolute), { recursive: true });
-        await cp(backup, absolute, { recursive: true, preserveTimestamps: true });
-      }
-    } finally {
-      await rm(temporary, { recursive: true, force: true }).catch(() => {});
+  return files;
+}
+
+async function stageTransientQualityResult(root, commandRoot, resultPath, adapter) {
+  const absolute = path.resolve(commandRoot, resultPath);
+  const relative = repoRelative(root, absolute);
+  const transient = isTransientTestResultPath(relative);
+  if (!transient) {
+    const compared = relative.toLocaleLowerCase('en-US');
+    const overlapping = executeGitQuery(root, 'repository.tracked-paths').find((candidate) => {
+      const tracked = candidate.toLocaleLowerCase('en-US');
+      return compared === '.' || tracked === compared || tracked.startsWith(`${compared}/`);
+    });
+    if (overlapping) {
+      throw new SingularityFlowError(
+        `Configured test result path overlaps tracked repository content: ${resultPath} (${overlapping}).`,
+        { code: 'CODE_TEST_RESULT_REQUIRED' }
+      );
     }
+  }
+  const info = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (info?.isSymbolicLink() || (info && !info.isFile() && !info.isDirectory())) {
+    throw new SingularityFlowError(`Structured test result cannot be safely staged: ${resultPath}`, {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  if (info?.isDirectory() && (absolute === root || absolute === commandRoot)) {
+    throw new SingularityFlowError(`Test result directory cannot be a repository or command root: ${resultPath}`, {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  if (info?.isDirectory() && !['junit-xml', 'dotnet-trx'].includes(adapter)) {
+    throw new SingularityFlowError(`Test result adapter '${adapter}' requires a file path: ${resultPath}`, {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  if (info?.isFile() && (info.nlink !== 1 || info.size > 16 * 1024 * 1024)) {
+    throw new SingularityFlowError(`Structured test result cannot be safely staged: ${resultPath}`, {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const originals = info?.isDirectory()
+    ? await qualityResultDirectoryFiles(absolute, adapter)
+    : info?.isFile() ? [absolute] : [];
+  const temporary = originals.length ? await mkdtemp(path.join(os.tmpdir(), 'sflow-test-result-')) : null;
+  const backup = temporary ? path.join(temporary, 'result') : null;
+  try {
+    for (const file of originals) {
+      const saved = path.join(backup, path.relative(absolute, file));
+      await mkdir(path.dirname(saved), { recursive: true });
+      await cp(file, saved, { preserveTimestamps: true });
+      const copied = await lstat(saved);
+      if (!copied.isFile() || copied.nlink !== 1 || copied.size > 16 * 1024 * 1024) {
+        throw new SingularityFlowError(`Structured test result changed while being staged: ${file}`, {
+          code: 'CODE_TEST_RESULT_REQUIRED'
+        });
+      }
+    }
+  } catch (error) {
+    if (temporary) await rm(temporary, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+  let restored = false;
+  const restore = async ({ accepted = false } = {}) => {
+    if (restored) return;
+    try {
+      // Native report locations retain the successful runner's fresh files. Only a refused or
+      // failed execution needs its preexisting report bytes put back.
+      if (accepted && !transient) {
+        restored = true;
+        return;
+      }
+      // Disposable .sflow reports retain their former behavior; native report directories keep
+      // unrelated files while originals are overlaid byte-for-byte after failed execution.
+      if (transient) {
+        const current = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+        if (current?.isDirectory()) {
+          if (!['junit-xml', 'dotnet-trx'].includes(adapter)) {
+            throw new SingularityFlowError(`Test result adapter '${adapter}' requires a file path: ${resultPath}`, {
+              code: 'CODE_TEST_RESULT_REQUIRED'
+            });
+          }
+          for (const file of await qualityResultDirectoryFiles(absolute, adapter, 0, {
+            files: 0, bytes: 0
+          }, { clearing: true })) {
+            await rm(file, { force: true });
+          }
+        } else {
+          await rm(absolute, { force: true });
+        }
+      }
+      for (const file of originals) {
+        const parent = await secureRepositoryPath(root, path.relative(root, path.dirname(file)), {
+          label: 'Original structured test result parent', mustExist: false
+        });
+        await mkdir(parent.absolute, { recursive: true });
+        await secureRepositoryPath(root, path.relative(root, parent.absolute), {
+          label: 'Original structured test result parent', mustExist: true, type: 'directory'
+        });
+        const current = await lstat(file).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+        if (current?.isDirectory()) {
+          throw new SingularityFlowError(`Cannot restore original test result over a directory: ${file}. Backup remains at ${backup}.`, {
+            code: 'CODE_TEST_RESULT_REQUIRED'
+          });
+        }
+        // A runner may replace the report with a symlink. Unlink that final entry without
+        // following it, then revalidate the destination before copying the original bytes.
+        await rm(file, { force: true });
+        const safe = await secureRepositoryPath(root, path.relative(root, file), {
+          label: 'Original structured test result', mustExist: false
+        });
+        await cp(path.join(backup, path.relative(absolute, file)), safe.absolute, {
+          preserveTimestamps: true
+        });
+      }
+      restored = true;
+    } finally {
+      if (restored && temporary) await rm(temporary, { recursive: true, force: true }).catch(() => {});
+    }
+  };
+  return {
+    clear: async () => {
+      // Only clear parser-visible report files from a directory. Clearing the directory itself
+      // could temporarily erase source files or unrelated generated artifacts at a configured path.
+      for (const file of originals) await rm(file, { force: true });
+    },
+    restore: transient || originals.length ? restore : null
   };
 }
 
-async function restoreTransientQualityResult(check) {
+async function restoreTransientQualityResult(check, { accepted = false } = {}) {
   const restore = transientQualityResultRestorers.get(check);
   if (!restore) return;
+  await restore({ accepted });
   transientQualityResultRestorers.delete(check);
-  await restore();
 }
 
 function safeEnvironmentFingerprint(value) {
@@ -3691,7 +3858,9 @@ export function effectiveEnvironmentQualityCommandCatalog(
     .map((entry, index) => normalizeExternalCommand(entry, index));
 }
 
-async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? []) {
+async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
+  commandProvenance = new Map()
+} = {}) {
   const checks = [];
   const declaration = await loadEnvironmentDeclaration(root, { optional: true });
   const catalog = effectiveEnvironmentQualityCommandCatalog(phase, workflow, commands);
@@ -3750,14 +3919,15 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       await secureRepositoryPath(root, path.relative(repositoryTarget.absolute, path.dirname(resultTarget)), {
         label: `Test result parent '${policy.result.path}'`, mustExist: true, type: 'directory'
       });
-      restoreTransientResult = await stageTransientQualityResult(
-        repositoryTarget.absolute, commandRoot, policy.result.path
+      const stagedResult = await stageTransientQualityResult(
+        repositoryTarget.absolute, commandRoot, policy.result.path, policy.result.adapter
       );
+      restoreTransientResult = stagedResult.restore;
       activeTransientRestore = restoreTransientResult;
-      // A timestamp is not execution evidence: touching yesterday's report made it fresh. The
-      // configured structured-result path is disposable command output, so remove it before the
-      // process starts. Anything parsed afterwards must have been created by this invocation.
-      await rm(resultTarget, { recursive: true, force: true });
+      // A timestamp is not execution evidence: remove prior report files before execution so
+      // anything parsed afterwards must have been created by this invocation. Directory paths
+      // may contain unrelated files, so the staging helper clears only parser-visible reports.
+      await stagedResult.clear();
       structuredResultTarget = resultTarget;
     }
     // A CLI invoked from Node's own test runner inherits NODE_TEST_CONTEXT. Passing that private
@@ -3798,25 +3968,13 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         killTree: true
       });
     const completedTreeSha256 = await sourceTreeHash(root, config, workflow);
-    if (completedTreeSha256 !== sourceTreeSha256) {
-      throw new SingularityFlowError(
-        `Quality command '${policy.id}' changed application source or tests. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
-        {
-          code: 'QUALITY_COMMAND_SOURCE_MUTATION',
-          details: {
-            commandId: policy.id,
-            beforeSha256: sourceTreeSha256,
-            afterSha256: completedTreeSha256
-          }
-        }
-      );
-    }
     const infrastructureError = result.error
       ? `Unable to run quality command: ${result.error.message}`
       : null;
     const check = {
       id: policy.id, command, kind: policy.kind, requirement: policy.requirement,
       workingDirectory: policy.workingDirectory,
+      resultIsolated: Boolean(structuredResultTarget),
       externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(),
@@ -3830,6 +3988,19 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
       stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000
     };
+    if (completedTreeSha256 !== sourceTreeSha256) {
+      const error = new SingularityFlowError(
+        `Quality command '${policy.id}' changed application source or tests. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
+        { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: {
+          phase: phase.id, workId: workflow.workItem.id, commandId: policy.id,
+          beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256
+        } }
+      );
+      throw policy.kind === 'test'
+        ? await attachRequiredTestExecution(error, root, {
+          ...policy, provenance: commandProvenance.get(value) ?? 'configured'
+        }, check) : error;
+    }
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
     checks.push(check);
     activeTransientRestore = null;
@@ -3872,7 +4043,9 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   if (!commands.length) {
     throw structuredTestCommandRequiredError(phase);
   }
-  const checks = await qualityChecks(root, phase, config, workflow, commands);
+  const checks = await qualityChecks(root, phase, config, workflow, commands, {
+    commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
+  });
   const passing = [];
   try {
     for (const command of commands) {
@@ -3903,11 +4076,14 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         }
         passing.push(command);
       } catch (error) {
-        throw attachRequiredTestExecution(error, root, command, check);
+        throw await attachRequiredTestExecution(error, root, command, check);
       }
     }
   } finally {
-    for (const check of checks) await restoreTransientQualityResult(check);
+    const acceptedIds = new Set(passing.map((command) => command.id));
+    for (const check of checks) await restoreTransientQualityResult(check, {
+      accepted: acceptedIds.has(check.id)
+    });
   }
   if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
     const paths = phase.sourceBoundary === 'test-automation'
@@ -4225,9 +4401,15 @@ async function submitPhaseTransition(root, config, workflow, {
       { code: 'CODE_DELIVERY_TESTS_CANNOT_BE_SKIPPED' }
     );
   }
-  phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow, deliveryCommands) : [];
+  phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow, deliveryCommands, {
+    // Assign provenance from trusted resolution identity, never a field supplied by configuration.
+    commandProvenance: new Map(deliveryCommands.map((command) => [command,
+      (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred']))
+  }) : [];
   if (!codeDeliveryRequired) {
-    for (const check of phase.checks) await restoreTransientQualityResult(check);
+    for (const check of phase.checks) await restoreTransientQualityResult(check, {
+      accepted: check.status === 'passed'
+    });
   }
   const testExecutions = [];
   if (codeDeliveryRequired) {
@@ -4265,7 +4447,7 @@ async function submitPhaseTransition(root, config, workflow, {
             throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
           }
         } catch (error) {
-          throw attachRequiredTestExecution(error, root, command, check);
+          throw await attachRequiredTestExecution(error, root, command, check);
         }
         await persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt);
         const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');
@@ -4282,7 +4464,10 @@ async function submitPhaseTransition(root, config, workflow, {
         });
       }
     } finally {
-      for (const check of phase.checks) await restoreTransientQualityResult(check);
+      const acceptedIds = new Set(testExecutions.map((execution) => execution.commandId));
+      for (const check of phase.checks) await restoreTransientQualityResult(check, {
+        accepted: acceptedIds.has(check.id)
+      });
     }
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
       const pathsRequiringCoverage = phase.sourceBoundary === 'test-automation'

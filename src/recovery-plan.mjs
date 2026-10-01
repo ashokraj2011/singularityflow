@@ -238,12 +238,21 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
       }));
     }
 
+    const publishedCodeGeneration = phaseRequiresCodeDelivery(phase)
+      && phase.generationIntent?.status === 'consumed';
     if (phaseRequiresCodeDelivery(phase)
-        && phase.generationIntent?.status === 'open'
-        && !generation) {
+        && ((phase.generationIntent?.status === 'open' && !generation)
+          || publishedCodeGeneration)) {
+      let testCommands = [];
       try {
-        const deliveryEvidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
-        const testCommands = (await resolveDeliveryQualityCommands(root, {
+        // An already published generation has no open intent. Its retained delivery paths are
+        // sufficient for a read-only runner preview; prospective change-set preflight would
+        // incorrectly reject that lifecycle state before showing the command. Publication still
+        // requires a guarded rollover and a fresh test execution for the successor generation.
+        const deliveryEvidence = publishedCodeGeneration
+          ? phase.deliveryEvidence
+          : await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+        testCommands = (await resolveDeliveryQualityCommands(root, {
           ...phase, deliveryEvidence
         })).filter((command) => command && typeof command === 'object'
           && !Array.isArray(command) && command.kind === 'test');
@@ -274,55 +283,88 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
           };
         });
       } catch (error) {
-        const missingRepositoryRunner = error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
-        const invalidPinnedCommand = error.code === 'CODE_TEST_RESULT_REQUIRED'
-          || error.code === 'CODE_TEST_SUPPRESSED';
-        const configurationDependency = missingRepositoryRunner || invalidPinnedCommand;
-        blockers.push({
-          code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
-          phase: phase.id, generation: Number(phase.generation) + 1,
-          path: null, line: null, value: null,
-          details: {
-            sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),
-            ...(invalidPinnedCommand ? {
-              recoveryBoundary: {
-                kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
-                retryRequiresChangedRuntimeOrPolicy: true
-              }
-            } : missingRepositoryRunner ? {
-              recoveryBoundary: {
-                kind: 'repository-test-runner', currentStoryConfigurationRefresh: false,
-                retryRequiresChangedRuntimeOrPolicy: true,
-                inScopeRepositoryRepair: true
-              }
-            } : {})
-          }
-        });
-        actions.push(action({
-          id: missingRepositoryRunner
-            ? `repair-repository-test-runner:${phase.id}`
-            : invalidPinnedCommand
-              ? `resolve-code-delivery-test-policy:${phase.id}`
-            : `complete-code-delivery:${phase.id}`,
-          mode: invalidPinnedCommand ? 'manual' : 'guided',
-          detail: missingRepositoryRunner
-            ? `${error.message} Inspect the affected module and, only within this phase's approved source scope, repair its repository-owned test script, manifest, or runner declaration so a supported structured command can be inferred. Preserve the Story pin and existing tests. Recheck recovery and prepublish after the repository change; do not retry publication against unchanged inputs. If the native runner cannot be supported by an in-scope repository change, a newer Singularity Flow runtime or a new Story under separately approved policy is required.`
-            : invalidPinnedCommand
-              ? `${error.message} This Story's configured test command is pinned; refreshing sflow/config affects future Stories only. Do not replace or suppress the command in Story state. A governed same-Story test-policy amendment is not implemented, so this phase remains blocked until such an amendment exists or work is carried into a new Story under corrected approved policy. Do not repeat publication against the unchanged blocker.`
-            : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
-          // Repository-owned runner declarations are ordinary in-scope application edits. A
-          // malformed pinned command is not: it requires a distinct reviewed policy amendment.
-          command: configurationDependency
-            ? missingRepositoryRunner
-              ? `singularity-flow phase show ${phase.id} --json`
-              : null
-            : `singularity-flow phase show ${phase.id} --json`,
-          skill: configurationDependency
-            ? missingRepositoryRunner ? '/sf-code' : null
-            : '/sf-code'
-        }));
+        if (publishedCodeGeneration) {
+          // The published generation is preserved. A changed or unavailable current checkout
+          // cannot retroactively invalidate its retained test receipt; the guarded rollover is
+          // responsible for validating any new generation against current repository inputs.
+          testExecution.status = 'unavailable';
+        } else {
+          const missingRepositoryRunner = error.code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+          const failingCommand = testCommands[error.details?.commandIndex];
+          const pinnedCommand = (phase.qualityCommands ?? []).includes(failingCommand);
+          const invalidPinnedCommand = error.details?.configurationDependency === true
+            && pinnedCommand
+            && ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(error.code);
+          const unsupportedRuntimeAdapter = error.code === 'RUST_TEST_ADAPTER_REQUIRED';
+          const configurationDependency = missingRepositoryRunner || invalidPinnedCommand
+            || unsupportedRuntimeAdapter;
+          blockers.push({
+            code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
+            phase: phase.id, generation: Number(phase.generation) + 1,
+            path: null, line: null, value: null,
+            details: {
+              sourceCode: error.code ?? null, message: error.message, ...(error.details ?? {}),
+              ...(invalidPinnedCommand ? {
+                recoveryBoundary: {
+                  kind: 'pinned-test-policy', currentStoryConfigurationRefresh: false,
+                  retryRequiresChangedRuntimeOrPolicy: true
+                }
+              } : missingRepositoryRunner ? {
+                recoveryBoundary: {
+                  kind: 'repository-test-runner', currentStoryConfigurationRefresh: false,
+                  retryRequiresChangedRuntimeOrPolicy: true,
+                  inScopeRepositoryRepair: true
+                }
+              } : unsupportedRuntimeAdapter ? {
+                recoveryBoundary: {
+                  kind: 'unsupported-runtime-adapter', currentStoryConfigurationRefresh: false,
+                  retryRequiresChangedRuntimeOrPolicy: true
+                }
+              } : {})
+            }
+          });
+          actions.push(action({
+            id: missingRepositoryRunner
+              ? `repair-repository-test-runner:${phase.id}`
+              : invalidPinnedCommand
+                ? `resolve-code-delivery-test-policy:${phase.id}`
+                : unsupportedRuntimeAdapter
+                  ? `resolve-code-delivery-runtime-adapter:${phase.id}`
+                  : `complete-code-delivery:${phase.id}`,
+            mode: invalidPinnedCommand || unsupportedRuntimeAdapter ? 'manual' : 'guided',
+            detail: missingRepositoryRunner
+              ? `${error.message} Inspect the affected module and, only within this phase's approved source scope, repair its repository-owned test script, manifest, or runner declaration so a supported structured command can be inferred. Preserve the Story pin and existing tests. Recheck recovery and prepublish after the repository change; do not retry publication against unchanged inputs. If the native runner cannot be supported by an in-scope repository change, a newer Singularity Flow runtime or a new Story under separately approved policy is required.`
+              : invalidPinnedCommand
+                ? `${error.message} This Story's configured test command is pinned; refreshing sflow/config affects future Stories only. Do not replace or suppress the command in Story state. A governed same-Story test-policy amendment is not implemented, so this phase remains blocked until such an amendment exists or work is carried into a new Story under corrected approved policy. Do not repeat publication against the unchanged blocker.`
+                : unsupportedRuntimeAdapter
+                  ? `${error.message} This runtime cannot produce the required structured Rust test receipt. Use a supported registered adapter or a separately approved test policy; repeating /sf-code or publication against unchanged inputs cannot recover this phase.`
+                  : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
+            // Repository-owned runner declarations are ordinary in-scope application edits. A
+            // malformed pinned command is not: it requires a distinct reviewed policy amendment.
+            command: configurationDependency
+              ? missingRepositoryRunner
+                ? `singularity-flow phase show ${phase.id} --json`
+                : null
+              : `singularity-flow phase show ${phase.id} --json`,
+            skill: configurationDependency
+              ? missingRepositoryRunner ? '/sf-code' : null
+              : '/sf-code'
+          }));
+        }
       }
     }
+  }
+
+  if (generationDigest && phaseRequiresCodeDelivery(phase)
+      && phase.generationIntent?.status === 'consumed' && !generation
+      && phase.status === 'in_progress' && blockers.length === 0
+      && testExecution.status === 'not-run') {
+    actions.push(action({
+      id: `submit-published-generation:${phase.id}`,
+      detail: 'This published generation still matches its retained bytes. Submit it after resolving any reported test environment or runtime failure; submission re-executes required checks. Do not republish unchanged code or retry an unchanged failing test.',
+      command: `singularity-flow submit ${phase.id} --work-id ${workflow.workItem.id}`,
+      skill: '/sf-submit'
+    }));
   }
 
   const uniqueActions = [...new Map(actions.map((entry) => [entry.id, entry])).values()];

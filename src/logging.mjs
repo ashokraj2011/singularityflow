@@ -4,6 +4,7 @@ import path from 'node:path';
 import { BOOLEAN_OPTIONS, SingularityFlowError } from './util.mjs';
 import { gitDir } from './git.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
+import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
 
 // Ordered severities. `off` disables everything; `all` is an alias for `trace` because that is what
 // people type when they want the lot.
@@ -483,6 +484,11 @@ const SAFE_CONVERGENCE_DETAIL_KEYS = new Set([
 ]);
 
 function safeErrorDetails(error, depth, seen) {
+  // This projection is a strict allowlist with its own redaction and bounds. Keep it intact instead
+  // of recursing through the generic logger depth cap: stderr/report evidence would otherwise turn
+  // into "[depth limit]" by the time a failed publication reaches the activity log.
+  const requiredTestExecution = requiredTestExecutionForRefusal(error);
+  if (requiredTestExecution) return { requiredTestExecution };
   if (!String(error?.code ?? '').startsWith('CONVERGENCE_')
       || !error.details || typeof error.details !== 'object' || Array.isArray(error.details)) return null;
   const selected = Object.fromEntries(Object.entries(error.details)
@@ -506,7 +512,7 @@ export function redact(value, depth = 0, seen = new WeakSet()) {
       message: redactText(value.message),
       stack: value.stack ? redactText(value.stack) : undefined,
       code: value.code,
-      // Only bounded convergence identifiers and digests are diagnostic-safe. Error.details across
+      // Only bounded convergence identifiers and projected test diagnostics are safe. Error.details across
       // the rest of the product can contain prompt text, previews, identities, or credentialed URLs,
       // so it must never be serialized wholesale merely because a caller attached it.
       ...(details == null ? {} : { details })
@@ -712,7 +718,18 @@ export function parseLogLines(text) {
     .split('\n')
     .filter((line) => line.trim())
     .map((line, index) => {
-      try { return redact(JSON.parse(line)); }
+      try {
+        const parsed = JSON.parse(line);
+        const entry = redact(parsed);
+        // Re-reading a structured log passes it through generic depth-limited redaction again.
+        // Re-project only the exact allowlisted test evidence so report cases and bounded stderr
+        // remain visible; never restore arbitrary details from a legacy or forged log line.
+        const execution = requiredTestExecutionForRefusal(parsed?.error);
+        if (execution && entry?.error && typeof entry.error === 'object') {
+          entry.error.details = { requiredTestExecution: execution };
+        }
+        return entry;
+      }
       catch {
         return {
           ts: null, level: 'error', event: 'log.unreadable',

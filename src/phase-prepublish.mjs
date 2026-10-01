@@ -263,9 +263,11 @@ async function staticPublicationBlockers(root, config, workflow, phase) {
         message: error.message, details: { sourceCode: error.code ?? null }
       });
       const consumed = phase.generationIntent?.status === 'consumed';
-      actions.push({ command: `singularity-flow phase ${consumed ? 'rollover' : 'begin'} ${phase.id}`,
-        skill: '/sf-code', detail: consumed
-          ? 'Preview the guarded next generation; do not overwrite a published result.'
+      actions.push({ command: consumed
+        ? `singularity-flow recover ${id} --phase ${phase.id} --json`
+        : `singularity-flow phase begin ${phase.id}`,
+        skill: consumed ? '/sf-recover' : '/sf-code', detail: consumed
+          ? 'Inspect the guarded phase rollover in recovery; do not overwrite a published result or route back to /sf-code before recovery clears.'
           : 'Open the governed code generation before changing source, then recheck.' });
     }
   }

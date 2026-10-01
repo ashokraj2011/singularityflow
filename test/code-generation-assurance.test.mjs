@@ -846,7 +846,9 @@ test('inferred commands follow monorepo package managers and platform-native run
   });
   assert.deepEqual(nodeCommand.argv.slice(0, 3), ['pnpm', 'test', '--']);
   const pythonCommand = await inferModuleTestCommand(root, { root: '.', system: 'python', manifest: 'pyproject.toml' }, { platform: 'win32' });
-  assert.deepEqual(pythonCommand.argv.slice(0, 4), ['py', '-3', '-m', 'pytest']);
+  assert.deepEqual(pythonCommand.argv.slice(0, 7), [
+    'py', '-3', '-B', '-m', 'pytest', '-p', 'no:cacheprovider'
+  ]);
   const swiftCommand = await inferModuleTestCommand(root, { root: '.', system: 'swift', manifest: 'Package.swift' });
   assert.deepEqual(swiftCommand.argv.slice(0, 2), ['swift', 'test']);
   assert.equal(swiftCommand.result.adapter, 'junit-xml');

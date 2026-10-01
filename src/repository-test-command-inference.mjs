@@ -5,13 +5,14 @@ import { inferModuleTestCommand } from './code-delivery-tests.mjs';
 import { secureRepositoryPath } from './util.mjs';
 
 /** Repository-native, deterministic defaults. No model is needed to identify a build manifest. */
-export async function inferRepositoryTestCommands(root, { unitOnly = false } = {}) {
+export async function inferRepositoryTestCommands(root, { unitOnly = false, platform = process.platform } = {}) {
   const regular = async (relative) => (await secureRepositoryPath(root, relative, {
     label: 'Repository test manifest', type: 'file'
   })).exists;
   const inferred = async (system, manifest, options = {}) => {
     const command = await inferModuleTestCommand(root, { root: '.', system, manifest }, {
       unitOnly,
+      platform,
       ...options
     });
     const legacyRootIds = {

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, open, readFile, readdir } from 'node:fs/promises';
+import { access, lstat, open, readFile, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { normalizeExternalCommand } from './external-command-policy.mjs';
@@ -130,6 +130,75 @@ export async function resolveAffectedModule(root, candidate, { overrides = {} } 
 
 function executable(platform, unix, windows) {
   return platform === 'win32' ? windows : unix;
+}
+
+async function ordinaryDirectory(candidate) {
+  try {
+    const info = await lstat(candidate);
+    return info.isDirectory() && !info.isSymbolicLink();
+  } catch { return false; }
+}
+
+async function pythonVenvMetadata(venv) {
+  if (!await ordinaryDirectory(venv)) return false;
+  const config = path.join(venv, 'pyvenv.cfg');
+  try {
+    const info = await lstat(config);
+    if (!info.isFile() || info.isSymbolicLink() || info.size === 0 || info.size > 16 * 1024) return false;
+    const contents = await readFile(config, 'utf8');
+    return /^home\s*=\s*\S+/mu.test(contents)
+      && /^(?:version|version_info|virtualenv|include-system-site-packages)\s*=\s*\S+/mu.test(contents);
+  } catch { return false; }
+}
+
+async function usablePythonInterpreter(candidate, platform) {
+  try {
+    const link = await lstat(candidate);
+    if (platform === 'win32' && link.isSymbolicLink()) return false;
+    if (!link.isFile() && !link.isSymbolicLink()) return false;
+    const target = await stat(candidate);
+    if (!target.isFile()) return false;
+    if (platform !== 'win32') {
+      const canonical = await realpath(candidate);
+      if (!/^python(?:\d+(?:\.\d+)*)?$/iu.test(path.basename(canonical))) return false;
+      await access(candidate, fsConstants.X_OK);
+    }
+    return true;
+  } catch { return false; }
+}
+
+async function projectPythonLauncher(root, moduleRoot, platform) {
+  const repositoryRoot = path.resolve(root);
+  const relativeModule = path.posix.normalize(posix(String(moduleRoot ?? '.')));
+  if (path.posix.isAbsolute(relativeModule) || relativeModule === '..'
+      || relativeModule.startsWith('../') || /^[a-z]:/iu.test(relativeModule)) {
+    throw new SingularityFlowError(`Python module root '${moduleRoot}' escapes the repository.`, {
+      code: 'TEST_MODULE_UNCOVERED'
+    });
+  }
+  const owners = relativeModule === '.' ? ['.'] : [relativeModule, '.'];
+  for (const owner of owners) {
+    const securedOwner = await secureRepositoryPath(repositoryRoot, owner, {
+      label: 'Python test module', mustExist: owner === '.', type: 'directory'
+    });
+    const ownerPath = securedOwner.absolute;
+    const venv = path.join(ownerPath, '.venv');
+    if (!await pythonVenvMetadata(venv)) continue;
+    const scripts = platform === 'win32' ? 'Scripts' : 'bin';
+    if (!await ordinaryDirectory(path.join(venv, scripts))) continue;
+    const names = platform === 'win32' ? ['python.exe'] : ['python3', 'python'];
+    for (const name of names) {
+      const candidate = path.join(venv, scripts, name);
+      if (!await usablePythonInterpreter(candidate, platform)) continue;
+      // The Windows launcher verifies relative executables below its cwd. A repository-root
+      // interpreter for a nested module is outside that boundary, so identify it absolutely.
+      if (platform === 'win32' && owner === '.' && relativeModule !== '.') return candidate;
+      const repositoryRelative = path.posix.join(owner === '.' ? '' : owner, '.venv', scripts, name);
+      const fromModule = path.posix.relative(relativeModule, repositoryRelative);
+      return fromModule.startsWith('../') ? fromModule : `./${fromModule}`;
+    }
+  }
+  return null;
 }
 
 async function nodePackageManager(root, moduleRoot, manifest) {
@@ -324,13 +393,19 @@ export async function inferModuleTestCommand(root, module, {
       };
       return null;
     }
-    case 'python': return {
-      id: `${module.root}-python-tests`, kind: 'test', argv: platform === 'win32'
-        ? ['py', '-3', '-m', 'pytest', `--junitxml=${resultBase}.xml`]
-        : ['python3', '-m', 'pytest', `--junitxml=${resultBase}.xml`], workingDirectory: module.root,
-      affectedRoots: [module.root], modelPolicy: 'never',
-      result: { adapter: 'junit-xml', path: resultBase + '.xml', minimumDiscovered: 1 }
-    };
+    case 'python': {
+      const projectPython = await projectPythonLauncher(root, module.root, platform);
+      return {
+        id: `${module.root}-python-tests`, kind: 'test',
+        argv: projectPython
+          ? [projectPython, '-B', '-m', 'pytest', '-p', 'no:cacheprovider', `--junitxml=${resultBase}.xml`]
+          : platform === 'win32'
+            ? ['py', '-3', '-B', '-m', 'pytest', '-p', 'no:cacheprovider', `--junitxml=${resultBase}.xml`]
+            : ['python3', '-B', '-m', 'pytest', '-p', 'no:cacheprovider', `--junitxml=${resultBase}.xml`],
+        workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
+        result: { adapter: 'junit-xml', path: resultBase + '.xml', minimumDiscovered: 1 }
+      };
+    }
     case 'go': return {
       id: `${module.root}-go-tests`, kind: 'test', argv: ['go', 'test', '-json', './...'], workingDirectory: module.root,
       affectedRoots: [module.root], modelPolicy: 'never',

@@ -185,6 +185,52 @@ test('required test refusals relay bounded execution evidence without exposing c
   assert.equal(inferred.error.requiredTestExecution.stdout.text, 'build failed');
 });
 
+test('failed-test refusal points to saved diagnostics and permits same source only after runtime repair', () => {
+  const error = Object.assign(new Error('Required tests failed'), {
+    code: 'CODE_TEST_FAILED', details: { phase: 'implementation', workId: 'STORY-1',
+      requiredTestExecution: {
+        commandId: 'unit', provenance: 'configured', argv: ['pytest', '--token', 'private-argv'],
+        cwd: '/repo', resultPath: '/repo/report.xml', status: 'blocked',
+        stderr: { text: 'No module named pytest' }, stdout: { text: '' },
+        failure: { kind: 'missing-dependency' },
+        report: { status: 'unavailable', reason: 'No report was written.' }
+      },
+      arbitrary: 'private-details'
+    }
+  });
+  const envelope = refusalEnvelope(error, ['phase', 'publish', 'implementation', '--json']);
+  const plan = envelope.remediationPlan;
+  assert.equal(plan.steps[0].command, 'singularity-flow recover STORY-1 --phase implementation --json');
+  assert.equal(plan.steps[1].command, 'singularity-flow logs --level error --tail 20');
+  assert.match(plan.steps[2].label, /Install the repository-declared test dependencies/u);
+  assert.match(plan.retry.label, /same source may then be rechecked/u);
+  assert.equal(plan.retry.automatic, false);
+  assert.equal(envelope.error.requiredTestExecution.report.gateEligible, false);
+  assert.equal(envelope.error.requiredTestExecution.failure.retryCondition, 'runtime-changed');
+  assert.doesNotMatch(JSON.stringify(envelope), /private-/u);
+
+  const approvalPlan = refusalRemediationPlan(error, ['approve', 'implementation', '--json']);
+  assert.match(approvalPlan.retry.label, /Do not retry approval in this turn/u);
+  assert.equal(approvalPlan.context.turn, 'new-turn');
+});
+
+test('source mutation diagnostic is projected and never presented as passing evidence', () => {
+  const error = Object.assign(new Error('Source changed'), {
+    code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: { phase: 'implementation',
+      requiredTestExecution: { commandId: 'unit', provenance: 'configured',
+        argv: ['private-argv'], cwd: '/repo', resultPath: '/repo/report.xml',
+        stdout: { text: 'changed source' }, stderr: { text: 'mutation' },
+        report: { status: 'observed', tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } },
+        failure: { kind: 'source-mutation' } }
+    }
+  });
+  const envelope = refusalEnvelope(error, ['phase', 'submit', 'implementation', '--json']);
+  assert.equal(envelope.error.requiredTestExecution.failure.kind, 'source-mutation');
+  assert.equal(envelope.error.requiredTestExecution.report.gateEligible, false);
+  assert.match(envelope.remediationPlan.steps[2].label, /Review the exact source or test changes/u);
+  assert.doesNotMatch(JSON.stringify(envelope), /private-argv/u);
+});
+
 test('the refusal envelope preserves a safe full Copilot relay and drops unsafe diagnostics', () => {
   const relayed = refusalEnvelope(Object.assign(new Error('SGOS check failed.'), {
     details: { diagnosticAction: {

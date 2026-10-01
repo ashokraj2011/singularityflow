@@ -412,6 +412,43 @@ test('redaction survives cycles, depth, and error objects without throwing', () 
   assert.equal(redact('https://person:office-password@example.invalid/repo.git').includes('office-password'), false);
 });
 
+test('activity log persists only bounded required-test diagnostics, including report and stderr', async () => {
+  const { gitDirectory, log } = await logger();
+  const sha256 = 'c'.repeat(64);
+  const source = Object.assign(new Error('Required tests failed'), {
+    code: 'CODE_TEST_FAILED',
+    details: {
+      requiredTestExecution: {
+        commandId: 'unit-tests', provenance: 'configured',
+        argv: ['node', '--token', 'private-argv'], cwd: '/repo', workingDirectory: '.',
+        resultPath: '/repo/report.xml', configuredResultPath: 'report.xml',
+        resultAdapter: 'junit-xml', status: 'failed', exitCode: 1,
+        stdout: { text: 'summary', bytes: 7 },
+        stderr: { text: `token=private-stderr ${'x'.repeat(5000)}`, bytes: 5021 },
+        report: { status: 'observed', tests: { discovered: 2, passed: 1, failed: 1, skipped: 0 },
+          sha256, bytes: 391, failedTestcases: [{ name: 'unit::fails', status: 'failed' }] },
+        failure: { kind: 'failed-tests', guidance: 'private-guidance' },
+        secret: 'private-execution'
+      },
+      unrelated: 'private-details'
+    }
+  });
+  log.error('test.failed', source.message, { error: source });
+  const rawLog = await readFile(logFilePath(gitDirectory), 'utf8');
+  assert.doesNotMatch(rawLog, /private-|\[depth limit\]/u);
+  const [entry] = await entries(gitDirectory);
+  const diagnostic = entry.error.details.requiredTestExecution;
+  assert.equal(diagnostic.argv, null);
+  assert.equal(diagnostic.argvWithheld, true);
+  assert.equal(diagnostic.failure.kind, 'failed-tests');
+  assert.equal(diagnostic.report.sha256, sha256);
+  assert.equal(diagnostic.report.gateEligible, false);
+  assert.deepEqual(diagnostic.report.failedTestcases, [{ name: 'unit::fails', status: 'failed' }]);
+  assert.ok(diagnostic.stderr.text.length <= 2012);
+  assert.equal(diagnostic.stderr.truncated, true);
+  assert.doesNotMatch(JSON.stringify(entry), /private-|\[depth limit\]/u);
+});
+
 test('child loggers inherit bound context so every entry carries its subject', async () => {
   const { gitDirectory, log } = await logger({ context: { command: 'initiative' } });
   log.child({ initiativeId: 'SF-E1' }).child({ phase: 'epic-planning' }).info('phase.prepared');

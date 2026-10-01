@@ -1,4 +1,5 @@
-import { branch, changedFiles, changes, fetchOrigin, hasUpstream, head, pullFastForward } from './git.mjs';
+import { branch, changedFiles, changes, fetchOrigin, hasUpstream, head, pullFastForward, untrackedFiles } from './git.mjs';
+import { applicationPathContext, isTransientTestResultPath } from './application-paths.mjs';
 import {
   currentPhase, generationResultDigest, generationResultMatches, syncPublication
 } from './state-stores.mjs';
@@ -27,6 +28,14 @@ function pathWithin(candidate, parent) {
   return path === root || path.startsWith(`${root}/`);
 }
 
+function recoveryWorktreeDigest(root, config, workflow) {
+  const untracked = new Set(untrackedFiles(root));
+  const ownership = applicationPathContext(config, workflow);
+  const visiblePaths = changedFiles(root).filter((candidate) => !untracked.has(candidate)
+    || !isTransientTestResultPath(candidate, ownership));
+  return worktreeFingerprint(root, { fresh: true, visiblePaths }).sha256;
+}
+
 /**
  * A dirty worktree is never automatically repaired. Separate exact current-phase authoring paths
  * from unrelated changes so a prepared draft does not look like a mandatory manual recovery gate.
@@ -40,6 +49,14 @@ function workingTreeAction(root, config, workflow, phase, status) {
   } catch {
     paths = [];
   }
+  // Structured runner output is local transport state, not authored source. Only a genuinely
+  // untracked result is disposable for routing: a tracked result (or any other dirty path) must
+  // still be reviewed. This never removes the report or changes Git's index.
+  const untracked = new Set(untrackedFiles(root));
+  const ownership = applicationPathContext(config, workflow);
+  const disposableUntrackedPaths = paths.filter((candidate) => untracked.has(candidate)
+    && isTransientTestResultPath(candidate, ownership));
+  const relevantPaths = paths.filter((candidate) => !disposableUntrackedPaths.includes(candidate));
   const itemRoot = repositoryRelativePath(
     `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`
   );
@@ -65,17 +82,20 @@ function workingTreeAction(root, config, workflow, phase, status) {
   // a name-only roster cannot classify safely. Keep their entire recovery action manual.
   const simpleStatus = statusLines.length === paths.length && statusLines.every((line) =>
     ['??', ' M', 'M ', 'MM', ' A', 'A ', 'AM'].includes(line.slice(0, 2)));
-  const expectedPaths = paths.filter((candidate) => expected.has(candidate)
+  if (!relevantPaths.length && simpleStatus && statusLines.every((line) => line.startsWith('??'))) {
+    return null;
+  }
+  const expectedPaths = relevantPaths.filter((candidate) => expected.has(candidate)
     && !protectedPaths.some((guard) => pathWithin(candidate, guard)));
-  const unexpectedPaths = paths.filter((candidate) => !expectedPaths.includes(candidate));
-  const inPhaseAuthoring = simpleStatus && paths.length > 0 && unexpectedPaths.length === 0;
+  const unexpectedPaths = relevantPaths.filter((candidate) => !expectedPaths.includes(candidate));
+  const inPhaseAuthoring = simpleStatus && relevantPaths.length > 0 && unexpectedPaths.length === 0;
   return {
     id: 'working-tree', safe: false, automatic: false,
     mode: inPhaseAuthoring ? 'guided' : 'manual',
     classification: inPhaseAuthoring ? 'current-phase-review-required' : 'review-required',
     reviewRequired: true,
     confirmation: inPhaseAuthoring ? 'none' : 'human-authority', command: null,
-    paths, expectedPaths, unexpectedPaths,
+    paths: relevantPaths, expectedPaths, unexpectedPaths, disposableUntrackedPaths,
     detail: inPhaseAuthoring
       ? 'Only exact current-phase preparation paths changed. Review their Git diff, especially workflow.json; these are uncommitted authoring bytes, not publication authority. Continue only if the changes match the current phase. Recovery will not discard or stash them.'
       : 'Uncommitted changes include paths or Git operations outside exact current-phase preparation. Review them manually; recovery will not discard or stash them.'
@@ -187,14 +207,17 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     actions.push(...recoveryActionsForFindings(terminalGate.findings));
   }
   const worktreeStatus = changes(root);
-  if (worktreeStatus.trim()) actions.push(workingTreeAction(root, config, workflow, phase, worktreeStatus));
+  if (worktreeStatus.trim()) {
+    const worktreeAction = workingTreeAction(root, config, workflow, phase, worktreeStatus);
+    if (worktreeAction) actions.push(worktreeAction);
+  }
   if (!actions.length) actions.push({
     id: 'none', safe: true, automatic: false, mode: 'informational', confirmation: 'none', command: null,
     detail: 'No recoverable publication, branch, synchronization, artifact, projection, or generation problem was found.'
   });
   const revision = {
     branch: branch(root), head: head(root),
-    worktree: worktreeFingerprint(root, { fresh: true }).sha256
+    worktree: recoveryWorktreeDigest(root, config, workflow)
   };
   const core = {
     schemaVersion: currentSchemaVersion('recovery-plan'),
@@ -213,6 +236,7 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     revision,
     blockers,
     phaseRepairRequired: phaseRecovery.blockers.length > 0,
+    testExecution: phaseRecovery.testExecution ?? { status: 'not-required', commands: [] },
     containment: phase ? {
       scope: 'phase',
       phaseId: phase.id,
@@ -248,7 +272,7 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
   );
   const current = {
     branch: branch(root), head: head(root),
-    worktree: worktreeFingerprint(root, { fresh: true }).sha256
+    worktree: recoveryWorktreeDigest(root, config, workflow)
   };
   if (JSON.stringify(current) !== JSON.stringify(plan.revision)) throw new SingularityFlowError(
     'The repository changed after the recovery plan was inspected. Generate and review a new plan.',

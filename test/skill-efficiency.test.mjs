@@ -38,6 +38,28 @@ test('skill policy rejects executable bare SFlow command fragments but permits c
   ].join('\n')), []);
 });
 
+test('code-gate skills distinguish runtime repair, draft authoring and published rollover', async () => {
+  const content = async (name) => readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
+  const [code, recover, submit] = await Promise.all([
+    content('sflow-code'), content('sflow-recover'), content('sflow-submit')
+  ]);
+  assert.match(code, /singularity-flow phase begin <phase> --json/);
+  assert.match(code, /Consumed intent requires `\/sf-recover`/);
+  assert.match(code, /Untracked `\.sflow\/results\/\*\*` need no cleaning/);
+  assert.match(code, /proven runtime repair permits retry without source changes/i);
+  assert.match(code, /Nonzero exit fails despite passing JUnit/);
+  assert.match(recover, /Follow action classifications, not blanket dirty-tree stops/);
+  assert.match(recover, /tracked\/staged reports and source require review/);
+  assert.match(recover, /dependency repair permits retry without republishing unchanged source/);
+  assert.match(recover, /Stop on unchanged conditions or three distinct repairs/);
+  assert.match(submit, /changed source\/artifacts need reviewed rollover/);
+  assert.match(submit, /Fingerprint refusal plus artifact\/check hashes and diagnosed runtime evidence/);
+  assert.match(submit, /Stop on an unchanged condition or after three distinct repairs/);
+  assert.match(submit, /Never loop quality commands/);
+  assert.doesNotMatch(submit, /fix only current-phase artifacts\/checks/,
+    'submission must not authorize edits over a consumed publication');
+});
+
 /**
  * The bar for automatic invocation is not "useful", it is "cannot change governed state".
  *

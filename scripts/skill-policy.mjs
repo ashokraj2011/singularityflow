@@ -104,9 +104,28 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   },
   'sflow-submit': {
     required: [
-      /Fingerprint the refusal code plus current artifact\/check hashes/i,
-      /Stop on an unchanged fingerprint or after three distinct changed fingerprints/i,
+      /Fingerprint refusal plus artifact\/check hashes and diagnosed runtime evidence/i,
+      /Stop on an unchanged condition or after three distinct repairs/i,
+      /environment repair permits retry without republishing unchanged source/i,
+      /changed source\/artifacts need reviewed rollover/i,
       /Never loop quality commands/i
+    ]
+  },
+  'sflow-code': {
+    required: [
+      /singularity-flow phase begin <phase> --json/,
+      /Consumed intent requires `\/sf-recover`/,
+      /Untracked `\.sflow\/results\/\*\*` need no cleaning/,
+      /proven runtime repair permits retry without source changes/i,
+      /Nonzero exit fails despite passing JUnit/
+    ]
+  },
+  'sflow-recover': {
+    required: [
+      /Follow action classifications, not blanket dirty-tree stops/,
+      /tracked\/staged reports and source require review/,
+      /dependency repair permits retry without republishing unchanged source/,
+      /Stop on unchanged conditions or three distinct repairs/
     ]
   },
   'sflow-approve': {

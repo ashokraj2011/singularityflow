@@ -127,13 +127,25 @@ function extractXlsx(buffer) {
  */
 export const TEXT_RENDITION_SUFFIX = '.sflow-text.md';
 
+/**
+ * File extensions whose bytes are UTF-8 text. Prompts inline these and source review cites them, so
+ * both read this one list: a format a phase is shown as text is also one a reviewer can cite.
+ */
+export const TEXT_SOURCE_EXTENSIONS = new Set([
+  '.adoc', '.c', '.cc', '.clj', '.cljs', '.cmake', '.cpp', '.cs', '.css', '.csv', '.dart', '.feature', '.go', '.gradle',
+  '.graphql', '.groovy', '.h', '.hpp', '.html', '.ini', '.java', '.js', '.jsx', '.json', '.kt', '.kts', '.less', '.log',
+  '.lua', '.m', '.md', '.markdown', '.mdx', '.mm', '.mmd', '.php', '.properties', '.proto', '.puml', '.py', '.r', '.rb',
+  '.rs', '.rst', '.sass', '.scala', '.scss', '.sh', '.sql', '.svg', '.swift', '.tf', '.toml', '.ts', '.tsx', '.tsv',
+  '.txt', '.vue', '.xml', '.yaml', '.yml'
+]);
+
 /** A source already readable as UTF-8 needs no rendition; handing Copilot the original is better. */
 export function isTextualSource(mimeType, name = '') {
   const mime = String(mimeType ?? '');
   if (mime.startsWith('text/')) return true;
   if (['application/json', 'application/yaml', 'application/xml'].includes(mime)) return true;
   const extension = String(name).slice(String(name).lastIndexOf('.')).toLowerCase();
-  return ['.md', '.markdown', '.txt', '.csv', '.json', '.yml', '.yaml', '.xml'].includes(extension);
+  return TEXT_SOURCE_EXTENSIONS.has(extension);
 }
 
 /** Formats that arrive as bytes but carry no text this can honestly recover. */

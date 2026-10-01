@@ -64,7 +64,9 @@ function artifactBinding(artifact, label) {
     ...(artifact.originalSha256 ? { originalSha256: artifact.originalSha256 } : {}) };
 }
 
-const UNREADABLE_CODES = new Set(['machine-local-storage', 'external-reference', 'no-text-layer', 'too-large-to-cite']);
+const UNREADABLE_CODES = new Set([
+  'machine-local-storage', 'external-reference', 'no-text-layer', 'too-large-to-cite', 'empty-text', 'review-budget-exceeded'
+]);
 
 /** An attachment the reviewer cannot cite, bound by identity so a later change is noticed. */
 function unreadableBinding(entry) {
@@ -154,6 +156,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
     return;
   }
   const sources = new Map(context.sources.map((source) => [source.id, source]));
+  const unreadable = new Map((context.unreadableSources ?? []).map((entry) => [entry.id, entry]));
   const scenarios = scenarioIds(context.artifact.text);
   const clauses = extractClauses(context.artifact.text, { sourcePath: context.artifact.path });
   const authoritative = new Set(clauses.map((clause) => clause.id));
@@ -170,8 +173,19 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
     if (!ID.test(String(row.id ?? '')) || rowIds.has(row.id)) {
       findings.push(finding('row-id-invalid', `${label} needs a unique stable id.`));
     } else rowIds.add(row.id);
-    const source = citedSource(row, sources, findings, label);
-    if (source) mappedSources.add(source.id);
+    const uncitable = unreadable.get(row.sourceId);
+    if (uncitable) {
+      // A clause grounded in a PDF, image, link or machine-local file cannot be quoted. The reviewer
+      // says where in the document it is; a person then attests it, as with an exclusion.
+      if (row.outcome !== 'covered' || typeof row.attestation !== 'string' || !row.attestation.trim()
+          || row.attestation.length > 1024) {
+        findings.push(finding('attestation-invalid', `${label} cites unreadable source '${uncitable.id}'; only a covered row that says where in it the scenario is grounded may do so.`));
+      } else pendingDispositions.push({ id: `attested:${row.id}`, kind: 'attested-coverage', rowId: row.id,
+        documentId: uncitable.id, reason: row.attestation.trim() });
+    } else {
+      const source = citedSource(row, sources, findings, label);
+      if (source) mappedSources.add(source.id);
+    }
     if (row.outcome === 'covered') {
       if (!SCENARIO.test(String(row.scenarioId ?? '')) || !scenarios.has(row.scenarioId)) {
         findings.push(finding('scenario-unknown', `${label} names scenario '${row.scenarioId ?? ''}' absent from the specification.`));

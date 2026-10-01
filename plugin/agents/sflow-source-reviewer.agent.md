@@ -25,6 +25,11 @@ unknown or contradictory request, use `question` and explain what needs resoluti
 failure and empty states, permissions, limits, NFRs, and exclusions for material omissions. A
 finding must say what evidence exposes the gap; do not manufacture a requirement.
 
+Documents under `unreadableSources` (links, PDFs, images, machine-local, empty or over-budget files)
+cannot be quoted; list only readable sources in `sourcesReviewed`. When a scenario is grounded only in
+one of them, write a `covered` row with that `sourceId`, no `line` or `quote`, and an
+`attestation` naming where in it (page, section, frame); a person must confirm that row.
+
 For planning, inspect every approved clause and the plan's exact `Clause | Expected paths | Planned
 tests` row. Assess whether the named source path and test path could actually deliver and prove that
 clause. Use `supported` only when the mapping is sound; otherwise add a blocking finding. Flag every

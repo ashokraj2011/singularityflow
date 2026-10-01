@@ -3,12 +3,13 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { recordSha256 } from './records.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
 import { isLocalDocument } from './document-storage.mjs';
+import { authoredArtifactText } from './publication-preflight.mjs';
 import { extractSourceText, isTextualSource } from './source-text.mjs';
 import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
@@ -17,6 +18,8 @@ const REVIEW_AGENT = 'sflow-source-reviewer';
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
 const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_TOTAL_TEXT_BYTES = 4 * 1024 * 1024;
+// The story counts as one; the binding admits at most 100 cited sources.
+const MAX_CITED_SOURCES = 100;
 const SHA256 = /^[a-f0-9]{64}$/u;
 
 function sha256(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
@@ -47,7 +50,7 @@ function checkPublishedGeneration(workflow, phaseId) {
   return phase;
 }
 
-async function checkedFile(root, relative, label, expectedSha256 = null) {
+async function checkedFile(root, relative, label, expectedSha256 = null, { maxBytes = MAX_SOURCE_BYTES } = {}) {
   const secured = await secureRepositoryPath(root, relative, { label });
   if (!secured.exists || !secured.entry?.isFile()) {
     throw new SingularityFlowError(`${label} is missing or is not a regular repository file: ${relative}`, {
@@ -55,7 +58,7 @@ async function checkedFile(root, relative, label, expectedSha256 = null) {
     });
   }
   const bytes = await readFile(secured.absolute);
-  if (bytes.length > MAX_SOURCE_BYTES) throw new SingularityFlowError(`${label} exceeds the review source byte limit.`, {
+  if (bytes.length > maxBytes) throw new SingularityFlowError(`${label} exceeds the review source byte limit.`, {
     code: 'SOURCE_REVIEW_INPUT_TOO_LARGE'
   });
   const digest = sha256(bytes);
@@ -109,9 +112,10 @@ function creationStoryText(root, base, relative) {
 /**
  * The Story text and the pinned attachments offered to `phaseId`, and the attachments a reviewer
  * cannot cite: a link, a document kept on one machine, a file with no text layer (a PDF or an
- * image), or one too large to cite. Those no longer refuse the review; each becomes a decision a
- * person records. A document recorded before phase scope existed is offered to every phase, and a
- * review whose sources are all readable binds exactly what it bound before.
+ * image), one too large to cite, one with no text at all, or one past the review's source budget.
+ * Those never refuse the review; each becomes a decision a person records, naming the document. A
+ * document recorded before phase scope existed is offered to every phase, and a review whose
+ * sources are all readable binds exactly what it bound before.
  */
 async function storySources(root, config, workflow, phaseId) {
   const base = itemRelative(config, workflow.workItem.id);
@@ -158,7 +162,14 @@ async function storySources(root, config, workflow, phaseId) {
     if (!relative.startsWith(`${base}/inputs/`)) throw new SingularityFlowError(
       `Attachment '${document.id}' is outside the Story input directory.`, { code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE' }
     );
-    const file = await checkedFile(root, relative, `Attachment '${document.id}'`, document.sha256);
+    // An oversized attachment is a decision for a person, not a refusal of the whole review.
+    const file = await checkedFile(root, relative, `Attachment '${document.id}'`, document.sha256,
+      { maxBytes: Number.POSITIVE_INFINITY });
+    if (file.bytes.length > MAX_SOURCE_BYTES) {
+      unreadable.push({ id: document.id, name, code: 'too-large-to-cite', originalSha256: file.sha256,
+        reason: `the file is larger than the ${MAX_SOURCE_BYTES}-byte review limit` });
+      continue;
+    }
     let text;
     if (isTextualSource(document.mimeType, relative)) text = utf8(file.bytes, `Attachment '${document.id}'`);
     else {
@@ -175,14 +186,28 @@ async function storySources(root, config, workflow, phaseId) {
         reason: `its text is larger than the ${MAX_TEXT_BYTES}-byte review limit` });
       continue;
     }
-    sources.push({ id: document.id, path: relative, text, originalSha256: file.sha256 });
+    // Nothing to cite: an empty file, or one whose extraction found no text.
+    if (!text.trim()) {
+      unreadable.push({ id: document.id, name, code: 'empty-text', originalSha256: file.sha256,
+        reason: 'it has no text to cite' });
+      continue;
+    }
+    sources.push({ id: document.id, name, path: relative, text, originalSha256: file.sha256 });
   }
-  if (sources.reduce((total, entry) => total + Buffer.byteLength(entry.text, 'utf8'), 0) > MAX_TOTAL_TEXT_BYTES) {
-    throw new SingularityFlowError('Pinned Story sources exceed the source review text budget.', {
-      code: 'SOURCE_REVIEW_INPUT_TOO_LARGE'
-    });
+  // Past the source budget, the remaining documents become decisions in catalog order.
+  const cited = [sources[0]];
+  let totalBytes = Buffer.byteLength(sources[0].text, 'utf8');
+  for (const entry of sources.slice(1)) {
+    const bytes = Buffer.byteLength(entry.text, 'utf8');
+    if (cited.length >= MAX_CITED_SOURCES || totalBytes + bytes > MAX_TOTAL_TEXT_BYTES) {
+      unreadable.push({ id: entry.id, name: entry.name, code: 'review-budget-exceeded', originalSha256: entry.originalSha256,
+        reason: `the review already cites ${cited.length} sources and ${totalBytes} bytes of text, its limit` });
+      continue;
+    }
+    cited.push(entry);
+    totalBytes += bytes;
   }
-  return { sources, unreadable };
+  return { sources: cited.map(({ name: _name, ...entry }) => entry), unreadable };
 }
 
 async function phaseArtifact(root, config, workflow, phaseId) {
@@ -194,8 +219,10 @@ async function phaseArtifact(root, config, workflow, phaseId) {
     `Phase '${phaseId}' has no registered review artifact SHA-256.`, { code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE' }
   );
   const file = await checkedFile(root, relative, `Phase '${phaseId}' artifact`, registered.sha256);
-  return { path: relative, text: boundedText(utf8(file.bytes, `Phase '${phaseId}' artifact`),
-    `Phase '${phaseId}' artifact`), originalSha256: file.sha256 };
+  // Bind what the author wrote, not the engine-owned envelope: submission and approval rewrite the
+  // metadata block (status, commits), and a review must still describe the artifact afterwards.
+  const authored = authoredArtifactText(utf8(file.bytes, `Phase '${phaseId}' artifact`));
+  return { path: relative, text: boundedText(authored, `Phase '${phaseId}' artifact`) };
 }
 
 /** Exact source bytes and artifact bytes for an independent reviewer. This never writes. */
@@ -402,6 +429,65 @@ async function readDecisions(root, config, workflow, phaseId, reportSha256) {
   return decisions;
 }
 
+/**
+ * Earlier human decisions to proceed without an unreadable document, reused while the document is
+ * unchanged. The review that prompted each decision bound the document's identity (its ID, its
+ * reason code and, for a file, its SHA-256), so a changed or replaced document needs a new decision.
+ * Every reused decision is verified exactly as the current one is: committed with its lifecycle
+ * event and authorized by the phase's pinned approval policy. One that no longer verifies is not reused.
+ */
+async function carriedUnreadableDecisions(root, config, workflow, phaseId, input, currentReportSha256, currentDecisions) {
+  const wanted = new Map((input.binding.unreadableSources ?? []).map((entry) => [`unreadable:${entry.id}`, entry]));
+  for (const decision of currentDecisions) wanted.delete(decision.id);
+  if (!wanted.size) return [];
+  const phaseDirectory = path.dirname(sourceReviewDirectory(root, config, workflow, phaseId));
+  const secured = await secureRepositoryPath(root, phaseDirectory, {
+    label: 'Source review phase directory', type: 'directory'
+  });
+  if (!secured.exists) return [];
+  const generations = (await readdir(secured.absolute, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && /^gen-[1-9][0-9]*$/u.test(entry.name))
+    .map((entry) => Number(entry.name.slice(4)))
+    .filter((generation) => Number.isSafeInteger(generation) && generation <= workflow.phases[phaseId].generation)
+    .sort((left, right) => right - left);
+  const carried = [];
+  for (const generation of generations) {
+    if (!wanted.size) break;
+    const prior = {
+      ...workflow,
+      phases: { ...workflow.phases, [phaseId]: { ...workflow.phases[phaseId], generation } }
+    };
+    const decisionsRoot = path.join(sourceReviewDirectory(root, config, prior, phaseId), 'decisions');
+    if (!(await exists(decisionsRoot))) continue;
+    const reports = (await readdir(decisionsRoot))
+      .filter((name) => SHA256.test(name) && name !== currentReportSha256).sort();
+    for (const reportSha256 of reports) {
+      if (!wanted.size) break;
+      let records;
+      let seenBinding;
+      try {
+        records = await readDecisions(root, config, prior, phaseId, reportSha256);
+        const reviewed = checkedRecord(await readCommittedJson(root,
+          sourceReviewReportPath(root, config, prior, phaseId, reportSha256), 'Source review record'),
+        'Source review record', 'source-review-record');
+        seenBinding = reviewed.report?.binding;
+      } catch {
+        continue;
+      }
+      for (const record of records) {
+        const entry = wanted.get(record.id);
+        if (!entry) continue;
+        const seen = (seenBinding?.unreadableSources ?? []).find((candidate) => `unreadable:${candidate.id}` === record.id);
+        if (!seen || canonicalJson(seen) !== canonicalJson(entry)) continue;
+        carried.push({ ...record, reportSha256: currentReportSha256,
+          carriedFrom: { generation, reportSha256, recordSha256: record.recordSha256 } });
+        wanted.delete(record.id);
+      }
+    }
+  }
+  return carried;
+}
+
 /** Read current review and decisions, then recompute all source and artifact bindings. */
 export async function readSourceReviewStatus(root, config, workflow, phaseId) {
   const input = await sourceReviewInput(root, config, workflow, phaseId);
@@ -409,12 +495,15 @@ export async function readSourceReviewStatus(root, config, workflow, phaseId) {
   const retained = current ?? await readPriorGenerationRecord(root, config, workflow, phaseId);
   const decisions = current
     ? await readDecisions(root, config, workflow, phaseId, current.record.reportSha256) : [];
+  const carried = current
+    ? await carriedUnreadableDecisions(root, config, workflow, phaseId, input, current.record.reportSha256, decisions)
+    : [];
   const review = evaluateSourceGroundedReview(retained?.record.report ?? null, {
     ...input,
     reviewerAgentId: retained?.record.provenance?.reviewerAgentId ?? null,
     reviewerReadOnly: retained?.record.provenance?.readOnly === true
       && retained.record.provenance.reviewerAgentSha256 === input.reviewerAgentSha256,
-    humanDispositions: decisions.map(({ id, reportSha256, decision, reason, actor }) => ({
+    humanDispositions: [...decisions, ...carried].map(({ id, reportSha256, decision, reason, actor }) => ({
       id, reportSha256, decision, reason, actor: actor.login ?? actor.email
     }))
   });
@@ -423,7 +512,11 @@ export async function readSourceReviewStatus(root, config, workflow, phaseId) {
     phase: phaseId, generation: input.generation, binding: input.binding,
     reportPath: retained?.path ?? null, reportSha256: retained?.record.reportSha256 ?? null,
     provenance: retained?.record.provenance ?? null,
-    report: retained?.record.report ?? null, decisions, ...review
+    report: retained?.record.report ?? null, decisions,
+    carriedDecisions: carried.map(({ id, reason, actor, decidedAt, carriedFrom }) => ({
+      id, reason, actor: actor.login ?? actor.email ?? actor.name, decidedAt, carriedFrom
+    })),
+    ...review
   };
 }
 

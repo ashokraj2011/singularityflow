@@ -48,6 +48,9 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   for (const authority of Object.values(authored.approvalAuthorities)) {
     authority.allowAnyGitIdentity = true;
   }
+  for (const phase of Object.values(authored.phases ?? {})) {
+    if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
+  }
   await writeFile(workflowFile, YAML.stringify(authored));
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'Initialize governed review fixture');
@@ -167,6 +170,16 @@ Export.
   assert.notEqual(reviewerSubmit.status, 0, 'the selected read-only reviewer cannot submit the phase');
   assert.match(`${reviewerSubmit.stderr}\n${reviewerSubmit.stdout}`, /read-only source reviewer/);
   assert.equal(git(root, 'status', '--short'), '');
+
+  // Submission rewrites the specification's managed metadata (status, commits). The review was bound
+  // to what the author wrote, so it still describes the artifact and approval can proceed.
+  cli(root, 'agent', '--agent', authorAgent);
+  cli(root, 'submit', 'specification', '--skip-checks');
+  const approval = spawnSync(process.execPath, [executable, 'approve', 'specification', '--yes'], {
+    cwd: root, encoding: 'utf8', timeout: 30000
+  });
+  assert.equal(approval.status, 0, `approval after a ready review failed:\n${approval.stderr}\n${approval.stdout}`);
+  assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
 });
 
 test('legacy/off-policy Story status does not demand a reviewer or published generation', async (t) => {

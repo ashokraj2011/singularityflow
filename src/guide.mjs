@@ -2,6 +2,7 @@ import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { sourceReviewRequired } from './source-review-policy.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
 
@@ -38,14 +39,22 @@ function nextActions(workflow, phase) {
       reason: 'Review the exact deterministic convergence result, then explicitly confirm advancement before it can be submitted for human approval.'
     })
   ];
-  return [
+  const submit = copilotAction({
+    skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}`,
+    reason: noApproval
+      ? `Run configured checks, complete ${phase.id} without approval, and advance to the next phase.`
+      : `Run configured checks and submit ${phase.id} for approval.`
+  });
+  // A pinned independent source review must be ready before submission. Route there first: a
+  // submit that only refuses leaves an agent following this guide with no next action.
+  if (sourceReviewRequired(workflow, phase.id)) return [
     copilotAction({
-      skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}`,
-      reason: noApproval
-        ? `Run configured checks, complete ${phase.id} without approval, and advance to the next phase.`
-        : `Run configured checks and submit ${phase.id} for approval.`
-    })
+      skill: '/sflow-review-source', command: `singularity-flow review-source status ${phase.id}`,
+      reason: `Check the independent source review of ${phase.id} and any human decisions it still needs, then submit.`
+    }),
+    submit
   ];
+  return [submit];
 }
 
 export function workflowGuide(workflow) {

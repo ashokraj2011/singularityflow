@@ -13,7 +13,9 @@ import {
   documentOfferedToPhase, normalizeDocumentPhases, resolveDocumentRecord, validateDocumentName
 } from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
-import { SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_RENDITION_SUFFIX, extractSourceText, hasTextExtractor } from './source-text.mjs';
+import {
+  SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_RENDITION_SUFFIX, TEXT_SOURCE_EXTENSIONS, extractSourceText, hasTextExtractor
+} from './source-text.mjs';
 import {
   isLocalDocument, localDocumentAvailability, readLocalDocument, resolveDocumentStorage, storeLocalDocument
 } from './document-storage.mjs';
@@ -29,12 +31,8 @@ export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
   maxDepth: 32
 });
 
-const TEXT_EXTENSIONS = new Set([
-  '.adoc', '.c', '.cc', '.clj', '.cljs', '.cmake', '.cpp', '.cs', '.css', '.dart', '.go', '.gradle', '.graphql', '.groovy',
-  '.h', '.hpp', '.html', '.ini', '.java', '.js', '.jsx', '.json', '.kt', '.kts', '.less', '.lua', '.m', '.md', '.markdown', '.mdx', '.mm',
-  '.php', '.properties', '.py', '.r', '.rb', '.rs', '.rst', '.sass', '.scala', '.scss', '.sh', '.sql', '.svg', '.swift', '.tf',
-  '.toml', '.ts', '.tsx', '.tsv', '.txt', '.vue', '.xml', '.yaml', '.yml'
-]);
+// One list for prompts and source review, so a format shown to a phase as text can also be cited.
+const TEXT_EXTENSIONS = TEXT_SOURCE_EXTENSIONS;
 const MIME_TYPES = {
   '.c': 'text/x-c', '.cc': 'text/x-c++', '.cpp': 'text/x-c++', '.cs': 'text/x-csharp', '.css': 'text/css', '.csv': 'text/csv',
   '.dart': 'text/x-dart', '.fig': 'application/x-figma', '.gif': 'image/gif', '.go': 'text/x-go', '.gradle': 'text/x-gradle',
@@ -46,6 +44,10 @@ const MIME_TYPES = {
   '.sh': 'text/x-shellscript', '.sql': 'text/x-sql', '.svg': 'image/svg+xml', '.swift': 'text/x-swift', '.tf': 'text/x-terraform',
   '.ts': 'text/typescript', '.tsx': 'text/tsx', '.txt': 'text/plain', '.vue': 'text/x-vue', '.webp': 'image/webp',
   '.xml': 'application/xml', '.yaml': 'application/yaml', '.yml': 'application/yaml',
+  '.adoc': 'text/asciidoc', '.rst': 'text/x-rst', '.toml': 'text/x-toml', '.ini': 'text/plain', '.tsv': 'text/tab-separated-values',
+  '.graphql': 'text/x-graphql', '.feature': 'text/x-gherkin', '.log': 'text/plain', '.puml': 'text/plain', '.mmd': 'text/plain',
+  '.proto': 'text/x-protobuf', '.less': 'text/x-less', '.sass': 'text/x-sass', '.mm': 'text/x-objcpp', '.m': 'text/x-objc',
+  '.clj': 'text/x-clojure', '.cljs': 'text/x-clojure', '.cmake': 'text/x-cmake',
   // Office formats: DOCX and XLSX text is extracted for prompts and reviews; the others are named honestly.
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

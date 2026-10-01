@@ -1491,6 +1491,10 @@ async function verifyPersistedStoryGrounding(
 
 export async function verifyGroundingRecord(root, definition, workflow, phase, {
   generation = phase.generation + 1,
+  // A generation a later one of the same phase replaced. What it was composed from is still
+  // verified byte for byte, but a document detached after it, or the stale mark that detach left,
+  // does not fail it: that work is history, and the phase was redone without the document.
+  superseded = false,
   agent = null,
   resolveRepositoryAuthority = null,
   resolveCurrentAuthority = null,
@@ -1521,6 +1525,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   const problems = [];
   const stalenessProblems = [];
   const availabilityWarnings = [];
+  const historyNotes = [];
   const persistedGrounding = record.persistedGrounding != null;
   const suppliedHistoryPin = workflow.resolution?.worldModelHistoryPin ?? null;
   let activeHistoryPlan = null;
@@ -1640,7 +1645,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
       stalenessProblems.push(`grounding composition was created from a stale world model: ${relative}`);
     }
     if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256 && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256) problems.push(`grounding composition source hash does not match its world model: ${relative}`);
-    if (record.stale === true) stalenessProblems.push(`grounding composition is stale: ${relative}`);
+    if (record.stale === true && !superseded) stalenessProblems.push(`grounding composition is stale: ${relative}`);
     if (!Array.isArray(record.files) || !record.files.length) problems.push(`grounding composition contains no world-model files: ${relative}`);
   } else if (!groundingUnavailable && !Array.isArray(record.files)) {
     problems.push(`grounding composition has invalid file evidence: ${relative}`);
@@ -1787,8 +1792,10 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
         problems.push(`supporting-evidence metadata differs for ${file.path}`);
       }
       const catalogEntry = documents?.documents?.find((entry) => entry.id === file.evidenceId || entry.path === recordedPath);
-      if (!catalogEntry || ![undefined, null, 'active', 'pinned'].includes(catalogEntry.status)
-          || catalogEntry.path !== recordedPath || catalogEntry.sha256 !== file.sha256 || catalogEntry.size !== file.bytes) {
+      const sameBytes = catalogEntry && catalogEntry.path === recordedPath && catalogEntry.sha256 === file.sha256 && catalogEntry.size === file.bytes;
+      if (superseded && sameBytes && catalogEntry.status === 'detached') {
+        historyNotes.push(`${phase.id} generation ${generation} was composed from ${file.evidenceId ?? file.path}, detached since; a later generation replaced it`);
+      } else if (!sameBytes || ![undefined, null, 'active', 'pinned'].includes(catalogEntry.status)) {
         problems.push(`supporting evidence is detached, missing, or differs from documents.json: ${file.path}`);
       }
       if (recordedPath && file.sha256) {
@@ -1925,6 +1932,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   const errors = [...severity.errors, ...(staleness.blocks ? stalenessProblems : [])];
   const warnings = [
     ...availabilityWarnings,
+    ...historyNotes,
     ...severity.warnings,
     ...(staleness.warns ? stalenessProblems : [])
   ];

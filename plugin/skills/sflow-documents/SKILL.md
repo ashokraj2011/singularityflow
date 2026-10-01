@@ -29,6 +29,6 @@ To detach evidence:
 3. Require a reason. Explain that committed bytes remain and future prompts omit them.
 4. Require explicit human confirmation. Do not self-confirm. Only after it, run `singularity-flow documents detach <DOCUMENT-ID> --reason "<reason>" --yes`; add `--scope package` only when the user chose the complete package.
    For an Epic source run `singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason "<reason>" --yes` after the same preview and confirmation. `--yes` conveys that reviewed decision to the noninteractive CLI; it is never consent by itself.
-5. Report the decision, commit/publication, reopened phase, and returned `/sf-*` action.
+5. Report the decision, commit/publication, invalidated phases, and returned `/sf-*` action.
 
 Detached evidence is read-only. Never delete its bytes or manually edit its manifest status.

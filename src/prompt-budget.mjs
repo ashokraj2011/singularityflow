@@ -159,13 +159,13 @@ function fits(text, profile, mode, options) {
 function overflowError(profile, mandatory, text, admission, unsafe = false) {
   if (unsafe) {
     return new SingularityFlowError(
-      `Token-economy profile '${profile.id}' cannot enforce this request because tokenizer/provider admission assurance is incomplete.`,
+      `Token-economy profile '${profile.id}' is set to enforce, but this prompt's size can only be estimated here, so it cannot be admitted. Set tokenEconomy.mode to observe (deliver the whole prompt and report its size) or assist (leave out optional context to fit).`,
       {
         code: 'TKN_ADMISSION_ASSURANCE_INSUFFICIENT',
         details: {
           admission,
           unsafeReason: 'Estimated prompt bytes cannot prove a provider context-window boundary.',
-          nextAction: 'Configure tokenizer-exact, provider-reported, host-observed, or policy-approved conservative admission evidence; otherwise use observe or assist.'
+          nextAction: 'Set tokenEconomy.mode to observe or assist in singularity/workflow.yml. Enforce needs an exact tokenizer or provider count, which composing a prompt does not have.'
         }
       }
     );

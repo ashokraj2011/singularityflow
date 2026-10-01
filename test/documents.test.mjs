@@ -23,7 +23,7 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
 
 function flow(root, args, options = {}) { return run(process.execPath, [bin, ...args], root, options); }
 
-async function repository() {
+async function repository(configure = () => {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-documents-')); run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Document Tester'], root); run('git', ['config', 'user.email', 'documents@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Documents\n'); flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
@@ -32,6 +32,7 @@ async function repository() {
   for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.
   config.repositoryReadiness.requiredBeforeStory = false;
+  configure(config);
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
@@ -742,4 +743,25 @@ test('a late upload names each soft gate it needs, and passes with one --confirm
   const after = JSON.parse(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8'));
   assert.deepEqual(after.sequenceOverrides.map((override) => override.gate), ['phaseStatus', 'documentPhase']);
   assert.equal(after.phases.requirements.status, 'in_progress');
+});
+
+test('the gate accepts a superseded generation composed from a document detached since', async () => {
+  const root = await repository((config) => { config.worldModel.grounding = 'enforce'; });
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-gate-history-'));
+  const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\nLedger total before payment.\n');
+  flow(root, ['start', 'GATE-1', '--from-branch', 'main', '--title', 'Gate history']);
+  flow(root, ['documents', 'upload', notes, '--name', 'Ledger notes']);
+  flow(root, ['wm', 'compose', '--phase', 'intake']);
+  const itemDirectory = path.join(root, 'singularity/work-items/GATE-1');
+  const intake = path.join(itemDirectory, JSON.parse(await readFile(path.join(itemDirectory, 'workflow.json'), 'utf8')).phases.intake.requiredArtifact.path);
+  await writeFile(intake, (await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
+  flow(root, ['phase', 'publish', 'intake']); flow(root, ['submit']); flow(root, ['approve', '--yes']);
+  // Detaching the notes reopens intake, which is redone and approved without them.
+  assert.equal(JSON.parse(flow(root, ['documents', 'detach', 'DOC-001', '--reason', 'Wrong notes', '--yes', '--json']).stdout).reopenedPhase, 'intake');
+  flow(root, ['wm', 'compose', '--phase', 'intake']);
+  await writeFile(intake, `${await readFile(intake, 'utf8')}\nRevised without the withdrawn notes.\n`);
+  flow(root, ['phase', 'publish', 'intake']); flow(root, ['submit']); flow(root, ['approve', '--yes']);
+  const gate = flow(root, ['gate']);
+  assert.doesNotMatch(gate.stdout, /supporting evidence is detached/);
+  assert.match(`${gate.stdout}${gate.stderr}`, /intake generation 1 was composed from DOC-001, detached since; a later generation replaced it/);
 });

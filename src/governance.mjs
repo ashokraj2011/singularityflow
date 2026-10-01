@@ -257,7 +257,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
       let grounding = { errors: [], warnings: [], passes: [], record: null, path: null };
       if (generationRequiresGrounding(phase, generation)) {
-        grounding = await verifyGroundingRecord(root, config, workflow, phase, { generation });
+        grounding = await verifyGroundingRecord(root, config, workflow, phase, {
+          generation, superseded: generation < Number(phase.generation ?? 0)
+        });
         errors.push(...grounding.errors); warnings.push(...grounding.warnings); passes.push(...grounding.passes);
         if (grounding.path && await exists(path.join(root, grounding.path)) && found) {
           if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding composition was not committed with ${phaseId} generation ${generation}`);

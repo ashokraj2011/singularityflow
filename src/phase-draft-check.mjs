@@ -11,6 +11,7 @@ import {
   artifactFindingMessage, inspectPhaseAuthoredReviewContent, phaseAuthoredReviewArtifacts
 } from './publication-preflight.mjs';
 import { inspectCodeDocumentation } from './code-documentation-inspection.mjs';
+import { inspectUnclaimedChangedPaths } from './spec-coverage-preview.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -129,6 +130,11 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   // Doc comments on the code this generation changed: advisories only, never findings, so they
   // cannot change the status, the correction class or whether publication is offered.
   const { documentation, advisories } = await inspectCodeDocumentation(root, config, workflow, phase);
+  // Changed paths the final code approval would refuse as unclaimed, said while they can still be
+  // planned for; advisories too, so readiness is unchanged.
+  const { coverage, advisories: coverageAdvisories } = phase.generationIntent?.status === 'open'
+    ? await inspectUnclaimedChangedPaths(root, config, workflow, phase)
+    : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
 
   const repairClass = convergenceReview?.class ?? correctionClass(producer);
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase));
@@ -154,8 +160,9 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       ...finding,
       message: finding.message ?? artifactFindingMessage(finding)
     }))),
-    advisories: Object.freeze([...advisories]),
+    advisories: Object.freeze([...advisories, ...coverageAdvisories]),
     documentation,
+    coverage,
     correction: Object.freeze({
       class: repairClass,
       automatic: false,

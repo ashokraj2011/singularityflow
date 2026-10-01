@@ -58,6 +58,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/document-storage-policy.mjs',
   'src/code-documentation.mjs',
   'src/code-documentation-inspection.mjs',
+  'src/spec-coverage-preview.mjs',
   'plugin/skills/sflow-code-docs/SKILL.md'
 ]);
 

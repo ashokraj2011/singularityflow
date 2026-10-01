@@ -9,6 +9,7 @@ import test from 'node:test';
 import {
   buildSpecIndex, canonicalJson, deriveObservedClaimMap, normalizeClaimMap
 } from '../src/specifications.mjs';
+import { inspectUnclaimedChangedPaths } from '../src/spec-coverage-preview.mjs';
 import { assertFinalCodeSpecificationCoverage } from '../src/state.mjs';
 
 const ID = 'COVER-1';
@@ -29,7 +30,7 @@ async function write(root, relative, contents) {
   await writeFile(target, contents);
 }
 
-async function fixture({ baselineFirst = false } = {}) {
+async function fixture({ baselineFirst = false, supportingFiles = [] } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-code-coverage-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Coverage Test');
@@ -64,7 +65,7 @@ async function fixture({ baselineFirst = false } = {}) {
         expectedPaths: ['src/second.mjs'], tests: [], testDisposition: 'not-applicable',
         testReason: 'The required compile-time contract is checked without a runtime test.'
       }
-    } }, { kind: 'planned', clauseIds: ids }),
+    }, supportingFiles }, { kind: 'planned', clauseIds: ids }),
     workId: ID, phase: 'planning', generation: 1
   };
   await write(root, plannedPath, canonicalJson(planned));
@@ -207,4 +208,36 @@ test('final code approval retains exact source deletion as implementation eviden
     root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')
   );
   assert.equal(coverage.complete, true);
+});
+
+test('a changed file the plan lists under Supporting files needs no clause, and prepublish names any other', async () => {
+  const { root, config, workflow, observedPath, observedRecord } = await fixture({ supportingFiles: ['package.json'] });
+  const phase = workflow.phases.implementation;
+  await write(root, 'src/second.mjs', '// @clause:COVER-1:REQ-002\nexport const second = true;\n');
+  await write(root, 'package.json', '{ "name": "ledger", "dependencies": { "ledger-client": "1.0.0" } }\n');
+  await write(root, 'Makefile', 'build:\n\ttrue\n');
+  const complete = observedRecord(['src/first.mjs', 'src/second.mjs']);
+  await write(root, observedPath, canonicalJson(complete));
+  phase.claimMaps.observed.sha256 = digest(complete);
+
+  // Before submission: the preview names the one path approval would refuse.
+  const preview = await inspectUnclaimedChangedPaths(root, config, workflow, phase);
+  assert.equal(preview.coverage.status, 'unclaimed');
+  assert.deepEqual(preview.advisories.map((advisory) => advisory.path), ['Makefile']);
+  assert.equal(preview.advisories[0].blocking, false);
+  assert.match(preview.advisories[0].message, /not under the plan's Supporting files; approving this phase would refuse it/);
+
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'complete with supporting files');
+  await assert.rejects(
+    () => assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')),
+    (error) => error.code === 'SPEC_COVERAGE_INCOMPLETE'
+      && error.details.coverage.unclaimedChangedPaths.join() === 'Makefile'
+      && error.details.coverage.supportingChangedPaths.join() === 'package.json'
+  );
+  git(root, 'rm', '-q', 'Makefile');
+  git(root, 'commit', '-q', '-m', 'drop the unplanned change');
+  const coverage = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD'));
+  assert.equal(coverage.complete, true);
+  assert.equal((await inspectUnclaimedChangedPaths(root, config, workflow, phase)).coverage.status, 'ready');
 });

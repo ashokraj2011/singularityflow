@@ -422,6 +422,29 @@ function plannedClaimSource(markdown) {
 }
 
 /**
+ * The plan's `## Supporting files`: repository paths the code may change without any clause
+ * claiming them, because they cannot carry a `@clause` tag (a manifest, a lockfile, CI
+ * configuration). Each entry is a bullet that starts with one backticked exact path; a reason may
+ * follow. Globs and directories are refused, so the list says exactly what may change.
+ */
+function supportingFilesFromPlan(lines) {
+  const found = [];
+  let inside = false;
+  for (const [index, line] of lines.entries()) {
+    const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/u);
+    if (heading) { inside = /^supporting files$/iu.test(heading[2].trim()); continue; }
+    if (!inside || !/^\s*[-*+]\s+/u.test(line)) continue;
+    const entry = line.match(/^\s*[-*+]\s+`([^`]+)`/u);
+    if (!entry) {
+      throw new SingularityFlowError(`Supporting files entry at line ${index + 1} must start with one backticked repository path, for example - \`package.json\` — adds the ledger client.`);
+    }
+    const candidate = exactStructuredPath(entry[1], `Supporting files entry at line ${index + 1}`);
+    found.push(candidate);
+  }
+  return [...new Set(found)].sort();
+}
+
+/**
  * Derive a planned claim map only from the reviewed structured Markdown
  * contract. Prose, guessed filenames, globs, and unqualified clause IDs are
  * deliberately ignored/refused rather than interpreted.
@@ -464,9 +487,11 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } 
       };
     }
   }
-  const claimMap = normalizeClaimMap({ claims }, { kind: 'planned', clauseIds: [...known], policy });
+  const supportingFiles = supportingFilesFromPlan(lines);
+  const claimMap = normalizeClaimMap({ claims, supportingFiles }, { kind: 'planned', clauseIds: [...known], policy });
   return {
     claimMap,
+    supportingFiles,
     missingClauseIds: [...known].filter((id) => !claims[id]).sort(),
     missingTestClauseIds: [...known].filter((id) => {
       const claim = claims[id];
@@ -530,7 +555,13 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
       };
     }
   }
-  const result = { schemaVersion: currentSchemaVersion('specification-claim-map'), kind, recordedAt: nowIso(), claims };
+  // Present only when the plan lists some, so a plan without the section records what it always did.
+  const supportingFiles = kind === 'planned'
+    ? normalizePaths(value.supportingFiles ?? [], 'supportingFiles', normalized.limits) : [];
+  const result = {
+    schemaVersion: currentSchemaVersion('specification-claim-map'), kind, recordedAt: nowIso(), claims,
+    ...(supportingFiles.length ? { supportingFiles } : {})
+  };
   const bytes = Buffer.byteLength(canonicalJson(result));
   if (bytes > normalized.limits.maxClaimBytes) throw new SingularityFlowError(`${kind} claim map exceeds ${normalized.limits.maxClaimBytes} bytes.`);
   return result;
@@ -816,6 +847,11 @@ function sortedUnique(values) {
 }
 
 /** Merge planned evidence cumulatively across multiple code intervals. */
+/** Every supporting file the planned claim maps list, once each. */
+export function plannedSupportingFiles(maps = []) {
+  return sortedUnique(maps.flatMap((map) => map?.supportingFiles ?? []));
+}
+
 export function mergePlannedClaimRecords(maps = []) {
   const grouped = new Map();
   for (const map of [...maps].sort(recordOrder)) {
@@ -1068,7 +1104,10 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     if (acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)) return false;
     return ['missing', 'partial'].includes(claim.verdict);
   }).sort();
-  const unclaimedChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate));
+  // A file the plan lists under Supporting files may change without a clause claiming it.
+  const supporting = new Set(plannedSupportingFiles(planned));
+  const supportingChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate) && supporting.has(candidate));
+  const unclaimedChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate) && !supporting.has(candidate));
   const withdrawnButClaimed = Object.keys(observedClaims).filter((id) => !clauses.has(id)).sort();
   const invalidEvidence = [];
   for (const [id, claim] of Object.entries(observedClaims)) {
@@ -1106,6 +1145,7 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     },
     unimplemented,
     unclaimedChangedPaths,
+    supportingChangedPaths,
     withdrawnButClaimed,
     invalidEvidence: [...new Set(invalidEvidence)].sort(),
     complete: !unimplemented.length && !unclaimedChangedPaths.length && !withdrawnButClaimed.length && !invalidEvidence.length

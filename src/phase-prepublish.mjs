@@ -390,6 +390,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     // Carried through unchanged: advisories never enter findings or readiness.
     advisories: draft.advisories,
     documentation: draft.documentation,
+    coverage: draft.coverage,
     readiness: Object.freeze({
       lifecycle: lifecycleReady,
       authoring: draft.status === 'ready',

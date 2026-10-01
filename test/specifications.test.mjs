@@ -661,3 +661,37 @@ test('specification coverage includes source deletions and excludes every govern
   assert.equal(await specificationSourceTreeHash(root), afterDeletion,
     'agent projection never makes application acceptance evidence stale');
 });
+
+test('a plan lists supporting files that may change without a clause, and coverage accepts exactly those', () => {
+  const plan = `# Plan
+
+| Clause | Expected paths | Planned tests |
+| --- | --- | --- |
+| APP:REQ-001 | \`src/app.mjs\` | \`test/app.test.mjs\` |
+
+## Supporting files
+
+<!-- - \`ignored/example.json\` — an example inside a comment is not an entry -->
+- \`package.json\` — adds the ledger client
+- \`package-lock.json\`
+`;
+  const derived = derivePlannedClaimMap(plan, { clauseIds: ['APP:REQ-001'], policy: { mode: 'enforce' } });
+  assert.deepEqual(derived.supportingFiles, ['package-lock.json', 'package.json']);
+  assert.deepEqual(derived.claimMap.supportingFiles, ['package-lock.json', 'package.json']);
+  const plain = derivePlannedClaimMap(plan.slice(0, plan.indexOf('## Supporting files')), { clauseIds: ['APP:REQ-001'] });
+  assert.equal(Object.hasOwn(plain.claimMap, 'supportingFiles'), false, 'a plan without the section records what it always did');
+  assert.throws(() => derivePlannedClaimMap(`${plan}- package.json without backticks\n`, { clauseIds: ['APP:REQ-001'] }),
+    /must start with one backticked repository path/);
+  assert.throws(() => derivePlannedClaimMap(plan.replace('`package-lock.json`', '`config/*.yml`'), { clauseIds: ['APP:REQ-001'] }),
+    /exact repository-relative path without traversal, globs/);
+
+  const index = { clauses: [{ id: 'APP:REQ-001', type: 'REQ' }] };
+  const observed = normalizeClaimMap({
+    'APP:REQ-001': { observedPaths: ['src/app.mjs'], testResults: ['test/app.test.mjs'], verdict: 'matched' }
+  }, { kind: 'observed', clauseIds: ['APP:REQ-001'], policy: { mode: 'record' } });
+  const coverage = evaluateSpecCoverage({ indexes: [index], planned: [derived.claimMap], observed: [observed] },
+    ['src/app.mjs', 'package.json', 'Makefile'], { coverage: 'enforce' });
+  assert.deepEqual(coverage.supportingChangedPaths, ['package.json']);
+  assert.deepEqual(coverage.unclaimedChangedPaths, ['Makefile'], 'only a listed file is excused');
+  assert.equal(coverage.complete, false);
+});

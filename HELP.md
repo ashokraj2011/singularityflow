@@ -2747,13 +2747,13 @@ Conformance stores a source/test tree hash. Later code or test changes make the 
 
 ### Workflow Studio
 
-The easiest way to create and change workflows is **Workflow Studio** in VS Code (Command Palette **Singularity Flow: Workflow Studio**, or **Configuration Center → Workflow Studio**). It shows every workflow as a board: in each step an agent drafts the work and an approval group signs it off. You pick everything from lists:
+The easiest way to create and change workflows is **Workflow Studio** in VS Code (Command Palette **Singularity Flow: Workflow Studio**, or **Configuration Center → Workflow Studio**). It draws every workflow as a canvas of connected steps: each step shows what it produces, the agent that drafts it and who signs it off, and arrows show the order, decisions and send-back rules. Drag the background to move around, zoom with Ctrl or Cmd and the mouse wheel (**Fit** shows the whole workflow), and select a step to edit it in the properties panel on the right. You pick everything from lists:
 
 - start a workflow from one of yours or from a packaged blueprint, then add, remove and reorder steps;
 - choose the agent that drafts each step, what the step produces, which earlier steps it reads, who signs it off and how many approvals it needs, and where rejected work goes back to;
 - create an agent from a role (analyst, architect, developer, tester, designer, reviewer) without editing Markdown;
 - add people to approval groups;
-- add a **decision** after a step with **Decide**: an if / else whose rules read values the step records, a loop that goes back until a goal is met (at most a few rounds), or a question a person answers. See [Decisions, branches and loops](docs/topics/workflow-decisions.md).
+- add a **decision** after a step with the diamond tool, drawn as a diamond on the arrow after the step: an if / else whose rules read values the step records, a loop that goes back until a goal is met (at most a few rounds), or a question a person answers. See [Decisions, branches and loops](docs/topics/workflow-decisions.md).
 
 Edits collect as one set of changes. **Check changes** asks the engine to validate the whole resulting configuration — workflow, agents and templates together — and shows each file's diff; **Publish** writes them as one review proposal on the approved configuration (or, for a working-tree authority, as files to commit). Running Stories keep the workflow they started with.
 

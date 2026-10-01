@@ -11,91 +11,181 @@
 
 const STUDIO_STYLE = `
 .studio{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 80px);gap:0}
-.studio-nav{border-right:1px solid var(--sf-border);padding:var(--sf-space-4) var(--sf-space-3);display:flex;flex-direction:column;gap:4px}
+.studio-nav{border-right:1px solid var(--sf-border-color);padding:var(--sf-space-4) var(--sf-space-3);display:flex;flex-direction:column;gap:4px}
 .studio-nav .brand{font-size:11px;letter-spacing:2px;font-weight:600;color:var(--sf-accent);padding:0 var(--sf-space-2) var(--sf-space-3)}
 .studio-nav button.nav-item{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;padding:8px 10px;border-radius:6px;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}
 .studio-nav button.nav-item[aria-current=page]{background:var(--sf-accent-quiet);font-weight:600}
 .studio-nav button.nav-item:hover{background:var(--vscode-list-hoverBackground)}
 .studio-nav .count{font-size:11px;opacity:.8}
 .studio-nav .count.attention{background:var(--sf-wait);color:var(--vscode-editor-background);border-radius:9px;padding:0 7px;font-weight:700;opacity:1}
-.studio-nav .note{margin-top:auto;font-size:11px;opacity:.75;line-height:1.5;border-top:1px solid var(--sf-border);padding-top:var(--sf-space-3)}
+.studio-nav .note{margin-top:auto;font-size:11px;opacity:.75;line-height:1.5;border-top:1px solid var(--sf-border-color);padding-top:var(--sf-space-3)}
 .studio-main{padding:var(--sf-space-4) var(--sf-space-5);display:flex;flex-direction:column;gap:var(--sf-space-4);min-width:0}
 .studio-main h1{margin:0;font-size:22px}
 .studio-main h2{margin:0;font-size:15px}
 .studio-lede{margin:0;opacity:.85;max-width:760px;line-height:1.5}
-.studio-card{border:1px solid var(--sf-border);border-radius:10px;padding:var(--sf-space-3) var(--sf-space-4);background:var(--sf-surface);display:flex;flex-direction:column;gap:var(--sf-space-2)}
+.studio-card{border:1px solid var(--sf-border-color);border-radius:10px;padding:var(--sf-space-3) var(--sf-space-4);background:var(--sf-surface);display:flex;flex-direction:column;gap:var(--sf-space-2)}
 .studio-row{display:flex;align-items:center;gap:var(--sf-space-2);flex-wrap:wrap}
 .studio-row.spread{justify-content:space-between}
-.check-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:var(--sf-space-2);align-items:center;padding:6px 0;border-top:1px solid var(--sf-border)}
+.check-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:var(--sf-space-2);align-items:center;padding:6px 0;border-top:1px solid var(--sf-border-color)}
 .check-row:first-of-type{border-top:0}
 .mark{width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
 .mark.ok{background:var(--sf-ok);color:var(--vscode-editor-background)}
 .mark.wait{background:var(--sf-wait);color:var(--vscode-editor-background)}
 .mark.bad{background:var(--sf-bad);color:var(--vscode-editor-background)}
-.mark.dim{border:1px solid var(--sf-border)}
+.mark.dim{border:1px solid var(--sf-border-color)}
 .muted{opacity:.75;font-size:12px}
-.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid var(--sf-border)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .pill.new{background:var(--sf-accent-quiet);font-weight:700}
 .rail{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.rail .stop{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 8px 3px 3px;border-radius:12px;border:1px solid var(--sf-border)}
+.rail .stop{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 8px 3px 3px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .avatar{width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
 .avatar.large{width:28px;height:28px;border-radius:14px;font-size:11px}
 .blueprints{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--sf-space-3)}
-.blueprint{text-align:left;font:inherit;color:inherit;background:var(--sf-surface);border:1px solid var(--sf-border);border-radius:10px;padding:var(--sf-space-3);display:flex;flex-direction:column;gap:8px;cursor:pointer;min-height:150px}
+.blueprint{text-align:left;font:inherit;color:inherit;background:var(--sf-surface);border:1px solid var(--sf-border-color);border-radius:10px;padding:var(--sf-space-3);display:flex;flex-direction:column;gap:8px;cursor:pointer;min-height:150px}
 .blueprint[aria-pressed=true]{border:2px solid var(--sf-accent)}
-.board{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:var(--sf-space-4);align-items:start}
-.lanes-legend{display:flex;gap:var(--sf-space-3);font-size:12px;opacity:.85;align-items:center}
-.swatch{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
-.swatch.agent{background:var(--vscode-charts-blue,#3794ff)}
-.swatch.people{background:var(--vscode-charts-orange,#d18616)}
-.lanes{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(150px,1fr);gap:var(--sf-space-2);overflow-x:auto;padding-bottom:6px}
-.column{display:flex;flex-direction:column;min-width:150px}
-.column.dragging{opacity:.5}
-.column.drop-target .agent-card{outline:2px dashed var(--sf-accent)}
-.agent-card,.sign-card{text-align:left;font:inherit;color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:6px;padding:10px}
-.agent-card{border:1px solid color-mix(in srgb,var(--vscode-charts-blue,#3794ff) 50%,transparent);background:color-mix(in srgb,var(--vscode-charts-blue,#3794ff) 12%,transparent);border-radius:10px 10px 3px 3px;min-height:118px}
-.sign-card{border:1px solid color-mix(in srgb,var(--vscode-charts-orange,#d18616) 50%,transparent);background:color-mix(in srgb,var(--vscode-charts-orange,#d18616) 12%,transparent);border-radius:3px 3px 10px 10px}
-.sign-card.blocked{border-color:var(--sf-bad)}
-.column[aria-current=step] .agent-card{outline:2px solid var(--vscode-focusBorder)}
-.connector{height:10px;display:flex;justify-content:center}
-.connector span{width:2px;background:var(--sf-border)}
-.step-tools{display:flex;flex-wrap:wrap;justify-content:center;gap:2px;padding-top:4px}
-.step-tools button{padding:3px 6px;font-size:11px}
 .lane-label{font-size:10px;letter-spacing:1px;font-weight:700;opacity:.8}
-.add-column{border:1px dashed var(--sf-border);border-radius:10px;display:flex;flex-direction:column;gap:8px;padding:10px;min-width:170px;justify-content:center}
-.inspector{border:1px solid var(--sf-border);border-radius:10px;padding:var(--sf-space-3);display:flex;flex-direction:column;gap:var(--sf-space-3);position:sticky;top:8px}
+.studio.compact{grid-template-columns:56px minmax(0,1fr);min-height:0}
+.studio.compact .studio-nav{padding:var(--sf-space-3) 8px;align-items:center}
+.studio-nav button.nav-icon{position:relative;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:8px;border:0;background:transparent;color:inherit;cursor:pointer}
+.studio-nav button.nav-icon[aria-current=page]{background:var(--sf-accent-quiet);color:var(--sf-accent)}
+.studio-nav button.nav-icon:hover{background:var(--vscode-list-hoverBackground)}
+.studio-nav button.nav-icon .count{position:absolute;top:1px;right:0;font-size:9px;line-height:14px;min-width:14px;padding:0 3px;border-radius:7px}
+.studio-main.board-main{padding:var(--sf-space-3) var(--sf-space-4);gap:var(--sf-space-3)}
+.board-head{display:flex;justify-content:space-between;align-items:center;gap:var(--sf-space-2);flex-wrap:wrap}
+.board-head .muted{max-width:520px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.crumb{background:transparent;border:0;color:var(--sf-link);padding:2px 4px;font:inherit;cursor:pointer}
+.studio .crumb:hover:not(:disabled){text-decoration:underline}
+.crumb-sep{opacity:.6}
+.board-head select{font:inherit;font-weight:600;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
+.board{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--sf-space-3);height:calc(100vh - 250px);min-height:420px}
+.canvas{position:relative;overflow:hidden;border:1px solid var(--sf-border-color);border-radius:10px;background-color:var(--vscode-editor-background);background-image:radial-gradient(circle,color-mix(in srgb,var(--vscode-foreground) 22%,transparent) 1px,transparent 1.5px);background-size:22px 22px;cursor:grab;touch-action:none;user-select:none}
+.canvas.panning{cursor:grabbing}
+.canvas-world{position:absolute;left:0;top:0;transform-origin:0 0}
+.edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+.edge{fill:none;stroke-width:2;stroke-linejoin:round}
+.edge-next{stroke:color-mix(in srgb,var(--vscode-foreground) 45%,transparent)}
+.edge-send-back{stroke:var(--vscode-charts-orange,#d18616)}
+.edge-decision{stroke:var(--vscode-charts-purple,#b180d7)}
+.edge.dashed{stroke-dasharray:6 4}
+.head-next{fill:color-mix(in srgb,var(--vscode-foreground) 45%,transparent)}
+.head-send-back{fill:var(--vscode-charts-orange,#d18616)}
+.head-decision{fill:var(--vscode-charts-purple,#b180d7)}
+.tone-blue{--tone:var(--vscode-charts-blue,#3794ff)}
+.tone-cyan{--tone:var(--vscode-terminal-ansiCyan,#11a8cd)}
+.tone-green{--tone:var(--vscode-charts-green,#89d185)}
+.tone-yellow{--tone:var(--vscode-charts-yellow,#cca700)}
+.tone-purple{--tone:var(--vscode-charts-purple,#b180d7)}
+.tone-orange{--tone:var(--vscode-charts-orange,#d18616)}
+.node{position:absolute;box-sizing:border-box;border-radius:12px;border:1px solid color-mix(in srgb,var(--tone) 55%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--tone) 20%,var(--vscode-editor-background)),color-mix(in srgb,var(--tone) 7%,var(--vscode-editor-background)));box-shadow:0 2px 10px rgba(0,0,0,.22)}
+.node:hover{border-color:var(--tone)}
+.node.selected{border:2px solid var(--tone);box-shadow:0 0 0 4px color-mix(in srgb,var(--tone) 28%,transparent),0 6px 18px rgba(0,0,0,.3)}
+.node.match{box-shadow:0 0 0 4px var(--vscode-editor-findMatchHighlightBackground,rgba(234,92,0,.33))}
+.node.dragging{opacity:.45}
+.node.drop-target{outline:2px dashed var(--sf-accent);outline-offset:4px}
+.node.blocked{border-color:var(--sf-bad)}
+.node-main{display:flex;flex-direction:column;gap:6px;width:100%;height:100%;box-sizing:border-box;padding:10px 12px;border:0;border-radius:inherit;background:transparent;color:var(--vscode-foreground);font:inherit;text-align:left;cursor:pointer}
+.node-main:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
+.node-head{display:flex;align-items:center;gap:8px}
+.node-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border-radius:8px;background:color-mix(in srgb,var(--tone) 28%,transparent);color:var(--tone)}
+.node-step{font-size:10px;letter-spacing:1px;font-weight:700;opacity:.75;flex:1}
+.node-title{font-size:13px;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.node-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;border-top:1px solid color-mix(in srgb,var(--tone) 30%,transparent);padding-top:6px}
+.node-agent{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.node-agent .name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.node-sign{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:9px;background:color-mix(in srgb,var(--vscode-foreground) 14%,transparent)}
+.node-sign.none{background:transparent;opacity:.7}
+.node-sign.bad{background:var(--sf-bad);color:var(--vscode-editor-background)}
+.node-tools{position:absolute;top:-31px;right:10px;display:none;gap:2px;padding:2px;border-radius:8px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.node:hover .node-tools,.node:focus-within .node-tools,.node.selected .node-tools{display:flex}
+.node-tools button,.zoom-controls button{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
+.node-tools button:disabled{opacity:.35;cursor:default}
+.finish{position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:18px;border:1px dashed var(--sf-border-color);background:var(--sf-surface);font-size:12px;font-weight:600}
+.diamond-node{position:absolute;box-sizing:border-box;width:22px;height:22px;margin:-11px 0 0 -11px;padding:0;transform:rotate(45deg);border-radius:4px;border:2px solid var(--vscode-charts-purple,#b180d7);background:color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 30%,var(--vscode-editor-background));cursor:pointer}
+.diamond-node[aria-pressed=true]{box-shadow:0 0 0 4px color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 35%,transparent)}
+.diamond-caption{position:absolute;transform:translateX(-50%);width:88px;font-size:10px;line-height:1.25;text-align:center;opacity:.9;pointer-events:none}
+.edge-label{position:absolute;transform:translate(-50%,-50%);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;font-size:10.5px;padding:2px 8px;border-radius:10px;border:1px solid var(--tone);background:var(--vscode-editor-background);color:var(--vscode-foreground);cursor:pointer}
+.edge-label.tone-send-back{--tone:var(--vscode-charts-orange,#d18616)}
+.edge-label.tone-decision{--tone:var(--vscode-charts-purple,#b180d7)}
+.tool-rail{position:absolute;left:10px;top:10px;z-index:2;display:flex;flex-direction:column;gap:4px;padding:5px;border-radius:10px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 10px rgba(0,0,0,.22)}
+.tool{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer}
+.tool[aria-pressed=true]{background:var(--sf-accent-quiet);color:var(--sf-accent)}
+.tool:disabled{opacity:.35;cursor:default}
+.zoom-controls{position:absolute;right:10px;bottom:10px;z-index:2;display:flex;align-items:center;gap:2px;padding:3px;border-radius:9px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 10px rgba(0,0,0,.22)}
+.zoom-level{min-width:42px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums}
+.canvas-legend{position:absolute;left:12px;bottom:12px;z-index:1;max-width:calc(100% - 210px);display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;opacity:.85;pointer-events:none}
+.legend{display:inline-flex;align-items:center;gap:5px}
+.legend-dot{width:9px;height:9px;border-radius:3px;background:var(--tone)}
+.legend-dot.diamond-dot{transform:rotate(45deg);border-radius:2px}
+.legend-line{width:16px;height:0;border-top:2px solid var(--tone)}
+.legend.hint-text{opacity:.75;font-style:italic}
+.find-box{position:absolute;left:62px;top:10px;z-index:2;display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;border-radius:9px;border:1px solid var(--sf-border-color);background:var(--sf-surface);box-shadow:0 2px 10px rgba(0,0,0,.22)}
+.find-box input{font:inherit;width:200px;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
+.board .inspector{position:static;overflow-y:auto;min-height:0}
+.inspector.properties{padding:0;gap:0;background:var(--sf-surface)}
+.prop-title{display:flex;align-items:center;gap:10px;padding:var(--sf-space-3);border-bottom:1px solid var(--sf-border-color)}
+.prop-title h2{font-size:14px;margin:2px 0 0}
+.prop-section{border-bottom:1px solid var(--sf-border-color)}
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px var(--sf-space-3)}
+.section-toggle{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:2px 0;border:0;background:transparent;color:inherit;font:inherit;font-weight:600;font-size:12px;text-align:left;cursor:pointer}
+.section-toggle .summary{font-weight:400;opacity:.7;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.chevron{display:inline-block;width:12px;opacity:.8}
+.prop-body{display:flex;flex-direction:column;gap:var(--sf-space-2);padding:0 var(--sf-space-3) var(--sf-space-3)}
+.prop-body.decision-body{padding-top:var(--sf-space-3)}
+.prop-actions{display:flex;flex-wrap:wrap;gap:6px;padding:var(--sf-space-3)}
+.prop-link{text-align:left;font:inherit;font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid var(--sf-border-color);background:transparent;color:inherit;cursor:pointer}
+.switch{position:relative;display:inline-flex;flex:none;width:30px;height:16px}
+.switch input{position:absolute;inset:0;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1}
+.switch .slider{width:100%;height:100%;border-radius:8px;background:color-mix(in srgb,var(--vscode-foreground) 25%,transparent);transition:background .15s}
+.switch .slider::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:6px;background:var(--vscode-editor-background);transition:transform .15s}
+.switch input:checked+.slider{background:var(--sf-accent)}
+.switch input:checked+.slider::after{transform:translateX(14px)}
+.switch input:focus-visible+.slider{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
+.agent-row{display:flex;align-items:flex-start;gap:8px}
+.meter{display:flex;gap:3px}
+.meter span{flex:1;height:5px;border-radius:3px;background:color-mix(in srgb,var(--vscode-foreground) 18%,transparent)}
+.meter span.on{background:var(--vscode-charts-orange,#d18616)}
+.icon{flex:none}
+.studio .canvas button,.studio .section-toggle,.studio .crumb,.studio-nav button.nav-icon,.studio .prop-link{min-height:0;max-width:none;letter-spacing:normal;box-shadow:none}
+.studio .section-toggle,.studio .prop-link,.studio .node-main{justify-content:flex-start}
+.studio .node-main{align-items:stretch}
+.studio .canvas button:hover:not(:disabled),.studio .section-toggle:hover:not(:disabled),.studio .crumb:hover:not(:disabled),.studio .prop-link:hover:not(:disabled){box-shadow:none}
+.studio .node-main:hover:not(:disabled),.studio .section-toggle:hover:not(:disabled),.studio .crumb:hover:not(:disabled){background:transparent}
+.studio .tool:hover:not(:disabled),.studio .node-tools button:hover:not(:disabled),.studio .zoom-controls button:hover:not(:disabled){background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.18))}
+.studio .tool[aria-pressed=true],.studio .tool[aria-pressed=true]:hover:not(:disabled){background:var(--sf-accent-quiet);color:var(--sf-accent)}
+.studio .prop-link:hover:not(:disabled){background:var(--vscode-list-hoverBackground)}
+.studio .edge-label:hover:not(:disabled){background:color-mix(in srgb,var(--tone) 18%,var(--vscode-editor-background))}
+.studio .diamond-node:hover:not(:disabled){background:color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 45%,var(--vscode-editor-background))}
+.studio .diamond-node:active:not(:disabled){transform:rotate(45deg)}
+.studio .edge-label:active:not(:disabled){transform:translate(-50%,-50%)}
+.studio .canvas button:active:not(:disabled):not(.diamond-node):not(.edge-label){transform:none}
+.inspector{border:1px solid var(--sf-border-color);border-radius:10px;padding:var(--sf-space-3);display:flex;flex-direction:column;gap:var(--sf-space-3);position:sticky;top:8px}
 .field{display:flex;flex-direction:column;gap:4px}
 .field label,.field .label{font-size:12px;font-weight:600}
-.field input[type=text],.field input[type=email],.field select,.field textarea{font:inherit;padding:6px 8px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
+.field input[type=text],.field input[type=email],.field select,.field textarea{font:inherit;padding:6px 8px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
 .field textarea{min-height:110px;resize:vertical}
 .field .hint{font-size:11px;opacity:.8;line-height:1.4}
 .checks{display:flex;flex-direction:column;gap:4px}
 .checks label{display:flex;gap:6px;align-items:center;font-size:13px;font-weight:400}
 .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sf-space-2)}
 .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sf-space-2)}
-.callout{font-size:12px;line-height:1.45;padding:8px 10px;border-radius:6px;border:1px solid var(--sf-border)}
+.callout{font-size:12px;line-height:1.45;padding:8px 10px;border-radius:6px;border:1px solid var(--sf-border-color)}
 .callout.wait{border-color:var(--sf-wait)}
 .callout.bad{border-color:var(--sf-bad)}
 .callout.ok{border-color:var(--sf-ok)}
 .agents-grid,.groups-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--sf-space-3)}
-.member{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 4px 2px 8px;border-radius:12px;border:1px solid var(--sf-border)}
+.member{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 4px 2px 8px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .member button{padding:0 6px;font-size:11px}
 .change-list{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
-.change-list li{border:1px solid var(--sf-border);border-radius:8px;padding:8px 10px;font-size:13px}
-.diff{font-family:var(--vscode-editor-font-family);font-size:12px;white-space:pre;overflow:auto;max-height:320px;border:1px solid var(--sf-border);border-radius:6px;padding:8px;margin:0}
+.change-list li{border:1px solid var(--sf-border-color);border-radius:8px;padding:8px 10px;font-size:13px}
+.diff{font-family:var(--vscode-editor-font-family);font-size:12px;white-space:pre;overflow:auto;max-height:320px;border:1px solid var(--sf-border-color);border-radius:6px;padding:8px;margin:0}
 .diff .add{color:var(--vscode-gitDecoration-addedResourceForeground,#73c991)}
 .diff .del{color:var(--vscode-gitDecoration-deletedResourceForeground,#c74e39)}
 .studio-status{min-height:1.2em;font-size:12px}
-.swatch.decide{background:var(--vscode-charts-purple,#b180d7)}
-.decide-card{text-align:left;font:inherit;color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:4px;padding:8px 10px;margin-top:6px;border-radius:10px;border:1px solid color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 55%,transparent);background:color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 12%,transparent)}
-.decide-card[aria-pressed=true]{outline:2px solid var(--vscode-focusBorder)}
-.decide-card .lane-label{display:flex;align-items:center;gap:6px}
-.diamond{display:inline-block;width:9px;height:9px;transform:rotate(45deg);background:var(--vscode-charts-purple,#b180d7)}
-.decision-box{border:1px solid var(--sf-border);border-radius:8px;padding:8px 10px;margin:0;display:flex;flex-direction:column;gap:6px}
+.decision-box{border:1px solid var(--sf-border-color);border-radius:8px;padding:8px 10px;margin:0;display:flex;flex-direction:column;gap:6px}
 .decision-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.preview-text{font-family:var(--vscode-editor-font-family);font-size:12px;white-space:pre-wrap;overflow:auto;max-height:280px;border:1px solid var(--sf-border);border-radius:6px;padding:8px;margin:0}
-.decision-row select,.decision-row input[type=text]{font:inherit;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border));background:var(--vscode-input-background);color:var(--vscode-input-foreground);max-width:100%}
-@media (max-width:900px){.studio{grid-template-columns:minmax(0,1fr)}.studio-nav{border-right:0;border-bottom:1px solid var(--sf-border);flex-direction:row;flex-wrap:wrap}.studio-nav .note{display:none}.board{grid-template-columns:minmax(0,1fr)}.inspector{position:static}}
+.preview-text{font-family:var(--vscode-editor-font-family);font-size:12px;white-space:pre-wrap;overflow:auto;max-height:280px;border:1px solid var(--sf-border-color);border-radius:6px;padding:8px;margin:0}
+.decision-row select,.decision-row input[type=text]{font:inherit;padding:4px 6px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground);max-width:100%}
+@media (max-width:900px){.studio,.studio.compact{grid-template-columns:minmax(0,1fr)}.studio-nav,.studio.compact .studio-nav{border-right:0;border-bottom:1px solid var(--sf-border-color);flex-direction:row;flex-wrap:wrap}.studio-nav .note{display:none}.board{grid-template-columns:minmax(0,1fr);height:auto}.canvas{height:420px}.inspector{position:static}}
 `;
 
 /**
@@ -107,7 +197,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 (function () {
   'use strict';
   var vscodeApi = window.__sfVscode;
-  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '' };
+  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, focusKey: null };
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -264,7 +354,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     decisionLines: function () { return decisionLines.apply(null, arguments); }, reachOf: function () { return reachOf.apply(null, arguments); },
     targetOptions: function () { return targetOptions.apply(null, arguments); }, pruneDecisions: function () { return pruneDecisions.apply(null, arguments); },
     relabelRules: function () { return relabelRules.apply(null, arguments); }, buildTest: function () { return buildTest.apply(null, arguments); },
-    importKey: function () { return importKey.apply(null, arguments); }, linkId: function () { return linkId.apply(null, arguments); } };
+    importKey: function () { return importKey.apply(null, arguments); }, linkId: function () { return linkId.apply(null, arguments); },
+    canvasLayout: function () { return canvasLayout.apply(null, arguments); } };
 
   // ---- Rendering helpers ---------------------------------------------------------------------
 
@@ -323,7 +414,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return settings.output;
   }
   function changesNow() { return state.draft && state.model ? changeSetFrom(state.model, state.draft).changes : []; }
-  function changed() { state.plan = null; state.planKey = null; requestRender(); }
+  function changed() { state.plan = null; state.planKey = null; if (/^Checked:/.test(state.status)) setStatus(''); requestRender(); }
 
   // A text field commits on blur, which happens on the mousedown of whatever is clicked next. Re-
   // rendering right then would replace the very button being clicked and swallow the click, so a
@@ -333,26 +424,36 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function requestRender() { if (pointerDown) { renderQueued = true; return; } setTimeout(render, 0); }
   function flushRender() { pointerDown = false; if (renderQueued) { renderQueued = false; render(); } }
 
-  function addExistingStep(workflowId, phaseId) {
+  /** Put a step right after another one, or at the end. */
+  function insertStep(workflowId, phaseId, afterId) {
+    var phases = state.draft.workflows[workflowId].phases;
+    var at = afterId ? phases.indexOf(afterId) + 1 : 0;
+    if (at > 0) phases.splice(at, 0, phaseId); else phases.push(phaseId);
+  }
+
+  function addExistingStep(workflowId, phaseId, afterId) {
     var workflow = state.draft.workflows[workflowId];
     if (!workflow || workflow.phases.indexOf(phaseId) >= 0) return;
-    workflow.phases.push(phaseId);
+    insertStep(workflowId, phaseId, afterId);
     stepSettings(workflowId, phaseId);
+    pruneInputs(workflowId);
     state.step = phaseId;
     changed();
   }
 
-  function createStep(workflowId, label, output, agent) {
+  function createStep(workflowId, label, output, agent, afterId) {
     var id = kebab(label);
-    if (!id) { setStatus('Give the new step a name.'); return; }
-    if (state.draft.phases[id]) { setStatus('A step called ' + label + ' already exists; add it from the list instead.'); return; }
+    if (!id) { setStatus('Give the new step a name.'); return null; }
+    if (state.draft.phases[id]) { setStatus('A step called ' + label + ' already exists; add it from the list instead.'); return null; }
     var firstGroup = Object.keys(state.draft.groups)[0] || null;
-    var previous = workflowSteps(workflowId).slice(-1);
+    var phases = workflowSteps(workflowId);
+    var previous = afterId && phases.indexOf(afterId) >= 0 ? [afterId] : phases.slice(-1);
     state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous };
-    state.draft.workflows[workflowId].phases.push(id);
+    insertStep(workflowId, id, afterId);
     state.draft.steps[workflowId][id] = { approval: { group: firstGroup, minimum: 1 }, inputs: previous };
     state.step = id;
     changed();
+    return id;
   }
 
   function copyStepForWorkflow(workflowId, phaseId) {
@@ -430,18 +531,26 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function renderNav(root) {
     var pending = changesNow().length;
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked).length;
-    function item(view, label, count, attention) {
-      return el('button', { type: 'button', class: 'nav-item', 'aria-current': state.view === view || (view === 'home' && (state.view === 'board' || state.view === 'new')) ? 'page' : null, onclick: function () { state.view = view; render(); } },
+    // On the canvas the navigation folds to icons, so the workflow gets the width.
+    var compact = state.view === 'board';
+    function item(view, label, iconName, count, attention) {
+      var current = state.view === view || (view === 'home' && (state.view === 'board' || state.view === 'new'));
+      var go = function () { state.view = view; render(); };
+      if (compact) {
+        return el('button', { type: 'button', class: 'nav-icon', title: label + (attention ? ' (' + count + ')' : ''), 'aria-label': label + (attention ? ', ' + count : ''), 'aria-current': current ? 'page' : null, onclick: go },
+          icon(iconName, 20), attention ? el('span', { class: 'count attention', text: String(count) }) : null);
+      }
+      return el('button', { type: 'button', class: 'nav-item', 'aria-current': current ? 'page' : null, onclick: go },
         el('span', { text: label }), count !== null ? el('span', { class: 'count' + (attention ? ' attention' : ''), text: String(count) }) : null);
     }
     root.appendChild(el('nav', { class: 'studio-nav', 'aria-label': 'Workflow Studio' },
-      el('div', { class: 'brand', text: 'WORKFLOW STUDIO' }),
-      item('home', 'Workflows', Object.keys(state.draft.workflows).length, false),
-      item('agents', 'Agents', Object.keys(state.draft.agents).length, false),
-      item('library', 'Library', (state.model.imports || []).length || null, false),
-      item('people', 'People & approvals', blocked || null, blocked > 0),
-      item('changes', 'Changes', pending, pending > 0),
-      el('p', { class: 'note', text: 'Running Stories keep the workflow they started with. What you publish applies to new Stories after review.' })));
+      compact ? null : el('div', { class: 'brand', text: 'WORKFLOW STUDIO' }),
+      item('home', 'Workflows', 'flow', Object.keys(state.draft.workflows).length, false),
+      item('agents', 'Agents', 'agent', Object.keys(state.draft.agents).length, false),
+      item('library', 'Library', 'book', (state.model.imports || []).length || null, false),
+      item('people', 'People & approvals', 'people', blocked || null, blocked > 0),
+      item('changes', 'Changes', 'list', pending, pending > 0),
+      compact ? null : el('p', { class: 'note', text: 'Running Stories keep the workflow they started with. What you publish applies to new Stories after review.' })));
   }
 
   function rail(phases) {
@@ -830,15 +939,6 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     });
   }
 
-  function decisionCard(workflow, phaseId) {
-    var decision = decisionAfterStep(workflow, phaseId);
-    if (!decision) return null;
-    return el('button', { type: 'button', class: 'decide-card', 'aria-pressed': state.decision === decision.id ? 'true' : 'false', onclick: function () { state.step = phaseId; state.decision = decision.id; render(); } },
-      el('span', { class: 'lane-label' }, el('span', { class: 'diamond', 'aria-hidden': 'true' }), 'THEN DECIDE'),
-      el('strong', { text: decision.label }),
-      decisionLines(workflow, decision).map(function (line) { return el('span', { class: 'muted', text: line }); }));
-  }
-
   function inputsEditor(decision) {
     var box = el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'What ' + stepLabel(decision.after) + ' records' }));
     (decision.inputs || []).forEach(function (input, index) {
@@ -866,16 +966,18 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
 
   function renderDecisionInspector(workflowId, decision) {
     var workflow = state.draft.workflows[workflowId];
-    var aside = el('aside', { class: 'inspector', 'aria-label': 'Decision settings' });
-    aside.appendChild(el('div', null, el('div', { class: 'lane-label', text: 'DECISION AFTER ' + stepLabel(decision.after).toUpperCase() }), el('h2', { text: decision.label })));
-    aside.appendChild(field('dec-name', 'Question', textInput('dec-name', decision.label, function (value) { if (value.trim()) { decision.label = value.trim().slice(0, 120); changed(); } })));
-    aside.appendChild(field('dec-kind', 'Kind', select('dec-kind', DECISION_KINDS, decision.kind, function (value) {
+    var aside = el('aside', { class: 'inspector properties', 'aria-label': 'Decision settings' });
+    aside.appendChild(propTitle('purple', 'diamond', 'DECISION AFTER ' + stepLabel(decision.after).toUpperCase(), decision.label));
+    var body = el('div', { class: 'prop-body decision-body' });
+    aside.appendChild(body);
+    body.appendChild(field('dec-name', 'Question', textInput('dec-name', decision.label, function (value) { if (value.trim()) { decision.label = value.trim().slice(0, 120); changed(); } })));
+    body.appendChild(field('dec-kind', 'Kind', select('dec-kind', DECISION_KINDS, decision.kind, function (value) {
       var converted = setDecision(workflow, decision, convertDecision(workflow, decision, value));
       relabelRules(converted); state.decision = converted.id; changed();
     }), decision.kind === 'branch' ? 'Rules read values the step records and choose the next step; the last one takes everything else.'
       : decision.kind === 'loop' ? 'Goes back until the goal is met. When the rounds are used up, a person chooses.'
         : 'The Story waits, and someone you choose picks one of the options.'));
-    if (decision.kind !== 'ask') aside.appendChild(inputsEditor(decision));
+    if (decision.kind !== 'ask') body.appendChild(inputsEditor(decision));
     if (decision.kind === 'branch') {
       var rules = el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'Rules, checked in order' }));
       decision.routes.slice(0, -1).forEach(function (route, index) {
@@ -896,14 +998,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       var otherwise = decision.routes[decision.routes.length - 1];
       rules.appendChild(el('div', { class: 'decision-row' }, el('span', { class: 'muted', text: 'Otherwise go to' }),
         select('dec-otherwise', targetOptions(workflow, decision.after, otherwise.to), otherwise.to, function (value) { otherwise.to = value; changed(); }, { 'aria-label': 'Next step otherwise' })));
-      aside.appendChild(rules);
+      body.appendChild(rules);
     }
     if (decision.kind === 'loop') {
       var phases = workflow.phases; var from = phases.indexOf(decision.after);
-      aside.appendChild(el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'Goal' }),
+      body.appendChild(el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'Goal' }),
         el('div', { class: 'decision-row' }, el('span', { class: 'muted', text: 'Until' }),
           conditionControls(decision, decision.goal, function (when) { decision.goal = when; changed(); }, 'dec-goal'))));
-      aside.appendChild(el('div', { class: 'grid-2' },
+      body.appendChild(el('div', { class: 'grid-2' },
         field('dec-back', 'Otherwise go back to', select('dec-back', phases.slice(0, Math.max(0, from) + 1).map(function (id) { return { value: id, label: id === decision.after ? 'Redo ' + stepLabel(id) : stepLabel(id) }; }), decision.back, function (value) { decision.back = value; changed(); })),
         field('dec-rounds', 'At most', select('dec-rounds', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (count) { return { value: String(count), label: count + (count === 1 ? ' round' : ' rounds') }; }), String(decision.maxRounds || 3), function (value) { decision.maxRounds = Number(value); changed(); }))));
     }
@@ -931,26 +1033,434 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       options.appendChild(el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' },
         el('input', { type: 'checkbox', 'data-key': 'dec-any-step', checked: decision.anyStep === true, onchange: function (event) { if (event.target.checked) decision.anyStep = true; else delete decision.anyStep; changed(); } }),
         'They may also pick any other step'));
-      aside.appendChild(options);
+      body.appendChild(options);
     }
     var goesBack = decision.kind === 'loop' || (decision.routes || []).some(function (route) { return reachOf(workflow, decision.after, route.to).kind === 'back'; });
     if (decision.kind === 'branch' && goesBack) {
-      aside.appendChild(field('dec-branch-rounds', 'Going back at most', select('dec-branch-rounds', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (count) { return { value: String(count), label: count + (count === 1 ? ' time' : ' times') }; }), String(decision.maxRounds || 3), function (value) { decision.maxRounds = Number(value); changed(); }), 'Then a person chooses.'));
+      body.appendChild(field('dec-branch-rounds', 'Going back at most', select('dec-branch-rounds', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (count) { return { value: String(count), label: count + (count === 1 ? ' time' : ' times') }; }), String(decision.maxRounds || 3), function (value) { decision.maxRounds = Number(value); changed(); }), 'Then a person chooses.'));
     } else if (decision.kind === 'branch' && decision.maxRounds) {
       delete decision.maxRounds;
     }
     if (decision.kind === 'ask' || goesBack) {
       var by = decision.by ? [].concat(decision.by)[0] : '';
       var owner = stepSettings(workflowId, decision.after).approval.group;
-      aside.appendChild(field('dec-by', decision.kind === 'ask' ? 'Who chooses' : 'Who chooses when the rounds are used up',
+      body.appendChild(field('dec-by', decision.kind === 'ask' ? 'Who chooses' : 'Who chooses when the rounds are used up',
         select('dec-by', [{ value: '', label: owner ? 'Whoever signs off ' + stepLabel(decision.after) : 'Choose a group…' }].concat(Object.keys(state.draft.groups).map(function (id) { return { value: id, label: state.draft.groups[id].label }; })), by, function (value) { if (value) decision.by = [value]; else delete decision.by; changed(); })));
     }
-    decisionWarnings(workflowId, workflow, decision).forEach(function (warning) { aside.appendChild(el('div', { class: 'callout bad', text: warning })); });
-    aside.appendChild(el('div', { class: 'callout' }, decisionLines(workflow, decision).map(function (line) { return el('div', { text: line }); })));
-    aside.appendChild(el('div', { class: 'studio-row' },
+    decisionWarnings(workflowId, workflow, decision).forEach(function (warning) { body.appendChild(el('div', { class: 'callout bad', text: warning })); });
+    body.appendChild(el('div', { class: 'callout' }, decisionLines(workflow, decision).map(function (line) { return el('div', { text: line }); })));
+    body.appendChild(el('div', { class: 'studio-row' },
       button('Back to the step', function () { state.decision = null; render(); }, { class: 'secondary' }),
       button('Remove decision', function () { removeDecision(workflow, decision); state.decision = null; changed(); }, { class: 'secondary' })));
     return aside;
+  }
+
+  // ---- Canvas: a workflow as connected steps -------------------------------------------------
+  //
+  // Steps are nodes, left to right in the workflow's order. Each shows what it produces, the agent
+  // that drafts it and who signs it off. Arrows show the order; a decision is a diamond on the arrow
+  // after its step; a route that skips ahead runs above the row, and a route or send-back rule that
+  // goes back runs below it. The canvas pans and zooms; dropping a step on another moves it there,
+  // because the order is still the workflow's list of steps.
+
+  var NODE_W = 176, NODE_H = 112, GAP = 64, DECISION_GAP = 104, CANVAS_PAD = 40, LOOP_STEP = 26, FINISH_W = 84;
+  var OUTPUT_LOOK = {
+    document: { label: 'Writes a document', icon: 'doc', tone: 'blue' },
+    analysis: { label: 'Writes an analysis', icon: 'chart', tone: 'cyan' },
+    code: { label: 'Changes code', icon: 'code', tone: 'green' },
+    none: { label: 'Sign-off only', icon: 'check', tone: 'yellow' }
+  };
+  var ICON_PATHS = {
+    doc: 'M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6 M9 16h6',
+    chart: 'M4 20V11 M10 20V5 M16 20v-7 M21 20H3',
+    code: 'M8 8l-5 4 5 4 M16 8l5 4-5 4 M13.5 5l-3 14',
+    check: 'M5 12.5l4 4 10-10',
+    people: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M3 20a6 6 0 0 1 12 0 M16 5.2a3 3 0 0 1 0 5.6 M21 20a6 6 0 0 0-3.5-5.4',
+    agent: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21a8 8 0 0 1 16 0',
+    flow: 'M3 4h7v6H3z M14 14h7v6h-7z M10 7h4a3 3 0 0 1 3 3v4',
+    book: 'M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z M5 19.5A1.5 1.5 0 0 0 6.5 21H19 M9 7h6',
+    list: 'M9 6h11 M9 12h11 M9 18h11 M4.5 6h.01 M4.5 12h.01 M4.5 18h.01',
+    plus: 'M12 5v14 M5 12h14',
+    minus: 'M5 12h14',
+    diamond: 'M12 3l9 9-9 9-9-9z',
+    back: 'M9 14l-5-5 5-5 M4 9h11a5 5 0 0 1 0 10h-3',
+    search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M21 21l-5-5',
+    gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 13.5l1.6 1.2-2 3.5-1.9-.8a7.6 7.6 0 0 1-1.7 1l-.3 2.1h-4l-.3-2.1a7.6 7.6 0 0 1-1.7-1l-1.9.8-2-3.5 1.6-1.2a7.4 7.4 0 0 1 0-3L3 9.3l2-3.5 1.9.8a7.6 7.6 0 0 1 1.7-1L8.9 3.5h4l.3 2.1a7.6 7.6 0 0 1 1.7 1l1.9-.8 2 3.5-1.6 1.2a7.4 7.4 0 0 1 0 3z',
+    fit: 'M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5',
+    trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 13h10l1-13 M9 7V4h6v3',
+    left: 'M15 6l-6 6 6 6',
+    right: 'M9 6l6 6-6 6',
+    flag: 'M5 21V4 M5 4h11l-2 4 2 4H5'
+  };
+
+  function svgEl(tag, attrs) {
+    var node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    Object.keys(attrs || {}).forEach(function (key) { if (attrs[key] !== null && attrs[key] !== undefined) node.setAttribute(key, String(attrs[key])); });
+    return node;
+  }
+  function icon(name, size) {
+    var svg = svgEl('svg', { viewBox: '0 0 24 24', width: size || 16, height: size || 16, fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false', class: 'icon' });
+    svg.appendChild(svgEl('path', { d: ICON_PATHS[name] || ICON_PATHS.doc }));
+    return svg;
+  }
+
+  /** How one workflow's canvas is panned and zoomed; kept per workflow while the Studio is open. */
+  function canvasView(workflowId) {
+    var views = state.canvas || (state.canvas = {});
+    return views[workflowId] || (views[workflowId] = { zoom: 1, panX: 56, panY: 0, fitted: false, finding: false, find: '', reveal: null });
+  }
+  function transformOf(view) { return 'translate(' + Math.round(view.panX) + 'px,' + Math.round(view.panY) + 'px) scale(' + view.zoom + ')'; }
+
+  /** Where each step sits and how every arrow runs: order, send-back rules and decision routes. */
+  function canvasLayout(workflow) {
+    var phases = workflow.phases;
+    var nodes = []; var x = CANVAS_PAD;
+    phases.forEach(function (phaseId, index) {
+      nodes.push({ id: phaseId, index: index, x: x });
+      x += NODE_W + (decisionAfterStep(workflow, phaseId) ? DECISION_GAP : GAP);
+    });
+    var finishX = x;
+    var edges = []; var above = 0; var below = 0;
+    phases.forEach(function (phaseId, index) {
+      var decision = decisionAfterStep(workflow, phaseId);
+      edges.push({ kind: 'next', from: index, to: index + 1, decision: decision ? decision.id : null });
+    });
+    (workflow.reworkLoops || []).forEach(function (loop) {
+      var from = phases.indexOf(loop.from); var to = phases.indexOf(loop.to);
+      if (from < 0 || to < 0) return;
+      below += 1;
+      edges.push({ kind: 'send-back', from: from, to: to, depth: below, step: loop.from, label: 'If rejected, back to ' + stepLabel(loop.to),
+        title: 'If ' + stepLabel(loop.from) + ' is rejected, it goes back to ' + stepLabel(loop.to) + ', at most ' + loop.maxAttempts + (loop.maxAttempts === 1 ? ' time' : ' times') });
+    });
+    (workflow.decisions || []).forEach(function (decision) {
+      var after = phases.indexOf(decision.after);
+      if (after < 0) return;
+      var routes = decision.kind === 'loop' ? [{ label: 'Until ' + whenText(decision, decision.goal), to: decision.back }] : (decision.routes || []);
+      routes.forEach(function (route) {
+        // A route to the next step, or to the end after the last one, follows the arrow already drawn.
+        var reach = reachOf(workflow, decision.after, route.to);
+        if (route.to === 'next' || reach.kind === 'next' || reach.kind === 'missing' || (reach.kind === 'end' && !reach.skips.length)) return;
+        if (reach.kind === 'back') {
+          below += 1;
+          edges.push({ kind: 'decision-back', from: after, to: phases.indexOf(reach.target), depth: below, decision: decision.id, label: route.label });
+          return;
+        }
+        above += 1;
+        edges.push({ kind: reach.kind === 'end' ? 'decision-end' : 'decision-skip', from: after, to: reach.kind === 'end' ? phases.length : phases.indexOf(reach.target), depth: above, decision: decision.id, label: route.label });
+      });
+    });
+    var rowY = CANVAS_PAD + (above ? above * LOOP_STEP + 14 : 0);
+    return { nodes: nodes, edges: edges, rowY: rowY, finishX: finishX, above: above, below: below,
+      width: finishX + FINISH_W + CANVAS_PAD, height: rowY + NODE_H + (below ? below * LOOP_STEP + 24 : 0) + CANVAS_PAD };
+  }
+
+  /** The path of one arrow, and the point its label sits on. */
+  function edgeGeometry(layout, edge) {
+    function at(index) { return index >= layout.nodes.length ? layout.finishX : layout.nodes[index].x; }
+    var top = layout.rowY; var bottom = layout.rowY + NODE_H; var middle = layout.rowY + NODE_H / 2;
+    if (edge.kind === 'next') {
+      var start = at(edge.from) + NODE_W; var end = at(edge.to);
+      return { d: 'M' + start + ' ' + middle + ' H' + (end - 2), tone: 'next', x: (start + end) / 2, y: middle };
+    }
+    // Arrows at different depths leave and land a little apart, so stacked ones stay distinguishable.
+    var shift = ((edge.depth - 1) % 4) * 8;
+    if (edge.kind === 'decision-skip' || edge.kind === 'decision-end') {
+      var y = top - edge.depth * LOOP_STEP;
+      var toFinish = edge.to >= layout.nodes.length;
+      var x1 = at(edge.from) + NODE_W * 0.7 + shift;
+      var x2 = toFinish ? layout.finishX + FINISH_W / 2 - shift : at(edge.to) + NODE_W * 0.3 - shift;
+      var land = toFinish ? middle - 18 : top;
+      return { d: 'M' + x1 + ' ' + top + ' V' + y + ' H' + x2 + ' V' + (land - 2), tone: 'decision', x: (x1 + x2) / 2, y: y };
+    }
+    var low = bottom + edge.depth * LOOP_STEP;
+    var self = edge.from === edge.to;
+    var from = at(edge.from) + (self ? NODE_W * 0.62 + shift : NODE_W * 0.3 - shift);
+    var to = at(edge.to) + (self ? NODE_W * 0.38 - shift : NODE_W * 0.7 + shift);
+    return { d: 'M' + from + ' ' + bottom + ' V' + low + ' H' + to + ' V' + (bottom + 2), tone: edge.kind === 'send-back' ? 'send-back' : 'decision', x: (from + to) / 2, y: low, dashed: edge.kind === 'decision-back' };
+  }
+
+  function renderEdges(layout) {
+    var svg = svgEl('svg', { class: 'edges', width: layout.width, height: layout.height, viewBox: '0 0 ' + layout.width + ' ' + layout.height, 'aria-hidden': 'true', focusable: 'false' });
+    var defs = svgEl('defs');
+    ['next', 'send-back', 'decision'].forEach(function (tone) {
+      var marker = svgEl('marker', { id: 'head-' + tone, viewBox: '0 0 10 10', refX: '8', refY: '5', markerWidth: '5', markerHeight: '5', orient: 'auto' });
+      marker.appendChild(svgEl('path', { d: 'M0 0 L10 5 L0 10 z', class: 'head-' + tone }));
+      defs.appendChild(marker);
+    });
+    svg.appendChild(defs);
+    layout.edges.forEach(function (edge) {
+      var shape = edgeGeometry(layout, edge);
+      svg.appendChild(svgEl('path', { d: shape.d, class: 'edge edge-' + shape.tone + (shape.dashed ? ' dashed' : ''), 'marker-end': 'url(#head-' + shape.tone + ')' }));
+    });
+    return svg;
+  }
+
+  function selectStep(phaseId) { state.step = phaseId; state.decision = null; state.panel = null; render(); }
+  function openDecision(decision) { if (!decision) return; state.step = decision.after; state.decision = decision.id; state.panel = null; render(); }
+  function findMatches(view, phase, agent) {
+    var query = String(view.find || '').trim().toLowerCase();
+    return Boolean(query) && (String(phase.label).toLowerCase().indexOf(query) >= 0 || Boolean(agent && agent.label.toLowerCase().indexOf(query) >= 0));
+  }
+
+  function renderNode(workflowId, workflow, node, layout, view) {
+    var phaseId = node.id; var phases = workflow.phases;
+    var phase = state.draft.phases[phaseId] || { label: phaseId, output: 'document' };
+    var look = OUTPUT_LOOK[stepOutput(workflowId, phaseId)] || OUTPUT_LOOK.document;
+    var agent = state.draft.agents[phase.agent];
+    var settings = stepSettings(workflowId, phaseId);
+    var group = settings.approval.group ? state.draft.groups[settings.approval.group] : null;
+    var blocked = Boolean(group && groupBlocked(settings.approval.group));
+    var selected = state.step === phaseId && !state.decision && !state.panel;
+    var minimum = settings.approval.minimum || 1;
+    var signText = !group ? 'No sign-off' : blocked ? 'Nobody can approve it yet'
+      : minimum + (minimum === 1 ? ' approval' : ' approvals') + ' from ' + group.label;
+    var card = el('div', {
+      class: 'node tone-' + look.tone + (selected ? ' selected' : '') + (blocked ? ' blocked' : '') + (findMatches(view, phase, agent) ? ' match' : ''),
+      draggable: 'true', 'data-phase': phaseId,
+      ondragstart: function (event) { event.dataTransfer.setData('text/plain', phaseId); event.dataTransfer.effectAllowed = 'move'; card.classList.add('dragging'); },
+      ondragend: function () { card.classList.remove('dragging'); },
+      ondragover: function (event) { event.preventDefault(); card.classList.add('drop-target'); },
+      ondragleave: function () { card.classList.remove('drop-target'); },
+      ondrop: function (event) {
+        event.preventDefault(); card.classList.remove('drop-target');
+        var moved = event.dataTransfer.getData('text/plain'); var from = phases.indexOf(moved);
+        if (from >= 0 && from !== node.index) moveStep(workflowId, moved, node.index - from);
+      }
+    },
+      el('button', {
+        type: 'button', class: 'node-main', 'data-key': 'node-' + phaseId, 'aria-pressed': selected ? 'true' : 'false',
+        'aria-label': 'Step ' + (node.index + 1) + ' of ' + phases.length + ': ' + phase.label + '. ' + look.label + ', drafted by ' + (agent ? agent.label : 'no agent yet') + '. ' + signText + '.',
+        onclick: function () { selectStep(phaseId); },
+        onkeydown: function (event) {
+          var next = event.key === 'ArrowRight' ? node.index + 1 : event.key === 'ArrowLeft' ? node.index - 1 : -1;
+          if (next < 0 || next >= phases.length) return;
+          event.preventDefault(); state.focusKey = 'node-' + phases[next]; view.reveal = phases[next]; selectStep(phases[next]);
+        }
+      },
+        el('span', { class: 'node-head' }, el('span', { class: 'node-icon' }, icon(look.icon, 16)), el('span', { class: 'node-step', text: 'STEP ' + (node.index + 1) }),
+          phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null),
+        el('span', { class: 'node-title', text: phase.label }),
+        el('span', { class: 'node-foot' },
+          el('span', { class: 'node-agent', title: agent ? agent.label : 'Choose an agent' }, el('span', { class: 'avatar', text: agent ? initials(agent.label) : '?' }), el('span', { class: 'name', text: agent ? agent.label : 'Choose an agent' })),
+          el('span', { class: 'node-sign' + (blocked ? ' bad' : group ? '' : ' none'), title: signText }, icon(group ? 'people' : 'right', 12), group ? String(minimum) : 'auto'))),
+      el('div', { class: 'node-tools' },
+        el('button', { type: 'button', title: 'Move earlier', 'aria-label': 'Move ' + phase.label + ' earlier', disabled: node.index === 0, onclick: function () { moveStep(workflowId, phaseId, -1); } }, icon('left', 14)),
+        el('button', { type: 'button', title: 'Move later', 'aria-label': 'Move ' + phase.label + ' later', disabled: node.index === phases.length - 1, onclick: function () { moveStep(workflowId, phaseId, 1); } }, icon('right', 14)),
+        el('button', { type: 'button', title: 'Remove from this workflow', 'aria-label': 'Remove ' + phase.label + ' from this workflow', onclick: function () { removeStep(workflowId, phaseId); } }, icon('trash', 14))));
+    card.style.cssText = 'left:' + node.x + 'px;top:' + layout.rowY + 'px;width:' + NODE_W + 'px;height:' + NODE_H + 'px';
+    return card;
+  }
+
+  function renderToolRail(workflowId, workflow, view) {
+    var selected = workflow.phases.indexOf(state.step) >= 0 ? state.step : null;
+    var existing = selected ? decisionAfterStep(workflow, selected) : null;
+    var signed = Boolean(selected && stepSettings(workflowId, selected).approval.group);
+    function tool(name, label, onClick, attrs) {
+      return el('button', Object.assign({ type: 'button', class: 'tool', title: label, 'aria-label': label, onclick: onClick }, attrs || {}), icon(name, 18));
+    }
+    return el('div', { class: 'tool-rail', role: 'toolbar', 'aria-label': 'Workflow tools', 'aria-orientation': 'vertical' },
+      tool('plus', selected ? 'Add a step after ' + stepLabel(selected) : 'Add a step', function () {
+        state.panel = 'add'; state.decision = null; if (state.adding) state.adding.after = selected; render();
+      }, { 'aria-pressed': state.panel === 'add' ? 'true' : 'false' }),
+      tool('diamond', !selected ? 'Select a step to decide what happens after it' : existing ? 'Open the decision after ' + stepLabel(selected) : 'Decide what happens after ' + stepLabel(selected), function () {
+        if (existing) { openDecision(existing); return; }
+        // After the last step the useful question is 'another round or finish?', which a person answers.
+        var decision = newDecision(workflow, selected, workflow.phases.indexOf(selected) === workflow.phases.length - 1 ? 'ask' : 'branch');
+        workflow.decisions = (workflow.decisions || []).concat([decision]);
+        state.decision = decision.id; state.panel = null; changed();
+      }, { disabled: !selected }),
+      tool('back', signed ? 'Send rejected work from ' + stepLabel(selected) + ' back to an earlier step' : 'Only a step with a sign-off can send work back', function () {
+        state.panel = null; state.decision = null; state.sections.signoff = true; state.focusKey = 'step-back'; render();
+      }, { disabled: !signed || workflow.phases.indexOf(selected) === 0 }),
+      tool('search', 'Find a step or agent', function () {
+        view.finding = !view.finding; if (view.finding) state.focusKey = 'canvas-find'; else view.find = ''; render();
+      }, { 'aria-pressed': view.finding ? 'true' : 'false' }),
+      tool('gear', 'Workflow settings: name, description and rules', function () { state.panel = 'workflow'; state.decision = null; render(); }, { 'aria-pressed': state.panel === 'workflow' ? 'true' : 'false' }));
+  }
+
+  function findBox(workflow, view, world) {
+    var count = el('span', { class: 'muted', role: 'status' });
+    function matches() {
+      return workflow.phases.filter(function (phaseId) { var phase = state.draft.phases[phaseId] || { label: phaseId }; return findMatches(view, phase, state.draft.agents[phase.agent]); });
+    }
+    // Typing marks the matching steps in place; re-rendering would move the caret.
+    function mark() {
+      var found = matches();
+      Array.prototype.forEach.call(world.querySelectorAll('.node'), function (node) { node.classList.toggle('match', found.indexOf(node.getAttribute('data-phase')) >= 0); });
+      count.textContent = String(view.find || '').trim() ? found.length + (found.length === 1 ? ' step' : ' steps') : '';
+    }
+    function close() { view.finding = false; view.find = ''; render(); }
+    var box = el('div', { class: 'find-box' }, icon('search', 14),
+      el('input', { type: 'text', 'data-key': 'canvas-find', value: view.find || '', placeholder: 'Find a step or agent', 'aria-label': 'Find a step or agent',
+        oninput: function (event) { view.find = event.target.value; mark(); },
+        onkeydown: function (event) {
+          if (event.key === 'Escape') { event.preventDefault(); close(); }
+          else if (event.key === 'Enter') { var found = matches(); if (found.length) { view.reveal = found[0]; selectStep(found[0]); } }
+        } }),
+      count,
+      el('button', { type: 'button', class: 'secondary', onclick: close }, 'Close'));
+    mark();
+    return box;
+  }
+
+  function legend() {
+    return el('div', { class: 'canvas-legend', 'aria-hidden': 'true' },
+      ['document', 'analysis', 'code', 'none'].map(function (output) { var look = OUTPUT_LOOK[output]; return el('span', { class: 'legend tone-' + look.tone }, el('span', { class: 'legend-dot' }), look.label); }),
+      el('span', { class: 'legend tone-purple' }, el('span', { class: 'legend-dot diamond-dot' }), 'Decision'),
+      el('span', { class: 'legend tone-orange' }, el('span', { class: 'legend-line' }), 'Send back'),
+      el('span', { class: 'legend hint-text', text: 'Drag the background to move · Ctrl or Cmd + wheel to zoom' }));
+  }
+
+  function renderCanvas(workflowId, workflow) {
+    var view = canvasView(workflowId);
+    var layout = canvasLayout(workflow);
+    var viewport = el('div', { class: 'canvas', role: 'region', 'aria-label': 'Steps of ' + workflow.label + '. Drag the background to move around; Ctrl or Cmd with the mouse wheel zooms.' });
+    var world = el('div', { class: 'canvas-world' });
+    world.style.cssText = 'width:' + layout.width + 'px;height:' + layout.height + 'px';
+    world.appendChild(renderEdges(layout));
+    layout.nodes.forEach(function (node) { world.appendChild(renderNode(workflowId, workflow, node, layout, view)); });
+    var finish = el('div', { class: 'finish', title: 'The Story is complete' }, icon('flag', 14), 'Finish');
+    finish.style.cssText = 'left:' + layout.finishX + 'px;top:' + (layout.rowY + NODE_H / 2 - 18) + 'px;width:' + FINISH_W + 'px;height:36px';
+    world.appendChild(finish);
+    layout.edges.forEach(function (edge) {
+      var shape = edgeGeometry(layout, edge);
+      if (edge.kind === 'next') {
+        if (!edge.decision) return;
+        var decision = decisionById(workflow, edge.decision);
+        var diamond = el('button', { type: 'button', class: 'diamond-node', title: decision.label, 'data-key': 'diamond-' + decision.id,
+          'aria-label': 'Decision after ' + stepLabel(decision.after) + ': ' + decision.label, 'aria-pressed': state.decision === decision.id ? 'true' : 'false',
+          onclick: function () { openDecision(decision); } });
+        diamond.style.cssText = 'left:' + shape.x + 'px;top:' + shape.y + 'px';
+        var caption = el('span', { class: 'diamond-caption', 'aria-hidden': 'true', text: decision.label });
+        caption.style.cssText = 'left:' + shape.x + 'px;top:' + (shape.y + 18) + 'px';
+        world.appendChild(diamond); world.appendChild(caption);
+        return;
+      }
+      var label = el('button', { type: 'button', class: 'edge-label tone-' + shape.tone, text: edge.label, title: edge.title || edge.label, onclick: function () {
+        if (edge.decision) { openDecision(decisionById(workflow, edge.decision)); return; }
+        state.sections.signoff = true; state.focusKey = 'step-back'; selectStep(edge.step);
+      } });
+      label.style.cssText = 'left:' + shape.x + 'px;top:' + shape.y + 'px';
+      world.appendChild(label);
+    });
+    viewport.appendChild(world);
+    viewport.appendChild(renderToolRail(workflowId, workflow, view));
+    var level = el('span', { class: 'zoom-level', text: Math.round(view.zoom * 100) + '%' });
+    function apply() {
+      world.style.transform = transformOf(view);
+      var grid = 22 * view.zoom;
+      while (grid < 12) grid *= 2;
+      grid = Math.round(grid * 10) / 10;
+      viewport.style.backgroundSize = grid + 'px ' + grid + 'px';
+      viewport.style.backgroundPosition = Math.round(view.panX) + 'px ' + Math.round(view.panY) + 'px';
+      level.textContent = Math.round(view.zoom * 100) + '%';
+    }
+    // However far it is moved, some of the workflow stays in sight.
+    function clampPan() {
+      var width = viewport.clientWidth || 800; var height = viewport.clientHeight || 400; var keep = 80;
+      view.panX = Math.min(width - keep, Math.max(keep - layout.width * view.zoom, view.panX));
+      view.panY = Math.min(height - keep, Math.max(keep - layout.height * view.zoom, view.panY));
+    }
+    function zoomAt(factor, cx, cy) {
+      var next = Math.min(2, Math.max(0.25, Math.round(view.zoom * factor * 100) / 100));
+      if (cx === undefined) { cx = (viewport.clientWidth || 800) / 2; cy = (viewport.clientHeight || 400) / 2; }
+      view.panX = cx - (cx - view.panX) * next / view.zoom; view.panY = cy - (cy - view.panY) * next / view.zoom;
+      view.zoom = next; clampPan(); apply();
+    }
+    // Fitting for reading keeps text legible and starts at the first step; fitting the whole shrinks it.
+    function fit(readable) {
+      var width = viewport.clientWidth; var height = viewport.clientHeight;
+      if (!width || !height) return;
+      var whole = Math.min(1, (width - 72) / layout.width, (height - 16) / layout.height);
+      view.zoom = Math.max(readable ? 0.75 : 0.25, Math.round(whole * 100) / 100);
+      view.panX = 56 + Math.max(0, (width - 72 - layout.width * view.zoom) / 2);
+      view.panY = Math.max(0, (height - layout.height * view.zoom) / 2);
+      apply();
+    }
+    function reveal(phaseId) {
+      var node = layout.nodes.find(function (entry) { return entry.id === phaseId; });
+      var width = viewport.clientWidth;
+      if (!node || !width) return;
+      var left = view.panX + node.x * view.zoom; var right = left + NODE_W * view.zoom;
+      if (left < 60) view.panX += 60 - left;
+      else if (right > width - 16) view.panX -= right - (width - 16);
+      apply();
+    }
+    viewport.appendChild(el('div', { class: 'zoom-controls', role: 'toolbar', 'aria-label': 'Zoom' },
+      el('button', { type: 'button', title: 'Zoom out', 'aria-label': 'Zoom out', onclick: function () { zoomAt(1 / 1.2); } }, icon('minus', 14)),
+      level,
+      el('button', { type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: function () { zoomAt(1.2); } }, icon('plus', 14)),
+      el('button', { type: 'button', title: 'Fit the whole workflow', 'aria-label': 'Fit the whole workflow', onclick: function () { fit(false); } }, icon('fit', 14))));
+    viewport.appendChild(legend());
+    if (view.finding) viewport.appendChild(findBox(workflow, view, world));
+    var pan = null;
+    viewport.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0 || event.target.closest('.node, .diamond-node, .edge-label, .zoom-controls, .tool-rail, .find-box')) return;
+      pan = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY, moved: false };
+      viewport.setPointerCapture(event.pointerId);
+      viewport.classList.add('panning');
+    });
+    viewport.addEventListener('pointermove', function (event) {
+      if (!pan) return;
+      if (Math.abs(event.clientX - pan.x) + Math.abs(event.clientY - pan.y) > 3) pan.moved = true;
+      view.panX = pan.panX + event.clientX - pan.x; view.panY = pan.panY + event.clientY - pan.y; clampPan(); apply();
+    });
+    function endPan(event) {
+      if (!pan) return;
+      var clicked = !pan.moved; pan = null; viewport.classList.remove('panning');
+      // A click on the empty canvas shows the workflow's own settings, as clicking off a selection does.
+      if (clicked && event.type === 'pointerup') { state.panel = 'workflow'; state.decision = null; render(); }
+    }
+    viewport.addEventListener('pointerup', endPan);
+    viewport.addEventListener('pointercancel', endPan);
+    viewport.addEventListener('wheel', function (event) {
+      if (event.target.closest('.find-box')) return;
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey) { var box = viewport.getBoundingClientRect(); zoomAt(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX - box.left, event.clientY - box.top); return; }
+      var dx = event.deltaX; var dy = event.deltaY;
+      // A row of steps is wider than it is tall, so a plain wheel moves along it.
+      if (event.shiftKey || (!dx && layout.height * view.zoom <= viewport.clientHeight)) { dx = dx || dy; dy = 0; }
+      view.panX -= dx; view.panY -= dy; clampPan(); apply();
+    }, { passive: false });
+    apply();
+    setTimeout(function () {
+      if (!viewport.isConnected) return;
+      if (!view.fitted) { view.fitted = true; fit(true); }
+      if (view.reveal) { reveal(view.reveal); view.reveal = null; }
+    }, 0);
+    return viewport;
+  }
+
+  /** A collapsible inspector section, with an optional switch in its header and a summary shown when closed. */
+  function section(key, title, body, control, summary, closed) {
+    var open = state.sections[key] === undefined ? !closed : state.sections[key];
+    return el('section', { class: 'prop-section' },
+      el('div', { class: 'section-head' },
+        el('button', { type: 'button', class: 'section-toggle', 'aria-expanded': open ? 'true' : 'false', 'data-key': 'section-' + key, onclick: function () { state.sections[key] = !open; render(); } },
+          el('span', { class: 'chevron', 'aria-hidden': 'true', text: open ? '▾' : '▸' }), title,
+          !open && summary ? el('span', { class: 'summary', text: '· ' + summary }) : null),
+        control || null),
+      open ? el('div', { class: 'prop-body' }, body) : null);
+  }
+  function switchControl(key, label, on, onChange) {
+    return el('label', { class: 'switch', title: label },
+      el('input', { type: 'checkbox', role: 'switch', 'data-key': key, checked: on, 'aria-checked': on ? 'true' : 'false', 'aria-label': label, onchange: function (event) { onChange(event.target.checked); } }),
+      el('span', { class: 'slider', 'aria-hidden': 'true' }));
+  }
+  function propTitle(tone, iconName, eyebrow, title) {
+    return el('div', { class: 'prop-title' }, el('span', { class: 'node-icon tone-' + tone }, icon(iconName, 18)),
+      el('div', null, el('div', { class: 'lane-label', text: eyebrow }), el('h2', { text: title })));
+  }
+
+  // The board fills the window without making the page scroll, because the canvas owns the wheel.
+  // The page shell's own header and footer vary, so the spare height is measured, not assumed.
+  function fitBoard() {
+    var board = document.querySelector('.board');
+    if (!board) return;
+    board.style.height = '';
+    if (window.innerWidth <= 900) return;
+    var spare = document.documentElement.scrollHeight - window.innerHeight;
+    board.style.height = Math.floor(Math.max(420, board.getBoundingClientRect().height - spare)) + 'px';
   }
 
   function renderBoard(main) {
@@ -959,158 +1469,209 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (!workflow) { state.view = 'home'; render(); return; }
     var phases = workflow.phases;
     if (phases.indexOf(state.step) < 0) state.step = phases[0];
-    main.appendChild(el('div', { class: 'studio-row spread' },
+    main.appendChild(el('div', { class: 'board-head' },
       el('div', { class: 'studio-row' },
-        button('Workflows', function () { state.view = 'home'; render(); }, { class: 'secondary', 'aria-label': 'Back to workflows' }),
-        el('label', { for: 'board-workflow', class: 'muted', text: 'Workflow' }),
-        select('board-workflow', Object.keys(state.draft.workflows).map(function (id) { return { value: id, label: state.draft.workflows[id].label }; }), workflowId, function (value) { state.workflow = value; state.step = state.draft.workflows[value].phases[0]; render(); }),
-        workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'New · not published' }) : null),
+        el('button', { type: 'button', class: 'crumb', onclick: function () { state.view = 'home'; render(); } }, 'Workflows'),
+        el('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '›' }),
+        select('board-workflow', Object.keys(state.draft.workflows).map(function (id) { return { value: id, label: state.draft.workflows[id].label }; }), workflowId, function (value) {
+          state.workflow = value; state.step = state.draft.workflows[value].phases[0]; state.decision = null; state.panel = null; render();
+        }, { 'aria-label': 'Workflow' }),
+        workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'New · not published' }) : null,
+        el('span', { class: 'muted', text: phases.length + (phases.length === 1 ? ' step' : ' steps') + (workflow.description ? ' · ' + workflow.description : '') })),
       button('Review changes (' + changesNow().length + ')', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
-    main.appendChild(el('div', { class: 'grid-2', style: 'max-width:820px' },
-      field('board-label', 'Workflow name', textInput('board-label', workflow.label, function (value) { if (value.trim()) { workflow.label = value.trim(); changed(); } })),
-      field('board-description', 'What it is for', textInput('board-description', workflow.description, function (value) { workflow.description = value.trim(); changed(); }))));
-    var board = el('div', { class: 'board' });
-    var left = el('div', { style: 'display:flex;flex-direction:column;gap:12px;min-width:0' });
-    left.appendChild(el('div', { class: 'lanes-legend' }, el('span', null, el('span', { class: 'swatch agent' }), 'Agent drafts'), el('span', null, el('span', { class: 'swatch people' }), 'People sign off'), el('span', null, el('span', { class: 'swatch decide' }), 'Decides what comes next'), el('span', { class: 'muted', text: 'Select a step to edit it. Drag a step, or use the arrows, to reorder.' })));
-    var lanes = el('div', { class: 'lanes', role: 'list', 'aria-label': 'Steps of ' + workflow.label });
-    phases.forEach(function (phaseId, index) {
-      var phase = state.draft.phases[phaseId] || { label: phaseId, output: 'document' };
-      var agent = state.draft.agents[phase.agent];
-      var settings = stepSettings(workflowId, phaseId);
-      var group = settings.approval.group ? state.draft.groups[settings.approval.group] : null;
-      var blockedGroup = settings.approval.group && groupBlocked(settings.approval.group);
-      var column = el('div', { class: 'column', role: 'listitem', draggable: 'true', 'aria-current': state.step === phaseId ? 'step' : null, 'data-phase': phaseId,
-        ondragstart: function (event) { event.dataTransfer.setData('text/plain', phaseId); column.classList.add('dragging'); },
-        ondragend: function () { column.classList.remove('dragging'); },
-        ondragover: function (event) { event.preventDefault(); column.classList.add('drop-target'); },
-        ondragleave: function () { column.classList.remove('drop-target'); },
-        ondrop: function (event) { event.preventDefault(); column.classList.remove('drop-target'); var moved = event.dataTransfer.getData('text/plain'); var from = phases.indexOf(moved); if (from >= 0 && from !== index) moveStep(workflowId, moved, index - from); } },
-        el('button', { type: 'button', class: 'agent-card', 'aria-pressed': state.step === phaseId ? 'true' : 'false', onclick: function () { state.step = phaseId; state.decision = null; render(); } },
-          el('span', { class: 'lane-label', text: 'STEP ' + (index + 1) }),
-          el('strong', { text: phase.label }),
-          el('span', { class: 'studio-row' }, el('span', { class: 'avatar large', 'aria-hidden': 'true', text: agent ? initials(agent.label) : '?' }),
-            el('span', null, el('div', { text: agent ? agent.label : 'Choose an agent' }), el('div', { class: 'muted', text: ({ document: 'Writes a document', analysis: 'Writes an analysis', code: 'Changes code', none: 'Sign-off only' })[stepOutput(workflowId, phaseId)] || '' }))),
-          phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null),
-        el('div', { class: 'connector', 'aria-hidden': 'true' }, el('span')),
-        el('button', { type: 'button', class: 'sign-card' + (blockedGroup ? ' blocked' : ''), onclick: function () { state.step = phaseId; state.decision = null; render(); } },
-          el('span', { class: 'lane-label', text: 'SIGN-OFF' }),
-          el('span', { text: group ? group.label : 'No sign-off' }),
-          el('span', { class: 'muted', text: !group ? 'Goes straight to the next step' : blockedGroup ? 'Nobody can approve yet'
-            : group.members.length ? settings.approval.minimum + ' of ' + group.members.length + ' must approve' : groupHint(group).replace(/^./, function (first) { return first.toUpperCase(); }) })),
-        decisionCard(workflow, phaseId),
-        el('div', { class: 'step-tools' },
-          decisionAfterStep(workflow, phaseId) ? null : button('Decide', function () {
-            // After the last step the useful question is 'another round or finish?', which a person answers.
-            var decision = newDecision(workflow, phaseId, index === phases.length - 1 ? 'ask' : 'branch');
-            workflow.decisions = (workflow.decisions || []).concat([decision]);
-            state.step = phaseId; state.decision = decision.id; changed();
-          }, { class: 'secondary', 'aria-label': 'Add a decision after ' + phase.label, title: 'Decide what happens after this step' }),
-          button('Earlier', function () { moveStep(workflowId, phaseId, -1); }, { class: 'secondary', 'aria-label': 'Move ' + phase.label + ' earlier', title: 'Move earlier', disabled: index === 0 }),
-          button('Later', function () { moveStep(workflowId, phaseId, 1); }, { class: 'secondary', 'aria-label': 'Move ' + phase.label + ' later', title: 'Move later', disabled: index === phases.length - 1 }),
-          button('Remove', function () { removeStep(workflowId, phaseId); }, { class: 'secondary', 'aria-label': 'Remove ' + phase.label + ' from this workflow', title: 'Remove from this workflow' })));
-      lanes.appendChild(column);
-    });
-    var library = Object.keys(state.draft.phases).filter(function (id) { return phases.indexOf(id) < 0; }).sort(function (a, b) { return state.draft.phases[a].label.localeCompare(state.draft.phases[b].label); });
-    var adding = state.adding || (state.adding = { phase: library[0] || '', label: '', output: 'document', agent: '' });
-    if (library.indexOf(adding.phase) < 0) adding.phase = library[0] || '';
-    lanes.appendChild(el('div', { class: 'add-column' },
-      el('span', { class: 'lane-label', text: 'ADD A STEP' }),
-      library.length ? field('add-existing', 'Existing step', select('add-existing', library.map(function (id) { var phase = state.draft.phases[id]; var agent = state.draft.agents[phase.agent]; return { value: id, label: phase.label + (agent ? ' · ' + agent.label : '') }; }), adding.phase, function (value) { adding.phase = value; })) : null,
-      library.length ? button('Add', function () { addExistingStep(workflowId, adding.phase); }, { class: 'secondary', 'aria-label': 'Add the chosen step' }) : null,
-      field('add-new-name', 'Or a new step', textInput('add-new-name', adding.label, function (value) { adding.label = value; }, { placeholder: 'Vendor analysis' })),
-      select('add-new-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), adding.output, function (value) { adding.output = value; }, { 'aria-label': 'What the new step produces' }),
-      select('add-new-agent', agentOptions(adding.agent), adding.agent, function (value) { if (value === '__new__') { openAgentForm({ returnTo: 'board-add' }); return; } adding.agent = value; }, { 'aria-label': 'Agent for the new step' }),
-      button('Create step', function () { if (!adding.agent) { setStatus('Choose the agent that drafts the new step.'); return; } createStep(workflowId, adding.label.trim(), adding.output, adding.agent); adding.label = ''; }, { class: 'secondary' })));
-    left.appendChild(lanes);
-    var loops = workflow.reworkLoops;
-    if (loops.length) {
-      left.appendChild(el('div', { class: 'callout' }, loops.map(function (loop) { return el('div', { text: 'If ' + (state.draft.phases[loop.from] || { label: loop.from }).label + ' is rejected it goes back to ' + (state.draft.phases[loop.to] || { label: loop.to }).label + ', at most ' + loop.maxAttempts + ' times.' }); })));
-    }
-    board.appendChild(left);
     var selectedDecision = state.decision ? decisionById(workflow, state.decision) : null;
     if (!selectedDecision) state.decision = null;
-    board.appendChild(selectedDecision ? renderDecisionInspector(workflowId, selectedDecision) : renderInspector(workflowId, state.step));
-    main.appendChild(board);
+    var inspector = state.panel === 'add' ? renderAddStep(workflowId, workflow)
+      : state.panel === 'workflow' ? renderWorkflowProperties(workflowId, workflow)
+        : selectedDecision ? renderDecisionInspector(workflowId, selectedDecision) : renderInspector(workflowId, state.step);
+    main.appendChild(el('div', { class: 'board' }, renderCanvas(workflowId, workflow), inspector));
+  }
+
+  function renderAddStep(workflowId, workflow) {
+    var phases = workflow.phases;
+    var library = Object.keys(state.draft.phases).filter(function (id) { return phases.indexOf(id) < 0; }).sort(function (a, b) { return state.draft.phases[a].label.localeCompare(state.draft.phases[b].label); });
+    var adding = state.adding || (state.adding = { phase: library[0] || '', label: '', output: 'document', agent: '', after: null });
+    if (library.indexOf(adding.phase) < 0) adding.phase = library[0] || '';
+    if (phases.indexOf(adding.after) < 0) adding.after = phases.indexOf(state.step) >= 0 ? state.step : phases[phases.length - 1];
+    var aside = el('aside', { class: 'inspector properties', 'aria-label': 'Add a step' });
+    aside.appendChild(propTitle('blue', 'plus', 'NEW STEP', 'Add a step'));
+    aside.appendChild(section('add-where', 'Where', field('add-after', 'After', select('add-after', phases.map(function (id) { return { value: id, label: stepLabel(id) }; }), adding.after, function (value) { adding.after = value; }))));
+    if (library.length) {
+      aside.appendChild(section('add-existing', 'From the step catalog', [
+        field('add-existing', 'Step', select('add-existing', library.map(function (id) { var phase = state.draft.phases[id]; var agent = state.draft.agents[phase.agent]; return { value: id, label: phase.label + (agent ? ' · ' + agent.label : '') }; }), adding.phase, function (value) { adding.phase = value; })),
+        el('div', { class: 'studio-row' }, button('Add this step', function () { var id = adding.phase; state.panel = null; addExistingStep(workflowId, id, adding.after); }, { class: 'primary' }))
+      ]));
+    }
+    aside.appendChild(section('add-new', 'A new step', [
+      field('add-new-name', 'Name', textInput('add-new-name', adding.label, function (value) { adding.label = value; }, { placeholder: 'Vendor analysis' })),
+      field('add-new-output', 'Produces', select('add-new-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), adding.output, function (value) { adding.output = value; })),
+      field('add-new-agent', 'Drafted by', select('add-new-agent', agentOptions(adding.agent), adding.agent, function (value) { if (value === '__new__') { openAgentForm({ returnTo: 'board-add' }); return; } adding.agent = value; })),
+      el('div', { class: 'studio-row' }, button('Create step', function () {
+        if (!adding.agent) { setStatus('Choose the agent that drafts the new step.'); return; }
+        if (createStep(workflowId, adding.label.trim(), adding.output, adding.agent, adding.after)) { adding.label = ''; state.panel = null; }
+      }, { class: 'primary' }))
+    ]));
+    aside.appendChild(el('div', { class: 'prop-actions' }, button('Cancel', function () { state.panel = null; render(); }, { class: 'secondary' })));
+    return aside;
+  }
+
+  function renderWorkflowProperties(workflowId, workflow) {
+    var aside = el('aside', { class: 'inspector properties', 'aria-label': 'Workflow settings' });
+    aside.appendChild(propTitle('blue', 'flow', 'WORKFLOW', workflow.label));
+    aside.appendChild(section('workflow', 'Workflow', [
+      field('board-label', 'Name', textInput('board-label', workflow.label, function (value) { if (value.trim()) { workflow.label = value.trim(); changed(); } })),
+      field('board-description', 'What it is for', textInput('board-description', workflow.description, function (value) { workflow.description = value.trim(); changed(); })),
+      el('span', { class: 'hint', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.isNew || workflow.installFrom ? ' · new, not published yet' : '') })
+    ]));
+    var loops = workflow.reworkLoops || [];
+    aside.appendChild(section('rules', 'Send-back rules', loops.length ? loops.map(function (loop) {
+      return el('button', { type: 'button', class: 'prop-link', onclick: function () { state.sections.signoff = true; selectStep(loop.from); } }, 'If ' + stepLabel(loop.from) + ' is rejected, back to ' + stepLabel(loop.to) + ', at most ' + loop.maxAttempts + (loop.maxAttempts === 1 ? ' time' : ' times'));
+    }) : el('span', { class: 'hint', text: 'None yet. Select a step people sign off and choose where rejected work goes back to.' }), null, String(loops.length)));
+    var decisions = workflow.decisions || [];
+    aside.appendChild(section('decisions', 'Decisions', decisions.length ? decisions.map(function (decision) {
+      return el('button', { type: 'button', class: 'prop-link', onclick: function () { openDecision(decision); } }, 'After ' + stepLabel(decision.after) + ': ' + decision.label);
+    }) : el('span', { class: 'hint', text: 'None yet. Select a step and use the diamond tool to decide what happens after it.' }), null, String(decisions.length)));
+    aside.appendChild(el('div', { class: 'prop-actions' }, button('Back to the step', function () { state.panel = null; render(); }, { class: 'secondary' })));
+    return aside;
   }
 
   function renderInspector(workflowId, phaseId) {
     var workflow = state.draft.workflows[workflowId];
     var phase = state.draft.phases[phaseId];
-    var aside = el('aside', { class: 'inspector', 'aria-label': 'Step settings' });
+    var aside = el('aside', { class: 'inspector properties', 'aria-label': 'Step properties' });
     if (!phase) { aside.appendChild(el('p', { class: 'muted', text: 'Select a step.' })); return aside; }
     var index = workflow.phases.indexOf(phaseId);
     var settings = stepSettings(workflowId, phaseId);
     var users = Object.keys(state.draft.workflows).filter(function (id) { return state.draft.workflows[id].phases.indexOf(phaseId) >= 0 && id !== workflowId; });
     var agent = state.draft.agents[phase.agent];
-    aside.appendChild(el('div', null, el('div', { class: 'lane-label', text: 'STEP ' + (index + 1) + ' OF ' + workflow.phases.length }), el('h2', { text: phase.label })));
-    aside.appendChild(field('step-name', 'Name', textInput('step-name', phase.label, function (value) { if (value.trim()) { phase.label = value.trim(); changed(); } }), users.length ? 'Renames it in ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' too.' : null));
-    aside.appendChild(field('step-agent', 'Drafted by', select('step-agent', agentOptions(phase.agent), phase.agent || '', function (value) {
-      if (value === '__new__') { openAgentForm({ returnTo: 'step', phase: phaseId }); return; }
-      phase.agent = value; changed();
-    }), agent ? agent.description : 'Every step needs exactly one agent.'));
-    if (users.length && !phase.isNew) {
-      aside.appendChild(el('div', { class: 'callout wait' },
-        el('div', { text: phase.label + ' is also used by ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + '. Its agent, name and output change there too.' }),
-        button('Use a copy in this workflow', function () { copyStepForWorkflow(workflowId, phaseId); }, { class: 'secondary', style: 'margin-top:6px' })));
-    }
+    var look = OUTPUT_LOOK[stepOutput(workflowId, phaseId)] || OUTPUT_LOOK.document;
+    aside.appendChild(propTitle(look.tone, look.icon, 'STEP ' + (index + 1) + ' OF ' + workflow.phases.length, phase.label));
+
     var ownOutput = settings.overridden && settings.output && settings.output !== phase.output && phase.output === phase.baseOutput;
-    aside.appendChild(field('step-output', 'Produces', select('step-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), stepOutput(workflowId, phaseId), function (value) { phase.output = value; changed(); }, { disabled: ownOutput }),
-      ownOutput ? 'This workflow sets what this step produces itself; change it in the Workflow Designer.'
-        : stepOutput(workflowId, phaseId) === 'code' ? 'A code step needs a requirements or implementation-spec step before it; the check below says so if one is missing.' : null));
+    aside.appendChild(section('step', 'Step', [
+      field('step-name', 'Name', textInput('step-name', phase.label, function (value) { if (value.trim()) { phase.label = value.trim(); changed(); } }), users.length ? 'Renames it in ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + ' too.' : null),
+      field('step-output', 'Produces', select('step-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), stepOutput(workflowId, phaseId), function (value) { phase.output = value; changed(); }, { disabled: ownOutput }),
+        ownOutput ? 'This workflow sets what this step produces itself; change it in the Workflow Designer.'
+          : stepOutput(workflowId, phaseId) === 'code' ? 'A code step needs a requirements or implementation-spec step before it; the check says so if one is missing.' : null),
+      users.length && !phase.isNew ? el('div', { class: 'callout wait' },
+        el('div', { text: phase.label + ' is also used by ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + '. Its agent, name and output change there too.' }),
+        button('Use a copy in this workflow', function () { copyStepForWorkflow(workflowId, phaseId); }, { class: 'secondary', style: 'margin-top:6px' })) : null
+    ], null, look.label));
+
+    aside.appendChild(section('agent', 'Drafting agent', [
+      el('div', { class: 'agent-row' }, el('span', { class: 'avatar large', 'aria-hidden': 'true', text: agent ? initials(agent.label) : '?' }),
+        el('div', null, el('strong', { text: agent ? agent.label : 'No agent yet' }), el('div', { class: 'muted', text: agent ? agent.description : 'Every step needs exactly one agent.' }))),
+      field('step-agent', 'Drafted by', select('step-agent', agentOptions(phase.agent), phase.agent || '', function (value) {
+        if (value === '__new__') { openAgentForm({ returnTo: 'step', phase: phaseId }); return; }
+        phase.agent = value; changed();
+      })),
+      agent && agent.tools.length ? el('div', { class: 'rail', 'aria-label': 'What ' + agent.label + ' may use' }, agent.tools.map(function (tool) { return el('span', { class: 'pill', text: toolLabel(tool) }); })) : null,
+      el('div', { class: 'studio-row' },
+        agent ? button('Edit agent', function () { editAgent(agent.id, { returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }) : null,
+        button('Create an agent', function () { openAgentForm({ returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }))
+    ], null, agent ? agent.label : 'none'));
+
+    var group = settings.approval.group ? state.draft.groups[settings.approval.group] : null;
     var earlier = workflow.phases.slice(0, Math.max(0, index));
-    aside.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'Reads from earlier steps' }),
-      earlier.length ? el('div', { class: 'checks' }, earlier.map(function (input) {
-        return el('label', null, el('input', { type: 'checkbox', 'data-key': 'reads-' + input, checked: settings.inputs.indexOf(input) >= 0, onchange: function (event) {
-          settings.inputs = event.target.checked ? settings.inputs.concat([input]) : settings.inputs.filter(function (id) { return id !== input; });
-          settings.inputs.sort(function (a, b) { return workflow.phases.indexOf(a) - workflow.phases.indexOf(b); }); changed();
-        } }), (state.draft.phases[input] || { label: input }).label);
-      })) : el('span', { class: 'hint', text: 'This is the first step; it reads the Story itself.' })));
-    aside.appendChild(el('div', { class: 'grid-2' },
-      field('step-group', 'Signed off by', select('step-group', groupOptions(), settings.approval.group || '', function (value) { settings.approval.group = value || null; if (!value) { workflow.reworkLoops = workflow.reworkLoops.filter(function (loop) { return loop.from !== phaseId; }); } changed(); })),
-      field('step-minimum', 'Approvals', select('step-minimum', [1, 2, 3, 4, 5].map(function (count) { return { value: String(count), label: String(count) }; }), String(settings.approval.minimum || 1), function (value) { settings.approval.minimum = Number(value); changed(); }, { disabled: !settings.approval.group }))));
-    if (settings.approval.group && groupBlocked(settings.approval.group)) {
-      aside.appendChild(el('div', { class: 'callout bad' }, 'Nobody is in this group, so this step could never be approved. ', button('Add people', function () { state.view = 'people'; render(); }, { class: 'secondary' })));
+    var signoff = [];
+    if (group) {
+      var minimum = settings.approval.minimum || 1;
+      var seats = Math.max(group.members.length, minimum);
+      signoff.push(el('div', { class: 'grid-2' },
+        field('step-group', 'Approval group', select('step-group', groupOptions().filter(function (option) { return option.value; }), settings.approval.group, function (value) { settings.approval.group = value; changed(); })),
+        field('step-minimum', 'Approvals needed', select('step-minimum', [1, 2, 3, 4, 5].map(function (count) { return { value: String(count), label: String(count) }; }), String(minimum), function (value) { settings.approval.minimum = Number(value); changed(); }))));
+      signoff.push(el('div', { class: 'meter', 'aria-hidden': 'true' }, Array.from({ length: Math.min(seats, 8) }, function (unused, at) { return el('span', { class: at < minimum ? 'on' : '' }); })));
+      signoff.push(el('span', { class: 'hint', text: group.members.length ? minimum + ' of ' + group.members.length + ' must approve' : 'Needs ' + minimum + ' · ' + groupHint(group) }));
+      if (group.members.length) {
+        signoff.push(el('div', { class: 'rail' }, group.members.slice(0, 8).map(function (member) {
+          var name = member.name || member.email || member.githubLogin;
+          return el('span', { class: 'member' }, el('span', { class: 'avatar', 'aria-hidden': 'true', text: initials(name) }), name);
+        }), group.members.length > 8 ? el('span', { class: 'muted', text: '+' + (group.members.length - 8) }) : null));
+      }
+      if (groupBlocked(settings.approval.group)) signoff.push(el('div', { class: 'callout bad' }, 'Nobody is in this group, so this step could never be approved.'));
+      signoff.push(el('div', { class: 'studio-row' }, button('Manage people', function () { state.view = 'people'; render(); }, { class: 'secondary' })));
+      var loop = workflow.reworkLoops.find(function (entry) { return entry.from === phaseId; });
+      var loopCount = workflow.reworkLoops.filter(function (entry) { return entry.from === phaseId; }).length;
+      signoff.push(field('step-back', 'If rejected, send back to', select('step-back', [{ value: '', label: 'This step (redo it)' }].concat(earlier.map(function (id) { return { value: id, label: stepLabel(id) }; })), loop ? loop.to : '', function (value) {
+        workflow.reworkLoops = workflow.reworkLoops.filter(function (entry) { return entry.from !== phaseId; });
+        if (value) {
+          var kept = { from: phaseId, to: value, maxAttempts: loop ? loop.maxAttempts : 3 };
+          if (loop && loop.resetOnPhase && workflow.phases.indexOf(loop.resetOnPhase) < workflow.phases.indexOf(value)) kept.resetOnPhase = loop.resetOnPhase;
+          workflow.reworkLoops.push(kept);
+        }
+        changed();
+      }, { disabled: !earlier.length || loopCount > 1 }), loopCount > 1 ? 'This step has ' + loopCount + ' send-back rules; change them in the Workflow Designer.'
+        : !earlier.length ? 'The first step has no earlier step to send work back to.'
+          : 'Sending work back repeats the steps in between, at most ' + (loop ? loop.maxAttempts : 3) + ' times' + (loop && loop.resetOnPhase ? ', counted again after ' + stepLabel(loop.resetOnPhase) + ' runs again' : '') + '.'));
+    } else {
+      signoff.push(el('span', { class: 'hint', text: 'No sign-off: when the agent submits, the Story goes straight on. Turn it on to have people approve this step.' }));
     }
-    var loop = workflow.reworkLoops.find(function (entry) { return entry.from === phaseId; });
-    var loopCount = workflow.reworkLoops.filter(function (entry) { return entry.from === phaseId; }).length;
-    aside.appendChild(field('step-back', 'If rejected, send back to', select('step-back', [{ value: '', label: 'This step (redo it)' }].concat(earlier.map(function (id) { return { value: id, label: (state.draft.phases[id] || { label: id }).label }; })), loop ? loop.to : '', function (value) {
-      workflow.reworkLoops = workflow.reworkLoops.filter(function (entry) { return entry.from !== phaseId; });
-      if (value) {
-        var kept = { from: phaseId, to: value, maxAttempts: loop ? loop.maxAttempts : 3 };
-        if (loop && loop.resetOnPhase && workflow.phases.indexOf(loop.resetOnPhase) < workflow.phases.indexOf(value)) kept.resetOnPhase = loop.resetOnPhase;
-        workflow.reworkLoops.push(kept);
+    aside.appendChild(section('signoff', 'Sign-off', signoff, switchControl('step-signoff', 'People sign off this step', Boolean(group), function (on) {
+      if (on) {
+        var first = Object.keys(state.draft.groups)[0];
+        if (!first) { setStatus('Create an approval group in People & approvals first.'); render(); return; }
+        settings.approval.group = first;
+      } else {
+        settings.approval.group = null;
+        workflow.reworkLoops = workflow.reworkLoops.filter(function (entry) { return entry.from !== phaseId; });
       }
       changed();
-    }, { disabled: !settings.approval.group || !earlier.length || loopCount > 1 }), loopCount > 1 ? 'This step has ' + loopCount + ' send-back rules; change them in the Workflow Designer.'
-      : !settings.approval.group ? 'Only a step with a sign-off can send work back.'
-        : 'Sending work back repeats the steps in between, at most ' + (loop ? loop.maxAttempts : 3) + ' times' + (loop && loop.resetOnPhase ? ', counted again after ' + stepLabel(loop.resetOnPhase) + ' runs again' : '') + '.'));
-    var after = decisionAfterStep(workflow, phaseId);
-    aside.appendChild(field('step-decision', 'After this step', after
-      ? button(after.label + ' →', function () { state.decision = after.id; render(); }, { class: 'secondary', id: 'step-decision', 'aria-label': 'Open the decision ' + after.label })
-      : select('step-decision', [{ value: '', label: 'Go to the next step' }].concat(DECISION_KINDS), '', function (value) {
-        if (!value) return;
-        var created = newDecision(workflow, phaseId, value);
-        workflow.decisions = (workflow.decisions || []).concat([created]);
-        state.decision = created.id; changed();
-      }), after ? 'A decision chooses what happens after ' + phase.label + '.' : 'Add a decision to branch, loop until a goal, or let a person choose.'));
-    var more = el('details', null, el('summary', { text: 'More settings' }));
-    var views = (state.model.choices.views || []);
+    }), group ? group.label + ', ' + (settings.approval.minimum || 1) : 'off'));
+
+    aside.appendChild(section('reads', 'Reads from earlier steps', earlier.length ? el('div', { class: 'checks' }, earlier.map(function (input) {
+      return el('label', null, el('input', { type: 'checkbox', 'data-key': 'reads-' + input, checked: settings.inputs.indexOf(input) >= 0, onchange: function (event) {
+        settings.inputs = event.target.checked ? settings.inputs.concat([input]) : settings.inputs.filter(function (id) { return id !== input; });
+        settings.inputs.sort(function (a, b) { return workflow.phases.indexOf(a) - workflow.phases.indexOf(b); }); changed();
+      } }), stepLabel(input));
+    })) : el('span', { class: 'hint', text: 'This is the first step; it reads the Story itself.' }), null, earlier.length ? settings.inputs.length + ' of ' + earlier.length : 'the Story', true));
+
+    var views = state.model.choices.views || [];
     if (views.length) {
-      more.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:8px 0 0;padding:0' }, el('legend', { class: 'label', text: 'Knowledge it can use' }),
-        el('div', { class: 'grid-2' }, views.map(function (view) {
-          return el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' }, el('input', { type: 'checkbox', 'data-key': 'view-' + view, checked: phase.views.indexOf(view) >= 0, onchange: function (event) {
-            phase.views = event.target.checked ? phase.views.concat([view]) : phase.views.filter(function (entry) { return entry !== view; }); changed();
-          } }), view);
-        }))));
+      aside.appendChild(section('views', 'Knowledge views', el('div', { class: 'checks' }, views.map(function (view) {
+        return el('label', null, el('input', { type: 'checkbox', 'data-key': 'view-' + view, checked: phase.views.indexOf(view) >= 0, onchange: function (event) {
+          phase.views = event.target.checked ? phase.views.concat([view]) : phase.views.filter(function (entry) { return entry !== view; }); changed();
+        } }), view);
+      })), null, phase.views.length ? phase.views.length + ' chosen' : 'none', true));
     }
-    more.appendChild(field('step-questions', 'Ask clarifying questions', select('step-questions', (state.model.choices.clarification || []).map(function (mode) { return { value: mode.id, label: mode.label }; }), phase.clarification, function (value) { phase.clarification = value; changed(); })));
-    aside.appendChild(more);
+
+    var modes = (state.model.choices.clarification || []).filter(function (mode) { return mode.id !== 'off'; });
+    var asking = Boolean(phase.clarification && phase.clarification !== 'off');
+    var mode = modes.find(function (entry) { return entry.id === phase.clarification; });
+    aside.appendChild(section('questions', 'Clarifying questions', asking
+      ? field('step-questions', 'When', select('step-questions', modes.map(function (entry) { return { value: entry.id, label: entry.label }; }), phase.clarification, function (value) { phase.clarification = value; changed(); }))
+      : el('span', { class: 'hint', text: 'The agent drafts without asking first.' }),
+    switchControl('step-asks', 'The agent asks clarifying questions', asking, function (on) {
+      phase.clarification = on ? ((modes.find(function (entry) { return entry.id === 'when-needed'; }) || modes[0] || { id: 'off' }).id) : 'off'; changed();
+    }), asking ? (mode ? mode.label : phase.clarification) : 'off', true));
+
+    var after = decisionAfterStep(workflow, phaseId);
+    aside.appendChild(section('after', 'After this step', after ? [
+      el('div', { class: 'callout' }, decisionLines(workflow, after).map(function (line) { return el('div', { text: line }); })),
+      el('div', { class: 'studio-row' }, button('Open ' + after.label, function () { openDecision(after); }, { class: 'secondary', 'data-key': 'step-decision', 'aria-label': 'Open the decision ' + after.label }))
+    ] : field('step-decision', 'Then', select('step-decision', [{ value: '', label: 'Go to the next step' }].concat(DECISION_KINDS), '', function (value) {
+      if (!value) return;
+      var created = newDecision(workflow, phaseId, value);
+      workflow.decisions = (workflow.decisions || []).concat([created]);
+      state.decision = created.id; changed();
+    }), 'Add a decision to branch, loop until a goal, or let a person choose.'), null, after ? after.label : 'next step'));
+
+    aside.appendChild(el('div', { class: 'prop-actions' },
+      button('Move earlier', function () { moveStep(workflowId, phaseId, -1); }, { class: 'secondary', disabled: index === 0 }),
+      button('Move later', function () { moveStep(workflowId, phaseId, 1); }, { class: 'secondary', disabled: index === workflow.phases.length - 1 }),
+      button('Remove from workflow', function () { removeStep(workflowId, phaseId); }, { class: 'secondary' })));
     return aside;
   }
 
   function openAgentForm(context) {
     var role = (state.model.choices.roles || [])[0];
     state.agentForm = { mode: 'create', role: role ? role.id : 'blank', label: '', description: '', tools: role ? role.tools.slice() : ['read', 'search', 'edit'], views: role ? role.views.slice() : [], instructions: role ? role.instructions : '', defaults: context && context.phase ? [context.phase] : [], context: context || null };
+    state.view = 'agents';
+    render();
+  }
+
+  function editAgent(id, context) {
+    var agent = state.draft.agents[id];
+    state.agentForm = { mode: 'edit', id: id, role: null, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions, defaults: [], context: context || null };
     state.view = 'agents';
     render();
   }
@@ -1131,7 +1692,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('div', { class: 'rail' }, agent.tools.map(function (tool) { return el('span', { class: 'pill', text: toolLabel(tool) }); })),
         agentResources(id).length ? el('span', { style: 'font-size:12px', text: 'Skills and sources: ' + agentResources(id).map(function (resource) { return resource.id; }).join(', ') }) : null,
         button('Add a skill', function () { var lib = library(); lib.as = 'skill'; lib.pendingAgent = id; lib.preview = null; lib.target = null; state.view = 'library'; render(); }, { class: 'secondary', 'aria-label': 'Add a skill to ' + agent.label }),
-        button('Edit', function () { state.agentForm = { mode: 'edit', id: id, role: null, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions, defaults: [], context: null }; render(); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label })));
+        button('Edit', function () { editAgent(id, null); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label })));
     });
     main.appendChild(grid);
   }
@@ -1195,7 +1756,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     } else {
       var agent = state.draft.agents[form.id];
       agent.label = label; agent.description = description; agent.tools = form.tools.slice(); agent.views = form.views.slice(); agent.instructions = form.instructions;
+      var editContext = form.context;
       state.agentForm = null;
+      if (editContext) state.view = 'board';
     }
     changed();
   }
@@ -1645,13 +2208,15 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function render() {
     var root = document.getElementById('studio-root');
     if (!root) return;
-    var active = document.activeElement && document.activeElement.getAttribute ? document.activeElement.getAttribute('data-key') : null;
+    // A control can ask for focus after the render it causes (the next step on the canvas, a field it opens).
+    var active = state.focusKey || (document.activeElement && document.activeElement.getAttribute ? document.activeElement.getAttribute('data-key') : null);
+    state.focusKey = null;
     root.textContent = '';
     if (state.error && !state.model) { root.appendChild(el('div', { class: 'studio-main' }, el('h1', { text: 'Workflow Studio could not load' }), el('p', { class: 'callout bad', text: state.error }), button('Try again', function () { state.error = null; post({ type: 'studio.reload' }); }))); return; }
     if (!state.model) { root.appendChild(el('div', { class: 'studio-main' }, el('p', { text: 'Loading workflows, steps and agents…' }))); return; }
-    var frame = el('div', { class: 'studio' });
+    var frame = el('div', { class: 'studio' + (state.view === 'board' ? ' compact' : '') });
     renderNav(frame);
-    var main = el('main', { class: 'studio-main' });
+    var main = el('main', { class: 'studio-main' + (state.view === 'board' ? ' board-main' : '') });
     (state.model.problems || []).forEach(function (problem) { main.appendChild(el('div', { class: 'callout bad', text: 'The current configuration has a problem: ' + problem.message })); });
     if (state.view === 'board') renderBoard(main);
     else if (state.view === 'new') renderWizard(main);
@@ -1663,6 +2228,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     main.appendChild(el('div', { id: 'studio-status', class: 'studio-status', role: 'status', 'aria-live': 'polite', text: state.status }));
     frame.appendChild(main);
     root.appendChild(frame);
+    if (state.view === 'board') fitBoard();
     if (active) { var again = root.querySelector('[data-key="' + active.replace(/"/g, '') + '"]'); if (again) again.focus(); }
   }
 
@@ -1705,6 +2271,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   });
 
   if (document.getElementById('studio-root')) {
+    window.addEventListener('resize', function () { if (state.view === 'board') fitBoard(); });
     document.addEventListener('pointerdown', function () { pointerDown = true; }, true);
     window.addEventListener('click', function () { setTimeout(flushRender, 0); });
     document.addEventListener('pointerup', function () { setTimeout(function () { if (pointerDown) flushRender(); }, 120); }, true);

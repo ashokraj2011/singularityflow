@@ -20,7 +20,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 2
+version: 3
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -42,7 +42,7 @@ Use a decision when not every Story needs every phase, when a phase should repea
 
 ### Configure a decision
 
-In VS Code, open **Workflow Studio**, select a workflow and choose **Add a decision** after a step. From configuration, add `decisions` to the work type:
+In VS Code, open **Workflow Studio**, open a workflow, select a step and use the diamond tool on the canvas (or choose a kind under **After this step** in its properties). From configuration, add `decisions` to the work type:
 
 ```yaml
 workTypes:

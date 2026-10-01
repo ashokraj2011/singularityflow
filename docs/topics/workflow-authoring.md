@@ -24,7 +24,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 35
+version: 36
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -34,18 +34,32 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 
 ## Workflow Studio
 
-Workflow Studio is one screen for the whole lifecycle setup. A workflow is drawn as a board: each
-step shows the agent that drafts it and the approval group that signs it off. Everything is chosen
-from lists — the agent, what the step produces (a document, an analysis, code changes, or nothing),
-which earlier steps it reads, the approval group and how many approvals it needs, and which earlier
-step rejected work goes back to. Steps are added from the repository's step catalog or created new,
-and reordered by dragging or with the arrow buttons. A new workflow starts from one of the
-repository's workflows, from a packaged blueprint that is not installed yet, or blank.
+Workflow Studio is one screen for the whole lifecycle setup. A workflow is drawn as a canvas of
+connected steps, left to right in the order a Story goes through them. Each step shows what it
+produces (a document, an analysis, code changes, or nothing), the agent that drafts it and how many
+approvals its sign-off needs; arrows show the order, and a send-back rule is drawn below the row,
+from the step that sends rejected work back to the step it returns to. Drag the background to move
+around; zoom with Ctrl or Cmd and the mouse wheel or with the zoom buttons, and **Fit** shows the
+whole workflow.
 
-A **Decide** button adds a decision after a step, drawn under it as "Then decide": an if / else
-whose rules read values the step records and choose the next step, a loop that goes back until a
-goal is met, or a question a person answers. Its targets name the steps a route would skip; the
-engine refuses a route that skips a step a later one reads. See `sflow explain workflow-decisions`.
+Selecting a step opens its properties on the right, in sections: the step (name, what it produces),
+the drafting agent (**Edit agent**, **Create an agent**), sign-off (a switch, the approval group,
+how many approvals it needs, and which earlier step rejected work goes back to), what it reads from
+earlier steps, knowledge views, clarifying questions, and what happens after it. Everything is
+chosen from lists. The tool rail on the canvas adds a step after the selected one (from the
+repository's step catalog or new), adds a decision, jumps to the step's send-back rule, finds a step
+or agent, and opens the workflow's own settings: its name and description, and every send-back rule
+and decision it has. Clicking the empty canvas opens them too. Steps are reordered by dropping one on
+another, with the arrows above a step, or with **Move earlier** and **Move later**. A new workflow
+starts from one of the repository's workflows, from a packaged blueprint that is not installed yet,
+or blank.
+
+The diamond tool adds a decision after the selected step, drawn as a diamond on the arrow after it:
+an if / else whose rules read values the step records and choose the next step, a loop that goes
+back until a goal is met, or a question a person answers. A route that skips ahead is drawn above
+the row and one that goes back below it, each with its label; select the diamond or a label to edit
+the decision. Its targets name the steps a route would skip; the engine refuses a route that skips a
+step a later one reads. See `sflow explain workflow-decisions`.
 
 Agents are created from a role (analyst, product owner, architect, developer, tester, designer,
 reviewer, or blank): name, one-sentence description, tools, knowledge views and instructions. The

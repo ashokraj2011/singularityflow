@@ -270,3 +270,44 @@ test('a step change for a workflow that does not exist is refused instead of cre
   assert.equal(plan.valid, false);
   assert.equal(plan.problems[0].code, 'STUDIO_WORKFLOW_UNKNOWN');
 });
+
+test('the canvas lays steps out in order and draws send-back rules and decision routes around them', () => {
+  const { logic } = studioLogic();
+  const workflow = {
+    phases: ['intake', 'design', 'build', 'review'],
+    reworkLoops: [{ from: 'build', to: 'intake', maxAttempts: 2 }],
+    decisions: [
+      { id: 'risk', after: 'design', kind: 'branch', label: 'How risky?', inputs: [{ name: 'risk', label: 'Risk', values: ['high', 'low'] }],
+        routes: [{ id: 'rule-1', label: 'Risk is low', when: { risk: 'low' }, to: 'review' }, { id: 'otherwise', label: 'Otherwise', to: 'next' }] },
+      { id: 'again', after: 'review', kind: 'loop', label: 'Repeat until done', inputs: [{ name: 'done', label: 'Done', values: ['yes', 'no'] }],
+        goal: { done: 'yes' }, back: 'build', maxRounds: 3 }
+    ]
+  };
+  const layout = logic.canvasLayout(workflow);
+  assert.deepEqual(layout.nodes.map((node) => node.id), workflow.phases, 'steps keep the workflow order');
+  const xs = layout.nodes.map((node) => node.x);
+  assert.ok(xs.every((x, index) => index === 0 || x > xs[index - 1]), 'left to right');
+  assert.ok(xs[2] - xs[1] > xs[1] - xs[0], 'a step followed by a decision leaves room for its diamond');
+  assert.ok(layout.finishX > xs[3], 'the Story finishes after the last step');
+
+  const next = layout.edges.filter((edge) => edge.kind === 'next');
+  assert.deepEqual(next.map((edge) => [edge.from, edge.to]), [[0, 1], [1, 2], [2, 3], [3, 4]], 'each step leads to the next, the last to Finish');
+  assert.equal(next[1].decision, 'risk', 'the diamond sits on the arrow after its step');
+  assert.equal(next[3].decision, 'again');
+
+  const skip = layout.edges.find((edge) => edge.kind === 'decision-skip');
+  assert.deepEqual([skip.from, skip.to, skip.depth, skip.label], [1, 3, 1, 'Risk is low'], 'a route that skips ahead runs above the row');
+  assert.ok(!layout.edges.some((edge) => edge.label === 'Otherwise'), 'a route to the next step follows the arrow already drawn');
+
+  const below = layout.edges.filter((edge) => edge.kind === 'send-back' || edge.kind === 'decision-back');
+  assert.deepEqual(below.map((edge) => [edge.kind, edge.from, edge.to, edge.depth]), [['send-back', 2, 0, 1], ['decision-back', 3, 2, 2]],
+    'send-back rules and routes that go back run below, one lane each');
+  assert.equal(below[0].label, 'If rejected, back to intake');
+  assert.equal(below[1].label, 'Until Done is yes');
+  assert.ok(layout.rowY > 40, 'the row moves down to make room for routes above it');
+  assert.ok(layout.height > layout.rowY + 112 + 2 * 26, 'and the canvas grows for the lanes below it');
+
+  const plain = logic.canvasLayout({ phases: ['intake'], reworkLoops: [], decisions: [] });
+  assert.equal(plain.rowY, 40, 'with nothing above, the row starts at the padding');
+  assert.deepEqual(plain.edges.map((edge) => edge.kind), ['next']);
+});
